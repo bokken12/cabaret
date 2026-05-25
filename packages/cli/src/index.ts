@@ -1,13 +1,46 @@
 #!/usr/bin/env node
+import { LocalGitBackend } from '@cabaret/backend';
+import { runStatus } from './status.js';
 
-/**
- * cabaret CLI entry point.
- *
- * This is a stub. See docs/roadmap.md for the milestones; `cabaret status`
- * lands in milestone 1.
- */
-function main(): void {
-  process.stdout.write('cabaret (not yet implemented — see docs/roadmap.md)\n');
+async function main(): Promise<void> {
+  const [, , command, ...rest] = process.argv;
+  switch (command) {
+    case 'status':
+      await runStatus(makeBackend(), rest);
+      return;
+    case undefined:
+    case '-h':
+    case '--help':
+      printHelp();
+      return;
+    default:
+      process.stderr.write(`cabaret: unknown command "${command}"\n\n`);
+      printHelp();
+      process.exit(2);
+  }
 }
 
-main();
+function makeBackend(): LocalGitBackend {
+  return new LocalGitBackend({ cwd: process.cwd() });
+}
+
+function printHelp(): void {
+  process.stdout.write(
+    [
+      'cabaret — diff-based code review for GitHub PRs',
+      '',
+      'Usage:',
+      '  cabaret status <PR>     classify each changed file vs your brain',
+      '',
+      'Run from inside a git repository whose `origin` points to GitHub.',
+      'Requires the `gh` CLI to be installed and authenticated.',
+      '',
+    ].join('\n'),
+  );
+}
+
+main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`cabaret: ${message}\n`);
+  process.exit(1);
+});

@@ -17,7 +17,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@cabaret/core": "workspace:*"
+    "@cabaret/core": "workspace:*",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "^4.1.7"
