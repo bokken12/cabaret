@@ -1,15 +1,10 @@
-import type {
-  BlobSha,
-  BrainEntry,
-  CommitSha,
-  Path,
-  PrNumber,
-  UserId,
-} from '@cabaret/core';
+import type { BrainEntry, CommitSha, FileState, PrNumber, UserId } from '@cabaret/core';
 
 /**
  * Metadata about a PR — what the forge tells us, plus the resolved commits
- * needed to compute diffs.
+ * needed to compute diffs. `baseCommit` is the *merge-base* of the PR head
+ * and the base branch, not just the tip of the base branch — this matches
+ * what GitHub shows in its "Files changed" view.
  */
 export type PrInfo = {
   readonly number: PrNumber;
@@ -19,16 +14,6 @@ export type PrInfo = {
   readonly baseCommit: CommitSha;
   readonly tipCommit: CommitSha;
   readonly url: string;
-};
-
-/**
- * A single file changed by a PR. `baseBlob` is null for files added by the
- * PR (i.e. absent from the base tree).
- */
-export type ChangedFile = {
-  readonly path: Path;
-  readonly baseBlob: BlobSha | null;
-  readonly tipBlob: BlobSha;
 };
 
 /**
@@ -52,8 +37,12 @@ export interface Backend {
   /** Forge: read metadata about a PR. */
   getPrInfo(pr: PrNumber): Promise<PrInfo>;
 
-  /** Forge + git: list files changed between PR base and tip, with blob SHAs. */
-  getChangedFiles(pr: PrNumber): Promise<readonly ChangedFile[]>;
+  /**
+   * Git: enumerate files added or modified between the PR's base and tip
+   * trees, with blob SHAs. Deletes and renames are skipped in milestone 1
+   * (TODO).
+   */
+  getChangedFiles(pr: PrNumber): Promise<readonly FileState[]>;
 
   /**
    * Read a reviewer's brain for a PR. Returns an empty list if no brain
