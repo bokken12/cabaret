@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
+import { spawn } from 'node:child_process';
 
 export type ExecResult = {
   readonly stdout: string;
@@ -24,36 +21,72 @@ export class ExecError extends Error {
   }
 }
 
+/** Cap on combined stdout+stderr bytes; runaway git commands get killed. */
+const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
+
 /**
  * Spawn a process and capture stdout/stderr. Rejects on non-zero exit with
  * an `ExecError` that includes the full command and both streams.
  *
  * `cwd` defaults to the current working directory. `input` is written to
- * the child's stdin if provided (for git plumbing that reads object data).
+ * the child's stdin (and stdin then closed) when provided — used for git
+ * plumbing like `hash-object --stdin` and `mktree`.
+ *
+ * Uses `spawn` rather than `execFile` because `execFile`'s `input` option
+ * only exists on the sync variant; passing it to the async form silently
+ * does nothing and the child hangs waiting on stdin.
  */
 export async function exec(
   cmd: string,
   args: readonly string[],
   options: { cwd?: string; input?: string } = {},
 ): Promise<ExecResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync(cmd, args as string[], {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args as string[], {
       cwd: options.cwd,
-      // 50 MB is well above any single file or tree dump we'd issue.
-      maxBuffer: 50 * 1024 * 1024,
-      ...(options.input !== undefined ? { input: options.input } : {}),
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return { stdout, stderr };
-  } catch (err) {
-    if (err instanceof Error && 'code' in err) {
-      const e = err as Error & { code?: number | null; stdout?: string; stderr?: string };
-      throw new ExecError(
-        [cmd, ...args],
-        e.code ?? null,
-        e.stdout ?? '',
-        e.stderr ?? '',
-      );
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let combinedBytes = 0;
+    let overflowed = false;
+    const collect = (sink: Buffer[]) => (c: Buffer) => {
+      if (overflowed) return;
+      combinedBytes += c.length;
+      if (combinedBytes > MAX_OUTPUT_BYTES) {
+        overflowed = true;
+        child.kill();
+        return;
+      }
+      sink.push(c);
+    };
+    child.stdout.on('data', collect(stdoutChunks));
+    child.stderr.on('data', collect(stderrChunks));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf-8');
+      if (overflowed) {
+        reject(
+          new ExecError(
+            [cmd, ...args],
+            code,
+            stdout,
+            `${stderr}\noutput exceeded ${String(MAX_OUTPUT_BYTES)} bytes`,
+          ),
+        );
+        return;
+      }
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new ExecError([cmd, ...args], code, stdout, stderr));
+      }
+    });
+    if (options.input !== undefined) {
+      child.stdin.end(options.input);
+    } else {
+      child.stdin.end();
     }
-    throw err;
-  }
+  });
 }

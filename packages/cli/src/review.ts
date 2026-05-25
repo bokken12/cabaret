@@ -1,4 +1,11 @@
-import { type Brain, type FileState, markReviewed, Path, type PrNumber } from '@cabaret/core';
+import {
+  type Brain,
+  type FileState,
+  markReviewed,
+  Path,
+  type PrNumber,
+  Timestamp,
+} from '@cabaret/core';
 import type { Backend, PrInfo } from '@cabaret/backend';
 import { parsePrArg } from './args.js';
 
@@ -43,7 +50,7 @@ async function applyReview(backend: Backend, pr: PrNumber, only: Path | null): P
     pr,
     entries: new Map(brainEntries.map((e) => [e.path, e])),
   };
-  const result = markReviewed(brain, files);
+  const result = markReviewed(brain, files, Timestamp(Date.now()));
   if (result.advanced.length > 0) {
     await backend.writeBrain(user, pr, [...result.brain.entries.values()]);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BlobSha, CommitSha, type FileStatus, Path, PrNumber } from '@cabaret/core';
+import { BlobSha, CommitSha, type FileStatus, Path, PrNumber, Timestamp } from '@cabaret/core';
 import type { PrInfo } from '@cabaret/backend';
 import { renderStatus } from '../status.js';
 
@@ -18,6 +18,7 @@ const previousReviewed = {
   baseBlob: BlobSha('b1'),
   tipBlob: BlobSha('t1'),
   markKind: 'user' as const,
+  lastModifiedAt: Timestamp(1_700_000_000_000),
 };
 
 describe('renderStatus', () => {

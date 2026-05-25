@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BlobSha,
   type BrainEntry,
@@ -6,10 +6,13 @@ import {
   type FileState,
   Path,
   PrNumber,
+  Timestamp,
   UserId,
 } from '@cabaret/core';
 import type { Backend, PrInfo } from '@cabaret/backend';
 import { renderReview, runReview, runReviewFile } from '../review.js';
+
+const NOW = Timestamp(1_700_000_000_000);
 
 const info: PrInfo = {
   number: PrNumber(42),
@@ -31,7 +34,7 @@ class FakeBackend implements Backend {
     this.brain = [...initialBrain];
   }
   currentUser(): Promise<UserId> {
-    return Promise.resolve(UserId('joel@example.com'));
+    return Promise.resolve(UserId('alice@example.com'));
   }
   getPrInfo(): Promise<PrInfo> {
     return Promise.resolve(info);
@@ -65,6 +68,18 @@ function captureStdout(): { read: () => string } {
   });
   return { read: () => chunks.join('') };
 }
+
+beforeEach(() => {
+  // `markReviewed` reads the clock via Date.now in the CLI path; pin it so
+  // assertions against `lastModifiedAt` are deterministic.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(NOW));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('renderReview', () => {
   it('lists advanced paths and reports the count', () => {
@@ -101,8 +116,8 @@ describe('runReview', () => {
     await runReview(backend, ['42']);
     expect(backend.writes).toBe(1);
     expect(backend.brain).toEqual([
-      { path: Path('a'), baseBlob: BlobSha('b1'), tipBlob: BlobSha('t1'), markKind: 'user' },
-      { path: Path('b'), baseBlob: null, tipBlob: BlobSha('t2'), markKind: 'user' },
+      { path: Path('a'), baseBlob: BlobSha('b1'), tipBlob: BlobSha('t1'), markKind: 'user', lastModifiedAt: NOW },
+      { path: Path('b'), baseBlob: null, tipBlob: BlobSha('t2'), markKind: 'user', lastModifiedAt: NOW },
     ]);
     expect(out.read()).toMatchInlineSnapshot(`
       "PR #42 — "Refactor token bucket" by @alice
@@ -123,6 +138,7 @@ describe('runReview', () => {
       baseBlob: BlobSha('b1'),
       tipBlob: BlobSha('t1'),
       markKind: 'user',
+      lastModifiedAt: Timestamp(1_600_000_000_000),
     };
     const backend = new FakeBackend([fs('a', 'b1', 't1')], [existing]);
     captureStdout();
@@ -144,7 +160,7 @@ describe('runReviewFile', () => {
     await runReviewFile(backend, ['42', 'b']);
     expect(backend.writes).toBe(1);
     expect(backend.brain).toEqual([
-      { path: Path('b'), baseBlob: null, tipBlob: BlobSha('t2'), markKind: 'user' },
+      { path: Path('b'), baseBlob: null, tipBlob: BlobSha('t2'), markKind: 'user', lastModifiedAt: NOW },
     ]);
   });
 

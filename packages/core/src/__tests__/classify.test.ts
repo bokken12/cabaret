@@ -7,8 +7,11 @@ import {
   type FileState,
   Path,
   PrNumber,
+  Timestamp,
   UserId,
 } from '../types.js';
+
+const TS = Timestamp(1_700_000_000_000);
 
 function fs(path: string, base: string | null, tip: string): FileState {
   return {
@@ -24,7 +27,7 @@ function be(
   tip: string,
   mark: 'user' | 'internal' = 'user',
 ): BrainEntry {
-  return { ...fs(path, base, tip), markKind: mark };
+  return { ...fs(path, base, tip), markKind: mark, lastModifiedAt: TS };
 }
 
 describe('classifyFile', () => {
@@ -80,7 +83,7 @@ describe('classifyPr', () => {
     const reviewed = be('a', 'b1', 't1');
     const stale = be('b', 'b1', 't1');
     const brain: Brain = {
-      user: UserId('joel@example.com'),
+      user: UserId('alice@example.com'),
       pr: PrNumber(42),
       entries: new Map([
         [Path('a'), reviewed],
