@@ -1,12 +1,13 @@
-import { classifyPr, type FileStatus, PrNumber, type Brain } from '@cabaret/core';
+import { classifyPr, type FileStatus, type Brain } from '@cabaret/core';
 import type { Backend, PrInfo } from '@cabaret/backend';
+import { parsePrArg } from './args.js';
 
 /**
  * Implements `cabaret status <PR>`: prints a per-file classification of a
  * PR's changes against the current user's brain.
  */
 export async function runStatus(backend: Backend, args: readonly string[]): Promise<void> {
-  const pr = parsePrArg(args);
+  const pr = parsePrArg(args, 'cabaret status <PR>');
   const [info, changes, user] = await Promise.all([
     backend.getPrInfo(pr),
     backend.getChangedFiles(pr),
@@ -20,18 +21,6 @@ export async function runStatus(backend: Backend, args: readonly string[]): Prom
   };
   const statuses = classifyPr(brain, changes);
   process.stdout.write(renderStatus(info, statuses));
-}
-
-function parsePrArg(args: readonly string[]): PrNumber {
-  const [first] = args;
-  if (first === undefined) {
-    throw new Error('usage: cabaret status <PR>');
-  }
-  const n = Number.parseInt(first, 10);
-  if (!Number.isFinite(n) || n <= 0) {
-    throw new Error(`PR must be a positive integer; got "${first}"`);
-  }
-  return PrNumber(n);
 }
 
 /**
