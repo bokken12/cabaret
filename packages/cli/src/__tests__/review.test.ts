@@ -9,7 +9,7 @@ import {
   UserId,
 } from '@cabaret/core';
 import type { Backend, PrInfo } from '@cabaret/backend';
-import { renderReview, runReview, runReviewFile } from './review.js';
+import { renderReview, runReview, runReviewFile } from '../review.js';
 
 const info: PrInfo = {
   number: PrNumber(42),

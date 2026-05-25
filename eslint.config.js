@@ -18,7 +18,10 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ['packages/*/src/__tests__/*.ts'],
+          defaultProject: 'tsconfig.test.json',
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },

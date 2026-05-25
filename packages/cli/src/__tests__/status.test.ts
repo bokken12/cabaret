@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlobSha, CommitSha, type FileStatus, Path, PrNumber } from '@cabaret/core';
 import type { PrInfo } from '@cabaret/backend';
-import { renderStatus } from './status.js';
+import { renderStatus } from '../status.js';
 
 const info: PrInfo = {
   number: PrNumber(42),

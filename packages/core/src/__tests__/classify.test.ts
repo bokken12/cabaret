@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFile, classifyPr, diff4FromBrain } from './classify.js';
+import { classifyFile, classifyPr, diff4FromBrain } from '../classify.js';
 import {
   BlobSha,
   type Brain,
@@ -8,7 +8,7 @@ import {
   Path,
   PrNumber,
   UserId,
-} from './types.js';
+} from '../types.js';
 
 function fs(path: string, base: string | null, tip: string): FileState {
   return {
