@@ -1,60 +1,211 @@
-import { describe, expect, it } from 'vitest';
-import { parseBrainFile, parseRepoSlug } from '../local-git.js';
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  brainRefName,
+  LocalGitBackend,
+  parseBrainBlob,
+  serializeBrainBlob,
+} from '../local-git.js';
 import { parseDiffTreeRaw } from '../git.js';
 import { parseGhPrView } from '../gh.js';
-import { BlobSha, Path, type BrainEntry } from '@cabaret/core';
+import {
+  BlobSha,
+  type BrainEntry,
+  Path,
+  PrNumber,
+  Timestamp,
+  UserId,
+} from '@cabaret/core';
 
-describe('parseRepoSlug', () => {
-  // TODO: replace with property-based tests over a generator of well-formed
-  // remote URLs once we add fast-check.
+const execFileAsync = promisify(execFile);
+
+describe('brainRefName', () => {
   it.each([
-    ['SSH', 'git@github.com:torvalds/linux.git', { owner: 'torvalds', name: 'linux' }],
-    ['HTTPS with .git', 'https://github.com/facebook/react.git', { owner: 'facebook', name: 'react' }],
-    ['HTTPS without .git', 'https://github.com/sindresorhus/p-queue', { owner: 'sindresorhus', name: 'p-queue' }],
-    ['SSH with hyphenated org', 'git@github.com:jestjs/jest.git', { owner: 'jestjs', name: 'jest' }],
-  ])('parses %s remotes', (_label, url, expected) => {
-    expect(parseRepoSlug(url)).toEqual(expected);
+    ['plain email', 'alice@example.com', 42, 'refs/cabaret/users/alice@example.com/prs/42'],
+    [
+      'plus-tag, dots, hyphens',
+      'alice.b+ci@test-org.dev',
+      7,
+      'refs/cabaret/users/alice.b+ci@test-org.dev/prs/7',
+    ],
+  ])('builds the expected ref for %s', (_label, user, pr, expected) => {
+    expect(brainRefName(UserId(user), PrNumber(pr))).toBe(expected);
   });
 
   it.each([
-    ['gitlab', 'git@gitlab.com:foo/bar.git'],
-    ['bitbucket', 'git@bitbucket.org:foo/bar.git'],
-    ['file path', '/local/path/repo'],
-  ])('rejects non-GitHub remotes (%s)', (_label, url) => {
-    expect(() => parseRepoSlug(url)).toThrow();
+    ['slash', 'a/b'],
+    ['whitespace', 'weird name'],
+    ['colon', 'a:b'],
+    ['leading dot', '.foo@bar'],
+    ['trailing dot', 'foo@bar.'],
+    ['double dot', 'a..b@bar'],
+    ['ends with .lock', 'foo@bar.lock'],
+    ['empty', ''],
+    ['lone @', '@'],
+  ])('throws on UserId with %s', (_label, user) => {
+    expect(() => brainRefName(UserId(user), PrNumber(1))).toThrow(/safe to use in a git ref/);
   });
 });
 
-describe('brain file round-trip', () => {
+describe('brain blob round-trip', () => {
+  const entries: readonly BrainEntry[] = [
+    {
+      path: Path('src/foo.rs'),
+      baseBlob: BlobSha('b1'),
+      tipBlob: BlobSha('t1'),
+      markKind: 'user',
+      lastModifiedAt: Timestamp(1_700_000_000_000),
+    },
+    {
+      path: Path('src/bar.rs'),
+      baseBlob: null,
+      tipBlob: BlobSha('t2'),
+      markKind: 'internal',
+      lastModifiedAt: Timestamp(1_700_000_001_000),
+    },
+  ];
+
   it('serialize → parse preserves the original entries', () => {
-    const original: readonly BrainEntry[] = [
-      { path: Path('src/foo.rs'), baseBlob: BlobSha('b1'), tipBlob: BlobSha('t1'), markKind: 'user' },
-      { path: Path('src/bar.rs'), baseBlob: null, tipBlob: BlobSha('t2'), markKind: 'internal' },
-    ];
-    const serialized = JSON.stringify({
-      schema: 1,
-      pr: 42,
-      user: 'joel@example.com',
-      entries: original,
-    });
-    expect(parseBrainFile(serialized)).toEqual(original);
+    const raw = serializeBrainBlob(UserId('alice@example.com'), PrNumber(42), entries);
+    expect(parseBrainBlob(raw)).toEqual(entries);
   });
 
-  it('rejects unknown schema versions', () => {
-    expect(() => parseBrainFile(JSON.stringify({ schema: 2, pr: 1, user: 'x', entries: [] }))).toThrow();
+  it('serializes to a stable, pretty-printed payload', () => {
+    expect(serializeBrainBlob(UserId('alice@example.com'), PrNumber(42), entries))
+      .toMatchInlineSnapshot(`
+        "{
+          "schema": 1,
+          "pr": 42,
+          "user": "alice@example.com",
+          "entries": [
+            {
+              "path": "src/foo.rs",
+              "baseBlob": "b1",
+              "tipBlob": "t1",
+              "markKind": "user",
+              "lastModifiedAt": 1700000000000
+            },
+            {
+              "path": "src/bar.rs",
+              "baseBlob": null,
+              "tipBlob": "t2",
+              "markKind": "internal",
+              "lastModifiedAt": 1700000001000
+            }
+          ]
+        }
+        "
+      `);
   });
 
-  it('rejects entries with the wrong shape', () => {
+  it('rejects payloads with the wrong schema version', () => {
+    expect(() => parseBrainBlob(JSON.stringify({ schema: 2, pr: 1, user: 'x', entries: [] })))
+      .toThrow();
+  });
+
+  it('rejects entries missing lastModifiedAt', () => {
     expect(() =>
-      parseBrainFile(
+      parseBrainBlob(
         JSON.stringify({
           schema: 1,
           pr: 1,
           user: 'x',
-          entries: [{ path: 'a', tipBlob: 't', markKind: 'user' }], // baseBlob missing
+          entries: [{ path: 'a', baseBlob: null, tipBlob: 't', markKind: 'user' }],
         }),
       ),
     ).toThrow();
+  });
+});
+
+describe('LocalGitBackend brain storage', () => {
+  let repo: string;
+  let backend: LocalGitBackend;
+
+  const user = UserId('alice@example.com');
+  const pr = PrNumber(42);
+
+  async function git(...args: string[]): Promise<string> {
+    const { stdout } = await execFileAsync('git', args, { cwd: repo });
+    return stdout;
+  }
+
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'cabaret-brain-'));
+    await execFileAsync('git', ['init', '--initial-branch=main', repo]);
+    // Configure committer identity so commit-tree accepts our calls.
+    await git('config', 'user.email', user);
+    await git('config', 'user.name', 'Alice Test');
+    backend = new LocalGitBackend({ cwd: repo });
+  });
+
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  it('returns [] when no ref exists', async () => {
+    expect(await backend.readBrain(user, pr)).toEqual([]);
+  });
+
+  it('round-trips entries through the ref', async () => {
+    const entries: readonly BrainEntry[] = [
+      {
+        path: Path('a.ts'),
+        baseBlob: BlobSha('aaa'),
+        tipBlob: BlobSha('bbb'),
+        markKind: 'user',
+        lastModifiedAt: Timestamp(1_700_000_000_000),
+      },
+      {
+        path: Path('b.ts'),
+        baseBlob: null,
+        tipBlob: BlobSha('ccc'),
+        markKind: 'internal',
+        lastModifiedAt: Timestamp(1_700_000_001_000),
+      },
+    ];
+    await backend.writeBrain(user, pr, entries);
+    expect(await backend.readBrain(user, pr)).toEqual(entries);
+  });
+
+  it('parents each new commit on the previous one (history is preserved)', async () => {
+    const e1: BrainEntry = {
+      path: Path('a.ts'),
+      baseBlob: BlobSha('aaa'),
+      tipBlob: BlobSha('bbb'),
+      markKind: 'user',
+      lastModifiedAt: Timestamp(1_700_000_000_000),
+    };
+    const e2: BrainEntry = { ...e1, tipBlob: BlobSha('ccc'), lastModifiedAt: Timestamp(1_700_000_002_000) };
+    await backend.writeBrain(user, pr, [e1]);
+    await backend.writeBrain(user, pr, [e2]);
+    const log = await git('log', '--format=%H %P', brainRefName(user, pr));
+    const lines = log.trim().split('\n');
+    expect(lines).toHaveLength(2);
+    const [tipLine, rootLine] = lines;
+    if (tipLine === undefined || rootLine === undefined) throw new Error('unreachable');
+    const tip = tipLine.split(' ');
+    const root = rootLine.split(' ');
+    // tip line: "<commitOID> <parentOID>"; root line: "<commitOID>" (no parent)
+    expect(tip).toHaveLength(2);
+    expect(root).toHaveLength(1);
+    expect(tip[1]).toBe(root[0]);
+  });
+
+  it('stores the payload as brain.json in the commit tree', async () => {
+    const entry: BrainEntry = {
+      path: Path('a.ts'),
+      baseBlob: BlobSha('aaa'),
+      tipBlob: BlobSha('bbb'),
+      markKind: 'user',
+      lastModifiedAt: Timestamp(1_700_000_000_000),
+    };
+    await backend.writeBrain(user, pr, [entry]);
+    const tree = await git('ls-tree', '--name-only', brainRefName(user, pr));
+    expect(tree.trim().split('\n')).toEqual(['brain.json']);
   });
 });
 

@@ -16,12 +16,15 @@ export type CommitSha = Brand<string, 'CommitSha'>;
 export type Path = Brand<string, 'Path'>;
 export type PrNumber = Brand<number, 'PrNumber'>;
 export type UserId = Brand<string, 'UserId'>;
+/** Epoch milliseconds. */
+export type Timestamp = Brand<number, 'Timestamp'>;
 
 export const BlobSha = (s: string): BlobSha => s as BlobSha;
 export const CommitSha = (s: string): CommitSha => s as CommitSha;
 export const Path = (s: string): Path => s as Path;
 export const PrNumber = (n: number): PrNumber => n as PrNumber;
 export const UserId = (s: string): UserId => s as UserId;
+export const Timestamp = (n: number): Timestamp => n as Timestamp;
 
 /**
  * How a brain entry was advanced.
@@ -51,9 +54,15 @@ export type FileState = {
  * pair is the diff the reviewer last accepted; content addressing makes
  * comparisons against the PR's current pair survive rebases and
  * force-pushes.
+ *
+ * `lastModifiedAt` records when this entry was last advanced; set by
+ * whoever produces the entry (e.g. `markReviewed`), never inferred. The
+ * field is carried per-entry so cross-device sync can tie-break advances
+ * of the same path without needing a separate history mechanism.
  */
 export type BrainEntry = FileState & {
   readonly markKind: MarkKind;
+  readonly lastModifiedAt: Timestamp;
 };
 
 /**

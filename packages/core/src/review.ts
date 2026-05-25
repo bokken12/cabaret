@@ -1,4 +1,4 @@
-import type { Brain, FileState, Path } from './types.js';
+import type { Brain, FileState, Path, Timestamp } from './types.js';
 
 /**
  * The result of advancing a brain through review of one or more files.
@@ -20,7 +20,10 @@ export type ReviewResult = {
  * responsibility for the state.
  *
  * Entries already matching the requested state are left untouched; they
- * appear neither in the returned brain (unchanged) nor in `advanced`.
+ * appear neither in the returned brain (unchanged) nor in `advanced`, and
+ * their `lastModifiedAt` is not touched (it would falsely suggest the
+ * reviewer revisited the file).
+ *
  * Entries for paths not mentioned in `files` are preserved verbatim, which
  * matters for brain entries left behind by earlier revisions of the PR
  * (e.g. a file that has since stopped changing).
@@ -29,8 +32,15 @@ export type ReviewResult = {
  * intentional: `internal` is reserved for advances the brain makes without
  * a human action (e.g. automatic rev-update detection). Iron calls this
  * pair `User` / `Internal__fully_reviewed`.
+ *
+ * `now` is supplied by the caller rather than read from `Date.now()` so the
+ * function is pure and tests are deterministic.
  */
-export function markReviewed(brain: Brain, files: readonly FileState[]): ReviewResult {
+export function markReviewed(
+  brain: Brain,
+  files: readonly FileState[],
+  now: Timestamp,
+): ReviewResult {
   const entries = new Map(brain.entries);
   const advanced: Path[] = [];
   for (const f of files) {
@@ -43,6 +53,7 @@ export function markReviewed(brain: Brain, files: readonly FileState[]): ReviewR
       baseBlob: f.baseBlob,
       tipBlob: f.tipBlob,
       markKind: 'user',
+      lastModifiedAt: now,
     });
     advanced.push(f.path);
   }

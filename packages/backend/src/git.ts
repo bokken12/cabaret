@@ -1,5 +1,5 @@
 import { BlobSha, CommitSha, type FileState, Path } from '@cabaret/core';
-import { exec } from './exec.js';
+import { exec, ExecError } from './exec.js';
 
 /**
  * Thin wrapper around the system `git` CLI. Each method shells out and
@@ -44,6 +44,79 @@ export class Git {
     const out = (await this.run(['merge-base', a, b])).trim();
     if (!out) throw new Error(`merge-base(${a}, ${b}) produced no output`);
     return CommitSha(out);
+  }
+
+  /**
+   * Resolve a ref to its commit OID, or return null if the ref doesn't
+   * exist. Used by the brain ref reader; missing refs are the normal "no
+   * brain yet" case, not an error.
+   */
+  async revParseRef(ref: string): Promise<CommitSha | null> {
+    try {
+      const out = (await this.run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).trim();
+      return out ? CommitSha(out) : null;
+    } catch (err) {
+      // `rev-parse --verify --quiet` exits 1 with empty stderr when the ref
+      // is absent. Anything else (e.g. not-a-repo) should surface.
+      if (err instanceof ExecError && err.exitCode === 1 && err.stderr.trim() === '') return null;
+      throw err;
+    }
+  }
+
+  /** Write `content` to a new blob object; return its OID. */
+  async hashObject(content: string): Promise<BlobSha> {
+    const { stdout } = await exec('git', ['hash-object', '-w', '--stdin'], {
+      cwd: this.cwd,
+      input: content,
+    });
+    return BlobSha(stdout.trim());
+  }
+
+  /**
+   * Build a tree containing a single regular-file entry. Suitable for
+   * payloads we don't need to subdivide. Returns the tree OID.
+   */
+  async mkTreeSingleFile(name: string, blob: BlobSha): Promise<string> {
+    const entry = `100644 blob ${blob}\t${name}\n`;
+    const { stdout } = await exec('git', ['mktree'], { cwd: this.cwd, input: entry });
+    return stdout.trim();
+  }
+
+  /**
+   * Create a commit pointing at `tree`. `parent` is null for the first
+   * commit on a ref; otherwise it links back to the previous tip.
+   * Author/committer fall through to git's defaults (i.e. `user.email`
+   * and `user.name`), which match cabaret's notion of the local user.
+   */
+  async commitTree(
+    tree: string,
+    parent: CommitSha | null,
+    message: string,
+  ): Promise<CommitSha> {
+    const args = ['commit-tree', tree, '-m', message];
+    if (parent !== null) args.push('-p', parent);
+    const { stdout } = await exec('git', args, { cwd: this.cwd });
+    return CommitSha(stdout.trim());
+  }
+
+  /**
+   * Point `ref` at `target`, with a compare-and-swap guard against
+   * `expectedCurrent`. Pass `null` to assert the ref does not yet exist
+   * (the 40-zero SHA in `update-ref`'s third-argument convention).
+   * Concurrent writers therefore fail loudly instead of silently
+   * clobbering each other's history.
+   */
+  async updateRef(ref: string, target: CommitSha, expectedCurrent: CommitSha | null): Promise<void> {
+    const zero = '0000000000000000000000000000000000000000';
+    await this.run(['update-ref', ref, target, expectedCurrent ?? zero]);
+  }
+
+  /**
+   * Read a regular file at `path` inside `commit`'s tree, returning its raw
+   * content. Throws if the file isn't present in the tree.
+   */
+  async readFileFromCommit(commit: CommitSha, path: string): Promise<string> {
+    return this.run(['show', `${commit}:${path}`]);
   }
 
   /**
