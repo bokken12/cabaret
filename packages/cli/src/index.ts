@@ -4,6 +4,9 @@ import { runStatus } from './status.js';
 import { runReview, runReviewFile } from './review.js';
 
 async function main(): Promise<void> {
+  // TODO(joel for crouton): probably manually parsing argv won't scale that
+  // well. Should we look into a library/framework that's not too heavy and is
+  // well typed / easy to use?
   const [, , command, ...rest] = process.argv;
   switch (command) {
     case 'status':

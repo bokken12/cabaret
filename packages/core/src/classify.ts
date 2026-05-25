@@ -30,6 +30,7 @@ export function classifyPr(brain: Brain, changedFiles: readonly FileState[]): re
   return changedFiles.map((cf) => classifyFile(brain.entries.get(cf.path), cf));
 }
 
+// TODO(joel for crouton): this function appears to be unused outside of tests. Remove?
 /**
  * Derive a `Diff4` (the four-blob diamond used by the diff renderer) from a
  * brain entry and the file's current PR state. Useful for callers that
