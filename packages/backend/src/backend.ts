@@ -39,8 +39,7 @@ export interface Backend {
 
   /**
    * Git: enumerate files added or modified between the PR's base and tip
-   * trees, with blob SHAs. Deletes and renames are skipped in milestone 1
-   * (TODO).
+   * trees, with blob SHAs. TODO: include deletes and renames.
    */
   getChangedFiles(pr: PrNumber): Promise<readonly FileState[]>;
 

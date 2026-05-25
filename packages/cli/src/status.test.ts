@@ -13,55 +13,83 @@ const info: PrInfo = {
   url: 'https://github.com/x/y/pull/42',
 };
 
+const previousReviewed = {
+  path: Path('a'),
+  baseBlob: BlobSha('b1'),
+  tipBlob: BlobSha('t1'),
+  markKind: 'user' as const,
+};
+
 describe('renderStatus', () => {
-  it('shows zero attention when everything is reviewed', () => {
+  it('renders a fully-reviewed PR', () => {
     const statuses: FileStatus[] = [
       { kind: 'reviewed', path: Path('a') },
       { kind: 'reviewed', path: Path('b') },
     ];
-    const out = renderStatus(info, statuses);
-    expect(out).toContain('0 of 2 file(s) need attention');
+    expect(renderStatus(info, statuses)).toBe(
+      [
+        'PR #42 — "Refactor token bucket" by @alice',
+        'tip:  def456',
+        'base: 9a1b2c3 (main)',
+        '',
+        '  reviewed     a',
+        '  reviewed     b',
+        '',
+        '0 of 2 file(s) need attention.',
+        '',
+      ].join('\n'),
+    );
   });
 
-  it('counts stale and unreviewed as attention-needing; rev-update too', () => {
+  it('renders every status kind with the right label and attention count', () => {
     const statuses: FileStatus[] = [
       { kind: 'reviewed', path: Path('a') },
       {
         kind: 'stale',
         path: Path('b'),
-        diff4: {
-          path: Path('b'),
-          oldBase: BlobSha('1'),
-          oldTip: BlobSha('2'),
-          newBase: BlobSha('1'),
-          newTip: BlobSha('3'),
-        },
+        current: { path: Path('b'), baseBlob: BlobSha('1'), tipBlob: BlobSha('3') },
+        previous: previousReviewed,
       },
       {
         kind: 'unreviewed',
         path: Path('c'),
-        diff2: { path: Path('c'), baseBlob: null, tipBlob: BlobSha('4') },
+        current: { path: Path('c'), baseBlob: null, tipBlob: BlobSha('4') },
       },
       {
         kind: 'revUpdate',
         path: Path('d'),
-        diff4: {
-          path: Path('d'),
-          oldBase: BlobSha('1'),
-          oldTip: BlobSha('5'),
-          newBase: BlobSha('2'),
-          newTip: BlobSha('5'),
-        },
+        current: { path: Path('d'), baseBlob: BlobSha('2'), tipBlob: BlobSha('5') },
+        previous: { ...previousReviewed, path: Path('d'), tipBlob: BlobSha('5') },
       },
     ];
-    const out = renderStatus(info, statuses);
-    expect(out).toContain('3 of 4 file(s) need attention');
-    expect(out).toContain('rev-update');
-    expect(out).toContain('stale');
-    expect(out).toContain('unreviewed');
+    expect(renderStatus(info, statuses)).toBe(
+      [
+        'PR #42 — "Refactor token bucket" by @alice',
+        'tip:  def456',
+        'base: 9a1b2c3 (main)',
+        '',
+        '  reviewed     a',
+        '  stale        b',
+        '  unreviewed   c',
+        '  rev-update   d',
+        '',
+        '3 of 4 file(s) need attention.',
+        '',
+      ].join('\n'),
+    );
   });
 
-  it('handles an empty PR', () => {
-    expect(renderStatus(info, [])).toContain('no changed files');
+  it('renders an empty PR', () => {
+    expect(renderStatus(info, [])).toBe(
+      [
+        'PR #42 — "Refactor token bucket" by @alice',
+        'tip:  def456',
+        'base: 9a1b2c3 (main)',
+        '',
+        '',
+        'no changed files.',
+        '',
+      ].join('\n'),
+    );
   });
 });

@@ -50,9 +50,8 @@ export class Git {
    * `git diff-tree --raw -r <base> <tip>` parsed into FileStates. Returns
    * one entry per file added or modified between the two trees.
    *
-   * Skips deletions (`D`) and renames (`R`) for milestone 1. Renames are
-   * TODO — they require `-M` and parsing the alternate raw format with two
-   * paths per record.
+   * TODO: handle renames (`-M` plus the alternate raw format with two
+   * paths per record) and deletions (currently filtered out).
    */
   async diffTree(base: CommitSha, tip: CommitSha): Promise<readonly FileState[]> {
     const out = await this.run([

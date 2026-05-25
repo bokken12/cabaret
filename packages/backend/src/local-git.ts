@@ -1,12 +1,12 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { z } from 'zod';
 import {
   BlobSha,
   type BrainEntry,
   CommitSha,
   type FileState,
-  type MarkKind,
   Path,
   type PrNumber,
   UserId,
@@ -34,11 +34,11 @@ export type LocalGitBackendOptions = {
 
 /**
  * Backend implementation that talks to the local `git` CLI and the local
- * `gh` CLI, and stores brain state as JSON files under `~/.cabaret/`.
+ * `gh` CLI. Brain state lives as a JSON file under `~/.cabaret/` keyed by
+ * (repo, user, PR).
  *
- * This is the milestone-1 backend: refs-based brain storage and forge
- * abstractions come later. Multi-device sync is not yet supported because
- * the brain lives outside the repo.
+ * TODO: migrate brain storage to git refs (`refs/cabaret/prs/<n>/brain/<user>`)
+ * to enable multi-device sync.
  */
 export class LocalGitBackend implements Backend {
   private readonly git: Git;
@@ -74,9 +74,8 @@ export class LocalGitBackend implements Backend {
   private async fetchPrInfo(pr: PrNumber): Promise<PrInfo> {
     const view = await this.gh.prView(pr);
     // Make sure the PR's tip is in the local object database, then compute
-    // merge-base against the PR's base ref. We use the tip ref from `gh`
-    // (head SHA) rather than reading from a tracking branch, so this works
-    // even if the user hasn't fetched the PR yet.
+    // merge-base against the PR's base ref so subsequent diffs see the
+    // commit even if the user has never fetched the PR.
     await this.git.fetch('origin', `pull/${String(pr)}/head`);
     // `baseRefOid` is the tip of the base branch at the moment `gh` ran;
     // merge-base against the PR head gives us the PR's actual base, which
@@ -146,9 +145,9 @@ export class LocalGitBackend implements Backend {
 }
 
 /**
- * Parse an `origin` URL like `git@github.com:bokken12/cabaret.git` or
- * `https://github.com/bokken12/cabaret.git` into `{ owner, name }`. Only
- * GitHub is supported in milestone 1.
+ * Parse an `origin` URL like `git@github.com:owner/repo.git` or
+ * `https://github.com/owner/repo.git` into `{ owner, name }`. Only GitHub
+ * is supported today; other forges should throw.
  */
 export function parseRepoSlug(url: string): RepoSlug {
   const match = /github\.com[:/]([^/]+)\/([^/.]+)(?:\.git)?$/.exec(url);
@@ -162,53 +161,36 @@ export function parseRepoSlug(url: string): RepoSlug {
   return { owner, name };
 }
 
-type BrainFile = {
-  schema: 1;
-  pr: PrNumber;
-  user: UserId;
-  entries: readonly {
-    path: Path;
-    baseBlob: BlobSha | null;
-    tipBlob: BlobSha;
-    markKind: MarkKind;
-  }[];
-};
+/**
+ * Schema for the on-disk brain JSON file. Bump `schema` and add a
+ * migration path here when the shape changes.
+ */
+const BrainFileSchema = z.object({
+  schema: z.literal(1),
+  pr: z.number(),
+  user: z.string(),
+  entries: z.array(
+    z.object({
+      path: z.string(),
+      baseBlob: z.string().nullable(),
+      tipBlob: z.string(),
+      markKind: z.union([z.literal('user'), z.literal('internal')]),
+    }),
+  ),
+});
+
+type BrainFile = z.infer<typeof BrainFileSchema>;
 
 /**
- * Parse a brain JSON file. Validates minimally; brain files are written
- * by cabaret itself, so format drift means a bug we want to surface fast.
+ * Parse a brain JSON file. Brain files are written by cabaret itself, so
+ * any schema violation here is a bug and should surface fast.
  */
 export function parseBrainFile(raw: string): readonly BrainEntry[] {
-  const v: unknown = JSON.parse(raw);
-  if (typeof v !== 'object' || v === null) {
-    throw new Error(`brain file is not an object: ${raw.slice(0, 200)}`);
-  }
-  const obj = v as Record<string, unknown>;
-  if (obj['schema'] !== 1) {
-    throw new Error(`brain file schema is not 1: got ${String(obj['schema'])}`);
-  }
-  const entries = obj['entries'];
-  if (!Array.isArray(entries)) {
-    throw new Error(`brain file entries is not an array`);
-  }
-  return entries.map((e: unknown): BrainEntry => {
-    if (typeof e !== 'object' || e === null) {
-      throw new Error(`brain entry is not an object: ${JSON.stringify(e)}`);
-    }
-    const o = e as Record<string, unknown>;
-    if (
-      typeof o['path'] !== 'string' ||
-      (o['baseBlob'] !== null && typeof o['baseBlob'] !== 'string') ||
-      typeof o['tipBlob'] !== 'string' ||
-      (o['markKind'] !== 'user' && o['markKind'] !== 'internal')
-    ) {
-      throw new Error(`brain entry has unexpected shape: ${JSON.stringify(e)}`);
-    }
-    return {
-      path: Path(o['path']),
-      baseBlob: o['baseBlob'] === null ? null : BlobSha(o['baseBlob']),
-      tipBlob: BlobSha(o['tipBlob']),
-      markKind: o['markKind'],
-    };
-  });
+  const file = BrainFileSchema.parse(JSON.parse(raw));
+  return file.entries.map((e) => ({
+    path: Path(e.path),
+    baseBlob: e.baseBlob === null ? null : BlobSha(e.baseBlob),
+    tipBlob: BlobSha(e.tipBlob),
+    markKind: e.markKind,
+  }));
 }
