@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseBrainFile, parseRepoSlug } from './local-git.js';
-import { parseDiffTreeRaw } from './git.js';
-import { parseGhPrView } from './gh.js';
+import { parseBrainFile, parseRepoSlug } from '../local-git.js';
+import { parseDiffTreeRaw } from '../git.js';
+import { parseGhPrView } from '../gh.js';
 import { BlobSha, Path, type BrainEntry } from '@cabaret/core';
 
 describe('parseRepoSlug', () => {
