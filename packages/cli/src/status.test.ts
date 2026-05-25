@@ -26,19 +26,17 @@ describe('renderStatus', () => {
       { kind: 'reviewed', path: Path('a') },
       { kind: 'reviewed', path: Path('b') },
     ];
-    expect(renderStatus(info, statuses)).toBe(
-      [
-        'PR #42 — "Refactor token bucket" by @alice',
-        'tip:  def456',
-        'base: 9a1b2c3 (main)',
-        '',
-        '  reviewed     a',
-        '  reviewed     b',
-        '',
-        '0 of 2 file(s) need attention.',
-        '',
-      ].join('\n'),
-    );
+    expect(renderStatus(info, statuses)).toMatchInlineSnapshot(`
+      "PR #42 — "Refactor token bucket" by @alice
+      tip:  def456
+      base: 9a1b2c3 (main)
+
+        reviewed     a
+        reviewed     b
+
+      0 of 2 file(s) need attention.
+      "
+    `);
   });
 
   it('renders every status kind with the right label and attention count', () => {
@@ -62,34 +60,30 @@ describe('renderStatus', () => {
         previous: { ...previousReviewed, path: Path('d'), tipBlob: BlobSha('5') },
       },
     ];
-    expect(renderStatus(info, statuses)).toBe(
-      [
-        'PR #42 — "Refactor token bucket" by @alice',
-        'tip:  def456',
-        'base: 9a1b2c3 (main)',
-        '',
-        '  reviewed     a',
-        '  stale        b',
-        '  unreviewed   c',
-        '  rev-update   d',
-        '',
-        '3 of 4 file(s) need attention.',
-        '',
-      ].join('\n'),
-    );
+    expect(renderStatus(info, statuses)).toMatchInlineSnapshot(`
+      "PR #42 — "Refactor token bucket" by @alice
+      tip:  def456
+      base: 9a1b2c3 (main)
+
+        reviewed     a
+        stale        b
+        unreviewed   c
+        rev-update   d
+
+      3 of 4 file(s) need attention.
+      "
+    `);
   });
 
   it('renders an empty PR', () => {
-    expect(renderStatus(info, [])).toBe(
-      [
-        'PR #42 — "Refactor token bucket" by @alice',
-        'tip:  def456',
-        'base: 9a1b2c3 (main)',
-        '',
-        '',
-        'no changed files.',
-        '',
-      ].join('\n'),
-    );
+    expect(renderStatus(info, [])).toMatchInlineSnapshot(`
+      "PR #42 — "Refactor token bucket" by @alice
+      tip:  def456
+      base: 9a1b2c3 (main)
+
+
+      no changed files.
+      "
+    `);
   });
 });
