@@ -1,7 +1,7 @@
 {
-  "name": "cabaret-core",
+  "name": "cabaret-util",
   "version": "0.0.0",
-  "description": "Platform-agnostic core types & logic for Cabaret",
+  "description": "General-purpose utilities not specific to Cabaret",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,9 +9,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
-  },
-  "dependencies": {
-    "cabaret-util": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

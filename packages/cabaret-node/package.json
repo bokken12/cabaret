@@ -1,7 +1,7 @@
 {
-  "name": "cabaret-core",
+  "name": "cabaret-node",
   "version": "0.0.0",
-  "description": "Platform-agnostic core types & logic for Cabaret",
+  "description": "Cabaret components requiring a Node runtime",
   "private": true,
   "type": "module",
   "exports": {
@@ -11,7 +11,7 @@
     }
   },
   "dependencies": {
-    "cabaret-util": "workspace:*"
+    "cabaret-core": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
-import { CABARET } from "cabaret-core";
+import { GitBackend } from "cabaret-node";
 
-console.log(CABARET);
+const backend = await GitBackend.open(process.cwd());
+console.log(await backend.resolve("HEAD"));
