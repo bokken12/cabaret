@@ -1,0 +1,16 @@
+{
+  "name": "cabaret-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cabaret": "./dist/cli.js"
+  },
+  "dependencies": {
+    "cabaret-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  }
+}

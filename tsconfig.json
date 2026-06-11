@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/cabaret-core" },
+    { "path": "packages/cabaret-cli" }
+  ]
+}

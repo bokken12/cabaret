@@ -1,0 +1,1 @@
+export const CABARET = "cabaret";
