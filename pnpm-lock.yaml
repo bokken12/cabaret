@@ -26,8 +26,23 @@ importers:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      cabaret-node:
+        specifier: workspace:*
+        version: link:../cabaret-node
 
-  packages/cabaret-core: {}
+  packages/cabaret-core:
+    dependencies:
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
+
+  packages/cabaret-node:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+
+  packages/cabaret-util: {}
 
 packages:
 
