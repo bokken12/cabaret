@@ -7,3 +7,5 @@ Other systems or ideas solving related problems or with good perspectives.
 - https://github.com/google/git-appraise
 - https://github.com/jj-vcs/jj
 - https://github.com/gitbutlerapp/gitbutler
+- https://www.reviewable.io/
+- https://read.engineerscodex.com/p/how-google-takes-the-pain-out-of
