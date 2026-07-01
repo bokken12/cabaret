@@ -10,3 +10,5 @@ There are a number of restrictions on how state can be stored:
 These two goals are conflicting, but can be unified by storing state with an automated merge strategy in `.gitattributes`. To minimize setup, we prefer the built-in `union` strategy with a log of associative operations.
 
 Our principle operation is conditional `set` on a single file's review state, with associativity coming from taking the value with the latest timestamp.
+
+The lack of any log will be treated as equivalent to an empty log so that there is no separate initialization step required.
