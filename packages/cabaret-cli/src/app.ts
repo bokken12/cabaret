@@ -136,6 +136,26 @@ const gh = buildRouteMap({
   },
 });
 
+const glab = buildRouteMap({
+  docs: { brief: "GitLab integration" },
+  routes: {
+    pull: buildCommand({
+      docs: { brief: "Pull MR activity from GitLab" },
+      parameters: {},
+      func(this: LocalContext) {
+        announce(this, "glab pull", {});
+      },
+    }),
+    push: buildCommand({
+      docs: { brief: "Push MR activity to GitLab" },
+      parameters: {},
+      func(this: LocalContext) {
+        announce(this, "glab push", {});
+      },
+    }),
+  },
+});
+
 const land = buildCommand({
   docs: { brief: "Land a change (if fully reviewed)" },
   parameters: {},
@@ -330,6 +350,7 @@ const routes = buildRouteMap({
     approvers,
     create,
     gh,
+    glab,
     land,
     log,
     owners,

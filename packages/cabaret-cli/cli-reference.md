@@ -81,6 +81,28 @@ Push PR activity to GitHub
 FLAGS
   -h --help  Print help information and exit
 
+### cabaret glab pull
+
+USAGE
+  cabaret glab pull
+  cabaret glab pull --help
+
+Pull MR activity from GitLab
+
+FLAGS
+  -h --help  Print help information and exit
+
+### cabaret glab push
+
+USAGE
+  cabaret glab push
+  cabaret glab push --help
+
+Push MR activity to GitLab
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cabaret land
 
 USAGE
