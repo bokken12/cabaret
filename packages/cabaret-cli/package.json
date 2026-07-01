@@ -8,6 +8,7 @@
     "cabaret": "./dist/cli.js"
   },
   "dependencies": {
+    "@stricli/core": "^1.2.8",
     "cabaret-core": "workspace:*",
     "cabaret-node": "workspace:*"
   },

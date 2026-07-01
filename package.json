@@ -1,7 +1,7 @@
 {
   "name": "cabaret",
   "private": true,
-  "description": "Diff-based, in-editor, distributed code review built on top of git",
+  "description": "Diff-based distributed code review built on top of git",
   "type": "module",
   "packageManager": "pnpm@11.3.0",
   "scripts": {

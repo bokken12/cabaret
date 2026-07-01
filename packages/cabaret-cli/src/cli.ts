@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { GitBackend } from "cabaret-node";
+import { run } from "@stricli/core";
+import { app } from "./app.js";
+import { buildContext } from "./context.js";
 
-const backend = await GitBackend.open(process.cwd());
-console.log(await backend.resolve("HEAD"));
+await run(app, process.argv.slice(2), buildContext(process));
