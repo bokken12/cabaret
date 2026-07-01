@@ -1,4 +1,5 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
+import { VERSION } from "cabaret-core";
 import type { LocalContext } from "./context.js";
 
 /**
@@ -342,6 +343,7 @@ const routes = buildRouteMap({
 
 export const app = buildApplication(routes, {
   name: "cabaret",
+  versionInfo: { currentVersion: VERSION },
   // Display flags as kebab-case (matching the CLI-wide convention) while still
   // accepting the camelCase spelling of each flag name.
   scanner: { caseStyle: "allow-kebab-for-camel" },

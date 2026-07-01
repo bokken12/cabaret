@@ -1,6 +1,5 @@
 {
   "name": "cabaret-core",
-  "version": "0.0.0",
   "description": "Platform-agnostic core types & logic for Cabaret",
   "private": true,
   "type": "module",

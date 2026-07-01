@@ -1,6 +1,5 @@
 {
   "name": "cabaret-cli",
-  "version": "0.0.0",
   "description": "Command-line interface to Cabaret",
   "private": true,
   "type": "module",

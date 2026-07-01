@@ -1,6 +1,5 @@
 {
   "name": "cabaret-node",
-  "version": "0.0.0",
   "description": "Cabaret components requiring a Node runtime",
   "private": true,
   "type": "module",

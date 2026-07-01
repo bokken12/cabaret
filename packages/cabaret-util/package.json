@@ -1,6 +1,5 @@
 {
   "name": "cabaret-util",
-  "version": "0.0.0",
   "description": "General-purpose utilities not specific to Cabaret",
   "private": true,
   "type": "module",
