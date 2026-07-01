@@ -9,8 +9,7 @@ const HEADER =
 /** Dump each command's help under a Markdown heading whose level is its route depth. */
 function renderReference(): string {
   const sections = generateHelpTextForAllCommands(app).map(
-    ([route, help]) =>
-      `${"#".repeat(route.split(" ").length)} ${route}\n\n${help.trimEnd()}`,
+    ([route, help]) => `${"#".repeat(route.split(" ").length)} ${route}\n\n${help.trimEnd()}`,
   );
   return `${HEADER}\n\n${sections.join("\n\n")}\n`;
 }

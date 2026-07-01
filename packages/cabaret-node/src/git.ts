@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type Backend, type CommitHash, parseCommitHash } from "cabaret-core";
+import { type Backend, parseRefName, type RefName } from "cabaret-core";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,25 +23,8 @@ export class GitBackend implements Backend {
     return new GitBackend(out.trimEnd());
   }
 
-  async resolve(revision: string): Promise<CommitHash> {
-    const out = await git(this.root, [
-      "rev-parse",
-      "--verify",
-      "--end-of-options",
-      `${revision}^{commit}`,
-    ]);
-    return parseCommitHash(out.trimEnd());
-  }
-
-  async changedFiles(
-    base: CommitHash,
-    tip: CommitHash,
-  ): Promise<readonly string[]> {
-    const out = await git(this.root, ["diff", "--name-only", "-z", base, tip]);
-    return out.split("\0").filter((path) => path !== "");
-  }
-
-  readFile(commit: CommitHash, path: string): Promise<string> {
-    return git(this.root, ["show", `${commit}:${path}`]);
+  async currentBranch(): Promise<RefName> {
+    const out = await git(this.root, ["symbolic-ref", "--short", "HEAD"]);
+    return parseRefName(out.trimEnd());
   }
 }

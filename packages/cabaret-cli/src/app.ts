@@ -6,18 +6,12 @@ import type { LocalContext } from "./context.js";
  * Report a command that is wired up but whose behavior is not yet implemented,
  * echoing the parsed flags and arguments so the scaffold is demonstrably live.
  */
-function announce(
-  ctx: LocalContext,
-  path: string,
-  values: Readonly<Record<string, unknown>>,
-): void {
+function announce(ctx: LocalContext, path: string, values: Readonly<Record<string, unknown>>): void {
   const shown = Object.entries(values)
     .filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))
     .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
     .join(", ");
-  ctx.process.stdout.write(
-    `cabaret ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`,
-  );
+  ctx.process.stdout.write(`cabaret ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`);
 }
 
 const approve = buildCommand({
@@ -36,10 +30,7 @@ const approve = buildCommand({
       },
     },
   },
-  func(
-    this: LocalContext,
-    flags: { allowEmpty: boolean; allowOwner: boolean },
-  ) {
+  func(this: LocalContext, flags: { allowEmpty: boolean; allowOwner: boolean }) {
     announce(this, "approve", flags);
   },
 });
@@ -52,9 +43,7 @@ const approvers = buildRouteMap({
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [
-            { brief: "user to add", placeholder: "user", parse: String },
-          ],
+          parameters: [{ brief: "user to add", placeholder: "user", parse: String }],
         },
       },
       func(this: LocalContext, _flags: Record<never, never>, user: string) {
@@ -66,9 +55,7 @@ const approvers = buildRouteMap({
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [
-            { brief: "user to remove", placeholder: "user", parse: String },
-          ],
+          parameters: [{ brief: "user to remove", placeholder: "user", parse: String }],
         },
       },
       func(this: LocalContext, _flags: Record<never, never>, user: string) {
@@ -107,11 +94,7 @@ const create = buildCommand({
       },
     },
   },
-  func(
-    this: LocalContext,
-    flags: { parent?: string; child?: string },
-    change?: string,
-  ) {
+  func(this: LocalContext, flags: { parent?: string; child?: string }, change?: string) {
     announce(this, "create", { change, ...flags });
   },
 });
@@ -192,9 +175,7 @@ const owners = buildRouteMap({
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [
-            { brief: "user to add", placeholder: "user", parse: String },
-          ],
+          parameters: [{ brief: "user to add", placeholder: "user", parse: String }],
         },
       },
       func(this: LocalContext, _flags: Record<never, never>, user: string) {
@@ -206,9 +187,7 @@ const owners = buildRouteMap({
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [
-            { brief: "user to remove", placeholder: "user", parse: String },
-          ],
+          parameters: [{ brief: "user to remove", placeholder: "user", parse: String }],
         },
       },
       func(this: LocalContext, _flags: Record<never, never>, user: string) {
@@ -228,9 +207,7 @@ const rebase = buildCommand({
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [
-        { brief: "change to rebase", placeholder: "change", parse: String },
-      ],
+      parameters: [{ brief: "change to rebase", placeholder: "change", parse: String }],
     },
     flags: {
       allowInvalidBase: {
@@ -240,11 +217,7 @@ const rebase = buildCommand({
       },
     },
   },
-  func(
-    this: LocalContext,
-    flags: { allowInvalidBase: boolean },
-    change: string,
-  ) {
+  func(this: LocalContext, flags: { allowInvalidBase: boolean }, change: string) {
     announce(this, "rebase", { change, ...flags });
   },
 });
@@ -260,12 +233,7 @@ const rename = buildCommand({
       ],
     },
   },
-  func(
-    this: LocalContext,
-    _flags: Record<never, never>,
-    old: string,
-    next: string,
-  ) {
+  func(this: LocalContext, _flags: Record<never, never>, old: string, next: string) {
     announce(this, "rename", { old, new: next });
   },
 });
@@ -286,12 +254,7 @@ const reparent = buildCommand({
       ],
     },
   },
-  func(
-    this: LocalContext,
-    _flags: Record<never, never>,
-    change: string,
-    parent: string,
-  ) {
+  func(this: LocalContext, _flags: Record<never, never>, change: string, parent: string) {
     announce(this, "reparent", { change, parent });
   },
 });
@@ -301,9 +264,7 @@ const review = buildCommand({
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [
-        { brief: "change to review", placeholder: "change", parse: String },
-      ],
+      parameters: [{ brief: "change to review", placeholder: "change", parse: String }],
     },
     flags: {
       revision: {

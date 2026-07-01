@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -10,8 +10,8 @@ const execFileAsync = promisify(execFile);
 
 let repo: string;
 
-async function git(...args: string[]): Promise<void> {
-  await execFileAsync("git", args, {
+async function git(...args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, {
     cwd: repo,
     env: {
       ...process.env,
@@ -23,50 +23,30 @@ async function git(...args: string[]): Promise<void> {
       GIT_COMMITTER_EMAIL: "test@example.com",
     },
   });
+  return stdout.trimEnd();
 }
 
 beforeAll(async () => {
   repo = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
   await git("init", "-q");
-  await writeFile(join(repo, "a.txt"), "one\n");
-  await git("add", "a.txt");
-  await git("commit", "-qm", "base");
-  await writeFile(join(repo, "a.txt"), "two\n");
-  await writeFile(join(repo, "b.txt"), "new\n");
-  await git("add", ".");
-  await git("commit", "-qm", "tip");
+  await git("commit", "-qm", "root", "--allow-empty");
+  await git("checkout", "-q", "-b", "feature");
 });
 
 afterAll(async () => {
   await rm(repo, { recursive: true, force: true });
 });
 
-test("resolves revisions to commit hashes", async () => {
+test("reports the current working branch", async () => {
   const backend = await GitBackend.open(repo);
-  const head = await backend.resolve("HEAD");
-  expect(head).toMatch(/^[0-9a-f]{40}$/);
-  expect(await backend.resolve(head)).toBe(head);
+  expect(await backend.currentBranch()).toBe("feature");
 });
 
-test("lists changed files between commits", async () => {
+test("fails fast on detached HEAD with the command and stderr in the error", async () => {
   const backend = await GitBackend.open(repo);
-  const base = await backend.resolve("HEAD~1");
-  const tip = await backend.resolve("HEAD");
-  expect(await backend.changedFiles(base, tip)).toEqual(["a.txt", "b.txt"]);
-  expect(await backend.changedFiles(tip, tip)).toEqual([]);
-});
-
-test("reads file contents at a commit", async () => {
-  const backend = await GitBackend.open(repo);
-  const base = await backend.resolve("HEAD~1");
-  const tip = await backend.resolve("HEAD");
-  expect(await backend.readFile(base, "a.txt")).toBe("one\n");
-  expect(await backend.readFile(tip, "a.txt")).toBe("two\n");
-});
-
-test("fails fast with the command and stderr in the error", async () => {
-  const backend = await GitBackend.open(repo);
-  const failure = backend.resolve("no-such-branch");
-  await expect(failure).rejects.toThrow(/git rev-parse .*no-such-branch/);
+  const head = await git("rev-parse", "HEAD");
+  await git("checkout", "-q", head);
+  const failure = backend.currentBranch();
+  await expect(failure).rejects.toThrow(/git symbolic-ref/);
   await expect(failure).rejects.toThrow(/fatal:/);
 });
