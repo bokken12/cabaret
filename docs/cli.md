@@ -1,17 +1,107 @@
 # Cabaret CLI
 
-Subcommands
+Subcommands:
 
-- `create`: create a PR
+- `approve`: approve a change
+- `approvers`: change approvers subcommands
+- `create`: create a change
 - `gh`: GitHub subcommands
-- `log`: show a log of actions on a PR
-- `rebase`: update a PR's base branch
+- `land`: land a change
+- `log`: show a log of actions on a change
+- `owners`: change owners subcommands
+- `rebase`: update a change's base
+- `rename`: rename this change
+- `reparent`: reparent this change
 - `review`: mark files as reviewed
+- `todos`: show TODOs for a change
+
+## Approve
+
+Mark a change as approved. The repository settings configure a required number of approvers.
+
+Arguments:
+
+- `--allow-empty`: allow approving an empty change
+- `--allow-owner`: allow approving a change you own
+
+## Approvers
+
+Subcommands:
+
+- `add`: add an approver
+- `remove`: remove an approver
+
+## Create
+
+Creates a new change based on the current change. This can either create a new branch or create a change based on the current branch.
+
+Arguments:
+
+- `change`: (optional) name for the new change
+- `--parent`: (optional) set its parent to some other change (exclusive with child)
+- `--child`: (optional) set its child to some other change (exclusive with parent)
 
 ## GitHub (`fe gh`)
 
 - `pull`: pull PR activity from GitHub
 - `push`: push PR activity to GitHub
+
+## Land
+
+Land a change (if fully reviewed)
+
+## Log
+
+## Owners
+
+Subcommands:
+
+- `add`: add an owner
+- `remove`: remove an owner
+
+## Rebase
+
+Rebase a change onto its parent. Uses `git rebase --onto` internally to avoid conflicts. Requires the base in metadata to be valid.
+
+Arguments:
+
+- `change`: the change to rebase
+- `--allow-invalid-base`: skip `--onto`, used when git history has been messed with outside cabaret
+
+## Rename
+
+Rename a change and its underlying branch atomically.
+
+Arguments:
+
+- `old`: change's old name
+- `new`: change's new name
+
+## Reparent
+
+Update a change's parent branch/change. This is just a metadata/log change, and does not impact code without a subsequent `rebase`.
+
+- `change`: the change to reparent
+- `parent`: the new parent
+
+## Review
+
+Review a change at its current revision
+
+Arguments:
+
+- `change`: the change to review
+- `--revision`: mark as reviewed at a certain revision
+
+## TODOs
+
+Greps for TODOs in the change's diff
+
+Arguments:
+
+- `--for`: show TODOs for another user (defaults to self)
+- `--all`: show TODOs for all users
+
 
 # Iron CLI
 

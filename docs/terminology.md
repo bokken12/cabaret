@@ -12,6 +12,10 @@ What should one call the item which can be reviewed?
 
 People probably come in most familiar with GitHub terminology, although I'm a bit partial to descriptive words like "feature" over acronyms, but some people think of that as being a more precise term which might not include e.g. a bug fix.
 
+Possibly something like a "change" following JJ might be reasonable? Although if it doesn't always line up 1:1 with JJ changes that could be confusing.
+
+Tentative: I'm going to call this a "change" - and in a future JJ backend I think a JJ change would line up 1:1 with a Cabaret change. If this turns out badly, my second choice is "feature".
+
 ## Groups
 
 What should one call a set of people responsible for review?
@@ -20,6 +24,8 @@ What should one call a set of people responsible for review?
 - Iron calls this a "role"
 
 I'm pretty ambivalent here - both seem like good short names, but "team" maybe implies a certain organizational meaning that is not always true.
+
+Tentative: I'm going to call this a "role". If this turns out badly, my second choice is "group".
 
 ## Endorsement
 
@@ -30,6 +36,8 @@ What should one call a successful review?
 - Critique calls this "looks good to me (LGTM)"
 
 To me "approve" seems like the clearest here, although maybe "second" emphasizes a slightly different meaning and I should think if there's a clearer way to have that? Maybe something like "vouch"?
+
+Tentative: I'm going to call this "approve". If this turns out badly, my second choice is "endorse".
 
 ## Requirements
 
@@ -50,8 +58,12 @@ What should one call the final step after approval?
 
 Also fairly happy with any of these, although I think "release" perhaps falsely implies rollout, and "submit" perhaps falsely implies a merge queue.
 
+Tenatative: I'm going to call this "land". If this turns out badly, my second choice is "merge".
+
 ## Comments
 
 What should signify a comment needing to be addressed?
 
 - Iron uses "CR"
+
+honestly I kind of like "TODO"? It's longer, but feels more universally acknowledged - and in general I prefer to avoid acronyms?
