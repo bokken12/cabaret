@@ -1,5 +1,7 @@
 # Cabaret CLI
 
+(planned, source of current truth in `packages/cabaret-cli/cli-reference.md`)
+
 Subcommands:
 
 - `approve`: approve a change
