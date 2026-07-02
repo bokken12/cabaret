@@ -39,7 +39,7 @@ afterEach(async () => {
 /**
  * A throwaway repo on `main` with one empty root commit and the identity
  * `alice@example.com`, isolated from the host's git config. Each repo's clock
- * starts at a fixed epoch and ticks one second per read, so all command
+ * starts at a fixed epoch and ticks one millisecond per read, so all command
  * output is deterministic.
  */
 async function makeRepo(): Promise<TestRepo> {
@@ -54,7 +54,7 @@ async function makeRepo(): Promise<TestRepo> {
   await git("config", "user.email", "alice@example.com");
   await git("commit", "-qm", "root", "--allow-empty");
 
-  let clock = 1748000000;
+  let clock = 1748000000000;
   const cabaret = async (...argv: string[]) => {
     const captured = { stdout: "", stderr: "" };
     const capture = (stream: "stdout" | "stderr") => ({
@@ -85,7 +85,7 @@ test("reparent then log round-trips a set-parent entry", async () => {
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "feature")).toEqual({
-    stdout: "1748000000 alice@example.com set-parent main\n",
+    stdout: "1748000000000 alice@example.com set-parent main\n",
     stderr: "",
     exitCode: 0,
   });
@@ -99,8 +99,8 @@ test("reparent appends to an existing log", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "1748000000 alice@example.com set-parent main
-    1748000001 alice@example.com set-parent feature/base
+      "stdout": "1748000000000 alice@example.com set-parent main
+    1748000000001 alice@example.com set-parent feature/base
     ",
     }
   `);
@@ -110,7 +110,7 @@ test("log defaults to the change of the checked-out branch", async () => {
   const repo = await makeRepo();
   await repo.cabaret("reparent", "main", "trunk");
   expect(await repo.cabaret("log")).toEqual({
-    stdout: "1748000000 alice@example.com set-parent trunk\n",
+    stdout: "1748000000000 alice@example.com set-parent trunk\n",
     stderr: "",
     exitCode: 0,
   });

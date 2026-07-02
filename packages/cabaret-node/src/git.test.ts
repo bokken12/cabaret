@@ -49,7 +49,7 @@ test("a change with no log ref has the empty log", async () => {
 });
 
 test("readLog returns the log file's contents verbatim", async () => {
-  const content = '1748000000 alice set-base 0123abcd\n1748000060 bob comment "looks wrong?"\n';
+  const content = '1748000000000 alice set-base 0123abcd\n1748000060000 bob comment "looks wrong?"\n';
   await writeFile(join(repo, "log"), content);
   await git("add", "log");
   const tree = await git("write-tree");

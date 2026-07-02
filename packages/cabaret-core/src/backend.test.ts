@@ -45,13 +45,13 @@ test("rejects malformed ref names", () => {
 });
 
 test("formatLogEntry renders one space-separated line", () => {
-  expect(formatLogEntry({ timestamp: 1748000000, user: "alice@example.com", action: "set-parent main" })).toBe(
-    "1748000000 alice@example.com set-parent main\n",
+  expect(formatLogEntry({ timestamp: 1748000000000, user: "alice@example.com", action: "set-parent main" })).toBe(
+    "1748000000000 alice@example.com set-parent main\n",
   );
 });
 
 test("formatLogEntry rejects entries that would corrupt the line format", () => {
-  const entry = { timestamp: 1748000060, user: "bob@example.com", action: 'comment "fine"' };
+  const entry = { timestamp: 1748000060000, user: "bob@example.com", action: 'comment "fine"' };
   for (const bad of [
     { ...entry, timestamp: 0.5 },
     { ...entry, user: "" },

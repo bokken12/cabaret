@@ -30,7 +30,7 @@ export function parseRefName(raw: string): RefName {
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
-  /** Unix timestamp (seconds) at which the entry was created. */
+  /** Unix timestamp (milliseconds) at which the entry was created. */
   readonly timestamp: number;
   /** Who wrote the entry. */
   readonly user: string;

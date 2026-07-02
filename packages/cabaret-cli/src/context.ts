@@ -10,7 +10,7 @@ export interface LocalContext extends CommandContext {
   readonly process: StricliProcess;
   /** Open the `Backend` for the repository containing the working directory. */
   readonly backend: () => Promise<Backend>;
-  /** The current time as a unix timestamp in seconds. */
+  /** The current time as a unix timestamp in milliseconds. */
   readonly now: () => number;
 }
 
@@ -22,6 +22,6 @@ export function buildContext(process: NodeJS.Process): LocalContext {
     // reach the runtime.
     process: process as StricliProcess,
     backend: () => GitBackend.open(process.cwd()),
-    now: () => Math.floor(Date.now() / 1000),
+    now: () => Date.now(),
   };
 }
