@@ -48,6 +48,11 @@ Arguments:
 - `pull`: pull PR activity from GitHub
 - `push`: push PR activity to GitHub
 
+## GitLab (`fe glab`)
+
+- `pull`: pull MR activity from GitLab
+- `push`: push MR activity to GitLab
+
 ## Land
 
 Land a change (if fully reviewed)

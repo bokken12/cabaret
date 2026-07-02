@@ -8,7 +8,7 @@ Each log entry consists of
 - `user` who wrote the entry
 - `action` taken by the entry
 
-Where the `action` may be any of
+Where the `action` may be any of (incomplete)
 
 - `set-base` to `ref`
 - `set-parent` to `ref`
