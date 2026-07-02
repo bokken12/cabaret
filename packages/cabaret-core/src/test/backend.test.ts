@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatLogEntry, parseCommitHash, parseRefName } from "./index.js";
+import { formatLogEntry, parseCommitHash, parseRefName } from "../index.js";
 
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
 const SHA256 = SHA1 + SHA1.slice(0, 24);

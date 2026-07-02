@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseRefName } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { GitBackend } from "./index.js";
+import { GitBackend } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 

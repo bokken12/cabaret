@@ -6,8 +6,8 @@ import { promisify } from "node:util";
 import { run } from "@stricli/core";
 import { GitBackend } from "cabaret-node";
 import { onTestFinished } from "vitest";
-import { app } from "../app.js";
-import type { LocalContext } from "../context.js";
+import { app } from "../../app.js";
+import type { LocalContext } from "../../context.js";
 
 const execFileAsync = promisify(execFile);
 
