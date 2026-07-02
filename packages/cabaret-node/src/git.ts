@@ -14,8 +14,8 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
 }
 
 /**
- * Where a change's log lives (see docs/state.md): a ref mirroring the change's
- * branch name, whose tree holds the log text in a single file.
+ * Where a change's log lives: a ref mirroring the change's branch name, whose
+ * tree holds the log text in a single file.
  */
 function logRef(change: RefName): string {
   return `refs/cabaret/log/${change}`;

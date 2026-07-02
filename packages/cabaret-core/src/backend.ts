@@ -38,8 +38,8 @@ export interface Backend {
 
   /**
    * The raw text of `change`'s log. A change whose log ref does not exist yet
-   * has the empty log (see docs/state.md); no other parsing or validation is
-   * performed here.
+   * has the empty log, so no initialization step is needed; no other parsing
+   * or validation is performed here.
    */
   readLog(change: RefName): Promise<string>;
 }
