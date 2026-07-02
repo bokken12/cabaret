@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseCommitHash, parseRefName } from "./index.js";
+import { formatLogEntry, parseCommitHash, parseRefName } from "../index.js";
 
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
 const SHA256 = SHA1 + SHA1.slice(0, 24);
@@ -41,5 +41,24 @@ test("rejects malformed ref names", () => {
     "line\nbreak",
   ]) {
     expect(() => parseRefName(bad)).toThrow("not a valid ref name");
+  }
+});
+
+test("formatLogEntry renders one space-separated line", () => {
+  expect(formatLogEntry({ timestamp: 1748000000000, user: "alice@example.com", action: "set-parent main" })).toBe(
+    "1748000000000 alice@example.com set-parent main\n",
+  );
+});
+
+test("formatLogEntry rejects entries that would corrupt the line format", () => {
+  const entry = { timestamp: 1748000060000, user: "bob@example.com", action: 'comment "fine"' };
+  for (const bad of [
+    { ...entry, timestamp: 0.5 },
+    { ...entry, user: "" },
+    { ...entry, user: "bob smith" },
+    { ...entry, action: "" },
+    { ...entry, action: "line\nbreak" },
+  ]) {
+    expect(() => formatLogEntry(bad)).toThrow("malformed log entry");
   }
 });

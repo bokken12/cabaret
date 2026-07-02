@@ -1,6 +1,6 @@
 import { type Application, type CommandContext, generateHelpTextForAllCommands } from "@stricli/core";
 import { expect, test } from "vitest";
-import { app } from "./app.js";
+import { app } from "../app.js";
 
 const HEADER =
   "# Cabaret CLI Reference\n\n" +
@@ -19,5 +19,5 @@ function renderReference(): string {
 // Snapshots the CLI surface to a committed file so the command tree evolves
 // through reviewable diffs.
 test("CLI reference matches cli-reference.md", async () => {
-  await expect(renderReference()).toMatchFileSnapshot("../cli-reference.md");
+  await expect(renderReference()).toMatchFileSnapshot("../../cli-reference.md");
 });

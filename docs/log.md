@@ -4,7 +4,7 @@ The source of truth for each change is its log. The log is append-only, and comp
 
 Each log entry consists of
 
-- `timestamp` when the entry was created
+- `timestamp` (unix milliseconds) when the entry was created
 - `user` who wrote the entry
 - `action` taken by the entry
 
