@@ -59,6 +59,12 @@ Land a change (if fully reviewed)
 
 ## Log
 
+Dump a change's log verbatim (see `log.md`). A change with no log ref yet has the empty log, so nothing is printed.
+
+Arguments:
+
+- `change`: (optional) the change to inspect (defaults to the current change)
+
 ## Owners
 
 Subcommands:

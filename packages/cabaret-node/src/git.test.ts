@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { parseRefName } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { GitBackend } from "./index.js";
 
@@ -40,6 +41,31 @@ afterAll(async () => {
 test("reports the current working branch", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.currentBranch()).toBe("feature");
+});
+
+test("a change with no log ref has the empty log", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.readLog(parseRefName("no-log-yet"))).toBe("");
+});
+
+test("readLog returns the log file's contents verbatim", async () => {
+  const content = '1748000000 alice set-base 0123abcd\n1748000060 bob comment "looks wrong?"\n';
+  await writeFile(join(repo, "log"), content);
+  await git("add", "log");
+  const tree = await git("write-tree");
+  const commit = await git("commit-tree", tree, "-m", "cabaret log");
+  await git("update-ref", "refs/cabaret/log/feature", commit);
+
+  const backend = await GitBackend.open(repo);
+  expect(await backend.readLog(parseRefName("feature"))).toBe(content);
+});
+
+test("fails fast on a log ref whose tree lacks the log file", async () => {
+  const root = await git("rev-list", "--max-parents=0", "HEAD");
+  await git("update-ref", "refs/cabaret/log/malformed", root);
+
+  const backend = await GitBackend.open(repo);
+  await expect(backend.readLog(parseRefName("malformed"))).rejects.toThrow(/git cat-file/);
 });
 
 test("fails fast on detached HEAD with the command and stderr in the error", async () => {
