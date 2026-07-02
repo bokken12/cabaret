@@ -1,5 +1,5 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
-import { VERSION } from "cabaret-core";
+import { parseRefName, type RefName, VERSION } from "cabaret-core";
 import type { LocalContext } from "./context.js";
 
 /**
@@ -156,14 +156,15 @@ const log = buildCommand({
         {
           brief: "change to inspect (defaults to current)",
           placeholder: "change",
-          parse: String,
+          parse: parseRefName,
           optional: true,
         },
       ],
     },
   },
-  func(this: LocalContext, _flags: Record<never, never>, change?: string) {
-    announce(this, "log", { change });
+  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+    const backend = await this.backend();
+    this.process.stdout.write(await backend.readLog(change ?? (await backend.currentBranch())));
   },
 });
 

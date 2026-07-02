@@ -35,4 +35,11 @@ export function parseRefName(raw: string): RefName {
 export interface Backend {
   /** The name of the branch checked out in the working tree. */
   currentBranch(): Promise<RefName>;
+
+  /**
+   * The raw text of `change`'s log. A change whose log ref does not exist yet
+   * has the empty log, so no initialization step is needed; no other parsing
+   * or validation is performed here.
+   */
+  readLog(change: RefName): Promise<string>;
 }
