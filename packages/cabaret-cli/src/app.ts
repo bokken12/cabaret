@@ -250,13 +250,19 @@ const reparent = buildCommand({
     positional: {
       kind: "tuple",
       parameters: [
-        { brief: "change to reparent", placeholder: "change", parse: String },
-        { brief: "the new parent", placeholder: "parent", parse: String },
+        { brief: "change to reparent", placeholder: "change", parse: parseRefName },
+        { brief: "the new parent", placeholder: "parent", parse: parseRefName },
       ],
     },
   },
-  func(this: LocalContext, _flags: Record<never, never>, change: string, parent: string) {
-    announce(this, "reparent", { change, parent });
+  // TODO: validate that `change` and `parent` name real changes before logging.
+  async func(this: LocalContext, _flags: Record<never, never>, change: RefName, parent: RefName) {
+    const backend = await this.backend();
+    await backend.appendLog(change, {
+      timestamp: this.now(),
+      user: await backend.currentUser(),
+      action: `set-parent ${parent}`,
+    });
   },
 });
 

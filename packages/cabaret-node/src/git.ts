@@ -1,15 +1,35 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type Backend, parseRefName, type RefName } from "cabaret-core";
+import {
+  type Backend,
+  type CommitHash,
+  formatLogEntry,
+  type LogEntry,
+  parseCommitHash,
+  parseRefName,
+  type RefName,
+} from "cabaret-core";
 
 const execFileAsync = promisify(execFile);
 
 /**
- * Run git in `cwd` and return its stdout. On nonzero exit the rejection
- * already names the command and carries stderr in its message.
+ * Run git in `cwd`, feed it `stdin` if given, and return its stdout. On
+ * nonzero exit the rejection already names the command and carries stderr in
+ * its message.
  */
-async function git(cwd: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd });
+async function git(cwd: string, args: readonly string[], stdin?: string): Promise<string> {
+  const pending = execFileAsync("git", args, { cwd });
+  if (stdin !== undefined) {
+    const sink = pending.child.stdin;
+    if (sink == null) {
+      throw new Error("git spawned without stdin");
+    }
+    // Swallow EPIPE from git exiting before draining stdin; the rejection of
+    // `pending` already carries the real failure.
+    sink.on("error", () => {});
+    sink.end(stdin);
+  }
+  const { stdout } = await pending;
   return stdout;
 }
 
@@ -39,9 +59,19 @@ export class GitBackend implements Backend {
     return parseRefName(out.trimEnd());
   }
 
+  async currentUser(): Promise<string> {
+    const out = await git(this.root, ["config", "user.email"]);
+    const email = out.trimEnd();
+    // Log lines are space-separated, so a usable identity is one nonempty word.
+    if (email === "" || /\s/.test(email)) {
+      throw new Error(`git config user.email must be a single nonempty word, got ${JSON.stringify(email)}`);
+    }
+    return email;
+  }
+
   async readLog(change: RefName): Promise<string> {
     const ref = logRef(change);
-    if (!(await this.refExists(ref))) {
+    if ((await this.commitAt(ref)) === undefined) {
       return "";
     }
     // A log ref whose tree lacks the log file is malformed; let git's error
@@ -49,15 +79,34 @@ export class GitBackend implements Backend {
     return git(this.root, ["cat-file", "blob", `${ref}:${LOG_PATH}`]);
   }
 
-  private async refExists(ref: string): Promise<boolean> {
+  async appendLog(change: RefName, entry: LogEntry): Promise<void> {
+    const ref = logRef(change);
+    const old = await this.commitAt(ref);
+    // Read the log pinned at `old` so the content stays consistent with the
+    // compare-and-swap below even if the ref moves concurrently.
+    const log = old === undefined ? "" : await git(this.root, ["cat-file", "blob", `${old}:${LOG_PATH}`]);
+    if (log !== "" && !log.endsWith("\n")) {
+      throw new Error(`malformed log for ${change}: missing trailing newline`);
+    }
+    const blob = await git(this.root, ["hash-object", "-w", "--stdin"], log + formatLogEntry(entry));
+    const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
+    const parents = old === undefined ? [] : ["-p", old];
+    const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", ...parents]);
+    // Compare-and-swap on the old tip so a concurrent append fails fast
+    // instead of silently losing an entry.
+    await git(this.root, ["update-ref", ref, commit.trimEnd(), old ?? ""]);
+  }
+
+  /** The commit `ref` points at, or undefined if `ref` does not exist. */
+  private async commitAt(ref: string): Promise<CommitHash | undefined> {
     try {
-      await git(this.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
-      return true;
+      const out = await git(this.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+      return parseCommitHash(out.trimEnd());
     } catch (error) {
       // With --quiet, exit code 1 means exactly "no such ref"; anything else
       // (e.g. not a repository) is a real failure.
       if ((error as { code?: unknown }).code === 1) {
-        return false;
+        return undefined;
       }
       throw error;
     }
