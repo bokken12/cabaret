@@ -4,6 +4,7 @@ import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { run } from "@stricli/core";
+import { timestampMs } from "cabaret-core";
 import { GitBackend } from "cabaret-node";
 import { onTestFinished } from "vitest";
 import { app } from "../../app.js";
@@ -62,7 +63,7 @@ export async function makeRepo(): Promise<TestRepo> {
     const context: LocalContext = {
       process: proc,
       backend: () => GitBackend.open(dir),
-      now: () => clock++,
+      now: () => timestampMs(clock++),
     };
     await run(app, argv, context);
     return { ...captured, exitCode: proc.exitCode ?? 0 };

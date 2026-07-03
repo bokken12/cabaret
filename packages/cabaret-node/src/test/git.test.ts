@@ -3,7 +3,15 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { changeBase, type LogAction, type LogEntry, parseCommitHash, parseRefName, userName } from "cabaret-core";
+import {
+  changeBase,
+  type LogAction,
+  type LogEntry,
+  parseCommitHash,
+  parseRefName,
+  timestampMs,
+  userName,
+} from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { GitBackend } from "../index.js";
 
@@ -84,7 +92,7 @@ test("changeBase is the last revision shared with the change's parent", async ()
   await git("update-ref", "refs/heads/trunk", trunk);
   await backend.appendLog(parseRefName("gadget"), [
     {
-      timestamp: 1748000000000,
+      timestamp: timestampMs(1748000000000),
       user: userName("alice@example.com"),
       action: { kind: "set-parent", parent: parseRefName("trunk") },
     },
@@ -105,7 +113,7 @@ async function plumbCommit(message: string, ...parents: string[]): Promise<strin
 }
 
 function logEntry(timestamp: number, action: LogAction): LogEntry {
-  return { timestamp, user: userName("alice@example.com"), action };
+  return { timestamp: timestampMs(timestamp), user: userName("alice@example.com"), action };
 }
 
 /** Point branch `change` (created at `tip`) at parent branch `parent` with stored base `base`. */

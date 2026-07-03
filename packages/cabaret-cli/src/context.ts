@@ -1,5 +1,5 @@
 import type { CommandContext, StricliProcess } from "@stricli/core";
-import type { Backend } from "cabaret-core";
+import { type Backend, type TimestampMs, timestampMs } from "cabaret-core";
 import { GitBackend } from "cabaret-node";
 
 /**
@@ -10,8 +10,8 @@ export interface LocalContext extends CommandContext {
   readonly process: StricliProcess;
   /** Open the `Backend` for the repository containing the working directory. */
   readonly backend: () => Promise<Backend>;
-  /** The current time as a unix timestamp in milliseconds. */
-  readonly now: () => number;
+  /** The current time. */
+  readonly now: () => TimestampMs;
 }
 
 export function buildContext(process: NodeJS.Process): LocalContext {
@@ -22,6 +22,6 @@ export function buildContext(process: NodeJS.Process): LocalContext {
     // reach the runtime.
     process: process as StricliProcess,
     backend: () => GitBackend.open(process.cwd()),
-    now: () => Date.now(),
+    now: () => timestampMs(Date.now()),
   };
 }
