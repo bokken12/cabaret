@@ -50,6 +50,7 @@ export function userName(raw: string): UserName {
 /** An action that can be recorded in a change's log. */
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
+  | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath };
 
@@ -65,6 +66,7 @@ export interface LogEntry {
 
 const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
+  z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
@@ -128,8 +130,24 @@ export interface Backend {
   /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
   resolveCommit(revision: string): Promise<CommitHash>;
 
+  /** The commit branch `branch` points at, or undefined if it does not exist. */
+  branchTip(branch: RefName): Promise<CommitHash | undefined>;
+
+  /** Create branch `name` at `commit`, failing if the branch already exists. */
+  createBranch(name: RefName, commit: CommitHash): Promise<void>;
+
   /** The last revision shared between branches `a` and `b`, as `git merge-base`. */
   mergeBase(a: RefName, b: RefName): Promise<CommitHash>;
+
+  /** Whether `ancestor` is reachable from `descendant`, as `git merge-base --is-ancestor`. */
+  isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean>;
+
+  /**
+   * Rebase branch `change` onto `onto`, replaying only the commits after
+   * `from`, as `git rebase --onto`. Checks out `change` as a side effect. On
+   * conflict the rebase is left in progress for the user to resolve with git.
+   */
+  rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void>;
 
   /** The `git diff` of `file` from commit `base` to commit `tip`. */
   diffFile(base: CommitHash, tip: CommitHash, file: FilePath): Promise<string>;
@@ -161,6 +179,23 @@ export function currentParent(entries: readonly LogEntry[]): RefName | undefined
   return parent;
 }
 
+/**
+ * The base recorded by the `set-base` entry with the greatest timestamp, if
+ * any. Union-merged logs interleave concurrent entries in arbitrary order, so
+ * the timestamp, not log position, decides which entry is current.
+ */
+export function currentBase(entries: readonly LogEntry[]): CommitHash | undefined {
+  let base: CommitHash | undefined;
+  let latest = -1;
+  for (const { timestamp, action } of entries) {
+    if (action.kind === "set-base" && timestamp >= latest) {
+      latest = timestamp;
+      base = action.base;
+    }
+  }
+  return base;
+}
+
 /** The endpoints of a diff a reviewer has reviewed. */
 export interface ReviewedDiff {
   readonly base: CommitHash;
@@ -176,7 +211,7 @@ export interface ReviewedDiff {
 export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff> {
   const latest = new Map<FilePath, { timestamp: number; reviewed?: ReviewedDiff }>();
   for (const { timestamp, user: author, action } of entries) {
-    if (author !== user || action.kind === "set-parent") {
+    if (author !== user || (action.kind !== "review" && action.kind !== "forget")) {
       continue;
     }
     const prev = latest.get(action.file);
@@ -198,18 +233,48 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
 }
 
 /**
- * The base of `change`: the revision its diff is computed against, derived as
- * a rebase would derive it — the last revision shared with the parent.
- * `entries` must be `change`'s log; taking it explicitly lets callers derive
- * base and brain from one snapshot of the log.
+ * The base of `change`: the revision its diff is computed against. `entries`
+ * must be `change`'s log; taking it explicitly lets callers derive base and
+ * brain from one snapshot of the log.
  *
- * TODO: honor a `set-base` log action once rebase records one, so the base
- * stays valid when the parent has itself moved on.
+ * A change is its base plus its own commits, so the base is always an
+ * ancestor of the change's tip. Two candidates satisfy that invariant and
+ * each covers the other's blind spot, so we take whichever reaches further
+ * into the change's history:
+ *
+ * - The stored base (the log's latest `set-base`) goes stale when the change
+ *   is rewritten outside Cabaret: its commits leave the change's history, so
+ *   it stops being an ancestor of the tip and is discarded.
+ * - The derived base (`merge-base` with the parent) goes stale when the
+ *   parent is rewritten while the change is not: it slides back to where the
+ *   old and new parent histories diverge, and the stored base — recording
+ *   what the change was actually built on — wins as the deeper candidate.
  */
 export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
   const parent = currentParent(entries);
   if (parent === undefined) {
     throw new Error(`change has no parent: ${JSON.stringify(change)}`);
   }
-  return backend.mergeBase(parent, change);
+  const derived = await backend.mergeBase(parent, change);
+  const stored = currentBase(entries);
+  if (stored === undefined || stored === derived) {
+    return derived;
+  }
+  const tip = await backend.resolveCommit(`refs/heads/${change}`);
+  if (!(await backend.isAncestor(stored, tip))) {
+    return derived;
+  }
+  if (await backend.isAncestor(derived, stored)) {
+    return stored;
+  }
+  if (await backend.isAncestor(stored, derived)) {
+    return derived;
+  }
+  // Both are ancestors of the tip but on unrelated lines (the change merged
+  // history the stored base cannot see). No principled winner; make the user
+  // declare one by rebasing.
+  throw new Error(
+    `base of ${JSON.stringify(change)} is ambiguous: stored base ${stored} and ` +
+      `merge-base ${derived} with parent ${JSON.stringify(parent)} are unrelated; rebase to resolve`,
+  );
 }

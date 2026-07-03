@@ -100,10 +100,39 @@ export class GitBackend implements Backend {
     return await git(this.root, ["diff", base, tip, "--", `:(literal)${file}`]);
   }
 
+  async branchTip(branch: RefName): Promise<CommitHash | undefined> {
+    return this.commitAt(parseRefName(`refs/heads/${branch}`));
+  }
+
+  async createBranch(name: RefName, commit: CommitHash): Promise<void> {
+    // The empty old-value makes update-ref fail if the branch already exists.
+    await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);
+  }
+
   async mergeBase(a: RefName, b: RefName): Promise<CommitHash> {
     // Pin to the branch namespace so a same-named tag cannot shadow either side.
     const out = await git(this.root, ["merge-base", `refs/heads/${a}`, `refs/heads/${b}`]);
     return parseCommitHash(out.trimEnd());
+  }
+
+  async isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean> {
+    try {
+      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch (error) {
+      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
+      // commit pruned by gc) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void> {
+    // --end-of-options keeps a change name that starts with `-` from being
+    // parsed as a flag; `onto` and `from` are hashes, so they need no guard.
+    await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
   }
 
   async readLog(change: RefName): Promise<readonly LogEntry[]> {

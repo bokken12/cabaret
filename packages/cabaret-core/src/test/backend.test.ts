@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import {
   brain,
   type CommitHash,
+  currentBase,
   currentParent,
   type FilePath,
   formatLogEntry,
@@ -110,6 +111,16 @@ test("formatLogEntry renders review and forget actions", () => {
   ).toBe('{"timestamp":1748000000002,"user":"carol@example.com","action":{"kind":"forget","file":"docs/log.md"}}\n');
 });
 
+test("formatLogEntry renders set-base actions", () => {
+  expect(
+    formatLogEntry({
+      timestamp: 1748000000003,
+      user: userName("dave@example.com"),
+      action: { kind: "set-base", base: parseCommitHash(OTHER_SHA1) },
+    }),
+  ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
+});
+
 test("formatLogEntry rejects invalid timestamps and users", () => {
   const entry = {
     timestamp: 1748000060000,
@@ -153,6 +164,11 @@ test("a formatted log parses back to the original entries", () => {
       user: userName("bob@example.com"),
       action: { kind: "forget", file: parseFilePath("README.md") },
     },
+    {
+      timestamp: 1748000240000,
+      user: userName("dave@example.com"),
+      action: { kind: "set-base", base: parseCommitHash(SHA256) },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -179,6 +195,8 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "review", file: "a.ts", base: SHA1, tip: "HEAD" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "review", file: "a.ts", tip: SHA1 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-base", base: "main" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-base" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -207,6 +225,28 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
   ).toBe("newest");
 });
 
+test("currentBase takes the set-base with the greatest timestamp, regardless of order", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp,
+    user: userName("alice@example.com"),
+    action,
+  });
+  expect(currentBase([])).toBeUndefined();
+  expect(currentBase([entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toBeUndefined();
+  expect(
+    currentBase([
+      entry(9, { kind: "set-base", base: parseCommitHash(SHA256) }),
+      entry(3, { kind: "set-base", base: parseCommitHash(SHA1) }),
+      entry(12, {
+        kind: "review",
+        file: parseFilePath("a.ts"),
+        base: parseCommitHash(OTHER_SHA1),
+        tip: parseCommitHash(SHA1),
+      }),
+    ]),
+  ).toBe(SHA256);
+});
+
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
   const alice = userName("alice@example.com");
   const bob = userName("bob@example.com");
@@ -226,6 +266,7 @@ test("brain keeps each file's latest review per user and honors forgets by times
     at(3, alice, review("c.ts", SHA1, SHA1)),
     at(8, bob, { kind: "forget", file: parseFilePath("a.ts") }),
     at(5, alice, { kind: "set-parent", parent: parseRefName("main") }),
+    at(10, alice, { kind: "set-base", base: parseCommitHash(SHA256) }),
     // Equal timestamps: the entry later in the log wins.
     at(6, alice, review("d.ts", SHA1, OTHER_SHA1)),
     at(6, alice, { kind: "forget", file: parseFilePath("d.ts") }),
@@ -269,6 +310,7 @@ function commitHashes(): fc.Arbitrary<CommitHash> {
 function logActions(): fc.Arbitrary<LogAction> {
   return fc.oneof(
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
+    fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
   );
