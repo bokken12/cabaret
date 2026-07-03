@@ -89,12 +89,13 @@ test("changeBase is the last revision shared with the change's parent", async ()
       action: { kind: "set-parent", parent: parseRefName("trunk") },
     },
   ]);
-  expect(await changeBase(backend, parseRefName("gadget"))).toBe(root);
+  const entries = await backend.readLog(parseRefName("gadget"));
+  expect(await changeBase(backend, parseRefName("gadget"), entries)).toBe(root);
 });
 
 test("changeBase fails on a change with no parent", async () => {
   const backend = await GitBackend.open(repo);
-  await expect(changeBase(backend, parseRefName("orphan"))).rejects.toThrow('change has no parent: "orphan"');
+  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change has no parent: "orphan"');
 });
 
 test("fails fast on detached HEAD with the command and stderr in the error", async () => {

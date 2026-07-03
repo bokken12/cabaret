@@ -59,6 +59,22 @@ FLAGS
 ARGUMENTS
   [change]  name for the new change
 
+## cabaret diff
+
+USAGE
+  cabaret diff [--change value] [--for value] <file>
+  cabaret diff --help
+
+Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, or the diff from the previously reviewed tip when the base is unchanged.
+
+FLAGS
+     [--change]  Change to diff (defaults to current)
+     [--for]     Show the diff for another user (defaults to self)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  file  file to diff
+
 ## cabaret forget
 
 USAGE

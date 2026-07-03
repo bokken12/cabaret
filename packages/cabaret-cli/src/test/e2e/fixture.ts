@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { run } from "@stricli/core";
 import { GitBackend } from "cabaret-node";
@@ -25,6 +25,8 @@ export interface Invocation {
 
 export interface TestRepo {
   git(...args: string[]): Promise<string>;
+  /** Write `content` to `path` in the working tree, creating directories as needed. */
+  write(path: string, content: string): Promise<void>;
   /** Run `cabaret <argv>` against this repo in-process, capturing all output. */
   cabaret(...argv: string[]): Promise<Invocation>;
 }
@@ -66,5 +68,11 @@ export async function makeRepo(): Promise<TestRepo> {
     return { ...captured, exitCode: proc.exitCode ?? 0 };
   };
 
-  return { git, cabaret };
+  const write = async (path: string, content: string) => {
+    const full = join(dir, path);
+    await mkdir(dirname(full), { recursive: true });
+    await writeFile(full, content);
+  };
+
+  return { git, write, cabaret };
 }

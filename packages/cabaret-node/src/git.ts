@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import {
   type Backend,
   type CommitHash,
+  type FilePath,
   formatLogEntry,
   type LogEntry,
   parseCommitHash,
@@ -21,7 +22,8 @@ const execFileAsync = promisify(execFile);
  * its message.
  */
 async function git(cwd: string, args: readonly string[], stdin?: string): Promise<string> {
-  const pending = execFileAsync("git", args, { cwd });
+  // Diffs can exceed Node's default 1 MiB maxBuffer.
+  const pending = execFileAsync("git", args, { cwd, maxBuffer: 1024 ** 3 });
   if (stdin !== undefined) {
     const sink = pending.child.stdin;
     if (sink == null) {
@@ -91,6 +93,11 @@ export class GitBackend implements Backend {
       }
       throw error;
     }
+  }
+
+  async diffFile(base: CommitHash, tip: CommitHash, file: FilePath): Promise<string> {
+    // :(literal) disables pathspec globbing so names like `a/[b]/c` match themselves.
+    return await git(this.root, ["diff", base, tip, "--", `:(literal)${file}`]);
   }
 
   async mergeBase(a: RefName, b: RefName): Promise<CommitHash> {
