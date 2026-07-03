@@ -1,0 +1,41 @@
+{
+  "name": "patdiff",
+  "version": "0.1.0",
+  "description": "Patience diffing in TypeScript, ported from Jane Street's OCaml patdiff",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/lib/patdiff.d.ts",
+      "default": "./dist/lib/patdiff.js"
+    },
+    "./kernel": {
+      "types": "./dist/kernel/patdiff-kernel.d.ts",
+      "default": "./dist/kernel/patdiff-kernel.js"
+    },
+    "./patience-diff": {
+      "types": "./dist/patience-diff/patience-diff.d.ts",
+      "default": "./dist/patience-diff/patience-diff.js"
+    },
+    "./ansi-text": {
+      "types": "./dist/ansi-text/ansi-text.d.ts",
+      "default": "./dist/ansi-text/ansi-text.js"
+    },
+    "./expect-test": {
+      "types": "./dist/expect-test-patdiff/expect-test-patdiff.d.ts",
+      "default": "./dist/expect-test-patdiff/expect-test-patdiff.js"
+    }
+  },
+  "bin": {
+    "patdiff": "./dist/bin/main.js",
+    "patdiff-git-wrapper": "./dist/bin/patdiff-git-wrapper"
+  },
+  "scripts": {
+    "build": "tsc -b && node scripts/postbuild.mjs"
+  },
+  "devDependencies": {
+    "fast-check": "^4.8.0",
+    "tsx": "^4.19.0"
+  }
+}

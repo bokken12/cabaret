@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/patdiff" },
     { "path": "packages/cabaret-util" },
     { "path": "packages/cabaret-core" },
     { "path": "packages/cabaret-node" },
