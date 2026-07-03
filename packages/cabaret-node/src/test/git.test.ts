@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { parseRefName } from "cabaret-core";
+import { changeBase, parseRefName, userName } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { GitBackend } from "../index.js";
 
@@ -71,6 +71,30 @@ test("fails fast on a log ref whose tree lacks the log file", async () => {
 
   const backend = await GitBackend.open(repo);
   await expect(backend.readLog(parseRefName("malformed"))).rejects.toThrow(/git cat-file/);
+});
+
+test("changeBase is the last revision shared with the change's parent", async () => {
+  const backend = await GitBackend.open(repo);
+  const root = await git("rev-list", "--max-parents=0", "HEAD");
+  const tree = await git("rev-parse", `${root}^{tree}`);
+  // gadget and trunk each advance one commit past their shared root.
+  const gadget = await git("commit-tree", tree, "-p", root, "-m", "gadget work");
+  await git("update-ref", "refs/heads/gadget", gadget);
+  const trunk = await git("commit-tree", tree, "-p", root, "-m", "trunk work");
+  await git("update-ref", "refs/heads/trunk", trunk);
+  await backend.appendLog(parseRefName("gadget"), [
+    {
+      timestamp: 1748000000000,
+      user: userName("alice@example.com"),
+      action: { kind: "set-parent", parent: parseRefName("trunk") },
+    },
+  ]);
+  expect(await changeBase(backend, parseRefName("gadget"))).toBe(root);
+});
+
+test("changeBase fails on a change with no parent", async () => {
+  const backend = await GitBackend.open(repo);
+  await expect(changeBase(backend, parseRefName("orphan"))).rejects.toThrow('change has no parent: "orphan"');
 });
 
 test("fails fast on detached HEAD with the command and stderr in the error", async () => {

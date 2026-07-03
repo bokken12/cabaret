@@ -7,6 +7,7 @@ Subcommands:
 - `approve`: approve a change
 - `approvers`: change approvers subcommands
 - `create`: create a change
+- `forget`: mark files as needing review again
 - `gh`: GitHub subcommands
 - `land`: land a change
 - `log`: show a log of actions on a change
@@ -42,6 +43,15 @@ Arguments:
 - `change`: (optional) name for the new change
 - `--parent`: (optional) set its parent to some other change (exclusive with child)
 - `--child`: (optional) set its child to some other change (exclusive with parent)
+
+## Forget
+
+Forget files of a change, so they need review again. Appends one `forget` entry per file to the change's log.
+
+Arguments:
+
+- `file...`: files to forget
+- `--change`: (optional) the change to forget in (defaults to the current change)
 
 ## GitHub (`fe gh`)
 
@@ -99,12 +109,13 @@ Update a change's parent branch/change. This is just a metadata/log change, and 
 
 ## Review
 
-Review a change at its current revision
+Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
 
 Arguments:
 
-- `change`: the change to review
-- `--revision`: mark as reviewed at a certain revision
+- `file...`: files to mark as reviewed
+- `--change`: (optional) the change to review (defaults to the current change)
+- `--tip`: (optional) mark as reviewed at this tip revision (defaults to the change's tip)
 
 ## TODOs
 

@@ -71,6 +71,34 @@ export class GitBackend implements Backend {
     return userName(email);
   }
 
+  async resolveCommit(revision: string): Promise<CommitHash> {
+    try {
+      // --end-of-options keeps a revision that starts with `-` from being
+      // parsed as a flag.
+      const out = await git(this.root, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        `${revision}^{commit}`,
+      ]);
+      return parseCommitHash(out.trimEnd());
+    } catch (error) {
+      // With --quiet, exit code 1 means exactly "no such revision"; anything
+      // else (e.g. not a repository) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        throw new Error(`unknown revision: ${JSON.stringify(revision)}`);
+      }
+      throw error;
+    }
+  }
+
+  async mergeBase(a: RefName, b: RefName): Promise<CommitHash> {
+    // Pin to the branch namespace so a same-named tag cannot shadow either side.
+    const out = await git(this.root, ["merge-base", `refs/heads/${a}`, `refs/heads/${b}`]);
+    return parseCommitHash(out.trimEnd());
+  }
+
   async readLog(change: RefName): Promise<readonly LogEntry[]> {
     const ref = logRef(change);
     if ((await this.commitAt(ref)) === undefined) {
@@ -81,7 +109,10 @@ export class GitBackend implements Backend {
     return parseLog(await git(this.root, ["cat-file", "blob", `${ref}:${LOG_PATH}`]));
   }
 
-  async appendLog(change: RefName, entry: LogEntry): Promise<void> {
+  async appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
     const ref = logRef(change);
     const old = await this.commitAt(ref);
     // Read the log pinned at `old` so the content stays consistent with the
@@ -90,7 +121,7 @@ export class GitBackend implements Backend {
     if (log !== "" && !log.endsWith("\n")) {
       throw new Error(`malformed log for ${change}: missing trailing newline`);
     }
-    const blob = await git(this.root, ["hash-object", "-w", "--stdin"], log + formatLogEntry(entry));
+    const blob = await git(this.root, ["hash-object", "-w", "--stdin"], log + entries.map(formatLogEntry).join(""));
     const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
     const parents = old === undefined ? [] : ["-p", old];
     const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", ...parents]);

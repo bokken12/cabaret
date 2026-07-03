@@ -2,9 +2,14 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
+  type CommitHash,
+  currentParent,
+  type FilePath,
   formatLogEntry,
+  type LogAction,
   type LogEntry,
   parseCommitHash,
+  parseFilePath,
   parseLog,
   parseRefName,
   type RefName,
@@ -12,6 +17,7 @@ import {
 } from "../index.js";
 
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
+const OTHER_SHA1 = "fedcba9876543210fedcba9876543210fedcba98";
 const SHA256 = SHA1 + SHA1.slice(0, 24);
 
 test("parses full sha1 and sha256 hashes", () => {
@@ -22,6 +28,18 @@ test("parses full sha1 and sha256 hashes", () => {
 test("rejects anything else", () => {
   for (const bad of ["", "HEAD", SHA1.slice(0, 7), SHA1.toUpperCase(), `${SHA1}\n`]) {
     expect(() => parseCommitHash(bad)).toThrow("not a commit hash");
+  }
+});
+
+test("parses ordinary file paths", () => {
+  for (const ok of ["README.md", "src/backend.ts", "with space.txt", "weird~^:?.name"]) {
+    expect(parseFilePath(ok)).toBe(ok);
+  }
+});
+
+test("rejects empty and NUL-containing file paths", () => {
+  for (const bad of ["", "nul\0byte"]) {
+    expect(() => parseFilePath(bad)).toThrow("not a valid file path");
   }
 });
 
@@ -65,6 +83,31 @@ test("formatLogEntry renders one JSON object per line, keys in schema order", ()
   ).toBe('{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n');
 });
 
+test("formatLogEntry renders review and forget actions", () => {
+  expect(
+    formatLogEntry({
+      timestamp: 1748000000001,
+      user: userName("bob@example.com"),
+      // Key order here deliberately differs from the schema's.
+      action: {
+        tip: parseCommitHash(SHA256),
+        base: parseCommitHash(SHA1),
+        file: parseFilePath("src/backend.ts"),
+        kind: "review",
+      },
+    }),
+  ).toBe(
+    `{"timestamp":1748000000001,"user":"bob@example.com","action":{"kind":"review","file":"src/backend.ts","base":"${SHA1}","tip":"${SHA256}"}}\n`,
+  );
+  expect(
+    formatLogEntry({
+      timestamp: 1748000000002,
+      user: userName("carol@example.com"),
+      action: { kind: "forget", file: parseFilePath("docs/log.md") },
+    }),
+  ).toBe('{"timestamp":1748000000002,"user":"carol@example.com","action":{"kind":"forget","file":"docs/log.md"}}\n');
+});
+
 test("formatLogEntry rejects invalid timestamps and users", () => {
   const entry = {
     timestamp: 1748000060000,
@@ -93,6 +136,21 @@ test("a formatted log parses back to the original entries", () => {
       user: userName('Bob Smith <bob@example.com>\n"tricky"'),
       action: { kind: "set-parent", parent: parseRefName("feature/base") },
     },
+    {
+      timestamp: 1748000120000,
+      user: userName("carol@example.com"),
+      action: {
+        kind: "review",
+        file: parseFilePath("src/with space.ts"),
+        base: parseCommitHash(OTHER_SHA1),
+        tip: parseCommitHash(SHA1),
+      },
+    },
+    {
+      timestamp: 1748000180000,
+      user: userName("bob@example.com"),
+      action: { kind: "forget", file: parseFilePath("README.md") },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -116,10 +174,35 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, user: "" }), "malformed log line"],
     [line({ ...entry, action: { kind: "merge", parent: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-parent", parent: "bad..ref" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "review", file: "a.ts", base: SHA1, tip: "HEAD" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "review", file: "a.ts", tip: SHA1 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
   }
+});
+
+test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp,
+    user: userName("alice@example.com"),
+    action,
+  });
+  expect(currentParent([])).toBeUndefined();
+  expect(currentParent([entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toBeUndefined();
+  expect(
+    currentParent([
+      entry(9, { kind: "set-parent", parent: parseRefName("newest") }),
+      entry(3, { kind: "set-parent", parent: parseRefName("oldest") }),
+      entry(12, {
+        kind: "review",
+        file: parseFilePath("a.ts"),
+        base: parseCommitHash(OTHER_SHA1),
+        tip: parseCommitHash(SHA1),
+      }),
+    ]),
+  ).toBe("newest");
 });
 
 function refNames(): fc.Arbitrary<RefName> {
@@ -134,11 +217,30 @@ function refNames(): fc.Arbitrary<RefName> {
   return fc.string({ minLength: 1, maxLength: 30 }).filter(valid).map(parseRefName);
 }
 
+function filePaths(): fc.Arbitrary<FilePath> {
+  return fc
+    .string({ minLength: 1, unit: "grapheme" })
+    .filter((raw) => !raw.includes("\0"))
+    .map(parseFilePath);
+}
+
+function commitHashes(): fc.Arbitrary<CommitHash> {
+  return fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 40, maxLength: 40 }).map(parseCommitHash);
+}
+
+function logActions(): fc.Arbitrary<LogAction> {
+  return fc.oneof(
+    fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
+    fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
+    fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
+  );
+}
+
 function logEntries(): fc.Arbitrary<LogEntry> {
   return fc.record({
     timestamp: fc.maxSafeNat(),
     user: fc.string({ minLength: 1, unit: "grapheme" }).map(userName),
-    action: fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
+    action: logActions(),
   });
 }
 

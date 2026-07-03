@@ -1,5 +1,13 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
-import { formatLogEntry, parseRefName, type RefName, VERSION } from "cabaret-core";
+import {
+  changeBase,
+  type FilePath,
+  formatLogEntry,
+  parseFilePath,
+  parseRefName,
+  type RefName,
+  VERSION,
+} from "cabaret-core";
 import type { LocalContext } from "./context.js";
 
 /**
@@ -96,6 +104,44 @@ const create = buildCommand({
   },
   func(this: LocalContext, flags: { parent?: string; child?: string }, change?: string) {
     announce(this, "create", { change, ...flags });
+  },
+});
+
+const forget = buildCommand({
+  docs: {
+    brief: "Forget files of a change, so they need review again",
+    fullDescription:
+      "Forget files of a change, so they need review again. Appends one " +
+      "`forget` entry per file to the change's log.",
+  },
+  parameters: {
+    positional: {
+      kind: "array",
+      parameter: { brief: "files to forget", placeholder: "file", parse: parseFilePath },
+      minimum: 1,
+    },
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to forget in (defaults to current)",
+        optional: true,
+      },
+    },
+  },
+  // TODO: validate that `change` names a real change before logging.
+  async func(this: LocalContext, flags: { change?: RefName }, ...files: FilePath[]) {
+    const backend = await this.backend();
+    const change = flags.change ?? (await backend.currentBranch());
+    const user = await backend.currentUser();
+    await backend.appendLog(
+      change,
+      files.map((file) => ({
+        timestamp: this.now(),
+        user,
+        action: { kind: "forget" as const, file },
+      })),
+    );
   },
 });
 
@@ -259,32 +305,63 @@ const reparent = buildCommand({
   // TODO: validate that `change` and `parent` name real changes before logging.
   async func(this: LocalContext, _flags: Record<never, never>, change: RefName, parent: RefName) {
     const backend = await this.backend();
-    await backend.appendLog(change, {
-      timestamp: this.now(),
-      user: await backend.currentUser(),
-      action: { kind: "set-parent", parent },
-    });
+    await backend.appendLog(change, [
+      {
+        timestamp: this.now(),
+        user: await backend.currentUser(),
+        action: { kind: "set-parent", parent },
+      },
+    ]);
   },
 });
 
 const review = buildCommand({
-  docs: { brief: "Mark files of a change as reviewed" },
+  docs: {
+    brief: "Mark files of a change as reviewed",
+    fullDescription:
+      "Mark files of a change as reviewed. Appends one `review` entry per file " +
+      "recording the base and tip of the reviewed diff, where the base is the " +
+      "last revision shared with the change's parent.",
+  },
   parameters: {
     positional: {
-      kind: "tuple",
-      parameters: [{ brief: "change to review", placeholder: "change", parse: String }],
+      kind: "array",
+      parameter: { brief: "files to mark as reviewed", placeholder: "file", parse: parseFilePath },
+      minimum: 1,
     },
     flags: {
-      revision: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to review (defaults to current)",
+        optional: true,
+      },
+      tip: {
         kind: "parsed",
         parse: String,
-        brief: "Mark as reviewed at a specific revision",
+        brief: "Mark as reviewed at this tip revision (defaults to the change's tip)",
         optional: true,
       },
     },
   },
-  func(this: LocalContext, flags: { revision?: string }, change: string) {
-    announce(this, "review", { change, ...flags });
+  // TODO: normalize file arguments to repo-relative paths so entries written
+  // from a subdirectory name the same files a diff would.
+  async func(this: LocalContext, flags: { change?: RefName; tip?: string }, ...files: FilePath[]) {
+    const backend = await this.backend();
+    const change = flags.change ?? (await backend.currentBranch());
+    // Pin the default to the branch namespace so a same-named tag cannot
+    // shadow the change's tip.
+    const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
+    const base = await changeBase(backend, change);
+    const user = await backend.currentUser();
+    await backend.appendLog(
+      change,
+      files.map((file) => ({
+        timestamp: this.now(),
+        user,
+        action: { kind: "review" as const, file, base, tip },
+      })),
+    );
   },
 });
 
@@ -318,6 +395,7 @@ const routes = buildRouteMap({
     approve,
     approvers,
     create,
+    forget,
     gh,
     glab,
     land,
