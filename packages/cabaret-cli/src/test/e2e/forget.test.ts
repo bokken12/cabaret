@@ -5,12 +5,15 @@ import { makeRepo } from "./fixture.js";
 test("forget appends a forget entry after a review", async () => {
   const repo = await makeRepo();
   const head = await repo.git("rev-parse", "main");
+  await repo.git("branch", "trunk");
+  await repo.cabaret("reparent", "main", "trunk");
   await repo.cabaret("review", "src/a.ts");
   expect(await repo.cabaret("forget", "src/a.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("log")).toEqual({
     stdout:
-      `{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","revision":"${head}"}}\n` +
-      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${head}","tip":"${head}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
   });

@@ -48,12 +48,9 @@ export function userName(raw: string): UserName {
 }
 
 /** An action that can be recorded in a change's log. */
-// TODO: review state (docs/state.md) is keyed by the (base, tip) pair of the
-// reviewed diff; decide whether `review` must also record the base before the
-// log format has real users.
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
-  | { readonly kind: "review"; readonly file: FilePath; readonly revision: CommitHash }
+  | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath };
 
 /** One action recorded in a change's log. */
@@ -71,7 +68,8 @@ const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
-    revision: z.string().transform(parseCommitHash),
+    base: z.string().transform(parseCommitHash),
+    tip: z.string().transform(parseCommitHash),
   }),
   z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
 ]) satisfies z.ZodType<LogAction>;
@@ -130,6 +128,9 @@ export interface Backend {
   /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
   resolveCommit(revision: string): Promise<CommitHash>;
 
+  /** The last revision shared between branches `a` and `b`, as `git merge-base`. */
+  mergeBase(a: RefName, b: RefName): Promise<CommitHash>;
+
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
@@ -138,4 +139,36 @@ export interface Backend {
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
   appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void>;
+}
+
+/**
+ * The parent set by the `set-parent` entry with the greatest timestamp, if
+ * any. Union-merged logs interleave concurrent entries in arbitrary order, so
+ * the timestamp, not log position, decides which entry is current.
+ */
+export function currentParent(entries: readonly LogEntry[]): RefName | undefined {
+  let parent: RefName | undefined;
+  let latest = -1;
+  for (const { timestamp, action } of entries) {
+    if (action.kind === "set-parent" && timestamp >= latest) {
+      latest = timestamp;
+      parent = action.parent;
+    }
+  }
+  return parent;
+}
+
+/**
+ * The base of `change`: the revision its diff is computed against, derived as
+ * a rebase would derive it — the last revision shared with the parent.
+ *
+ * TODO: honor a `set-base` log action once rebase records one, so the base
+ * stays valid when the parent has itself moved on.
+ */
+export async function changeBase(backend: Backend, change: RefName): Promise<CommitHash> {
+  const parent = currentParent(await backend.readLog(change));
+  if (parent === undefined) {
+    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
+  }
+  return backend.mergeBase(parent, change);
 }

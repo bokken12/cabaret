@@ -1,5 +1,13 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
-import { type FilePath, formatLogEntry, parseFilePath, parseRefName, type RefName, VERSION } from "cabaret-core";
+import {
+  changeBase,
+  type FilePath,
+  formatLogEntry,
+  parseFilePath,
+  parseRefName,
+  type RefName,
+  VERSION,
+} from "cabaret-core";
 import type { LocalContext } from "./context.js";
 
 /**
@@ -311,7 +319,9 @@ const review = buildCommand({
   docs: {
     brief: "Mark files of a change as reviewed",
     fullDescription:
-      "Mark files of a change as reviewed at a revision. Appends one `review` entry per file to the change's log.",
+      "Mark files of a change as reviewed. Appends one `review` entry per file " +
+      "recording the base and tip of the reviewed diff, where the base is the " +
+      "last revision shared with the change's parent.",
   },
   parameters: {
     positional: {
@@ -326,29 +336,30 @@ const review = buildCommand({
         brief: "Change to review (defaults to current)",
         optional: true,
       },
-      revision: {
+      tip: {
         kind: "parsed",
         parse: String,
-        brief: "Mark as reviewed at this revision (defaults to the change's tip)",
+        brief: "Mark as reviewed at this tip revision (defaults to the change's tip)",
         optional: true,
       },
     },
   },
   // TODO: normalize file arguments to repo-relative paths so entries written
   // from a subdirectory name the same files a diff would.
-  async func(this: LocalContext, flags: { change?: RefName; revision?: string }, ...files: FilePath[]) {
+  async func(this: LocalContext, flags: { change?: RefName; tip?: string }, ...files: FilePath[]) {
     const backend = await this.backend();
     const change = flags.change ?? (await backend.currentBranch());
     // Pin the default to the branch namespace so a same-named tag cannot
     // shadow the change's tip.
-    const revision = await backend.resolveCommit(flags.revision ?? `refs/heads/${change}`);
+    const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
+    const base = await changeBase(backend, change);
     const user = await backend.currentUser();
     await backend.appendLog(
       change,
       files.map((file) => ({
         timestamp: this.now(),
         user,
-        action: { kind: "review" as const, file, revision },
+        action: { kind: "review" as const, file, base, tip },
       })),
     );
   },

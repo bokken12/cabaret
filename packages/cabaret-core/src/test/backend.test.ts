@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
   type CommitHash,
+  currentParent,
   type FilePath,
   formatLogEntry,
   type LogAction,
@@ -16,6 +17,7 @@ import {
 } from "../index.js";
 
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
+const OTHER_SHA1 = "fedcba9876543210fedcba9876543210fedcba98";
 const SHA256 = SHA1 + SHA1.slice(0, 24);
 
 test("parses full sha1 and sha256 hashes", () => {
@@ -87,10 +89,15 @@ test("formatLogEntry renders review and forget actions", () => {
       timestamp: 1748000000001,
       user: userName("bob@example.com"),
       // Key order here deliberately differs from the schema's.
-      action: { revision: parseCommitHash(SHA256), file: parseFilePath("src/backend.ts"), kind: "review" },
+      action: {
+        tip: parseCommitHash(SHA256),
+        base: parseCommitHash(SHA1),
+        file: parseFilePath("src/backend.ts"),
+        kind: "review",
+      },
     }),
   ).toBe(
-    `{"timestamp":1748000000001,"user":"bob@example.com","action":{"kind":"review","file":"src/backend.ts","revision":"${SHA256}"}}\n`,
+    `{"timestamp":1748000000001,"user":"bob@example.com","action":{"kind":"review","file":"src/backend.ts","base":"${SHA1}","tip":"${SHA256}"}}\n`,
   );
   expect(
     formatLogEntry({
@@ -132,7 +139,12 @@ test("a formatted log parses back to the original entries", () => {
     {
       timestamp: 1748000120000,
       user: userName("carol@example.com"),
-      action: { kind: "review", file: parseFilePath("src/with space.ts"), revision: parseCommitHash(SHA1) },
+      action: {
+        kind: "review",
+        file: parseFilePath("src/with space.ts"),
+        base: parseCommitHash(OTHER_SHA1),
+        tip: parseCommitHash(SHA1),
+      },
     },
     {
       timestamp: 1748000180000,
@@ -162,13 +174,35 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, user: "" }), "malformed log line"],
     [line({ ...entry, action: { kind: "merge", parent: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-parent", parent: "bad..ref" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "review", file: "a.ts", revision: "HEAD" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "review", file: "a.ts" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "review", file: "a.ts", base: SHA1, tip: "HEAD" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "review", file: "a.ts", tip: SHA1 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
   }
+});
+
+test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp,
+    user: userName("alice@example.com"),
+    action,
+  });
+  expect(currentParent([])).toBeUndefined();
+  expect(currentParent([entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toBeUndefined();
+  expect(
+    currentParent([
+      entry(9, { kind: "set-parent", parent: parseRefName("newest") }),
+      entry(3, { kind: "set-parent", parent: parseRefName("oldest") }),
+      entry(12, {
+        kind: "review",
+        file: parseFilePath("a.ts"),
+        base: parseCommitHash(OTHER_SHA1),
+        tip: parseCommitHash(SHA1),
+      }),
+    ]),
+  ).toBe("newest");
 });
 
 function refNames(): fc.Arbitrary<RefName> {
@@ -197,7 +231,7 @@ function commitHashes(): fc.Arbitrary<CommitHash> {
 function logActions(): fc.Arbitrary<LogAction> {
   return fc.oneof(
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
-    fc.record({ kind: fc.constant("review" as const), file: filePaths(), revision: commitHashes() }),
+    fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
   );
 }

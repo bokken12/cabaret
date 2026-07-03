@@ -219,15 +219,15 @@ ARGUMENTS
 ## cabaret review
 
 USAGE
-  cabaret review [--change value] [--revision value] <file>...
+  cabaret review [--change value] [--tip value] <file>...
   cabaret review --help
 
-Mark files of a change as reviewed at a revision. Appends one `review` entry per file to the change's log.
+Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
 
 FLAGS
-     [--change]    Change to review (defaults to current)
-     [--revision]  Mark as reviewed at this revision (defaults to the change's tip)
-  -h  --help       Print help information and exit
+     [--change]  Change to review (defaults to current)
+     [--tip]     Mark as reviewed at this tip revision (defaults to the change's tip)
+  -h  --help     Print help information and exit
 
 ARGUMENTS
   file...  files to mark as reviewed

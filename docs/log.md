@@ -13,7 +13,7 @@ Where the `action` may be any of (incomplete)
 - `set-base` to `ref`
 - `set-parent` to `ref`
 
-- `review` a `file` at `revision`
+- `review` a `file`, recording the `base` and `tip` of the reviewed diff
     - possibly there should be a mechanism to review all files?
 - `forget` a `file`
     - possibly this could be melded into `review`?

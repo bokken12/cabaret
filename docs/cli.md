@@ -109,13 +109,13 @@ Update a change's parent branch/change. This is just a metadata/log change, and 
 
 ## Review
 
-Mark files of a change as reviewed at a revision. Appends one `review` entry per file to the change's log.
+Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
 
 Arguments:
 
 - `file...`: files to mark as reviewed
 - `--change`: (optional) the change to review (defaults to the current change)
-- `--revision`: (optional) mark as reviewed at this revision (defaults to the change's tip)
+- `--tip`: (optional) mark as reviewed at this tip revision (defaults to the change's tip)
 
 ## TODOs
 
