@@ -1,4 +1,5 @@
 import type { Branded } from "cabaret-util";
+import { z } from "zod";
 
 /** A full (non-abbreviated) git commit hash. Obtain via `parseCommitHash`. */
 export type CommitHash = Branded<string, "CommitHash">;
@@ -39,29 +40,6 @@ export function userName(raw: string): UserName {
 /** An action that can be recorded in a change's log. */
 export type LogAction = { readonly kind: "set-parent"; readonly parent: RefName };
 
-/**
- * Render an action as its log form, e.g. `set-parent main`. Always a single
- * nonempty line: ref names cannot contain whitespace or control characters.
- */
-export function formatLogAction(action: LogAction): string {
-  switch (action.kind) {
-    case "set-parent":
-      return `set-parent ${action.parent}`;
-  }
-}
-
-/** Parse the log form produced by `formatLogAction`. */
-export function parseLogAction(raw: string): LogAction {
-  const space = raw.indexOf(" ");
-  const [kind, rest] = space === -1 ? [raw, ""] : [raw.slice(0, space), raw.slice(space + 1)];
-  switch (kind) {
-    case "set-parent":
-      return { kind, parent: parseRefName(rest) };
-    default:
-      throw new Error(`unknown log action: ${JSON.stringify(raw)}`);
-  }
-}
-
 /** One action recorded in a change's log. */
 export interface LogEntry {
   /** Unix timestamp (milliseconds) at which the entry was created. */
@@ -72,26 +50,37 @@ export interface LogEntry {
   readonly action: LogAction;
 }
 
+const LogActionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
+]) satisfies z.ZodType<LogAction>;
+
 /**
- * Render an entry as its log line. The line is space-separated and starts
- * with a decimal timestamp, so the user must be a single nonempty word and
- * the timestamp a nonnegative safe integer.
+ * The log's wire format: entries are stored as this schema's JSON, one object
+ * per line, keys in shape order. `satisfies` has the compiler verify that the
+ * schema parses to exactly `LogEntry`.
  */
-export function formatLogEntry({ timestamp, user, action }: LogEntry): string {
-  if (!Number.isSafeInteger(timestamp) || timestamp < 0 || user === "" || /\s/.test(user)) {
-    throw new Error(`malformed log entry: ${JSON.stringify({ timestamp, user, action })}`);
-  }
-  return `${timestamp} ${user} ${formatLogAction(action)}\n`;
+const LogEntrySchema = z.object({
+  timestamp: z.int().nonnegative(),
+  user: z.string().min(1).transform(userName),
+  action: LogActionSchema,
+}) satisfies z.ZodType<LogEntry>;
+
+/**
+ * Render an entry as its log line. Re-parsing through the schema validates
+ * the entry and canonicalizes key order; `JSON.stringify` escapes any
+ * newlines, so the result is always a single line.
+ */
+export function formatLogEntry(entry: LogEntry): string {
+  return `${JSON.stringify(LogEntrySchema.parse(entry))}\n`;
 }
 
 /** Parse one log line (without its trailing newline), inverting `formatLogEntry`. */
 export function parseLogEntry(line: string): LogEntry {
-  const [, rawTimestamp, user, action] = /^(\d+) (\S+) (.+)$/.exec(line) ?? [];
-  const timestamp = Number(rawTimestamp);
-  if (user === undefined || action === undefined || !Number.isSafeInteger(timestamp)) {
-    throw new Error(`malformed log line: ${JSON.stringify(line)}`);
+  try {
+    return LogEntrySchema.parse(JSON.parse(line));
+  } catch (cause) {
+    throw new Error(`malformed log line: ${JSON.stringify(line)}`, { cause });
   }
-  return { timestamp, user: userName(user), action: parseLogAction(action) };
 }
 
 /** Parse a whole log: a sequence of newline-terminated `formatLogEntry` lines. */

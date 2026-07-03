@@ -1,5 +1,6 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
+import { ZodError } from "zod";
 import {
   formatLogEntry,
   type LogEntry,
@@ -53,17 +54,18 @@ test("rejects malformed ref names", () => {
   }
 });
 
-test("formatLogEntry renders one space-separated line", () => {
+test("formatLogEntry renders one JSON object per line, keys in schema order", () => {
   expect(
     formatLogEntry({
-      timestamp: 1748000000000,
+      // Key order here deliberately differs from the schema's.
+      action: { parent: parseRefName("main"), kind: "set-parent" },
       user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: parseRefName("main") },
+      timestamp: 1748000000000,
     }),
-  ).toBe("1748000000000 alice@example.com set-parent main\n");
+  ).toBe('{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n');
 });
 
-test("formatLogEntry rejects entries that would corrupt the line format", () => {
+test("formatLogEntry rejects invalid timestamps and users", () => {
   const entry = {
     timestamp: 1748000060000,
     user: userName("bob@example.com"),
@@ -74,9 +76,8 @@ test("formatLogEntry rejects entries that would corrupt the line format", () => 
     { ...entry, timestamp: -1 },
     { ...entry, timestamp: 2 ** 53 },
     { ...entry, user: userName("") },
-    { ...entry, user: userName("bob smith") },
   ]) {
-    expect(() => formatLogEntry(bad)).toThrow("malformed log entry");
+    expect(() => formatLogEntry(bad)).toThrow(ZodError);
   }
 });
 
@@ -89,7 +90,7 @@ test("a formatted log parses back to the original entries", () => {
     },
     {
       timestamp: 1748000060000,
-      user: userName("bob@example.com"),
+      user: userName('Bob Smith <bob@example.com>\n"tricky"'),
       action: { kind: "set-parent", parent: parseRefName("feature/base") },
     },
   ];
@@ -101,13 +102,20 @@ test("the empty log parses to no entries", () => {
 });
 
 test("parseLog rejects malformed logs", () => {
+  const line = (fields: object) => `${JSON.stringify(fields)}\n`;
+  const entry = {
+    timestamp: 1748000000000,
+    user: "alice@example.com",
+    action: { kind: "set-parent", parent: "main" },
+  };
   const cases: [string, string][] = [
-    ["1748000000000 alice@example.com set-parent main", "missing trailing newline"],
+    [JSON.stringify(entry), "missing trailing newline"],
     ["not a log line\n", "malformed log line"],
-    ["1748000000000 alice@example.com\n", "malformed log line"],
-    ["99999999999999999999 alice@example.com set-parent main\n", "malformed log line"],
-    ["1748000000000 alice@example.com merge main\n", "unknown log action"],
-    ["1748000000000 alice@example.com set-parent bad..ref\n", "not a valid ref name"],
+    [line({ timestamp: entry.timestamp, user: entry.user }), "malformed log line"],
+    [line({ ...entry, timestamp: 1e20 }), "malformed log line"],
+    [line({ ...entry, user: "" }), "malformed log line"],
+    [line({ ...entry, action: { kind: "merge", parent: "main" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-parent", parent: "bad..ref" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -129,10 +137,7 @@ function refNames(): fc.Arbitrary<RefName> {
 function logEntries(): fc.Arbitrary<LogEntry> {
   return fc.record({
     timestamp: fc.maxSafeNat(),
-    user: fc
-      .string({ minLength: 1 })
-      .filter((raw) => !/\s/.test(raw))
-      .map(userName),
+    user: fc.string({ minLength: 1, unit: "grapheme" }).map(userName),
     action: fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
   });
 }

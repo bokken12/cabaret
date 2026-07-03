@@ -49,7 +49,9 @@ test("a change with no log ref has the empty log", async () => {
 });
 
 test("readLog parses the log file into entries", async () => {
-  const content = "1748000000000 alice@example.com set-parent main\n1748000060000 bob@example.com set-parent trunk\n";
+  const content =
+    '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+    '{"timestamp":1748000060000,"user":"bob@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n';
   await writeFile(join(repo, "log"), content);
   await git("add", "log");
   const tree = await git("write-tree");
