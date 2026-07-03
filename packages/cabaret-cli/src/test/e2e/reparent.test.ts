@@ -10,7 +10,7 @@ test("reparent then log round-trips a set-parent entry", async () => {
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "feature")).toEqual({
-    stdout: "1748000000000 alice@example.com set-parent main\n",
+    stdout: '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -24,8 +24,8 @@ test("reparent appends to an existing log", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "1748000000000 alice@example.com set-parent main
-    1748000000001 alice@example.com set-parent feature/base
+      "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"feature/base"}}
     ",
     }
   `);
@@ -45,6 +45,6 @@ test("reparent rejects an empty git identity", async () => {
   await repo.git("config", "user.email", "");
   const result = await repo.cabaret("reparent", "main", "trunk");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git config user.email must be a single nonempty word");
+  expect(result.stderr).toContain("git config user.email must be nonempty");
   expect(await repo.cabaret("log", "main")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

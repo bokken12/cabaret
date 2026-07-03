@@ -6,7 +6,7 @@ test("log defaults to the change of the checked-out branch", async () => {
   const repo = await makeRepo();
   await repo.cabaret("reparent", "main", "trunk");
   expect(await repo.cabaret("log")).toEqual({
-    stdout: "1748000000000 alice@example.com set-parent trunk\n",
+    stdout: '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n',
     stderr: "",
     exitCode: 0,
   });

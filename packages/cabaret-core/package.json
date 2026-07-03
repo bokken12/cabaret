@@ -10,7 +10,8 @@
     }
   },
   "dependencies": {
-    "cabaret-util": "workspace:*"
+    "cabaret-util": "workspace:*",
+    "zod": "^4.4.3"
   },
   "scripts": {
     "build": "tsc -b"

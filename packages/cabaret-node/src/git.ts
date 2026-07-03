@@ -65,9 +65,8 @@ export class GitBackend implements Backend {
   async currentUser(): Promise<UserName> {
     const out = await git(this.root, ["config", "user.email"]);
     const email = out.trimEnd();
-    // Log lines are space-separated, so a usable identity is one nonempty word.
-    if (email === "" || /\s/.test(email)) {
-      throw new Error(`git config user.email must be a single nonempty word, got ${JSON.stringify(email)}`);
+    if (email === "") {
+      throw new Error("git config user.email must be nonempty");
     }
     return userName(email);
   }
