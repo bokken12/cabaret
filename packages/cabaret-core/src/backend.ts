@@ -39,6 +39,16 @@ export function parseFilePath(raw: string): FilePath {
   return raw as FilePath;
 }
 
+/** A unix timestamp in milliseconds. Obtain via `timestampMs`. */
+export type TimestampMs = Branded<number, "TimestampMs">;
+
+export function timestampMs(raw: number): TimestampMs {
+  if (!Number.isSafeInteger(raw) || raw < 0) {
+    throw new Error(`not a millisecond timestamp: ${raw}`);
+  }
+  return raw as TimestampMs;
+}
+
 /** A user identity (git `user.email`). Obtain via `userName`. */
 export type UserName = Branded<string, "UserName">;
 
@@ -56,8 +66,8 @@ export type LogAction =
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
-  /** Unix timestamp (milliseconds) at which the entry was created. */
-  readonly timestamp: number;
+  /** When the entry was created. */
+  readonly timestamp: TimestampMs;
   /** Who wrote the entry. */
   readonly user: UserName;
   /** The action taken. */
@@ -82,7 +92,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
  * schema parses to exactly `LogEntry`.
  */
 const LogEntrySchema = z.object({
-  timestamp: z.int().nonnegative(),
+  timestamp: z.number().transform(timestampMs),
   user: z.string().min(1).transform(userName),
   action: LogActionSchema,
 }) satisfies z.ZodType<LogEntry>;
@@ -209,7 +219,7 @@ export interface ReviewedDiff {
  * arbitrary order), and a winning `forget` erases the file's knowledge.
  */
 export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff> {
-  const latest = new Map<FilePath, { timestamp: number; reviewed?: ReviewedDiff }>();
+  const latest = new Map<FilePath, { timestamp: TimestampMs; reviewed?: ReviewedDiff }>();
   for (const { timestamp, user: author, action } of entries) {
     if (author !== user || (action.kind !== "review" && action.kind !== "forget")) {
       continue;

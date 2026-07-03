@@ -15,6 +15,8 @@ import {
   parseLog,
   parseRefName,
   type RefName,
+  type TimestampMs,
+  timestampMs,
   type UserName,
   userName,
 } from "../index.js";
@@ -81,7 +83,7 @@ test("formatLogEntry renders one JSON object per line, keys in schema order", ()
       // Key order here deliberately differs from the schema's.
       action: { parent: parseRefName("main"), kind: "set-parent" },
       user: userName("alice@example.com"),
-      timestamp: 1748000000000,
+      timestamp: timestampMs(1748000000000),
     }),
   ).toBe('{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n');
 });
@@ -89,7 +91,7 @@ test("formatLogEntry renders one JSON object per line, keys in schema order", ()
 test("formatLogEntry renders review and forget actions", () => {
   expect(
     formatLogEntry({
-      timestamp: 1748000000001,
+      timestamp: timestampMs(1748000000001),
       user: userName("bob@example.com"),
       // Key order here deliberately differs from the schema's.
       action: {
@@ -104,7 +106,7 @@ test("formatLogEntry renders review and forget actions", () => {
   );
   expect(
     formatLogEntry({
-      timestamp: 1748000000002,
+      timestamp: timestampMs(1748000000002),
       user: userName("carol@example.com"),
       action: { kind: "forget", file: parseFilePath("docs/log.md") },
     }),
@@ -114,43 +116,45 @@ test("formatLogEntry renders review and forget actions", () => {
 test("formatLogEntry renders set-base actions", () => {
   expect(
     formatLogEntry({
-      timestamp: 1748000000003,
+      timestamp: timestampMs(1748000000003),
       user: userName("dave@example.com"),
       action: { kind: "set-base", base: parseCommitHash(OTHER_SHA1) },
     }),
   ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
 });
 
+test("timestampMs rejects non-integers, negatives, and unsafe integers", () => {
+  for (const bad of [0.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => timestampMs(bad)).toThrow("not a millisecond timestamp");
+  }
+});
+
 test("formatLogEntry rejects invalid timestamps and users", () => {
   const entry = {
-    timestamp: 1748000060000,
+    timestamp: timestampMs(1748000060000),
     user: userName("bob@example.com"),
     action: { kind: "set-parent", parent: parseRefName("feature/base") },
   } as const;
-  for (const bad of [
-    { ...entry, timestamp: 0.5 },
-    { ...entry, timestamp: -1 },
-    { ...entry, timestamp: 2 ** 53 },
-    { ...entry, user: userName("") },
-  ]) {
-    expect(() => formatLogEntry(bad)).toThrow(ZodError);
+  for (const bad of [0.5, -1, 2 ** 53]) {
+    expect(() => formatLogEntry({ ...entry, timestamp: bad as TimestampMs })).toThrow("not a millisecond timestamp");
   }
+  expect(() => formatLogEntry({ ...entry, user: userName("") })).toThrow(ZodError);
 });
 
 test("a formatted log parses back to the original entries", () => {
   const entries: LogEntry[] = [
     {
-      timestamp: 1748000000000,
+      timestamp: timestampMs(1748000000000),
       user: userName("alice@example.com"),
       action: { kind: "set-parent", parent: parseRefName("main") },
     },
     {
-      timestamp: 1748000060000,
+      timestamp: timestampMs(1748000060000),
       user: userName('Bob Smith <bob@example.com>\n"tricky"'),
       action: { kind: "set-parent", parent: parseRefName("feature/base") },
     },
     {
-      timestamp: 1748000120000,
+      timestamp: timestampMs(1748000120000),
       user: userName("carol@example.com"),
       action: {
         kind: "review",
@@ -160,12 +164,12 @@ test("a formatted log parses back to the original entries", () => {
       },
     },
     {
-      timestamp: 1748000180000,
+      timestamp: timestampMs(1748000180000),
       user: userName("bob@example.com"),
       action: { kind: "forget", file: parseFilePath("README.md") },
     },
     {
-      timestamp: 1748000240000,
+      timestamp: timestampMs(1748000240000),
       user: userName("dave@example.com"),
       action: { kind: "set-base", base: parseCommitHash(SHA256) },
     },
@@ -205,7 +209,7 @@ test("parseLog rejects malformed logs", () => {
 
 test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
-    timestamp,
+    timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
@@ -227,7 +231,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
 
 test("currentBase takes the set-base with the greatest timestamp, regardless of order", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
-    timestamp,
+    timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
@@ -250,7 +254,11 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
   const alice = userName("alice@example.com");
   const bob = userName("bob@example.com");
-  const at = (timestamp: number, user: UserName, action: LogAction): LogEntry => ({ timestamp, user, action });
+  const at = (timestamp: number, user: UserName, action: LogAction): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user,
+    action,
+  });
   const review = (file: string, base: string, tip: string): LogAction => ({
     kind: "review",
     file: parseFilePath(file),
@@ -318,7 +326,7 @@ function logActions(): fc.Arbitrary<LogAction> {
 
 function logEntries(): fc.Arbitrary<LogEntry> {
   return fc.record({
-    timestamp: fc.maxSafeNat(),
+    timestamp: fc.maxSafeNat().map(timestampMs),
     user: fc.string({ minLength: 1, unit: "grapheme" }).map(userName),
     action: logActions(),
   });
