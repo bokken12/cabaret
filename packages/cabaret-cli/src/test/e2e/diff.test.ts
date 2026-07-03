@@ -139,12 +139,120 @@ test("diff fails for a file absent from the whole change", async () => {
   expect(result.stderr).toContain("missing.txt exists at neither");
 });
 
-test("diff fails when the base moved since the review (4-way diff)", async () => {
-  const repo = await makeChange("greeting.txt", "hello\n");
-  await repo.cabaret("review", "greeting.txt");
-  await repo.git("branch", "-f", "trunk", "main");
-  const result = await repo.cabaret("diff", "greeting.txt");
+/**
+ * A repo with change `child` stacked on change `parent`: the parent creates
+ * `shared.txt` and `parent.txt`, and the child appends a line to
+ * `shared.txt`. The shared file is long enough that a parent amendment to its
+ * first line and a child edit to its last rebase without conflict. Leaves
+ * HEAD on `child`.
+ */
+async function makeStack(): Promise<TestRepo> {
+  const repo = await makeRepo();
+  await repo.cabaret("create", "parent");
+  await repo.git("checkout", "-q", "parent");
+  await repo.write("shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+  await repo.write("parent.txt", "parent v1\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "parent work");
+  await repo.cabaret("create", "child");
+  await repo.git("checkout", "-q", "child");
+  await repo.write("shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "child work");
+  return repo;
+}
+
+/** Amend `parent`'s commit, replacing `file` with `content`, and rebase `child` onto it. */
+async function amendParentAndRebase(repo: TestRepo, file: string, content: string): Promise<void> {
+  await repo.git("checkout", "-q", "parent");
+  await repo.write(file, content);
+  await repo.git("commit", "-qa", "--amend", "-m", "parent work, amended");
+  await repo.git("checkout", "-q", "child");
+  expect(await repo.cabaret("rebase")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+}
+
+test("review survives a rebase that does not touch the file", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("review", "shared.txt");
+  await amendParentAndRebase(repo, "parent.txt", "parent v2\n");
+  expect(await repo.cabaret("diff", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("after a commit and an unrelated rebase, only the commit is left to review", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("review", "shared.txt");
+  await amendParentAndRebase(repo, "parent.txt", "parent v2\n");
+  await repo.write("shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\ngrandchild\n");
+  await repo.git("commit", "-qam", "more child work");
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "old/shared.txt
+    new/shared.txt
+    -1,8 +1,9
+      one
+      two
+      three
+      four
+      five
+      six
+      seven
+      child
+    +|grandchild
+    ",
+    }
+  `);
+});
+
+test("review survives a rebase whose base absorbed the reviewed change", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("review", "shared.txt");
+  // The parent takes the child's copy verbatim, so the rebase drops the
+  // child's now-empty commit and the tips coincide.
+  await amendParentAndRebase(repo, "shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
+  expect(await repo.git("rev-parse", "child")).toBe(await repo.git("rev-parse", "parent"));
+  expect(await repo.cabaret("diff", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("a rebase that changes the file at its base requires a 4-way diff", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("review", "shared.txt");
+  await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+  const result = await repo.cabaret("diff", "shared.txt");
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("4-way diff not yet implemented");
+});
+
+test("an unreviewed file never needs a 4-way diff, even when the base changed it", async () => {
+  const repo = await makeStack();
+  await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+  // The base's copy already holds the amendment, so only the child's own
+  // line is left to review.
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "old/shared.txt
+    new/shared.txt
+    -1,7 +1,8
+      ONE
+      two
+      three
+      four
+      five
+      six
+      seven
+    +|child
+    ",
+    }
+  `);
+});
+
+test("nothing is left to review when the base catches up to the reviewed tip", async () => {
+  const repo = await makeChange("greeting.txt", "hello\n");
+  await repo.cabaret("review", "greeting.txt");
+  await repo.git("branch", "-f", "trunk", "main");
+  expect(await repo.cabaret("diff", "greeting.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

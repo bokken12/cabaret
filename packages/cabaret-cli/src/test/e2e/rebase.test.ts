@@ -145,7 +145,7 @@ test("rebase fails on a change with no parent", async () => {
   expect(result.stderr).toContain('change has no parent: "orphan"');
 });
 
-test("a review survives the parent being rewritten, until the child rebases", async () => {
+test("a review survives the parent being rewritten and the rebase that follows", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "child.txt");
   await amendParent(repo);
@@ -155,9 +155,12 @@ test("a review survives the parent being rewritten, until the child rebases", as
     stderr: "",
     exitCode: 0,
   });
-  // Rebasing moves the base, which needs a 4-way diff to reconcile.
+  // The rebase moves the base, but neither base has child.txt, so the
+  // reviewed 2-way diff is still sound and the review stands.
   await repo.cabaret("rebase", "child");
-  const result = await repo.cabaret("diff", "--change", "child", "child.txt");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("4-way diff not yet implemented");
+  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
 });

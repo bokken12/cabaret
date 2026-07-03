@@ -173,7 +173,9 @@ const diff = buildCommand({
     fullDescription:
       "Show the diff of a file left to review, given the reviewer's brain: the " +
       "full base → tip diff when the file is unreviewed, or the diff from the " +
-      "previously reviewed tip when the base is unchanged.",
+      "previously reviewed tip when that still covers everything left — the " +
+      "file is the same at both bases, or the new base took the reviewed " +
+      "tip's copy.",
   },
   parameters: {
     positional: {
@@ -208,12 +210,23 @@ const diff = buildCommand({
     const tip = await backend.resolveCommit(`refs/heads/${change}`);
     const reviewed = brain(entries, user).get(file);
     if (reviewed !== undefined && reviewed.base !== base) {
-      // TODO: implement 4-way diffs (Iron's diff4) so review can continue
-      // across a rebase.
-      throw new Error(
-        `4-way diff not yet implemented: ${file} was reviewed at base ${reviewed.base}, ` +
-          `but the change's base is now ${base}`,
-      );
+      // A moved base still leaves the 2-way diff from the reviewed tip sound
+      // in two cases: the base's copy of the file is unchanged (the reviewed
+      // diff's start is intact), or the new base's copy equals the reviewed
+      // tip's (the whole new diff starts at contents the reviewer knows).
+      const [prevBase, nextBase, prevTip] = await Promise.all([
+        backend.readFile(reviewed.base, file),
+        backend.readFile(base, file),
+        backend.readFile(reviewed.tip, file),
+      ]);
+      if (prevBase !== nextBase && nextBase !== prevTip) {
+        // TODO: implement 4-way diffs (Iron's diff4) so review can continue
+        // when the base's copy of a reviewed file changes.
+        throw new Error(
+          `4-way diff not yet implemented: ${file} was reviewed with a different copy ` +
+            `at base ${reviewed.base} than at the current base ${base}`,
+        );
+      }
     }
     const prevCommit = reviewed?.tip ?? base;
     const [prev, next] = await Promise.all([backend.readFile(prevCommit, file), backend.readFile(tip, file)]);

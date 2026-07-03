@@ -64,7 +64,7 @@ USAGE
   cabaret diff [--change value] [--for value] <file>
   cabaret diff --help
 
-Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, or the diff from the previously reviewed tip when the base is unchanged.
+Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, or the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy.
 
 FLAGS
      [--change]  Change to diff (defaults to current)
