@@ -159,8 +159,8 @@ export interface Backend {
    */
   rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void>;
 
-  /** The `git diff` of `file` from commit `base` to commit `tip`. */
-  diffFile(base: CommitHash, tip: CommitHash, file: FilePath): Promise<string>;
+  /** The contents of `file` at `commit`, or undefined if no file exists there. */
+  readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does

@@ -13,6 +13,8 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
+import { PatdiffCore } from "patdiff";
+import { IsBinary } from "patdiff/kernel";
 import type { LocalContext } from "./context.js";
 
 /** Parse a `--for` user, rejecting the empty string. */
@@ -142,6 +144,29 @@ const create = buildCommand({
   },
 });
 
+/**
+ * Render the diff between two versions of `file` with patdiff: ANSI-colored
+ * with word-level refinement on a terminal, plain ASCII otherwise. An absent
+ * version diffs against the empty file, named /dev/null as in git.
+ */
+function renderDiff(file: FilePath, prev: string | undefined, next: string | undefined, color: boolean): string {
+  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
+    return prev === next ? "" : `Binary versions of ${file} differ\n`;
+  }
+  const prevName = prev === undefined ? "/dev/null" : `old/${file}`;
+  const nextName = next === undefined ? "/dev/null" : `new/${file}`;
+  const diff = PatdiffCore.withoutUnix.patdiff({
+    output: color ? "Ansi" : "Ascii",
+    // Unified lines are unsupported in Ascii output.
+    produceUnifiedLines: color,
+    prev: { name: prevName, text: prev ?? "" },
+    next: { name: nextName, text: next ?? "" },
+  });
+  // patdiff's own global header prints even when no hunks survive (e.g. equal
+  // contents), so an empty diff must skip the header here instead.
+  return diff === "" ? "" : `${prevName}\n${nextName}\n${diff}\n`;
+}
+
 const diff = buildCommand({
   docs: {
     brief: "Show the diff of a change left to review for a file",
@@ -190,7 +215,14 @@ const diff = buildCommand({
           `but the change's base is now ${base}`,
       );
     }
-    this.process.stdout.write(await backend.diffFile(reviewed?.tip ?? base, tip, file));
+    const prevCommit = reviewed?.tip ?? base;
+    const [prev, next] = await Promise.all([backend.readFile(prevCommit, file), backend.readFile(tip, file)]);
+    if (prev === undefined && next === undefined) {
+      throw new Error(`${file} exists at neither ${prevCommit} nor ${tip}`);
+    }
+    // Stricli's process type omits isTTY, but the runtime process underneath has it.
+    const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
+    this.process.stdout.write(renderDiff(file, prev, next, color));
   },
 });
 

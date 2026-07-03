@@ -42,13 +42,10 @@ test("a parent rewrite stays out of the child's diff until it rebases", async ()
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/child.txt b/child.txt
-    new file mode 100644
-    index 0000000..1b7fb97
-    --- /dev/null
-    +++ b/child.txt
-    @@ -0,0 +1 @@
-    +child work
+      "stdout": "/dev/null
+    new/child.txt
+    -1,0 +1,1
+    +|child work
     ",
     }
   `);

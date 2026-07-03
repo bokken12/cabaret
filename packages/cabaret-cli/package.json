@@ -9,7 +9,8 @@
   "dependencies": {
     "@stricli/core": "^1.2.8",
     "cabaret-core": "workspace:*",
-    "cabaret-node": "workspace:*"
+    "cabaret-node": "workspace:*",
+    "patdiff": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

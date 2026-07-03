@@ -18,13 +18,10 @@ test("an unreviewed file diffs from base to tip", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/greeting.txt b/greeting.txt
-    new file mode 100644
-    index 0000000..ce01362
-    --- /dev/null
-    +++ b/greeting.txt
-    @@ -0,0 +1 @@
-    +hello
+      "stdout": "/dev/null
+    new/greeting.txt
+    -1,0 +1,1
+    +|hello
     ",
     }
   `);
@@ -39,13 +36,11 @@ test("a reviewed file diffs from the reviewed tip to the current tip", async () 
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/greeting.txt b/greeting.txt
-    index ce01362..94954ab 100644
-    --- a/greeting.txt
-    +++ b/greeting.txt
-    @@ -1 +1,2 @@
-     hello
-    +world
+      "stdout": "old/greeting.txt
+    new/greeting.txt
+    -1,1 +1,2
+      hello
+    +|world
     ",
     }
   `);
@@ -64,13 +59,10 @@ test("diff --for uses that user's brain, not the caller's", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/lib/core.ts b/lib/core.ts
-    new file mode 100644
-    index 0000000..64a32fd
-    --- /dev/null
-    +++ b/lib/core.ts
-    @@ -0,0 +1 @@
-    +export const answer = 42;
+      "stdout": "/dev/null
+    new/lib/core.ts
+    -1,0 +1,1
+    +|export const answer = 42;
     ",
     }
   `);
@@ -84,13 +76,10 @@ test("a forgotten file diffs from base to tip again", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/greeting.txt b/greeting.txt
-    new file mode 100644
-    index 0000000..e601e59
-    --- /dev/null
-    +++ b/greeting.txt
-    @@ -0,0 +1 @@
-    +salut
+      "stdout": "/dev/null
+    new/greeting.txt
+    -1,0 +1,1
+    +|salut
     ",
     }
   `);
@@ -102,16 +91,52 @@ test("diffs a file whose name contains glob characters literally", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "diff --git a/app/[slug]/page.tsx b/app/[slug]/page.tsx
-    new file mode 100644
-    index 0000000..aef2224
-    --- /dev/null
-    +++ b/app/[slug]/page.tsx
-    @@ -0,0 +1 @@
-    +export default 1;
+      "stdout": "/dev/null
+    new/app/[slug]/page.tsx
+    -1,0 +1,1
+    +|export default 1;
     ",
     }
   `);
+});
+
+test("a deleted file diffs to /dev/null", async () => {
+  const repo = await makeRepo();
+  await repo.write("doomed.txt", "ephemeral\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "add doomed.txt");
+  await repo.git("branch", "trunk");
+  await repo.git("rm", "-q", "doomed.txt");
+  await repo.git("commit", "-qm", "remove doomed.txt");
+  await repo.cabaret("reparent", "main", "trunk");
+  expect(await repo.cabaret("diff", "doomed.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "old/doomed.txt
+    /dev/null
+    -1,1 +1,0
+    -|ephemeral
+    ",
+    }
+  `);
+});
+
+test("binary files are reported, not diffed", async () => {
+  const repo = await makeChange("blob.bin", "a\0b\n");
+  expect(await repo.cabaret("diff", "blob.bin")).toEqual({
+    stdout: "Binary versions of blob.bin differ\n",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("diff fails for a file absent from the whole change", async () => {
+  const repo = await makeChange("greeting.txt", "hello\n");
+  const result = await repo.cabaret("diff", "missing.txt");
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("missing.txt exists at neither");
 });
 
 test("diff fails when the base moved since the review (4-way diff)", async () => {
