@@ -28,25 +28,81 @@ export function parseRefName(raw: string): RefName {
   return raw as RefName;
 }
 
+/** A user identity (git `user.email`). Obtain via `userName`. */
+export type UserName = Branded<string, "UserName">;
+
+/** Tag `raw` as a user name. Applies no validation. */
+export function userName(raw: string): UserName {
+  return raw as UserName;
+}
+
+/** An action that can be recorded in a change's log. */
+export type LogAction = { readonly kind: "set-parent"; readonly parent: RefName };
+
+/**
+ * Render an action as its log form, e.g. `set-parent main`. Always a single
+ * nonempty line: ref names cannot contain whitespace or control characters.
+ */
+export function formatLogAction(action: LogAction): string {
+  switch (action.kind) {
+    case "set-parent":
+      return `set-parent ${action.parent}`;
+  }
+}
+
+/** Parse the log form produced by `formatLogAction`. */
+export function parseLogAction(raw: string): LogAction {
+  const space = raw.indexOf(" ");
+  const [kind, rest] = space === -1 ? [raw, ""] : [raw.slice(0, space), raw.slice(space + 1)];
+  switch (kind) {
+    case "set-parent":
+      return { kind, parent: parseRefName(rest) };
+    default:
+      throw new Error(`unknown log action: ${JSON.stringify(raw)}`);
+  }
+}
+
 /** One action recorded in a change's log. */
 export interface LogEntry {
   /** Unix timestamp (milliseconds) at which the entry was created. */
   readonly timestamp: number;
   /** Who wrote the entry. */
-  readonly user: string;
-  /** The action taken, e.g. `set-parent main`. */
-  readonly action: string;
+  readonly user: UserName;
+  /** The action taken. */
+  readonly action: LogAction;
 }
 
 /**
- * Render an entry as its log line. The line is space-separated, so the user
- * must be a single nonempty word and the action a single nonempty line.
+ * Render an entry as its log line. The line is space-separated and starts
+ * with a decimal timestamp, so the user must be a single nonempty word and
+ * the timestamp a nonnegative safe integer.
  */
 export function formatLogEntry({ timestamp, user, action }: LogEntry): string {
-  if (!Number.isInteger(timestamp) || user === "" || /\s/.test(user) || action === "" || /[\r\n]/.test(action)) {
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0 || user === "" || /\s/.test(user)) {
     throw new Error(`malformed log entry: ${JSON.stringify({ timestamp, user, action })}`);
   }
-  return `${timestamp} ${user} ${action}\n`;
+  return `${timestamp} ${user} ${formatLogAction(action)}\n`;
+}
+
+/** Parse one log line (without its trailing newline), inverting `formatLogEntry`. */
+export function parseLogEntry(line: string): LogEntry {
+  const [, rawTimestamp, user, action] = /^(\d+) (\S+) (.+)$/.exec(line) ?? [];
+  const timestamp = Number(rawTimestamp);
+  if (user === undefined || action === undefined || !Number.isSafeInteger(timestamp)) {
+    throw new Error(`malformed log line: ${JSON.stringify(line)}`);
+  }
+  return { timestamp, user: userName(user), action: parseLogAction(action) };
+}
+
+/** Parse a whole log: a sequence of newline-terminated `formatLogEntry` lines. */
+export function parseLog(text: string): readonly LogEntry[] {
+  if (text === "") {
+    return [];
+  }
+  if (!text.endsWith("\n")) {
+    throw new Error("malformed log: missing trailing newline");
+  }
+  return text.slice(0, -1).split("\n").map(parseLogEntry);
 }
 
 /**
@@ -57,15 +113,14 @@ export interface Backend {
   /** The name of the branch checked out in the working tree. */
   currentBranch(): Promise<RefName>;
 
-  /** The identity attributed to log entries this user writes (git `user.email`). */
-  currentUser(): Promise<string>;
+  /** The identity attributed to log entries this user writes. */
+  currentUser(): Promise<UserName>;
 
   /**
-   * The raw text of `change`'s log. A change whose log ref does not exist yet
-   * has the empty log, so no initialization step is needed; no other parsing
-   * or validation is performed here.
+   * The entries of `change`'s log, oldest first. A change whose log ref does
+   * not exist yet has the empty log, so no initialization step is needed.
    */
-  readLog(change: RefName): Promise<string>;
+  readLog(change: RefName): Promise<readonly LogEntry[]>;
 
   /** Append `entry` to `change`'s log, creating the log if needed. */
   appendLog(change: RefName, entry: LogEntry): Promise<void>;

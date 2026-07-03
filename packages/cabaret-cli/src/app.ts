@@ -1,5 +1,5 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
-import { parseRefName, type RefName, VERSION } from "cabaret-core";
+import { formatLogEntry, parseRefName, type RefName, VERSION } from "cabaret-core";
 import type { LocalContext } from "./context.js";
 
 /**
@@ -164,7 +164,8 @@ const log = buildCommand({
   },
   async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
     const backend = await this.backend();
-    this.process.stdout.write(await backend.readLog(change ?? (await backend.currentBranch())));
+    const entries = await backend.readLog(change ?? (await backend.currentBranch()));
+    this.process.stdout.write(entries.map(formatLogEntry).join(""));
   },
 });
 
@@ -261,7 +262,7 @@ const reparent = buildCommand({
     await backend.appendLog(change, {
       timestamp: this.now(),
       user: await backend.currentUser(),
-      action: `set-parent ${parent}`,
+      action: { kind: "set-parent", parent },
     });
   },
 });

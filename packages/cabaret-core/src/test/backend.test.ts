@@ -1,5 +1,14 @@
+import fc from "fast-check";
 import { expect, test } from "vitest";
-import { formatLogEntry, parseCommitHash, parseRefName } from "../index.js";
+import {
+  formatLogEntry,
+  type LogEntry,
+  parseCommitHash,
+  parseLog,
+  parseRefName,
+  type RefName,
+  userName,
+} from "../index.js";
 
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
 const SHA256 = SHA1 + SHA1.slice(0, 24);
@@ -45,20 +54,93 @@ test("rejects malformed ref names", () => {
 });
 
 test("formatLogEntry renders one space-separated line", () => {
-  expect(formatLogEntry({ timestamp: 1748000000000, user: "alice@example.com", action: "set-parent main" })).toBe(
-    "1748000000000 alice@example.com set-parent main\n",
-  );
+  expect(
+    formatLogEntry({
+      timestamp: 1748000000000,
+      user: userName("alice@example.com"),
+      action: { kind: "set-parent", parent: parseRefName("main") },
+    }),
+  ).toBe("1748000000000 alice@example.com set-parent main\n");
 });
 
 test("formatLogEntry rejects entries that would corrupt the line format", () => {
-  const entry = { timestamp: 1748000060000, user: "bob@example.com", action: 'comment "fine"' };
+  const entry = {
+    timestamp: 1748000060000,
+    user: userName("bob@example.com"),
+    action: { kind: "set-parent", parent: parseRefName("feature/base") },
+  } as const;
   for (const bad of [
     { ...entry, timestamp: 0.5 },
-    { ...entry, user: "" },
-    { ...entry, user: "bob smith" },
-    { ...entry, action: "" },
-    { ...entry, action: "line\nbreak" },
+    { ...entry, timestamp: -1 },
+    { ...entry, timestamp: 2 ** 53 },
+    { ...entry, user: userName("") },
+    { ...entry, user: userName("bob smith") },
   ]) {
     expect(() => formatLogEntry(bad)).toThrow("malformed log entry");
   }
+});
+
+test("a formatted log parses back to the original entries", () => {
+  const entries: LogEntry[] = [
+    {
+      timestamp: 1748000000000,
+      user: userName("alice@example.com"),
+      action: { kind: "set-parent", parent: parseRefName("main") },
+    },
+    {
+      timestamp: 1748000060000,
+      user: userName("bob@example.com"),
+      action: { kind: "set-parent", parent: parseRefName("feature/base") },
+    },
+  ];
+  expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
+});
+
+test("the empty log parses to no entries", () => {
+  expect(parseLog("")).toEqual([]);
+});
+
+test("parseLog rejects malformed logs", () => {
+  const cases: [string, string][] = [
+    ["1748000000000 alice@example.com set-parent main", "missing trailing newline"],
+    ["not a log line\n", "malformed log line"],
+    ["1748000000000 alice@example.com\n", "malformed log line"],
+    ["99999999999999999999 alice@example.com set-parent main\n", "malformed log line"],
+    ["1748000000000 alice@example.com merge main\n", "unknown log action"],
+    ["1748000000000 alice@example.com set-parent bad..ref\n", "not a valid ref name"],
+  ];
+  for (const [log, error] of cases) {
+    expect(() => parseLog(log)).toThrow(error);
+  }
+});
+
+function refNames(): fc.Arbitrary<RefName> {
+  const valid = (raw: string): boolean => {
+    try {
+      parseRefName(raw);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return fc.string({ minLength: 1, maxLength: 30 }).filter(valid).map(parseRefName);
+}
+
+function logEntries(): fc.Arbitrary<LogEntry> {
+  return fc.record({
+    timestamp: fc.maxSafeNat(),
+    user: fc
+      .string({ minLength: 1 })
+      .filter((raw) => !/\s/.test(raw))
+      .map(userName),
+    action: fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
+  });
+}
+
+test("format/parse round-trips arbitrary logs", () => {
+  fc.assert(
+    fc.property(fc.array(logEntries()), (entries) => {
+      expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
+    }),
+  );
 });
