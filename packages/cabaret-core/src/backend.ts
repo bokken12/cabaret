@@ -131,6 +131,9 @@ export interface Backend {
   /** The last revision shared between branches `a` and `b`, as `git merge-base`. */
   mergeBase(a: RefName, b: RefName): Promise<CommitHash>;
 
+  /** The `git diff` of `file` from commit `base` to commit `tip`. */
+  diffFile(base: CommitHash, tip: CommitHash, file: FilePath): Promise<string>;
+
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
@@ -158,15 +161,53 @@ export function currentParent(entries: readonly LogEntry[]): RefName | undefined
   return parent;
 }
 
+/** The endpoints of a diff a reviewer has reviewed. */
+export interface ReviewedDiff {
+  readonly base: CommitHash;
+  readonly tip: CommitHash;
+}
+
+/**
+ * What `user` knows of each file in a change — their brain: the diff they
+ * most recently reviewed, per file. For each file the entry with the greatest
+ * timestamp wins (union-merged logs interleave concurrent entries in
+ * arbitrary order), and a winning `forget` erases the file's knowledge.
+ */
+export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff> {
+  const latest = new Map<FilePath, { timestamp: number; reviewed?: ReviewedDiff }>();
+  for (const { timestamp, user: author, action } of entries) {
+    if (author !== user || action.kind === "set-parent") {
+      continue;
+    }
+    const prev = latest.get(action.file);
+    if (prev !== undefined && prev.timestamp > timestamp) {
+      continue;
+    }
+    latest.set(
+      action.file,
+      action.kind === "review" ? { timestamp, reviewed: { base: action.base, tip: action.tip } } : { timestamp },
+    );
+  }
+  const known = new Map<FilePath, ReviewedDiff>();
+  for (const [file, { reviewed }] of latest) {
+    if (reviewed !== undefined) {
+      known.set(file, reviewed);
+    }
+  }
+  return known;
+}
+
 /**
  * The base of `change`: the revision its diff is computed against, derived as
  * a rebase would derive it — the last revision shared with the parent.
+ * `entries` must be `change`'s log; taking it explicitly lets callers derive
+ * base and brain from one snapshot of the log.
  *
  * TODO: honor a `set-base` log action once rebase records one, so the base
  * stays valid when the parent has itself moved on.
  */
-export async function changeBase(backend: Backend, change: RefName): Promise<CommitHash> {
-  const parent = currentParent(await backend.readLog(change));
+export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
+  const parent = currentParent(entries);
   if (parent === undefined) {
     throw new Error(`change has no parent: ${JSON.stringify(change)}`);
   }

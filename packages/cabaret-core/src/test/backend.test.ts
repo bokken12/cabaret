@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
+  brain,
   type CommitHash,
   currentParent,
   type FilePath,
@@ -13,6 +14,7 @@ import {
   parseLog,
   parseRefName,
   type RefName,
+  type UserName,
   userName,
 } from "../index.js";
 
@@ -203,6 +205,42 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
       }),
     ]),
   ).toBe("newest");
+});
+
+test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
+  const alice = userName("alice@example.com");
+  const bob = userName("bob@example.com");
+  const at = (timestamp: number, user: UserName, action: LogAction): LogEntry => ({ timestamp, user, action });
+  const review = (file: string, base: string, tip: string): LogAction => ({
+    kind: "review",
+    file: parseFilePath(file),
+    base: parseCommitHash(base),
+    tip: parseCommitHash(tip),
+  });
+  const entries: LogEntry[] = [
+    at(1, alice, review("a.ts", SHA1, OTHER_SHA1)),
+    at(4, alice, review("a.ts", SHA1, SHA256)),
+    // This forget precedes its file's review in the log but wins by timestamp.
+    at(9, alice, { kind: "forget", file: parseFilePath("b.ts") }),
+    at(2, alice, review("b.ts", OTHER_SHA1, SHA1)),
+    at(3, alice, review("c.ts", SHA1, SHA1)),
+    at(8, bob, { kind: "forget", file: parseFilePath("a.ts") }),
+    at(5, alice, { kind: "set-parent", parent: parseRefName("main") }),
+    // Equal timestamps: the entry later in the log wins.
+    at(6, alice, review("d.ts", SHA1, OTHER_SHA1)),
+    at(6, alice, { kind: "forget", file: parseFilePath("d.ts") }),
+    at(7, alice, { kind: "forget", file: parseFilePath("e.ts") }),
+    at(7, alice, review("e.ts", OTHER_SHA1, SHA256)),
+  ];
+  expect(brain(entries, alice)).toEqual(
+    new Map([
+      [parseFilePath("a.ts"), { base: SHA1, tip: SHA256 }],
+      [parseFilePath("c.ts"), { base: SHA1, tip: SHA1 }],
+      [parseFilePath("e.ts"), { base: OTHER_SHA1, tip: SHA256 }],
+    ]),
+  );
+  expect(brain(entries, bob)).toEqual(new Map());
+  expect(brain([], alice)).toEqual(new Map());
 });
 
 function refNames(): fc.Arbitrary<RefName> {

@@ -1,14 +1,25 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
+  brain,
   changeBase,
   type FilePath,
   formatLogEntry,
   parseFilePath,
   parseRefName,
   type RefName,
+  type UserName,
+  userName,
   VERSION,
 } from "cabaret-core";
 import type { LocalContext } from "./context.js";
+
+/** Parse a `--for` user, rejecting the empty string. */
+function parseUser(raw: string): UserName {
+  if (raw === "") {
+    throw new Error("user must be nonempty");
+  }
+  return userName(raw);
+}
 
 /**
  * Report a command that is wired up but whose behavior is not yet implemented,
@@ -104,6 +115,58 @@ const create = buildCommand({
   },
   func(this: LocalContext, flags: { parent?: string; child?: string }, change?: string) {
     announce(this, "create", { change, ...flags });
+  },
+});
+
+const diff = buildCommand({
+  docs: {
+    brief: "Show the diff of a change left to review for a file",
+    fullDescription:
+      "Show the diff of a file left to review, given the reviewer's brain: the " +
+      "full base → tip diff when the file is unreviewed, or the diff from the " +
+      "previously reviewed tip when the base is unchanged.",
+  },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [{ brief: "file to diff", placeholder: "file", parse: parseFilePath }],
+    },
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to diff (defaults to current)",
+        optional: true,
+      },
+      for: {
+        kind: "parsed",
+        parse: parseUser,
+        brief: "Show the diff for another user (defaults to self)",
+        optional: true,
+      },
+    },
+  },
+  // TODO: normalize the file argument to a repo-relative path so lookups made
+  // from a subdirectory name the same file the log does.
+  async func(this: LocalContext, flags: { change?: RefName; for?: UserName }, file: FilePath) {
+    const backend = await this.backend();
+    const change = flags.change ?? (await backend.currentBranch());
+    const user = flags.for ?? (await backend.currentUser());
+    const entries = await backend.readLog(change);
+    const base = await changeBase(backend, change, entries);
+    // Pin to the branch namespace so a same-named tag cannot shadow the
+    // change's tip.
+    const tip = await backend.resolveCommit(`refs/heads/${change}`);
+    const reviewed = brain(entries, user).get(file);
+    if (reviewed !== undefined && reviewed.base !== base) {
+      // TODO: implement 4-way diffs (Iron's diff4) so review can continue
+      // across a rebase.
+      throw new Error(
+        `4-way diff not yet implemented: ${file} was reviewed at base ${reviewed.base}, ` +
+          `but the change's base is now ${base}`,
+      );
+    }
+    this.process.stdout.write(await backend.diffFile(reviewed?.tip ?? base, tip, file));
   },
 });
 
@@ -352,7 +415,7 @@ const review = buildCommand({
     // Pin the default to the branch namespace so a same-named tag cannot
     // shadow the change's tip.
     const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
-    const base = await changeBase(backend, change);
+    const base = await changeBase(backend, change, await backend.readLog(change));
     const user = await backend.currentUser();
     await backend.appendLog(
       change,
@@ -395,6 +458,7 @@ const routes = buildRouteMap({
     approve,
     approvers,
     create,
+    diff,
     forget,
     gh,
     glab,

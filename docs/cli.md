@@ -7,6 +7,7 @@ Subcommands:
 - `approve`: approve a change
 - `approvers`: change approvers subcommands
 - `create`: create a change
+- `diff`: show the diff left to review for a file
 - `forget`: mark files as needing review again
 - `gh`: GitHub subcommands
 - `land`: land a change
@@ -43,6 +44,16 @@ Arguments:
 - `change`: (optional) name for the new change
 - `--parent`: (optional) set its parent to some other change (exclusive with child)
 - `--child`: (optional) set its child to some other change (exclusive with parent)
+
+## Diff
+
+Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, or the diff from the previously reviewed tip when the base is unchanged. Fails when the reviewed base no longer matches the change's base, which needs a 4-way diff (not yet implemented).
+
+Arguments:
+
+- `file`: the file to diff
+- `--change`: (optional) the change to diff (defaults to the current change)
+- `--for`: (optional) show the diff for another user (defaults to self)
 
 ## Forget
 
