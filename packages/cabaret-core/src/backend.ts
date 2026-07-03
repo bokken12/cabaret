@@ -29,6 +29,16 @@ export function parseRefName(raw: string): RefName {
   return raw as RefName;
 }
 
+/** A repository-relative file path, as named in diffs. Obtain via `parseFilePath`. */
+export type FilePath = Branded<string, "FilePath">;
+
+export function parseFilePath(raw: string): FilePath {
+  if (raw === "" || raw.includes("\0")) {
+    throw new Error(`not a valid file path: ${JSON.stringify(raw)}`);
+  }
+  return raw as FilePath;
+}
+
 /** A user identity (git `user.email`). Obtain via `userName`. */
 export type UserName = Branded<string, "UserName">;
 
@@ -38,7 +48,13 @@ export function userName(raw: string): UserName {
 }
 
 /** An action that can be recorded in a change's log. */
-export type LogAction = { readonly kind: "set-parent"; readonly parent: RefName };
+// TODO: review state (docs/state.md) is keyed by the (base, tip) pair of the
+// reviewed diff; decide whether `review` must also record the base before the
+// log format has real users.
+export type LogAction =
+  | { readonly kind: "set-parent"; readonly parent: RefName }
+  | { readonly kind: "review"; readonly file: FilePath; readonly revision: CommitHash }
+  | { readonly kind: "forget"; readonly file: FilePath };
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
@@ -52,6 +68,12 @@ export interface LogEntry {
 
 const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
+  z.object({
+    kind: z.literal("review"),
+    file: z.string().transform(parseFilePath),
+    revision: z.string().transform(parseCommitHash),
+  }),
+  z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
 ]) satisfies z.ZodType<LogAction>;
 
 /**
@@ -105,12 +127,15 @@ export interface Backend {
   /** The identity attributed to log entries this user writes. */
   currentUser(): Promise<UserName>;
 
+  /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
+  resolveCommit(revision: string): Promise<CommitHash>;
+
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    */
   readLog(change: RefName): Promise<readonly LogEntry[]>;
 
-  /** Append `entry` to `change`'s log, creating the log if needed. */
-  appendLog(change: RefName, entry: LogEntry): Promise<void>;
+  /** Atomically append `entries` to `change`'s log, creating the log if needed. */
+  appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void>;
 }

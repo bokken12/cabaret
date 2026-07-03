@@ -59,6 +59,21 @@ FLAGS
 ARGUMENTS
   [change]  name for the new change
 
+## cabaret forget
+
+USAGE
+  cabaret forget [--change value] <file>...
+  cabaret forget --help
+
+Forget files of a change, so they need review again. Appends one `forget` entry per file to the change's log.
+
+FLAGS
+     [--change]  Change to forget in (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  file...  files to forget
+
 ### cabaret gh pull
 
 USAGE
@@ -204,17 +219,18 @@ ARGUMENTS
 ## cabaret review
 
 USAGE
-  cabaret review [--revision value] <change>
+  cabaret review [--change value] [--revision value] <file>...
   cabaret review --help
 
-Mark files of a change as reviewed
+Mark files of a change as reviewed at a revision. Appends one `review` entry per file to the change's log.
 
 FLAGS
-     [--revision]  Mark as reviewed at a specific revision
+     [--change]    Change to review (defaults to current)
+     [--revision]  Mark as reviewed at this revision (defaults to the change's tip)
   -h  --help       Print help information and exit
 
 ARGUMENTS
-  change  change to review
+  file...  files to mark as reviewed
 
 ## cabaret todos
 
