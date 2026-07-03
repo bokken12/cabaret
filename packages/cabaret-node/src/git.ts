@@ -6,8 +6,11 @@ import {
   formatLogEntry,
   type LogEntry,
   parseCommitHash,
+  parseLog,
   parseRefName,
   type RefName,
+  type UserName,
+  userName,
 } from "cabaret-core";
 
 const execFileAsync = promisify(execFile);
@@ -37,8 +40,8 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
  * Where a change's log lives: a ref mirroring the change's branch name, whose
  * tree holds the log text in a single file.
  */
-function logRef(change: RefName): string {
-  return `refs/cabaret/log/${change}`;
+function logRef(change: RefName): RefName {
+  return parseRefName(`refs/cabaret/log/${change}`);
 }
 
 /** Path of the log file within a log ref's tree. */
@@ -59,24 +62,24 @@ export class GitBackend implements Backend {
     return parseRefName(out.trimEnd());
   }
 
-  async currentUser(): Promise<string> {
+  async currentUser(): Promise<UserName> {
     const out = await git(this.root, ["config", "user.email"]);
     const email = out.trimEnd();
     // Log lines are space-separated, so a usable identity is one nonempty word.
     if (email === "" || /\s/.test(email)) {
       throw new Error(`git config user.email must be a single nonempty word, got ${JSON.stringify(email)}`);
     }
-    return email;
+    return userName(email);
   }
 
-  async readLog(change: RefName): Promise<string> {
+  async readLog(change: RefName): Promise<readonly LogEntry[]> {
     const ref = logRef(change);
     if ((await this.commitAt(ref)) === undefined) {
-      return "";
+      return [];
     }
     // A log ref whose tree lacks the log file is malformed; let git's error
     // propagate rather than masking it as an empty log.
-    return git(this.root, ["cat-file", "blob", `${ref}:${LOG_PATH}`]);
+    return parseLog(await git(this.root, ["cat-file", "blob", `${ref}:${LOG_PATH}`]));
   }
 
   async appendLog(change: RefName, entry: LogEntry): Promise<void> {
@@ -98,7 +101,7 @@ export class GitBackend implements Backend {
   }
 
   /** The commit `ref` points at, or undefined if `ref` does not exist. */
-  private async commitAt(ref: string): Promise<CommitHash | undefined> {
+  private async commitAt(ref: RefName): Promise<CommitHash | undefined> {
     try {
       const out = await git(this.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
       return parseCommitHash(out.trimEnd());

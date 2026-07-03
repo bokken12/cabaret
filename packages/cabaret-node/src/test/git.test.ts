@@ -45,11 +45,11 @@ test("reports the current working branch", async () => {
 
 test("a change with no log ref has the empty log", async () => {
   const backend = await GitBackend.open(repo);
-  expect(await backend.readLog(parseRefName("no-log-yet"))).toBe("");
+  expect(await backend.readLog(parseRefName("no-log-yet"))).toEqual([]);
 });
 
-test("readLog returns the log file's contents verbatim", async () => {
-  const content = '1748000000000 alice set-base 0123abcd\n1748000060000 bob comment "looks wrong?"\n';
+test("readLog parses the log file into entries", async () => {
+  const content = "1748000000000 alice@example.com set-parent main\n1748000060000 bob@example.com set-parent trunk\n";
   await writeFile(join(repo, "log"), content);
   await git("add", "log");
   const tree = await git("write-tree");
@@ -57,7 +57,10 @@ test("readLog returns the log file's contents verbatim", async () => {
   await git("update-ref", "refs/cabaret/log/feature", commit);
 
   const backend = await GitBackend.open(repo);
-  expect(await backend.readLog(parseRefName("feature"))).toBe(content);
+  expect(await backend.readLog(parseRefName("feature"))).toEqual([
+    { timestamp: 1748000000000, user: "alice@example.com", action: { kind: "set-parent", parent: "main" } },
+    { timestamp: 1748000060000, user: "bob@example.com", action: { kind: "set-parent", parent: "trunk" } },
+  ]);
 });
 
 test("fails fast on a log ref whose tree lacks the log file", async () => {
