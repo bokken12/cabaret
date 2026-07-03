@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { changeBase, parseRefName, userName } from "cabaret-core";
+import { changeBase, type LogAction, type LogEntry, parseCommitHash, parseRefName, userName } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { GitBackend } from "../index.js";
 
@@ -91,6 +91,97 @@ test("changeBase is the last revision shared with the change's parent", async ()
   ]);
   const entries = await backend.readLog(parseRefName("gadget"));
   expect(await changeBase(backend, parseRefName("gadget"), entries)).toBe(root);
+});
+
+/**
+ * Create a commit with the root commit's tree atop `parents` (the root commit
+ * itself if none given), without touching any ref.
+ */
+async function plumbCommit(message: string, ...parents: string[]): Promise<string> {
+  const root = await git("rev-list", "--max-parents=0", "HEAD");
+  const tree = await git("rev-parse", `${root}^{tree}`);
+  const atop = parents.length === 0 ? [root] : parents;
+  return git("commit-tree", tree, ...atop.flatMap((p) => ["-p", p]), "-m", message);
+}
+
+function logEntry(timestamp: number, action: LogAction): LogEntry {
+  return { timestamp, user: userName("alice@example.com"), action };
+}
+
+/** Point branch `change` (created at `tip`) at parent branch `parent` with stored base `base`. */
+async function plumbChange(change: string, tip: string, parent: string, base: string): Promise<void> {
+  await git("update-ref", `refs/heads/${change}`, tip);
+  const backend = await GitBackend.open(repo);
+  await backend.appendLog(parseRefName(change), [
+    logEntry(1748000000000, { kind: "set-parent", parent: parseRefName(parent) }),
+    logEntry(1748000000001, { kind: "set-base", base: parseCommitHash(base) }),
+  ]);
+}
+
+async function changeBaseOf(change: string): Promise<string> {
+  const backend = await GitBackend.open(repo);
+  return changeBase(backend, parseRefName(change), await backend.readLog(parseRefName(change)));
+}
+
+test("changeBase keeps the stored base when the parent was rewritten", async () => {
+  const oldParent = await plumbCommit("parent work");
+  const child = await plumbCommit("child work", oldParent);
+  const newParent = await plumbCommit("parent work, amended");
+  await git("update-ref", "refs/heads/parent-rewritten", newParent);
+  await plumbChange("child-of-rewritten", child, "parent-rewritten", oldParent);
+  expect(await changeBaseOf("child-of-rewritten")).toBe(oldParent);
+});
+
+test("changeBase discards a stored base the change was rebased away from", async () => {
+  const oldParent = await plumbCommit("old parent work");
+  const newParent = await plumbCommit("new parent work");
+  const child = await plumbCommit("child work, rebuilt", newParent);
+  await git("update-ref", "refs/heads/parent-adopted", newParent);
+  await plumbChange("child-rebased-away", child, "parent-adopted", oldParent);
+  expect(await changeBaseOf("child-rebased-away")).toBe(newParent);
+});
+
+test("changeBase prefers the merge-base when the change advanced past the stored base", async () => {
+  const oldParent = await plumbCommit("parent work 1");
+  const newParent = await plumbCommit("parent work 2", oldParent);
+  const child = await plumbCommit("child work, advanced", newParent);
+  await git("update-ref", "refs/heads/parent-advanced", newParent);
+  await plumbChange("child-advanced", child, "parent-advanced", oldParent);
+  expect(await changeBaseOf("child-advanced")).toBe(newParent);
+});
+
+test("changeBase fails when the stored base and merge-base are unrelated", async () => {
+  const side = await plumbCommit("side work");
+  const parent = await plumbCommit("parent-side work");
+  const child = await plumbCommit("merge of side and parent", side, parent);
+  await git("update-ref", "refs/heads/parent-merged", parent);
+  await plumbChange("child-merged", child, "parent-merged", side);
+  await expect(changeBaseOf("child-merged")).rejects.toThrow('base of "child-merged" is ambiguous');
+});
+
+test("isAncestor distinguishes ancestors from unrelated commits", async () => {
+  const backend = await GitBackend.open(repo);
+  const rootHash = parseCommitHash(await git("rev-list", "--max-parents=0", "HEAD"));
+  const onto = parseCommitHash(await plumbCommit("ancestry a"));
+  const other = parseCommitHash(await plumbCommit("ancestry b"));
+  expect(await backend.isAncestor(rootHash, onto)).toBe(true);
+  expect(await backend.isAncestor(onto, rootHash)).toBe(false);
+  expect(await backend.isAncestor(onto, other)).toBe(false);
+  expect(await backend.isAncestor(onto, onto)).toBe(true);
+});
+
+test("branchTip is the branch's commit, or undefined for a missing branch", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.branchTip(parseRefName("feature"))).toBe(await git("rev-parse", "refs/heads/feature"));
+  expect(await backend.branchTip(parseRefName("no-such-branch"))).toBeUndefined();
+});
+
+test("createBranch creates at the given commit and refuses to overwrite", async () => {
+  const backend = await GitBackend.open(repo);
+  const tip = parseCommitHash(await plumbCommit("branch target"));
+  await backend.createBranch(parseRefName("created"), tip);
+  expect(await git("rev-parse", "refs/heads/created")).toBe(tip);
+  await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
 test("changeBase fails on a change with no parent", async () => {

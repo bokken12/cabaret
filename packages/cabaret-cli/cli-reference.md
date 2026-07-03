@@ -46,18 +46,17 @@ ARGUMENTS
 ## cabaret create
 
 USAGE
-  cabaret create [--parent value] [--child value] [<change>]
+  cabaret create [--parent value] <change>
   cabaret create --help
 
-Create a change based on the current change
+Create a change, initializing its log with a parent and a base. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already have a log.
 
 FLAGS
-     [--parent]  Set the new change's parent (exclusive with --child)
-     [--child]   Set the new change's child (exclusive with --parent)
+     [--parent]  The new change's parent (defaults to the current branch)
   -h  --help     Print help information and exit
 
 ARGUMENTS
-  [change]  name for the new change
+  change  name for the new change
 
 ## cabaret diff
 
@@ -190,17 +189,16 @@ ARGUMENTS
 ## cabaret rebase
 
 USAGE
-  cabaret rebase [--allow-invalid-base] <change>
+  cabaret rebase [<change>]
   cabaret rebase --help
 
-Rebase a change onto its parent. Uses `git rebase --onto` internally to avoid conflicts, which requires the base recorded in metadata to be valid.
+Rebase a change onto its parent's tip, then record the new base in the log. Replays only the commits after the change's base (`git rebase --onto`), so commits the change shares with an old version of the parent are never reapplied.
 
 FLAGS
-     [--allow-invalid-base]  Skip --onto, for when history was changed outside Cabaret [default = false]
-  -h  --help                 Print help information and exit
+  -h --help  Print help information and exit
 
 ARGUMENTS
-  change  change to rebase
+  [change]  change to rebase (defaults to current)
 
 ## cabaret rename
 

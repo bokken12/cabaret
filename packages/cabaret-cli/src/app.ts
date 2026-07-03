@@ -2,6 +2,8 @@ import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
   brain,
   changeBase,
+  currentBase,
+  currentParent,
   type FilePath,
   formatLogEntry,
   parseFilePath,
@@ -85,36 +87,58 @@ const approvers = buildRouteMap({
 });
 
 const create = buildCommand({
-  docs: { brief: "Create a change based on the current change" },
+  docs: {
+    brief: "Create a change",
+    fullDescription:
+      "Create a change, initializing its log with a parent and a base. A branch " +
+      "that does not exist yet is created at the parent's tip; an existing branch " +
+      "is adopted with the last revision shared with the parent as its base. The " +
+      "change must not already have a log.",
+  },
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [
-        {
-          brief: "name for the new change",
-          placeholder: "change",
-          parse: String,
-          optional: true,
-        },
-      ],
+      parameters: [{ brief: "name for the new change", placeholder: "change", parse: parseRefName }],
     },
     flags: {
       parent: {
         kind: "parsed",
-        parse: String,
-        brief: "Set the new change's parent (exclusive with --child)",
-        optional: true,
-      },
-      child: {
-        kind: "parsed",
-        parse: String,
-        brief: "Set the new change's child (exclusive with --parent)",
+        parse: parseRefName,
+        brief: "The new change's parent (defaults to the current branch)",
         optional: true,
       },
     },
   },
-  func(this: LocalContext, flags: { parent?: string; child?: string }, change?: string) {
-    announce(this, "create", { change, ...flags });
+  async func(this: LocalContext, flags: { parent?: RefName }, change: RefName) {
+    const backend = await this.backend();
+    const parent = flags.parent ?? (await backend.currentBranch());
+    if (change === parent) {
+      throw new Error(`change cannot be its own parent: ${JSON.stringify(change)}`);
+    }
+    if ((await backend.readLog(change)).length > 0) {
+      throw new Error(`change already has a log: ${JSON.stringify(change)}`);
+    }
+    const parentTip = await backend.branchTip(parent);
+    if (parentTip === undefined) {
+      throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    }
+    // Resolve the identity before mutating any ref so a missing git identity
+    // fails without leaving a branch behind.
+    const user = await backend.currentUser();
+    const existing = await backend.branchTip(change);
+    // A fresh branch is created at the parent's tip, which is therefore its
+    // base; an adopted branch is based where it last shared with the parent.
+    let base: typeof parentTip;
+    if (existing === undefined) {
+      await backend.createBranch(change, parentTip);
+      base = parentTip;
+    } else {
+      base = await backend.mergeBase(parent, change);
+    }
+    await backend.appendLog(change, [
+      { timestamp: this.now(), user, action: { kind: "set-parent", parent } },
+      { timestamp: this.now(), user, action: { kind: "set-base", base } },
+    ]);
   },
 });
 
@@ -310,26 +334,55 @@ const owners = buildRouteMap({
 
 const rebase = buildCommand({
   docs: {
-    brief: "Rebase a change onto its parent",
+    brief: "Rebase a change onto its parent's tip",
     fullDescription:
-      "Rebase a change onto its parent. Uses `git rebase --onto` internally to " +
-      "avoid conflicts, which requires the base recorded in metadata to be valid.",
+      "Rebase a change onto its parent's tip, then record the new base in the " +
+      "log. Replays only the commits after the change's base (`git rebase " +
+      "--onto`), so commits the change shares with an old version of the parent " +
+      "are never reapplied.",
   },
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [{ brief: "change to rebase", placeholder: "change", parse: String }],
-    },
-    flags: {
-      allowInvalidBase: {
-        kind: "boolean",
-        brief: "Skip --onto, for when history was changed outside Cabaret",
-        default: false,
-      },
+      parameters: [
+        {
+          brief: "change to rebase (defaults to current)",
+          placeholder: "change",
+          parse: parseRefName,
+          optional: true,
+        },
+      ],
     },
   },
-  func(this: LocalContext, flags: { allowInvalidBase: boolean }, change: string) {
-    announce(this, "rebase", { change, ...flags });
+  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+    const backend = await this.backend();
+    const target = change ?? (await backend.currentBranch());
+    const entries = await backend.readLog(target);
+    const parent = currentParent(entries);
+    if (parent === undefined) {
+      throw new Error(`change has no parent: ${JSON.stringify(target)}`);
+    }
+    const onto = await backend.branchTip(parent);
+    if (onto === undefined) {
+      throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    }
+    const base = await changeBase(backend, target, entries);
+    // Replay the change's own commits onto the parent's tip. When the change
+    // already sits there (base === onto), whether because it was just rebased
+    // or an out-of-band `git rebase` put it there, there is nothing to replay.
+    if (base !== onto) {
+      // Record the base only after a clean rebase: if the rebase stops on
+      // conflicts and the user finishes it with git, this line never runs and
+      // the stale stored base loses to the merge-base with the parent.
+      await backend.rebaseOnto(target, base, onto);
+    }
+    // Pin the base to the parent's tip so a later parent rewrite cannot slide
+    // it back to an ancestor and pull the parent's commits into the diff.
+    if (currentBase(entries) !== onto) {
+      await backend.appendLog(target, [
+        { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
+      ]);
+    }
   },
 });
 

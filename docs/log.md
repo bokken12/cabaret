@@ -10,7 +10,7 @@ Each log entry consists of
 
 Where the `action` may be any of (incomplete)
 
-- `set-base` to `ref`
+- `set-base` to a commit `base`
 - `set-parent` to `ref`
 
 - `review` a `file`, recording the `base` and `tip` of the reviewed diff
