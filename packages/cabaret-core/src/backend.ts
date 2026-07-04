@@ -170,6 +170,14 @@ export interface Backend {
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   createBranch(name: RefName, commit: CommitHash): Promise<void>;
 
+  /**
+   * Rename change `from` to `to`: move its branch and its log to the new name
+   * in one all-or-nothing transaction, retargeting HEAD when `from` is checked
+   * out. Fails if `to`'s branch or log already exists, or if either of
+   * `from`'s refs moves concurrently.
+   */
+  renameChange(from: RefName, to: RefName): Promise<void>;
+
   /** The last revision shared between branches `a` and `b`, as `git merge-base`. */
   mergeBase(a: RefName, b: RefName): Promise<CommitHash>;
 

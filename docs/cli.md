@@ -98,7 +98,7 @@ Arguments:
 
 Land a change: merge it into its parent with a merge commit whose `Cabaret-Landed` trailer marks the merged diff as already reviewed (under the child's own log), and record the landing in the change's log. The change must sit on its parent's tip, so the merge can never conflict; `cabaret rebase` first if it does not.
 
-A landed change is frozen: `rebase`, `reparent`, `owner transfer`, and a second `land` are refused, and nothing can land into it. Reviewing it is still recorded — catching up on a landed change updates your brain like any other review.
+A landed change is frozen: `rebase`, `rename`, `reparent`, `owner transfer`, and a second `land` are refused, and nothing can land into it. Reviewing it is still recorded — catching up on a landed change updates your brain like any other review.
 
 A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed. When one fails, the landings before it stand, and rerunning the range resumes.
 
@@ -144,12 +144,13 @@ Arguments:
 
 ## Rename
 
-Rename a change and its underlying branch atomically.
+Rename a change: move its branch and its log to the new name together, atomically.
 
 Arguments:
 
 - `old`: change's old name
 - `new`: change's new name
+- `--even-though-not-owner`: rename a change you don't own
 
 ## Reparent
 
