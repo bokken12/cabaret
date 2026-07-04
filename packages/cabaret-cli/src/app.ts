@@ -623,7 +623,7 @@ const land = buildCommand({
       "landing, so the parent's reviewers are not asked to re-review the " +
       "change's diff, and record the landing in the change's log. The change " +
       "must sit on its parent's tip; `cabaret rebase` first if it does not. A " +
-      "landed change can no longer be rebased, reparented, or transferred, " +
+      "landed change can no longer be rebased, renamed, reparented, or transferred, " +
       "though reviewing it is still recorded. A range `ancestor..descendant` " +
       "lands every change after `ancestor` on `descendant`'s parent chain, " +
       "`descendant` first, skipping changes that already landed; when one " +
@@ -842,18 +842,41 @@ const rebase = buildCommand({
 });
 
 const rename = buildCommand({
-  docs: { brief: "Rename a change and its underlying branch atomically" },
+  docs: {
+    brief: "Rename a change",
+    fullDescription:
+      "Rename a change: move its branch and its log to the new name together, " +
+      "atomically. Only the change's owner may rename it.",
+  },
   parameters: {
     positional: {
       kind: "tuple",
       parameters: [
-        { brief: "change's old name", placeholder: "old", parse: String },
-        { brief: "change's new name", placeholder: "new", parse: String },
+        { brief: "change's old name", placeholder: "old", parse: parseRefName },
+        { brief: "change's new name", placeholder: "new", parse: parseRefName },
       ],
     },
+    flags: { evenThoughNotOwner },
   },
-  func(this: LocalContext, _flags: Record<never, never>, old: string, next: string) {
-    announce(this, "rename", { old, new: next });
+  // TODO: rename assumes the change lives only in this repository. Once
+  // changes sync with a remote, a raw ref move races concurrent editors —
+  // their appends target the old log ref — so a distributed rename likely
+  // needs to be recorded in the log itself. Children are similarly untouched:
+  // their `set-parent` entries keep naming the old change until a manual
+  // `cabaret reparent`.
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, from: RefName, to: RefName) {
+    const backend = await this.backend();
+    const entries = await backend.readLog(from);
+    assertChangeExists(from, entries);
+    assertNotLanded(from, entries);
+    await requireOwner(backend, from, entries, flags.evenThoughNotOwner);
+    if ((await backend.readLog(to)).length > 0) {
+      throw new Error(`change already exists: ${JSON.stringify(to)}`);
+    }
+    if ((await backend.branchTip(to)) !== undefined) {
+      throw new Error(`branch already exists: ${JSON.stringify(to)}`);
+    }
+    await backend.renameChange(from, to);
   },
 });
 
