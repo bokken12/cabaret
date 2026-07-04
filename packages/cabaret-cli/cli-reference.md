@@ -65,7 +65,7 @@ USAGE
   cabaret diff [--change value] [--for value] <file>
   cabaret diff --help
 
-Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy — or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review.
+Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy — or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review. The diff a land merge brings in was reviewed in the landed change, so it is skipped: what prints is one diff per span of history between land merges.
 
 FLAGS
      [--change]  Change to diff (defaults to current)
@@ -137,13 +137,17 @@ FLAGS
 ## cabaret land
 
 USAGE
-  cabaret land
+  cabaret land [--even-though-not-owner] [<change>]
   cabaret land --help
 
-Land a change (if fully reviewed)
+Land a change: merge it into its parent with a merge commit marked as landing, so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, reparented, or transferred, though reviewing it is still recorded.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
+  -h  --help                    Print help information and exit
+
+ARGUMENTS
+  [change]  change to land (defaults to current)
 
 ## cabaret log
 

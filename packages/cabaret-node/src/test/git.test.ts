@@ -202,11 +202,11 @@ test("changeBase fails on a change that does not exist", async () => {
   await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
 });
 
-test("fails fast on detached HEAD with the command and stderr in the error", async () => {
+test("fails fast on detached HEAD", async () => {
   const backend = await GitBackend.open(repo);
   const head = await git("rev-parse", "HEAD");
   await git("checkout", "-q", head);
-  const failure = backend.currentBranch();
-  await expect(failure).rejects.toThrow(/git symbolic-ref/);
-  await expect(failure).rejects.toThrow(/fatal:/);
+  await expect(backend.currentBranch()).rejects.toThrow(
+    "HEAD is detached; check out a branch or name the change explicitly",
+  );
 });

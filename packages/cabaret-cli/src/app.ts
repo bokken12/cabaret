@@ -1,6 +1,7 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
   assertChangeExists,
+  assertNotLanded,
   type Backend,
   brain,
   type CommitHash,
@@ -8,13 +9,16 @@ import {
   currentBase,
   currentOwner,
   currentParent,
+  type DiffSegment,
   type FilePath,
   formatLogEntry,
   type LogEntry,
+  landMessage,
   newTodos,
   parseFilePath,
   parseRefName,
   type RefName,
+  reviewSegments,
   type Todo,
   type UserName,
   userName,
@@ -254,7 +258,9 @@ const diff = buildCommand({
       "previously reviewed tip when that still covers everything left — the " +
       "file is the same at both bases, or the new base took the reviewed " +
       "tip's copy — or a 4-way diff of the reviewed and current diffs when " +
-      "the base's copy changed underneath the review.",
+      "the base's copy changed underneath the review. The diff a land merge " +
+      "brings in was reviewed in the landed change, so it is skipped: what " +
+      "prints is one diff per span of history between land merges.",
   },
   parameters: {
     positional: {
@@ -315,12 +321,31 @@ const diff = buildCommand({
       );
       return;
     }
-    const prevCommit = reviewed?.tip ?? base;
-    const [prev, next] = await Promise.all([backend.readFile(prevCommit, file), backend.readFile(tip, file)]);
-    if (prev === undefined && next === undefined) {
-      throw new Error(`${file} exists at neither ${prevCommit} nor ${tip}`);
+    let segments: readonly DiffSegment[];
+    if (reviewed !== undefined && !(await backend.isAncestor(reviewed.tip, tip))) {
+      // The tip was rewritten out from under the review, so the reviewed tip
+      // cannot be placed among the first-parent segments; diffing from its
+      // contents still shows exactly what the reviewer has not seen.
+      segments = [{ start: reviewed.tip, end: tip }];
+    } else {
+      segments = await reviewSegments(backend, base, tip, reviewed?.tip);
     }
-    this.process.stdout.write(renderDiff(file, prev, next, color));
+    // Base and tip join the existence check even when review or a land merge
+    // drops them from the segments: a file present anywhere in the change is
+    // simply done (empty output), while a name found nowhere is an error.
+    const revs = [...new Set([...segments.flatMap(({ start, end }) => [start, end]), base, tip])];
+    const contents = new Map(
+      await Promise.all(revs.map(async (rev) => [rev, await backend.readFile(rev, file)] as const)),
+    );
+    if (revs.every((rev) => contents.get(rev) === undefined)) {
+      throw new Error(`${file} exists at none of ${revs.join(", ")}`);
+    }
+    const rendered = segments
+      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color))
+      .filter((diff) => diff !== "");
+    // A blank line between spans, since consecutive diffs of one file would
+    // otherwise run together.
+    this.process.stdout.write(rendered.join("\n"));
   },
 });
 
@@ -405,10 +430,69 @@ const glab = buildRouteMap({
 });
 
 const land = buildCommand({
-  docs: { brief: "Land a change (if fully reviewed)" },
-  parameters: {},
-  func(this: LocalContext) {
-    announce(this, "land", {});
+  docs: {
+    brief: "Land a change into its parent",
+    fullDescription:
+      "Land a change: merge it into its parent with a merge commit marked as " +
+      "landing, so the parent's reviewers are not asked to re-review the " +
+      "change's diff, and record the landing in the change's log. The change " +
+      "must sit on its parent's tip; `cabaret rebase` first if it does not. A " +
+      "landed change can no longer be rebased, reparented, or transferred, " +
+      "though reviewing it is still recorded.",
+  },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          brief: "change to land (defaults to current)",
+          placeholder: "change",
+          parse: parseRefName,
+          optional: true,
+        },
+      ],
+    },
+    flags: { evenThoughNotOwner },
+  },
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change?: RefName) {
+    const backend = await this.backend();
+    const target = change ?? (await backend.currentBranch());
+    const entries = await backend.readLog(target);
+    assertNotLanded(target, entries);
+    await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
+    const parent = currentParent(target, entries);
+    // A parent that is itself a landed change is frozen too: landing into it
+    // would grow the code its own land merge froze. A parent that is not a
+    // change (an empty log) cannot have landed.
+    assertNotLanded(parent, await backend.readLog(parent));
+    const parentTip = await backend.branchTip(parent);
+    if (parentTip === undefined) {
+      throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    }
+    const base = await changeBase(backend, target, entries);
+    if (base !== parentTip) {
+      throw new Error(
+        `${JSON.stringify(target)} is not based on the tip of ${JSON.stringify(parent)}; run \`cabaret rebase\` first`,
+      );
+    }
+    // Pin to the branch namespace so a same-named tag cannot shadow the
+    // change's tip.
+    const tip = await backend.resolveCommit(`refs/heads/${target}`);
+    if (tip === base) {
+      throw new Error(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
+    }
+    // Resolve the identity before merging so a missing git identity fails
+    // without moving the parent.
+    const user = await backend.currentUser();
+    const merge = await backend.merge(parent, base, tip, landMessage(target));
+    // Pin the base alongside the landing: once the parent contains the
+    // change, the merge-base with it is useless, so `changeBase` serves the
+    // stored base of a landed change forever.
+    const pin: LogEntry[] =
+      currentBase(target, entries) === base
+        ? []
+        : [{ timestamp: this.now(), user, action: { kind: "set-base", base } }];
+    await backend.appendLog(target, [...pin, { timestamp: this.now(), user, action: { kind: "land", merge } }]);
   },
 });
 
@@ -482,7 +566,9 @@ const owner = buildRouteMap({
       async func(this: LocalContext, flags: { change?: RefName; evenThoughNotOwner: boolean }, newOwner: UserName) {
         const backend = await this.backend();
         const change = flags.change ?? (await backend.currentBranch());
-        await requireOwner(backend, change, await backend.readLog(change), flags.evenThoughNotOwner);
+        const entries = await backend.readLog(change);
+        assertNotLanded(change, entries);
+        await requireOwner(backend, change, entries, flags.evenThoughNotOwner);
         await backend.appendLog(change, [
           { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-owner", owner: newOwner } },
         ]);
@@ -518,6 +604,7 @@ const rebase = buildCommand({
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
     const entries = await backend.readLog(target);
+    assertNotLanded(target, entries);
     await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
     const parent = currentParent(target, entries);
     const onto = await backend.branchTip(parent);
@@ -581,7 +668,9 @@ const reparent = buildCommand({
   // TODO: validate that `parent` names a real change before logging.
   async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change: RefName, parent: RefName) {
     const backend = await this.backend();
-    await requireOwner(backend, change, await backend.readLog(change), flags.evenThoughNotOwner);
+    const entries = await backend.readLog(change);
+    assertNotLanded(change, entries);
+    await requireOwner(backend, change, entries, flags.evenThoughNotOwner);
     await backend.appendLog(change, [
       {
         timestamp: this.now(),

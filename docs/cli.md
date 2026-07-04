@@ -48,7 +48,7 @@ Arguments:
 
 ## Diff
 
-Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, or the diff from the previously reviewed tip when the base is unchanged. Fails when the reviewed base no longer matches the change's base, which needs a 4-way diff (not yet implemented).
+Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when the base is unchanged, or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review. The diff a land merge brings in was reviewed in the landed change, so it is skipped: what prints is one diff per span of history between land merges, and a span with nothing left to review prints nothing.
 
 Arguments:
 
@@ -77,7 +77,14 @@ Arguments:
 
 ## Land
 
-Land a change (if fully reviewed)
+Land a change: merge it into its parent with a merge commit whose `Cabaret-Landed` trailer marks the merged diff as already reviewed (under the child's own log), and record the landing in the change's log. The change must sit on its parent's tip, so the merge can never conflict; `cabaret rebase` first if it does not.
+
+A landed change is frozen: `rebase`, `reparent`, `owner transfer`, and a second `land` are refused, and nothing can land into it. Reviewing it is still recorded — catching up on a landed change updates your brain like any other review.
+
+Arguments:
+
+- `change`: (optional) the change to land (defaults to the current change)
+- `--even-though-not-owner`: land a change you don't own
 
 ## Log
 
