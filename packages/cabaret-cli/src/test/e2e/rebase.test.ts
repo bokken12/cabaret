@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeRepo, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -145,6 +145,109 @@ test("rebase fails on a change that does not exist", async () => {
   const result = await repo.cabaret("rebase", "orphan");
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain('change does not exist: "orphan"; run `cabaret create` first');
+});
+
+test("a range rebases each change onto its parent, ancestormost first", async () => {
+  const repo = await makeRepo();
+  const root = await repo.git("rev-parse", "main");
+  await addChange(repo, "a");
+  const aOld = await repo.git("rev-parse", "a");
+  await addChange(repo, "b");
+  const bOld = await repo.git("rev-parse", "b");
+  await addChange(repo, "c");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  const mainNew = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\ntrunk work\nroot");
+  // Each change's recorded base is its parent's rebased tip.
+  const [aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
+  expect(await repo.cabaret("log", "a")).toEqual({
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${mainNew}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "b")).toEqual({
+    stdout:
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${aOld}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-base","base":"${aNew}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "c")).toEqual({
+    stdout:
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
+      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"${bOld}"}}\n` +
+      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"${bNew}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("a range stops at a conflict and a rerun resumes past it", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "a");
+  await addChange(repo, "b");
+  await addChange(repo, "c");
+  // The trunk claims b.txt too, so replaying b conflicts.
+  await repo.git("checkout", "-q", "main");
+  await repo.write("b.txt", "trunk version\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk claims b.txt");
+  const result = await repo.cabaret("rebase", "main..c");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("git rebase");
+  // a made it onto the new trunk before the stop; c never moved.
+  expect(await repo.git("log", "--format=%s", "a")).toBe("a work\ntrunk claims b.txt\nroot");
+  expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\nroot");
+  // Finish b's rebase with git, then rerun the range: a is already in place,
+  // b needs only its base pinned, and c replays.
+  await repo.write("b.txt", "b work\n");
+  await repo.git("add", "b.txt");
+  await repo.git("-c", "core.editor=true", "rebase", "--continue");
+  expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\ntrunk claims b.txt\nroot");
+});
+
+test("a range skips a landed change instead of failing", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("land", "parent");
+  const before = await repo.cabaret("log", "child");
+  expect(await repo.cabaret("rebase", "main..child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("log", "child")).toEqual(before);
+});
+
+test("a range whose left endpoint is not an ancestor fails", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "a");
+  await repo.git("checkout", "-q", "main");
+  await addChange(repo, "solo");
+  const result = await repo.cabaret("rebase", "a..solo");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(
+    '"a" is not an ancestor of "solo": the parent chain stops at "main", which is not a change',
+  );
+});
+
+test("a malformed range is rejected", async () => {
+  const repo = await makeRepo();
+  for (const raw of ["a..b..c", "a...b", "..b", "a.."]) {
+    expect(await repo.cabaret("rebase", raw)).toEqual({
+      stdout: "",
+      stderr: `Failed to parse ${JSON.stringify(raw)} for change: not a change or ancestor..descendant range: ${JSON.stringify(raw)}\n`,
+      // Stricli's exit code for arguments that fail to scan.
+      exitCode: -4,
+    });
+  }
 });
 
 test("a review survives the parent being rewritten and the rebase that follows", async () => {

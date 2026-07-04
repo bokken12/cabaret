@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeRepo, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -286,6 +286,89 @@ test("a merge without the land trailer still needs review", async () => {
     ",
     }
   `);
+});
+
+test("a range lands the whole chain, deepest first", async () => {
+  const repo = await makeRepo();
+  const root = await repo.git("rev-parse", "main");
+  await addChange(repo, "a");
+  const aTip = await repo.git("rev-parse", "a");
+  await addChange(repo, "b");
+  const bTip = await repo.git("rev-parse", "b");
+  await addChange(repo, "c");
+  expect(await repo.cabaret("land", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // Each parent advanced by exactly its child's land merge, so main holds it all.
+  expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("Land a\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Land b\na work\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
+  expect(await repo.git("show", "main:c.txt")).toBe("c work");
+  const [mergeA, mergeB, mergeC] = [
+    await repo.git("rev-parse", "main"),
+    await repo.git("rev-parse", "a"),
+    await repo.git("rev-parse", "b"),
+  ];
+  expect(await repo.cabaret("log", "a")).toEqual({
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "b")).toEqual({
+    stdout:
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "c")).toEqual({
+    stdout:
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
+      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
+      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("a range stops at a failure and a rerun resumes past the landed prefix", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "a");
+  await addChange(repo, "b");
+  await addChange(repo, "c");
+  await repo.cabaret("owner", "transfer", "bob@example.com", "--change", "b");
+  const denied = await repo.cabaret("land", "main..c");
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain('"b" is owned by "bob@example.com"');
+  // c landed into b before the stop; nothing above it moved.
+  expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("root");
+  // The rerun skips the landed c and finishes the chain.
+  expect(await repo.cabaret("land", "main..c", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("Land a\nroot");
+  expect(await repo.git("show", "main:c.txt")).toBe("c work");
+});
+
+test("a range that would land into a landed change refuses before landing anything", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "a");
+  await addChange(repo, "b");
+  await addChange(repo, "c");
+  await repo.cabaret("land", "a");
+  const result = await repo.cabaret("land", "main..c");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('"b" would land into "a", which has landed; run `cabaret reparent` first');
+  // Nothing moved: landing c first would only bury it in the jammed chain.
+  expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("b work\na work\nroot");
 });
 
 test("a landed change can still be reviewed and forgotten", async () => {

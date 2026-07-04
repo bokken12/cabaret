@@ -140,14 +140,14 @@ USAGE
   cabaret land [--even-though-not-owner] [<change>]
   cabaret land --help
 
-Land a change: merge it into its parent with a merge commit marked as landing, so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, reparented, or transferred, though reviewing it is still recorded.
+Land a change: merge it into its parent with a merge commit marked as landing, so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
   -h  --help                    Print help information and exit
 
 ARGUMENTS
-  [change]  change to land (defaults to current)
+  [change]  change or ancestor..descendant range to land (defaults to current)
 
 ## cabaret log
 
@@ -199,14 +199,14 @@ USAGE
   cabaret rebase [--even-though-not-owner] [<change>]
   cabaret rebase --help
 
-Rebase a change onto its parent's tip, then record the new base in the log. Replays only the commits after the change's base (`git rebase --onto`), so commits the change shares with an old version of the parent are never reapplied. Only the change's owner may rebase it.
+Rebase a change onto its parent's tip, then record the new base in the log. Replays only the commits after the change's base (`git rebase --onto`), so commits the change shares with an old version of the parent are never reapplied. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; when one fails, the rebases before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
   -h  --help                    Print help information and exit
 
 ARGUMENTS
-  [change]  change to rebase (defaults to current)
+  [change]  change or ancestor..descendant range to rebase (defaults to current)
 
 ## cabaret rename
 

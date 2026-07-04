@@ -81,9 +81,11 @@ Land a change: merge it into its parent with a merge commit whose `Cabaret-Lande
 
 A landed change is frozen: `rebase`, `reparent`, `owner transfer`, and a second `land` are refused, and nothing can land into it. Reviewing it is still recorded — catching up on a landed change updates your brain like any other review.
 
+A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed. When one fails, the landings before it stand, and rerunning the range resumes.
+
 Arguments:
 
-- `change`: (optional) the change to land (defaults to the current change)
+- `change`: (optional) the change or `ancestor..descendant` range to land (defaults to the current change)
 - `--even-though-not-owner`: land a change you don't own
 
 ## Log
@@ -113,9 +115,11 @@ Arguments to `transfer`:
 
 Rebase a change onto its parent. Uses `git rebase --onto` internally to avoid conflicts. Requires the base in metadata to be valid.
 
+A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed. When one fails (say a conflict), the rebases before it stand, and rerunning the range resumes.
+
 Arguments:
 
-- `change`: the change to rebase
+- `change`: the change or `ancestor..descendant` range to rebase
 - `--allow-invalid-base`: skip `--onto`, used when git history has been messed with outside cabaret
 - `--even-though-not-owner`: rebase a change you don't own
 

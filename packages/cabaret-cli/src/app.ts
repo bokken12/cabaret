@@ -13,6 +13,7 @@ import {
   type FilePath,
   formatLogEntry,
   type LogEntry,
+  landedMerge,
   landMessage,
   newTodos,
   parseFilePath,
@@ -35,6 +36,63 @@ function parseUser(raw: string): UserName {
     throw new Error("user must be nonempty");
   }
   return userName(raw);
+}
+
+/**
+ * What a rebase or land applies to: one change, or an `ancestor..descendant`
+ * range of them. As with git's `upstream..branch`, the left endpoint is
+ * excluded: it bounds the range and is never itself operated on.
+ */
+type ChangeSpec =
+  | { readonly kind: "one"; readonly change: RefName }
+  | { readonly kind: "range"; readonly ancestor: RefName; readonly descendant: RefName };
+
+function parseChangeSpec(raw: string): ChangeSpec {
+  const parts = raw.split("..");
+  if (parts.length === 1) {
+    return { kind: "one", change: parseRefName(raw) };
+  }
+  const [ancestor, descendant] = parts;
+  // "a...b" splits into "a" and ".b": the stray leading dot, like an empty
+  // endpoint or a second "..", marks a malformed range.
+  if (parts.length !== 2 || !ancestor || !descendant || descendant.startsWith(".")) {
+    throw new Error(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
+  }
+  return { kind: "range", ancestor: parseRefName(ancestor), descendant: parseRefName(descendant) };
+}
+
+/** One change of a resolved range, with the log that placed it there. */
+interface ChainLink {
+  readonly change: RefName;
+  readonly entries: readonly LogEntry[];
+}
+
+/**
+ * The changes of `ancestor..descendant`: those strictly after `ancestor` on
+ * `descendant`'s parent chain, ancestormost first. `ancestor` itself need not
+ * be a change — a range bottoming out at trunk names the whole stack — but
+ * every change after it must be, since only changes record parents.
+ */
+async function resolveRange(backend: Backend, ancestor: RefName, descendant: RefName): Promise<readonly ChainLink[]> {
+  const chain: ChainLink[] = [];
+  const seen = new Set<RefName>();
+  let cursor = descendant;
+  while (cursor !== ancestor) {
+    if (seen.has(cursor)) {
+      throw new Error(`parent chain from ${JSON.stringify(descendant)} loops at ${JSON.stringify(cursor)}`);
+    }
+    seen.add(cursor);
+    const entries = await backend.readLog(cursor);
+    if (entries.length === 0) {
+      throw new Error(
+        `${JSON.stringify(ancestor)} is not an ancestor of ${JSON.stringify(descendant)}: ` +
+          `the parent chain stops at ${JSON.stringify(cursor)}, which is not a change`,
+      );
+    }
+    chain.push({ change: cursor, entries });
+    cursor = currentParent(cursor, entries);
+  }
+  return chain.reverse();
 }
 
 /** The escape hatch for commands that `requireOwner` guards. */
@@ -429,6 +487,49 @@ const glab = buildRouteMap({
   },
 });
 
+/** Land `target` into its parent, as `cabaret land` of one change. */
+async function landOne(
+  ctx: LocalContext,
+  backend: Backend,
+  target: RefName,
+  entries: readonly LogEntry[],
+  override: boolean,
+): Promise<void> {
+  assertNotLanded(target, entries);
+  await requireOwner(backend, target, entries, override);
+  const parent = currentParent(target, entries);
+  // A parent that is itself a landed change is frozen too: landing into it
+  // would grow the code its own land merge froze. A parent that is not a
+  // change (an empty log) cannot have landed.
+  assertNotLanded(parent, await backend.readLog(parent));
+  const parentTip = await backend.branchTip(parent);
+  if (parentTip === undefined) {
+    throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
+  const base = await changeBase(backend, target, entries);
+  if (base !== parentTip) {
+    throw new Error(
+      `${JSON.stringify(target)} is not based on the tip of ${JSON.stringify(parent)}; run \`cabaret rebase\` first`,
+    );
+  }
+  // Pin to the branch namespace so a same-named tag cannot shadow the
+  // change's tip.
+  const tip = await backend.resolveCommit(`refs/heads/${target}`);
+  if (tip === base) {
+    throw new Error(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
+  }
+  // Resolve the identity before merging so a missing git identity fails
+  // without moving the parent.
+  const user = await backend.currentUser();
+  const merge = await backend.merge(parent, base, tip, landMessage(target));
+  // Pin the base alongside the landing: once the parent contains the
+  // change, the merge-base with it is useless, so `changeBase` serves the
+  // stored base of a landed change forever.
+  const pin: LogEntry[] =
+    currentBase(target, entries) === base ? [] : [{ timestamp: ctx.now(), user, action: { kind: "set-base", base } }];
+  await backend.appendLog(target, [...pin, { timestamp: ctx.now(), user, action: { kind: "land", merge } }]);
+}
+
 const land = buildCommand({
   docs: {
     brief: "Land a change into its parent",
@@ -438,61 +539,59 @@ const land = buildCommand({
       "change's diff, and record the landing in the change's log. The change " +
       "must sit on its parent's tip; `cabaret rebase` first if it does not. A " +
       "landed change can no longer be rebased, reparented, or transferred, " +
-      "though reviewing it is still recorded.",
+      "though reviewing it is still recorded. A range `ancestor..descendant` " +
+      "lands every change after `ancestor` on `descendant`'s parent chain, " +
+      "`descendant` first, skipping changes that already landed; when one " +
+      "fails, the landings before it stand, and rerunning the range resumes.",
   },
   parameters: {
     positional: {
       kind: "tuple",
       parameters: [
         {
-          brief: "change to land (defaults to current)",
+          brief: "change or ancestor..descendant range to land (defaults to current)",
           placeholder: "change",
-          parse: parseRefName,
+          parse: parseChangeSpec,
           optional: true,
         },
       ],
     },
     flags: { evenThoughNotOwner },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change?: RefName) {
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
     const backend = await this.backend();
-    const target = change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(target);
-    assertNotLanded(target, entries);
-    await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
-    const parent = currentParent(target, entries);
-    // A parent that is itself a landed change is frozen too: landing into it
-    // would grow the code its own land merge froze. A parent that is not a
-    // change (an empty log) cannot have landed.
-    assertNotLanded(parent, await backend.readLog(parent));
-    const parentTip = await backend.branchTip(parent);
-    if (parentTip === undefined) {
-      throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    if (spec === undefined || spec.kind === "one") {
+      const target = spec?.change ?? (await backend.currentBranch());
+      await landOne(this, backend, target, await backend.readLog(target), flags.evenThoughNotOwner);
+      return;
     }
-    const base = await changeBase(backend, target, entries);
-    if (base !== parentTip) {
-      throw new Error(
-        `${JSON.stringify(target)} is not based on the tip of ${JSON.stringify(parent)}; run \`cabaret rebase\` first`,
-      );
+    const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
+    // An unlanded change under a landed one can never reach `ancestor`:
+    // landing below it would only bury work in a jammed chain, so refuse
+    // before any merge moves.
+    let parent = spec.ancestor;
+    let parentLanded = landedMerge(await backend.readLog(spec.ancestor)) !== undefined;
+    for (const { change, entries } of chain) {
+      const changeLanded = landedMerge(entries) !== undefined;
+      if (parentLanded && !changeLanded) {
+        throw new Error(
+          `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+            "run `cabaret reparent` first",
+        );
+      }
+      parent = change;
+      parentLanded = changeLanded;
     }
-    // Pin to the branch namespace so a same-named tag cannot shadow the
-    // change's tip.
-    const tip = await backend.resolveCommit(`refs/heads/${target}`);
-    if (tip === base) {
-      throw new Error(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
+    // Deepest first: a change lands into its parent, so the parent's own land
+    // must wait until it has absorbed everything below.
+    for (const { change, entries } of chain.toReversed()) {
+      // Already landed means already done: skipping lets a rerun after a
+      // mid-range failure resume where it left off.
+      if (landedMerge(entries) !== undefined) {
+        continue;
+      }
+      await landOne(this, backend, change, entries, flags.evenThoughNotOwner);
     }
-    // Resolve the identity before merging so a missing git identity fails
-    // without moving the parent.
-    const user = await backend.currentUser();
-    const merge = await backend.merge(parent, base, tip, landMessage(target));
-    // Pin the base alongside the landing: once the parent contains the
-    // change, the merge-base with it is useless, so `changeBase` serves the
-    // stored base of a landed change forever.
-    const pin: LogEntry[] =
-      currentBase(target, entries) === base
-        ? []
-        : [{ timestamp: this.now(), user, action: { kind: "set-base", base } }];
-    await backend.appendLog(target, [...pin, { timestamp: this.now(), user, action: { kind: "land", merge } }]);
   },
 });
 
@@ -577,6 +676,40 @@ const owner = buildRouteMap({
   },
 });
 
+/** Rebase `target` onto its parent's tip, as `cabaret rebase` of one change. */
+async function rebaseOne(
+  ctx: LocalContext,
+  backend: Backend,
+  target: RefName,
+  entries: readonly LogEntry[],
+  override: boolean,
+): Promise<void> {
+  assertNotLanded(target, entries);
+  await requireOwner(backend, target, entries, override);
+  const parent = currentParent(target, entries);
+  const onto = await backend.branchTip(parent);
+  if (onto === undefined) {
+    throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
+  const base = await changeBase(backend, target, entries);
+  // Replay the change's own commits onto the parent's tip. When the change
+  // already sits there (base === onto), whether because it was just rebased
+  // or an out-of-band `git rebase` put it there, there is nothing to replay.
+  if (base !== onto) {
+    // Record the base only after a clean rebase: if the rebase stops on
+    // conflicts and the user finishes it with git, this line never runs and
+    // the stale stored base loses to the merge-base with the parent.
+    await backend.rebaseOnto(target, base, onto);
+  }
+  // Pin the base to the parent's tip so a later parent rewrite cannot slide
+  // it back to an ancestor and pull the parent's commits into the diff.
+  if (currentBase(target, entries) !== onto) {
+    await backend.appendLog(target, [
+      { timestamp: ctx.now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
+    ]);
+  }
+}
+
 const rebase = buildCommand({
   docs: {
     brief: "Rebase a change onto its parent's tip",
@@ -584,49 +717,41 @@ const rebase = buildCommand({
       "Rebase a change onto its parent's tip, then record the new base in the " +
       "log. Replays only the commits after the change's base (`git rebase " +
       "--onto`), so commits the change shares with an old version of the parent " +
-      "are never reapplied. Only the change's owner may rebase it.",
+      "are never reapplied. Only the change's owner may rebase it. A range " +
+      "`ancestor..descendant` rebases every change after `ancestor` on " +
+      "`descendant`'s parent chain, ancestormost first, skipping changes that " +
+      "have landed; when one fails, the rebases before it stand, and rerunning " +
+      "the range resumes.",
   },
   parameters: {
     positional: {
       kind: "tuple",
       parameters: [
         {
-          brief: "change to rebase (defaults to current)",
+          brief: "change or ancestor..descendant range to rebase (defaults to current)",
           placeholder: "change",
-          parse: parseRefName,
+          parse: parseChangeSpec,
           optional: true,
         },
       ],
     },
     flags: { evenThoughNotOwner },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change?: RefName) {
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
     const backend = await this.backend();
-    const target = change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(target);
-    assertNotLanded(target, entries);
-    await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
-    const parent = currentParent(target, entries);
-    const onto = await backend.branchTip(parent);
-    if (onto === undefined) {
-      throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    if (spec === undefined || spec.kind === "one") {
+      const target = spec?.change ?? (await backend.currentBranch());
+      await rebaseOne(this, backend, target, await backend.readLog(target), flags.evenThoughNotOwner);
+      return;
     }
-    const base = await changeBase(backend, target, entries);
-    // Replay the change's own commits onto the parent's tip. When the change
-    // already sits there (base === onto), whether because it was just rebased
-    // or an out-of-band `git rebase` put it there, there is nothing to replay.
-    if (base !== onto) {
-      // Record the base only after a clean rebase: if the rebase stops on
-      // conflicts and the user finishes it with git, this line never runs and
-      // the stale stored base loses to the merge-base with the parent.
-      await backend.rebaseOnto(target, base, onto);
-    }
-    // Pin the base to the parent's tip so a later parent rewrite cannot slide
-    // it back to an ancestor and pull the parent's commits into the diff.
-    if (currentBase(target, entries) !== onto) {
-      await backend.appendLog(target, [
-        { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
-      ]);
+    // Ancestormost first: each change's rebase wants its parent already at rest.
+    for (const { change, entries } of await resolveRange(backend, spec.ancestor, spec.descendant)) {
+      // A landed change is frozen where it landed; its descendants still
+      // rebase onto its tip.
+      if (landedMerge(entries) !== undefined) {
+        continue;
+      }
+      await rebaseOne(this, backend, change, entries, flags.evenThoughNotOwner);
     }
   },
 });
