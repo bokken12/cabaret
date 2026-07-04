@@ -61,6 +61,7 @@ export function userName(raw: string): UserName {
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
+  | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath };
 
@@ -77,6 +78,7 @@ export interface LogEntry {
 const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
   z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
+  z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
@@ -204,6 +206,24 @@ export function currentBase(entries: readonly LogEntry[]): CommitHash | undefine
     }
   }
   return base;
+}
+
+/**
+ * The owner set by the `set-owner` entry with the greatest timestamp, if any.
+ * A change has at most one owner: setting the owner replaces the previous one.
+ * Union-merged logs interleave concurrent entries in arbitrary order, so the
+ * timestamp, not log position, decides which entry is current.
+ */
+export function currentOwner(entries: readonly LogEntry[]): UserName | undefined {
+  let owner: UserName | undefined;
+  let latest = -1;
+  for (const { timestamp, action } of entries) {
+    if (action.kind === "set-owner" && timestamp >= latest) {
+      latest = timestamp;
+      owner = action.owner;
+    }
+  }
+  return owner;
 }
 
 /** The endpoints of a diff a reviewer has reviewed. */

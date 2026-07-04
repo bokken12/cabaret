@@ -5,6 +5,7 @@ import {
   brain,
   type CommitHash,
   currentBase,
+  currentOwner,
   currentParent,
   type FilePath,
   formatLogEntry,
@@ -123,6 +124,18 @@ test("formatLogEntry renders set-base actions", () => {
   ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
 });
 
+test("formatLogEntry renders set-owner actions", () => {
+  expect(
+    formatLogEntry({
+      timestamp: timestampMs(1748000000004),
+      user: userName("erin@example.com"),
+      action: { kind: "set-owner", owner: userName("frank@example.com") },
+    }),
+  ).toBe(
+    '{"timestamp":1748000000004,"user":"erin@example.com","action":{"kind":"set-owner","owner":"frank@example.com"}}\n',
+  );
+});
+
 test("timestampMs rejects non-integers, negatives, and unsafe integers", () => {
   for (const bad of [0.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => timestampMs(bad)).toThrow("not a millisecond timestamp");
@@ -173,6 +186,11 @@ test("a formatted log parses back to the original entries", () => {
       user: userName("dave@example.com"),
       action: { kind: "set-base", base: parseCommitHash(SHA256) },
     },
+    {
+      timestamp: timestampMs(1748000300000),
+      user: userName("dave@example.com"),
+      action: { kind: "set-owner", owner: userName("erin@example.com") },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -201,6 +219,8 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-base", base: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-base" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-owner", owner: "" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-owner" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -249,6 +269,23 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
       }),
     ]),
   ).toBe(SHA256);
+});
+
+test("currentOwner takes the set-owner with the greatest timestamp, regardless of order", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    action,
+  });
+  expect(currentOwner([])).toBeUndefined();
+  expect(currentOwner([entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toBeUndefined();
+  expect(
+    currentOwner([
+      entry(9, { kind: "set-owner", owner: userName("carol@example.com") }),
+      entry(3, { kind: "set-owner", owner: userName("bob@example.com") }),
+      entry(12, { kind: "set-parent", parent: parseRefName("main") }),
+    ]),
+  ).toBe("carol@example.com");
 });
 
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
@@ -316,9 +353,11 @@ function commitHashes(): fc.Arbitrary<CommitHash> {
 }
 
 function logActions(): fc.Arbitrary<LogAction> {
+  const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
   return fc.oneof(
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
+    fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
   );

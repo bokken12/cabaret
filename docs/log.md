@@ -12,6 +12,8 @@ Where the `action` may be any of (incomplete)
 
 - `set-base` to a commit `base`
 - `set-parent` to `ref`
+- `set-owner` to a user `owner`
+    - a change has a single owner (the `set-owner` with the greatest timestamp), so transferring ownership replaces the previous owner
 
 - `review` a `file`, recording the `base` and `tip` of the reviewed diff
     - possibly there should be a mechanism to review all files?

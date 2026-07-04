@@ -62,9 +62,10 @@ test("rebase replays only the child's commits and records the new base", async (
   expect(await repo.git("show", "child:parent.txt")).toBe("parent v2");
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${newBase}"}}\n`,
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"${newBase}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -98,9 +99,10 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n`,
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n`,
     stderr: "",
     exitCode: 0,
   });

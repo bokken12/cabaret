@@ -1,12 +1,15 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
+  type Backend,
   brain,
   type CommitHash,
   changeBase,
   currentBase,
+  currentOwner,
   currentParent,
   type FilePath,
   formatLogEntry,
+  type LogEntry,
   parseFilePath,
   parseRefName,
   type RefName,
@@ -19,12 +22,46 @@ import { IsBinary } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
 import type { LocalContext } from "./context.js";
 
-/** Parse a `--for` user, rejecting the empty string. */
+/** Parse a user argument, rejecting the empty string. */
 function parseUser(raw: string): UserName {
   if (raw === "") {
     throw new Error("user must be nonempty");
   }
   return userName(raw);
+}
+
+/** The escape hatch for commands that `requireOwner` guards. */
+const evenThoughNotOwner = {
+  kind: "boolean",
+  brief: "Proceed even though you do not own the change",
+  default: false,
+} as const;
+
+/**
+ * Fail unless the current user owns `change`. A change with no recorded owner
+ * is unowned, so anyone may act on it; `override` (--even-though-not-owner)
+ * skips the check entirely.
+ */
+async function requireOwner(
+  backend: Backend,
+  change: RefName,
+  entries: readonly LogEntry[],
+  override: boolean,
+): Promise<void> {
+  if (override) {
+    return;
+  }
+  const owner = currentOwner(entries);
+  if (owner === undefined) {
+    return;
+  }
+  const user = await backend.currentUser();
+  if (user !== owner) {
+    throw new Error(
+      `${JSON.stringify(change)} is owned by ${JSON.stringify(owner)}, not ${JSON.stringify(user)}; ` +
+        "pass --even-though-not-owner to override",
+    );
+  }
 }
 
 /**
@@ -94,10 +131,10 @@ const create = buildCommand({
   docs: {
     brief: "Create a change",
     fullDescription:
-      "Create a change, initializing its log with a parent and a base. A branch " +
-      "that does not exist yet is created at the parent's tip; an existing branch " +
-      "is adopted with the last revision shared with the parent as its base. The " +
-      "change must not already have a log.",
+      "Create a change, initializing its log with a parent, a base, and you as " +
+      "its owner. A branch that does not exist yet is created at the parent's " +
+      "tip; an existing branch is adopted with the last revision shared with " +
+      "the parent as its base. The change must not already have a log.",
   },
   parameters: {
     positional: {
@@ -142,6 +179,7 @@ const create = buildCommand({
     await backend.appendLog(change, [
       { timestamp: this.now(), user, action: { kind: "set-parent", parent } },
       { timestamp: this.now(), user, action: { kind: "set-base", base } },
+      { timestamp: this.now(), user, action: { kind: "set-owner", owner: user } },
     ]);
   },
 });
@@ -387,31 +425,65 @@ const log = buildCommand({
   },
 });
 
-const owners = buildRouteMap({
-  docs: { brief: "Manage a change's owners" },
+const owner = buildRouteMap({
+  docs: { brief: "Show or transfer a change's owner" },
   routes: {
-    add: buildCommand({
-      docs: { brief: "Add an owner" },
+    show: buildCommand({
+      docs: {
+        brief: "Show a change's owner",
+        fullDescription: "Show a change's owner. A change with no recorded owner prints nothing.",
+      },
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [{ brief: "user to add", placeholder: "user", parse: String }],
+          parameters: [
+            {
+              brief: "change to inspect (defaults to current)",
+              placeholder: "change",
+              parse: parseRefName,
+              optional: true,
+            },
+          ],
         },
       },
-      func(this: LocalContext, _flags: Record<never, never>, user: string) {
-        announce(this, "owners add", { user });
+      async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+        const backend = await this.backend();
+        const user = currentOwner(await backend.readLog(change ?? (await backend.currentBranch())));
+        if (user !== undefined) {
+          this.process.stdout.write(`${user}\n`);
+        }
       },
     }),
-    remove: buildCommand({
-      docs: { brief: "Remove an owner" },
+    transfer: buildCommand({
+      docs: {
+        brief: "Transfer ownership of a change",
+        fullDescription:
+          "Transfer ownership of a change. A change has a single owner, so the " +
+          "new owner replaces the current one. Only the owner may transfer " +
+          "ownership, unless --even-though-not-owner is passed.",
+      },
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [{ brief: "user to remove", placeholder: "user", parse: String }],
+          parameters: [{ brief: "the new owner", placeholder: "user", parse: parseUser }],
+        },
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to transfer (defaults to current)",
+            optional: true,
+          },
+          evenThoughNotOwner,
         },
       },
-      func(this: LocalContext, _flags: Record<never, never>, user: string) {
-        announce(this, "owners remove", { user });
+      async func(this: LocalContext, flags: { change?: RefName; evenThoughNotOwner: boolean }, newOwner: UserName) {
+        const backend = await this.backend();
+        const change = flags.change ?? (await backend.currentBranch());
+        await requireOwner(backend, change, await backend.readLog(change), flags.evenThoughNotOwner);
+        await backend.appendLog(change, [
+          { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-owner", owner: newOwner } },
+        ]);
       },
     }),
   },
@@ -424,7 +496,8 @@ const rebase = buildCommand({
       "Rebase a change onto its parent's tip, then record the new base in the " +
       "log. Replays only the commits after the change's base (`git rebase " +
       "--onto`), so commits the change shares with an old version of the parent " +
-      "are never reapplied.",
+      "are never reapplied. Only the change's owner may rebase it, unless " +
+      "--even-though-not-owner is passed.",
   },
   parameters: {
     positional: {
@@ -438,11 +511,13 @@ const rebase = buildCommand({
         },
       ],
     },
+    flags: { evenThoughNotOwner },
   },
-  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change?: RefName) {
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
     const entries = await backend.readLog(target);
+    await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
     const parent = currentParent(entries);
     if (parent === undefined) {
       throw new Error(`change has no parent: ${JSON.stringify(target)}`);
@@ -492,7 +567,8 @@ const reparent = buildCommand({
     brief: "Update a change's parent",
     fullDescription:
       "Update a change's parent. This is a metadata/log change only, and does not " +
-      "touch code without a subsequent `rebase`.",
+      "touch code without a subsequent `rebase`. Only the change's owner may " +
+      "reparent it, unless --even-though-not-owner is passed.",
   },
   parameters: {
     positional: {
@@ -502,10 +578,12 @@ const reparent = buildCommand({
         { brief: "the new parent", placeholder: "parent", parse: parseRefName },
       ],
     },
+    flags: { evenThoughNotOwner },
   },
   // TODO: validate that `change` and `parent` name real changes before logging.
-  async func(this: LocalContext, _flags: Record<never, never>, change: RefName, parent: RefName) {
+  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change: RefName, parent: RefName) {
     const backend = await this.backend();
+    await requireOwner(backend, change, await backend.readLog(change), flags.evenThoughNotOwner);
     await backend.appendLog(change, [
       {
         timestamp: this.now(),
@@ -602,7 +680,7 @@ const routes = buildRouteMap({
     glab,
     land,
     log,
-    owners,
+    owner,
     rebase,
     rename,
     reparent,
