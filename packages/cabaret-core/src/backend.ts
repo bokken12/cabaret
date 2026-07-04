@@ -165,6 +165,14 @@ export interface Backend {
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
 
   /**
+   * The file paths that differ between `base` and `tip`, as `git diff
+   * --name-only`. A moved file counts as a delete plus an add, so each path
+   * names the same file on both sides; submodules are not files and are
+   * never listed.
+   */
+  changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]>;
+
+  /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    */

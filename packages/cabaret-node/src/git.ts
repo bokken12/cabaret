@@ -7,6 +7,7 @@ import {
   formatLogEntry,
   type LogEntry,
   parseCommitHash,
+  parseFilePath,
   parseLog,
   parseRefName,
   type RefName,
@@ -109,6 +110,26 @@ export class GitBackend implements Backend {
       }
       throw error;
     }
+  }
+
+  async changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]> {
+    // -z delimits with NULs and disables path quoting; --no-renames keeps a
+    // moved file as a delete plus an add, so each listed path exists under
+    // that name on whichever side has it. Submodules are dropped: a gitlink
+    // is not a file, so readFile could not serve it.
+    const out = await git(this.root, [
+      "diff",
+      "--name-only",
+      "--no-renames",
+      "--ignore-submodules=all",
+      "-z",
+      base,
+      tip,
+    ]);
+    return out
+      .split("\0")
+      .filter((path) => path !== "")
+      .map(parseFilePath);
   }
 
   async branchTip(branch: RefName): Promise<CommitHash | undefined> {
