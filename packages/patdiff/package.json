@@ -25,6 +25,10 @@
     "./expect-test": {
       "types": "./dist/expect-test-patdiff/expect-test-patdiff.d.ts",
       "default": "./dist/expect-test-patdiff/expect-test-patdiff.js"
+    },
+    "./patdiff4": {
+      "types": "./dist/patdiff4/patdiff4.d.ts",
+      "default": "./dist/patdiff4/patdiff4.js"
     }
   },
   "bin": {

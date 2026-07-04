@@ -9,6 +9,7 @@ Patience diffs in TypeScript — colored, with word-level refinement, ported fro
 - Numeric tolerance ("almost equal" floats are treated as equal)
 - Recursive directory diffing
 - CLI (`patdiff`) and library (`import { ... } from "patdiff"`)
+- 4-way diffs (`import * as Patdiff4 from "patdiff/patdiff4"`), ported from Iron's `patdiff4`: given the old and new base and tip around a rebase, show a reviewer who knows the old diff what changed about the diff itself
 - Ships ESM only, Node 20+
 
 This is a private workspace package; depend on it with `"patdiff": "workspace:*"`.
