@@ -151,7 +151,7 @@ USAGE
   cabaret gh push [--change value]
   cabaret gh push --help
 
-Push PR activity to GitHub: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks.
+Push PR activity to GitHub: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks. A PR found merged is recorded as landing the change.
 
 FLAGS
      [--change]  Change to push (defaults to current)

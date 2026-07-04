@@ -568,6 +568,23 @@ function parseRequestNumber(raw: string): ForgeRequestId {
   return forgeRequestId(Number(raw));
 }
 
+/**
+ * The land entry a merged `request` implies, or undefined when `entries`
+ * already record one: however the merge is observed, it means the change
+ * landed.
+ */
+function observedLand(
+  ctx: LocalContext,
+  user: UserName,
+  request: ForgeRequest,
+  entries: readonly LogEntry[],
+): LogEntry | undefined {
+  if (request.state !== "merged" || request.merge === undefined || landedMerge(entries) !== undefined) {
+    return undefined;
+  }
+  return { timestamp: ctx.now(), user, action: { kind: "land", merge: request.merge } };
+}
+
 const gh = buildRouteMap({
   docs: { brief: "GitHub integration" },
   routes: {
@@ -608,8 +625,9 @@ const gh = buildRouteMap({
         ];
         // Without the land entry, a merged PR's merge-base slides to its own
         // tip and the diff to review vanishes.
-        if (request.state === "merged" && request.merge !== undefined) {
-          additions.push({ timestamp: this.now(), user, action: { kind: "land", merge: request.merge } });
+        const landing = observedLand(this, user, request, []);
+        if (landing !== undefined) {
+          additions.push(landing);
         }
         await backend.appendLog(change, additions);
         const pulled = additions.filter(({ action }) => action.kind === "comment").length;
@@ -650,14 +668,9 @@ const gh = buildRouteMap({
           );
         }
         const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
-        // A merged request landed the change; record that unless the log already has it.
-        const landing = request.state === "merged" && landedMerge(entries) === undefined ? request.merge : undefined;
+        const landing = observedLand(this, await backend.currentUser(), request, entries);
         if (landing !== undefined) {
-          additions.push({
-            timestamp: this.now(),
-            user: await backend.currentUser(),
-            action: { kind: "land", merge: landing },
-          });
+          additions.push(landing);
         }
         await backend.appendLog(change, additions);
         if (landing !== undefined) {
@@ -675,7 +688,8 @@ const gh = buildRouteMap({
         fullDescription:
           "Push PR activity to GitHub: push the change's branch, open its PR " +
           "if there is none (based on the change's parent), retarget the PR's " +
-          "base to the parent, and post the change's comments the PR lacks.",
+          "base to the parent, and post the change's comments the PR lacks. A " +
+          "PR found merged is recorded as landing the change.",
       },
       parameters: {
         flags: {
@@ -708,6 +722,11 @@ const gh = buildRouteMap({
           this.process.stdout.write(`opened ${forge.locator}#${request.id}\n`);
         } else if (request.state === "open" && request.base !== parent) {
           await forge.setBase(request.id, parent);
+        }
+        const landing = observedLand(this, await backend.currentUser(), request, entries);
+        if (landing !== undefined) {
+          await backend.appendLog(change, [landing]);
+          this.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
         }
         const bodies = await planPush(entries, await forge.listComments(request.id), await backend.currentUser());
         for (const body of bodies) {

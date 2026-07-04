@@ -90,7 +90,7 @@ This is the less certain half. What syncs comfortably:
 - **Creation**: `gh push` pushes the branch (`--force-with-lease`, since changes rebase) and opens the PR.
 - **Reparent**: `gh push` updates the PR base to match the current parent.
 - **Rename**: pushes the new branch and retargets the PR head... which GitHub does not support; in practice this closes and reopens. An oddity to paper over later.
-- **Close/merge state**: `gh pull` observes it.
+- **Close/merge state**: observed by every sync — however a merged PR is noticed, it is recorded as landing the change.
 
 Landing is where the models genuinely diverge. `cabaret land` produces a merge commit carrying the `Cabaret-Landed` trailer, which is what lets parent reviewers skip already-reviewed diffs. A teammate pressing GitHub's merge button produces a merge (or worse, a squash) without the trailer, so that machinery misses it. `gh pull` can at least append the `land` entry when it sees the PR merged, recording the merge commit and freezing the change correctly — but the trailer-based review skip is lost, and a squash merge diverges history outright.
 
