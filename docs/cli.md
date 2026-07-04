@@ -44,6 +44,7 @@ Arguments:
 - `change`: (optional) name for the new change
 - `--parent`: (optional) set its parent to some other change (exclusive with child)
 - `--child`: (optional) set its child to some other change (exclusive with parent)
+- `--owner`: (optional) the change's owner (defaults to you)
 
 ## Diff
 
@@ -88,7 +89,7 @@ Arguments:
 
 ## Owner
 
-Every change has at most one owner, recorded in its log — `create` records the creator. Transferring ownership replaces the current owner. Commands that rewrite a change (`rebase`, `reparent`, `owner transfer` itself) require you to be the owner; `--even-though-not-owner` overrides the check. A change with no recorded owner is unowned, and anyone may act on it.
+Every change has exactly one owner, recorded in its log: `create` records one (you, unless `--owner` says otherwise), and transferring ownership replaces the current owner. Commands that rewrite a change (`rebase`, `reparent`, `owner transfer` itself) require you to be the owner; `--even-though-not-owner` overrides the check. A change whose log has no owner was started outside `cabaret create`, and the guarded commands refuse it — transferring with the override is the way to repair it.
 
 Subcommands:
 

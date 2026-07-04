@@ -4,9 +4,14 @@ import { makeRepo } from "./fixture.js";
 
 test("log defaults to the change of the checked-out branch", async () => {
   const repo = await makeRepo();
-  await repo.cabaret("reparent", "main", "trunk");
+  const root = await repo.git("rev-parse", "main");
+  await repo.git("branch", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
   expect(await repo.cabaret("log")).toEqual({
-    stdout: '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n',
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n',
     stderr: "",
     exitCode: 0,
   });

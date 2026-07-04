@@ -38,9 +38,10 @@ const evenThoughNotOwner = {
 } as const;
 
 /**
- * Fail unless the current user owns `change`. A change with no recorded owner
- * is unowned, so anyone may act on it; `override` (--even-though-not-owner)
- * skips the check entirely.
+ * Fail unless the current user owns `change`; `override`
+ * (--even-though-not-owner) skips the check entirely. `create` gives every
+ * change exactly one owner, so a log without one was started out-of-band and
+ * fails too — transferring with the override is the way to repair it.
  */
 async function requireOwner(
   backend: Backend,
@@ -53,7 +54,7 @@ async function requireOwner(
   }
   const owner = currentOwner(entries);
   if (owner === undefined) {
-    return;
+    throw new Error(`change has no owner: ${JSON.stringify(change)}; pass --even-though-not-owner to override`);
   }
   const user = await backend.currentUser();
   if (user !== owner) {
@@ -131,10 +132,11 @@ const create = buildCommand({
   docs: {
     brief: "Create a change",
     fullDescription:
-      "Create a change, initializing its log with a parent, a base, and you as " +
-      "its owner. A branch that does not exist yet is created at the parent's " +
-      "tip; an existing branch is adopted with the last revision shared with " +
-      "the parent as its base. The change must not already have a log.",
+      "Create a change, initializing its log with a parent, a base, and an " +
+      "owner (you, unless --owner says otherwise). A branch that does not " +
+      "exist yet is created at the parent's tip; an existing branch is adopted " +
+      "with the last revision shared with the parent as its base. The change " +
+      "must not already have a log.",
   },
   parameters: {
     positional: {
@@ -148,9 +150,15 @@ const create = buildCommand({
         brief: "The new change's parent (defaults to the current branch)",
         optional: true,
       },
+      owner: {
+        kind: "parsed",
+        parse: parseUser,
+        brief: "The new change's owner (defaults to you)",
+        optional: true,
+      },
     },
   },
-  async func(this: LocalContext, flags: { parent?: RefName }, change: RefName) {
+  async func(this: LocalContext, flags: { parent?: RefName; owner?: UserName }, change: RefName) {
     const backend = await this.backend();
     const parent = flags.parent ?? (await backend.currentBranch());
     if (change === parent) {
@@ -179,7 +187,7 @@ const create = buildCommand({
     await backend.appendLog(change, [
       { timestamp: this.now(), user, action: { kind: "set-parent", parent } },
       { timestamp: this.now(), user, action: { kind: "set-base", base } },
-      { timestamp: this.now(), user, action: { kind: "set-owner", owner: user } },
+      { timestamp: this.now(), user, action: { kind: "set-owner", owner: flags.owner ?? user } },
     ]);
   },
 });
@@ -429,10 +437,7 @@ const owner = buildRouteMap({
   docs: { brief: "Show or transfer a change's owner" },
   routes: {
     show: buildCommand({
-      docs: {
-        brief: "Show a change's owner",
-        fullDescription: "Show a change's owner. A change with no recorded owner prints nothing.",
-      },
+      docs: { brief: "Show a change's owner" },
       parameters: {
         positional: {
           kind: "tuple",
@@ -448,18 +453,20 @@ const owner = buildRouteMap({
       },
       async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
         const backend = await this.backend();
-        const user = currentOwner(await backend.readLog(change ?? (await backend.currentBranch())));
-        if (user !== undefined) {
-          this.process.stdout.write(`${user}\n`);
+        const target = change ?? (await backend.currentBranch());
+        const user = currentOwner(await backend.readLog(target));
+        if (user === undefined) {
+          throw new Error(`change has no owner: ${JSON.stringify(target)}`);
         }
+        this.process.stdout.write(`${user}\n`);
       },
     }),
     transfer: buildCommand({
       docs: {
         brief: "Transfer ownership of a change",
         fullDescription:
-          "Transfer ownership of a change. A change has a single owner, so the " +
-          "new owner replaces the current one. Only the owner may transfer " +
+          "Transfer ownership of a change. A change has exactly one owner, so " +
+          "the new owner replaces the current one. Only the owner may transfer " +
           "ownership, unless --even-though-not-owner is passed.",
       },
       parameters: {

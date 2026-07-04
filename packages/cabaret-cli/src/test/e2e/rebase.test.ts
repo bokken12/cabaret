@@ -142,6 +142,7 @@ test("rebase stops on conflict without recording a base", async () => {
 test("rebase fails on a change with no parent", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "orphan");
+  await repo.cabaret("owner", "transfer", "alice@example.com", "--change", "orphan", "--even-though-not-owner");
   const result = await repo.cabaret("rebase", "orphan");
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain('change has no parent: "orphan"');

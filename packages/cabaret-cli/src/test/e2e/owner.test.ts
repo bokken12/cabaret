@@ -17,10 +17,11 @@ test("create records the creator as owner", async () => {
   });
 });
 
-test("owner show prints nothing for a change with no recorded owner", async () => {
+test("owner show fails on a change with no owner", async () => {
   const repo = await makeRepo();
-  await repo.cabaret("reparent", "gadget", "main");
-  expect(await repo.cabaret("owner", "show", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  const result = await repo.cabaret("owner", "show");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('change has no owner: "main"');
 });
 
 test("transfer replaces the owner", async () => {
@@ -103,9 +104,17 @@ test("only the owner may rebase a change", async () => {
   });
 });
 
-test("a change with no recorded owner may be reparented by anyone", async () => {
+test("a change with no owner refuses guarded commands until one is assigned", async () => {
   const repo = await makeRepo();
-  await repo.cabaret("reparent", "gadget", "main");
-  await repo.git("config", "user.email", "bob@example.com");
-  expect(await repo.cabaret("reparent", "gadget", "trunk")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  const denied = await repo.cabaret("reparent", "main", "trunk");
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain('change has no owner: "main"; pass --even-though-not-owner to override');
+  expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // Transferring with the override assigns an owner, repairing the change.
+  expect(await repo.cabaret("owner", "transfer", "alice@example.com", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("reparent", "main", "trunk")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

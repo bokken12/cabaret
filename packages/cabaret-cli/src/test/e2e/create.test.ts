@@ -36,6 +36,24 @@ test("create adopts an existing branch, based where it left the parent", async (
   });
 });
 
+test("create --owner records the given owner instead of the creator", async () => {
+  const repo = await makeRepo();
+  const tip = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("create", "feature", "--owner", "bob@example.com")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "feature")).toEqual({
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"bob@example.com"}}\n',
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
 test("create fails when the change already has a log", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature");

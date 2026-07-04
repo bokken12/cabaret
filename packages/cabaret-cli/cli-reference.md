@@ -46,13 +46,14 @@ ARGUMENTS
 ## cabaret create
 
 USAGE
-  cabaret create [--parent value] <change>
+  cabaret create [--parent value] [--owner value] <change>
   cabaret create --help
 
-Create a change, initializing its log with a parent, a base, and you as its owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already have a log.
+Create a change, initializing its log with a parent, a base, and an owner (you, unless --owner says otherwise). A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already have a log.
 
 FLAGS
      [--parent]  The new change's parent (defaults to the current branch)
+     [--owner]   The new change's owner (defaults to you)
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -164,7 +165,7 @@ USAGE
   cabaret owner show [<change>]
   cabaret owner show --help
 
-Show a change's owner. A change with no recorded owner prints nothing.
+Show a change's owner
 
 FLAGS
   -h --help  Print help information and exit
@@ -178,7 +179,7 @@ USAGE
   cabaret owner transfer [--change value] [--even-though-not-owner] <user>
   cabaret owner transfer --help
 
-Transfer ownership of a change. A change has a single owner, so the new owner replaces the current one. Only the owner may transfer ownership, unless --even-though-not-owner is passed.
+Transfer ownership of a change. A change has exactly one owner, so the new owner replaces the current one. Only the owner may transfer ownership, unless --even-though-not-owner is passed.
 
 FLAGS
      [--change]                 Change to transfer (defaults to current)
