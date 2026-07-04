@@ -688,8 +688,7 @@ const gh = buildRouteMap({
         fullDescription:
           "Push PR activity to GitHub: push the change's branch, open its PR " +
           "if there is none (based on the change's parent), retarget the PR's " +
-          "base to the parent, and post the change's comments the PR lacks. A " +
-          "PR found merged is recorded as landing the change.",
+          "base to the parent, and post the change's comments the PR lacks.",
       },
       parameters: {
         flags: {
@@ -722,11 +721,6 @@ const gh = buildRouteMap({
           this.process.stdout.write(`opened ${forge.locator}#${request.id}\n`);
         } else if (request.state === "open" && request.base !== parent) {
           await forge.setBase(request.id, parent);
-        }
-        const landing = observedLand(this, await backend.currentUser(), request, entries);
-        if (landing !== undefined) {
-          await backend.appendLog(change, [landing]);
-          this.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
         }
         const bodies = await planPush(entries, await forge.listComments(request.id), await backend.currentUser());
         for (const body of bodies) {

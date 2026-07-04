@@ -94,7 +94,7 @@ Subcommands:
 - `pull`: import the PR's comments — new ones, and new versions of ones edited in place — into the change's log, and record a merged PR as landing the change
 - `push`: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks
 
-However a merged PR is observed — by any of these — it is recorded as landing the change.
+The directions stay separate: `pull` and `import` record what they observe on the forge, including a merged PR landing the change; `push` only sends.
 
 Arguments to `import`:
 

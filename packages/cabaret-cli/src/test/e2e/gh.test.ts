@@ -150,20 +150,18 @@ test("gh pull fails when there is no PR", async () => {
   );
 });
 
-test("gh push also records a merged PR as landing the change", async () => {
+test("gh push does not record forge activity, even an observed merge", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("gh", "push");
   forge.merge(REQUEST, parseCommitHash(await repo.git("rev-parse", "main")));
   expect(await repo.cabaret("gh", "push")).toEqual({
-    stdout:
-      "github.com/test-org/widgets#1 was merged; recorded the land\n" +
-      "pushed 0 comments to github.com/test-org/widgets#1\n",
+    stdout: "pushed 0 comments to github.com/test-org/widgets#1\n",
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log")).stdout).toContain('"kind":"land"');
+  expect((await repo.cabaret("log")).stdout).not.toContain('"kind":"land"');
 });
 
 test("gh import turns a teammate's PR into a change to review", async () => {
