@@ -6,6 +6,7 @@ Subcommands:
 
 - `approve`: approve a change
 - `approvers`: change approvers subcommands
+- `comments`: show or add comments on a change
 - `create`: create a change
 - `diff`: show the diff left to review for a file
 - `forget`: mark files as needing review again
@@ -34,6 +35,24 @@ Subcommands:
 
 - `add`: add an approver
 - `remove`: remove an approver
+
+## Comments
+
+Comments are free-form discussion recorded in a change's log: `add` appends a `comment` entry, and `show` prints each comment's time, author, and text, oldest first.
+
+Subcommands:
+
+- `show`: show the comments on a change
+- `add`: add a comment to a change
+
+Arguments to `show`:
+
+- `change`: (optional) the change to inspect (defaults to the current change)
+
+Arguments to `add`:
+
+- `text`: the comment text
+- `--change`: (optional) the change to comment on (defaults to the current change)
 
 ## Create
 
