@@ -175,56 +175,50 @@ export interface Backend {
 }
 
 /**
- * The parent set by the `set-parent` entry with the greatest timestamp, if
- * any. Union-merged logs interleave concurrent entries in arbitrary order, so
- * the timestamp, not log position, decides which entry is current.
+ * The `kind`-actioned entry with the greatest timestamp, if any. Union-merged
+ * logs interleave concurrent entries in arbitrary order, so the timestamp,
+ * not log position, decides which entry is current.
  */
-export function currentParent(entries: readonly LogEntry[]): RefName | undefined {
-  let parent: RefName | undefined;
+function latestAction<K extends LogAction["kind"]>(
+  entries: readonly LogEntry[],
+  kind: K,
+): Extract<LogAction, { kind: K }> | undefined {
+  let found: Extract<LogAction, { kind: K }> | undefined;
   let latest = -1;
   for (const { timestamp, action } of entries) {
-    if (action.kind === "set-parent" && timestamp >= latest) {
+    if (action.kind === kind && timestamp >= latest) {
       latest = timestamp;
-      parent = action.parent;
+      found = action as Extract<LogAction, { kind: K }>;
     }
   }
-  return parent;
+  return found;
 }
 
-/**
- * The base recorded by the `set-base` entry with the greatest timestamp, if
- * any. Union-merged logs interleave concurrent entries in arbitrary order, so
- * the timestamp, not log position, decides which entry is current.
- */
-export function currentBase(entries: readonly LogEntry[]): CommitHash | undefined {
-  let base: CommitHash | undefined;
-  let latest = -1;
-  for (const { timestamp, action } of entries) {
-    if (action.kind === "set-base" && timestamp >= latest) {
-      latest = timestamp;
-      base = action.base;
-    }
+/** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
+export function currentParent(change: RefName, entries: readonly LogEntry[]): RefName {
+  const action = latestAction(entries, "set-parent");
+  if (action === undefined) {
+    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
   }
-  return base;
+  return action.parent;
 }
 
-/**
- * The owner set by the `set-owner` entry with the greatest timestamp. A change
- * has exactly one owner: setting the owner replaces the previous one, and only
- * a log started outside `create` has none (undefined). Union-merged logs
- * interleave concurrent entries in arbitrary order, so the timestamp, not log
- * position, decides which entry is current.
- */
-export function currentOwner(entries: readonly LogEntry[]): UserName | undefined {
-  let owner: UserName | undefined;
-  let latest = -1;
-  for (const { timestamp, action } of entries) {
-    if (action.kind === "set-owner" && timestamp >= latest) {
-      latest = timestamp;
-      owner = action.owner;
-    }
+/** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
+export function currentBase(change: RefName, entries: readonly LogEntry[]): CommitHash {
+  const action = latestAction(entries, "set-base");
+  if (action === undefined) {
+    throw new Error(`change has no base: ${JSON.stringify(change)}`);
   }
-  return owner;
+  return action.base;
+}
+
+/** The owner from the log's latest `set-owner`; `create` starts every log with one, so a missing owner is an error. */
+export function currentOwner(change: RefName, entries: readonly LogEntry[]): UserName {
+  const action = latestAction(entries, "set-owner");
+  if (action === undefined) {
+    throw new Error(`change has no owner: ${JSON.stringify(change)}`);
+  }
+  return action.owner;
 }
 
 /** The endpoints of a diff a reviewer has reviewed. */
@@ -282,13 +276,10 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   what the change was actually built on — wins as the deeper candidate.
  */
 export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
-  const parent = currentParent(entries);
-  if (parent === undefined) {
-    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
-  }
+  const parent = currentParent(change, entries);
   const derived = await backend.mergeBase(parent, change);
-  const stored = currentBase(entries);
-  if (stored === undefined || stored === derived) {
+  const stored = currentBase(change, entries);
+  if (stored === derived) {
     return derived;
   }
   const tip = await backend.resolveCommit(`refs/heads/${change}`);

@@ -96,6 +96,11 @@ test("changeBase is the last revision shared with the change's parent", async ()
       user: userName("alice@example.com"),
       action: { kind: "set-parent", parent: parseRefName("trunk") },
     },
+    {
+      timestamp: timestampMs(1748000000001),
+      user: userName("alice@example.com"),
+      action: { kind: "set-base", base: parseCommitHash(root) },
+    },
   ]);
   const entries = await backend.readLog(parseRefName("gadget"));
   expect(await changeBase(backend, parseRefName("gadget"), entries)).toBe(root);

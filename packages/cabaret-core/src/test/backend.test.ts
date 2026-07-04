@@ -233,10 +233,13 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
     user: userName("alice@example.com"),
     action,
   });
-  expect(currentParent([])).toBeUndefined();
-  expect(currentParent([entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toBeUndefined();
+  const change = parseRefName("feature");
+  expect(() => currentParent(change, [])).toThrow('change has no parent: "feature"');
+  expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
+    'change has no parent: "feature"',
+  );
   expect(
-    currentParent([
+    currentParent(change, [
       entry(9, { kind: "set-parent", parent: parseRefName("newest") }),
       entry(3, { kind: "set-parent", parent: parseRefName("oldest") }),
       entry(12, {
@@ -255,10 +258,13 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
     user: userName("alice@example.com"),
     action,
   });
-  expect(currentBase([])).toBeUndefined();
-  expect(currentBase([entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toBeUndefined();
+  const change = parseRefName("feature");
+  expect(() => currentBase(change, [])).toThrow('change has no base: "feature"');
+  expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
+    'change has no base: "feature"',
+  );
   expect(
-    currentBase([
+    currentBase(change, [
       entry(9, { kind: "set-base", base: parseCommitHash(SHA256) }),
       entry(3, { kind: "set-base", base: parseCommitHash(SHA1) }),
       entry(12, {
@@ -277,10 +283,13 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
     user: userName("alice@example.com"),
     action,
   });
-  expect(currentOwner([])).toBeUndefined();
-  expect(currentOwner([entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toBeUndefined();
+  const change = parseRefName("feature");
+  expect(() => currentOwner(change, [])).toThrow('change has no owner: "feature"');
+  expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
+    'change has no owner: "feature"',
+  );
   expect(
-    currentOwner([
+    currentOwner(change, [
       entry(9, { kind: "set-owner", owner: userName("carol@example.com") }),
       entry(3, { kind: "set-owner", owner: userName("bob@example.com") }),
       entry(12, { kind: "set-parent", parent: parseRefName("main") }),

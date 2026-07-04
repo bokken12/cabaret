@@ -39,9 +39,9 @@ const evenThoughNotOwner = {
 
 /**
  * Fail unless the current user owns `change`; `override`
- * (--even-though-not-owner) skips the check entirely. `create` gives every
- * change exactly one owner, so a log without one was started out-of-band and
- * fails too — transferring with the override is the way to repair it.
+ * (--even-though-not-owner) skips the check. A log with no owner is malformed
+ * and fails regardless of the override: the flag excuses not being the owner,
+ * not a broken log.
  */
 async function requireOwner(
   backend: Backend,
@@ -49,12 +49,9 @@ async function requireOwner(
   entries: readonly LogEntry[],
   override: boolean,
 ): Promise<void> {
+  const owner = currentOwner(change, entries);
   if (override) {
     return;
-  }
-  const owner = currentOwner(entries);
-  if (owner === undefined) {
-    throw new Error(`change has no owner: ${JSON.stringify(change)}; pass --even-though-not-owner to override`);
   }
   const user = await backend.currentUser();
   if (user !== owner) {
@@ -133,10 +130,9 @@ const create = buildCommand({
     brief: "Create a change",
     fullDescription:
       "Create a change, initializing its log with a parent, a base, and an " +
-      "owner (you, unless --owner says otherwise). A branch that does not " +
-      "exist yet is created at the parent's tip; an existing branch is adopted " +
-      "with the last revision shared with the parent as its base. The change " +
-      "must not already have a log.",
+      "owner. A branch that does not exist yet is created at the parent's " +
+      "tip; an existing branch is adopted with the last revision shared with " +
+      "the parent as its base. The change must not already have a log.",
   },
   parameters: {
     positional: {
@@ -347,10 +343,14 @@ const forget = buildCommand({
       },
     },
   },
-  // TODO: validate that `change` names a real change before logging.
   async func(this: LocalContext, flags: { change?: RefName }, ...files: FilePath[]) {
     const backend = await this.backend();
     const change = flags.change ?? (await backend.currentBranch());
+    // Logs are only ever started by `create`; appending to a missing one
+    // would conjure a change out of thin air.
+    if ((await backend.readLog(change)).length === 0) {
+      throw new Error(`change has no log: ${JSON.stringify(change)}`);
+    }
     const user = await backend.currentUser();
     await backend.appendLog(
       change,
@@ -454,20 +454,14 @@ const owner = buildRouteMap({
       async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
         const backend = await this.backend();
         const target = change ?? (await backend.currentBranch());
-        const user = currentOwner(await backend.readLog(target));
-        if (user === undefined) {
-          throw new Error(`change has no owner: ${JSON.stringify(target)}`);
-        }
-        this.process.stdout.write(`${user}\n`);
+        this.process.stdout.write(`${currentOwner(target, await backend.readLog(target))}\n`);
       },
     }),
     transfer: buildCommand({
       docs: {
         brief: "Transfer ownership of a change",
         fullDescription:
-          "Transfer ownership of a change. A change has exactly one owner, so " +
-          "the new owner replaces the current one. Only the owner may transfer " +
-          "ownership, unless --even-though-not-owner is passed.",
+          "Transfer ownership of a change, replacing the current owner. Only " + "the owner may transfer ownership.",
       },
       parameters: {
         positional: {
@@ -503,8 +497,7 @@ const rebase = buildCommand({
       "Rebase a change onto its parent's tip, then record the new base in the " +
       "log. Replays only the commits after the change's base (`git rebase " +
       "--onto`), so commits the change shares with an old version of the parent " +
-      "are never reapplied. Only the change's owner may rebase it, unless " +
-      "--even-though-not-owner is passed.",
+      "are never reapplied. Only the change's owner may rebase it.",
   },
   parameters: {
     positional: {
@@ -525,10 +518,7 @@ const rebase = buildCommand({
     const target = change ?? (await backend.currentBranch());
     const entries = await backend.readLog(target);
     await requireOwner(backend, target, entries, flags.evenThoughNotOwner);
-    const parent = currentParent(entries);
-    if (parent === undefined) {
-      throw new Error(`change has no parent: ${JSON.stringify(target)}`);
-    }
+    const parent = currentParent(target, entries);
     const onto = await backend.branchTip(parent);
     if (onto === undefined) {
       throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
@@ -545,7 +535,7 @@ const rebase = buildCommand({
     }
     // Pin the base to the parent's tip so a later parent rewrite cannot slide
     // it back to an ancestor and pull the parent's commits into the diff.
-    if (currentBase(entries) !== onto) {
+    if (currentBase(target, entries) !== onto) {
       await backend.appendLog(target, [
         { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
       ]);
@@ -575,7 +565,7 @@ const reparent = buildCommand({
     fullDescription:
       "Update a change's parent. This is a metadata/log change only, and does not " +
       "touch code without a subsequent `rebase`. Only the change's owner may " +
-      "reparent it, unless --even-though-not-owner is passed.",
+      "reparent it.",
   },
   parameters: {
     positional: {
@@ -587,7 +577,7 @@ const reparent = buildCommand({
     },
     flags: { evenThoughNotOwner },
   },
-  // TODO: validate that `change` and `parent` name real changes before logging.
+  // TODO: validate that `parent` names a real change before logging.
   async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change: RefName, parent: RefName) {
     const backend = await this.backend();
     await requireOwner(backend, change, await backend.readLog(change), flags.evenThoughNotOwner);

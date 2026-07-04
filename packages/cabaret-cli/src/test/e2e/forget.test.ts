@@ -23,6 +23,8 @@ test("forget appends a forget entry after a review", async () => {
 
 test("forget --change writes one entry per file to that change's log", async () => {
   const repo = await makeRepo();
+  const root = await repo.git("rev-parse", "main");
+  await repo.cabaret("create", "gadget");
   expect(await repo.cabaret("forget", "--change", "gadget", "lib/core.ts", "docs/notes.md")).toEqual({
     stdout: "",
     stderr: "",
@@ -30,12 +32,23 @@ test("forget --change writes one entry per file to that change's log", async () 
   });
   expect(await repo.cabaret("log", "gadget")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"forget","file":"lib/core.ts"}}\n' +
-      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"forget","file":"docs/notes.md"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"forget","file":"lib/core.ts"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"forget","file":"docs/notes.md"}}\n',
     stderr: "",
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "main")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("forget fails on a change with no log", async () => {
+  const repo = await makeRepo();
+  const result = await repo.cabaret("forget", "--change", "gadget", "lib/core.ts");
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('change has no log: "gadget"');
+  expect(await repo.cabaret("log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("forget requires at least one file", async () => {

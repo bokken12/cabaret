@@ -89,7 +89,7 @@ Arguments:
 
 ## Owner
 
-Every change has exactly one owner, recorded in its log: `create` records one (you, unless `--owner` says otherwise), and transferring ownership replaces the current owner. Commands that rewrite a change (`rebase`, `reparent`, `owner transfer` itself) require you to be the owner; `--even-though-not-owner` overrides the check. A change whose log has no owner was started outside `cabaret create`, and the guarded commands refuse it — transferring with the override is the way to repair it.
+Each change's owner is recorded in its log: `create` sets it, and `owner transfer` replaces it. Commands that rewrite a change (`rebase`, `reparent`, `owner transfer` itself) require you to be the owner; `--even-though-not-owner` skips the check.
 
 Subcommands:
 

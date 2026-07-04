@@ -104,17 +104,14 @@ test("only the owner may rebase a change", async () => {
   });
 });
 
-test("a change with no owner refuses guarded commands until one is assigned", async () => {
+test("a change with no owner is malformed: guarded commands fail even with the override", async () => {
   const repo = await makeRepo();
   const denied = await repo.cabaret("reparent", "main", "trunk");
   expect(denied.exitCode).toBe(1);
-  expect(denied.stderr).toContain('change has no owner: "main"; pass --even-though-not-owner to override');
+  expect(denied.stderr).toContain('change has no owner: "main"');
+  // The override excuses not being the owner, not a broken log.
+  const overridden = await repo.cabaret("reparent", "main", "trunk", "--even-though-not-owner");
+  expect(overridden.exitCode).toBe(1);
+  expect(overridden.stderr).toContain('change has no owner: "main"');
   expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  // Transferring with the override assigns an owner, repairing the change.
-  expect(await repo.cabaret("owner", "transfer", "alice@example.com", "--even-though-not-owner")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("reparent", "main", "trunk")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
