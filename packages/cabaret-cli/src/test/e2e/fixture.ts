@@ -16,6 +16,10 @@ const execFileAsync = promisify(execFile);
 // must live in this process's environment, not in per-call overrides.
 process.env.GIT_CONFIG_GLOBAL = devNull;
 process.env.GIT_CONFIG_SYSTEM = devNull;
+// Pin commit timestamps so hashes, which appear in 4-way diff output, are
+// stable across runs.
+process.env.GIT_AUTHOR_DATE = "2025-01-01T00:00:00 +0000";
+process.env.GIT_COMMITTER_DATE = "2025-01-01T00:00:00 +0000";
 
 /** Everything a user observes from one CLI invocation. */
 export interface Invocation {

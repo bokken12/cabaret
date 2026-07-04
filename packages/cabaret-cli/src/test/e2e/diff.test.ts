@@ -141,25 +141,43 @@ test("diff fails for a file absent from the whole change", async () => {
 
 /**
  * A repo with change `child` stacked on change `parent`: the parent creates
- * `shared.txt` and `parent.txt`, and the child appends a line to
- * `shared.txt`. The shared file is long enough that a parent amendment to its
- * first line and a child edit to its last rebase without conflict. Leaves
- * HEAD on `child`.
+ * `shared.txt` (as `parentShared`) and `parent.txt`, and the child rewrites
+ * `shared.txt` to `childShared`. Leaves HEAD on `child`.
  */
-async function makeStack(): Promise<TestRepo> {
+async function makeStackWith(parentShared: string, childShared: string): Promise<TestRepo> {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");
   await repo.git("checkout", "-q", "parent");
-  await repo.write("shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+  await repo.write("shared.txt", parentShared);
   await repo.write("parent.txt", "parent v1\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "parent work");
   await repo.cabaret("create", "child");
   await repo.git("checkout", "-q", "child");
-  await repo.write("shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
+  await repo.write("shared.txt", childShared);
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "child work");
   return repo;
+}
+
+/**
+ * The stack over a short shared file: a parent amendment to its first line
+ * and a child edit to its last rebase without conflict.
+ */
+async function makeStack(): Promise<TestRepo> {
+  return await makeStackWith(
+    "one\ntwo\nthree\nfour\nfive\nsix\nseven\n",
+    "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n",
+  );
+}
+
+/**
+ * A shared file long enough that a first-line amendment and an appended line
+ * stay in separate diff hunks even at full context.
+ */
+function longShared(first: string, extra: readonly string[]): string {
+  const lines = [first, ...Array.from({ length: 39 }, (_, i) => `line ${i + 2}`), ...extra];
+  return `${lines.join("\n")}\n`;
 }
 
 /** Amend `parent`'s commit, replacing `file` with `content`, and rebase `child` onto it. */
@@ -215,14 +233,228 @@ test("review survives a rebase whose base absorbed the reviewed change", async (
   expect(await repo.cabaret("diff", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
-test("a rebase that changes the file at its base requires a 4-way diff", async () => {
+test("a 4-way diff shows nothing when the rebase carried the change cleanly", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("review", "shared.txt");
+  // The base changed the file underneath the review, but the change merged
+  // cleanly around the reviewed edit: both hunks are clean merges.
+  await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+  expect(await repo.cabaret("diff", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("after a rebase that changed the file, only the new commit is left to review", async () => {
+  const repo = await makeStackWith(longShared("line 1", []), longShared("line 1", ["child"]));
+  await repo.cabaret("review", "shared.txt");
+  await amendParentAndRebase(repo, "shared.txt", longShared("line 1 amended", []));
+  await repo.write("shared.txt", longShared("line 1 amended", ["children"]));
+  await repo.git("commit", "-qam", "more child work");
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip 901008c1e279
+    @@@@@@@@ old tip 25,42 new tip 25,42 @@@@@@@@
+      line 25
+      line 26
+      line 27
+      line 28
+      line 29
+      line 30
+      line 31
+      line 32
+      line 33
+      line 34
+      line 35
+      line 36
+      line 37
+      line 38
+      line 39
+      line 40
+    -|child
+    +|children
+    ",
+    }
+  `);
+});
+
+test("editing the base's change after a rebase shows the new base to new tip diff", async () => {
+  const repo = await makeStackWith(longShared("line 1", []), longShared("line 1", ["child"]));
+  await repo.cabaret("review", "shared.txt");
+  await amendParentAndRebase(repo, "shared.txt", longShared("line 1 amended", []));
+  await repo.write("shared.txt", longShared("line 1 rewritten", ["child"]));
+  await repo.git("commit", "-qam", "rewrite the amendment");
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip aba1eb75681b
+    @@@@@@@@ new base 1,18 new tip 1,18 @@@@@@@@
+    -|line 1 amended
+    +|line 1 rewritten
+      line 2
+      line 3
+      line 4
+      line 5
+      line 6
+      line 7
+      line 8
+      line 9
+      line 10
+      line 11
+      line 12
+      line 13
+      line 14
+      line 15
+      line 16
+      line 17
+    ",
+    }
+  `);
+});
+
+test("interacting base and tip changes get the full 4-way views", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "shared.txt");
   await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
-  const result = await repo.cabaret("diff", "shared.txt");
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("4-way diff not yet implemented");
+  // Rewriting the base's amendment right next to the reviewed edit entangles
+  // the two changes into one conflict-class hunk with every view.
+  await repo.write("shared.txt", "ONE!\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
+  await repo.git("commit", "-qam", "rewrite the amendment");
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base 34a96a50f88f | old tip 531b9ce6fca4 | new base 7cce234df272 | new tip b328ce393e81
+    _
+    | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
+    | @@@@@@@@ -- old base 1,9 old tip 1,10 @@@@@@@@
+    | @@@@@@@@ ++ new base 1,9 new tip 1,10 @@@@@@@@
+    | --  one
+    | ++-|ONE
+    | +++|ONE!
+    |     two
+    |     three
+    |     four
+    |     five
+    |     six
+    |     seven
+    |   +|child
+    |_
+    _
+    | @@@@@@@@ View 2/8 : base-ddiff @@@@@@@@
+    | @@@@@@@@ -- old base 1,9 new base 1,10 @@@@@@@@
+    | @@@@@@@@ ++ old tip 1,9 new tip 1,10 @@@@@@@@
+    |   -|one
+    | --+|ONE
+    | +++|ONE!
+    |     two
+    |     three
+    |     four
+    |     five
+    |     six
+    |     seven
+    | ++  child
+    |_
+    _
+    | @@@@@@@@ View 3/8 : old-tip-to-new-tip @@@@@@@@
+    | @@@@@@@@ old tip 1,9 new tip 1,9 @@@@@@@@
+    | -|one
+    | +|ONE!
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    |   child
+    |_
+    _
+    | @@@@@@@@ View 4/8 : new-base-to-new-tip @@@@@@@@
+    | @@@@@@@@ new base 1,8 new tip 1,9 @@@@@@@@
+    | -|ONE
+    | +|ONE!
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    | +|child
+    |_
+    _
+    | @@@@@@@@ View 5/8 : old-base-to-old-tip @@@@@@@@
+    | @@@@@@@@ old base 1,8 old tip 1,9 @@@@@@@@
+    |   one
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    | +|child
+    |_
+    _
+    | @@@@@@@@ View 6/8 : old-base-to-new-base @@@@@@@@
+    | @@@@@@@@ old base 1,8 new base 1,8 @@@@@@@@
+    | -|one
+    | +|ONE
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    |_
+    _
+    | @@@@@@@@ View 7/8 : old-base-to-new-tip @@@@@@@@
+    | @@@@@@@@ old base 1,8 new tip 1,9 @@@@@@@@
+    | -|one
+    | +|ONE!
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    | +|child
+    |_
+    _
+    | @@@@@@@@ View 8/8 : conflict-resolution @@@@@@@@
+    | @@@@@@@@ conflict 1,27 new tip 1,9 @@@@@@@@
+    | -|<<<<<<< old tip
+    | -|one
+    | +|ONE!
+    |   two
+    |   three
+    |   four
+    |   five
+    |   six
+    |   seven
+    |   child
+    | -|||||||| old base
+    | -|one
+    | -|two
+    | -|three
+    | -|four
+    | -|five
+    | -|six
+    | -|seven
+    | -|=======
+    | -|ONE
+    | -|two
+    | -|three
+    | -|four
+    | -|five
+    | -|six
+    | -|seven
+    | -|>>>>>>> new base
+    |_
+    ",
+    }
+  `);
 });
 
 test("an unreviewed file never needs a 4-way diff, even when the base changed it", async () => {
