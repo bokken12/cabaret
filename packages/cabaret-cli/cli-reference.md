@@ -254,12 +254,13 @@ ARGUMENTS
 ## cabaret todos
 
 USAGE
-  cabaret todos [--for value] [--all]
+  cabaret todos [<change>]
   cabaret todos --help
 
-Show TODOs in a change's diff
+Show the TODOs a change adds: the TODO comments in the tip's copy of each changed file with no matching TODO in the base's copy. Matching ignores position and whitespace, so a pre-existing TODO that merely moves does not appear.
 
 FLAGS
-     [--for]  Show TODOs for another user (defaults to self)
-     [--all]  Show TODOs for all users                       [default = false]
-  -h  --help  Print help information and exit
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to inspect (defaults to current)

@@ -141,12 +141,13 @@ Arguments:
 
 ## TODOs
 
-Greps for TODOs in the change's diff
+Show the TODOs a change adds.
 
 Arguments:
 
-- `--for`: show TODOs for another user (defaults to self)
-- `--all`: show TODOs for all users
+- `change`: (optional) the change to inspect (defaults to the current change)
+
+Greps both endpoints of the change's diff for TODO comments, extracted as Iron extracts CRs: a TODO counts only when it opens a comment (`// TODO: …`, `# TODO …`, `(* TODO … *)`, …), so a TODO inside a string literal or mid-sentence doesn't register. Tip TODOs with no whitespace-insensitive content match in the base are shown, so a pre-existing TODO that merely moves doesn't appear.
 
 
 # Iron CLI
