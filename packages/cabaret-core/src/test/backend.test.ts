@@ -151,6 +151,18 @@ test("formatLogEntry renders land actions", () => {
   ).toBe(`{"timestamp":1748000000005,"user":"grace@example.com","action":{"kind":"land","merge":"${SHA1}"}}\n`);
 });
 
+test("formatLogEntry renders comment actions, escaping newlines", () => {
+  expect(
+    formatLogEntry({
+      timestamp: timestampMs(1748000000006),
+      user: userName("heidi@example.com"),
+      action: { kind: "comment", text: "looks good\nbut rename the flag" },
+    }),
+  ).toBe(
+    '{"timestamp":1748000000006,"user":"heidi@example.com","action":{"kind":"comment","text":"looks good\\nbut rename the flag"}}\n',
+  );
+});
+
 test("timestampMs rejects non-integers, negatives, and unsafe integers", () => {
   for (const bad of [0.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => timestampMs(bad)).toThrow("not a millisecond timestamp");
@@ -211,6 +223,11 @@ test("a formatted log parses back to the original entries", () => {
       user: userName("grace@example.com"),
       action: { kind: "land", merge: parseCommitHash(SHA256) },
     },
+    {
+      timestamp: timestampMs(1748000420000),
+      user: userName("heidi@example.com"),
+      action: { kind: "comment", text: 'multi\nline "comment"\n' },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -243,6 +260,8 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "set-owner" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "land", merge: "HEAD" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "land" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "comment", text: "" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "comment" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -473,6 +492,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
     fc.record({ kind: fc.constant("land" as const), merge: commitHashes() }),
+    fc.record({ kind: fc.constant("comment" as const), text: fc.string({ minLength: 1, unit: "grapheme" }) }),
   );
 }
 

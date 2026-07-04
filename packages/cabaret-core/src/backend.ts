@@ -64,7 +64,8 @@ export type LogAction =
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath }
-  | { readonly kind: "land"; readonly merge: CommitHash };
+  | { readonly kind: "land"; readonly merge: CommitHash }
+  | { readonly kind: "comment"; readonly text: string };
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
@@ -88,6 +89,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
   z.object({ kind: z.literal("land"), merge: z.string().transform(parseCommitHash) }),
+  z.object({ kind: z.literal("comment"), text: z.string().min(1) }),
 ]) satisfies z.ZodType<LogAction>;
 
 /**

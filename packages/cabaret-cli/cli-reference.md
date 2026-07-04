@@ -43,6 +43,35 @@ FLAGS
 ARGUMENTS
   user  user to remove
 
+### cabaret comments add
+
+USAGE
+  cabaret comments add [--change value] <text>
+  cabaret comments add --help
+
+Add a comment to a change. Appends one `comment` entry to the change's log.
+
+FLAGS
+     [--change]  Change to comment on (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  text  the comment text
+
+### cabaret comments show
+
+USAGE
+  cabaret comments show [<change>]
+  cabaret comments show --help
+
+Show the comments on a change, oldest first: each comment's time and author, then its text.
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to inspect (defaults to current)
+
 ## cabaret create
 
 USAGE

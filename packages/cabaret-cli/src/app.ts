@@ -190,6 +190,91 @@ const approvers = buildRouteMap({
   },
 });
 
+/** Parse a comment-text argument, rejecting the empty string. */
+function parseCommentText(raw: string): string {
+  if (raw === "") {
+    throw new Error("comment must be nonempty");
+  }
+  return raw;
+}
+
+const comments = buildRouteMap({
+  docs: { brief: "Show or add comments on a change" },
+  routes: {
+    add: buildCommand({
+      docs: {
+        brief: "Add a comment to a change",
+        fullDescription: "Add a comment to a change. Appends one `comment` entry to the change's log.",
+      },
+      parameters: {
+        positional: {
+          kind: "tuple",
+          parameters: [{ brief: "the comment text", placeholder: "text", parse: parseCommentText }],
+        },
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to comment on (defaults to current)",
+            optional: true,
+          },
+        },
+      },
+      async func(this: LocalContext, flags: { change?: RefName }, text: string) {
+        const backend = await this.backend();
+        const change = flags.change ?? (await backend.currentBranch());
+        // Logs are only ever started by `create`; appending to a missing one
+        // would conjure a change out of thin air.
+        assertChangeExists(change, await backend.readLog(change));
+        await backend.appendLog(change, [
+          { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
+        ]);
+      },
+    }),
+    show: buildCommand({
+      docs: {
+        brief: "Show the comments on a change",
+        fullDescription: "Show the comments on a change, oldest first: each comment's time and author, then its text.",
+      },
+      parameters: {
+        positional: {
+          kind: "tuple",
+          parameters: [
+            {
+              brief: "change to inspect (defaults to current)",
+              placeholder: "change",
+              parse: parseRefName,
+              optional: true,
+            },
+          ],
+        },
+      },
+      async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+        const backend = await this.backend();
+        const target = change ?? (await backend.currentBranch());
+        const entries = await backend.readLog(target);
+        assertChangeExists(target, entries);
+        const found = entries.flatMap(({ timestamp, user, action }) =>
+          action.kind === "comment" ? [{ timestamp, user, text: action.text }] : [],
+        );
+        // Union-merged logs interleave concurrent entries in arbitrary order,
+        // so sort by timestamp (stable, so ties keep log order).
+        found.sort((a, b) => a.timestamp - b.timestamp);
+        const rendered = found.map(
+          ({ timestamp, user, text }) =>
+            `${new Date(timestamp).toISOString()} ${user}\n${text
+              .split("\n")
+              .map((line) => (line === "" ? "" : `  ${line}`))
+              .join("\n")}\n`,
+        );
+        // A blank line between comments, since consecutive comments would
+        // otherwise run together.
+        this.process.stdout.write(rendered.join("\n"));
+      },
+    }),
+  },
+});
+
 const create = buildCommand({
   docs: {
     brief: "Create a change",
@@ -925,6 +1010,7 @@ const routes = buildRouteMap({
   routes: {
     approve,
     approvers,
+    comments,
     create,
     diff,
     forget,
