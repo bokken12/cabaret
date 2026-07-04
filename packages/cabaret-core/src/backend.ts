@@ -209,10 +209,11 @@ export function currentBase(entries: readonly LogEntry[]): CommitHash | undefine
 }
 
 /**
- * The owner set by the `set-owner` entry with the greatest timestamp, if any.
- * A change has at most one owner: setting the owner replaces the previous one.
- * Union-merged logs interleave concurrent entries in arbitrary order, so the
- * timestamp, not log position, decides which entry is current.
+ * The owner set by the `set-owner` entry with the greatest timestamp. A change
+ * has exactly one owner: setting the owner replaces the previous one, and only
+ * a log started outside `create` has none (undefined). Union-merged logs
+ * interleave concurrent entries in arbitrary order, so the timestamp, not log
+ * position, decides which entry is current.
  */
 export function currentOwner(entries: readonly LogEntry[]): UserName | undefined {
   let owner: UserName | undefined;
