@@ -12,6 +12,7 @@ import {
   parseRefName,
   type RefName,
   timestampMs,
+  type UserName,
   userName,
 } from "cabaret-core";
 import { z } from "zod";
@@ -29,13 +30,19 @@ async function gh(cwd: string, args: readonly string[]): Promise<string> {
   return stdout;
 }
 
-const PR_FIELDS = "number,headRefName,baseRefName,title,state,mergeCommit";
+const PR_FIELDS = "number,headRefName,baseRefName,title,author,state,mergeCommit";
+
+/** GitHub does not expose members' emails, so identities are GitHub's own noreply convention for the login. */
+function noreplyUser(login: string): UserName {
+  return userName(`${login}@users.noreply.github.com`);
+}
 
 const PrSchema = z.object({
   number: z.number().transform(forgeRequestId),
   headRefName: z.string().transform(parseRefName),
   baseRefName: z.string().transform(parseRefName),
   title: z.string(),
+  author: z.object({ login: z.string() }),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   mergeCommit: z.object({ oid: z.string().transform(parseCommitHash) }).nullable(),
 });
@@ -46,6 +53,7 @@ function toRequest(pr: z.infer<typeof PrSchema>): ForgeRequest {
     head: pr.headRefName,
     base: pr.baseRefName,
     title: pr.title,
+    author: noreplyUser(pr.author.login),
     state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
     ...(pr.mergeCommit === null ? {} : { merge: pr.mergeCommit.oid }),
   };
@@ -61,9 +69,7 @@ const IssueCommentSchema = z.object({
 function toComment(comment: z.infer<typeof IssueCommentSchema>): ForgeComment {
   return {
     id: String(comment.id),
-    // GitHub does not expose members' emails, so authors import under
-    // GitHub's own noreply convention for their login.
-    author: userName(`${comment.user.login}@users.noreply.github.com`),
+    author: noreplyUser(comment.user.login),
     body: comment.body,
     updatedAt: timestampMs(Date.parse(comment.updated_at)),
   };

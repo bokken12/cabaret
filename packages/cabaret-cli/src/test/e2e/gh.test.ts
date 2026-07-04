@@ -21,6 +21,7 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
     head: "gadget",
     base: "main",
     title: "gadget",
+    author: "alice@users.noreply.github.com",
     state: "open",
   });
   const posted = await forge.listComments(REQUEST);
@@ -147,6 +148,40 @@ test("gh pull fails when there is no PR", async () => {
   expect(result.stderr).toContain(
     'no pull request for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first',
   );
+});
+
+test("gh import turns a teammate's PR into a change to review", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  // The teammate's branch exists on origin and in a PR, but not locally.
+  await repo.git("checkout", "-qb", "their-feature");
+  await repo.write("their.txt", "their work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "their work");
+  await repo.git("push", "-q", "origin", "their-feature");
+  const theirTip = await repo.git("rev-parse", "their-feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.git("branch", "-qD", "their-feature");
+  const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  forge.comment(id, "carol", "please take a look");
+  expect(await repo.cabaret("gh", "import", "1")).toEqual({
+    stdout: 'imported github.com/test-org/widgets#1 as "their-feature" with 1 comment\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  // The branch is local again, and the change belongs to its author.
+  expect(await repo.git("rev-parse", "--verify", "their-feature")).toBe(theirTip);
+  expect((await repo.cabaret("owner", "show", "their-feature")).stdout).toBe("carol@users.noreply.github.com\n");
+  expect((await repo.cabaret("comments", "show", "their-feature")).stdout).toBe(
+    "2025-06-15T15:06:40.000Z carol@users.noreply.github.com\n  please take a look\n",
+  );
+  const log = (await repo.cabaret("log", "their-feature")).stdout;
+  expect(log).toContain('"action":{"kind":"set-parent","parent":"main"}');
+  expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}');
+  // Importing again refuses rather than doubling the change.
+  const again = await repo.cabaret("gh", "import", "1");
+  expect(again.exitCode).toBe(1);
+  expect(again.stderr).toContain('change already exists: "their-feature"');
 });
 
 test("gh push retargets the PR base after a reparent", async () => {

@@ -128,6 +128,12 @@ export class GitBackend implements Backend {
     ]);
   }
 
+  async fetchBranch(branch: RefName): Promise<void> {
+    // Without a leading `+` on the refspec, git refuses a non-fast-forward
+    // update, so a diverged local branch fails instead of losing work.
+    await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+  }
+
   async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
     // In `commit:path` syntax the path is literal, so no globbing guard is needed.
     try {

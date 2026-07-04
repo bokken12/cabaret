@@ -15,6 +15,8 @@ import {
   type FilePath,
   type Forge,
   type ForgeRequest,
+  type ForgeRequestId,
+  forgeRequestId,
   formatLogEntry,
   type LogEntry,
   landedMerge,
@@ -561,9 +563,62 @@ async function syncedRequest(
   return found;
 }
 
+/** Parse a PR-number argument. */
+function parseRequestNumber(raw: string): ForgeRequestId {
+  return forgeRequestId(Number(raw));
+}
+
 const gh = buildRouteMap({
   docs: { brief: "GitHub integration" },
   routes: {
+    import: buildCommand({
+      docs: {
+        brief: "Import a PR as a change",
+        fullDescription:
+          "Import a PR as a change to review: fetch its head branch, create " +
+          "the change owned by the PR's author with the PR's base branch as " +
+          "its parent, and pull the PR's comments.",
+      },
+      parameters: {
+        positional: {
+          kind: "tuple",
+          parameters: [{ brief: "PR number to import", placeholder: "number", parse: parseRequestNumber }],
+        },
+      },
+      async func(this: LocalContext, _flags: Record<never, never>, id: ForgeRequestId) {
+        const backend = await this.backend();
+        const forge = await this.forge();
+        const request = await forge.getRequest(id);
+        const change = request.head;
+        if ((await backend.readLog(change)).length > 0) {
+          throw new Error(`change already exists: ${JSON.stringify(change)}; run \`cabaret gh pull\` to sync it`);
+        }
+        await backend.fetchBranch(change);
+        const user = await backend.currentUser();
+        const additions: LogEntry[] = [
+          { timestamp: this.now(), user, action: { kind: "set-parent", parent: request.base } },
+          {
+            timestamp: this.now(),
+            user,
+            action: { kind: "set-base", base: await backend.mergeBase(request.base, change) },
+          },
+          { timestamp: this.now(), user, action: { kind: "set-owner", owner: request.author } },
+          { timestamp: this.now(), user, action: { kind: "set-forge", forge: forge.locator, request: id } },
+          ...(await planPull(forge.locator, [], await forge.listComments(id))),
+        ];
+        // Without the land entry, a merged PR's merge-base slides to its own
+        // tip and the diff to review vanishes.
+        if (request.state === "merged" && request.merge !== undefined) {
+          additions.push({ timestamp: this.now(), user, action: { kind: "land", merge: request.merge } });
+        }
+        await backend.appendLog(change, additions);
+        const pulled = additions.filter(({ action }) => action.kind === "comment").length;
+        this.process.stdout.write(
+          `imported ${forge.locator}#${id} as ${JSON.stringify(change)} with ` +
+            `${pulled} comment${pulled === 1 ? "" : "s"}\n`,
+        );
+      },
+    }),
     pull: buildCommand({
       docs: {
         brief: "Pull PR activity from GitHub",

@@ -119,6 +119,20 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
+### cabaret gh import
+
+USAGE
+  cabaret gh import <number>
+  cabaret gh import --help
+
+Import a PR as a change to review: fetch its head branch, create the change owned by the PR's author with the PR's base branch as its parent, and pull the PR's comments.
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  number  PR number to import
+
 ### cabaret gh pull
 
 USAGE

@@ -114,7 +114,7 @@ interface Forge {
 }
 ```
 
-with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeRequest` carrying `id`, `head`, `base`, `title`, `state`, `merge`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeRequest` carrying `id`, `head`, `base`, `title`, `author`, `state`, `merge`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
 
 ## Data model changes
 

@@ -25,6 +25,8 @@ export interface ForgeRequest {
   readonly head: RefName;
   readonly base: RefName;
   readonly title: string;
+  /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
+  readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
   /** The commit that merged the request, when `state` is "merged". */
   readonly merge?: CommitHash;

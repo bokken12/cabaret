@@ -22,6 +22,7 @@ interface FakeRequest {
   readonly head: RefName;
   base: RefName;
   readonly title: string;
+  readonly login: string;
   state: "open" | "closed" | "merged";
   merge?: CommitHash;
   readonly comments: FakeComment[];
@@ -54,10 +55,7 @@ export class FakeForge implements Forge {
   }
 
   async createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest> {
-    const id = forgeRequestId(this.requests.size + 1);
-    const request: FakeRequest = { head, base, title, state: "open", comments: [] };
-    this.requests.set(id, request);
-    return this.snapshot(id, request);
+    return this.getRequest(this.openRequest(this.tokenLogin, head, base, title));
   }
 
   async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
@@ -75,6 +73,13 @@ export class FakeForge implements Forge {
 
   async addComment(id: ForgeRequestId, body: string): Promise<void> {
     this.comment(id, this.tokenLogin, body);
+  }
+
+  /** A request opened on the forge by `login`; returns its number. */
+  openRequest(login: string, head: RefName, base: RefName, title: string): ForgeRequestId {
+    const id = forgeRequestId(this.requests.size + 1);
+    this.requests.set(id, { head, base, title, login, state: "open", comments: [] });
+    return id;
   }
 
   /** A comment posted on the forge by `login`; returns its id. */
@@ -115,6 +120,7 @@ export class FakeForge implements Forge {
       head: request.head,
       base: request.base,
       title: request.title,
+      author: userName(`${request.login}@users.noreply.github.com`),
       state: request.state,
       ...(request.merge === undefined ? {} : { merge: request.merge }),
     };

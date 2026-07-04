@@ -257,6 +257,13 @@ export interface Backend {
    */
   pushBranch(branch: RefName): Promise<void>;
 
+  /**
+   * Fetch branch `branch` from the `origin` remote into the local branch of
+   * the same name, creating it if absent. Fast-forward only: a local branch
+   * that has diverged from the remote fails rather than being overwritten.
+   */
+  fetchBranch(branch: RefName): Promise<void>;
+
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
 

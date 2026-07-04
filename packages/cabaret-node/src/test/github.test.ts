@@ -45,6 +45,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       head: "seeded",
       base: "main",
       title: "seeded",
+      author: expect.stringMatching(/@users\.noreply\.github\.com$/),
       state: "merged",
       merge: expect.stringMatching(/^[0-9a-f]{40}$/),
     });
@@ -95,6 +96,7 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
       head: branch,
       base: "main",
       title: `live test ${branch}`,
+      author: expect.stringMatching(/@users\.noreply\.github\.com$/),
       state: "open",
     });
     expect(await forge.findRequest(branch)).toEqual(created);
