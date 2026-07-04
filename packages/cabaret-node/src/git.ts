@@ -95,9 +95,20 @@ export class GitBackend implements Backend {
     }
   }
 
-  async diffFile(base: CommitHash, tip: CommitHash, file: FilePath): Promise<string> {
-    // :(literal) disables pathspec globbing so names like `a/[b]/c` match themselves.
-    return await git(this.root, ["diff", base, tip, "--", `:(literal)${file}`]);
+  async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
+    // In `commit:path` syntax the path is literal, so no globbing guard is needed.
+    try {
+      const blob = await git(this.root, ["rev-parse", "--verify", "--quiet", `${commit}:${file}`]);
+      return await git(this.root, ["cat-file", "blob", blob.trimEnd()]);
+    } catch (error) {
+      // With --quiet, rev-parse exits 1 exactly when the path is absent;
+      // anything else (e.g. the path naming a directory, so cat-file rejects
+      // its tree) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async branchTip(branch: RefName): Promise<CommitHash | undefined> {

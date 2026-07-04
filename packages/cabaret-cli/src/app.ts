@@ -1,6 +1,7 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
   brain,
+  type CommitHash,
   changeBase,
   currentBase,
   currentParent,
@@ -13,6 +14,9 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
+import { PatdiffCore } from "patdiff";
+import { IsBinary } from "patdiff/kernel";
+import * as Patdiff4 from "patdiff/patdiff4";
 import type { LocalContext } from "./context.js";
 
 /** Parse a `--for` user, rejecting the empty string. */
@@ -142,13 +146,70 @@ const create = buildCommand({
   },
 });
 
+/**
+ * Render the diff between two versions of `file` with patdiff: ANSI-colored
+ * with word-level refinement on a terminal, plain ASCII otherwise. An absent
+ * version diffs against the empty file, named /dev/null as in git.
+ */
+function renderDiff(file: FilePath, prev: string | undefined, next: string | undefined, color: boolean): string {
+  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
+    return prev === next ? "" : `Binary versions of ${file} differ\n`;
+  }
+  const prevName = prev === undefined ? "/dev/null" : `old/${file}`;
+  const nextName = next === undefined ? "/dev/null" : `new/${file}`;
+  const diff = PatdiffCore.withoutUnix.patdiff({
+    output: color ? "Ansi" : "Ascii",
+    // Unified lines are unsupported in Ascii output.
+    produceUnifiedLines: color,
+    prev: { name: prevName, text: prev ?? "" },
+    next: { name: nextName, text: next ?? "" },
+  });
+  // patdiff's own global header prints even when no hunks survive (e.g. equal
+  // contents), so an empty diff must skip the header here instead.
+  return diff === "" ? "" : `${prevName}\n${nextName}\n${diff}\n`;
+}
+
+/**
+ * Render what remains to review when the base's copy of `file` changed
+ * underneath the reviewed diff: Iron's diff4 over the old and new base and
+ * tip, each aligned hunk shown under every view its equivalence class earns.
+ */
+function renderDiff4(args: {
+  file: FilePath;
+  revs: Patdiff4.Diamond.Diamond<CommitHash>;
+  contents: Patdiff4.Diamond.Diamond<string | undefined>;
+  color: boolean;
+}): string {
+  // TODO: name absent versions distinctly (Iron renders them as <absent>
+  // with a per-version file-name table) instead of diffing an empty file.
+  const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
+  if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
+    return `Binary versions of ${args.file} differ\n`;
+  }
+  const lines = Patdiff4.diff({
+    // Hash prefixes keep patdiff4's contract that equal names imply equal
+    // contents, where "old"/"new" labels would not (the tips can coincide).
+    revNames: Patdiff4.Diamond.map(args.revs, (rev) => rev.slice(0, 12)),
+    fileNames: Patdiff4.Diamond.singleton(args.file),
+    headerFileName: args.file,
+    context: PatdiffCore.defaultContext,
+    linesRequiredToSeparateDdiffHunks: 0,
+    contents,
+    output: args.color ? "Ansi" : "Ascii",
+  });
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
 const diff = buildCommand({
   docs: {
     brief: "Show the diff of a change left to review for a file",
     fullDescription:
       "Show the diff of a file left to review, given the reviewer's brain: the " +
-      "full base → tip diff when the file is unreviewed, or the diff from the " +
-      "previously reviewed tip when the base is unchanged.",
+      "full base → tip diff when the file is unreviewed, the diff from the " +
+      "previously reviewed tip when that still covers everything left — the " +
+      "file is the same at both bases, or the new base took the reviewed " +
+      "tip's copy — or a 4-way diff of the reviewed and current diffs when " +
+      "the base's copy changed underneath the review.",
   },
   parameters: {
     positional: {
@@ -182,15 +243,39 @@ const diff = buildCommand({
     // change's tip.
     const tip = await backend.resolveCommit(`refs/heads/${change}`);
     const reviewed = brain(entries, user).get(file);
+    // Stricli's process type omits isTTY, but the runtime process underneath has it.
+    const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
     if (reviewed !== undefined && reviewed.base !== base) {
-      // TODO: implement 4-way diffs (Iron's diff4) so review can continue
-      // across a rebase.
-      throw new Error(
-        `4-way diff not yet implemented: ${file} was reviewed at base ${reviewed.base}, ` +
-          `but the change's base is now ${base}`,
+      const [prevBase, nextBase, prevTip, nextTip] = await Promise.all([
+        backend.readFile(reviewed.base, file),
+        backend.readFile(base, file),
+        backend.readFile(reviewed.tip, file),
+        backend.readFile(tip, file),
+      ]);
+      // A moved base still leaves the 2-way diff from the reviewed tip sound
+      // in two cases: the base's copy of the file is unchanged (the reviewed
+      // diff's start is intact), or the new base's copy equals the reviewed
+      // tip's (the whole new diff starts at contents the reviewer knows).
+      // Otherwise the base's copy changed underneath the review, which takes
+      // a 4-way diff.
+      this.process.stdout.write(
+        prevBase === nextBase || nextBase === prevTip
+          ? renderDiff(file, prevTip, nextTip, color)
+          : renderDiff4({
+              file,
+              revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
+              contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
+              color,
+            }),
       );
+      return;
     }
-    this.process.stdout.write(await backend.diffFile(reviewed?.tip ?? base, tip, file));
+    const prevCommit = reviewed?.tip ?? base;
+    const [prev, next] = await Promise.all([backend.readFile(prevCommit, file), backend.readFile(tip, file)]);
+    if (prev === undefined && next === undefined) {
+      throw new Error(`${file} exists at neither ${prevCommit} nor ${tip}`);
+    }
+    this.process.stdout.write(renderDiff(file, prev, next, color));
   },
 });
 

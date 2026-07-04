@@ -35,6 +35,23 @@
           }
         }
       }
+    },
+    {
+      "includes": ["packages/patdiff/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off",
+            "useTemplate": "off"
+          },
+          "suspicious": {
+            "noShadowRestrictedNames": "off",
+            "noFallthroughSwitchClause": "off",
+            "noControlCharactersInRegex": "off",
+            "useIterableCallbackReturn": "off"
+          }
+        }
+      }
     }
   ],
   "assist": {
