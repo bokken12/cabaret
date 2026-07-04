@@ -18,6 +18,7 @@ Where the `action` may be any of (incomplete)
     - possibly there should be a mechanism to review all files?
 - `forget` a `file`
     - possibly this could be melded into `review`?
+- `land` the change, recording the `merge` commit that landed it in the parent; the change is frozen from then on, though review state may still be recorded
 - `comment` with `data`
 
 Logs entries written by one version of Cabaret must always be readable by all future versions of Cabaret, and so actions will likely be versioned. We do not make the same guarantee that newer versions always be readable by older versions.

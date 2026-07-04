@@ -2,6 +2,8 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
+  assertNotLanded,
+  type Backend,
   brain,
   type CommitHash,
   currentBase,
@@ -9,13 +11,16 @@ import {
   currentParent,
   type FilePath,
   formatLogEntry,
+  type LandMerge,
   type LogAction,
   type LogEntry,
+  landedMerge,
   parseCommitHash,
   parseFilePath,
   parseLog,
   parseRefName,
   type RefName,
+  reviewSegments,
   type TimestampMs,
   timestampMs,
   type UserName,
@@ -136,6 +141,16 @@ test("formatLogEntry renders set-owner actions", () => {
   );
 });
 
+test("formatLogEntry renders land actions", () => {
+  expect(
+    formatLogEntry({
+      timestamp: timestampMs(1748000000005),
+      user: userName("grace@example.com"),
+      action: { kind: "land", merge: parseCommitHash(SHA1) },
+    }),
+  ).toBe(`{"timestamp":1748000000005,"user":"grace@example.com","action":{"kind":"land","merge":"${SHA1}"}}\n`);
+});
+
 test("timestampMs rejects non-integers, negatives, and unsafe integers", () => {
   for (const bad of [0.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => timestampMs(bad)).toThrow("not a millisecond timestamp");
@@ -191,6 +206,11 @@ test("a formatted log parses back to the original entries", () => {
       user: userName("dave@example.com"),
       action: { kind: "set-owner", owner: userName("erin@example.com") },
     },
+    {
+      timestamp: timestampMs(1748000360000),
+      user: userName("grace@example.com"),
+      action: { kind: "land", merge: parseCommitHash(SHA256) },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -221,6 +241,8 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "set-base" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-owner", owner: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-owner" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "land", merge: "HEAD" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "land" } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -297,6 +319,87 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
   ).toBe("carol@example.com");
 });
 
+test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    action,
+  });
+  const change = parseRefName("feature");
+  const unlanded = [entry(5, { kind: "set-parent", parent: parseRefName("main") })];
+  expect(landedMerge(unlanded)).toBeUndefined();
+  expect(() => assertNotLanded(change, unlanded)).not.toThrow();
+  const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
+  expect(landedMerge(landed)).toBe(SHA1);
+  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
+});
+
+/** The fake commit `digit.repeat(40)`, hex digits only. */
+function fake(digit: string): CommitHash {
+  return parseCommitHash(digit.repeat(40));
+}
+
+/**
+ * A backend whose first-parent chain is the fake commits of `digits` (oldest
+ * first) and whose land merges are `merges`. Only the members
+ * `reviewSegments` touches exist; ancestry is chain order, and anything off
+ * the chain is nobody's relative.
+ */
+function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
+  const chain = [...digits].map(fake);
+  const at = (hash: CommitHash) => chain.indexOf(hash);
+  const stub: Pick<Backend, "landMerges" | "isAncestor"> = {
+    async landMerges(base, tip) {
+      return merges.filter(({ commit }) => at(commit) > at(base) && at(commit) <= at(tip));
+    },
+    async isAncestor(ancestor, descendant) {
+      return ancestor === descendant || (at(ancestor) !== -1 && at(descendant) !== -1 && at(ancestor) < at(descendant));
+    },
+  };
+  return stub as Backend;
+}
+
+test("reviewSegments splits at land merges and resumes from the reviewed tip", async () => {
+  // Lands at 2 (onto 1) and 5 (onto 4); 3-4 and 6-7 are ordinary commits.
+  const backend = chainBackend("01234567", [
+    { commit: fake("2"), onto: fake("1") },
+    { commit: fake("5"), onto: fake("4") },
+  ]);
+  const segment = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
+  expect(await reviewSegments(backend, fake("0"), fake("7"))).toEqual([
+    segment("0", "1"),
+    segment("2", "4"),
+    segment("5", "7"),
+  ]);
+  // A land right at the base or the tip leaves no span on that side.
+  expect(await reviewSegments(backend, fake("1"), fake("5"))).toEqual([segment("2", "4")]);
+  // Reviewing up to a land's onto covers everything the land then jumps over.
+  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("1"))).toEqual([
+    segment("2", "4"),
+    segment("5", "7"),
+  ]);
+  // A reviewed tip inside a span resumes that span from it.
+  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("3"))).toEqual([
+    segment("3", "4"),
+    segment("5", "7"),
+  ]);
+  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("7"))).toEqual([]);
+  // A reviewed tip from outside the chain trims nothing.
+  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("f"))).toEqual([
+    segment("0", "1"),
+    segment("2", "4"),
+    segment("5", "7"),
+  ]);
+});
+
+test("reviewSegments drops the span between back-to-back lands", async () => {
+  const backend = chainBackend("0123", [
+    { commit: fake("2"), onto: fake("1") },
+    { commit: fake("3"), onto: fake("2") },
+  ]);
+  expect(await reviewSegments(backend, fake("0"), fake("3"))).toEqual([{ start: fake("0"), end: fake("1") }]);
+});
+
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
   const alice = userName("alice@example.com");
   const bob = userName("bob@example.com");
@@ -369,6 +472,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
+    fc.record({ kind: fc.constant("land" as const), merge: commitHashes() }),
   );
 }
 

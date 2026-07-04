@@ -46,6 +46,27 @@ test("a reviewed file diffs from the reviewed tip to the current tip", async () 
   `);
 });
 
+test("a rewritten tip diffs from the reviewed tip's contents", async () => {
+  const repo = await makeChange("greeting.txt", "hello\n");
+  await repo.cabaret("review", "greeting.txt");
+  await repo.write("greeting.txt", "hello\nworld\n");
+  await repo.git("commit", "-qa", "--amend", "-m", "add greeting, amended");
+  // The reviewed tip left the change's history, but its contents still say
+  // what the reviewer knows.
+  expect(await repo.cabaret("diff", "greeting.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "old/greeting.txt
+    new/greeting.txt
+    -1,1 +1,2
+      hello
+    +|world
+    ",
+    }
+  `);
+});
+
 test("a fully reviewed file has an empty diff", async () => {
   const repo = await makeChange("docs/notes.md", "# Notes\n");
   await repo.cabaret("review", "docs/notes.md");
@@ -136,7 +157,7 @@ test("diff fails for a file absent from the whole change", async () => {
   const result = await repo.cabaret("diff", "missing.txt");
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("missing.txt exists at neither");
+  expect(result.stderr).toContain("missing.txt exists at none of");
 });
 
 /**

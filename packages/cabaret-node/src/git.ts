@@ -5,6 +5,8 @@ import {
   type CommitHash,
   type FilePath,
   formatLogEntry,
+  LAND_TRAILER,
+  type LandMerge,
   type LogEntry,
   parseCommitHash,
   parseFilePath,
@@ -61,8 +63,26 @@ export class GitBackend implements Backend {
   }
 
   async currentBranch(): Promise<RefName> {
-    const out = await git(this.root, ["symbolic-ref", "--short", "HEAD"]);
-    return parseRefName(out.trimEnd());
+    const branch = await this.checkedOutBranch();
+    if (branch === undefined) {
+      throw new Error("HEAD is detached; check out a branch or name the change explicitly");
+    }
+    return branch;
+  }
+
+  /** The branch HEAD points at, or undefined when HEAD is detached. */
+  private async checkedOutBranch(): Promise<RefName | undefined> {
+    try {
+      const out = await git(this.root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+      return parseRefName(out.trimEnd());
+    } catch (error) {
+      // With --quiet, exit code 1 means exactly "HEAD is detached"; anything
+      // else (e.g. not a repository) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async currentUser(): Promise<UserName> {
@@ -167,6 +187,52 @@ export class GitBackend implements Backend {
     await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
   }
 
+  async merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    const tree = await git(this.root, ["rev-parse", `${tip}^{tree}`]);
+    const out = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", message, "-p", onto, "-p", tip]);
+    const commit = parseCommitHash(out.trimEnd());
+    // A checked-out `into` takes a real fast-forward so the index and working
+    // tree follow; otherwise compare-and-swap the ref. Either way a
+    // concurrent move of `into` fails fast instead of merging commits the
+    // caller never validated.
+    if ((await this.checkedOutBranch()) === into) {
+      await git(this.root, ["merge", "--ff-only", commit]);
+    } else {
+      await git(this.root, ["update-ref", `refs/heads/${into}`, commit, onto]);
+    }
+    return commit;
+  }
+
+  async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
+    // Tab-delimit the fields: %P holds space-separated parents, and the
+    // trailer value (checked for presence only) is a branch name, so neither
+    // can contain a tab. `unfold` keeps a folded trailer value to one line.
+    const out = await git(this.root, [
+      "log",
+      "--first-parent",
+      "--reverse",
+      `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`,
+      `${base}..${tip}`,
+    ]);
+    const merges: LandMerge[] = [];
+    for (const line of out.split("\n")) {
+      const [commit, parentsField, trailer] = line.split("\t");
+      if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
+        continue;
+      }
+      // The trailer marks nothing on a non-merge: only a true merge carries a
+      // reviewed child as its second parent, so anything else — say a
+      // cherry-pick of a land merge, which copies the message verbatim —
+      // still needs review.
+      const [onto, ...rest] = (parentsField ?? "").split(" ").filter((parent) => parent !== "");
+      if (onto === undefined || rest.length === 0) {
+        continue;
+      }
+      merges.push({ commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
+    }
+    return merges;
+  }
+
   async readLog(change: RefName): Promise<readonly LogEntry[]> {
     const ref = logRef(change);
     if ((await this.commitAt(ref)) === undefined) {
@@ -182,20 +248,31 @@ export class GitBackend implements Backend {
       return;
     }
     const ref = logRef(change);
-    const old = await this.commitAt(ref);
-    // Read the log pinned at `old` so the content stays consistent with the
-    // compare-and-swap below even if the ref moves concurrently.
-    const log = old === undefined ? "" : await git(this.root, ["cat-file", "blob", `${old}:${LOG_PATH}`]);
-    if (log !== "" && !log.endsWith("\n")) {
-      throw new Error(`malformed log for ${change}: missing trailing newline`);
+    // Compare-and-swap on the old tip so a concurrent append can never be
+    // silently lost. Losing the swap only means someone else appended first;
+    // entries commute (union-merged, timestamp-ordered), so re-reading and
+    // retrying is always sound. Bounded so a persistent failure surfaces.
+    for (let attempt = 0; ; attempt++) {
+      const old = await this.commitAt(ref);
+      // Read the log pinned at `old` so the content stays consistent with the
+      // compare-and-swap below even if the ref moves concurrently.
+      const log = old === undefined ? "" : await git(this.root, ["cat-file", "blob", `${old}:${LOG_PATH}`]);
+      if (log !== "" && !log.endsWith("\n")) {
+        throw new Error(`malformed log for ${change}: missing trailing newline`);
+      }
+      const blob = await git(this.root, ["hash-object", "-w", "--stdin"], log + entries.map(formatLogEntry).join(""));
+      const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
+      const parents = old === undefined ? [] : ["-p", old];
+      const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", ...parents]);
+      try {
+        await git(this.root, ["update-ref", ref, commit.trimEnd(), old ?? ""]);
+        return;
+      } catch (error) {
+        if (attempt >= 2) {
+          throw error;
+        }
+      }
     }
-    const blob = await git(this.root, ["hash-object", "-w", "--stdin"], log + entries.map(formatLogEntry).join(""));
-    const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
-    const parents = old === undefined ? [] : ["-p", old];
-    const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", ...parents]);
-    // Compare-and-swap on the old tip so a concurrent append fails fast
-    // instead of silently losing an entry.
-    await git(this.root, ["update-ref", ref, commit.trimEnd(), old ?? ""]);
   }
 
   /** The commit `ref` points at, or undefined if `ref` does not exist. */
