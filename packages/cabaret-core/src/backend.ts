@@ -61,6 +61,7 @@ export function userName(raw: string): UserName {
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
+  | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath };
 
@@ -77,6 +78,7 @@ export interface LogEntry {
 const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
   z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
+  z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
@@ -173,37 +175,60 @@ export interface Backend {
 }
 
 /**
- * The parent set by the `set-parent` entry with the greatest timestamp, if
- * any. Union-merged logs interleave concurrent entries in arbitrary order, so
- * the timestamp, not log position, decides which entry is current.
+ * The `kind`-actioned entry with the greatest timestamp, if any. Union-merged
+ * logs interleave concurrent entries in arbitrary order, so the timestamp,
+ * not log position, decides which entry is current.
  */
-export function currentParent(entries: readonly LogEntry[]): RefName | undefined {
-  let parent: RefName | undefined;
+function latestAction<K extends LogAction["kind"]>(
+  entries: readonly LogEntry[],
+  kind: K,
+): Extract<LogAction, { kind: K }> | undefined {
+  let found: Extract<LogAction, { kind: K }> | undefined;
   let latest = -1;
   for (const { timestamp, action } of entries) {
-    if (action.kind === "set-parent" && timestamp >= latest) {
+    if (action.kind === kind && timestamp >= latest) {
       latest = timestamp;
-      parent = action.parent;
+      found = action as Extract<LogAction, { kind: K }>;
     }
   }
-  return parent;
+  return found;
 }
 
-/**
- * The base recorded by the `set-base` entry with the greatest timestamp, if
- * any. Union-merged logs interleave concurrent entries in arbitrary order, so
- * the timestamp, not log position, decides which entry is current.
- */
-export function currentBase(entries: readonly LogEntry[]): CommitHash | undefined {
-  let base: CommitHash | undefined;
-  let latest = -1;
-  for (const { timestamp, action } of entries) {
-    if (action.kind === "set-base" && timestamp >= latest) {
-      latest = timestamp;
-      base = action.base;
-    }
+/** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
+export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
+  if (entries.length === 0) {
+    throw new Error(`change does not exist: ${JSON.stringify(change)}; run \`cabaret create\` first`);
   }
-  return base;
+}
+
+/** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
+export function currentParent(change: RefName, entries: readonly LogEntry[]): RefName {
+  assertChangeExists(change, entries);
+  const action = latestAction(entries, "set-parent");
+  if (action === undefined) {
+    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
+  }
+  return action.parent;
+}
+
+/** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
+export function currentBase(change: RefName, entries: readonly LogEntry[]): CommitHash {
+  assertChangeExists(change, entries);
+  const action = latestAction(entries, "set-base");
+  if (action === undefined) {
+    throw new Error(`change has no base: ${JSON.stringify(change)}`);
+  }
+  return action.base;
+}
+
+/** The owner from the log's latest `set-owner`; `create` starts every log with one, so a missing owner is an error. */
+export function currentOwner(change: RefName, entries: readonly LogEntry[]): UserName {
+  assertChangeExists(change, entries);
+  const action = latestAction(entries, "set-owner");
+  if (action === undefined) {
+    throw new Error(`change has no owner: ${JSON.stringify(change)}`);
+  }
+  return action.owner;
 }
 
 /** The endpoints of a diff a reviewer has reviewed. */
@@ -261,13 +286,10 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   what the change was actually built on — wins as the deeper candidate.
  */
 export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
-  const parent = currentParent(entries);
-  if (parent === undefined) {
-    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
-  }
+  const parent = currentParent(change, entries);
   const derived = await backend.mergeBase(parent, change);
-  const stored = currentBase(entries);
-  if (stored === undefined || stored === derived) {
+  const stored = currentBase(change, entries);
+  if (stored === derived) {
     return derived;
   }
   const tip = await backend.resolveCommit(`refs/heads/${change}`);

@@ -1,6 +1,6 @@
 # Log
 
-The source of truth for each change is its log. The log is append-only, and composed only of associative operations to permit automatic merging via union.
+The source of truth for each change is its log. The log is append-only, and composed only of associative operations to permit automatic merging via union. Logs are only ever started by `create`, which records a parent, a base, and an owner; a log missing any of these is malformed.
 
 Each log entry consists of
 
@@ -12,6 +12,7 @@ Where the `action` may be any of (incomplete)
 
 - `set-base` to a commit `base`
 - `set-parent` to `ref`
+- `set-owner` to a user `owner`, replacing the previous owner
 
 - `review` a `file`, recording the `base` and `tip` of the reviewed diff
     - possibly there should be a mechanism to review all files?

@@ -96,6 +96,11 @@ test("changeBase is the last revision shared with the change's parent", async ()
       user: userName("alice@example.com"),
       action: { kind: "set-parent", parent: parseRefName("trunk") },
     },
+    {
+      timestamp: timestampMs(1748000000001),
+      user: userName("alice@example.com"),
+      action: { kind: "set-base", base: parseCommitHash(root) },
+    },
   ]);
   const entries = await backend.readLog(parseRefName("gadget"));
   expect(await changeBase(backend, parseRefName("gadget"), entries)).toBe(root);
@@ -192,9 +197,9 @@ test("createBranch creates at the given commit and refuses to overwrite", async 
   await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
-test("changeBase fails on a change with no parent", async () => {
+test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
-  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change has no parent: "orphan"');
+  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
 });
 
 test("fails fast on detached HEAD with the command and stderr in the error", async () => {

@@ -12,7 +12,7 @@ Subcommands:
 - `gh`: GitHub subcommands
 - `land`: land a change
 - `log`: show a log of actions on a change
-- `owners`: change owners subcommands
+- `owner`: show or transfer the change's owner
 - `rebase`: update a change's base
 - `rename`: rename this change
 - `reparent`: reparent this change
@@ -44,6 +44,7 @@ Arguments:
 - `change`: (optional) name for the new change
 - `--parent`: (optional) set its parent to some other change (exclusive with child)
 - `--child`: (optional) set its child to some other change (exclusive with parent)
+- `--owner`: (optional) the change's owner (defaults to you)
 
 ## Diff
 
@@ -86,12 +87,20 @@ Arguments:
 
 - `change`: (optional) the change to inspect (defaults to the current change)
 
-## Owners
+## Owner
+
+Each change's owner is recorded in its log: `create` sets it, and `owner transfer` replaces it. Commands that rewrite a change (`rebase`, `reparent`, `owner transfer` itself) require you to be the owner; `--even-though-not-owner` skips the check.
 
 Subcommands:
 
-- `add`: add an owner
-- `remove`: remove an owner
+- `show`: show a change's owner
+- `transfer`: transfer ownership to another user (replacing the current owner)
+
+Arguments to `transfer`:
+
+- `user`: the new owner
+- `--change`: (optional) the change to transfer (defaults to the current change)
+- `--even-though-not-owner`: transfer a change you don't own
 
 ## Rebase
 
@@ -101,6 +110,7 @@ Arguments:
 
 - `change`: the change to rebase
 - `--allow-invalid-base`: skip `--onto`, used when git history has been messed with outside cabaret
+- `--even-though-not-owner`: rebase a change you don't own
 
 ## Rename
 
@@ -117,6 +127,7 @@ Update a change's parent branch/change. This is just a metadata/log change, and 
 
 - `change`: the change to reparent
 - `parent`: the new parent
+- `--even-though-not-owner`: reparent a change you don't own
 
 ## Review
 

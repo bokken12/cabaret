@@ -8,7 +8,7 @@ async function makeChange(path: string, content: string): Promise<TestRepo> {
   await repo.write(path, content);
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", `add ${path}`);
-  await repo.cabaret("reparent", "main", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
   return repo;
 }
 
@@ -108,7 +108,7 @@ test("a deleted file diffs to /dev/null", async () => {
   await repo.git("branch", "trunk");
   await repo.git("rm", "-q", "doomed.txt");
   await repo.git("commit", "-qm", "remove doomed.txt");
-  await repo.cabaret("reparent", "main", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
   expect(await repo.cabaret("diff", "doomed.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
@@ -468,7 +468,7 @@ test("a base that deleted the reviewed file is a dropped base change", async () 
   await repo.write("shared.txt", "keep\nchild\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "restore shared.txt with child work");
-  await repo.cabaret("reparent", "main", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
   await repo.cabaret("review", "shared.txt");
   // Advance the base to the deletion commit: the base dropped the file, the
   // feature kept its copy. The absent version diffs as an empty file.

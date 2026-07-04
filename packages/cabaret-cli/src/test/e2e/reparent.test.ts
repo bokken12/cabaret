@@ -1,50 +1,44 @@
 import { expect, test } from "vitest";
 import { makeRepo } from "./fixture.js";
 
-test("reparent then log round-trips a set-parent entry", async () => {
+test("reparent appends a set-parent entry to the change's log", async () => {
   const repo = await makeRepo();
-  await repo.git("checkout", "-qb", "feature");
-  expect(await repo.cabaret("reparent", "feature", "main")).toEqual({
+  const root = await repo.git("rev-parse", "main");
+  await repo.cabaret("create", "feature");
+  expect(await repo.cabaret("reparent", "feature", "trunk")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "feature")).toEqual({
-    stdout: '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n',
     stderr: "",
     exitCode: 0,
   });
 });
 
-test("reparent appends to an existing log", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("reparent", "gadget", "main");
-  await repo.cabaret("reparent", "gadget", "feature/base");
-  expect(await repo.cabaret("log", "gadget")).toMatchInlineSnapshot(`
-    {
-      "exitCode": 0,
-      "stderr": "",
-      "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
-    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"feature/base"}}
-    ",
-    }
-  `);
-});
-
 test("reparent fails without a git identity, leaving the log untouched", async () => {
   const repo = await makeRepo();
+  await repo.cabaret("create", "feature");
+  const before = await repo.cabaret("log", "feature");
   await repo.git("config", "--unset", "user.email");
-  const result = await repo.cabaret("reparent", "main", "trunk");
+  const result = await repo.cabaret("reparent", "feature", "trunk");
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("git config user.email");
-  expect(await repo.cabaret("log", "main")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
 
 test("reparent rejects an empty git identity", async () => {
   const repo = await makeRepo();
+  await repo.cabaret("create", "feature");
+  const before = await repo.cabaret("log", "feature");
   await repo.git("config", "user.email", "");
-  const result = await repo.cabaret("reparent", "main", "trunk");
+  const result = await repo.cabaret("reparent", "feature", "trunk");
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("git config user.email must be nonempty");
-  expect(await repo.cabaret("log", "main")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
