@@ -36,6 +36,15 @@ export interface TestRepo {
   cabaret(...argv: string[]): Promise<Invocation>;
 }
 
+/** Create change `name` stacked on the current branch, with one commit adding `<name>.txt`. */
+export async function addChange(repo: TestRepo, name: string): Promise<void> {
+  await repo.cabaret("create", name);
+  await repo.git("checkout", "-q", name);
+  await repo.write(`${name}.txt`, `${name} work\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", `${name} work`);
+}
+
 /**
  * A throwaway repo on `main` with one empty root commit and the identity
  * `alice@example.com`, removed when the current test finishes. Each repo's
