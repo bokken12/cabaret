@@ -180,6 +180,8 @@ function renderDiff4(args: {
   contents: Patdiff4.Diamond.Diamond<string | undefined>;
   color: boolean;
 }): string {
+  // TODO: name absent versions distinctly (Iron renders them as <absent>
+  // with a per-version file-name table) instead of diffing an empty file.
   const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
     return `Binary versions of ${args.file} differ\n`;

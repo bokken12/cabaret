@@ -258,6 +258,259 @@ describe("diff", () => {
     f2,
   });
 
+  const render = (contents: Diamond.Diamond<string>): string =>
+    diff({
+      revNames: { b1: "rev-b1", b2: "rev-b2", f1: "rev-f1", f2: "rev-f2" },
+      fileNames: Diamond.singleton("file.txt"),
+      headerFileName: "file.txt",
+      context: 1,
+      linesRequiredToSeparateDdiffHunks: 3,
+      contents,
+      output: "Ascii",
+    }).join("\n");
+
+  test("f1_f2: a base change dropped in favor of a feature change", () => {
+    // The story views and the grouped rev names in ddiff headers, modeled on
+    // Iron's [test-drop-from-file-review.t].
+    expect(render(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nx\nc\n"))).toMatchInlineSnapshot(`
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
+      _
+      | @@@@@@@@ View 1/5 : feature-ddiff @@@@@@@@
+      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+      | @@@@@@@@ -- old base 1,4 new tip, old tip 1,4 @@@@@@@@
+      | @@@@@@@@ ++ new base 1,4 old tip, new tip 1,4 @@@@@@@@
+      |     a
+      | ---|b
+      | ++-|B
+      |   +|x
+      |_
+      _
+      | @@@@@@@@ View 2/5 : new-base-to-new-tip @@@@@@@@
+      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+      | @@@@@@@@ The following feature change was kept: @@@@@@@@
+      | @@@@@@@@ new base 1,4 old tip, new tip 1,4 @@@@@@@@
+      |   a
+      | -|B
+      | +|x
+      |   c
+      |_
+      _
+      | @@@@@@@@ View 3/5 : story @@@@@@@@
+      | _
+      | | @@@@@@@@ This base change was dropped... : @@@@@@@@
+      | | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
+      | |   a
+      | | -|b
+      | | +|B
+      | |   c
+      | |_
+      | _
+      | | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
+      | | @@@@@@@@ old base 1,4 old tip, new tip 1,4 @@@@@@@@
+      | |   a
+      | | -|b
+      | | +|x
+      | |   c
+      | |_
+      |_
+      _
+      | @@@@@@@@ View 4/5 : base-ddiff @@@@@@@@
+      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+      | @@@@@@@@ -- old base 1,6 new base 1,1 @@@@@@@@
+      | @@@@@@@@ ++ new tip, old tip 1,6 old tip, new tip 1,1 @@@@@@@@
+      | --@@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
+      | --  a
+      | ---|b
+      | --+|B
+      | --  c
+      |_
+      _
+      | @@@@@@@@ View 5/5 : old-base-to-new-base @@@@@@@@
+      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+      | @@@@@@@@ The following base change was dropped: @@@@@@@@
+      | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
+      |   a
+      | -|b
+      | +|B
+      |   c
+      |_"
+    `);
+  });
+
+  test("b2_f2: a feature change dropped in favor of a base change", () => {
+    expect(render(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nB\nc\n"))).toMatchInlineSnapshot(`
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
+      _
+      | @@@@@@@@ View 1/6 : feature-ddiff @@@@@@@@
+      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
+      | @@@@@@@@ -- old base 1,6 old tip 1,1 @@@@@@@@
+      | @@@@@@@@ ++ new tip, new base 1,6 new base, new tip 1,1 @@@@@@@@
+      | --@@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
+      | --  a
+      | ---|b
+      | --+|x
+      | --  c
+      |_
+      _
+      | @@@@@@@@ View 2/6 : old-base-to-new-base @@@@@@@@
+      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
+      | @@@@@@@@ The following base change was kept: @@@@@@@@
+      | @@@@@@@@ old base 1,4 new tip, new base 1,4 @@@@@@@@
+      |   a
+      | -|b
+      | +|B
+      |   c
+      |_
+      _
+      | @@@@@@@@ View 3/6 : story @@@@@@@@
+      | _
+      | | @@@@@@@@ This feature change was dropped... : @@@@@@@@
+      | | @@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
+      | |   a
+      | | -|b
+      | | +|x
+      | |   c
+      | |_
+      | _
+      | | @@@@@@@@ ... in favor of this base change: @@@@@@@@
+      | | @@@@@@@@ old base 1,4 new tip, new base 1,4 @@@@@@@@
+      | |   a
+      | | -|b
+      | | +|B
+      | |   c
+      | |_
+      |_
+      _
+      | @@@@@@@@ View 4/6 : old-tip-to-new-tip @@@@@@@@
+      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
+      | @@@@@@@@ old tip 1,4 new base, new tip 1,4 @@@@@@@@
+      |   a
+      | -|x
+      | +|B
+      |   c
+      |_
+      _
+      | @@@@@@@@ View 5/6 : base-ddiff @@@@@@@@
+      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
+      | @@@@@@@@ -- old base 1,4 new tip, new base 1,4 @@@@@@@@
+      | @@@@@@@@ ++ old tip 1,4 new base, new tip 1,4 @@@@@@@@
+      |     a
+      | ---|b
+      | ++-|x
+      |   +|B
+      |_
+      _
+      | @@@@@@@@ View 6/6 : old-base-to-old-tip @@@@@@@@
+      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
+      | @@@@@@@@ The following feature change was dropped: @@@@@@@@
+      | @@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
+      |   a
+      | -|b
+      | +|x
+      |   c
+      |_"
+    `);
+  });
+
+  test("b1_b2_f2: a reverted feature change shows with its hint", () => {
+    expect(render(diamond("a\nb\nc\n", "a\nb\nc\n", "a\nx\nc\n", "a\nb\nc\n"))).toMatchInlineSnapshot(`
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
+      @@@@@@@@ A change in the feature was reverted @@@@@@@@
+      @@@@@@@@ old tip 1,4 old base, new base, new tip 1,4 @@@@@@@@
+        a
+      -|x
+      +|b
+        c"
+    `);
+  });
+
+  test("b1_f2__b2_f1: the same change dropped from both sides shows with its hint", () => {
+    expect(render(diamond("a\nb\nc\n", "a\nx\nc\n", "a\nx\nc\n", "a\nb\nc\n"))).toMatchInlineSnapshot(`
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
+      @@@@@@@@ The same change from the old-tip and the new-base was dropped @@@@@@@@
+      @@@@@@@@ old tip, new base 1,4 old base, new tip 1,4 @@@@@@@@
+        a
+      -|x
+      +|b
+        c"
+    `);
+  });
+
+  test("hunks of different classes are labeled and rendered independently", () => {
+    // One file, two well-separated changes: a plain diff extension and a
+    // both-changes-dropped region, so the second hunk repeats its label
+    // before each of its views.
+    const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
+    expect(
+      render({
+        b1: contents("alpha", "omega"),
+        b2: contents("alpha", "OMEGA"),
+        f1: contents("alpha1", "omega!"),
+        f2: contents("alpha2", "omega"),
+      }),
+    ).toMatchInlineSnapshot(`
+      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+      old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
+      _
+      | @@@@@@@@ Hunk 1/2 @@@@@@@@
+      | @@@@@@@@ old tip 1,4 new tip 1,4 @@@@@@@@
+      |   top
+      | -|alpha1
+      | +|alpha2
+      |   m1
+      |_
+      _
+      | @@@@@@@@ Hunk 2/2 @@@@@@@@
+      | _
+      | | @@@@@@@@ Hunk 2/2 View 1/4 : feature-ddiff @@@@@@@@
+      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
+      | | @@@@@@@@ -- new tip, old base 7,11 old tip 7,11 @@@@@@@@
+      | | @@@@@@@@ ++ new base 7,11 old base, new tip 7,11 @@@@@@@@
+      | |     m5
+      | | ---|omega
+      | | --+|omega!
+      | | ++-|OMEGA
+      | | +++|omega
+      | |     bot
+      | |_
+      | _
+      | | @@@@@@@@ Hunk 2/2 View 2/4 : base-ddiff @@@@@@@@
+      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
+      | | @@@@@@@@ -- new tip, old base 7,11 new base 7,11 @@@@@@@@
+      | | @@@@@@@@ ++ old tip 7,11 old base, new tip 7,11 @@@@@@@@
+      | |     m5
+      | | ---|omega
+      | | --+|OMEGA
+      | | ++-|omega!
+      | | +++|omega
+      | |     bot
+      | |_
+      | _
+      | | @@@@@@@@ Hunk 2/2 View 3/4 : old-tip-to-new-tip @@@@@@@@
+      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
+      | | @@@@@@@@ old tip 7,10 old base, new tip 7,10 @@@@@@@@
+      | |   m5
+      | | -|omega!
+      | | +|omega
+      | |   bot
+      | |_
+      | _
+      | | @@@@@@@@ Hunk 2/2 View 4/4 : new-base-to-new-tip @@@@@@@@
+      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
+      | | @@@@@@@@ new base 7,10 old base, new tip 7,10 @@@@@@@@
+      | |   m5
+      | | -|OMEGA
+      | | +|omega
+      | |   bot
+      | |_
+      |_"
+    `);
+  });
+
   test("a rebased diff extension degenerates to one plain 2-way hunk", () => {
     // The base edit at the top carried cleanly into both tips (hidden), and
     // the tip's own evolution at the bottom is far enough away to stay a

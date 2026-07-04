@@ -457,6 +457,79 @@ test("interacting base and tip changes get the full 4-way views", async () => {
   `);
 });
 
+test("a base that deleted the reviewed file is a dropped base change", async () => {
+  const repo = await makeRepo();
+  await repo.write("shared.txt", "keep\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "add shared.txt");
+  await repo.git("branch", "trunk");
+  await repo.git("rm", "-q", "shared.txt");
+  await repo.git("commit", "-qm", "delete shared.txt");
+  await repo.write("shared.txt", "keep\nchild\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "restore shared.txt with child work");
+  await repo.cabaret("reparent", "main", "trunk");
+  await repo.cabaret("review", "shared.txt");
+  // Advance the base to the deletion commit: the base dropped the file, the
+  // feature kept its copy. The absent version diffs as an empty file.
+  await repo.git("branch", "-f", "trunk", "main~1");
+  expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base f4b3ff030cf6 | new base 50884fd79027 | old & new tip 475e44044208
+    _
+    | @@@@@@@@ View 1/5 : feature-ddiff @@@@@@@@
+    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+    | @@@@@@@@ -- old base 1,3 tip 1,3 @@@@@@@@
+    | @@@@@@@@ ++ new base 1,3 tip 1,3 @@@@@@@@
+    | --  keep
+    | +++|keep
+    |   +|child
+    |_
+    _
+    | @@@@@@@@ View 2/5 : new-base-to-new-tip @@@@@@@@
+    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+    | @@@@@@@@ The following feature change was kept: @@@@@@@@
+    | @@@@@@@@ new base 1,1 tip 1,3 @@@@@@@@
+    | +|keep
+    | +|child
+    |_
+    _
+    | @@@@@@@@ View 3/5 : story @@@@@@@@
+    | _
+    | | @@@@@@@@ This base change was dropped... : @@@@@@@@
+    | | @@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
+    | | -|keep
+    | |_
+    | _
+    | | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
+    | | @@@@@@@@ old base 1,2 tip 1,3 @@@@@@@@
+    | |   keep
+    | | +|child
+    | |_
+    |_
+    _
+    | @@@@@@@@ View 4/5 : base-ddiff @@@@@@@@
+    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+    | @@@@@@@@ -- old base 1,3 new base 1,1 @@@@@@@@
+    | @@@@@@@@ ++ tip 1,3 tip 1,1 @@@@@@@@
+    | --@@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
+    | ---|keep
+    |_
+    _
+    | @@@@@@@@ View 5/5 : old-base-to-new-base @@@@@@@@
+    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
+    | @@@@@@@@ The following base change was dropped: @@@@@@@@
+    | @@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
+    | -|keep
+    |_
+    ",
+    }
+  `);
+});
+
 test("an unreviewed file never needs a 4-way diff, even when the base changed it", async () => {
   const repo = await makeStack();
   await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
