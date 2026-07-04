@@ -17,11 +17,11 @@ test("create records the creator as owner", async () => {
   });
 });
 
-test("owner show fails on a change with no owner", async () => {
+test("owner show fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   const result = await repo.cabaret("owner", "show");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change has no owner: "main"');
+  expect(result.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
 });
 
 test("transfer replaces the owner", async () => {
@@ -104,14 +104,14 @@ test("only the owner may rebase a change", async () => {
   });
 });
 
-test("a change with no owner is malformed: guarded commands fail even with the override", async () => {
+test("guarded commands fail on a change that does not exist, even with the override", async () => {
   const repo = await makeRepo();
   const denied = await repo.cabaret("reparent", "main", "trunk");
   expect(denied.exitCode).toBe(1);
-  expect(denied.stderr).toContain('change has no owner: "main"');
-  // The override excuses not being the owner, not a broken log.
+  expect(denied.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
+  // The override excuses not being the owner, not a nonexistent change.
   const overridden = await repo.cabaret("reparent", "main", "trunk", "--even-though-not-owner");
   expect(overridden.exitCode).toBe(1);
-  expect(overridden.stderr).toContain('change has no owner: "main"');
+  expect(overridden.stderr).toContain('change does not exist: "main"');
   expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

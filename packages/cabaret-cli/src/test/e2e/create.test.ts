@@ -54,13 +54,13 @@ test("create --owner records the given owner instead of the creator", async () =
   });
 });
 
-test("create fails when the change already has a log", async () => {
+test("create fails when the change already exists", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature");
   const before = await repo.cabaret("log", "feature");
   const result = await repo.cabaret("create", "feature");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change already has a log: "feature"');
+  expect(result.stderr).toContain('change already exists: "feature"');
   expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
 

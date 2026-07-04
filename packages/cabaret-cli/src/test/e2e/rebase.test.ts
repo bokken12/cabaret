@@ -139,12 +139,12 @@ test("rebase stops on conflict without recording a base", async () => {
   expect(await repo.cabaret("log", "child")).toEqual(before);
 });
 
-test("rebase fails on a change that was never created", async () => {
+test("rebase fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "orphan");
   const result = await repo.cabaret("rebase", "orphan");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change has no owner: "orphan"');
+  expect(result.stderr).toContain('change does not exist: "orphan"; run `cabaret create` first');
 });
 
 test("a review survives the parent being rewritten and the rebase that follows", async () => {

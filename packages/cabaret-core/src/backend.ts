@@ -194,8 +194,16 @@ function latestAction<K extends LogAction["kind"]>(
   return found;
 }
 
+/** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
+export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
+  if (entries.length === 0) {
+    throw new Error(`change does not exist: ${JSON.stringify(change)}; run \`cabaret create\` first`);
+  }
+}
+
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
 export function currentParent(change: RefName, entries: readonly LogEntry[]): RefName {
+  assertChangeExists(change, entries);
   const action = latestAction(entries, "set-parent");
   if (action === undefined) {
     throw new Error(`change has no parent: ${JSON.stringify(change)}`);
@@ -205,6 +213,7 @@ export function currentParent(change: RefName, entries: readonly LogEntry[]): Re
 
 /** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
 export function currentBase(change: RefName, entries: readonly LogEntry[]): CommitHash {
+  assertChangeExists(change, entries);
   const action = latestAction(entries, "set-base");
   if (action === undefined) {
     throw new Error(`change has no base: ${JSON.stringify(change)}`);
@@ -214,6 +223,7 @@ export function currentBase(change: RefName, entries: readonly LogEntry[]): Comm
 
 /** The owner from the log's latest `set-owner`; `create` starts every log with one, so a missing owner is an error. */
 export function currentOwner(change: RefName, entries: readonly LogEntry[]): UserName {
+  assertChangeExists(change, entries);
   const action = latestAction(entries, "set-owner");
   if (action === undefined) {
     throw new Error(`change has no owner: ${JSON.stringify(change)}`);

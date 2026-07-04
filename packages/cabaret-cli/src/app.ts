@@ -1,5 +1,6 @@
 import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
 import {
+  assertChangeExists,
   type Backend,
   brain,
   type CommitHash,
@@ -132,7 +133,7 @@ const create = buildCommand({
       "Create a change, initializing its log with a parent, a base, and an " +
       "owner. A branch that does not exist yet is created at the parent's " +
       "tip; an existing branch is adopted with the last revision shared with " +
-      "the parent as its base. The change must not already have a log.",
+      "the parent as its base. The change must not already exist.",
   },
   parameters: {
     positional: {
@@ -161,7 +162,7 @@ const create = buildCommand({
       throw new Error(`change cannot be its own parent: ${JSON.stringify(change)}`);
     }
     if ((await backend.readLog(change)).length > 0) {
-      throw new Error(`change already has a log: ${JSON.stringify(change)}`);
+      throw new Error(`change already exists: ${JSON.stringify(change)}`);
     }
     const parentTip = await backend.branchTip(parent);
     if (parentTip === undefined) {
@@ -348,9 +349,7 @@ const forget = buildCommand({
     const change = flags.change ?? (await backend.currentBranch());
     // Logs are only ever started by `create`; appending to a missing one
     // would conjure a change out of thin air.
-    if ((await backend.readLog(change)).length === 0) {
-      throw new Error(`change has no log: ${JSON.stringify(change)}`);
-    }
+    assertChangeExists(change, await backend.readLog(change));
     const user = await backend.currentUser();
     await backend.appendLog(
       change,

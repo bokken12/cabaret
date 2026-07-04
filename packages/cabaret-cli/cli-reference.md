@@ -49,7 +49,7 @@ USAGE
   cabaret create [--parent value] [--owner value] <change>
   cabaret create --help
 
-Create a change, initializing its log with a parent, a base, and an owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already have a log.
+Create a change, initializing its log with a parent, a base, and an owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
      [--parent]  The new change's parent (defaults to the current branch)

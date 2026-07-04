@@ -114,12 +114,12 @@ test("review fails on an unknown tip revision, leaving the log untouched", async
   });
 });
 
-test("review fails on a change with no parent, leaving the log untouched", async () => {
+test("review fails on a change that does not exist, leaving the log untouched", async () => {
   const repo = await makeRepo();
   const result = await repo.cabaret("review", "src/a.ts");
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
-  expect(result.stderr).toContain('change has no parent: "main"');
+  expect(result.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
   expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 

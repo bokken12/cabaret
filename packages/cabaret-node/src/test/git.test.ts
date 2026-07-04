@@ -197,9 +197,9 @@ test("createBranch creates at the given commit and refuses to overwrite", async 
   await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
-test("changeBase fails on a change with no parent", async () => {
+test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
-  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change has no parent: "orphan"');
+  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
 });
 
 test("fails fast on detached HEAD with the command and stderr in the error", async () => {

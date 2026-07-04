@@ -234,7 +234,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentParent(change, [])).toThrow('change has no parent: "feature"');
+  expect(() => currentParent(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
   expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
     'change has no parent: "feature"',
   );
@@ -259,7 +259,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentBase(change, [])).toThrow('change has no base: "feature"');
+  expect(() => currentBase(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
   expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
     'change has no base: "feature"',
   );
@@ -284,7 +284,7 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentOwner(change, [])).toThrow('change has no owner: "feature"');
+  expect(() => currentOwner(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
   expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
     'change has no owner: "feature"',
   );
