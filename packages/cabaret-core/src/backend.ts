@@ -57,15 +57,48 @@ export function userName(raw: string): UserName {
   return raw as UserName;
 }
 
+/** A forge repository locator, e.g. "github.com/test-org/widgets". Obtain via `parseForgeLocator`. */
+export type ForgeLocator = Branded<string, "ForgeLocator">;
+
+export function parseForgeLocator(raw: string): ForgeLocator {
+  if (raw === "") {
+    throw new Error("forge locator must be nonempty");
+  }
+  return raw as ForgeLocator;
+}
+
+/** A pull-request (or merge-request) number on a forge. Obtain via `forgeRequestId`. */
+export type ForgeRequestId = Branded<number, "ForgeRequestId">;
+
+export function forgeRequestId(raw: number): ForgeRequestId {
+  if (!Number.isSafeInteger(raw) || raw <= 0) {
+    throw new Error(`not a forge request number: ${raw}`);
+  }
+  return raw as ForgeRequestId;
+}
+
+/**
+ * Which forge comment a `comment` entry is a version of. Versions of one
+ * comment share a group — same source `id`, or `edits` naming the
+ * `commentHash` of the local entry a forge-side edit supersedes — and the
+ * version with the greatest timestamp is the one displayed.
+ */
+export interface CommentSource {
+  readonly forge: ForgeLocator;
+  readonly id: string;
+  readonly edits?: string | undefined;
+}
+
 /** An action that can be recorded in a change's log. */
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "set-owner"; readonly owner: UserName }
+  | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly request: ForgeRequestId }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath }
   | { readonly kind: "land"; readonly merge: CommitHash }
-  | { readonly kind: "comment"; readonly text: string };
+  | { readonly kind: "comment"; readonly text: string; readonly source?: CommentSource | undefined };
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
@@ -77,10 +110,21 @@ export interface LogEntry {
   readonly action: LogAction;
 }
 
+const CommentSourceSchema = z.object({
+  forge: z.string().transform(parseForgeLocator),
+  id: z.string().min(1),
+  edits: z.string().min(1).optional(),
+}) satisfies z.ZodType<CommentSource>;
+
 const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
   z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
   z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
+  z.object({
+    kind: z.literal("set-forge"),
+    forge: z.string().transform(parseForgeLocator),
+    request: z.number().transform(forgeRequestId),
+  }),
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
@@ -89,7 +133,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
   z.object({ kind: z.literal("land"), merge: z.string().transform(parseCommitHash) }),
-  z.object({ kind: z.literal("comment"), text: z.string().min(1) }),
+  z.object({ kind: z.literal("comment"), text: z.string().min(1), source: CommentSourceSchema.optional() }),
 ]) satisfies z.ZodType<LogAction>;
 
 /**
@@ -206,6 +250,20 @@ export interface Backend {
    */
   landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]>;
 
+  /**
+   * Push branch `branch` to the `origin` remote, replacing the remote branch
+   * (changes rebase freely) but refusing to overwrite work this repository
+   * has never fetched, as `git push --force-with-lease`.
+   */
+  pushBranch(branch: RefName): Promise<void>;
+
+  /**
+   * Fetch branch `branch` from the `origin` remote into the local branch of
+   * the same name, creating it if absent. Fast-forward only: a local branch
+   * that has diverged from the remote fails rather than being overwritten.
+   */
+  fetchBranch(branch: RefName): Promise<void>;
+
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
 
@@ -282,6 +340,13 @@ export function currentOwner(change: RefName, entries: readonly LogEntry[]): Use
     throw new Error(`change has no owner: ${JSON.stringify(change)}`);
   }
   return action.owner;
+}
+
+/** The forge request from the log's latest `set-forge`, or undefined if none is recorded. */
+export function currentForgeRequest(
+  entries: readonly LogEntry[],
+): { readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined {
+  return latestAction(entries, "set-forge");
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */

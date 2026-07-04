@@ -119,27 +119,43 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
-### cabaret gh pull
+### cabaret gh import
 
 USAGE
-  cabaret gh pull
-  cabaret gh pull --help
+  cabaret gh import <number>
+  cabaret gh import --help
 
-Pull PR activity from GitHub
+Import a PR as a change to review: fetch its head branch, create the change owned by the PR's author with the PR's base branch as its parent, and pull the PR's comments.
 
 FLAGS
   -h --help  Print help information and exit
+
+ARGUMENTS
+  number  PR number to import
+
+### cabaret gh pull
+
+USAGE
+  cabaret gh pull [--change value]
+  cabaret gh pull --help
+
+Pull PR activity from GitHub: import the PR's comments — new ones, and new versions of ones edited in place — into the change's log, and record a merged PR as landing the change.
+
+FLAGS
+     [--change]  Change to pull (defaults to current)
+  -h  --help     Print help information and exit
 
 ### cabaret gh push
 
 USAGE
-  cabaret gh push
+  cabaret gh push [--change value]
   cabaret gh push --help
 
-Push PR activity to GitHub
+Push PR activity to GitHub: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--change]  Change to push (defaults to current)
+  -h  --help     Print help information and exit
 
 ### cabaret glab pull
 

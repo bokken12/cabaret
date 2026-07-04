@@ -4,7 +4,7 @@ import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { run } from "@stricli/core";
-import { timestampMs } from "cabaret-core";
+import { type Forge, timestampMs } from "cabaret-core";
 import { GitBackend } from "cabaret-node";
 import { onTestFinished } from "vitest";
 import { app } from "../../app.js";
@@ -46,12 +46,13 @@ export async function addChange(repo: TestRepo, name: string): Promise<void> {
 }
 
 /**
- * A throwaway repo on `main` with one empty root commit and the identity
- * `alice@example.com`, removed when the current test finishes. Each repo's
- * clock starts at a fixed epoch and ticks one millisecond per read, so all
- * command output is deterministic.
+ * A throwaway repo on `main` with one empty root commit, the identity
+ * `alice@example.com`, and a bare `origin` remote, removed when the current
+ * test finishes. Each repo's clock starts at a fixed epoch and ticks one
+ * millisecond per read, so all command output is deterministic. `forge`, when
+ * given, is what the `gh` commands talk to; without it they fail.
  */
-export async function makeRepo(): Promise<TestRepo> {
+export async function makeRepo(forge?: Forge): Promise<TestRepo> {
   const dir = await mkdtemp(join(tmpdir(), "cabaret-e2e-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const git = async (...args: string[]) => {
@@ -62,6 +63,10 @@ export async function makeRepo(): Promise<TestRepo> {
   await git("config", "user.name", "Alice Test");
   await git("config", "user.email", "alice@example.com");
   await git("commit", "-qm", "root", "--allow-empty");
+  const origin = await mkdtemp(join(tmpdir(), "cabaret-e2e-origin-"));
+  onTestFinished(() => rm(origin, { recursive: true, force: true }));
+  await execFileAsync("git", ["init", "-q", "--bare", origin]);
+  await git("remote", "add", "origin", origin);
 
   let clock = 1748000000000;
   const cabaret = async (...argv: string[]) => {
@@ -76,6 +81,12 @@ export async function makeRepo(): Promise<TestRepo> {
     const context: LocalContext = {
       process: proc,
       backend: () => GitBackend.open(dir),
+      forge: async () => {
+        if (forge === undefined) {
+          throw new Error("this test repo has no forge");
+        }
+        return forge;
+      },
       now: () => timestampMs(clock++),
     };
     await run(app, argv, context);

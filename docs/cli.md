@@ -84,12 +84,27 @@ Arguments:
 - `file...`: files to forget
 - `--change`: (optional) the change to forget in (defaults to the current change)
 
-## GitHub (`fe gh`)
+## GitHub (`gh`)
 
-- `pull`: pull PR activity from GitHub
-- `push`: push PR activity to GitHub
+Sync a change with its GitHub pull request (see `forge.md`). The repository comes from the `origin` remote and authentication from `gh auth login`.
 
-## GitLab (`fe glab`)
+Subcommands:
+
+- `import`: import a PR as a change to review: fetch its head branch, create the change owned by the PR's author with the PR's base branch as its parent, and pull the PR's comments
+- `pull`: import the PR's comments — new ones, and new versions of ones edited in place — into the change's log, and record a merged PR as landing the change
+- `push`: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks
+
+The directions stay separate: `pull` and `import` record what they observe on the forge, including a merged PR landing the change; `push` only sends.
+
+Arguments to `import`:
+
+- `number`: the PR number to import
+
+Arguments to `pull` and `push`:
+
+- `--change`: (optional) the change to sync (defaults to the current change)
+
+## GitLab (`glab`)
 
 - `pull`: pull MR activity from GitLab
 - `push`: push MR activity to GitLab
