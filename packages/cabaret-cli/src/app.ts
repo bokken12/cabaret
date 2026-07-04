@@ -7,10 +7,14 @@ import {
   type CommitHash,
   changeBase,
   currentBase,
+  currentComments,
+  currentForgeRequest,
   currentOwner,
   currentParent,
   type DiffSegment,
   type FilePath,
+  type Forge,
+  type ForgeRequest,
   formatLogEntry,
   type LogEntry,
   landedMerge,
@@ -18,6 +22,8 @@ import {
   newTodos,
   parseFilePath,
   parseRefName,
+  planPull,
+  planPush,
   type RefName,
   reviewSegments,
   type Todo,
@@ -254,13 +260,7 @@ const comments = buildRouteMap({
         const target = change ?? (await backend.currentBranch());
         const entries = await backend.readLog(target);
         assertChangeExists(target, entries);
-        const found = entries.flatMap(({ timestamp, user, action }) =>
-          action.kind === "comment" ? [{ timestamp, user, text: action.text }] : [],
-        );
-        // Union-merged logs interleave concurrent entries in arbitrary order,
-        // so sort by timestamp (stable, so ties keep log order).
-        found.sort((a, b) => a.timestamp - b.timestamp);
-        const rendered = found.map(
+        const rendered = (await currentComments(entries)).map(
           ({ timestamp, user, text }) =>
             `${new Date(timestamp).toISOString()} ${user}\n${text
               .split("\n")
@@ -532,21 +532,135 @@ const forget = buildCommand({
   },
 });
 
+/**
+ * The forge request `change` syncs with: the log's `set-forge` when it names
+ * one on this forge, else the change's branch's open request, adopted with a
+ * `set-forge` entry. Undefined when the forge has no request either.
+ */
+async function syncedRequest(
+  ctx: LocalContext,
+  backend: Backend,
+  forge: Forge,
+  change: RefName,
+  entries: readonly LogEntry[],
+): Promise<ForgeRequest | undefined> {
+  const recorded = currentForgeRequest(entries);
+  if (recorded !== undefined && recorded.forge === forge.locator) {
+    return forge.getRequest(recorded.request);
+  }
+  const found = await forge.findRequest(change);
+  if (found !== undefined) {
+    await backend.appendLog(change, [
+      {
+        timestamp: ctx.now(),
+        user: await backend.currentUser(),
+        action: { kind: "set-forge", forge: forge.locator, request: found.id },
+      },
+    ]);
+  }
+  return found;
+}
+
 const gh = buildRouteMap({
   docs: { brief: "GitHub integration" },
   routes: {
     pull: buildCommand({
-      docs: { brief: "Pull PR activity from GitHub" },
-      parameters: {},
-      func(this: LocalContext) {
-        announce(this, "gh pull", {});
+      docs: {
+        brief: "Pull PR activity from GitHub",
+        fullDescription:
+          "Pull PR activity from GitHub: import the PR's comments — new ones, " +
+          "and new versions of ones edited in place — into the change's log, " +
+          "and record a merged PR as landing the change.",
+      },
+      parameters: {
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to pull (defaults to current)",
+            optional: true,
+          },
+        },
+      },
+      async func(this: LocalContext, flags: { change?: RefName }) {
+        const backend = await this.backend();
+        const forge = await this.forge();
+        const change = flags.change ?? (await backend.currentBranch());
+        const entries = await backend.readLog(change);
+        assertChangeExists(change, entries);
+        const request = await syncedRequest(this, backend, forge, change, entries);
+        if (request === undefined) {
+          throw new Error(
+            `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+          );
+        }
+        const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
+        // A merged request landed the change; record that unless the log already has it.
+        const landing = request.state === "merged" && landedMerge(entries) === undefined ? request.merge : undefined;
+        if (landing !== undefined) {
+          additions.push({
+            timestamp: this.now(),
+            user: await backend.currentUser(),
+            action: { kind: "land", merge: landing },
+          });
+        }
+        await backend.appendLog(change, additions);
+        if (landing !== undefined) {
+          this.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
+        }
+        const pulled = additions.filter(({ action }) => action.kind === "comment").length;
+        this.process.stdout.write(
+          `pulled ${pulled} comment${pulled === 1 ? "" : "s"} from ${forge.locator}#${request.id}\n`,
+        );
       },
     }),
     push: buildCommand({
-      docs: { brief: "Push PR activity to GitHub" },
-      parameters: {},
-      func(this: LocalContext) {
-        announce(this, "gh push", {});
+      docs: {
+        brief: "Push PR activity to GitHub",
+        fullDescription:
+          "Push PR activity to GitHub: push the change's branch, open its PR " +
+          "if there is none (based on the change's parent), retarget the PR's " +
+          "base to the parent, and post the change's comments the PR lacks.",
+      },
+      parameters: {
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to push (defaults to current)",
+            optional: true,
+          },
+        },
+      },
+      async func(this: LocalContext, flags: { change?: RefName }) {
+        const backend = await this.backend();
+        const forge = await this.forge();
+        const change = flags.change ?? (await backend.currentBranch());
+        const entries = await backend.readLog(change);
+        assertChangeExists(change, entries);
+        const parent = currentParent(change, entries);
+        await backend.pushBranch(change);
+        let request = await syncedRequest(this, backend, forge, change, entries);
+        if (request === undefined) {
+          request = await forge.createRequest(change, parent, change);
+          await backend.appendLog(change, [
+            {
+              timestamp: this.now(),
+              user: await backend.currentUser(),
+              action: { kind: "set-forge", forge: forge.locator, request: request.id },
+            },
+          ]);
+          this.process.stdout.write(`opened ${forge.locator}#${request.id}\n`);
+        } else if (request.state === "open" && request.base !== parent) {
+          await forge.setBase(request.id, parent);
+        }
+        const bodies = await planPush(entries, await forge.listComments(request.id), await backend.currentUser());
+        for (const body of bodies) {
+          await forge.addComment(request.id, body);
+        }
+        this.process.stdout.write(
+          `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${request.id}\n`,
+        );
       },
     }),
   },

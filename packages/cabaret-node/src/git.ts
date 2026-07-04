@@ -116,6 +116,18 @@ export class GitBackend implements Backend {
     }
   }
 
+  async pushBranch(branch: RefName): Promise<void> {
+    // `origin` is pinned rather than configurable: the forge to sync with is
+    // likewise derived from `origin`, so the two always name the same place.
+    await git(this.root, [
+      "push",
+      "--quiet",
+      "--force-with-lease",
+      "origin",
+      `refs/heads/${branch}:refs/heads/${branch}`,
+    ]);
+  }
+
   async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
     // In `commit:path` syntax the path is literal, so no globbing guard is needed.
     try {

@@ -10,6 +10,7 @@ import {
   currentOwner,
   currentParent,
   type FilePath,
+  forgeRequestId,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -17,6 +18,7 @@ import {
   landedMerge,
   parseCommitHash,
   parseFilePath,
+  parseForgeLocator,
   parseLog,
   parseRefName,
   type RefName,
@@ -228,6 +230,33 @@ test("a formatted log parses back to the original entries", () => {
       user: userName("heidi@example.com"),
       action: { kind: "comment", text: 'multi\nline "comment"\n' },
     },
+    {
+      timestamp: timestampMs(1748000480000),
+      user: userName("erin@example.com"),
+      action: {
+        kind: "set-forge",
+        forge: parseForgeLocator("github.com/test-org/widgets"),
+        request: forgeRequestId(7),
+      },
+    },
+    {
+      timestamp: timestampMs(1748000540000),
+      user: userName("carol@users.noreply.github.com"),
+      action: {
+        kind: "comment",
+        text: "imported",
+        source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
+      },
+    },
+    {
+      timestamp: timestampMs(1748000600000),
+      user: userName("carol@users.noreply.github.com"),
+      action: {
+        kind: "comment",
+        text: "imported (edited)",
+        source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025", edits: "ab".repeat(32) },
+      },
+    },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
 });
@@ -262,6 +291,14 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "land" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment", text: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "comment", text: "hi", source: { forge: "", id: "1" } } }), "malformed log line"],
+    [
+      line({ ...entry, action: { kind: "comment", text: "hi", source: { forge: "gh.test/a/b" } } }),
+      "malformed log line",
+    ],
+    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", request: 0 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", request: 1.5 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-forge", request: 1 } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -485,14 +522,31 @@ function commitHashes(): fc.Arbitrary<CommitHash> {
 
 function logActions(): fc.Arbitrary<LogAction> {
   const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
+  const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
+  const sources = fc.record(
+    {
+      forge: forges,
+      id: fc.string({ minLength: 1 }),
+      edits: fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 64, maxLength: 64 }),
+    },
+    { requiredKeys: ["forge", "id"] },
+  );
   return fc.oneof(
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
+    fc.record({
+      kind: fc.constant("set-forge" as const),
+      forge: forges,
+      request: fc.integer({ min: 1 }).map(forgeRequestId),
+    }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
     fc.record({ kind: fc.constant("land" as const), merge: commitHashes() }),
-    fc.record({ kind: fc.constant("comment" as const), text: fc.string({ minLength: 1, unit: "grapheme" }) }),
+    fc.record(
+      { kind: fc.constant("comment" as const), text: fc.string({ minLength: 1, unit: "grapheme" }), source: sources },
+      { requiredKeys: ["kind", "text"] },
+    ),
   );
 }
 
