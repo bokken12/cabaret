@@ -12,6 +12,17 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - In a cabaret buffer, `enter` opens the target under the cursor and `r`
   re-renders the page.
 
+## Installing
+
+Package the built bundle and install it into VS Code:
+
+```sh
+pnpm --filter cabaret-vscode build
+cd packages/cabaret-vscode
+pnpm dlx @vscode/vsce package --no-dependencies -o cabaret-vscode.vsix
+code --install-extension cabaret-vscode.vsix
+```
+
 ## Developing
 
 Launch the extension host with the "Run cabaret-vscode" configuration (F5),

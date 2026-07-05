@@ -8,7 +8,7 @@
   "type": "module",
   "main": "./dist/extension.cjs",
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.120.0"
   },
   "categories": [
     "Other"
@@ -84,7 +84,7 @@
     "build": "tsc -b && esbuild src/extension.ts --bundle --conditions=source --external:vscode --platform=node --format=cjs --outfile=dist/extension.cjs"
   },
   "devDependencies": {
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "~1.120.0",
     "esbuild": "^0.28.1",
     "fast-check": "^4.8.0"
   }
