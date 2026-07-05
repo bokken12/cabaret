@@ -276,6 +276,13 @@ export interface Backend {
   changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]>;
 
   /**
+   * The name of every change, sorted by name: one per log ref. Only
+   * `appendLog` creates logs and every log starts nonempty, so each named
+   * change exists — though a landed change's branch may be gone.
+   */
+  listChanges(): Promise<readonly RefName[]>;
+
+  /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    */
@@ -346,7 +353,9 @@ export function currentOwner(change: RefName, entries: readonly LogEntry[]): Use
 export function currentForgeRequest(
   entries: readonly LogEntry[],
 ): { readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined {
-  return latestAction(entries, "set-forge");
+  const action = latestAction(entries, "set-forge");
+  // Rebuilt so the value is what the type says, with no `kind` tagging along.
+  return action && { forge: action.forge, request: action.request };
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */

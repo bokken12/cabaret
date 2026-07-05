@@ -42,11 +42,13 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
 }
 
 /**
- * Where a change's log lives: a ref mirroring the change's branch name, whose
- * tree holds the log text in a single file.
+ * Where changes' logs live: under this namespace, a ref mirroring each
+ * change's branch name, whose tree holds the log text in a single file.
  */
+const LOG_REF_PREFIX = "refs/cabaret/log/";
+
 function logRef(change: RefName): RefName {
-  return parseRefName(`refs/cabaret/log/${change}`);
+  return parseRefName(`${LOG_REF_PREFIX}${change}`);
 }
 
 /** Path of the log file within a log ref's tree. */
@@ -295,6 +297,14 @@ export class GitBackend implements Backend {
       merges.push({ commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
     }
     return merges;
+  }
+
+  async listChanges(): Promise<readonly RefName[]> {
+    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX]);
+    return out
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => parseRefName(line.slice(LOG_REF_PREFIX.length)));
   }
 
   async readLog(change: RefName): Promise<readonly LogEntry[]> {
