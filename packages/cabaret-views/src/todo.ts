@@ -1,0 +1,104 @@
+import {
+  type Backend,
+  type ChangeNode,
+  type ChangeSummary,
+  changeForest,
+  currentParent,
+  type RefName,
+  summarizeChange,
+  type UserName,
+} from "cabaret-core";
+import { type Doc, type Line, type Span, span } from "./doc.js";
+import { table } from "./table.js";
+
+/** A change to act on and the changes stacked on it. */
+export interface TodoNode {
+  readonly summary: ChangeSummary;
+  readonly children: readonly TodoNode[];
+}
+
+/** What awaits one user's attention. */
+export interface TodoPage {
+  /** Unlanded changes with files left for the user to review, sorted by name. */
+  readonly review: readonly ChangeSummary[];
+  /**
+   * The user's unlanded changes as a forest along parent links. A change that
+   * is landed or someone else's stays only while kept children hang from it.
+   */
+  readonly owned: readonly TodoNode[];
+}
+
+export async function todoPage(backend: Backend, user: UserName): Promise<TodoPage> {
+  const summaries = new Map<RefName, ChangeSummary>();
+  const parents = new Map<RefName, RefName>();
+  for (const change of await backend.listChanges()) {
+    const entries = await backend.readLog(change);
+    summaries.set(change, await summarizeChange(backend, change, entries, user));
+    parents.set(change, currentParent(change, entries));
+  }
+  const prune = (nodes: readonly ChangeNode[]): TodoNode[] =>
+    nodes.flatMap((node) => {
+      const summary = summaries.get(node.change);
+      if (summary === undefined) {
+        throw new Error(`change vanished while summarizing: ${node.change}`);
+      }
+      const children = prune(node.children);
+      const mine = summary.landed === undefined && summary.owner === user;
+      return mine || children.length > 0 ? [{ summary, children }] : [];
+    });
+  return {
+    review: [...summaries.values()].filter(({ landed, reviewLeft }) => landed === undefined && reviewLeft.length > 0),
+    owned: prune(changeForest(parents)),
+  };
+}
+
+function changeSpan(change: RefName, indent: number): Span {
+  return span(`${"  ".repeat(indent)}${change}`, { target: { kind: "change", change } });
+}
+
+export function todoDoc(page: TodoPage): Doc {
+  const lines: Line[] = [];
+  if (page.review.length > 0) {
+    lines.push(
+      ...table(
+        [
+          { header: "change", align: "left" },
+          { header: "review", align: "right" },
+        ],
+        page.review.map(({ change, reviewLeft }) => [changeSpan(change, 0), span(String(reviewLeft.length))]),
+      ),
+    );
+  }
+  if (page.owned.length > 0) {
+    if (lines.length > 0) {
+      lines.push({ spans: [] });
+    }
+    lines.push({ spans: [span("Changes you own:", { style: "heading" })] });
+    const rows: (readonly Span[])[] = [];
+    const walk = (nodes: readonly TodoNode[], depth: number): void => {
+      for (const { summary, children } of nodes) {
+        rows.push([
+          changeSpan(summary.change, depth),
+          span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length)),
+          span(summary.nextStep),
+        ]);
+        walk(children, depth + 1);
+      }
+    };
+    walk(page.owned, 0);
+    lines.push(
+      ...table(
+        [
+          { header: "change", align: "left" },
+          { header: "review", align: "right" },
+          { header: "next step", align: "left" },
+        ],
+        rows,
+      ),
+    );
+  }
+  if (lines.length === 0) {
+    lines.push({ spans: [span("Nothing to do.")] });
+  }
+  return { lines };
+}

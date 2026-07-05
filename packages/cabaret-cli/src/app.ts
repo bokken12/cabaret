@@ -28,11 +28,13 @@ import {
   planPush,
   type RefName,
   reviewSegments,
+  summarizeChange,
   type Todo,
   type UserName,
   userName,
   VERSION,
 } from "cabaret-core";
+import { docText, showDoc, todoDoc, todoPage } from "cabaret-views";
 import { PatdiffCore } from "patdiff";
 import { IsBinary } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
@@ -1208,6 +1210,39 @@ const todos = buildCommand({
   },
 });
 
+const show = buildCommand({
+  docs: { brief: "Show a change's status" },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          brief: "change to show (defaults to current)",
+          placeholder: "change",
+          parse: parseRefName,
+          optional: true,
+        },
+      ],
+    },
+  },
+  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+    const backend = await this.backend();
+    const target = change ?? (await backend.currentBranch());
+    const summary = await summarizeChange(backend, target, await backend.readLog(target), await backend.currentUser());
+    this.process.stdout.write(`${docText(showDoc(summary))}\n`);
+  },
+});
+
+const todo = buildCommand({
+  docs: { brief: "Show the changes awaiting your attention" },
+  parameters: {},
+  async func(this: LocalContext, _flags: Record<never, never>) {
+    const backend = await this.backend();
+    const page = await todoPage(backend, await backend.currentUser());
+    this.process.stdout.write(`${docText(todoDoc(page))}\n`);
+  },
+});
+
 const routes = buildRouteMap({
   docs: {
     brief: "Diff-based distributed code review built on top of git",
@@ -1228,6 +1263,8 @@ const routes = buildRouteMap({
     rename,
     reparent,
     review,
+    show,
+    todo,
     todos,
   },
 });
