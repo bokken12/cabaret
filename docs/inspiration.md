@@ -6,6 +6,7 @@ Other systems or ideas solving related problems or with good perspectives.
 - https://github.com/janestreet/iron
 - https://github.com/google/git-appraise
 - https://github.com/google/git-pull-request-mirror
+- https://github.com/kahole/edamagit
 - https://github.com/jj-vcs/jj
 - https://github.com/gitbutlerapp/gitbutler
 - https://www.reviewable.io/
