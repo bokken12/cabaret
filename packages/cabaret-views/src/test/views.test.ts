@@ -51,25 +51,25 @@ test("todoDoc lays out the review table and the owned tree", () => {
     ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "|-----------------|
-    | change | review |
-    |--------+--------|
-    | gizmo  |      2 |
-    |-----------------|
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gizmo  │      2 │
+    ╰────────┴────────╯
 
     Changes you own:
-    |------------------------------|
-    | change  | review | next step |
-    |---------+--------+-----------|
-    | gadget  |        | landed    |
-    |   gizmo |      2 | review    |
-    | widgets |        | land      |
-    |------------------------------|"
+    ╭──────────┬────────┬───────────╮
+    │ change   │ review │ next step │
+    ├──────────┼────────┼───────────┤
+    │ gadget   │        │ landed    │
+    │ └─ gizmo │      2 │ review    │
+    │ widgets  │        │ land      │
+    ╰──────────┴────────┴───────────╯"
   `);
-  // Cursor on an indented change name resolves to that change.
+  // A cursor anywhere on a tree entry, guide included, resolves to that change.
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("  gizmo"));
+    .findIndex((text) => text.includes("└─ gizmo"));
   expect(targetAt(doc, { line, column: 4 })).toEqual({ kind: "change", change: "gizmo" });
 });
 
@@ -88,16 +88,16 @@ test("showDoc renders the attribute table and files left", () => {
     "widgets
     =======
 
-    |-----------------------------------------------|
-    | attribute     | value                         |
-    |---------------+-------------------------------|
-    | next step     | review                        |
-    | owner         | alice@example.com             |
-    | parent        | main                          |
-    | forge request | github.com/test-org/widgets#7 |
-    | tip           | 222222222222                  |
-    | base          | 111111111111                  |
-    |-----------------------------------------------|
+    ╭───────────────┬───────────────────────────────╮
+    │ attribute     │ value                         │
+    ├───────────────┼───────────────────────────────┤
+    │ next step     │ review                        │
+    │ owner         │ alice@example.com             │
+    │ parent        │ main                          │
+    │ forge request │ github.com/test-org/widgets#7 │
+    │ tip           │ 222222222222                  │
+    │ base          │ 111111111111                  │
+    ╰───────────────┴───────────────────────────────╯
 
     Files to review:
       api.ts
@@ -115,15 +115,15 @@ test("showDoc renders a landed change without a files section", () => {
     "widgets
     =======
 
-    |-------------------------------|
-    | attribute | value             |
-    |-----------+-------------------|
-    | next step | landed            |
-    | owner     | alice@example.com |
-    | parent    | main              |
-    | landed    | 555555555555      |
-    | tip       | 222222222222      |
-    | base      | 111111111111      |
-    |-------------------------------|"
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ landed            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ landed    │ 555555555555      │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯"
   `);
 });

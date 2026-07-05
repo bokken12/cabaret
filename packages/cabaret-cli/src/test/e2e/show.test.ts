@@ -10,15 +10,15 @@ test("show renders the current change's status page", async () => {
     "gadget
     ======
 
-    |-------------------------------|
-    | attribute | value             |
-    |-----------+-------------------|
-    | next step | review            |
-    | owner     | alice@example.com |
-    | parent    | main              |
-    | tip       | f37230616d25      |
-    | base      | 1ac0b33426d0      |
-    |-------------------------------|
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ f37230616d25      │
+    │ base      │ 1ac0b33426d0      │
+    ╰───────────┴───────────────────╯
 
     Files to review:
       gadget.txt
@@ -35,15 +35,15 @@ test("show by name reflects review progress", async () => {
     "gadget
     ======
 
-    |-------------------------------|
-    | attribute | value             |
-    |-----------+-------------------|
-    | next step | land              |
-    | owner     | alice@example.com |
-    | parent    | main              |
-    | tip       | f37230616d25      |
-    | base      | 1ac0b33426d0      |
-    |-------------------------------|
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ land              │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ f37230616d25      │
+    │ base      │ 1ac0b33426d0      │
+    ╰───────────┴───────────────────╯
     "
   `);
 });

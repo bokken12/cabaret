@@ -9,11 +9,11 @@ export interface Column {
  * Lay rows out as a bordered table, one span per cell so cell targets map to
  * exactly the cell's text:
  *
- *     |-----------------|
- *     | change | review |
- *     |--------+--------|
- *     | root   |      1 |
- *     |-----------------|
+ *     ╭────────┬────────╮
+ *     │ change │ review │
+ *     ├────────┼────────┤
+ *     │ root   │      1 │
+ *     ╰────────┴────────╯
  */
 export function table(columns: readonly Column[], rows: readonly (readonly Span[])[]): readonly Line[] {
   for (const cells of rows) {
@@ -32,24 +32,24 @@ export function table(columns: readonly Column[], rows: readonly (readonly Span[
     return align === "left" ? [cell, padding] : [padding, cell];
   };
   const row = (cells: readonly Span[]): Line => {
-    const spans: Span[] = [span("| ")];
+    const spans: Span[] = [span("│ ")];
     cells.forEach((cell, i) => {
       if (i > 0) {
-        spans.push(span(" | "));
+        spans.push(span(" │ "));
       }
       spans.push(...pad(cell, widths[i] as number, (columns[i] as Column).align));
     });
-    spans.push(span(" |"));
+    spans.push(span(" │"));
     return { spans };
   };
-  const border: Line = {
-    spans: [span(`|${"-".repeat(widths.reduce((sum, w) => sum + w + 2, 0) + widths.length - 1)}|`)],
-  };
+  const rule = (left: string, joint: string, right: string): Line => ({
+    spans: [span(`${left}${widths.map((width) => "─".repeat(width + 2)).join(joint)}${right}`)],
+  });
   return [
-    border,
+    rule("╭", "┬", "╮"),
     row(columns.map(({ header }) => span(header))),
-    { spans: [span(`|${widths.map((width) => "-".repeat(width + 2)).join("+")}|`)] },
+    rule("├", "┼", "┤"),
     ...rows.map(row),
-    border,
+    rule("╰", "┴", "╯"),
   ];
 }

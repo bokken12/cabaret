@@ -52,8 +52,9 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
   };
 }
 
-function changeSpan(change: RefName, indent: number): Span {
-  return span(`${"  ".repeat(indent)}${change}`, { target: { kind: "change", change } });
+/** The guide joins the name's span, so the whole cell resolves to the change. */
+function changeSpan(change: RefName, guide = ""): Span {
+  return span(`${guide}${change}`, { target: { kind: "change", change } });
 }
 
 export function todoDoc(page: TodoPage): Doc {
@@ -65,7 +66,7 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "change", align: "left" },
           { header: "review", align: "right" },
         ],
-        page.review.map(({ change, reviewLeft }) => [changeSpan(change, 0), span(String(reviewLeft.length))]),
+        page.review.map(({ change, reviewLeft }) => [changeSpan(change), span(String(reviewLeft.length))]),
       ),
     );
   }
@@ -75,17 +76,18 @@ export function todoDoc(page: TodoPage): Doc {
     }
     lines.push({ spans: [span("Changes you own:", { style: "heading" })] });
     const rows: (readonly Span[])[] = [];
-    const walk = (nodes: readonly TodoNode[], depth: number): void => {
-      for (const { summary, children } of nodes) {
+    const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
+      nodes.forEach(({ summary, children }, i) => {
+        const last = i === nodes.length - 1;
         rows.push([
-          changeSpan(summary.change, depth),
+          changeSpan(summary.change, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
           span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length)),
           span(summary.nextStep),
         ]);
-        walk(children, depth + 1);
-      }
+        walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
+      });
     };
-    walk(page.owned, 0);
+    walk(page.owned, "", true);
     lines.push(
       ...table(
         [
