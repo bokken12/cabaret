@@ -6,6 +6,7 @@
     { "path": "packages/cabaret-core" },
     { "path": "packages/cabaret-views" },
     { "path": "packages/cabaret-node" },
-    { "path": "packages/cabaret-cli" }
+    { "path": "packages/cabaret-cli" },
+    { "path": "packages/cabaret-vscode" }
   ]
 }

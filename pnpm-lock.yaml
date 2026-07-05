@@ -72,6 +72,28 @@ importers:
         specifier: workspace:*
         version: link:../cabaret-core
 
+  packages/cabaret-vscode:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+      cabaret-node:
+        specifier: workspace:*
+        version: link:../cabaret-node
+      cabaret-views:
+        specifier: workspace:*
+        version: link:../cabaret-views
+    devDependencies:
+      '@types/vscode':
+        specifier: ^1.125.0
+        version: 1.125.0
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      fast-check:
+        specifier: ^4.8.0
+        version: 4.8.0
+
   packages/patdiff:
     devDependencies:
       fast-check:
@@ -435,6 +457,9 @@ packages:
 
   '@types/node@25.9.2':
     resolution: {integrity: sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw==}
+
+  '@types/vscode@1.125.0':
+    resolution: {integrity: sha512-0icm/ZQAaism87P0ekHqi4/Ju9du+Tm0RUW+y7vqRsxY2cY0FNRX1nAnaW7nT6npPt2tfHiheZ55Zm9UhqonFA==}
 
   '@vitest/expect@4.1.8':
     resolution: {integrity: sha512-h3nDO677RDLEGlBxyQ5CW8RlMThSKSRLUePLOx09gNIWRL40edgA1GCZSZgf1W55MFAG6/Sw14KeaAnqv0NKdQ==}
@@ -971,6 +996,8 @@ snapshots:
   '@types/node@25.9.2':
     dependencies:
       undici-types: 7.24.6
+
+  '@types/vscode@1.125.0': {}
 
   '@vitest/expect@4.1.8':
     dependencies:
