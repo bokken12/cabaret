@@ -1,6 +1,6 @@
 {
-  "name": "cabaret-util",
-  "description": "General-purpose utilities not specific to Cabaret",
+  "name": "cabaret-views",
+  "description": "Plain-text document views shared by Cabaret's frontends",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,6 +9,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "cabaret-core": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

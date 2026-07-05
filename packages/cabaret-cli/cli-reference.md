@@ -301,6 +301,31 @@ FLAGS
 ARGUMENTS
   file...  files to mark as reviewed
 
+## cabaret show
+
+USAGE
+  cabaret show [<change>]
+  cabaret show --help
+
+Show a change's status
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to show (defaults to current)
+
+## cabaret todo
+
+USAGE
+  cabaret todo
+  cabaret todo --help
+
+Show the changes awaiting your attention
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cabaret todos
 
 USAGE
