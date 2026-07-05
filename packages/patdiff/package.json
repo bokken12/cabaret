@@ -7,26 +7,32 @@
   "license": "MIT",
   "exports": {
     ".": {
+      "source": "./src/lib/patdiff.ts",
       "types": "./dist/lib/patdiff.d.ts",
       "default": "./dist/lib/patdiff.js"
     },
     "./kernel": {
+      "source": "./src/kernel/patdiff-kernel.ts",
       "types": "./dist/kernel/patdiff-kernel.d.ts",
       "default": "./dist/kernel/patdiff-kernel.js"
     },
     "./patience-diff": {
+      "source": "./src/patience-diff/patience-diff.ts",
       "types": "./dist/patience-diff/patience-diff.d.ts",
       "default": "./dist/patience-diff/patience-diff.js"
     },
     "./ansi-text": {
+      "source": "./src/ansi-text/ansi-text.ts",
       "types": "./dist/ansi-text/ansi-text.d.ts",
       "default": "./dist/ansi-text/ansi-text.js"
     },
     "./expect-test": {
+      "source": "./src/expect-test-patdiff/expect-test-patdiff.ts",
       "types": "./dist/expect-test-patdiff/expect-test-patdiff.d.ts",
       "default": "./dist/expect-test-patdiff/expect-test-patdiff.js"
     },
     "./patdiff4": {
+      "source": "./src/patdiff4/patdiff4.ts",
       "types": "./dist/patdiff4/patdiff4.d.ts",
       "default": "./dist/patdiff4/patdiff4.js"
     }
