@@ -24,13 +24,7 @@ export interface Doc {
   readonly lines: readonly Line[];
 }
 
-/** A zero-based cursor position within a doc. */
-export interface Position {
-  readonly line: number;
-  readonly column: number;
-}
-
-/** Make a span; multi-line text would break position-to-target mapping, so it is refused. */
+/** Make a span; multi-line text would break line-to-target mapping, so it is refused. */
 export function span(text: string, opts?: { style?: Style; target?: Target }): Span {
   if (text.includes("\n")) {
     throw new Error(`span text must be a single line: ${JSON.stringify(text)}`);
@@ -38,17 +32,13 @@ export function span(text: string, opts?: { style?: Style; target?: Target }): S
   return { text, style: opts?.style, target: opts?.target };
 }
 
-/** The target under `position`, or undefined over plain text. */
-export function targetAt(doc: Doc, position: Position): Target | undefined {
-  let start = 0;
-  for (const { text, target } of doc.lines[position.line]?.spans ?? []) {
-    const end = start + text.length;
-    if (position.column >= start && position.column < end) {
-      return target;
-    }
-    start = end;
-  }
-  return undefined;
+/**
+ * The target the zero-based `line` denotes, or undefined for a plain line.
+ * The whole line resolves to its first target: selecting a line is the
+ * granularity a cursor should need, not a column within it.
+ */
+export function targetAt(doc: Doc, line: number): Target | undefined {
+  return doc.lines[line]?.spans.find(({ target }) => target !== undefined)?.target;
 }
 
 /** The doc as plain text — how a host that paints no styles displays it. */

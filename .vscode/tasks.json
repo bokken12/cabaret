@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build cabaret-vscode",
+      "type": "shell",
+      "command": "pnpm --filter cabaret-vscode build",
+      "problemMatcher": "$tsc"
+    }
+  ]
+}

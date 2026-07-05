@@ -52,7 +52,7 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
   };
 }
 
-/** The guide joins the name's span, so the whole cell resolves to the change. */
+/** A cell naming `change` behind its tree guide, resolving to it. */
 function changeSpan(change: RefName, guide = ""): Span {
   return span(`${guide}${change}`, { target: { kind: "change", change } });
 }
