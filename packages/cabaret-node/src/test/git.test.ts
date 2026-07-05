@@ -20,8 +20,12 @@ const execFileAsync = promisify(execFile);
 let repo: string;
 
 async function git(...args: string[]): Promise<string> {
+  return gitIn(repo, ...args);
+}
+
+async function gitIn(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
-    cwd: repo,
+    cwd,
     env: {
       ...process.env,
       GIT_CONFIG_GLOBAL: "/dev/null",
@@ -238,6 +242,24 @@ test("renameChange refuses a branch checked out in another worktree", async () =
   expect(await backend.branchTip(parseRefName("wt-src"))).toBe(tip);
   expect(await backend.branchTip(parseRefName("wt-dst"))).toBeUndefined();
   await git("worktree", "remove", linked);
+});
+
+test("listChanges names every change with a log, sorted by name", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+  try {
+    await gitIn(dir, "init", "-q");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    const backend = await GitBackend.open(dir);
+    expect(await backend.listChanges()).toEqual([]);
+    for (const change of ["widgets", "team/api", "docs"]) {
+      await backend.appendLog(parseRefName(change), [
+        logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("main") }),
+      ]);
+    }
+    expect(await backend.listChanges()).toEqual(["docs", "team/api", "widgets"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("fails fast on detached HEAD", async () => {
