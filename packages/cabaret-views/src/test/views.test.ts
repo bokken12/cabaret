@@ -66,11 +66,11 @@ test("todoDoc lays out the review table and the owned tree", () => {
     │ widgets  │        │ land      │
     ╰──────────┴────────┴───────────╯"
   `);
-  // A cursor anywhere on a tree entry, guide included, resolves to that change.
+  // A tree entry's row resolves to that change.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("└─ gizmo"));
-  expect(targetAt(doc, { line, column: 4 })).toEqual({ kind: "change", change: "gizmo" });
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gizmo" });
 });
 
 test("todoDoc with nothing to do says so", () => {
@@ -106,7 +106,7 @@ test("showDoc renders the attribute table and files left", () => {
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
-  expect(targetAt(doc, { line, column: 2 })).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
 });
 
 test("showDoc renders a landed change without a files section", () => {

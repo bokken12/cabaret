@@ -97,8 +97,7 @@ async function openTarget(provider: PageProvider): Promise<void> {
   if (doc === undefined) {
     return;
   }
-  const { line, character } = editor.selection.active;
-  const target = targetAt(doc, { line, column: character });
+  const target = targetAt(doc, editor.selection.active.line);
   if (target === undefined) {
     return;
   }

@@ -12,15 +12,11 @@ const doc: Doc = {
   ],
 };
 
-test("targetAt resolves the span under the cursor, and only that span", () => {
-  expect(targetAt(doc, { line: 0, column: 0 })).toBeUndefined();
-  expect(targetAt(doc, { line: 0, column: 2 })).toEqual(change);
-  expect(targetAt(doc, { line: 0, column: 8 })).toEqual(change);
-  expect(targetAt(doc, { line: 0, column: 9 })).toBeUndefined();
-  expect(targetAt(doc, { line: 0, column: 99 })).toBeUndefined();
-  expect(targetAt(doc, { line: 1, column: 0 })).toBeUndefined();
-  expect(targetAt(doc, { line: 2, column: 3 })).toBeUndefined();
-  expect(targetAt(doc, { line: 9, column: 0 })).toBeUndefined();
+test("targetAt resolves a line to its target, and a plain line to nothing", () => {
+  expect(targetAt(doc, 0)).toEqual(change);
+  expect(targetAt(doc, 1)).toBeUndefined();
+  expect(targetAt(doc, 2)).toBeUndefined();
+  expect(targetAt(doc, 9)).toBeUndefined();
 });
 
 test("docText joins spans and lines", () => {
