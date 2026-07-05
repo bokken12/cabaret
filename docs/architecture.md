@@ -14,7 +14,7 @@ Cabaret will have at least 3 different frontends:
 - `cabaret-web`: a standalone web UI
 - `cabaret-vscode`: a VSCode extension
 
-`cabaret-web` and `cabaret-vscode` will hope to share most of the same UI and a substantial portion of code, likely with the VSCode extension effectively embedding the website (or the reverse with the website recreating some basic editor functionality).
+The interactive frontends share their UI through `cabaret-views`: pure functions from queried state to plain-text documents, with each frontend a thin host that paints documents and routes keys. In particular the VSCode extension renders into real text buffers rather than embedding the website, so editor navigation (including vim emulation) works untouched. See [ui.md](ui.md).
 
 All of these frontends will be built around some `cabaret-core` defining basic operations against multiple possible backends, of which the primary will be to shell out to a local `git`.
 
