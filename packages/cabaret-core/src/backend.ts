@@ -17,10 +17,11 @@ export function parseCommitHash(raw: string): CommitHash {
 export type RefName = Branded<string, "RefName">;
 
 // The forbidden-character subset of `git check-ref-format`: control chars and
-// space, the glob/revision metacharacters, `..`, `@{`, a bare `@`, leading or
-// doubled slashes, and `.`/`.lock` at the very end.
+// space, the glob/revision metacharacters, `..`, `@{`, a bare `@`, a component
+// starting with `.`, a component ending in `.lock`, leading/trailing/doubled
+// slashes, and a trailing `.` on the whole name.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: git ref names forbid control characters, so we must match them.
-const REF_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|^\/|\/\/|\.lock$|\.$/;
+const REF_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$/;
 
 export function parseRefName(raw: string): RefName {
   if (raw === "" || REF_NAME_FORBIDDEN.test(raw)) {
