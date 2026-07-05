@@ -14,14 +14,13 @@ text buffers, so search, selection, and vim keybindings work untouched.
 
 ## Installing
 
-Package the built bundle and install it into VS Code:
+Build, package, and install into VS Code in one step:
 
 ```sh
-pnpm --filter cabaret-vscode build
-cd packages/cabaret-vscode
-pnpm dlx @vscode/vsce package --no-dependencies -o cabaret-vscode.vsix
-code --install-extension cabaret-vscode.vsix
+packages/cabaret-vscode/install.sh
 ```
+
+Then reload any open VS Code windows.
 
 ## Developing
 
