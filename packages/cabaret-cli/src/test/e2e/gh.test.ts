@@ -143,11 +143,11 @@ test("gh pull fails when there is no PR", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  const result = await repo.cabaret("gh", "pull");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain(
-    'no pull request for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first',
-  );
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout: "",
+    stderr: 'no pull request for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first\n',
+    exitCode: 1,
+  });
 });
 
 test("gh push does not record forge activity, even an observed merge", async () => {
@@ -193,9 +193,11 @@ test("gh import turns a teammate's PR into a change to review", async () => {
   expect(log).toContain('"action":{"kind":"set-parent","parent":"main"}');
   expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}');
   // Importing again refuses rather than doubling the change.
-  const again = await repo.cabaret("gh", "import", "1");
-  expect(again.exitCode).toBe(1);
-  expect(again.stderr).toContain('change already exists: "their-feature"');
+  expect(await repo.cabaret("gh", "import", "1")).toEqual({
+    stdout: "",
+    stderr: 'change already exists: "their-feature"; run `cabaret gh pull` to sync it\n',
+    exitCode: 1,
+  });
 });
 
 test("gh push retargets the PR base after a reparent", async () => {

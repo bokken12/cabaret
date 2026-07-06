@@ -16,6 +16,7 @@ import {
   reviewSegments,
   type UserName,
 } from "./backend.js";
+import { UserError } from "./error.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -52,7 +53,7 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
     .map(build);
   if (reached.size !== parents.size) {
     const cyclic = [...parents.keys()].filter((change) => !reached.has(change)).sort();
-    throw new Error(`parent links form a cycle among: ${cyclic.join(", ")}`);
+    throw new UserError(`parent links form a cycle among: ${cyclic.join(", ")}`);
   }
   return forest;
 }

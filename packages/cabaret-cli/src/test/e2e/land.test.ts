@@ -48,47 +48,60 @@ test("land refuses a change that is not based on its parent's tip", async () => 
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
-  const result = await repo.cabaret("land", "child");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('"child" is not based on the tip of "parent"; run `cabaret rebase` first');
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: '"child" is not based on the tip of "parent"; run `cabaret rebase` first\n',
+    exitCode: 1,
+  });
 });
 
 test("land refuses a change with no commits of its own", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "idle");
-  const result = await repo.cabaret("land", "idle");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('nothing to land: "idle" has no commits of its own');
+  expect(await repo.cabaret("land", "idle")).toEqual({
+    stdout: "",
+    stderr: 'nothing to land: "idle" has no commits of its own\n',
+    exitCode: 1,
+  });
 });
 
 test("land refuses a change that already landed", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child");
-  const result = await repo.cabaret("land", "child");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change has landed: "child"');
+  const merge = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: `change has landed: "child" (merge ${merge})\n`,
+    exitCode: 1,
+  });
 });
 
 test("land refuses a parent that itself landed", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child");
   await repo.cabaret("land", "parent");
+  const merge = await repo.git("rev-parse", "main");
   await repo.cabaret("create", "late", "--parent", "parent");
   await repo.git("checkout", "-q", "late");
   await repo.write("late.txt", "late work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "late work");
-  const result = await repo.cabaret("land", "late");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change has landed: "parent"');
+  expect(await repo.cabaret("land", "late")).toEqual({
+    stdout: "",
+    stderr: `change has landed: "parent" (merge ${merge})\n`,
+    exitCode: 1,
+  });
 });
 
 test("land requires ownership, with the usual override", async () => {
   const repo = await makeStack();
   await repo.cabaret("owner", "transfer", "bob@example.com", "--change", "child");
-  const denied = await repo.cabaret("land", "child");
-  expect(denied.exitCode).toBe(1);
-  expect(denied.stderr).toContain('"child" is owned by "bob@example.com"');
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr:
+      '"child" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("land", "child", "--even-though-not-owner")).toEqual({
     stdout: "",
     stderr: "",
@@ -99,14 +112,17 @@ test("land requires ownership, with the usual override", async () => {
 test("a landed change refuses rebase, reparent, and owner transfer", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child");
+  const merge = await repo.git("rev-parse", "parent");
   for (const argv of [
     ["rebase", "child"],
     ["reparent", "child", "main"],
     ["owner", "transfer", "bob@example.com", "--change", "child"],
   ]) {
-    const result = await repo.cabaret(...argv);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('change has landed: "child"');
+    expect(await repo.cabaret(...argv)).toEqual({
+      stdout: "",
+      stderr: `change has landed: "child" (merge ${merge})\n`,
+      exitCode: 1,
+    });
   }
 });
 
@@ -342,9 +358,11 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
   await addChange(repo, "b");
   await addChange(repo, "c");
   await repo.cabaret("owner", "transfer", "bob@example.com", "--change", "b");
-  const denied = await repo.cabaret("land", "main..c");
-  expect(denied.exitCode).toBe(1);
-  expect(denied.stderr).toContain('"b" is owned by "bob@example.com"');
+  expect(await repo.cabaret("land", "main..c")).toEqual({
+    stdout: "",
+    stderr: '"b" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   // c landed into b before the stop; nothing above it moved.
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
   expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("root");
@@ -364,9 +382,11 @@ test("a range that would land into a landed change refuses before landing anythi
   await addChange(repo, "b");
   await addChange(repo, "c");
   await repo.cabaret("land", "a");
-  const result = await repo.cabaret("land", "main..c");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('"b" would land into "a", which has landed; run `cabaret reparent` first');
+  expect(await repo.cabaret("land", "main..c")).toEqual({
+    stdout: "",
+    stderr: '"b" would land into "a", which has landed; run `cabaret reparent` first\n',
+    exitCode: 1,
+  });
   // Nothing moved: landing c first would only bury it in the jammed chain.
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("b work\na work\nroot");
 });

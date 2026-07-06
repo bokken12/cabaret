@@ -24,8 +24,9 @@ test("a change with no log has the empty log", async () => {
 
 test("rejects a malformed change name", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("log", "not..a..ref");
-  expect(result.exitCode).toBe(ExitCode.InvalidArgument);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain('not a valid ref name: "not..a..ref"');
+  expect(await repo.cabaret("log", "not..a..ref")).toEqual({
+    stdout: "",
+    stderr: 'Failed to parse "not..a..ref" for change: not a valid ref name: "not..a..ref"\n',
+    exitCode: ExitCode.InvalidArgument,
+  });
 });

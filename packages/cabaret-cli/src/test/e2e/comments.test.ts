@@ -46,17 +46,21 @@ test("comments show prints nothing for a change with no comments", async () => {
 
 test("comments add fails on a change that does not exist", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("comments", "add", "--change", "ghost", "anyone home?");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "ghost"; run `cabaret create` first');
+  expect(await repo.cabaret("comments", "add", "--change", "ghost", "anyone home?")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "ghost"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "ghost")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("comments show fails on a change that does not exist", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("comments", "show", "ghost");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "ghost"; run `cabaret create` first');
+  expect(await repo.cabaret("comments", "show", "ghost")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "ghost"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
 });
 
 test("comments add rejects an empty comment", async () => {

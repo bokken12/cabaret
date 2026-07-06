@@ -19,9 +19,11 @@ test("create records the creator as owner", async () => {
 
 test("owner show fails on a change that does not exist", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("owner", "show");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
+  expect(await repo.cabaret("owner", "show")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "main"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
 });
 
 test("transfer replaces the owner", async () => {
@@ -53,11 +55,12 @@ test("only the owner may transfer ownership", async () => {
   const repo = await makeOwnedChange();
   await repo.git("config", "user.email", "bob@example.com");
   const before = await repo.cabaret("log", "feature");
-  const result = await repo.cabaret("owner", "transfer", "bob@example.com", "--change", "feature");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain(
-    '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override',
-  );
+  expect(await repo.cabaret("owner", "transfer", "bob@example.com", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
 
@@ -78,9 +81,12 @@ test("only the owner may reparent a change", async () => {
   const repo = await makeOwnedChange();
   await repo.git("config", "user.email", "bob@example.com");
   const before = await repo.cabaret("log", "feature");
-  const result = await repo.cabaret("reparent", "feature", "main");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('"feature" is owned by "alice@example.com", not "bob@example.com"');
+  expect(await repo.cabaret("reparent", "feature", "main")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
   expect(await repo.cabaret("reparent", "feature", "main", "--even-though-not-owner")).toEqual({
     stdout: "",
@@ -93,9 +99,12 @@ test("only the owner may rebase a change", async () => {
   const repo = await makeOwnedChange();
   await repo.git("config", "user.email", "bob@example.com");
   const before = await repo.cabaret("log", "feature");
-  const result = await repo.cabaret("rebase", "feature");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('"feature" is owned by "alice@example.com", not "bob@example.com"');
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
   expect(await repo.cabaret("rebase", "feature", "--even-though-not-owner")).toEqual({
     stdout: "",
@@ -106,12 +115,16 @@ test("only the owner may rebase a change", async () => {
 
 test("guarded commands fail on a change that does not exist, even with the override", async () => {
   const repo = await makeRepo();
-  const denied = await repo.cabaret("reparent", "main", "trunk");
-  expect(denied.exitCode).toBe(1);
-  expect(denied.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
+  expect(await repo.cabaret("reparent", "main", "trunk")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "main"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
   // The override excuses not being the owner, not a nonexistent change.
-  const overridden = await repo.cabaret("reparent", "main", "trunk", "--even-though-not-owner");
-  expect(overridden.exitCode).toBe(1);
-  expect(overridden.stderr).toContain('change does not exist: "main"');
+  expect(await repo.cabaret("reparent", "main", "trunk", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "main"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
