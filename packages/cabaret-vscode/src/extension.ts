@@ -217,7 +217,8 @@ async function review(provider: PageProvider): Promise<void> {
 
 /**
  * Mark the active diff page's file as reviewed at the end of its earliest
- * pending round, then return to the change's review page. Errors surface as
+ * pending round, then move on to the round's next file, or back to the
+ * change's review page when the round is done. Errors surface as
  * notifications, and every open page re-renders afterwards.
  *
  * TODO: record the round end the open page actually rendered once docs carry
@@ -247,7 +248,15 @@ async function markReviewed(provider: PageProvider): Promise<void> {
       { timestamp: now(), user, action: { kind: "review", file: page.file, base, tip: round.end } },
     ]);
     await closeTabs(editor.document.uri);
-    await openPage(provider, { kind: "review", change: page.change });
+    // The round's next file in list order, wrapping past the end for files
+    // skipped earlier. At a round boundary the review page takes over: what
+    // to read next changes shape there.
+    const remaining = [...round.files.keys()].filter((file) => file !== page.file);
+    const next = remaining.find((file) => file > page.file) ?? remaining[0];
+    await openPage(
+      provider,
+      next === undefined ? { kind: "review", change: page.change } : { kind: "diff", change: page.change, file: next },
+    );
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   } finally {
