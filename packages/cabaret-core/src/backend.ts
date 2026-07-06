@@ -179,6 +179,35 @@ export function parseLog(text: string): readonly LogEntry[] {
 }
 
 /**
+ * Total order on log entries: by timestamp, then by serialized line. Merged
+ * logs hold concurrent entries from many machines, so every read that picks a
+ * "latest" entry must break timestamp ties on content, never on log position,
+ * for all machines to agree; only byte-identical entries compare equal.
+ */
+export function compareLogEntries(a: LogEntry, b: LogEntry): number {
+  if (a.timestamp !== b.timestamp) {
+    return a.timestamp - b.timestamp;
+  }
+  const left = formatLogEntry(a);
+  const right = formatLogEntry(b);
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * Merge two logs of one change: the union of their entries, deduplicated by
+ * serialized line and in `compareLogEntries` order. A function of the entry
+ * sets alone, so machines merging in any order or grouping converge on
+ * byte-identical logs.
+ */
+export function mergeLogs(a: readonly LogEntry[], b: readonly LogEntry[]): readonly LogEntry[] {
+  const byLine = new Map<string, LogEntry>();
+  for (const entry of [...a, ...b]) {
+    byLine.set(formatLogEntry(entry), entry);
+  }
+  return [...byLine.values()].sort(compareLogEntries);
+}
+
+/**
  * The commit-message trailer marking a merge as landing a change. Reviewers
  * of the parent skip the diff such a merge brings in: it was reviewed in the
  * child, under the child's own log.
@@ -266,6 +295,20 @@ export interface Backend {
    */
   fetchBranch(branch: RefName): Promise<void>;
 
+  /**
+   * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
+   * it with the local log as `mergeLogs` does, and push the result. Either
+   * side may be missing; syncing is how a change's review state reaches other
+   * machines.
+   */
+  syncLog(change: RefName): Promise<void>;
+
+  /**
+   * Sync every log with the `origin` remote — every change with a log here,
+   * there, or both — and return their names, sorted.
+   */
+  syncLogs(): Promise<readonly RefName[]>;
+
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
 
@@ -301,23 +344,20 @@ export interface Backend {
 }
 
 /**
- * The `kind`-actioned entry with the greatest timestamp, if any. Union-merged
- * logs interleave concurrent entries in arbitrary order, so the timestamp,
- * not log position, decides which entry is current.
+ * The `kind`-actioned entry greatest by `compareLogEntries`, if any: the
+ * timestamp, not log position, decides which entry is current.
  */
 function latestAction<K extends LogAction["kind"]>(
   entries: readonly LogEntry[],
   kind: K,
 ): Extract<LogAction, { kind: K }> | undefined {
-  let found: Extract<LogAction, { kind: K }> | undefined;
-  let latest = -1;
-  for (const { timestamp, action } of entries) {
-    if (action.kind === kind && timestamp >= latest) {
-      latest = timestamp;
-      found = action as Extract<LogAction, { kind: K }>;
+  let found: LogEntry | undefined;
+  for (const entry of entries) {
+    if (entry.action.kind === kind && (found === undefined || compareLogEntries(entry, found) >= 0)) {
+      found = entry;
     }
   }
-  return found;
+  return found?.action as Extract<LogAction, { kind: K }> | undefined;
 }
 
 /** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
@@ -392,23 +432,24 @@ export interface ReviewedDiff {
 
 /**
  * What `user` knows of each file in a change — their brain: the diff they
- * most recently reviewed, per file. For each file the entry with the greatest
- * timestamp wins (union-merged logs interleave concurrent entries in
- * arbitrary order), and a winning `forget` erases the file's knowledge.
+ * most recently reviewed, per file. For each file the entry greatest by
+ * `compareLogEntries` wins, and a winning `forget` erases the file's
+ * knowledge.
  */
 export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff> {
-  const latest = new Map<FilePath, { timestamp: TimestampMs; reviewed?: ReviewedDiff }>();
-  for (const { timestamp, user: author, action } of entries) {
-    if (author !== user || (action.kind !== "review" && action.kind !== "forget")) {
+  const latest = new Map<FilePath, { entry: LogEntry; reviewed?: ReviewedDiff }>();
+  for (const entry of entries) {
+    const { action } = entry;
+    if (entry.user !== user || (action.kind !== "review" && action.kind !== "forget")) {
       continue;
     }
     const prev = latest.get(action.file);
-    if (prev !== undefined && prev.timestamp > timestamp) {
+    if (prev !== undefined && compareLogEntries(prev.entry, entry) > 0) {
       continue;
     }
     latest.set(
       action.file,
-      action.kind === "review" ? { timestamp, reviewed: { base: action.base, tip: action.tip } } : { timestamp },
+      action.kind === "review" ? { entry, reviewed: { base: action.base, tip: action.tip } } : { entry },
     );
   }
   const known = new Map<FilePath, ReviewedDiff>();

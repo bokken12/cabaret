@@ -18,6 +18,7 @@ Subcommands:
 - `rename`: rename this change
 - `reparent`: reparent this change
 - `review`: mark files as reviewed
+- `sync`: sync review state with origin
 - `todos`: show TODOs for a change
 
 ## Approve
@@ -184,6 +185,10 @@ Arguments:
 - `file...`: files to mark as reviewed
 - `--change`: (optional) the change to review (defaults to the current change)
 - `--tip`: (optional) mark as reviewed at this tip revision (defaults to the change's tip)
+
+## Sync
+
+Sync review state with origin: fetch every change's log, merge it with the local log, and push the result (see `state.md` for the merge). Only logs move; branches sync through git or `cabaret gh`.
 
 ## TODOs
 

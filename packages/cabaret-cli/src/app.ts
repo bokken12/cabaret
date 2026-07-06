@@ -472,6 +472,9 @@ const gh = buildRouteMap({
         const forge = await this.forge();
         const request = await forge.getRequest(id);
         const change = request.head;
+        // Sync first so a change already imported on another machine is
+        // adopted as itself rather than re-created.
+        await backend.syncLog(change);
         if ((await backend.readLog(change)).length > 0) {
           throw new UserError(`change already exists: ${JSON.stringify(change)}; run \`cabaret gh pull\` to sync it`);
         }
@@ -524,6 +527,7 @@ const gh = buildRouteMap({
         const backend = await this.backend();
         const forge = await this.forge();
         const change = flags.change ?? (await backend.currentBranch());
+        await backend.syncLog(change);
         const entries = await backend.readLog(change);
         assertChangeExists(change, entries);
         const request = await syncedRequest(this, backend, forge, change, entries);
@@ -591,6 +595,7 @@ const gh = buildRouteMap({
         for (const body of bodies) {
           await forge.addComment(request.id, body);
         }
+        await backend.syncLog(change);
         this.process.stdout.write(
           `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${request.id}\n`,
         );
@@ -959,6 +964,22 @@ const show = buildCommand({
   },
 });
 
+const sync = buildCommand({
+  docs: {
+    brief: "Sync review state with origin",
+    fullDescription:
+      "Sync review state with origin: fetch every change's log, merge it " +
+      "with the local log, and push the result. Only logs move; branches " +
+      "sync through git or `cabaret gh`.",
+  },
+  parameters: {},
+  async func(this: LocalContext, _flags: Record<never, never>) {
+    const backend = await this.backend();
+    const changes = await backend.syncLogs();
+    this.process.stdout.write(`synced ${changes.length} change${changes.length === 1 ? "" : "s"} with origin\n`);
+  },
+});
+
 const todo = buildCommand({
   docs: { brief: "Show the changes awaiting your attention" },
   parameters: {},
@@ -990,6 +1011,7 @@ const routes = buildRouteMap({
     reparent,
     review,
     show,
+    sync,
     todo,
     todos,
   },

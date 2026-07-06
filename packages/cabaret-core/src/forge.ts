@@ -1,5 +1,6 @@
 import {
   type CommitHash,
+  compareLogEntries,
   type ForgeLocator,
   type ForgeRequestId,
   formatLogEntry,
@@ -125,7 +126,7 @@ export async function planPull(
       local.set(await commentHash(entry), entry);
     } else if (source.forge === forge) {
       const prev = imported.get(source.id);
-      if (prev === undefined || prev.timestamp <= entry.timestamp) {
+      if (prev === undefined || compareLogEntries(entry, prev) >= 0) {
         imported.set(source.id, entry);
       }
     }
@@ -183,7 +184,7 @@ export async function planPush(
       posted.add(hash);
     }
   }
-  const pending: { readonly timestamp: TimestampMs; readonly body: string }[] = [];
+  const pending: { readonly entry: CommentEntry; readonly body: string }[] = [];
   for (const entry of commentEntries(entries)) {
     if (entry.action.source !== undefined) {
       continue;
@@ -192,11 +193,11 @@ export async function planPush(
     if (posted.has(hash)) {
       continue;
     }
-    pending.push({ timestamp: entry.timestamp, body: `${postedText(entry, self)}\n\n<!-- cabaret:${hash} -->` });
+    pending.push({ entry, body: `${postedText(entry, self)}\n\n<!-- cabaret:${hash} -->` });
   }
-  // Union-merged logs interleave concurrent entries in arbitrary order, so
-  // sort by timestamp (stable, so ties keep log order).
-  pending.sort((a, b) => a.timestamp - b.timestamp);
+  // Post oldest first, in an order independent of log position so every
+  // machine posts the same sequence.
+  pending.sort((a, b) => compareLogEntries(a.entry, b.entry));
   return pending.map(({ body }) => body);
 }
 
@@ -226,7 +227,7 @@ export async function currentComments(entries: readonly LogEntry[]): Promise<rea
     if (entry.timestamp < group.first) {
       group.first = entry.timestamp;
     }
-    if (entry.timestamp >= group.latest.timestamp) {
+    if (compareLogEntries(entry, group.latest) >= 0) {
       group.latest = entry;
     }
   }
