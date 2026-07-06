@@ -1,5 +1,7 @@
 import {
   type Backend,
+  changeBase,
+  changeTip,
   createChange,
   currentParent,
   landChain,
@@ -11,6 +13,7 @@ import {
   renameChange,
   reparentChange,
   resolveChain,
+  reviewRounds,
   type TimestampMs,
   timestampMs,
 } from "cabaret-core";
@@ -182,9 +185,56 @@ async function openTarget(provider: PageProvider): Promise<void> {
       await openPage(provider, { kind: "show", change: target.change });
       break;
     case "file":
-      // TODO: route file targets to the diff page once it exists.
-      vscode.window.showInformationMessage(`cabaret: no diff view yet for ${target.file}`);
+      await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
+  }
+}
+
+/** Enter review of the shown change: open its list of files to review. */
+async function review(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change !== undefined) {
+    await openPage(provider, { kind: "review", change });
+  }
+}
+
+/**
+ * Mark the active diff page's file as reviewed at the end of its earliest
+ * pending round, then return to the change's review page. Errors surface as
+ * notifications, and every open page re-renders afterwards.
+ *
+ * TODO: record the round end the open page actually rendered once docs carry
+ * their query snapshot; a commit racing the keypress widens the marked diff.
+ */
+async function markReviewed(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind !== "diff") {
+    return;
+  }
+  try {
+    const backend = await openBackend();
+    const entries = await backend.readLog(page.change);
+    const base = await changeBase(backend, page.change, entries);
+    const tip = await changeTip(backend, page.change, entries);
+    const user = await backend.currentUser();
+    const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(page.file));
+    if (round === undefined) {
+      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+      return;
+    }
+    await backend.appendLog(page.change, [
+      { timestamp: now(), user, action: { kind: "review", file: page.file, base, tip: round.end } },
+    ]);
+    await closeTabs(editor.document.uri);
+    await openPage(provider, { kind: "review", change: page.change });
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
   }
 }
 
@@ -366,6 +416,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.review", () => review(provider)),
+    vscode.commands.registerCommand("cabaret.markReviewed", () => markReviewed(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

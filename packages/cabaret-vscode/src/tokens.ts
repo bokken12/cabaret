@@ -1,7 +1,7 @@
 import type { Doc, Style } from "cabaret-views";
 
 /** Every `Style`, as the semantic token legend; the mapped type keeps the list exhaustive. */
-const STYLES: { readonly [S in Style]: null } = { heading: null };
+const STYLES: { readonly [S in Style]: null } = { heading: null, added: null, removed: null };
 
 export const TOKEN_TYPES: readonly Style[] = Object.keys(STYLES) as Style[];
 

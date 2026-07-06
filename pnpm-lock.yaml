@@ -38,9 +38,6 @@ importers:
       cabaret-views:
         specifier: workspace:*
         version: link:../cabaret-views
-      patdiff:
-        specifier: workspace:*
-        version: link:../patdiff
 
   packages/cabaret-core:
     dependencies:
@@ -71,6 +68,9 @@ importers:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      patdiff:
+        specifier: workspace:*
+        version: link:../patdiff
 
   packages/cabaret-vscode:
     dependencies:

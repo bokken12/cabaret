@@ -1,5 +1,5 @@
 import { type Backend, summarizeChange } from "cabaret-core";
-import { type Doc, showDoc, todoDoc, todoPage } from "cabaret-views";
+import { type Doc, diffDoc, diffPage, reviewDoc, reviewPage, showDoc, todoDoc, todoPage } from "cabaret-views";
 import type { Page } from "./pages.js";
 
 /** Query `backend` and render `page` for its current user. */
@@ -11,5 +11,9 @@ export async function renderPage(backend: Backend, page: Page): Promise<Doc> {
       return showDoc(
         await summarizeChange(backend, page.change, await backend.readLog(page.change), await backend.currentUser()),
       );
+    case "review":
+      return reviewDoc(await reviewPage(backend, await backend.currentUser(), page.change));
+    case "diff":
+      return diffDoc(await diffPage(backend, await backend.currentUser(), page.change, page.file));
   }
 }

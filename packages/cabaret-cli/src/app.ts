@@ -4,7 +4,6 @@ import {
   assertNotLanded,
   type Backend,
   brain,
-  type CommitHash,
   changeBase,
   createChange,
   currentComments,
@@ -42,10 +41,7 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
-import { docText, showDoc, todoDoc, todoPage } from "cabaret-views";
-import { PatdiffCore } from "patdiff";
-import { IsBinary } from "patdiff/kernel";
-import * as Patdiff4 from "patdiff/patdiff4";
+import { docText, renderDiff, renderDiff4, showDoc, todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -262,60 +258,6 @@ const create = buildCommand({
     await createChange(backend, this.now, change, flags.parent ?? (await backend.currentBranch()), flags.owner);
   },
 });
-
-/**
- * Render the diff between two versions of `file` with patdiff: ANSI-colored
- * with word-level refinement on a terminal, plain ASCII otherwise. An absent
- * version diffs against the empty file, named /dev/null as in git.
- */
-function renderDiff(file: FilePath, prev: string | undefined, next: string | undefined, color: boolean): string {
-  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
-    return prev === next ? "" : `Binary versions of ${file} differ\n`;
-  }
-  const prevName = prev === undefined ? "/dev/null" : `old/${file}`;
-  const nextName = next === undefined ? "/dev/null" : `new/${file}`;
-  const diff = PatdiffCore.withoutUnix.patdiff({
-    output: color ? "Ansi" : "Ascii",
-    // Unified lines are unsupported in Ascii output.
-    produceUnifiedLines: color,
-    prev: { name: prevName, text: prev ?? "" },
-    next: { name: nextName, text: next ?? "" },
-  });
-  // patdiff's own global header prints even when no hunks survive (e.g. equal
-  // contents), so an empty diff must skip the header here instead.
-  return diff === "" ? "" : `${prevName}\n${nextName}\n${diff}\n`;
-}
-
-/**
- * Render what remains to review when the base's copy of `file` changed
- * underneath the reviewed diff: Iron's diff4 over the old and new base and
- * tip, each aligned hunk shown under every view its equivalence class earns.
- */
-function renderDiff4(args: {
-  file: FilePath;
-  revs: Patdiff4.Diamond.Diamond<CommitHash>;
-  contents: Patdiff4.Diamond.Diamond<string | undefined>;
-  color: boolean;
-}): string {
-  // TODO: name absent versions distinctly (Iron renders them as <absent>
-  // with a per-version file-name table) instead of diffing an empty file.
-  const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
-  if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
-    return `Binary versions of ${args.file} differ\n`;
-  }
-  const lines = Patdiff4.diff({
-    // Hash prefixes keep patdiff4's contract that equal names imply equal
-    // contents, where "old"/"new" labels would not (the tips can coincide).
-    revNames: Patdiff4.Diamond.map(args.revs, (rev) => rev.slice(0, 12)),
-    fileNames: Patdiff4.Diamond.singleton(args.file),
-    headerFileName: args.file,
-    context: PatdiffCore.defaultContext,
-    linesRequiredToSeparateDdiffHunks: 0,
-    contents,
-    output: args.color ? "Ansi" : "Ascii",
-  });
-  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
-}
 
 const diff = buildCommand({
   docs: {

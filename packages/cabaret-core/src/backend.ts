@@ -471,6 +471,17 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
   );
 }
 
+/**
+ * The tip of `change`: the revision its diff is computed up to. A landed
+ * change is frozen at the tip its land merge carries as its second parent;
+ * the branch may since be gone or moved on. An unlanded change's tip is its
+ * branch, pinned to the branch namespace so a same-named tag cannot shadow it.
+ */
+export async function changeTip(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
+  const landed = landedMerge(entries);
+  return landed !== undefined ? backend.resolveCommit(`${landed}^2`) : backend.resolveCommit(`refs/heads/${change}`);
+}
+
 /** One contiguous span of a change's history that a reviewer must review. */
 export interface DiffSegment {
   readonly start: CommitHash;

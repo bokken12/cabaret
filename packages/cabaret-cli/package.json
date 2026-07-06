@@ -10,8 +10,7 @@
     "@stricli/core": "^1.2.8",
     "cabaret-core": "workspace:*",
     "cabaret-node": "workspace:*",
-    "cabaret-views": "workspace:*",
-    "patdiff": "workspace:*"
+    "cabaret-views": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

@@ -1,7 +1,7 @@
 import type { FilePath, RefName } from "cabaret-core";
 
 /** Semantic paint for a span; each host maps styles to its own palette. */
-export type Style = "heading";
+export type Style = "heading" | "added" | "removed";
 
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =
