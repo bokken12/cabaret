@@ -33,6 +33,30 @@
       {
         "command": "cabaret.refresh",
         "title": "Cabaret: Refresh"
+      },
+      {
+        "command": "cabaret.rebase",
+        "title": "Cabaret: Rebase"
+      },
+      {
+        "command": "cabaret.land",
+        "title": "Cabaret: Land"
+      },
+      {
+        "command": "cabaret.rename",
+        "title": "Cabaret: Rename"
+      },
+      {
+        "command": "cabaret.reparent",
+        "title": "Cabaret: Reparent"
+      },
+      {
+        "command": "cabaret.createChild",
+        "title": "Cabaret: Create Child"
+      },
+      {
+        "command": "cabaret.createParent",
+        "title": "Cabaret: Create Parent"
       }
     ],
     "menus": {
@@ -43,6 +67,30 @@
         },
         {
           "command": "cabaret.refresh",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.rebase",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.land",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.rename",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.reparent",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.createChild",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.createParent",
           "when": "resourceScheme == cabaret"
         }
       ]
@@ -56,6 +104,36 @@
       {
         "command": "cabaret.refresh",
         "key": "r",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.rebase",
+        "key": "shift+1 r b",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.land",
+        "key": "shift+1 l a",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.rename",
+        "key": "shift+1 r n",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.reparent",
+        "key": "shift+1 r p",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.createChild",
+        "key": "shift+1 c",
+        "when": "editorTextFocus && resourceScheme == cabaret"
+      },
+      {
+        "command": "cabaret.createParent",
+        "key": "shift+1 p",
         "when": "editorTextFocus && resourceScheme == cabaret"
       }
     ],
