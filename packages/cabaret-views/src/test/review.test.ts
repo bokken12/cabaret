@@ -75,6 +75,31 @@ test("diffDoc renders a two-way diff, styling its added and removed lines", () =
   ]);
 });
 
+test("diffDoc anchors each hunk line to its place in the new copy", () => {
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } }),
+  );
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    { kind: "change", change: "widgets" },
+    undefined, // blank
+    undefined, // old/api.ts
+    undefined, // new/api.ts
+    location(1), // -1,2 +1,2
+    location(1), //   shared
+    location(2), // -|gone: the removal site, where "here" now sits
+    location(2), // +|here
+  ]);
+});
+
+test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
+  // Long enough that patdiff trims leading context and the hunk starts deep.
+  const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next: `${prev}tail\n` } }));
+  const added = doc.lines.findIndex(({ spans }) => spans.some(({ text }) => text === "+|tail"));
+  expect(targetAt(doc, added)).toEqual({ kind: "location", file: "api.ts", line: 41 });
+});
+
 test("diffDoc leaves a context line unstyled even when its text starts like a mark", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" } }),
@@ -185,6 +210,8 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
     | -|>>>>>>> new base
     |_"
   `);
+  // Four line numberings interleave in a 4-way diff, so no line anchors one.
+  expect(doc.lines.slice(1).every(({ spans }) => spans.every(({ target }) => target === undefined))).toBe(true);
 });
 
 test("diffDoc with an empty diff points at marking the file reviewed", () => {

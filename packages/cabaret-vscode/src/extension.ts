@@ -27,7 +27,7 @@ import { styledRanges, TOKEN_TYPES } from "./tokens.js";
 const SCHEME = "cabaret";
 
 /** Open the backend for the repository containing the first workspace folder. */
-async function openBackend(): Promise<Backend> {
+async function openBackend(): Promise<GitBackend> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
     throw new Error("cabaret needs an open folder inside a git repository");
@@ -187,6 +187,23 @@ async function openTarget(provider: PageProvider): Promise<void> {
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
+    case "location": {
+      // Visit the working tree's copy: it is the one worth editing, and while
+      // reviewing a checked-out change it is the copy the diff shows. A tree
+      // on some other branch can drift from the diff's line numbers.
+      const uri = vscode.Uri.joinPath(vscode.Uri.file((await openBackend()).root), target.file);
+      try {
+        const document = await vscode.workspace.openTextDocument(uri);
+        const position = new vscode.Position(target.line - 1, 0);
+        await vscode.window.showTextDocument(document, {
+          preview: false,
+          selection: new vscode.Range(position, position),
+        });
+      } catch {
+        vscode.window.showInformationMessage(`cabaret: ${target.file} is not in the working tree`);
+      }
+      break;
+    }
   }
 }
 

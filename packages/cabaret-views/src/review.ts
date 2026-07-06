@@ -13,7 +13,7 @@ import {
 import { PatdiffCore } from "patdiff";
 import { IsBinary } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import { type Doc, type Line, type Style, span } from "./doc.js";
+import { type Doc, type Line, type Style, span, type Target } from "./doc.js";
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
 function shortHash(hash: CommitHash): string {
@@ -235,7 +235,8 @@ function diffLineStyle(text: string, kind: DiffView["kind"]): Style | undefined 
 export function diffDoc(page: DiffPage): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
-  const context = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const context =
+    page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
   const title = `${page.file} in ${page.change}${context}`;
   const lines: Line[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
@@ -257,9 +258,31 @@ export function diffDoc(page: DiffPage): Doc {
     lines.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
     return { lines };
   }
+  // Walk a two-way render tracking where each hunk line sits in the file's
+  // new copy, so the cursor can jump from the diff to the file itself. A hunk
+  // header carries the new side's start; context and added lines advance it,
+  // and a removed line anchors at the removal site without advancing. The
+  // 4-way views interleave four line numberings, so their lines get none.
+  let at = 1;
   for (const text of rendered.slice(0, -1).split("\n")) {
+    const opts: { style?: Style; target?: Target } = {};
     const style = diffLineStyle(text, view.kind);
-    lines.push({ spans: [style === undefined ? span(text) : span(text, { style })] });
+    if (style !== undefined) {
+      opts.style = style;
+    }
+    if (view.kind === "two") {
+      const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
+      if (header?.[1] !== undefined) {
+        at = Number(header[1]);
+        opts.target = { kind: "location", file: page.file, line: at };
+      } else if (text.startsWith("+|") || text.startsWith("  ")) {
+        opts.target = { kind: "location", file: page.file, line: at };
+        at++;
+      } else if (text.startsWith("-|")) {
+        opts.target = { kind: "location", file: page.file, line: at };
+      }
+    }
+    lines.push({ spans: [span(text, opts)] });
   }
   return { lines };
 }
