@@ -39,7 +39,7 @@ it("a list with only ansi is empty", () => {
   expect(isEmpty(withSpaces)).toMatchInlineSnapshot(`false`);
 });
 
-it("map over styles, controls, and texts", () => {
+it("map over styles, escapes, and texts", () => {
   let t = parse("\x1b[0;1;mfoo\x1b[2;3m  bar  \x1b[5;6mbaz\x1b[38;2;1;1;1;7m\x1b[3B\x1b[T\x1b[B");
   t = map(t, (e) => {
     if (e.kind === "Style") {
@@ -52,14 +52,8 @@ it("map over styles, controls, and texts", () => {
     return undefined;
   });
   t = map(t, (e) => {
-    if (e.kind === "Control") {
-      const c = e.value;
-      if (c.kind === "CursorDown" && c.n !== undefined) {
-        return {
-          kind: "Control",
-          value: { kind: "CursorDown", n: c.n + 1 },
-        };
-      }
+    if (e.kind === "Unknown" && e.value.kind === "Csi" && e.value.value === "3B") {
+      return { kind: "Unknown", value: { kind: "Csi", value: "4B" } };
     }
     return undefined;
   });
@@ -70,7 +64,7 @@ it("map over styles, controls, and texts", () => {
     return undefined;
   });
   expect(toStringHum(t)).toMatchInlineSnapshot(
-    `"(off +bold)foo(off +faint +italic)bar(off +blink +fastblink)baz(off fg:rgb256-1-1-1 +invert)(CursorDown:4)(ScrollDown)(CursorDown)"`,
+    `"(off +bold)foo(off +faint +italic)bar(off +blink +fastblink)baz(off fg:rgb256-1-1-1 +invert)(ANSI-CSI:4B)(ANSI-CSI:T)(ANSI-CSI:B)"`,
   );
 });
 
@@ -104,7 +98,7 @@ it("split in the middle", () => {
     `"(+bold bg:red)012345(+faint fg:green)6789(bg:default -weight fg:default)"`,
   );
   expect(visualize(afterStr)).toMatchInlineSnapshot(
-    `"(bg:red +faint fg:green)ab(CursorToCol:1)(+uline +ideogram:4)cdefgh(off)"`,
+    `"(bg:red +faint fg:green)ab(ANSI-CSI:G)(+uline +ideogram:4)cdefgh(off)"`,
   );
 });
 
@@ -116,7 +110,7 @@ it("split at a boundary", () => {
   expect(beforeStr).toMatchInlineSnapshot(`"[F[1;41m012345[2;32m6789ab[49;22;39m"`);
   expect(afterStr).toMatchInlineSnapshot(`"[41;2;32;4;64mcdefgh[0m"`);
   expect(visualize(beforeStr)).toMatchInlineSnapshot(
-    `"(CursorPrevLine)(+bold bg:red)012345(+faint fg:green)6789ab(bg:default -weight fg:default)"`,
+    `"(ANSI-CSI:F)(+bold bg:red)012345(+faint fg:green)6789ab(bg:default -weight fg:default)"`,
   );
   expect(visualize(afterStr)).toMatchInlineSnapshot(`"(bg:red +faint fg:green +uline +ideogram:4)cdefgh(off)"`);
 });
@@ -129,7 +123,7 @@ it("split resets others", () => {
   expect(beforeStr).toMatchInlineSnapshot(`"[1;41m some [2;32m more [1K[4;74m t[49;22;39;24;75m"`);
   expect(afterStr).toMatchInlineSnapshot(`"[41;2;32;4;74mext [0m"`);
   expect(visualize(beforeStr)).toMatchInlineSnapshot(
-    `"(+bold bg:red) some (+faint fg:green) more (EraseLine:ToStart)(+uline +subscript) t(bg:default -weight fg:default -uline -script)"`,
+    `"(+bold bg:red) some (+faint fg:green) more (ANSI-CSI:1K)(+uline +subscript) t(bg:default -weight fg:default -uline -script)"`,
   );
   expect(visualize(afterStr)).toMatchInlineSnapshot(`"(bg:red +faint fg:green +uline +subscript)ext (off)"`);
 });
@@ -144,7 +138,7 @@ it("split handles unicode", () => {
   expect(beforeStr).toMatchInlineSnapshot(`"[1;41m[2J0123[2;32m4👋[49;22;39m"`);
   expect(afterStr).toMatchInlineSnapshot(`"[41;2;32m👋5[4;74m6789[0m"`);
   expect(visualize(beforeStr)).toMatchInlineSnapshot(
-    `"(+bold bg:red)(EraseScreen)0123(+faint fg:green)4👋(bg:default -weight fg:default)"`,
+    `"(+bold bg:red)(ANSI-CSI:2J)0123(+faint fg:green)4👋(bg:default -weight fg:default)"`,
   );
   expect(visualize(afterStr)).toMatchInlineSnapshot(`"(bg:red +faint fg:green)👋5(+uline +subscript)6789(off)"`);
 });

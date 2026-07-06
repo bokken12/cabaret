@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as AnsiText from "../ansi-text.js";
 
-const { parse, visualize, minimize, strip, apply, toString, Style, Attr, Color, Private_mode } = AnsiText;
+const { parse, visualize, minimize, strip, apply, toString, Style, Attr, Color } = AnsiText;
 
 const escString = (s: string): string => {
   // Mimic OCaml's String.escaped: ESC -> \027, other printables stay.
@@ -29,7 +29,7 @@ it("ESC[m is equivalent to ESC[0m (reset)", () => {
 });
 
 it("visualize includes unknown codes", () => {
-  expect(visualize("\x1b[6nfoo\x1b[110m")).toMatchInlineSnapshot(`"(DSR:cursor-position)foo(ANSI-SGR:110)"`);
+  expect(visualize("\x1b[6nfoo\x1b[110m")).toMatchInlineSnapshot(`"(ANSI-CSI:6n)foo(ANSI-SGR:110)"`);
 });
 
 it("simple minimize", () => {
@@ -82,11 +82,11 @@ it("combine and simplify adjacent ANSI codes", () => {
 it("ignore a repeated style even with a reset", () => {
   const str = "  \x1b[0;41;30mabc\x1b[0;2mdef\x1b[A\x1b[A\x1b[0;1;2mghi\x1b[0m";
   expect(visualize(str)).toMatchInlineSnapshot(
-    `"  (off bg:red fg:black)abc(off +faint)def(CursorUp)(CursorUp)(off +bold +faint)ghi(off)"`,
+    `"  (off bg:red fg:black)abc(off +faint)def(ANSI-CSI:A)(ANSI-CSI:A)(off +bold +faint)ghi(off)"`,
   );
   expect(minimize(str)).toMatchInlineSnapshot(`"  [0;41;30mabc[0;2mdef[A[Aghi[0m"`);
   expect(visualize(minimize(str))).toMatchInlineSnapshot(
-    `"  (off bg:red fg:black)abc(off +faint)def(CursorUp)(CursorUp)ghi(off)"`,
+    `"  (off bg:red fg:black)abc(off +faint)def(ANSI-CSI:A)(ANSI-CSI:A)ghi(off)"`,
   );
 });
 
@@ -195,14 +195,14 @@ it("split handles unicode", () => {
 
 it("OSC 8 hyperlinks", () => {
   const s = "\x1b]8;;https://example.com\x1b\\clickable text\x1b]8;;\x1b\\";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(HREF:https://example.com)clickable text(/HREF)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:8;;https://example.com)clickable text(ANSI-OSC:8;;)"`);
   expect(minimize(s)).toMatchInlineSnapshot(`"]8;;https://example.com\\clickable text]8;;\\"`);
   expect(strip(s)).toMatchInlineSnapshot(`"clickable text"`);
 });
 
 it("OSC 8 hyperlink with bold text", () => {
   const s = "\x1b]8;;https://example.com\x1b\\\x1b[1mbold link\x1b[0m\x1b]8;;\x1b\\";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(HREF:https://example.com)(+bold)bold link(off)(/HREF)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:8;;https://example.com)(+bold)bold link(off)(ANSI-OSC:8;;)"`);
   expect(minimize(s)).toMatchInlineSnapshot(`"]8;;https://example.com\\[1mbold link[0m]8;;\\"`);
   expect(strip(s)).toMatchInlineSnapshot(`"bold link"`);
 });
@@ -212,7 +212,7 @@ it("OSC 8 hyperlink with colored text", () => {
     "\x1b]8;;https://example.com\x1b\\\x1b[31mred link\x1b[0m\x1b]8;;\x1b\\ and " +
     "\x1b]8;;https://other.com\x1b\\\x1b[42mgreen link\x1b[49m\x1b]8;;\x1b\\";
   expect(visualize(s)).toMatchInlineSnapshot(
-    `"(HREF:https://example.com)(fg:red)red link(off)(/HREF) and (HREF:https://other.com)(bg:green)green link(bg:default)(/HREF)"`,
+    `"(ANSI-OSC:8;;https://example.com)(fg:red)red link(off)(ANSI-OSC:8;;) and (ANSI-OSC:8;;https://other.com)(bg:green)green link(bg:default)(ANSI-OSC:8;;)"`,
   );
   expect(minimize(s)).toMatchInlineSnapshot(
     `"]8;;https://example.com\\[31mred link[0m]8;;\\ and ]8;;https://other.com\\[42mgreen link[49m]8;;\\"`,
@@ -351,7 +351,7 @@ describe("CSI with out-of-range parameters becomes Unknown", () => {
   it("valid EraseDisplay", () => {
     expect(test("\x1b[2J")).toMatchInlineSnapshot(`
       [
-        "(EraseScreen)",
+        "(ANSI-CSI:2J)",
         "\\027[2J",
       ]
     `);
@@ -367,7 +367,7 @@ describe("CSI with out-of-range parameters becomes Unknown", () => {
   it("valid EraseLine", () => {
     expect(test("\x1b[2K")).toMatchInlineSnapshot(`
       [
-        "(EraseLine)",
+        "(ANSI-CSI:2K)",
         "\\027[2K",
       ]
     `);
@@ -416,99 +416,78 @@ it("unterminated OSC followed by CSI", () => {
 
 it("private mode sequences - show/hide cursor", () => {
   const s = "\x1b[?25hvisible\x1b[?25l";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(PrivateMode:set:25)visible(PrivateMode:reset:25)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:?25h)visible(ANSI-CSI:?25l)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[?25hvisible\\027[?25l"`);
 });
 
 it("private mode sequences - alternate screen", () => {
   const s = "\x1b[?1049hALT\x1b[?1049l";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(PrivateMode:set:1049)ALT(PrivateMode:reset:1049)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:?1049h)ALT(ANSI-CSI:?1049l)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[?1049hALT\\027[?1049l"`);
 });
 
 it("private mode sequences - old alternate screen", () => {
   const s = "\x1b[?47hALT\x1b[?47l";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(PrivateMode:set:47)ALT(PrivateMode:reset:47)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:?47h)ALT(ANSI-CSI:?47l)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[?47hALT\\027[?47l"`);
 });
 
 it("private mode sequences - bracketed paste", () => {
   const s = "\x1b[?2004htext\x1b[?2004l";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(PrivateMode:set:2004)text(PrivateMode:reset:2004)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:?2004h)text(ANSI-CSI:?2004l)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[?2004htext\\027[?2004l"`);
 });
 
 it("private mode sequences - multiple modes", () => {
   const s = "\x1b[?25;47htext\x1b[?25;47l";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(PrivateMode:set:25;47)text(PrivateMode:reset:25;47)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:?25;47h)text(ANSI-CSI:?25;47l)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[?25;47htext\\027[?25;47l"`);
-});
-
-it("private mode - is_alternate_screen helper", () => {
-  const collect = (s: string): string => {
-    const parsed = parse(s);
-    let out = "";
-    for (const e of parsed) {
-      if (e.kind === "Private_mode") {
-        out += `modes=${e.value.modes.join(",")} is_alt=${Private_mode.isAlternateScreen(e.value)}\n`;
-      }
-    }
-    return out;
-  };
-  const acc = collect("\x1b[?25h") + collect("\x1b[?47h") + collect("\x1b[?1049h") + collect("\x1b[?25;1049h");
-  expect(acc).toMatchInlineSnapshot(`
-    "modes=25 is_alt=false
-    modes=47 is_alt=true
-    modes=1049 is_alt=true
-    modes=25,1049 is_alt=true
-    "
-  `);
 });
 
 it("DSR sequences - cursor position query", () => {
   const s = "\x1b[6n";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(DSR:cursor-position)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:6n)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[6n"`);
 });
 
 it("DSR sequences - device status query", () => {
   const s = "\x1b[5n";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(DSR:device-status)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:5n)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[5n"`);
 });
 
 it("DSR sequences - other numeric query", () => {
   const s = "\x1b[0n";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(DSR:0)"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-CSI:0n)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027[0n"`);
 });
 
 it("OSC sequences - window title with BEL", () => {
   const s = "\x1b]0;my window title\x07";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(OSC:title:my window title)"`);
-  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]0;my window title\\027\\\\"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:0;my window title)"`);
+  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]0;my window title\\007"`);
 });
 
 it("OSC sequences - window title with ST", () => {
   const s = "\x1b]2;another title\x1b\\";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(OSC:title:another title)"`);
-  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]0;another title\\027\\\\"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:2;another title)"`);
+  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]2;another title\\027\\\\"`);
 });
 
 it("OSC sequences - icon name", () => {
   const s = "\x1b]1;my icon\x07";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(OSC:icon:my icon)"`);
-  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]1;my icon\\027\\\\"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:1;my icon)"`);
+  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]1;my icon\\007"`);
 });
 
 it("OSC sequences - working directory", () => {
   const s = "\x1b]7;file:///home/user\x07";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(OSC:cwd:file:///home/user)"`);
-  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]7;file:///home/user\\027\\\\"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:7;file:///home/user)"`);
+  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]7;file:///home/user\\007"`);
 });
 
 it("OSC sequences - other/unknown", () => {
   const s = "\x1b]99;some payload\x07";
-  expect(visualize(s)).toMatchInlineSnapshot(`"(OSC:99;some payload)"`);
-  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]99;some payload\\027\\\\"`);
+  expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:99;some payload)"`);
+  expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]99;some payload\\007"`);
 });

@@ -1,5 +1,4 @@
 import * as Ansi from "./ansi.js";
-import * as Hyperlink from "./hyperlink.js";
 import * as Text from "./text.js";
 import type { Element, T as TextWithAnsi } from "./text-with-ansi-types.js";
 import * as UnknownEsc from "./unknown-esc.js";
@@ -35,16 +34,6 @@ const isNfFinalByte = (c: string): boolean => {
 const textOfTrailing = (s: string): Element[] => {
   if (s.length === 0) return [];
   return [{ kind: "Text", text: Text.ofString(s) }];
-};
-
-const oscHyperlinkOfPayload = (payload: string): Hyperlink.T | undefined => {
-  if (!payload.startsWith("8;")) return undefined;
-  const rest = payload.slice(2);
-  const idx = rest.indexOf(";");
-  if (idx < 0) return undefined;
-  const uri = rest.slice(idx + 1);
-  if (uri.length === 0) return Hyperlink.End;
-  return Hyperlink.Start(uri);
 };
 
 class Cursor {
@@ -99,19 +88,11 @@ const parseOsc = (cur: Cursor): Element[] => {
   const next = cur.peek();
   if (next === BEL) {
     cur.advance(1);
-    const hl = oscHyperlinkOfPayload(payload);
-    if (hl !== undefined) return [{ kind: "Hyperlink", hyperlink: hl }];
-    return [Ansi.ofOscPayload(payload)];
+    return [{ kind: "Unknown", value: UnknownEsc.Osc(payload, "Bel") }];
   }
-  if (next !== undefined) {
-    // Must be ESC
-    if (cur.available() >= 2 && cur.peekString(2) === "\x1b\\") {
-      cur.advance(2);
-      const hl = oscHyperlinkOfPayload(payload);
-      if (hl !== undefined) return [{ kind: "Hyperlink", hyperlink: hl }];
-      return [Ansi.ofOscPayload(payload)];
-    }
-    return [{ kind: "Unknown", value: UnknownEsc.Fe("]") }, ...textOfTrailing(payload)];
+  if (next !== undefined && cur.available() >= 2 && cur.peekString(2) === "\x1b\\") {
+    cur.advance(2);
+    return [{ kind: "Unknown", value: UnknownEsc.Osc(payload, "St") }];
   }
   return [{ kind: "Unknown", value: UnknownEsc.Fe("]") }, ...textOfTrailing(payload)];
 };
