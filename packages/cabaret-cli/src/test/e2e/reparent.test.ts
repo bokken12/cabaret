@@ -26,9 +26,11 @@ test("reparent fails without a git identity, leaving the log untouched", async (
   await repo.cabaret("create", "feature");
   const before = await repo.cabaret("log", "feature");
   await repo.git("config", "--unset", "user.email");
-  const result = await repo.cabaret("reparent", "feature", "trunk");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git config user.email");
+  expect(await repo.cabaret("reparent", "feature", "trunk")).toEqual({
+    stdout: "",
+    stderr: "git config user.email is not set; log entries need an identity\n",
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
 
@@ -37,8 +39,10 @@ test("reparent rejects an empty git identity", async () => {
   await repo.cabaret("create", "feature");
   const before = await repo.cabaret("log", "feature");
   await repo.git("config", "user.email", "");
-  const result = await repo.cabaret("reparent", "feature", "trunk");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git config user.email must be nonempty");
+  expect(await repo.cabaret("reparent", "feature", "trunk")).toEqual({
+    stdout: "",
+    stderr: "git config user.email must be nonempty\n",
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
 });

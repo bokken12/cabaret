@@ -13,6 +13,7 @@ import {
   parseLog,
   parseRefName,
   type RefName,
+  UserError,
   type UserName,
   userName,
 } from "cabaret-core";
@@ -67,7 +68,7 @@ export class GitBackend implements Backend {
   async currentBranch(): Promise<RefName> {
     const branch = await this.checkedOutBranch();
     if (branch === undefined) {
-      throw new Error("HEAD is detached; check out a branch or name the change explicitly");
+      throw new UserError("HEAD is detached; check out a branch or name the change explicitly");
     }
     return branch;
   }
@@ -88,10 +89,19 @@ export class GitBackend implements Backend {
   }
 
   async currentUser(): Promise<UserName> {
-    const out = await git(this.root, ["config", "user.email"]);
+    let out: string;
+    try {
+      out = await git(this.root, ["config", "user.email"]);
+    } catch (error) {
+      // Exit code 1 means exactly "unset"; anything else is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        throw new UserError("git config user.email is not set; log entries need an identity");
+      }
+      throw error;
+    }
     const email = out.trimEnd();
     if (email === "") {
-      throw new Error("git config user.email must be nonempty");
+      throw new UserError("git config user.email must be nonempty");
     }
     return userName(email);
   }
@@ -112,7 +122,7 @@ export class GitBackend implements Backend {
       // With --quiet, exit code 1 means exactly "no such revision"; anything
       // else (e.g. not a repository) is a real failure.
       if ((error as { code?: unknown }).code === 1) {
-        throw new Error(`unknown revision: ${JSON.stringify(revision)}`);
+        throw new UserError(`unknown revision: ${JSON.stringify(revision)}`);
       }
       throw error;
     }
@@ -184,7 +194,7 @@ export class GitBackend implements Backend {
   async renameChange(from: RefName, to: RefName): Promise<void> {
     const tip = await this.branchTip(from);
     if (tip === undefined) {
-      throw new Error(`branch does not exist: ${JSON.stringify(from)}`);
+      throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
     }
     const log = await this.commitAt(logRef(from));
     if (log === undefined) {
@@ -213,7 +223,7 @@ export class GitBackend implements Backend {
       // detached, any worktree still on `from` is someone else's.
       const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
       if (worktrees.split("\n").includes(`branch refs/heads/${from}`)) {
-        throw new Error(`branch is checked out in another worktree: ${JSON.stringify(from)}`);
+        throw new UserError(`branch is checked out in another worktree: ${JSON.stringify(from)}`);
       }
       await git(this.root, ["update-ref", "--stdin"], transaction);
     } catch (error) {
@@ -250,6 +260,9 @@ export class GitBackend implements Backend {
   async rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void> {
     // --end-of-options keeps a change name that starts with `-` from being
     // parsed as a flag; `onto` and `from` are hashes, so they need no guard.
+    // TODO: a conflict surfaces as this call's raw rejection — a stack trace
+    // wrapping git's output — even though it is a normal user flow; pass
+    // git's own conflict report through cleanly instead.
     await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
   }
 

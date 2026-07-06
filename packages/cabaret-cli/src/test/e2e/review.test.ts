@@ -100,10 +100,11 @@ test("review fails on an unknown tip revision, leaving the log untouched", async
   const root = await repo.git("rev-parse", "main");
   await repo.git("branch", "trunk");
   await repo.cabaret("create", "main", "--parent", "trunk");
-  const result = await repo.cabaret("review", "--tip", "no-such-rev", "src/a.ts");
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain('unknown revision: "no-such-rev"');
+  expect(await repo.cabaret("review", "--tip", "no-such-rev", "src/a.ts")).toEqual({
+    stdout: "",
+    stderr: 'unknown revision: "no-such-rev"\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
@@ -116,10 +117,11 @@ test("review fails on an unknown tip revision, leaving the log untouched", async
 
 test("review fails on a change that does not exist, leaving the log untouched", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("review", "src/a.ts");
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain('change does not exist: "main"; run `cabaret create` first');
+  expect(await repo.cabaret("review", "src/a.ts")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "main"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 

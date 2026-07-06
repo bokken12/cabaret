@@ -58,17 +58,21 @@ test("create fails when the change already exists", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature");
   const before = await repo.cabaret("log", "feature");
-  const result = await repo.cabaret("create", "feature");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change already exists: "feature"');
+  expect(await repo.cabaret("create", "feature")).toEqual({
+    stdout: "",
+    stderr: 'change already exists: "feature"\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "feature")).toEqual(before);
 });
 
 test("create fails when the parent branch does not exist, creating nothing", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("create", "feature", "--parent", "ghost");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('parent branch does not exist: "ghost"');
+  expect(await repo.cabaret("create", "feature", "--parent", "ghost")).toEqual({
+    stdout: "",
+    stderr: 'parent branch does not exist: "ghost"\n',
+    exitCode: 1,
+  });
   expect(await repo.git("branch", "--list", "feature")).toBe("");
   expect(await repo.cabaret("log", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
@@ -76,15 +80,19 @@ test("create fails when the parent branch does not exist, creating nothing", asy
 test("create fails without a git identity, leaving no branch behind", async () => {
   const repo = await makeRepo();
   await repo.git("config", "--unset", "user.email");
-  const result = await repo.cabaret("create", "feature");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git config user.email");
+  expect(await repo.cabaret("create", "feature")).toEqual({
+    stdout: "",
+    stderr: "git config user.email is not set; log entries need an identity\n",
+    exitCode: 1,
+  });
   expect(await repo.git("branch", "--list", "feature")).toBe("");
 });
 
 test("create rejects a change that is its own parent", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("create", "main");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change cannot be its own parent: "main"');
+  expect(await repo.cabaret("create", "main")).toEqual({
+    stdout: "",
+    stderr: 'change cannot be its own parent: "main"\n',
+    exitCode: 1,
+  });
 });

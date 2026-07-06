@@ -1,4 +1,4 @@
-import { buildApplication, buildCommand, buildRouteMap } from "@stricli/core";
+import { buildApplication, buildCommand, buildRouteMap, text_en } from "@stricli/core";
 import {
   assertChangeExists,
   assertNotLanded,
@@ -37,6 +37,7 @@ import {
   reviewSegments,
   summarizeChange,
   type Todo,
+  UserError,
   type UserName,
   userName,
   VERSION,
@@ -50,7 +51,7 @@ import type { LocalContext } from "./context.js";
 /** Parse a user argument, rejecting the empty string. */
 function parseUser(raw: string): UserName {
   if (raw === "") {
-    throw new Error("user must be nonempty");
+    throw new UserError("user must be nonempty");
   }
   return userName(raw);
 }
@@ -73,7 +74,7 @@ function parseChangeSpec(raw: string): ChangeSpec {
   // "a...b" splits into "a" and ".b": the stray leading dot, like an empty
   // endpoint or a second "..", marks a malformed range.
   if (parts.length !== 2 || !ancestor || !descendant || descendant.startsWith(".")) {
-    throw new Error(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
+    throw new UserError(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
   }
   return { kind: "range", ancestor: parseRefName(ancestor), descendant: parseRefName(descendant) };
 }
@@ -151,7 +152,7 @@ const approvers = buildRouteMap({
 /** Parse a comment-text argument, rejecting the empty string. */
 function parseCommentText(raw: string): string {
   if (raw === "") {
-    throw new Error("comment must be nonempty");
+    throw new UserError("comment must be nonempty");
   }
   return raw;
 }
@@ -405,7 +406,7 @@ const diff = buildCommand({
       await Promise.all(revs.map(async (rev) => [rev, await backend.readFile(rev, file)] as const)),
     );
     if (revs.every((rev) => contents.get(rev) === undefined)) {
-      throw new Error(`${file} exists at none of ${revs.join(", ")}`);
+      throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
     }
     const rendered = segments
       .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color))
@@ -530,7 +531,7 @@ const gh = buildRouteMap({
         const request = await forge.getRequest(id);
         const change = request.head;
         if ((await backend.readLog(change)).length > 0) {
-          throw new Error(`change already exists: ${JSON.stringify(change)}; run \`cabaret gh pull\` to sync it`);
+          throw new UserError(`change already exists: ${JSON.stringify(change)}; run \`cabaret gh pull\` to sync it`);
         }
         await backend.fetchBranch(change);
         const user = await backend.currentUser();
@@ -585,7 +586,7 @@ const gh = buildRouteMap({
         assertChangeExists(change, entries);
         const request = await syncedRequest(this, backend, forge, change, entries);
         if (request === undefined) {
-          throw new Error(
+          throw new UserError(
             `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
           );
         }
@@ -1058,4 +1059,17 @@ export const app = buildApplication(routes, {
   // Display flags as kebab-case (matching the CLI-wide convention) while still
   // accepting the camelCase spelling of each flag name.
   scanner: { caseStyle: "allow-kebab-for-camel" },
+  localization: {
+    text: {
+      ...text_en,
+      // A `UserError`'s message is the complete diagnostic, so it prints
+      // bare. Any other exception is a bug in Cabaret, where the default
+      // stack-bearing rendering earns its keep.
+      formatException: (exc) =>
+        exc instanceof UserError ? exc.message : exc instanceof Error ? (exc.stack ?? String(exc)) : String(exc),
+      exceptionWhileRunningCommand(exc, ansiColor) {
+        return exc instanceof UserError ? exc.message : text_en.exceptionWhileRunningCommand.call(this, exc, ansiColor);
+      },
+    },
+  },
 });

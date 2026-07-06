@@ -45,9 +45,11 @@ test("forget --change writes one entry per file to that change's log", async () 
 
 test("forget fails on a change that does not exist", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("forget", "--change", "gadget", "lib/core.ts");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "gadget"; run `cabaret create` first');
+  expect(await repo.cabaret("forget", "--change", "gadget", "lib/core.ts")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "gadget"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 

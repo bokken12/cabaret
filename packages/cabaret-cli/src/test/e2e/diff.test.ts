@@ -154,10 +154,13 @@ test("binary files are reported, not diffed", async () => {
 
 test("diff fails for a file absent from the whole change", async () => {
   const repo = await makeChange("greeting.txt", "hello\n");
-  const result = await repo.cabaret("diff", "missing.txt");
-  expect(result.exitCode).toBe(1);
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain("missing.txt exists at none of");
+  const base = await repo.git("rev-parse", "trunk");
+  const tip = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("diff", "missing.txt")).toEqual({
+    stdout: "",
+    stderr: `missing.txt exists at none of ${base}, ${tip}\n`,
+    exitCode: 1,
+  });
 });
 
 /**

@@ -139,7 +139,9 @@ test("handles file names git would otherwise quote", async () => {
 
 test("todos fails on a change that does not exist", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("todos", "phantom");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "phantom"');
+  expect(await repo.cabaret("todos", "phantom")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "phantom"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
 });

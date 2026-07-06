@@ -13,6 +13,7 @@ import {
   type TimestampMs,
   type UserName,
 } from "./backend.js";
+import { UserError } from "./error.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -29,14 +30,14 @@ export async function createChange(
   owner?: UserName,
 ): Promise<void> {
   if (change === parent) {
-    throw new Error(`change cannot be its own parent: ${JSON.stringify(change)}`);
+    throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
   if ((await backend.readLog(change)).length > 0) {
-    throw new Error(`change already exists: ${JSON.stringify(change)}`);
+    throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
   const parentTip = await backend.branchTip(parent);
   if (parentTip === undefined) {
-    throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   // Resolve the identity before mutating any ref so a missing git identity
   // fails without leaving a branch behind.
@@ -80,12 +81,12 @@ export async function resolveRange(
   let cursor = descendant;
   while (cursor !== ancestor) {
     if (seen.has(cursor)) {
-      throw new Error(`parent chain from ${JSON.stringify(descendant)} loops at ${JSON.stringify(cursor)}`);
+      throw new UserError(`parent chain from ${JSON.stringify(descendant)} loops at ${JSON.stringify(cursor)}`);
     }
     seen.add(cursor);
     const entries = await backend.readLog(cursor);
     if (entries.length === 0) {
-      throw new Error(
+      throw new UserError(
         `${JSON.stringify(ancestor)} is not an ancestor of ${JSON.stringify(descendant)}: ` +
           `the parent chain stops at ${JSON.stringify(cursor)}, which is not a change`,
       );
@@ -110,7 +111,7 @@ export async function resolveChain(backend: Backend, changes: readonly RefName[]
     if (previous !== undefined) {
       const parent = currentParent(change, entries);
       if (parent !== previous.change) {
-        throw new Error(
+        throw new UserError(
           `not a stack: ${JSON.stringify(change)}'s parent is ` +
             `${JSON.stringify(parent)}, not ${JSON.stringify(previous.change)}`,
         );
@@ -139,7 +140,7 @@ export async function requireOwner(
   }
   const user = await backend.currentUser();
   if (user !== owner) {
-    throw new Error(
+    throw new UserError(
       `${JSON.stringify(change)} is owned by ${JSON.stringify(owner)}, not ${JSON.stringify(user)}; ` +
         "pass --even-though-not-owner to override",
     );
@@ -159,7 +160,7 @@ export async function rebaseChange(
   const parent = currentParent(target, entries);
   const onto = await backend.branchTip(parent);
   if (onto === undefined) {
-    throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
   // Replay the change's own commits onto the parent's tip. When the change
@@ -222,11 +223,11 @@ export async function landChange(
   assertNotLanded(parent, await backend.readLog(parent));
   const parentTip = await backend.branchTip(parent);
   if (parentTip === undefined) {
-    throw new Error(`parent branch does not exist: ${JSON.stringify(parent)}`);
+    throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
   if (base !== parentTip) {
-    throw new Error(
+    throw new UserError(
       `${JSON.stringify(target)} is not based on the tip of ${JSON.stringify(parent)}; run \`cabaret rebase\` first`,
     );
   }
@@ -234,7 +235,7 @@ export async function landChange(
   // change's tip.
   const tip = await backend.resolveCommit(`refs/heads/${target}`);
   if (tip === base) {
-    throw new Error(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
+    throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
   // Resolve the identity before merging so a missing git identity fails
   // without moving the parent.
@@ -272,7 +273,7 @@ export async function landChain(
   for (const { change, entries } of chain) {
     const changeLanded = landedMerge(entries) !== undefined;
     if (parentLanded && !changeLanded) {
-      throw new Error(
+      throw new UserError(
         `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
           "run `cabaret reparent` first",
       );
@@ -324,10 +325,10 @@ export async function renameChange(backend: Backend, from: RefName, to: RefName,
   assertNotLanded(from, entries);
   await requireOwner(backend, from, entries, override);
   if ((await backend.readLog(to)).length > 0) {
-    throw new Error(`change already exists: ${JSON.stringify(to)}`);
+    throw new UserError(`change already exists: ${JSON.stringify(to)}`);
   }
   if ((await backend.branchTip(to)) !== undefined) {
-    throw new Error(`branch already exists: ${JSON.stringify(to)}`);
+    throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
   }
   await backend.renameChange(from, to);
 }

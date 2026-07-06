@@ -1,5 +1,6 @@
 import type { Branded } from "cabaret-util";
 import { z } from "zod";
+import { UserError } from "./error.js";
 
 /** A full (non-abbreviated) git commit hash. Obtain via `parseCommitHash`. */
 export type CommitHash = Branded<string, "CommitHash">;
@@ -25,7 +26,7 @@ const REF_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/
 
 export function parseRefName(raw: string): RefName {
   if (raw === "" || REF_NAME_FORBIDDEN.test(raw)) {
-    throw new Error(`not a valid ref name: ${JSON.stringify(raw)}`);
+    throw new UserError(`not a valid ref name: ${JSON.stringify(raw)}`);
   }
   return raw as RefName;
 }
@@ -35,7 +36,7 @@ export type FilePath = Branded<string, "FilePath">;
 
 export function parseFilePath(raw: string): FilePath {
   if (raw === "" || raw.includes("\0")) {
-    throw new Error(`not a valid file path: ${JSON.stringify(raw)}`);
+    throw new UserError(`not a valid file path: ${JSON.stringify(raw)}`);
   }
   return raw as FilePath;
 }
@@ -73,7 +74,7 @@ export type ForgeRequestId = Branded<number, "ForgeRequestId">;
 
 export function forgeRequestId(raw: number): ForgeRequestId {
   if (!Number.isSafeInteger(raw) || raw <= 0) {
-    throw new Error(`not a forge request number: ${raw}`);
+    throw new UserError(`not a forge request number: ${raw}`);
   }
   return raw as ForgeRequestId;
 }
@@ -322,7 +323,7 @@ function latestAction<K extends LogAction["kind"]>(
 /** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
 export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
-    throw new Error(`change does not exist: ${JSON.stringify(change)}; run \`cabaret create\` first`);
+    throw new UserError(`change does not exist: ${JSON.stringify(change)}; run \`cabaret create\` first`);
   }
 }
 
@@ -379,7 +380,7 @@ export function landedMerge(entries: readonly LogEntry[]): CommitHash | undefine
 export function assertNotLanded(change: RefName, entries: readonly LogEntry[]): void {
   const merge = landedMerge(entries);
   if (merge !== undefined) {
-    throw new Error(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
+    throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
   }
 }
 
@@ -464,7 +465,7 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
   // Both are ancestors of the tip but on unrelated lines (the change merged
   // history the stored base cannot see). No principled winner; make the user
   // declare one by rebasing.
-  throw new Error(
+  throw new UserError(
     `base of ${JSON.stringify(change)} is ambiguous: stored base ${stored} and ` +
       `merge-base ${derived} with parent ${JSON.stringify(parent)} are unrelated; rebase to resolve`,
   );

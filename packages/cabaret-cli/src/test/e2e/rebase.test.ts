@@ -142,9 +142,11 @@ test("rebase stops on conflict without recording a base", async () => {
 test("rebase fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "orphan");
-  const result = await repo.cabaret("rebase", "orphan");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "orphan"; run `cabaret create` first');
+  expect(await repo.cabaret("rebase", "orphan")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "orphan"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
 });
 
 test("a range rebases each change onto its parent, ancestormost first", async () => {
@@ -231,11 +233,11 @@ test("a range whose left endpoint is not an ancestor fails", async () => {
   await addChange(repo, "a");
   await repo.git("checkout", "-q", "main");
   await addChange(repo, "solo");
-  const result = await repo.cabaret("rebase", "a..solo");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain(
-    '"a" is not an ancestor of "solo": the parent chain stops at "main", which is not a change',
-  );
+  expect(await repo.cabaret("rebase", "a..solo")).toEqual({
+    stdout: "",
+    stderr: '"a" is not an ancestor of "solo": the parent chain stops at "main", which is not a change\n',
+    exitCode: 1,
+  });
 });
 
 test("a malformed range is rejected", async () => {

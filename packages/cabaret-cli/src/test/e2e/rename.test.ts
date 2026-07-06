@@ -43,12 +43,16 @@ test("rename refuses a name already taken by a change or a branch", async () => 
   await addChange(repo, "gizmo");
   await repo.cabaret("create", "doodad");
   await repo.git("branch", "plain");
-  const taken = await repo.cabaret("rename", "gizmo", "doodad");
-  expect(taken.exitCode).toBe(1);
-  expect(taken.stderr).toContain('change already exists: "doodad"');
-  const shadowed = await repo.cabaret("rename", "gizmo", "plain");
-  expect(shadowed.exitCode).toBe(1);
-  expect(shadowed.stderr).toContain('branch already exists: "plain"');
+  expect(await repo.cabaret("rename", "gizmo", "doodad")).toEqual({
+    stdout: "",
+    stderr: 'change already exists: "doodad"\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("rename", "gizmo", "plain")).toEqual({
+    stdout: "",
+    stderr: 'branch already exists: "plain"\n',
+    exitCode: 1,
+  });
   // The refused renames moved nothing: branch, log, and HEAD all stand.
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/gizmo");
   expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
@@ -57,26 +61,34 @@ test("rename refuses a name already taken by a change or a branch", async () => 
 
 test("rename refuses a name that is not a change", async () => {
   const repo = await makeRepo();
-  const result = await repo.cabaret("rename", "nonesuch", "elsewhere");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change does not exist: "nonesuch"');
+  expect(await repo.cabaret("rename", "nonesuch", "elsewhere")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "nonesuch"; run `cabaret create` first\n',
+    exitCode: 1,
+  });
 });
 
 test("rename refuses a landed change", async () => {
   const repo = await makeRepo();
   await addChange(repo, "shipped");
   await repo.cabaret("land");
-  const result = await repo.cabaret("rename", "shipped", "sailed");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain('change has landed: "shipped"');
+  const merge = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("rename", "shipped", "sailed")).toEqual({
+    stdout: "",
+    stderr: `change has landed: "shipped" (merge ${merge})\n`,
+    exitCode: 1,
+  });
 });
 
 test("only the owner may rename, unless overridden", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "theirs", "--owner", "bob@example.com");
-  const refused = await repo.cabaret("rename", "theirs", "mine");
-  expect(refused.exitCode).toBe(1);
-  expect(refused.stderr).toContain('"theirs" is owned by "bob@example.com", not "alice@example.com"');
+  expect(await repo.cabaret("rename", "theirs", "mine")).toEqual({
+    stdout: "",
+    stderr:
+      '"theirs" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
   expect(await repo.cabaret("rename", "theirs", "mine", "--even-though-not-owner")).toEqual({
     stdout: "",
     stderr: "",
