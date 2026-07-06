@@ -1,5 +1,7 @@
 # Roadmap
 
+A ranked evaluation of current gaps and debt lives in [priorities.md](priorities.md).
+
 ## CLI & Review State
 
 Build out `cabaret-cli` which allows updating brain review state and PRs.
