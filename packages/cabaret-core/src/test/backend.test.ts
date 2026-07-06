@@ -80,6 +80,11 @@ test("rejects malformed ref names", () => {
     "trailing.",
     "foo.lock",
     "line\nbreak",
+    "trailing/",
+    "feature/trailing/",
+    ".leading-dot",
+    "feature/.hidden",
+    "feature.lock/child",
   ]) {
     expect(() => parseRefName(bad)).toThrow("not a valid ref name");
   }
