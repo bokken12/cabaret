@@ -3,16 +3,17 @@ import {
   brain,
   type CommitHash,
   changeBase,
+  changeTip,
   currentForgeRequest,
   currentOwner,
   currentParent,
-  type DiffSegment,
   type FilePath,
   type ForgeLocator,
   type ForgeRequestId,
   type LogEntry,
   landedMerge,
   type RefName,
+  type ReviewedDiff,
   reviewSegments,
   type UserName,
 } from "./backend.js";
@@ -90,15 +91,9 @@ export async function summarizeChange(
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
   const base = await changeBase(backend, change, entries);
-  // A landed change is frozen at the tip its land merge carries as its second
-  // parent; the branch may since be gone or moved on. An unlanded change's
-  // tip is its branch, pinned to the branch namespace so a same-named tag
-  // cannot shadow it.
-  const tip =
-    landed !== undefined
-      ? await backend.resolveCommit(`${landed}^2`)
-      : await backend.resolveCommit(`refs/heads/${change}`);
-  const reviewLeft = await filesLeft(backend, entries, user, base, tip);
+  const tip = await changeTip(backend, change, entries);
+  const rounds = await reviewRounds(backend, entries, user, base, tip);
+  const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
   return {
     change,
     parent,
@@ -134,52 +129,120 @@ async function nextStep(
   return (await backend.branchTip(parent)) === base ? "land" : "rebase";
 }
 
+/** What a reviewer looks at to review a file in a round. */
+export type FileView =
+  /** The plain diff from `start` to the round's end. */
+  | { readonly kind: "span"; readonly start: CommitHash }
+  /** The base moved under the review: compare the reviewed diff with the current one. */
+  | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
+  /** The reviewed tip left the change's history: diff from its contents. */
+  | { readonly kind: "rewritten"; readonly from: CommitHash };
+
+/** One round of review: a span of a change's history with review left in it. */
+export interface ReviewRound {
+  /** The revision the round reviews up to: reviewing a file here records `{base, tip: end}`. */
+  readonly end: CommitHash;
+  /** What to review per file, sorted by name. */
+  readonly files: ReadonlyMap<FilePath, FileView>;
+}
+
+/** Memoize an async derivation per reviewed tip: reviews sharing a tip share what remains. */
+function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedTip: CommitHash) => Promise<T> {
+  const memo = new Map<CommitHash, T>();
+  return async (reviewedTip) => {
+    let value = memo.get(reviewedTip);
+    if (value === undefined) {
+      value = await compute(reviewedTip);
+      memo.set(reviewedTip, value);
+    }
+    return value;
+  };
+}
+
 /**
- * The files of the `base`..`tip` diff with review left for `user`, sorted by
- * name. A file needs review when it changes in a span of history the user has
- * not reviewed past. A review whose base is not the current base counts as
- * left outright: the base moved underneath it, and only `cabaret diff` can
- * tell whether anything genuinely remains.
+ * The rounds of review left for `user` in `base`..`tip`, oldest first. Land
+ * merges on the first-parent chain order review: everything before a land
+ * merge is reviewed — and marked, at the round's end — before anything after
+ * it, so a reviewer never reads code newer than a landing they have not
+ * absorbed. A file is due in every round whose span it changes and that the
+ * user has not reviewed past; a review the segments cannot place (its base
+ * moved, or its tip was rewritten out of the history) puts the file's stale
+ * knowledge in its earliest round's view, and later rounds assume the earlier
+ * ones get recorded.
  */
-async function filesLeft(
+export async function reviewRounds(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
   base: CommitHash,
   tip: CommitHash,
-): Promise<readonly FilePath[]> {
-  const changedIn = async (spans: readonly DiffSegment[]): Promise<ReadonlySet<FilePath>> => {
-    const files = new Set<FilePath>();
-    for (const { start, end } of spans) {
-      for (const file of await backend.changedFiles(start, end)) {
-        files.add(file);
+): Promise<readonly ReviewRound[]> {
+  const rounds: {
+    start: CommitHash;
+    end: CommitHash;
+    changed: ReadonlySet<FilePath>;
+    files: Map<FilePath, FileView>;
+  }[] = [];
+  for (const { start, end } of await reviewSegments(backend, base, tip)) {
+    rounds.push({ start, end, changed: new Set(await backend.changedFiles(start, end)), files: new Map() });
+  }
+  const known = brain(entries, user);
+  const tipKept = perTip((reviewedTip) => backend.isAncestor(reviewedTip, tip));
+  const remainingSpans = perTip(
+    async (reviewedTip) =>
+      new Map((await reviewSegments(backend, base, tip, reviewedTip)).map((span) => [span.end, span])),
+  );
+  // The files of the one span that resumes mid-segment from the reviewed tip.
+  const resumedFiles = perTip(async (reviewedTip) => {
+    for (const { start, end } of (await remainingSpans(reviewedTip)).values()) {
+      if (start === reviewedTip) {
+        return new Set(await backend.changedFiles(start, end));
       }
     }
-    return files;
-  };
-  const known = brain(entries, user);
-  // Reviews sharing a tip leave the same remaining spans; compute each once.
-  const remaining = new Map<CommitHash, ReadonlySet<FilePath>>();
-  const left: FilePath[] = [];
-  for (const file of [...(await changedIn(await reviewSegments(backend, base, tip)))].sort()) {
+    // Only consulted for a span whose start differs from its segment's, and
+    // such a span always starts at the reviewed tip.
+    throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
+  });
+  const unseenFiles = perTip(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
+  for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed]))].sort()) {
     const reviewed = known.get(file);
-    if (reviewed === undefined || reviewed.base !== base) {
-      left.push(file);
+    if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {
+      // A review the history can place: what remains is the segments past the
+      // reviewed tip, resuming mid-segment when the tip falls inside one.
+      const spans = await remainingSpans(reviewed.tip);
+      for (const round of rounds) {
+        const span = spans.get(round.end);
+        if (span === undefined) {
+          continue;
+        }
+        const changed = span.start === round.start ? round.changed : await resumedFiles(reviewed.tip);
+        if (changed.has(file)) {
+          round.files.set(file, { kind: "span", start: span.start });
+        }
+      }
       continue;
     }
-    let unseen = remaining.get(reviewed.tip);
-    if (unseen === undefined) {
-      // A reviewed tip rewritten out of the change's history cannot be placed
-      // among the first-parent segments; what the user has not seen is
-      // exactly the diff from its contents.
-      unseen = (await backend.isAncestor(reviewed.tip, tip))
-        ? await changedIn(await reviewSegments(backend, base, tip, reviewed.tip))
-        : await changedIn([{ start: reviewed.tip, end: tip }]);
-      remaining.set(reviewed.tip, unseen);
+    // A reviewed tip rewritten out of the change's history cannot be placed
+    // among the first-parent segments, but what the user has not seen is
+    // exactly the diff from its contents — nothing at all when the file comes
+    // out unchanged.
+    if (reviewed !== undefined && reviewed.base === base && !(await unseenFiles(reviewed.tip)).has(file)) {
+      continue;
     }
-    if (unseen.has(file)) {
-      left.push(file);
+    let first = true;
+    for (const round of rounds) {
+      if (!round.changed.has(file)) {
+        continue;
+      }
+      const view: FileView =
+        !first || reviewed === undefined
+          ? { kind: "span", start: round.start }
+          : reviewed.base !== base
+            ? { kind: "rebased", reviewed }
+            : { kind: "rewritten", from: reviewed.tip };
+      round.files.set(file, view);
+      first = false;
     }
   }
-  return left;
+  return rounds.filter(({ files }) => files.size > 0).map(({ end, files }) => ({ end, files }));
 }

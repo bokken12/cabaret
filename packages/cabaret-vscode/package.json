@@ -65,6 +65,14 @@
       {
         "command": "cabaret.showChild",
         "title": "Cabaret: Show Child"
+      },
+      {
+        "command": "cabaret.review",
+        "title": "Cabaret: Review"
+      },
+      {
+        "command": "cabaret.markReviewed",
+        "title": "Cabaret: Mark Reviewed"
       }
     ],
     "menus": {
@@ -108,6 +116,14 @@
         {
           "command": "cabaret.showChild",
           "when": "cabaret.page == 'show'"
+        },
+        {
+          "command": "cabaret.review",
+          "when": "cabaret.page == 'show'"
+        },
+        {
+          "command": "cabaret.markReviewed",
+          "when": "cabaret.page == 'diff'"
         }
       ]
     },
@@ -119,8 +135,18 @@
       },
       {
         "command": "cabaret.refresh",
-        "key": "r",
+        "key": "shift+r",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.review",
+        "key": "r",
+        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.markReviewed",
+        "key": "shift+1 r",
+        "when": "editorTextFocus && cabaret.page == 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.showParent",
@@ -135,7 +161,7 @@
       {
         "command": "cabaret.rebase",
         "key": "shift+1 r b",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.land",
@@ -145,12 +171,12 @@
       {
         "command": "cabaret.rename",
         "key": "shift+1 r n",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.reparent",
         "key": "shift+1 r p",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createChild",
@@ -167,6 +193,14 @@
       {
         "id": "heading",
         "description": "A section heading in a Cabaret page"
+      },
+      {
+        "id": "added",
+        "description": "An added line in a Cabaret diff"
+      },
+      {
+        "id": "removed",
+        "description": "A removed line in a Cabaret diff"
       }
     ],
     "semanticTokenScopes": [
@@ -174,6 +208,12 @@
         "scopes": {
           "heading": [
             "markup.heading"
+          ],
+          "added": [
+            "markup.inserted"
+          ],
+          "removed": [
+            "markup.deleted"
           ]
         }
       }

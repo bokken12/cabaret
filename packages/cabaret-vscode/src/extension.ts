@@ -1,5 +1,7 @@
 import {
   type Backend,
+  changeBase,
+  changeTip,
   createChange,
   currentParent,
   landChain,
@@ -11,6 +13,7 @@ import {
   renameChange,
   reparentChange,
   resolveChain,
+  reviewRounds,
   type TimestampMs,
   timestampMs,
 } from "cabaret-core";
@@ -24,7 +27,7 @@ import { styledRanges, TOKEN_TYPES } from "./tokens.js";
 const SCHEME = "cabaret";
 
 /** Open the backend for the repository containing the first workspace folder. */
-async function openBackend(): Promise<Backend> {
+async function openBackend(): Promise<GitBackend> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
     throw new Error("cabaret needs an open folder inside a git repository");
@@ -182,9 +185,82 @@ async function openTarget(provider: PageProvider): Promise<void> {
       await openPage(provider, { kind: "show", change: target.change });
       break;
     case "file":
-      // TODO: route file targets to the diff page once it exists.
-      vscode.window.showInformationMessage(`cabaret: no diff view yet for ${target.file}`);
+      await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
+    case "location": {
+      // Visit the working tree's copy: it is the one worth editing, and while
+      // reviewing a checked-out change it is the copy the diff shows. A tree
+      // on some other branch can drift from the diff's line numbers.
+      const uri = vscode.Uri.joinPath(vscode.Uri.file((await openBackend()).root), target.file);
+      try {
+        const document = await vscode.workspace.openTextDocument(uri);
+        const position = new vscode.Position(target.line - 1, 0);
+        await vscode.window.showTextDocument(document, {
+          preview: false,
+          selection: new vscode.Range(position, position),
+        });
+      } catch {
+        vscode.window.showInformationMessage(`cabaret: ${target.file} is not in the working tree`);
+      }
+      break;
+    }
+  }
+}
+
+/** Enter review of the shown change: open its list of files to review. */
+async function review(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change !== undefined) {
+    await openPage(provider, { kind: "review", change });
+  }
+}
+
+/**
+ * Mark the active diff page's file as reviewed at the end of its earliest
+ * pending round, then move on to the round's next file, or back to the
+ * change's review page when the round is done. Errors surface as
+ * notifications, and every open page re-renders afterwards.
+ *
+ * TODO: record the round end the open page actually rendered once docs carry
+ * their query snapshot; a commit racing the keypress widens the marked diff.
+ */
+async function markReviewed(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind !== "diff") {
+    return;
+  }
+  try {
+    const backend = await openBackend();
+    const entries = await backend.readLog(page.change);
+    const base = await changeBase(backend, page.change, entries);
+    const tip = await changeTip(backend, page.change, entries);
+    const user = await backend.currentUser();
+    const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(page.file));
+    if (round === undefined) {
+      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+      return;
+    }
+    await backend.appendLog(page.change, [
+      { timestamp: now(), user, action: { kind: "review", file: page.file, base, tip: round.end } },
+    ]);
+    await closeTabs(editor.document.uri);
+    // The round's next file in list order, wrapping past the end for files
+    // skipped earlier. At a round boundary the review page takes over: what
+    // to read next changes shape there.
+    const remaining = [...round.files.keys()].filter((file) => file !== page.file);
+    const next = remaining.find((file) => file > page.file) ?? remaining[0];
+    await openPage(
+      provider,
+      next === undefined ? { kind: "review", change: page.change } : { kind: "diff", change: page.change, file: next },
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
   }
 }
 
@@ -354,6 +430,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    // TODO: move 2-way diff signs out of the text and into the gutter, so
+    // selecting lines copies clean content: have diffDoc emit the hunk lines
+    // without their `+|`/`-|` marks (the added/removed styles already say
+    // which is which) and paint them here with whole-line background
+    // decorations plus a gutter sign, applied to every visible editor showing
+    // a diff page and reapplied on render. Semantic tokens can only color
+    // text, so this takes a per-editor decoration pass alongside them.
     vscode.languages.registerDocumentSemanticTokensProvider({ scheme: SCHEME }, provider, provider.legend),
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (document.uri.scheme === SCHEME) {
@@ -366,6 +449,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.review", () => review(provider)),
+    vscode.commands.registerCommand("cabaret.markReviewed", () => markReviewed(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

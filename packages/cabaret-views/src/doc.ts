@@ -1,12 +1,14 @@
 import type { FilePath, RefName } from "cabaret-core";
 
 /** Semantic paint for a span; each host maps styles to its own palette. */
-export type Style = "heading";
+export type Style = "heading" | "added" | "removed";
 
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =
   | { readonly kind: "change"; readonly change: RefName }
-  | { readonly kind: "file"; readonly change: RefName; readonly file: FilePath };
+  | { readonly kind: "file"; readonly change: RefName; readonly file: FilePath }
+  /** A position in a file's current copy: `line` is 1-based. */
+  | { readonly kind: "location"; readonly file: FilePath; readonly line: number };
 
 /** A run of single-line text, optionally styled and denoting a target. */
 export interface Span {

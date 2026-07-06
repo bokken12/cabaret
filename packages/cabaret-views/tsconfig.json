@@ -5,5 +5,12 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../cabaret-core" }]
+  "references": [
+    {
+      "path": "../cabaret-core"
+    },
+    {
+      "path": "../patdiff"
+    }
+  ]
 }

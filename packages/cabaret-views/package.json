@@ -11,7 +11,8 @@
     }
   },
   "dependencies": {
-    "cabaret-core": "workspace:*"
+    "cabaret-core": "workspace:*",
+    "patdiff": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"
