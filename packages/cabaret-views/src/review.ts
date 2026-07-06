@@ -262,7 +262,12 @@ export function diffDoc(page: DiffPage): Doc {
   // new copy, so the cursor can jump from the diff to the file itself. A hunk
   // header carries the new side's start; context and added lines advance it,
   // and a removed line anchors at the removal site without advancing. The
-  // 4-way views interleave four line numberings, so their lines get none.
+  // 4-way views interleave four line numberings behind per-view sign stacks,
+  // so their lines get none.
+  // TODO: have patdiff4 return structured hunks (per-line provenance in each
+  // of the four revisions) instead of re-parsing rendered text; that gives
+  // 4-way lines their new-tip targets and lets hosts draw signs outside the
+  // text, where this walk cannot reach.
   let at = 1;
   for (const text of rendered.slice(0, -1).split("\n")) {
     const opts: { style?: Style; target?: Target } = {};
