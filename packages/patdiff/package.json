@@ -37,15 +37,10 @@
       "default": "./dist/patdiff4/patdiff4.js"
     }
   },
-  "bin": {
-    "patdiff": "./dist/bin/main.js",
-    "patdiff-git-wrapper": "./dist/bin/patdiff-git-wrapper"
-  },
   "scripts": {
-    "build": "tsc -b && node scripts/postbuild.mjs"
+    "build": "tsc -b"
   },
   "devDependencies": {
-    "fast-check": "^4.8.0",
-    "tsx": "^4.19.0"
+    "fast-check": "^4.8.0"
   }
 }

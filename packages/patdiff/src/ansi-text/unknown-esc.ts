@@ -1,11 +1,15 @@
+export type OscTerminator = "Bel" | "St";
+
 export type T =
   | { readonly kind: "Csi"; readonly value: string }
+  | { readonly kind: "Osc"; readonly value: string; readonly terminator: OscTerminator }
   | { readonly kind: "Fe"; readonly value: string }
   | { readonly kind: "Fp"; readonly value: string }
   | { readonly kind: "Nf"; readonly value: string }
   | { readonly kind: "Incomplete" };
 
 export const Csi = (value: string): T => ({ kind: "Csi", value });
+export const Osc = (value: string, terminator: OscTerminator): T => ({ kind: "Osc", value, terminator });
 export const Fe = (value: string): T => ({ kind: "Fe", value });
 export const Fp = (value: string): T => ({ kind: "Fp", value });
 export const Nf = (value: string): T => ({ kind: "Nf", value });
@@ -22,6 +26,8 @@ export const toString = (t: T): string => {
   switch (t.kind) {
     case "Csi":
       return `\x1b[${t.value}`;
+    case "Osc":
+      return t.terminator === "Bel" ? `\x1b]${t.value}\x07` : `\x1b]${t.value}\x1b\\`;
     case "Fe":
       return `\x1b${t.value}`;
     case "Fp":
@@ -59,6 +65,8 @@ export const toStringHum = (t: T): string => {
   switch (t.kind) {
     case "Csi":
       return `(ANSI-CSI:${t.value})`;
+    case "Osc":
+      return `(ANSI-OSC:${stringEscaped(t.value)})`;
     case "Fe":
       return `(ANSI-Fe:${charEscaped(t.value)})`;
     case "Fp":
@@ -72,6 +80,12 @@ export const toStringHum = (t: T): string => {
 
 export const equal = (a: T, b: T): boolean => {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "Incomplete" || b.kind === "Incomplete") return a.kind === b.kind;
-  return (a as Exclude<T, { kind: "Incomplete" }>).value === (b as Exclude<T, { kind: "Incomplete" }>).value;
+  switch (a.kind) {
+    case "Incomplete":
+      return true;
+    case "Osc":
+      return b.kind === "Osc" && a.value === b.value && a.terminator === b.terminator;
+    default:
+      return a.value === (b as Extract<T, { readonly value: string }>).value;
+  }
 };

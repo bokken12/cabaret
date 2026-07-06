@@ -131,18 +131,14 @@ and a review system.
   diff signs to the VS Code gutter (both have standing TODOs). The kernel's
   2-way path already returns `StructuredHunks`; extend patdiff4's `Block`
   with per-line provenance.
-- **~38% of patdiff (~5,100 lines) is vestigial for Cabaret.** The only
-  consumer is cabaret-views `review.ts`, importing
-  `PatdiffCore.withoutUnix.patdiff`, `defaultContext`, `IsBinary.string`,
-  and `Patdiff4.diff`/`Diamond`. Unused from here: the standalone CLI
-  (`bin/`, ~900 lines), sexp config loading (`lib/configuration.ts`,
-  ~1,700 lines — including ~600 lines of V0/V1/V2 config-migration cascades
-  that violate the workspace no-migration-code rule), `side-by-side.ts`
-  (CLI-only), ~700 lines of terminal-emulator ANSI modules
-  (dsr/osc/private-mode/hyperlink/…) nothing imports, and caller-less
-  OCaml-parity APIs (`merge`, `limitInfiniteContextHunkToContext`). Decide
-  whether the standalone patdiff CLI is a deliverable; if not, a third of
-  the package deletes cleanly.
+- **patdiff keeps two caller-less surfaces on purpose.** The standalone
+  CLI, sexp config loading, and the terminal-emulator ANSI token modules
+  are gone (the parser folds non-SGR escapes into `UnknownEsc` and
+  round-trips them byte-for-byte). Kept despite having no Cabaret caller:
+  `side-by-side.ts` and its config knobs (candidate renderer for a future
+  TUI), and patience-diff's OCaml-parity `merge` /
+  `limitInfiniteContextHunkToContext`. Don't re-flag these as dead code;
+  revisit if the TUI question resolves against them.
 - **app.ts is a monolith with hand-repeated flag types.** Every stricli
   `func` re-declares its flag type by hand, so the parse table and type can
   drift silently; splitting routes per file (comments, gh, review, …) makes
@@ -155,8 +151,7 @@ and a review system.
   SGR table in `toString`; `ExplodedToken` and `WordOrNewline` differ only
   in tag capitalization with a conversion shim between them; `getRangesRev`
   returns forward order despite its name and is double-reversed downstream;
-  `defaultDoubleColumnWidth` is defined twice; `bin/text.ts` embeds a 2011
-  man page documenting flags this port doesn't have.
+  `defaultDoubleColumnWidth` is defined twice.
 
 ## 6. Robustness and hygiene
 
@@ -226,12 +221,6 @@ several become relevant the moment nearby code is touched.
   four self-call sites). `plain-diff.ts` already got the explicit-stack
   conversion this function did not; adversarially nested input can
   overflow with no recovery.
-- **CLI error paths convert failure into success.** `bin/compare.ts`
-  swallows stdin read errors and diffs empty temp files (exit 0, "no
-  differences"); `-double-check` shells out to `cmp -s` with hand-rolled
-  quoting and treats a missing `cmp` or exit 2 as "identical"; temp files
-  use predictable `Math.random()` names in the shared tmpdir
-  (`mkdtempSync` fixes). Only matters if the standalone CLI is kept (§5).
 - **Side-by-side width handling is inconsistent.** The body clamps pane
   width to `MIN_COL_WIDTH` but the header computes its divider unclamped,
   so at `widthOverride: 80` the dividers misalign and overrides below
@@ -265,10 +254,10 @@ several become relevant the moment nearby code is touched.
   ops get no fast signal.
 - `limitInfiniteContextHunkToContext`'s fast-check test will flake the day
   the generator produces equal arrays, and the function demonstrably
-  diverges from `getHunks` on identical inputs — deleting the caller-less
-  function (§5) deletes the flake.
-- patdiff's `smoke.test.ts` asserts `1+1 === 2`, and three test files
-  exist only to `it.skip` — against the no-tautological-tests rule.
+  diverges from `getHunks` on identical inputs — the function is kept
+  deliberately (§5), so fix the divergence or constrain the generator.
+- patdiff's `smoke.test.ts` asserts `1+1 === 2` — against the
+  no-tautological-tests rule.
 
 ### Forge sync: designed but not built
 
