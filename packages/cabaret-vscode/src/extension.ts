@@ -404,6 +404,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    // TODO: move 2-way diff signs out of the text and into the gutter, so
+    // selecting lines copies clean content: have diffDoc emit the hunk lines
+    // without their `+|`/`-|` marks (the added/removed styles already say
+    // which is which) and paint them here with whole-line background
+    // decorations plus a gutter sign, applied to every visible editor showing
+    // a diff page and reapplied on render. Semantic tokens can only color
+    // text, so this takes a per-editor decoration pass alongside them.
     vscode.languages.registerDocumentSemanticTokensProvider({ scheme: SCHEME }, provider, provider.legend),
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (document.uri.scheme === SCHEME) {

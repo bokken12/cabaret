@@ -20,12 +20,9 @@ function shortHash(hash: CommitHash): string {
   return hash.slice(0, 12);
 }
 
-/** The header line saying what revision a round reviews up to, and what follows it. */
-function roundHeader(end: CommitHash, later: number): string {
-  const upTo = `Reviewing up to ${shortHash(end)}`;
-  return later === 0
-    ? `${upTo}.`
-    : `${upTo}; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}.`;
+/** The trailing note that `later` more rounds follow, or "" for the last round. */
+function moreRounds(later: number): string {
+  return later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
 }
 
 /** A change's current round of review: what to read before any newer round opens. */
@@ -65,7 +62,10 @@ export function reviewDoc(page: ReviewPage): Doc {
     lines.push({ spans: [span("Nothing left to review.")] });
     return { lines };
   }
-  lines.push({ spans: [span(roundHeader(page.round.end, page.round.later))] }, { spans: [] });
+  lines.push(
+    { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`)] },
+    { spans: [] },
+  );
   for (const file of page.round.files) {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
   }
@@ -233,17 +233,18 @@ function diffLineStyle(text: string, kind: DiffView["kind"]): Style | undefined 
 }
 
 export function diffDoc(page: DiffPage): Doc {
-  const title = `${page.file} in ${page.change}`;
+  // One header line, then the diff: the diff is what the reviewer came to
+  // read, so the page spends no more chrome on it than that.
+  const context = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const title = `${page.file} in ${page.change}${context}`;
   const lines: Line[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
-    { spans: [span("=".repeat(title.length))] },
     { spans: [] },
   ];
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
     return { lines };
   }
-  lines.push({ spans: [span(roundHeader(page.round.end, page.round.later))] }, { spans: [] });
   const view = page.round.view;
   const rendered =
     view.kind === "two"

@@ -59,10 +59,7 @@ test("diffDoc renders a two-way diff, styling its added and removed lines", () =
     diffPageWith({ end: fake("3"), later: 1, view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets
-    =================
-
-    Reviewing up to 333333333333; 1 more round follows.
+    "api.ts in widgets (up to 333333333333; 1 more round follows)
 
     old/api.ts
     new/api.ts
@@ -82,7 +79,7 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" } }),
   );
-  const hunk = doc.lines.slice(5).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
   expect(hunk).toEqual([
     [["old/api.ts", undefined]],
     [["new/api.ts", undefined]],
@@ -97,10 +94,7 @@ test("diffDoc names an absent version /dev/null", () => {
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: undefined, next: "new\n" } }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets
-    =================
-
-    Reviewing up to 333333333333.
+    "api.ts in widgets (up to 333333333333)
 
     /dev/null
     new/api.ts
@@ -122,10 +116,7 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
     }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets
-    =================
-
-    Reviewing up to 444444444444.
+    "api.ts in widgets (up to 444444444444)
 
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base 111111111111 | old tip 333333333333 | new base 222222222222 | new tip 444444444444
@@ -201,10 +192,7 @@ test("diffDoc with an empty diff points at marking the file reviewed", () => {
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "same\n", next: "same\n" } }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets
-    =================
-
-    Reviewing up to 333333333333.
+    "api.ts in widgets (up to 333333333333)
 
     No differences left to read; mark the file reviewed to record that."
   `);
@@ -215,10 +203,7 @@ test("diffDoc reports binary versions instead of diffing them", () => {
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "a\0b\n", next: "c\0d\n" } }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets
-    =================
-
-    Reviewing up to 333333333333.
+    "api.ts in widgets (up to 333333333333)
 
     Binary versions of api.ts differ"
   `);
@@ -227,7 +212,6 @@ test("diffDoc reports binary versions instead of diffing them", () => {
 test("diffDoc with no review left says so", () => {
   expect(docText(diffDoc(diffPageWith(undefined)))).toMatchInlineSnapshot(`
     "api.ts in widgets
-    =================
 
     Nothing left to review."
   `);
