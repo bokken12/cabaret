@@ -116,20 +116,52 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
 }
 
-/** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
-async function showParent(provider: PageProvider): Promise<void> {
+/** The change shown by the active editor, when it is a show page. */
+function shownChange(): RefName | undefined {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return;
+    return undefined;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind !== "show") {
+  return page.kind === "show" ? page.change : undefined;
+}
+
+/** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
+async function showParent(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change === undefined) {
     return;
   }
   const backend = await openBackend();
-  const parent = currentParent(page.change, await backend.readLog(page.change));
+  const parent = currentParent(change, await backend.readLog(change));
   const parentIsChange = (await backend.listChanges()).includes(parent);
   await openPage(provider, parentIsChange ? { kind: "show", change: parent } : { kind: "todo" });
+}
+
+/** Descend from a show page to a child's show page, picking one when the change has several children. */
+async function showChild(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change === undefined) {
+    return;
+  }
+  const backend = await openBackend();
+  const children: RefName[] = [];
+  for (const other of await backend.listChanges()) {
+    if (currentParent(other, await backend.readLog(other)) === change) {
+      children.push(other);
+    }
+  }
+  if (children.length === 0) {
+    vscode.window.showInformationMessage(`cabaret: ${change} has no children`);
+    return;
+  }
+  const child =
+    children.length === 1
+      ? children[0]
+      : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${change}` });
+  if (child !== undefined) {
+    await openPage(provider, { kind: "show", change: parseRefName(child) });
+  }
 }
 
 async function openTarget(provider: PageProvider): Promise<void> {
@@ -333,6 +365,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
+    vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

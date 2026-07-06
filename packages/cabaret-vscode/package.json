@@ -61,6 +61,10 @@
       {
         "command": "cabaret.showParent",
         "title": "Cabaret: Show Parent"
+      },
+      {
+        "command": "cabaret.showChild",
+        "title": "Cabaret: Show Child"
       }
     ],
     "menus": {
@@ -100,6 +104,10 @@
         {
           "command": "cabaret.showParent",
           "when": "cabaret.page == 'show'"
+        },
+        {
+          "command": "cabaret.showChild",
+          "when": "cabaret.page == 'show'"
         }
       ]
     },
@@ -117,6 +125,11 @@
       {
         "command": "cabaret.showParent",
         "key": "shift+6",
+        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.showChild",
+        "key": "shift+4",
         "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
