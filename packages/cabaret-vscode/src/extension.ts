@@ -1,4 +1,19 @@
-import { type Backend, parseRefName } from "cabaret-core";
+import {
+  type Backend,
+  createChange,
+  currentParent,
+  landChain,
+  landChange,
+  parseRefName,
+  type RefName,
+  rebaseChain,
+  rebaseChange,
+  renameChange,
+  reparentChange,
+  resolveChain,
+  type TimestampMs,
+  timestampMs,
+} from "cabaret-core";
 import { GitBackend } from "cabaret-node";
 import { type Doc, docText, targetAt } from "cabaret-views";
 import * as vscode from "vscode";
@@ -64,6 +79,13 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     this.changed.fire(uri);
   }
 
+  /** Re-render every open page: any of them can name a change an action just moved. */
+  refreshAll(): void {
+    for (const key of this.docs.keys()) {
+      this.changed.fire(vscode.Uri.parse(key));
+    }
+  }
+
   forget(uri: vscode.Uri): void {
     this.docs.delete(uri.toString());
   }
@@ -85,6 +107,60 @@ async function showChange(provider: PageProvider): Promise<void> {
   const change = await vscode.window.showQuickPick(await backend.listChanges(), { placeHolder: "Change to show" });
   if (change !== undefined) {
     await openPage(provider, { kind: "show", change: parseRefName(change) });
+  }
+}
+
+/** Expose the active page's kind as the `cabaret.page` context so keybindings can scope to one page. */
+function updatePageContext(editor: vscode.TextEditor | undefined): void {
+  const kind = editor?.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path).kind : undefined;
+  vscode.commands.executeCommand("setContext", "cabaret.page", kind);
+}
+
+/** The change shown by the active editor, when it is a show page. */
+function shownChange(): RefName | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return undefined;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  return page.kind === "show" ? page.change : undefined;
+}
+
+/** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
+async function showParent(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change === undefined) {
+    return;
+  }
+  const backend = await openBackend();
+  const parent = currentParent(change, await backend.readLog(change));
+  const parentIsChange = (await backend.listChanges()).includes(parent);
+  await openPage(provider, parentIsChange ? { kind: "show", change: parent } : { kind: "todo" });
+}
+
+/** Descend from a show page to a child's show page, picking one when the change has several children. */
+async function showChild(provider: PageProvider): Promise<void> {
+  const change = shownChange();
+  if (change === undefined) {
+    return;
+  }
+  const backend = await openBackend();
+  const children: RefName[] = [];
+  for (const other of await backend.listChanges()) {
+    if (currentParent(other, await backend.readLog(other)) === change) {
+      children.push(other);
+    }
+  }
+  if (children.length === 0) {
+    vscode.window.showInformationMessage(`cabaret: ${change} has no children`);
+    return;
+  }
+  const child =
+    children.length === 1
+      ? children[0]
+      : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${change}` });
+  if (child !== undefined) {
+    await openPage(provider, { kind: "show", change: parseRefName(child) });
   }
 }
 
@@ -112,6 +188,168 @@ async function openTarget(provider: PageProvider): Promise<void> {
   }
 }
 
+const now = (): TimestampMs => timestampMs(Date.now());
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** `showInputBox` validator accepting exactly the strings `parseRefName` does. */
+function invalidRefName(value: string): string | undefined {
+  try {
+    parseRefName(value);
+    return undefined;
+  } catch (error) {
+    return message(error);
+  }
+}
+
+/**
+ * The changes an action applies to, ancestormost first: the shown change on a
+ * show page; on the todo page, the changes named by the lines the selection
+ * covers, which is just the cursor's line when nothing is selected.
+ */
+function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly RefName[] {
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "show") {
+    return [page.change];
+  }
+  const doc = provider.renderedDoc(editor.document.uri);
+  if (doc === undefined) {
+    return [];
+  }
+  const changes: RefName[] = [];
+  for (let line = editor.selection.start.line; line <= editor.selection.end.line; line++) {
+    const target = targetAt(doc, line);
+    if (target?.kind === "change") {
+      changes.push(target.change);
+    }
+  }
+  return changes;
+}
+
+/**
+ * Run `act` on the active cabaret page's selected changes. Errors surface as
+ * notifications, and every open page re-renders afterwards even on failure: a
+ * chain action can partially apply before it stops.
+ */
+async function actOnSelection(
+  provider: PageProvider,
+  act: (backend: Backend, editor: vscode.TextEditor, changes: readonly RefName[]) => Promise<void>,
+): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const changes = selectedChanges(provider, editor);
+  if (changes.length === 0) {
+    vscode.window.showInformationMessage("cabaret: no change at the cursor");
+    return;
+  }
+  try {
+    await act(await openBackend(), editor, changes);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
+  }
+}
+
+/**
+ * Rebase or land the selection. One change acts alone and reports a landed
+ * change as the error it is; several act as a stack, where skipping landed
+ * links is part of the semantics.
+ */
+async function actOnChain(
+  backend: Backend,
+  changes: readonly RefName[],
+  one: typeof rebaseChange,
+  chain: typeof rebaseChain,
+): Promise<void> {
+  const only = changes.length === 1 ? changes[0] : undefined;
+  if (only !== undefined) {
+    await one(backend, now, only, await backend.readLog(only), false);
+  } else {
+    await chain(backend, now, await resolveChain(backend, changes), false);
+  }
+}
+
+/** Close every tab showing `uri`. */
+async function closeTabs(uri: vscode.Uri): Promise<void> {
+  const key = uri.toString();
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === key) {
+        await vscode.window.tabGroups.close(tab);
+      }
+    }
+  }
+}
+
+/** The lone selected change, or undefined after telling the user `action` takes exactly one. */
+function singleChange(changes: readonly RefName[], action: string): RefName | undefined {
+  const only = changes.length === 1 ? changes[0] : undefined;
+  if (only === undefined) {
+    vscode.window.showInformationMessage(`cabaret: select a single change to ${action}`);
+  }
+  return only;
+}
+
+/** Prompt for a name and create a change with `parent` as its parent, returning the new name. */
+async function promptCreate(backend: Backend, parent: RefName, prompt: string): Promise<RefName | undefined> {
+  const raw = await vscode.window.showInputBox({ prompt, validateInput: invalidRefName });
+  if (raw === undefined) {
+    return undefined;
+  }
+  const change = parseRefName(raw);
+  await createChange(backend, now, change, parent);
+  return change;
+}
+
+/**
+ * Pick a new parent for `change`: any other change, or a branch some change
+ * already hangs from, which is how trunks appear without being changes.
+ */
+async function pickParent(backend: Backend, change: RefName): Promise<RefName | undefined> {
+  const changes = await backend.listChanges();
+  const candidates = new Set(changes);
+  for (const other of changes) {
+    candidates.add(currentParent(other, await backend.readLog(other)));
+  }
+  candidates.delete(change);
+  const picked = await vscode.window.showQuickPick([...candidates].sort(), {
+    placeHolder: `New parent for ${change}`,
+  });
+  return picked === undefined ? undefined : parseRefName(picked);
+}
+
+/** Prompt for a new name and rename `from`, following a renamed show page to its new name. */
+async function rename(
+  provider: PageProvider,
+  backend: Backend,
+  editor: vscode.TextEditor,
+  from: RefName,
+): Promise<void> {
+  const raw = await vscode.window.showInputBox({
+    prompt: `Rename ${from}`,
+    value: from,
+    validateInput: invalidRefName,
+  });
+  if (raw === undefined || raw === from) {
+    return;
+  }
+  const to = parseRefName(raw);
+  await renameChange(backend, from, to, false);
+  // A show page's URI names the change, so the old page cannot re-render;
+  // forget it before the post-action refresh and replace it with the page
+  // under the new name.
+  if (parsePagePath(editor.document.uri.path).kind === "show") {
+    provider.forget(editor.document.uri);
+    await closeTabs(editor.document.uri);
+    await openPage(provider, { kind: "show", change: to });
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
   context.subscriptions.push(
@@ -122,14 +360,69 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.forget(document.uri);
       }
     }),
+    vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
+    vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {
         provider.refresh(uri);
       }
     }),
+    vscode.commands.registerCommand("cabaret.rebase", () =>
+      actOnSelection(provider, (backend, _editor, changes) => actOnChain(backend, changes, rebaseChange, rebaseChain)),
+    ),
+    vscode.commands.registerCommand("cabaret.land", () =>
+      actOnSelection(provider, (backend, _editor, changes) => actOnChain(backend, changes, landChange, landChain)),
+    ),
+    vscode.commands.registerCommand("cabaret.rename", () =>
+      actOnSelection(provider, async (backend, editor, changes) => {
+        const from = singleChange(changes, "rename");
+        if (from !== undefined) {
+          await rename(provider, backend, editor, from);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.reparent", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "reparent");
+        if (change === undefined) {
+          return;
+        }
+        const parent = await pickParent(backend, change);
+        if (parent !== undefined) {
+          await reparentChange(backend, now, change, parent, false);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.createChild", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const parent = singleChange(changes, "create a child of");
+        if (parent !== undefined) {
+          await promptCreate(backend, parent, `Name for a child of ${parent}`);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.createParent", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const child = singleChange(changes, "create a parent of");
+        if (child === undefined) {
+          return;
+        }
+        // Splice the new change in: it takes the child's parent, and the
+        // child hangs from it. Its branch starts at the grandparent's tip, so
+        // the child's next rebase lands where a rebase onto the grandparent
+        // would have.
+        const grandparent = currentParent(child, await backend.readLog(child));
+        const parent = await promptCreate(backend, grandparent, `Name for a parent of ${child}`);
+        if (parent !== undefined) {
+          await reparentChange(backend, now, child, parent, false);
+        }
+      }),
+    ),
   );
+  updatePageContext(vscode.window.activeTextEditor);
 }
