@@ -110,6 +110,28 @@ async function showChange(provider: PageProvider): Promise<void> {
   }
 }
 
+/** Expose the active page's kind as the `cabaret.page` context so keybindings can scope to one page. */
+function updatePageContext(editor: vscode.TextEditor | undefined): void {
+  const kind = editor?.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path).kind : undefined;
+  vscode.commands.executeCommand("setContext", "cabaret.page", kind);
+}
+
+/** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
+async function showParent(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind !== "show") {
+    return;
+  }
+  const backend = await openBackend();
+  const parent = currentParent(page.change, await backend.readLog(page.change));
+  const parentIsChange = (await backend.listChanges()).includes(parent);
+  await openPage(provider, parentIsChange ? { kind: "show", change: parent } : { kind: "todo" });
+}
+
 async function openTarget(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
@@ -306,9 +328,11 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.forget(document.uri);
       }
     }),
+    vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {
@@ -367,4 +391,5 @@ export function activate(context: vscode.ExtensionContext): void {
       }),
     ),
   );
+  updatePageContext(vscode.window.activeTextEditor);
 }

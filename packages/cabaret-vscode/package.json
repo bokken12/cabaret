@@ -57,6 +57,10 @@
       {
         "command": "cabaret.createParent",
         "title": "Cabaret: Create Parent"
+      },
+      {
+        "command": "cabaret.showParent",
+        "title": "Cabaret: Show Parent"
       }
     ],
     "menus": {
@@ -92,6 +96,10 @@
         {
           "command": "cabaret.createParent",
           "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.showParent",
+          "when": "cabaret.page == 'show'"
         }
       ]
     },
@@ -99,42 +107,47 @@
       {
         "command": "cabaret.openTarget",
         "key": "enter",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.refresh",
         "key": "r",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.showParent",
+        "key": "shift+6",
+        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rebase",
         "key": "shift+1 r b",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.land",
         "key": "shift+1 l a",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rename",
         "key": "shift+1 r n",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.reparent",
         "key": "shift+1 r p",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createChild",
         "key": "shift+1 c",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createParent",
         "key": "shift+1 p",
-        "when": "editorTextFocus && resourceScheme == cabaret"
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],
     "semanticTokenTypes": [
