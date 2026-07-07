@@ -201,11 +201,12 @@ test("gh import turns a teammate's PR into a change to review", async () => {
   });
 });
 
-test("gh import adopts the PR of the checked-out branch without fetching it", async () => {
+test("gh import adopts the PR of an existing local branch without fetching it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The PR was opened from this very checkout, so its branch is both local
-  // and current — git refuses to fetch into it.
+  // and current. A local branch is never fetched into — git refuses when
+  // any worktree has it checked out, and import should not move it anyway.
   await repo.git("checkout", "-qb", "my-feature");
   await repo.write("mine.txt", "my work\n");
   await repo.git("add", "-A");

@@ -253,9 +253,10 @@ export async function importRequest(
   if ((await backend.readLog(change)).length > 0) {
     return { kind: "exists", change };
   }
-  // The checked-out branch is already local and git refuses to fetch into
-  // it — importing the request for the branch you are on is fine as it is.
-  if ((await backend.currentBranch()) !== change) {
+  // Import creates the log; it never moves local branches. Only a missing
+  // branch is fetched — one that exists stays as it is, not least because
+  // git refuses to fetch into a branch some worktree has checked out.
+  if ((await backend.branchTip(change)) === undefined) {
     await backend.fetchBranch(change);
   }
   const user = await backend.currentUser();

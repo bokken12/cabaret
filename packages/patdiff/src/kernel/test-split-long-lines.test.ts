@@ -79,4 +79,18 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
       +|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     `);
   });
+
+  it("a shared tail past the length budget splits without dropping its newline", () => {
+    // The added run spends the line budget just before a multi-word shared
+    // tail, so the split breaks mid-line; the flushed chunk must still end
+    // with a newline or [collapse] rejects it.
+    const prev = "shared words at the end.\n";
+    const next = `${"x".repeat(70)} shared words at the end.\n`;
+    expect(printPatdiff(prev, next)).toMatchInlineSnapshot(`
+      "-1,1 +1,1
+      -|shared
+      +|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx shared
+         words at the end."
+    `);
+  });
 });
