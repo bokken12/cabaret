@@ -91,15 +91,16 @@ ARGUMENTS
 ## cabaret diff
 
 USAGE
-  cabaret diff [--change value] [--for value] <file>
+  cabaret diff [--change value] [--for value] [--context value] <file>
   cabaret diff --help
 
 Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy — or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review. The diff a land merge brings in was reviewed in the landed change, so it is skipped: what prints is one diff per span of history between land merges.
 
 FLAGS
-     [--change]  Change to diff (defaults to current)
-     [--for]     Show the diff for another user (defaults to self)
-  -h  --help     Print help information and exit
+     [--change]   Change to diff (defaults to current)
+     [--for]      Show the diff for another user (defaults to self)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to 3)
+  -h  --help      Print help information and exit
 
 ARGUMENTS
   file  file to diff

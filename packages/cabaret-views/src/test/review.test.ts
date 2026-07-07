@@ -87,7 +87,9 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
     here"
   `);
   const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
-  expect(styles.filter((line) => line.some(([, style]) => style === "added" || style === "removed"))).toEqual([
+  expect(styles.filter((line) => line.some(([, style]) => style !== undefined))).toEqual([
+    [["api.ts in widgets (up to 333333333333; 1 more round follows)", "heading"]],
+    [["-1,2 +1,2", "hunk"]],
     [["gone", "removed"]],
     [["here", "added"]],
   ]);
@@ -107,6 +109,87 @@ test("diffDoc anchors each hunk line to its place in the new copy", () => {
     location(1), // shared
     location(2), // gone: the removal site, where "here" now sits
     location(2), // here
+  ]);
+});
+
+test("diffDoc trims each hunk to the requested context", () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), 1);
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    old/api.ts
+    new/api.ts
+    -1,3 +1,3
+    one
+    two
+    TWO
+    three
+
+    -7,3 +7,3
+    seven
+    eight
+    EIGHT
+    nine"
+  `);
+});
+
+test("diffDoc shows the whole file in one hunk at context -1", () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), -1);
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    old/api.ts
+    new/api.ts
+    -1,9 +1,9
+    one
+    two
+    TWO
+    three
+    four
+    five
+    six
+    seven
+    eight
+    EIGHT
+    nine"
+  `);
+});
+
+test("diffDoc shows a four-way diff whole at context -1", () => {
+  const middle = ["two", "three", "four", "five", "six", "seven", "eight"].join("\n");
+  const page = diffPageWith({
+    end: fake("4"),
+    later: 0,
+    view: {
+      kind: "four",
+      revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+      contents: {
+        b1: `one\n${middle}\nnine\n`,
+        b2: `ONE\n${middle}\nnine\n`,
+        f1: `one\n${middle}\nnine\nchild\n`,
+        f2: `ONE!\n${middle}\nnine\nchild\n`,
+      },
+    },
+  });
+  // "five" sits mid-file, farther from both changes than the trimmed context.
+  expect(docText(diffDoc(page, 1))).not.toContain("five");
+  expect(docText(diffDoc(page, -1))).toContain("five");
+});
+
+test("diffDoc styles an added blank line, so hosts wash it like its neighbors", () => {
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "one\ntwo\n", next: "one\n\nnew\ntwo\n" } }),
+  );
+  const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(styles.filter((line) => line.some(([, style]) => style === "added"))).toEqual([
+    [["", "added"]],
+    [["new", "added"]],
   ]);
 });
 
@@ -138,7 +221,7 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
   expect(hunk).toEqual([
     [["old/api.ts", undefined]],
     [["new/api.ts", undefined]],
-    [["-1,1 +1,2", undefined]],
+    [["-1,1 +1,2", "hunk"]],
     [["-|weird", undefined]],
     [["new", "added"]],
   ]);

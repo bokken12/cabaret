@@ -232,12 +232,7 @@ test("after a commit and an unrelated rebase, only the commit is left to review"
       "stderr": "",
       "stdout": "old/shared.txt
     new/shared.txt
-    -1,8 +1,9
-      one
-      two
-      three
-      four
-      five
+    -6,3 +6,4
       six
       seven
       child
@@ -278,20 +273,7 @@ test("after a rebase that changed the file, only the new commit is left to revie
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip 901008c1e279
-    @@@@@@@@ old tip 25,42 new tip 25,42 @@@@@@@@
-      line 25
-      line 26
-      line 27
-      line 28
-      line 29
-      line 30
-      line 31
-      line 32
-      line 33
-      line 34
-      line 35
-      line 36
-      line 37
+    @@@@@@@@ old tip 38,42 new tip 38,42 @@@@@@@@
       line 38
       line 39
       line 40
@@ -314,25 +296,12 @@ test("editing the base's change after a rebase shows the new base to new tip dif
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip aba1eb75681b
-    @@@@@@@@ new base 1,18 new tip 1,18 @@@@@@@@
+    @@@@@@@@ new base 1,5 new tip 1,5 @@@@@@@@
     -|line 1 amended
     +|line 1 rewritten
       line 2
       line 3
       line 4
-      line 5
-      line 6
-      line 7
-      line 8
-      line 9
-      line 10
-      line 11
-      line 12
-      line 13
-      line 14
-      line 15
-      line 16
-      line 17
     ",
     }
   `);
@@ -354,18 +323,14 @@ test("interacting base and tip changes get the full 4-way views", async () => {
     old base 34a96a50f88f | old tip 531b9ce6fca4 | new base 7cce234df272 | new tip b328ce393e81
     _
     | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
-    | @@@@@@@@ -- old base 1,9 old tip 1,10 @@@@@@@@
-    | @@@@@@@@ ++ new base 1,9 new tip 1,10 @@@@@@@@
+    | @@@@@@@@ -- old base 1,5 old tip 1,6 @@@@@@@@
+    | @@@@@@@@ ++ new base 1,5 new tip 1,6 @@@@@@@@
     | --  one
     | ++-|ONE
     | +++|ONE!
     |     two
     |     three
     |     four
-    |     five
-    |     six
-    |     seven
-    |   +|child
     |_
     _
     | @@@@@@@@ View 2/8 : base-ddiff @@@@@@@@
@@ -384,16 +349,12 @@ test("interacting base and tip changes get the full 4-way views", async () => {
     |_
     _
     | @@@@@@@@ View 3/8 : old-tip-to-new-tip @@@@@@@@
-    | @@@@@@@@ old tip 1,9 new tip 1,9 @@@@@@@@
+    | @@@@@@@@ old tip 1,5 new tip 1,5 @@@@@@@@
     | -|one
     | +|ONE!
     |   two
     |   three
     |   four
-    |   five
-    |   six
-    |   seven
-    |   child
     |_
     _
     | @@@@@@@@ View 4/8 : new-base-to-new-tip @@@@@@@@
@@ -410,11 +371,7 @@ test("interacting base and tip changes get the full 4-way views", async () => {
     |_
     _
     | @@@@@@@@ View 5/8 : old-base-to-old-tip @@@@@@@@
-    | @@@@@@@@ old base 1,8 old tip 1,9 @@@@@@@@
-    |   one
-    |   two
-    |   three
-    |   four
+    | @@@@@@@@ old base 5,8 old tip 5,9 @@@@@@@@
     |   five
     |   six
     |   seven
@@ -422,15 +379,12 @@ test("interacting base and tip changes get the full 4-way views", async () => {
     |_
     _
     | @@@@@@@@ View 6/8 : old-base-to-new-base @@@@@@@@
-    | @@@@@@@@ old base 1,8 new base 1,8 @@@@@@@@
+    | @@@@@@@@ old base 1,5 new base 1,5 @@@@@@@@
     | -|one
     | +|ONE
     |   two
     |   three
     |   four
-    |   five
-    |   six
-    |   seven
     |_
     _
     | @@@@@@@@ View 7/8 : old-base-to-new-tip @@@@@@@@
@@ -447,14 +401,14 @@ test("interacting base and tip changes get the full 4-way views", async () => {
     |_
     _
     | @@@@@@@@ View 8/8 : conflict-resolution @@@@@@@@
-    | @@@@@@@@ conflict 1,27 new tip 1,9 @@@@@@@@
+    | @@@@@@@@ conflict 1,6 new tip 1,5 @@@@@@@@
     | -|<<<<<<< old tip
     | -|one
     | +|ONE!
     |   two
     |   three
     |   four
-    |   five
+    | @@@@@@@@ conflict 7,27 new tip 6,9 @@@@@@@@
     |   six
     |   seven
     |   child
@@ -565,11 +519,7 @@ test("an unreviewed file never needs a 4-way diff, even when the base changed it
       "stderr": "",
       "stdout": "old/shared.txt
     new/shared.txt
-    -1,7 +1,8
-      ONE
-      two
-      three
-      four
+    -5,3 +5,4
       five
       six
       seven

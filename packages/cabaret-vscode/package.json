@@ -37,6 +37,16 @@
           "highContrast": "#f8514933",
           "highContrastLight": "#f8514926"
         }
+      },
+      {
+        "id": "cabaret.hunkLineBackground",
+        "description": "Background of a hunk header line in a Cabaret diff",
+        "defaults": {
+          "dark": "#6e768133",
+          "light": "#6e768126",
+          "highContrast": "#6e768133",
+          "highContrastLight": "#6e768126"
+        }
       }
     ],
     "commands": [
@@ -227,6 +237,12 @@
     "configuration": {
       "title": "Cabaret",
       "properties": {
+        "cabaret.context": {
+          "type": "integer",
+          "default": 3,
+          "minimum": -1,
+          "description": "Lines of context shown around each diff hunk; -1 shows files whole"
+        },
         "leaderkey.overrides._cabaret": {
           "type": "object",
           "description": "Bindings contributed to the leaderkey extension, active when it is installed",

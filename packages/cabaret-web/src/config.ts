@@ -19,6 +19,7 @@ export function parseRepo(raw: string): GitHubRepo {
 
 const REPO_KEY = "cabaret.repo";
 const TOKEN_KEY = "cabaret.token";
+const CONTEXT_KEY = "cabaret.context";
 
 export function loadToken(): string | undefined {
   return localStorage.getItem(TOKEN_KEY) ?? undefined;
@@ -42,6 +43,17 @@ export function loadRepo(): GitHubRepo | undefined {
 
 export function saveRepo(repo: GitHubRepo): void {
   localStorage.setItem(REPO_KEY, `${repo.owner}/${repo.repo}`);
+}
+
+/**
+ * Lines of context to show around diff hunks: a nonnegative integer, or -1
+ * for whole files; unset (the renderer's default) when absent or malformed.
+ * The knob is the localStorage entry itself until a settings page exists.
+ */
+export function loadContext(): number | undefined {
+  const raw = localStorage.getItem(CONTEXT_KEY);
+  const context = raw === null ? Number.NaN : Number(raw);
+  return Number.isInteger(context) && context >= -1 ? context : undefined;
 }
 
 /** Forget the repository but stay signed in, returning to the repository picker. */

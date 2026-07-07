@@ -248,12 +248,22 @@ async function rebasedView(
       };
 }
 
+/** Lines of context around diff hunks when the host does not choose, as git. */
+export const defaultContext = 3;
+
 /**
  * Render the diff between two versions of `file` with patdiff: ANSI-colored
  * with word-level refinement on a terminal, plain ASCII otherwise. An absent
- * version diffs against the empty file, named /dev/null as in git.
+ * version diffs against the empty file, named /dev/null as in git. Hunks keep
+ * `context` lines of surrounding context; -1 shows files whole.
  */
-export function renderDiff(file: FilePath, prev: string | undefined, next: string | undefined, color: boolean): string {
+export function renderDiff(
+  file: FilePath,
+  prev: string | undefined,
+  next: string | undefined,
+  color: boolean,
+  context?: number,
+): string {
   if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
     return prev === next ? "" : `Binary versions of ${file} differ\n`;
   }
@@ -261,6 +271,7 @@ export function renderDiff(file: FilePath, prev: string | undefined, next: strin
   const nextName = next === undefined ? "/dev/null" : `new/${file}`;
   const diff = PatdiffCore.withoutUnix.patdiff({
     output: color ? "Ansi" : "Ascii",
+    context: context ?? defaultContext,
     // Unified lines are unsupported in Ascii output.
     produceUnifiedLines: color,
     // Splitting a long modified line into partial context and changed pieces
@@ -285,6 +296,7 @@ export function renderDiff4(args: {
   revs: Patdiff4.Diamond.Diamond<CommitHash>;
   contents: Patdiff4.Diamond.Diamond<string | undefined>;
   color: boolean;
+  context?: number | undefined;
 }): readonly Patdiff4.Line[] {
   // TODO: name absent versions distinctly (Iron renders them as <absent>
   // with a per-version file-name table) instead of diffing an empty file.
@@ -292,13 +304,14 @@ export function renderDiff4(args: {
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
     return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
   }
+  const context = args.context ?? defaultContext;
   return Patdiff4.diff({
     // Hash prefixes keep patdiff4's contract that equal names imply equal
     // contents, where "old"/"new" labels would not (the tips can coincide).
     revNames: Patdiff4.Diamond.map(args.revs, shortHash),
     fileNames: Patdiff4.Diamond.singleton(args.file),
     headerFileName: args.file,
-    context: PatdiffCore.defaultContext,
+    context: context < 0 ? Patdiff4.DiffAlgo.infiniteContext : context,
     linesRequiredToSeparateDdiffHunks: 0,
     contents,
     output: args.color ? "Ansi" : "Ascii",
@@ -313,21 +326,29 @@ export function renderDiff4(args: {
  * lines shed their two-column marks — the added/removed styles carry the
  * same information — leaving bare code a host can syntax-highlight and a
  * reviewer can copy. Only a mark at column 0 counts as one — a context
- * line's own text may begin with the same characters.
+ * line's own text may begin with the same characters. Consecutive hunks
+ * would read as one run of code, so a styled header and a blank line
+ * mark where each begins.
  */
-function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>): Line[] {
-  const rendered = renderDiff(file, view.prev, view.next, false);
+function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
+  const rendered = renderDiff(file, view.prev, view.next, false, context);
   if (rendered === "") {
     return [];
   }
   const lines: Line[] = [];
   let at = 1;
+  let inHunk = false;
   for (const text of rendered.slice(0, -1).split("\n")) {
     const opts: { style?: Style; target?: Target } = {};
     let content = text;
     const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
     if (header?.[1] !== undefined) {
+      if (inHunk) {
+        lines.push({ spans: [] });
+      }
+      inHunk = true;
       at = Number(header[1]);
+      opts.style = "hunk";
       opts.target = { kind: "location", file, line: at };
     } else if (text.startsWith("+|")) {
       opts.style = "added";
@@ -358,8 +379,8 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
  * keep their sign marks: a ddiff line's stacked signs say more than one
  * style can express.
  */
-function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>): Line[] {
-  const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false });
+function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Line[] {
+  const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false, context });
   let at: number | undefined;
   return rendered.map(({ text, kind, provenance }) => {
     const opts: { style?: Style; target?: Target } = {};
@@ -381,12 +402,11 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
   });
 }
 
-export function diffDoc(page: DiffPage): Doc {
+export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
-  const context =
-    page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
-  const title = `${page.file} in ${page.change}${context}`;
+  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const title = `${page.file} in ${page.change}${round}`;
   const lines: Line[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },
@@ -396,7 +416,8 @@ export function diffDoc(page: DiffPage): Doc {
     return { lines };
   }
   const view = page.round.view;
-  const body = view.kind === "two" ? twoWayDiffLines(page.file, view) : fourWayDiffLines(page.file, view);
+  const body =
+    view.kind === "two" ? twoWayDiffLines(page.file, view, context) : fourWayDiffLines(page.file, view, context);
   if (body.length === 0) {
     // A moved base can leave nothing visible to read (the rebase carried the
     // change cleanly) while the stale review still counts the file as left;

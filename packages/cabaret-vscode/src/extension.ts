@@ -69,7 +69,9 @@ class PageProvider implements vscode.TextDocumentContentProvider {
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
-    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge);
+    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge, {
+      context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+    });
     this.docs.set(uri.toString(), doc);
     // A render whose text matches the buffer emits no document change, so
     // repainting only on document changes would leave pre-render paint stale.
@@ -554,6 +556,11 @@ function createDecorations(): StyleDecorations {
     // green is duller than its red, and a wash this prominent wants balance.
     added: wash("cabaret.addedLineBackground", "editorOverviewRuler.addedForeground", "+"),
     removed: wash("cabaret.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
+    // A neutral wash on hunk headers, as magit paints its hunk headings.
+    hunk: vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("cabaret.hunkLineBackground"),
+      isWholeLine: true,
+    }),
   };
 }
 
@@ -572,7 +579,7 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
     if (doc === undefined) {
       continue;
     }
-    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [] };
+    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [], hunk: [] };
     for (const { line, start, length, style } of styledRanges(doc)) {
       ranges[style].push(new vscode.Range(line, start, line, start + length));
     }
@@ -606,6 +613,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("cabaret.context")) {
+        provider.refreshAll();
+      }
+    }),
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),

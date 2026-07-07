@@ -13,7 +13,9 @@ export function styledRanges(doc: Doc): readonly StyledRange[] {
   doc.lines.forEach(({ spans }, line) => {
     let start = 0;
     for (const { text, style } of spans) {
-      if (style !== undefined && text.length > 0) {
+      // An empty styled span still ranges: a whole-line wash paints a blank
+      // added or removed line from its zero-length range.
+      if (style !== undefined) {
         ranges.push({ line, start, length: text.length, style });
       }
       start += text.length;

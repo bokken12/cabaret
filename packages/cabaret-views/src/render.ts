@@ -27,17 +27,25 @@ export function cachedSnapshot(backend: Backend, change: RefName, cache?: Snapsh
   return fresh;
 }
 
+/** What a host brings to a render beyond the page itself. */
+export interface RenderOptions {
+  /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
+  readonly context?: number | undefined;
+  /** Held snapshots for the review and diff pages to render from; always fresh when absent. */
+  readonly cache?: SnapshotCache | undefined;
+}
+
 /**
  * Query `backend` and render `page` for its current user. `forge` is opened
  * lazily: only the todo page and a logless show page query it. The review
- * and diff pages render from the change's snapshot in `cache` when one is
- * held, letting a host reuse one reading across a whole review pass.
+ * and diff pages render from the change's snapshot in `options.cache` when
+ * one is held, letting a host reuse one reading across a whole review pass.
  */
 export async function renderPage(
   backend: Backend,
   page: Page,
   forge: () => Promise<Forge | undefined>,
-  cache?: SnapshotCache,
+  options: RenderOptions = {},
 ): Promise<Doc> {
   switch (page.kind) {
     case "todo":
@@ -45,8 +53,11 @@ export async function renderPage(
     case "show":
       return showDoc(await showPage(backend, await backend.currentUser(), page.change, forge));
     case "review":
-      return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, cache)));
+      return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
     case "diff":
-      return diffDoc(await diffPage(backend, await cachedSnapshot(backend, page.change, cache), page.file));
+      return diffDoc(
+        await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file),
+        options.context,
+      );
   }
 }
