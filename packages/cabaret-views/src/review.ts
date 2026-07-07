@@ -255,7 +255,9 @@ export const defaultContext = 3;
  * Render the diff between two versions of `file` with patdiff: ANSI-colored
  * with word-level refinement on a terminal, plain ASCII otherwise. An absent
  * version diffs against the empty file, named /dev/null as in git. Hunks keep
- * `context` lines of surrounding context; -1 shows files whole.
+ * `context` lines of surrounding context; -1 shows files whole. `header`
+ * prepends the old/new file-name lines; a host that already names the file
+ * elsewhere (e.g. diffDoc's title) can pass `false` to skip the redundancy.
  */
 export function renderDiff(
   file: FilePath,
@@ -263,6 +265,7 @@ export function renderDiff(
   next: string | undefined,
   color: boolean,
   context?: number,
+  header = true,
 ): string {
   if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
     return prev === next ? "" : `Binary versions of ${file} differ\n`;
@@ -282,7 +285,10 @@ export function renderDiff(
   });
   // patdiff's own global header prints even when no hunks survive (e.g. equal
   // contents), so an empty diff must skip the header here instead.
-  return diff === "" ? "" : `${prevName}\n${nextName}\n${diff}\n`;
+  if (diff === "") {
+    return "";
+  }
+  return header ? `${prevName}\n${nextName}\n${diff}\n` : `${diff}\n`;
 }
 
 /**
@@ -331,7 +337,9 @@ export function renderDiff4(args: {
  * mark where each begins.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
-  const rendered = renderDiff(file, view.prev, view.next, false, context);
+  // diffDoc's title already names the file, so the old/new lines renderDiff
+  // would otherwise prepend are redundant here.
+  const rendered = renderDiff(file, view.prev, view.next, false, context, false);
   if (rendered === "") {
     return [];
   }

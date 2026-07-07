@@ -79,8 +79,6 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333; 1 more round follows)
 
-    old/api.ts
-    new/api.ts
     -1,2 +1,2
     shared
     gone
@@ -103,24 +101,13 @@ test("diffDoc anchors each hunk line to its place in the new copy, on the jump t
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
     { kind: "change", change: "widgets" },
     undefined, // blank
-    undefined, // old/api.ts
-    undefined, // new/api.ts
     location(1), // -1,2 +1,2
     location(1), // shared
     location(2), // gone: the removal site, where "here" now sits
     location(2), // here
   ]);
   // Only the heading advertises itself as a link; hunk lines answer the cursor alone.
-  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual([
-    "link",
-    undefined,
-    undefined,
-    undefined,
-    "jump",
-    "jump",
-    "jump",
-    "jump",
-  ]);
+  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual(["link", undefined, "jump", "jump", "jump", "jump"]);
 });
 
 test("diffDoc trims each hunk to the requested context", () => {
@@ -131,8 +118,6 @@ test("diffDoc trims each hunk to the requested context", () => {
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
-    old/api.ts
-    new/api.ts
     -1,3 +1,3
     one
     two
@@ -155,8 +140,6 @@ test("diffDoc shows the whole file in one hunk at context -1", () => {
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
-    old/api.ts
-    new/api.ts
     -1,9 +1,9
     one
     two
@@ -219,9 +202,9 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: long("before"), next: long("after") } }),
   );
-  const hunk = doc.lines.slice(5).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  const hunk = doc.lines.slice(3).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
   expect(hunk).toEqual([[[long("before").slice(0, -1), "removed"]], [[long("after").slice(0, -1), "added"]]]);
-  expect(targetAt(doc, 6)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 1 });
 });
 
 test("diffDoc leaves a context line unstyled even when its text starts like a mark", () => {
@@ -229,24 +212,16 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" } }),
   );
   const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
-  expect(hunk).toEqual([
-    [["old/api.ts", undefined]],
-    [["new/api.ts", undefined]],
-    [["-1,1 +1,2", "hunk"]],
-    [["-|weird", undefined]],
-    [["new", "added"]],
-  ]);
+  expect(hunk).toEqual([[["-1,1 +1,2", "hunk"]], [["-|weird", undefined]], [["new", "added"]]]);
 });
 
-test("diffDoc names an absent version /dev/null", () => {
+test("diffDoc omits the redundant file-name lines for a newly added file", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: undefined, next: "new\n" } }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
-    /dev/null
-    new/api.ts
     -1,0 +1,1
     new"
   `);
