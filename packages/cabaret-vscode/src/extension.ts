@@ -533,8 +533,10 @@ function createDecorations(): StyleDecorations {
     });
   return {
     heading: vscode.window.createTextEditorDecorationType({ fontWeight: "bold" }),
-    added: wash("diffEditor.insertedLineBackground", "editorOverviewRuler.addedForeground", "+"),
-    removed: wash("diffEditor.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
+    // Our own contributed pair rather than the diff editor's: its default
+    // green is duller than its red, and a wash this prominent wants balance.
+    added: wash("cabaret.addedLineBackground", "editorOverviewRuler.addedForeground", "+"),
+    removed: wash("cabaret.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
   };
 }
 

@@ -17,6 +17,28 @@
     "onFileSystem:cabaret"
   ],
   "contributes": {
+    "colors": [
+      {
+        "id": "cabaret.addedLineBackground",
+        "description": "Background of an added line in a Cabaret diff",
+        "defaults": {
+          "dark": "#2ea04333",
+          "light": "#2ea04326",
+          "highContrast": "#2ea04333",
+          "highContrastLight": "#2ea04326"
+        }
+      },
+      {
+        "id": "cabaret.removedLineBackground",
+        "description": "Background of a removed line in a Cabaret diff",
+        "defaults": {
+          "dark": "#f8514933",
+          "light": "#f8514926",
+          "highContrast": "#f8514933",
+          "highContrastLight": "#f8514926"
+        }
+      }
+    ],
     "commands": [
       {
         "command": "cabaret.todo",
