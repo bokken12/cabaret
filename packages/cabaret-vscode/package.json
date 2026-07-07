@@ -83,6 +83,10 @@
         "title": "Cabaret: Reparent"
       },
       {
+        "command": "cabaret.setOwner",
+        "title": "Cabaret: Set Owner"
+      },
+      {
         "command": "cabaret.createChild",
         "title": "Cabaret: Create Child"
       },
@@ -135,6 +139,10 @@
         },
         {
           "command": "cabaret.reparent",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.setOwner",
           "when": "resourceScheme == cabaret"
         },
         {
@@ -216,6 +224,11 @@
       {
         "command": "cabaret.reparent",
         "key": "shift+1 r p",
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.setOwner",
+        "key": "shift+1 o",
         "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {

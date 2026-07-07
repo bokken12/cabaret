@@ -94,9 +94,8 @@ test("only the owner may rename, unless overridden", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("owner", "show", "mine")).toEqual({
-    stdout: "bob@example.com\n",
-    stderr: "",
-    exitCode: 0,
-  });
+  // The rename moved the log, owner and all.
+  expect((await repo.cabaret("log", "mine")).stdout).toContain(
+    '"action":{"kind":"set-owner","owner":"bob@example.com"}',
+  );
 });

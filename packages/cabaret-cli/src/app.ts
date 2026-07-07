@@ -1,14 +1,11 @@
 import { buildApplication, buildCommand, buildRouteMap, text_en } from "@stricli/core";
 import {
   assertChangeExists,
-  assertNotLanded,
   type Backend,
   brain,
   changeBase,
   createChange,
-  currentComments,
   currentForgeRequest,
-  currentOwner,
   currentParent,
   type DiffSegment,
   type FilePath,
@@ -32,10 +29,10 @@ import {
   rebaseChange,
   renameChange,
   reparentChange,
-  requireOwner,
   resolveRange,
   reviewSegments,
   type Todo,
+  transferChange,
   UserError,
   type UserName,
   userName,
@@ -153,74 +150,35 @@ function parseCommentText(raw: string): string {
   return raw;
 }
 
-const comments = buildRouteMap({
-  docs: { brief: "Show or add comments on a change" },
-  routes: {
-    add: buildCommand({
-      docs: {
-        brief: "Add a comment to a change",
-        fullDescription: "Add a comment to a change. Appends one `comment` entry to the change's log.",
+const comment = buildCommand({
+  docs: {
+    brief: "Add a comment to a change",
+    fullDescription:
+      "Add a comment to a change. Appends one `comment` entry to the change's " + "log; `show` displays the comments.",
+  },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [{ brief: "the comment text", placeholder: "text", parse: parseCommentText }],
+    },
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to comment on (defaults to current)",
+        optional: true,
       },
-      parameters: {
-        positional: {
-          kind: "tuple",
-          parameters: [{ brief: "the comment text", placeholder: "text", parse: parseCommentText }],
-        },
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Change to comment on (defaults to current)",
-            optional: true,
-          },
-        },
-      },
-      async func(this: LocalContext, flags: { change?: RefName }, text: string) {
-        const backend = await this.backend();
-        const change = flags.change ?? (await backend.currentBranch());
-        // Logs are only ever started by `create`; appending to a missing one
-        // would conjure a change out of thin air.
-        assertChangeExists(change, await backend.readLog(change));
-        await backend.appendLog(change, [
-          { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
-        ]);
-      },
-    }),
-    show: buildCommand({
-      docs: {
-        brief: "Show the comments on a change",
-        fullDescription: "Show the comments on a change, oldest first: each comment's time and author, then its text.",
-      },
-      parameters: {
-        positional: {
-          kind: "tuple",
-          parameters: [
-            {
-              brief: "change to inspect (defaults to current)",
-              placeholder: "change",
-              parse: parseRefName,
-              optional: true,
-            },
-          ],
-        },
-      },
-      async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
-        const backend = await this.backend();
-        const target = change ?? (await backend.currentBranch());
-        const entries = await backend.readLog(target);
-        assertChangeExists(target, entries);
-        const rendered = (await currentComments(entries)).map(
-          ({ timestamp, user, text }) =>
-            `${new Date(timestamp).toISOString()} ${user}\n${text
-              .split("\n")
-              .map((line) => (line === "" ? "" : `  ${line}`))
-              .join("\n")}\n`,
-        );
-        // A blank line between comments, since consecutive comments would
-        // otherwise run together.
-        this.process.stdout.write(rendered.join("\n"));
-      },
-    }),
+    },
+  },
+  async func(this: LocalContext, flags: { change?: RefName }, text: string) {
+    const backend = await this.backend();
+    const change = flags.change ?? (await backend.currentBranch());
+    // Logs are only ever started by `create`; appending to a missing one
+    // would conjure a change out of thin air.
+    assertChangeExists(change, await backend.readLog(change));
+    await backend.appendLog(change, [
+      { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
+    ]);
   },
 });
 
@@ -663,62 +621,32 @@ const log = buildCommand({
   },
 });
 
-const owner = buildRouteMap({
-  docs: { brief: "Show or transfer a change's owner" },
-  routes: {
-    show: buildCommand({
-      docs: { brief: "Show a change's owner" },
-      parameters: {
-        positional: {
-          kind: "tuple",
-          parameters: [
-            {
-              brief: "change to inspect (defaults to current)",
-              placeholder: "change",
-              parse: parseRefName,
-              optional: true,
-            },
-          ],
-        },
+const setOwner = buildCommand({
+  docs: {
+    brief: "Set a change's owner",
+    fullDescription:
+      "Set a change's owner, replacing the current one. Only the owner may " +
+      "transfer ownership; `show` displays the owner.",
+  },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [{ brief: "the new owner", placeholder: "user", parse: parseUser }],
+    },
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to transfer (defaults to current)",
+        optional: true,
       },
-      async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
-        const backend = await this.backend();
-        const target = change ?? (await backend.currentBranch());
-        this.process.stdout.write(`${currentOwner(target, await backend.readLog(target))}\n`);
-      },
-    }),
-    transfer: buildCommand({
-      docs: {
-        brief: "Transfer ownership of a change",
-        fullDescription:
-          "Transfer ownership of a change, replacing the current owner. Only " + "the owner may transfer ownership.",
-      },
-      parameters: {
-        positional: {
-          kind: "tuple",
-          parameters: [{ brief: "the new owner", placeholder: "user", parse: parseUser }],
-        },
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Change to transfer (defaults to current)",
-            optional: true,
-          },
-          evenThoughNotOwner,
-        },
-      },
-      async func(this: LocalContext, flags: { change?: RefName; evenThoughNotOwner: boolean }, newOwner: UserName) {
-        const backend = await this.backend();
-        const change = flags.change ?? (await backend.currentBranch());
-        const entries = await backend.readLog(change);
-        assertNotLanded(change, entries);
-        await requireOwner(backend, change, entries, flags.evenThoughNotOwner);
-        await backend.appendLog(change, [
-          { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "set-owner", owner: newOwner } },
-        ]);
-      },
-    }),
+      evenThoughNotOwner,
+    },
+  },
+  async func(this: LocalContext, flags: { change?: RefName; evenThoughNotOwner: boolean }, newOwner: UserName) {
+    const backend = await this.backend();
+    const change = flags.change ?? (await backend.currentBranch());
+    await transferChange(backend, this.now, change, newOwner, flags.evenThoughNotOwner);
   },
 });
 
@@ -979,7 +907,7 @@ const routes = buildRouteMap({
   routes: {
     approve,
     approvers,
-    comments,
+    comment,
     create,
     diff,
     forget,
@@ -987,11 +915,11 @@ const routes = buildRouteMap({
     glab,
     land,
     log,
-    owner,
     rebase,
     rename,
     reparent,
     review,
+    "set-owner": setOwner,
     show,
     sync,
     todo,

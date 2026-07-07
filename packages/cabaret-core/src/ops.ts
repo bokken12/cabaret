@@ -309,6 +309,22 @@ export async function reparentChange(
   ]);
 }
 
+/** Transfer `change` to a new owner. Only the current owner may transfer it. */
+export async function transferChange(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: RefName,
+  owner: UserName,
+  override: boolean,
+): Promise<void> {
+  const entries = await backend.readLog(change);
+  assertNotLanded(change, entries);
+  await requireOwner(backend, change, entries, override);
+  await backend.appendLog(change, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-owner", owner } },
+  ]);
+}
+
 /**
  * Rename an unlanded change: move its branch and its log to the new name
  * together, atomically.

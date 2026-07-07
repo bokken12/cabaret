@@ -7,6 +7,7 @@ import {
   parseFilePath,
   parseForgeLocator,
   parseRefName,
+  timestampMs,
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
@@ -107,6 +108,7 @@ test("showDoc renders the attribute table and files left", () => {
       forgeRequest: { forge: parseForgeLocator("github.com/test-org/widgets"), request: forgeRequestId(7) },
       reviewLeft: files("api.ts", "ui.ts"),
     }),
+    comments: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -149,6 +151,13 @@ test("showDoc renders an unimported request as the change importing it would cre
       changedFiles: 2,
     },
     files: files("api.ts", "ui.ts"),
+    comments: [
+      {
+        timestamp: timestampMs(Date.UTC(2025, 5, 15, 15, 6, 40)),
+        user: userName("carol@users.noreply.github.com"),
+        text: "please take a look",
+      },
+    ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "their-feature
@@ -163,6 +172,10 @@ test("showDoc renders an unimported request as the change importing it would cre
     │ forge request │ github.com/test-org/widgets#7  │
     │ title         │ Their feature                  │
     ╰───────────────┴────────────────────────────────╯
+
+    Comments:
+      2025-06-15T15:06:40.000Z carol@users.noreply.github.com
+        please take a look
 
     Files to review:
       api.ts
@@ -179,8 +192,57 @@ test("showDoc renders an unimported request as the change importing it would cre
   expect(targetAt(doc, line)).toBeUndefined();
 });
 
+test("showDoc renders comments between the attributes and the files, multi-line text indented", () => {
+  const doc = showDoc({
+    kind: "change",
+    summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
+    comments: [
+      {
+        timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
+        user: alice,
+        text: "does this handle empty diffs?",
+      },
+      {
+        timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 4)),
+        user: userName("bob@example.com"),
+        text: "second thoughts:\n\nthe flag name reads oddly",
+      },
+    ],
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯
+
+    Comments:
+      2025-05-23T11:33:20.003Z alice@example.com
+        does this handle empty diffs?
+
+      2025-05-23T11:33:20.004Z bob@example.com
+        second thoughts:
+
+        the flag name reads oddly
+
+    Files to review:
+      gadget.ts"
+  `);
+});
+
 test("showDoc renders a landed change without a files section", () => {
-  const doc = showDoc({ kind: "change", summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }) });
+  const doc = showDoc({
+    kind: "change",
+    summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
+    comments: [],
+  });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======

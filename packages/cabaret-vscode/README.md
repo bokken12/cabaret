@@ -15,7 +15,8 @@ text buffers, so search, selection, and vim keybindings work untouched.
   or to the todo page from a change rooted on a trunk — and `$` descends to a
   child's, picking one when there are several.
 - Change actions sit behind `!` chords: `!c` creates a child, `!p` splices in
-  a parent, `!rb` rebases, `!rn` renames, `!rp` reparents, and `!la` lands.
+  a parent, `!o` sets the owner, `!rb` rebases, `!rn` renames, `!rp`
+  reparents, and `!la` lands.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
 - With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f
