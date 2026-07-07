@@ -43,8 +43,7 @@ export interface ReviewPage {
 
 export async function reviewPage(backend: Backend, user: UserName, change: RefName): Promise<ReviewPage> {
   const entries = await backend.readLog(change);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   const rounds = await reviewRounds(backend, entries, user, base, tip);
   const first = rounds[0];
   return {
@@ -101,9 +100,11 @@ export async function markReviewed(
   file: FilePath,
 ): Promise<MarkReviewedResult> {
   const entries = await backend.readLog(change);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
-  const user = await backend.currentUser();
+  const [base, tip, user] = await Promise.all([
+    changeBase(backend, change, entries),
+    changeTip(backend, change, entries),
+    backend.currentUser(),
+  ]);
   const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(file));
   if (round === undefined) {
     return { kind: "nothing-left" };
@@ -142,8 +143,7 @@ export interface DiffPage {
 
 export async function diffPage(backend: Backend, user: UserName, change: RefName, file: FilePath): Promise<DiffPage> {
   const entries = await backend.readLog(change);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   let found: { end: CommitHash; view: FileView } | undefined;
   let later = 0;
   for (const { end, files } of await reviewRounds(backend, entries, user, base, tip)) {
@@ -161,11 +161,10 @@ export async function diffPage(backend: Backend, user: UserName, change: RefName
     return { change, file, round: undefined };
   }
   const { end, view } = found;
-  const two = async (from: CommitHash): Promise<DiffView> => ({
-    kind: "two",
-    prev: await backend.readFile(from, file),
-    next: await backend.readFile(end, file),
-  });
+  const two = async (from: CommitHash): Promise<DiffView> => {
+    const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(end, file)]);
+    return { kind: "two", prev, next };
+  };
   switch (view.kind) {
     case "span":
       return { change, file, round: { end, later, view: await two(view.start) } };

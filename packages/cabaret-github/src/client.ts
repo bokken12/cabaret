@@ -48,9 +48,21 @@ export type GitHubClient = InstanceType<typeof GitHub>;
  * would otherwise pace at real-time write speed (one per second) — and its
  * limiter state is process-global, so fake timers cannot stand in.
  */
+// This package compiles against bare es2025 to stay platform-agnostic, so the
+// runtime-provided fetch is declared rather than imported from a lib.
+declare const fetch: (url: unknown, init?: object) => Promise<unknown>;
+
 export function githubClient(token: string, { throttled = true }: { readonly throttled?: boolean } = {}): GitHubClient {
   return new GitHub({
     auth: token,
+    request: {
+      // The API answers GETs with `Cache-Control: private, max-age=60`, and a
+      // browser honors that: for a minute after a write, rereads of a ref
+      // would come from the HTTP cache and serve the pre-write state — a
+      // review mark that appears to not stick. Node's fetch never caches, so
+      // this only disciplines browsers.
+      fetch: (url: unknown, init: object) => fetch(url, { ...init, cache: "no-store" }),
+    },
     throttle: {
       enabled: throttled,
       onRateLimit: (_retryAfter, _options, _octokit, retryCount) => retryCount === 0,

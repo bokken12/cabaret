@@ -90,8 +90,7 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   const rounds = await reviewRounds(backend, entries, user, base, tip);
   const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
   return {

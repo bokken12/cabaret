@@ -43,6 +43,17 @@ const CompareSchema = z.object({
   merge_base_commit: z.object({ sha: z.string().transform(parseCommitHash) }),
 });
 
+const CompareCommitsSchema = z.object({
+  total_commits: z.number(),
+  commits: z.array(
+    z.object({
+      sha: z.string().transform(parseCommitHash),
+      commit: z.object({ message: z.string() }),
+      parents: z.array(z.object({ sha: z.string().transform(parseCommitHash) })),
+    }),
+  ),
+});
+
 const TreeSchema = z.object({
   truncated: z.boolean(),
   tree: z.array(z.object({ path: z.string(), mode: z.string(), type: z.string(), sha: z.string() })),
@@ -78,11 +89,34 @@ const REVISION_SUFFIX = /(?:\^(\d*)|~(\d+))$/;
  */
 export class GitHubBackend implements Backend {
   private user: Promise<UserName> | undefined;
+  // Git objects and the facts derived from them are immutable once a hash is
+  // known, so hash-keyed queries cache for the backend's lifetime: reviewing
+  // walks the same history from several pages, and each fact should cost one
+  // request per session, not one per page. Only mutable reads — refs and the
+  // logs behind them — always go to the API.
+  private readonly commits = new Map<CommitHash, Promise<z.infer<typeof CommitSchema>>>();
+  private readonly contents = new Map<string, Promise<string | undefined>>();
+  private readonly ancestry = new Map<string, Promise<boolean>>();
+  private readonly diffs = new Map<string, Promise<readonly FilePath[]>>();
+  private readonly lands = new Map<string, Promise<readonly LandMerge[]>>();
 
   constructor(
     private readonly client: GitHubClient,
     private readonly repo: GitHubRepo,
   ) {}
+
+  /** The cached promise for `key`, computing and remembering it on the first ask; a rejection is not cached. */
+  private cached<K, V>(cache: Map<K, Promise<V>>, key: K, compute: () => Promise<V>): Promise<V> {
+    let value = cache.get(key);
+    if (value === undefined) {
+      value = compute().catch((error: unknown) => {
+        cache.delete(key);
+        throw error;
+      });
+      cache.set(key, value);
+    }
+    return value;
+  }
 
   async currentBranch(): Promise<RefName> {
     throw new UserError("no branch is checked out over the GitHub API; name the change explicitly");
@@ -175,12 +209,14 @@ export class GitHubBackend implements Backend {
   }
 
   /** The Git-database commit object at `sha`. */
-  private async commit(sha: CommitHash): Promise<z.infer<typeof CommitSchema>> {
-    const { data } = await this.client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
-      ...this.repo,
-      commit_sha: sha,
+  private commit(sha: CommitHash): Promise<z.infer<typeof CommitSchema>> {
+    return this.cached(this.commits, sha, async () => {
+      const { data } = await this.client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
+        ...this.repo,
+        commit_sha: sha,
+      });
+      return CommitSchema.parse(data);
     });
-    return CommitSchema.parse(data);
   }
 
   async createBranch(name: RefName, commit: CommitHash): Promise<void> {
@@ -215,11 +251,13 @@ export class GitHubBackend implements Backend {
     return merge_base_commit.sha;
   }
 
-  async isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean> {
-    // The head is "ahead" (or the same commit) exactly when the base is its
-    // ancestor.
-    const { status } = await this.compare(`${ancestor}...${descendant}`);
-    return status === "ahead" || status === "identical";
+  isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean> {
+    return this.cached(this.ancestry, `${ancestor}..${descendant}`, async () => {
+      // The head is "ahead" (or the same commit) exactly when the base is its
+      // ancestor.
+      const { status } = await this.compare(`${ancestor}...${descendant}`);
+      return status === "ahead" || status === "identical";
+    });
   }
 
   async rebaseOnto(): Promise<void> {
@@ -249,25 +287,44 @@ export class GitHubBackend implements Backend {
     return commit;
   }
 
-  async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
-    // Walk the first-parent chain from tip, one commit fetch per step,
-    // stopping like `git log base..tip` does: at the first commit reachable
-    // from base — which need not be base itself when history merged the
-    // parent in rather than rebasing. The trailer marks nothing on a
-    // non-merge: only a true merge carries a reviewed child as its second
-    // parent, so anything else — say a cherry-pick of a land merge, which
-    // copies the message verbatim — still needs review.
+  landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
+    return this.cached(this.lands, `${base}..${tip}`, () => this.landMergesUncached(base, tip));
+  }
+
+  private async landMergesUncached(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
+    // One compare call lists exactly `git log base..tip` — the commits
+    // reachable from tip but not from base. Walking first parents within
+    // that set finds the first-parent chain and stops where the chain
+    // reaches history the base can see, which need not be base itself when
+    // history merged the parent in rather than rebasing. The trailer marks
+    // nothing on a non-merge: only a true merge carries a reviewed child as
+    // its second parent, so anything else — say a cherry-pick of a land
+    // merge, which copies the message verbatim — still needs review.
+    const listed: z.infer<typeof CompareCommitsSchema>["commits"] = [];
+    for (let page = 1; ; page++) {
+      const { data } = await this.client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
+        ...this.repo,
+        basehead: `${base}...${tip}`,
+        per_page: 100,
+        page,
+      });
+      const { total_commits, commits } = CompareCommitsSchema.parse(data);
+      listed.push(...commits);
+      if (listed.length >= total_commits || commits.length === 0) {
+        break;
+      }
+    }
+    const bySha = new Map(listed.map((commit) => [commit.sha, commit]));
     const merges: LandMerge[] = [];
-    for (let sha = tip; sha !== base && !(await this.isAncestor(sha, base)); ) {
-      const { message, parents } = await this.commit(sha);
-      const onto = parents[0]?.sha;
+    for (let commit = bySha.get(tip); commit !== undefined; ) {
+      const onto = commit.parents[0]?.sha;
       if (onto === undefined) {
         break;
       }
-      if (parents.length > 1 && hasLandTrailer(message)) {
-        merges.push({ commit: sha, onto });
+      if (commit.parents.length > 1 && hasLandTrailer(commit.commit.message)) {
+        merges.push({ commit: commit.sha, onto });
       }
-      sha = onto;
+      commit = bySha.get(onto);
     }
     return merges.reverse();
   }
@@ -289,7 +346,11 @@ export class GitHubBackend implements Backend {
     return this.listChanges();
   }
 
-  async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
+  readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
+    return this.cached(this.contents, `${commit}:${file}`, () => this.readFileUncached(commit, file));
+  }
+
+  private async readFileUncached(commit: CommitHash, file: FilePath): Promise<string | undefined> {
     try {
       const { data } = await this.client.request("GET /repos/{owner}/{repo}/contents/{path}", {
         ...this.repo,
@@ -308,7 +369,11 @@ export class GitHubBackend implements Backend {
     }
   }
 
-  async changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]> {
+  changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]> {
+    return this.cached(this.diffs, `${base}..${tip}`, () => this.changedFilesUncached(base, tip));
+  }
+
+  private async changedFilesUncached(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]> {
     // Diffing two recursive tree listings rather than asking compare, which
     // silently caps its file list at 300. The tree diff is also exactly
     // GitBackend's semantics for free: no rename detection (a moved file is
