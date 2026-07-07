@@ -1,6 +1,24 @@
-import { type CommitHash, parseCommitHash, parseFilePath, parseRefName } from "cabaret-core";
+import {
+  type Backend,
+  type CommitHash,
+  type LogEntry,
+  parseCommitHash,
+  parseFilePath,
+  parseRefName,
+  timestampMs,
+  userName,
+} from "cabaret-core";
 import { expect, test } from "vitest";
-import { type DiffPage, diffDoc, docText, reviewDoc, targetAt } from "../index.js";
+import {
+  type ChangeSnapshot,
+  type DiffPage,
+  diffDoc,
+  docText,
+  markReviewed,
+  reviewDoc,
+  reviewPage,
+  targetAt,
+} from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -273,4 +291,81 @@ test("diffDoc with no review left says so", () => {
 
     Nothing left to review."
   `);
+});
+
+function snapshotWith(files: readonly string[], secondRound: readonly string[] = []): ChangeSnapshot {
+  const round = (end: CommitHash, names: readonly string[]) => ({
+    end,
+    files: new Map(names.map((name) => [parseFilePath(name), { kind: "span", start: fake("1") } as const])),
+  });
+  return {
+    change: widgets,
+    user: userName("alice@example.com"),
+    base: fake("1"),
+    tip: fake("3"),
+    rounds: [round(fake("2"), files), ...(secondRound.length === 0 ? [] : [round(fake("3"), secondRound)])],
+  };
+}
+
+/** A backend of which only `appendLog` is exercised, recording what lands. */
+function appendOnly(appended: LogEntry[][]): Backend {
+  return {
+    appendLog: async (_change, entries) => {
+      appended.push([...entries]);
+    },
+  } as Backend;
+}
+
+const at = timestampMs(1748000000000);
+
+test("markReviewed records the snapshot's round end and marks the file off", () => {
+  const appended: LogEntry[][] = [];
+  const snapshot = snapshotWith(["a.ts", "b.ts", "c.ts"]);
+  const result = markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"));
+  expect(result.kind).toBe("marked");
+  if (result.kind !== "marked") {
+    throw new Error("unreachable");
+  }
+  expect(result.next).toBe("c.ts");
+  expect(appended).toEqual([
+    [
+      {
+        timestamp: at,
+        user: userName("alice@example.com"),
+        action: { kind: "review", file: parseFilePath("b.ts"), base: fake("1"), tip: fake("2") },
+      },
+    ],
+  ]);
+  expect(reviewPage(result.snapshot)).toEqual({
+    change: widgets,
+    round: { end: fake("2"), files: [parseFilePath("a.ts"), parseFilePath("c.ts")], later: 0 },
+  });
+});
+
+test("marking past the last file wraps to the earliest unmarked, then ends the round", () => {
+  const appended: LogEntry[][] = [];
+  const backend = appendOnly(appended);
+  const first = markReviewed(backend, () => at, snapshotWith(["a.ts", "c.ts"], ["z.ts"]), parseFilePath("c.ts"));
+  if (first.kind !== "marked") {
+    throw new Error("unreachable");
+  }
+  expect(first.next).toBe("a.ts");
+  const second = markReviewed(backend, () => at, first.snapshot, parseFilePath("a.ts"));
+  if (second.kind !== "marked") {
+    throw new Error("unreachable");
+  }
+  // The emptied round drops away; the next round takes over on the review page.
+  expect(second.next).toBeUndefined();
+  expect(reviewPage(second.snapshot)).toEqual({
+    change: widgets,
+    round: { end: fake("3"), files: [parseFilePath("z.ts")], later: 0 },
+  });
+  expect(appended).toHaveLength(2);
+});
+
+test("markReviewed of a file with no review pending records nothing", () => {
+  const appended: LogEntry[][] = [];
+  const result = markReviewed(appendOnly(appended), () => at, snapshotWith(["a.ts"]), parseFilePath("other.ts"));
+  expect(result).toEqual({ kind: "nothing-left" });
+  expect(appended).toEqual([]);
 });

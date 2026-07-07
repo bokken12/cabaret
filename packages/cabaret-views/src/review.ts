@@ -7,6 +7,7 @@ import {
   type FileView,
   type RefName,
   type ReviewedDiff,
+  type ReviewRound,
   reviewRounds,
   type TimestampMs,
   type UserName,
@@ -27,6 +28,34 @@ function moreRounds(later: number): string {
   return later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
 }
 
+/**
+ * One reading of a change's review state: everything the review and diff
+ * pages derive their content from, queried once. Pages rendered from one
+ * snapshot agree with each other, and a mark records exactly the round its
+ * snapshot displayed — a commit racing the keypress cannot widen the marked
+ * diff. A host chooses how long to keep one: fresh per render, or held for a
+ * whole file-by-file review pass, where going stale only means not seeing
+ * review state that changed elsewhere until the next refresh.
+ */
+export interface ChangeSnapshot {
+  readonly change: RefName;
+  /** Whose review state this is: the backend's current user. */
+  readonly user: UserName;
+  readonly base: CommitHash;
+  readonly tip: CommitHash;
+  readonly rounds: readonly ReviewRound[];
+}
+
+export async function changeSnapshot(backend: Backend, change: RefName): Promise<ChangeSnapshot> {
+  const entries = await backend.readLog(change);
+  const [base, tip, user] = await Promise.all([
+    changeBase(backend, change, entries),
+    changeTip(backend, change, entries),
+    backend.currentUser(),
+  ]);
+  return { change, user, base, tip, rounds: await reviewRounds(backend, entries, user, base, tip) };
+}
+
 /** A change's current round of review: what to read before any newer round opens. */
 export interface ReviewPage {
   readonly change: RefName;
@@ -41,14 +70,11 @@ export interface ReviewPage {
     | undefined;
 }
 
-export async function reviewPage(backend: Backend, user: UserName, change: RefName): Promise<ReviewPage> {
-  const entries = await backend.readLog(change);
-  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
-  const rounds = await reviewRounds(backend, entries, user, base, tip);
-  const first = rounds[0];
+export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
+  const first = snapshot.rounds[0];
   return {
-    change,
-    round: first && { end: first.end, files: [...first.files.keys()], later: rounds.length - 1 },
+    change: snapshot.change,
+    round: first && { end: first.end, files: [...first.files.keys()], later: snapshot.rounds.length - 1 },
   };
 }
 
@@ -82,46 +108,54 @@ export type MarkReviewedResult =
    * round. `next` is the round's next file in list order, wrapping past the
    * end for files skipped earlier; undefined when the round is done, where
    * the review page takes over — what to read next changes shape there.
+   * `snapshot` has the file marked off, ready to render those pages from.
    */
-  | { readonly kind: "marked"; readonly next: FilePath | undefined; readonly recorded: Promise<void> };
+  | {
+      readonly kind: "marked";
+      readonly next: FilePath | undefined;
+      readonly snapshot: ChangeSnapshot;
+      readonly recorded: Promise<void>;
+    };
 
 /**
- * Mark `file` reviewed by the current user at the end of its earliest
- * pending round.
+ * Mark `file` reviewed at the end of its earliest pending round in
+ * `snapshot` — exactly the round the caller's page displayed.
  *
- * The result resolves as soon as the round is known, with the append still
- * in flight behind `recorded`: a host may open `next`'s diff immediately,
- * because a review entry only changes its own file's view, and concurrent
- * appends commute (`appendLog` re-reads and retries a lost swap). Pages that
- * re-derive what the mark removed — the review page, the todo counts — are
- * only current once `recorded` resolves, and a host that moves on early owes
- * the user the rejection.
- *
- * TODO: take the round end the caller's open page actually rendered once
- * docs carry their query snapshot; a commit racing the action widens the
- * marked diff.
+ * The plan costs no queries, and the append rides behind `recorded`: a host
+ * may open `next`'s diff immediately, because a review entry only changes
+ * its own file's view, and concurrent appends commute (`appendLog` re-reads
+ * and retries a lost swap). A host that moves on early owes the user the
+ * rejection — and a fresh snapshot afterwards, since only the entry that
+ * landed is what other readers see.
  */
-export async function markReviewed(
+export function markReviewed(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
+  snapshot: ChangeSnapshot,
   file: FilePath,
-): Promise<MarkReviewedResult> {
-  const entries = await backend.readLog(change);
-  const [base, tip, user] = await Promise.all([
-    changeBase(backend, change, entries),
-    changeTip(backend, change, entries),
-    backend.currentUser(),
-  ]);
-  const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(file));
+): MarkReviewedResult {
+  const round = snapshot.rounds.find(({ files }) => files.has(file));
   if (round === undefined) {
     return { kind: "nothing-left" };
   }
-  const recorded = backend.appendLog(change, [
-    { timestamp: now(), user, action: { kind: "review", file, base, tip: round.end } },
+  const recorded = backend.appendLog(snapshot.change, [
+    { timestamp: now(), user: snapshot.user, action: { kind: "review", file, base: snapshot.base, tip: round.end } },
   ]);
+  const rounds = snapshot.rounds.flatMap((other) => {
+    if (other !== round) {
+      return [other];
+    }
+    const files = new Map(other.files);
+    files.delete(file);
+    return files.size === 0 ? [] : [{ end: other.end, files }];
+  });
   const remaining = [...round.files.keys()].filter((other) => other !== file);
-  return { kind: "marked", next: remaining.find((other) => other > file) ?? remaining[0], recorded };
+  return {
+    kind: "marked",
+    next: remaining.find((other) => other > file) ?? remaining[0],
+    snapshot: { ...snapshot, rounds },
+    recorded,
+  };
 }
 
 /** The versions a file's round of review compares. */
@@ -151,12 +185,12 @@ export interface DiffPage {
     | undefined;
 }
 
-export async function diffPage(backend: Backend, user: UserName, change: RefName, file: FilePath): Promise<DiffPage> {
-  const entries = await backend.readLog(change);
-  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
+/** Query the diff page for `file`: `snapshot`'s rounds locate the diff, and only the file contents are read. */
+export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
+  const { change, base } = snapshot;
   let found: { end: CommitHash; view: FileView } | undefined;
   let later = 0;
-  for (const { end, files } of await reviewRounds(backend, entries, user, base, tip)) {
+  for (const { end, files } of snapshot.rounds) {
     const view = files.get(file);
     if (view === undefined) {
       continue;
