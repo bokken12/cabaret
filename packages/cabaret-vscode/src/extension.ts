@@ -274,6 +274,7 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
       return;
     }
+    await result.recorded;
     await closeTabs(editor.document.uri);
     await openPage(
       provider,

@@ -78,16 +78,24 @@ export type MarkReviewedResult =
   /** The file had no review pending, so nothing was recorded. */
   | { readonly kind: "nothing-left" }
   /**
-   * The file was marked reviewed at the end of its earliest pending round.
-   * `next` is the round's next file in list order, wrapping past the end for
-   * files skipped earlier; undefined when the round is done, where the review
-   * page takes over — what to read next changes shape there.
+   * The file is being marked reviewed at the end of its earliest pending
+   * round. `next` is the round's next file in list order, wrapping past the
+   * end for files skipped earlier; undefined when the round is done, where
+   * the review page takes over — what to read next changes shape there.
    */
-  | { readonly kind: "marked"; readonly next: FilePath | undefined };
+  | { readonly kind: "marked"; readonly next: FilePath | undefined; readonly recorded: Promise<void> };
 
 /**
  * Mark `file` reviewed by the current user at the end of its earliest
  * pending round.
+ *
+ * The result resolves as soon as the round is known, with the append still
+ * in flight behind `recorded`: a host may open `next`'s diff immediately,
+ * because a review entry only changes its own file's view, and concurrent
+ * appends commute (`appendLog` re-reads and retries a lost swap). Pages that
+ * re-derive what the mark removed — the review page, the todo counts — are
+ * only current once `recorded` resolves, and a host that moves on early owes
+ * the user the rejection.
  *
  * TODO: take the round end the caller's open page actually rendered once
  * docs carry their query snapshot; a commit racing the action widens the
@@ -109,9 +117,11 @@ export async function markReviewed(
   if (round === undefined) {
     return { kind: "nothing-left" };
   }
-  await backend.appendLog(change, [{ timestamp: now(), user, action: { kind: "review", file, base, tip: round.end } }]);
+  const recorded = backend.appendLog(change, [
+    { timestamp: now(), user, action: { kind: "review", file, base, tip: round.end } },
+  ]);
   const remaining = [...round.files.keys()].filter((other) => other !== file);
-  return { kind: "marked", next: remaining.find((other) => other > file) ?? remaining[0] };
+  return { kind: "marked", next: remaining.find((other) => other > file) ?? remaining[0], recorded };
 }
 
 /** The versions a file's round of review compares. */

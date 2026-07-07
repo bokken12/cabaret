@@ -421,6 +421,74 @@ describe("logs", () => {
     ]);
   });
 
+  test("appends issued while one is in flight batch into a single commit", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: [
+        { json: { object: { type: "commit", sha: sha("1") } } },
+        { json: { object: { type: "commit", sha: sha("3") } } },
+      ],
+      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`GET ${REPOS}/contents/log?ref=${sha("3")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
+      [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
+      [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
+      [`POST ${REPOS}/git/commits`]: [
+        { status: 201, json: { sha: sha("3") } },
+        { status: 201, json: { sha: sha("4") } },
+      ],
+      [`PATCH ${REPOS}/git/refs/cabaret%2Flog%2Fbusy`]: { json: {} },
+    });
+    const at = (offset: number, text: string): LogEntry => ({
+      timestamp: timestampMs(1700000002000 + offset),
+      user: userName("alice@example.com"),
+      action: { kind: "comment", text },
+    });
+    const github = backend();
+    const change = parseRefName("busy");
+    // `other` seals a batch first; the two marks that follow while it is in
+    // flight ride the next commit together.
+    const first = github.appendLog(change, [other]);
+    await Promise.resolve();
+    const second = github.appendLog(change, [at(1, "mark a")]);
+    const third = github.appendLog(change, [at(2, "mark b")]);
+    await Promise.all([first, second, third]);
+    const blobs = calls
+      .filter(({ url, method }) => method === "POST" && url.endsWith("/git/blobs"))
+      .map(({ body }) => (JSON.parse(body ?? "{}") as { content: string }).content);
+    expect(blobs).toEqual([
+      formatLogEntry(entry) + formatLogEntry(other),
+      formatLogEntry(entry) + formatLogEntry(other) + formatLogEntry(at(1, "mark a")) + formatLogEntry(at(2, "mark b")),
+    ]);
+    expect(calls.filter(({ method }) => method === "PATCH")).toHaveLength(2);
+  });
+
+  test("a failed append rejects only its own batch", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: [
+        { status: 401, json: { message: "Bad credentials" } },
+        { json: { object: { type: "commit", sha: sha("1") } } },
+      ],
+      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
+      [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
+      [`POST ${REPOS}/git/commits`]: { status: 201, json: { sha: sha("3") } },
+      [`PATCH ${REPOS}/git/refs/cabaret%2Flog%2Fbusy`]: { json: {} },
+    });
+    const github = backend();
+    const change = parseRefName("busy");
+    const first = github.appendLog(change, [other]);
+    await Promise.resolve();
+    const second = github.appendLog(change, [
+      {
+        timestamp: timestampMs(1700000002000),
+        user: userName("alice@example.com"),
+        action: { kind: "comment", text: "after" },
+      },
+    ]);
+    await expect(first).rejects.toMatchObject({ status: 401 });
+    await second;
+    expect(calls.filter(({ method }) => method === "PATCH")).toHaveLength(1);
+  });
+
   test("appendLog with no entries stays offline", async () => {
     const calls = stubGitHub({});
     await backend().appendLog(parseRefName("idle"), []);

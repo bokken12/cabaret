@@ -98,6 +98,13 @@ export function startApp(root: HTMLElement, config: Config): void {
   // Track what is on screen so clicks hit-test against exactly it.
   let current: { readonly page: Page; readonly doc: Doc } | undefined;
   let seq = 0;
+  // Marks whose append has not landed yet: leaving the page would drop them.
+  let pendingMarks = 0;
+  window.addEventListener("beforeunload", (event) => {
+    if (pendingMarks > 0) {
+      event.preventDefault();
+    }
+  });
 
   async function render(): Promise<void> {
     const mine = ++seq;
@@ -167,7 +174,25 @@ export function startApp(root: HTMLElement, config: Config): void {
         notify(`nothing left to review in ${file}`);
         return;
       }
-      goto(result.next === undefined ? { kind: "review", change } : { kind: "diff", change, file: result.next });
+      pendingMarks++;
+      const recorded = result.recorded.finally(() => {
+        pendingMarks--;
+      });
+      if (result.next === undefined) {
+        // The review page re-derives the round, so it is only current once
+        // the mark lands.
+        await recorded;
+        goto({ kind: "review", change });
+        return;
+      }
+      // The next diff does not depend on the mark, so read it while the
+      // append is in flight; a failed append resurfaces here, where a
+      // re-render shows the file as the log has it.
+      goto({ kind: "diff", change, file: result.next });
+      recorded.catch((error: unknown) => {
+        notify(`marking ${file} failed: ${message(error)}`);
+        void render();
+      });
     } catch (error) {
       notify(message(error));
     }

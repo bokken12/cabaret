@@ -99,6 +99,11 @@ export class GitHubBackend implements Backend {
   private readonly ancestry = new Map<string, Promise<boolean>>();
   private readonly diffs = new Map<string, Promise<readonly FilePath[]>>();
   private readonly lands = new Map<string, Promise<readonly LandMerge[]>>();
+  // Per-change append batching: the open batch still accepting entries, and
+  // the settled-or-not tail of the append chain. `running` never rejects —
+  // failures surface through each batch's own `done`.
+  private readonly waiting = new Map<RefName, { entries: LogEntry[]; done: Promise<void> }>();
+  private readonly running = new Map<RefName, Promise<void>>();
 
   constructor(
     private readonly client: GitHubClient,
@@ -440,10 +445,41 @@ export class GitHubBackend implements Backend {
     return text;
   }
 
-  async appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void> {
+  appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void> {
     if (entries.length === 0) {
-      return;
+      return Promise.resolve();
     }
+    // One append per change at a time, and everything asked for while one is
+    // in flight rides the next commit together: entries commute, so batching
+    // is sound, and it keeps a burst of marks from stacking up a write queue
+    // (each append is several throttled writes) — or from racing this
+    // client's own compare-and-swap.
+    const open = this.waiting.get(change);
+    if (open !== undefined) {
+      open.entries.push(...entries);
+      return open.done;
+    }
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const done = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const batch = { entries: [...entries], done };
+    this.waiting.set(change, batch);
+    const previous = this.running.get(change) ?? Promise.resolve();
+    this.running.set(
+      change,
+      previous.then(async () => {
+        // Seal the batch: appends from here on open the next one.
+        this.waiting.delete(change);
+        await this.appendNow(change, batch.entries).then(resolve, reject);
+      }),
+    );
+    return done;
+  }
+
+  private async appendNow(change: RefName, entries: readonly LogEntry[]): Promise<void> {
     const ref = `${LOG_REF_PREFIX}${change}`;
     // Compare-and-swap on the old tip so a concurrent append can never be
     // silently lost: an unforced update is fast-forward-only, and the new
