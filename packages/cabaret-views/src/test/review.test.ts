@@ -102,6 +102,16 @@ test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   expect(targetAt(doc, added)).toEqual({ kind: "location", file: "api.ts", line: 41 });
 });
 
+test("diffDoc keeps a long modified line whole instead of splitting it", () => {
+  const long = (word: string) => `const banner = "${word}: ${"x".repeat(90)}";\n`;
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: long("before"), next: long("after") } }),
+  );
+  const hunk = doc.lines.slice(5).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([[[long("before").slice(0, -1), "removed"]], [[long("after").slice(0, -1), "added"]]]);
+  expect(targetAt(doc, 6)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+});
+
 test("diffDoc leaves a context line unstyled even when its text starts like a mark", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" } }),

@@ -179,6 +179,9 @@ export function renderDiff(file: FilePath, prev: string | undefined, next: strin
     output: color ? "Ansi" : "Ascii",
     // Unified lines are unsupported in Ascii output.
     produceUnifiedLines: color,
+    // Splitting a long modified line into partial context and changed pieces
+    // would break the line-per-source-line mapping structured hosts rely on.
+    splitLongLines: color,
     prev: { name: prevName, text: prev ?? "" },
     next: { name: nextName, text: next ?? "" },
   });
