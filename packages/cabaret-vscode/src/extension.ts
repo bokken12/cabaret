@@ -4,6 +4,7 @@ import {
   changeTip,
   createChange,
   currentParent,
+  type Forge,
   type ForgeRequestId,
   importRequest,
   landChain,
@@ -19,7 +20,7 @@ import {
   type TimestampMs,
   timestampMs,
 } from "cabaret-core";
-import { GitBackend, GitHubForge } from "cabaret-node";
+import { GitBackend, openGitHubForge } from "cabaret-node";
 import { type Doc, docText, targetAt } from "cabaret-views";
 import * as vscode from "vscode";
 import { type Page, pagePath, parsePagePath } from "./pages.js";
@@ -39,11 +40,11 @@ async function openBackend(): Promise<GitBackend> {
 
 /**
  * Open the forge for the first workspace folder's origin, or undefined when
- * none is reachable (no folder, no `gh`, or a non-GitHub origin).
+ * none is reachable (no folder, no token, or a non-GitHub origin).
  */
-async function openForge(): Promise<GitHubForge | undefined> {
+async function openForge(): Promise<Forge | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
-  return folder === undefined ? undefined : GitHubForge.open(folder.uri.fsPath).catch(() => undefined);
+  return folder === undefined ? undefined : openGitHubForge(folder.uri.fsPath).catch(() => undefined);
 }
 
 /**

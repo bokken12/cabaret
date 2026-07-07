@@ -4,6 +4,7 @@
     { "path": "packages/patdiff" },
     { "path": "packages/cabaret-util" },
     { "path": "packages/cabaret-core" },
+    { "path": "packages/cabaret-github" },
     { "path": "packages/cabaret-views" },
     { "path": "packages/cabaret-node" },
     { "path": "packages/cabaret-cli" },

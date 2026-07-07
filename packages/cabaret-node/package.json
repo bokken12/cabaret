@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "cabaret-core": "workspace:*",
-    "zod": "^4.4.3"
+    "cabaret-github": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

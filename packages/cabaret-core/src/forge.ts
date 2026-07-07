@@ -50,7 +50,7 @@ export interface ForgeComment {
 
 /**
  * The operations Cabaret needs from a code forge (GitHub, GitLab, …).
- * Implementations live in `cabaret-node`.
+ * Implementations live in `cabaret-github` and friends.
  */
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
