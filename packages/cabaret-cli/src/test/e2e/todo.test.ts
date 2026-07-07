@@ -36,7 +36,7 @@ test("todo with no changes has nothing to do", async () => {
   `);
 });
 
-test("todo lists open PRs with no change, and importing one adopts it", async () => {
+test("an open PR stands in as a change to review until imported", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -51,11 +51,12 @@ test("todo lists open PRs with no change, and importing one adopts it", async ()
   await repo.git("branch", "-qD", "their-feature");
   forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    │ gadget │      1 │
-    ╰────────┴────────╯
+    "╭───────────────┬────────╮
+    │ change        │ review │
+    ├───────────────┼────────┤
+    │ gadget        │      1 │
+    │ their-feature │      1 │
+    ╰───────────────┴────────╯
 
     Changes you own:
     ╭────────┬────────┬───────────╮
@@ -63,13 +64,6 @@ test("todo lists open PRs with no change, and importing one adopts it", async ()
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
-
-    Pull requests:
-    ╭─────────┬───────────────┬───────────────┬───────────╮
-    │ request │ change        │ title         │ next step │
-    ├─────────┼───────────────┼───────────────┼───────────┤
-    │      #1 │ their-feature │ Their feature │ import    │
-    ╰─────────┴───────────────┴───────────────┴───────────╯
     "
   `);
   await repo.cabaret("gh", "import", "1");
@@ -87,6 +81,28 @@ test("todo lists open PRs with no change, and importing one adopts it", async ()
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
+    "
+  `);
+});
+
+test("your own PR joins the changes you own when identities align", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("config", "user.email", "alice@users.noreply.github.com");
+  forge.openRequest("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", 2);
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "╭──────────────┬────────╮
+    │ change       │ review │
+    ├──────────────┼────────┤
+    │ solo-feature │      2 │
+    ╰──────────────┴────────╯
+
+    Changes you own:
+    ╭──────────────┬────────┬───────────╮
+    │ change       │ review │ next step │
+    ├──────────────┼────────┼───────────┤
+    │ solo-feature │      2 │ import    │
+    ╰──────────────┴────────┴───────────╯
     "
   `);
 });

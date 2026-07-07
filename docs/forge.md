@@ -60,7 +60,7 @@ No separate id-mapping table exists anywhere; the mapping is reconstructible fro
 For each issue comment on the PR, import a log entry:
 
 - `timestamp`: the forge's own clock — `updated_at` (which equals `created_at` when never edited), in ms.
-- `user`: the author's `login@users.noreply.github.com` (GitHub's real noreply convention; actual emails aren't exposed by the API, and `identity.md` already accepts that identity is unverified).
+- `user`: the author's public profile email when their account shows one, else `login@users.noreply.github.com` (GitHub's real noreply convention; `identity.md` already accepts that identity is unverified).
 - `action`: `comment` with the body as `text` and `source` set.
 
 Skip any comment whose id already appears as a `source` in the log, and any comment bearing a `cabaret:` marker whose hash matches a local entry (that's our own reflection — importing it would echo).
@@ -106,7 +106,7 @@ Small, imperative, everything the planner can't compute:
 interface Forge {
   /** The open request with head `branch`, if any. */
   findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
-  /** Every open request; the todo page lists the ones with no change log as importable. */
+  /** Every open request; on the todo page the ones with no change log stand in as changes awaiting import. */
   listOpenRequests(): Promise<readonly ForgeRequest[]>;
   getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
   createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest>;
@@ -116,7 +116,7 @@ interface Forge {
 }
 ```
 
-with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeRequest` carrying `id`, `head`, `base`, `title`, `author`, `state`, `merge`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeRequest` carrying `id`, `head`, `base`, `title`, `author`, `state`, `merge`, `changedFiles`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
 
 ## Data model changes
 

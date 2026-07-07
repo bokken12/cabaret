@@ -1,6 +1,7 @@
 import {
   type ChangeSummary,
   type CommitHash,
+  type ForgeRequest,
   forgeRequestId,
   parseCommitHash,
   parseFilePath,
@@ -9,7 +10,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { docText, showDoc, targetAt, todoDoc } from "../index.js";
+import { docText, showDoc, type TodoItem, targetAt, todoDoc } from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -34,7 +35,8 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 
 const files = (...names: string[]) => names.map(parseFilePath);
 
-test("todoDoc lays out the review table, the owned tree, and the requests to import", () => {
+test("todoDoc lays out the review table and the owned tree, requests standing in as changes", () => {
+  const change = (summary: ChangeSummary): TodoItem => ({ kind: "change", summary });
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
     parent: parseRefName("gadget"),
@@ -43,60 +45,55 @@ test("todoDoc lays out the review table, the owned tree, and the requests to imp
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
+  const request: ForgeRequest = {
+    id: forgeRequestId(7),
+    head: parseRefName("their-feature"),
+    base: parseRefName("main"),
+    title: "Their feature",
+    author: alice,
+    state: "open",
+    changedFiles: 3,
+  };
   const doc = todoDoc({
-    review: [gizmo],
+    review: [change(gizmo), { kind: "request", request }],
     owned: [
-      { summary: gadget, children: [{ summary: gizmo, children: [] }] },
-      { summary: widgets, children: [] },
-    ],
-    unimported: [
-      {
-        id: forgeRequestId(7),
-        head: parseRefName("their-feature"),
-        base: parseRefName("main"),
-        title: "Their feature",
-        author: userName("carol@users.noreply.github.com"),
-        state: "open",
-      },
+      { item: change(gadget), children: [{ item: change(gizmo), children: [] }] },
+      { item: change(widgets), children: [] },
+      { item: { kind: "request", request }, children: [] },
     ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    │ gizmo  │      2 │
-    ╰────────┴────────╯
+    "╭───────────────┬────────╮
+    │ change        │ review │
+    ├───────────────┼────────┤
+    │ gizmo         │      2 │
+    │ their-feature │      3 │
+    ╰───────────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      2 │ review    │
-    │ widgets  │        │ land      │
-    ╰──────────┴────────┴───────────╯
-
-    Pull requests:
-    ╭─────────┬───────────────┬───────────────┬───────────╮
-    │ request │ change        │ title         │ next step │
-    ├─────────┼───────────────┼───────────────┼───────────┤
-    │      #7 │ their-feature │ Their feature │ import    │
-    ╰─────────┴───────────────┴───────────────┴───────────╯"
+    ╭───────────────┬────────┬───────────╮
+    │ change        │ review │ next step │
+    ├───────────────┼────────┼───────────┤
+    │ gadget        │        │ landed    │
+    │ └─ gizmo      │      2 │ review    │
+    │ widgets       │        │ land      │
+    │ their-feature │      3 │ import    │
+    ╰───────────────┴────────┴───────────╯"
   `);
   // A tree entry's row resolves to that change.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("└─ gizmo"));
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gizmo" });
-  // An unimported row resolves to its request.
+  // An unimported request's row resolves to the request.
   const requestLine = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("#7"));
+    .findIndex((text) => text.includes("their-feature"));
   expect(targetAt(doc, requestLine)).toEqual({ kind: "request", request: 7 });
 });
 
 test("todoDoc with nothing to do says so", () => {
-  expect(docText(todoDoc({ review: [], owned: [], unimported: [] }))).toMatchInlineSnapshot(`"Nothing to do."`);
+  expect(docText(todoDoc({ review: [], owned: [] }))).toMatchInlineSnapshot(`"Nothing to do."`);
 });
 
 test("showDoc renders the attribute table and files left", () => {

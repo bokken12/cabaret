@@ -23,6 +23,7 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
+    changedFiles: 1,
   });
   const posted = await forge.listComments(REQUEST);
   expect(posted.map(({ body }) => body)).toEqual([expect.stringMatching(/^ship it\n\n<!-- cabaret:[0-9a-f]{64} -->$/)]);

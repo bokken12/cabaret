@@ -31,6 +31,8 @@ export interface ForgeRequest {
   /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
+  /** How many files the request touches. */
+  readonly changedFiles: number;
   /** The commit that merged the request, when `state` is "merged". */
   readonly merge?: CommitHash;
 }

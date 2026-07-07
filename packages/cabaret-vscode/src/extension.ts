@@ -4,6 +4,7 @@ import {
   changeTip,
   createChange,
   currentParent,
+  type ForgeRequestId,
   importRequest,
   landChain,
   landChange,
@@ -197,9 +198,15 @@ async function openTarget(provider: PageProvider): Promise<void> {
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
-    case "request":
-      vscode.window.showInformationMessage("cabaret: import this pull request first (Cabaret: Import Pull Request)");
+    case "request": {
+      // Importing materializes the request as a change; land on its show page.
+      const change = await runImport(target.request);
+      provider.refreshAll();
+      if (change !== undefined) {
+        await openPage(provider, { kind: "show", change });
+      }
       break;
+    }
     case "location": {
       // Visit the working tree's copy: it is the one worth editing, and while
       // reviewing a checked-out change it is the copy the diff shows. A tree
@@ -277,6 +284,21 @@ async function markReviewed(provider: PageProvider): Promise<void> {
   }
 }
 
+/** Import request `id` as a change, surfacing failure as a notification; returns the change's name. */
+async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
+  try {
+    const forge = await openForge();
+    if (forge === undefined) {
+      vscode.window.showErrorMessage("cabaret: no reachable forge for this repository");
+      return undefined;
+    }
+    return (await importRequest(await openBackend(), now, forge, id)).change;
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+    return undefined;
+  }
+}
+
 /** Import the pull request at the cursor as a change, as `cabaret gh import` does. */
 async function importAtCursor(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -289,21 +311,8 @@ async function importAtCursor(provider: PageProvider): Promise<void> {
     vscode.window.showInformationMessage("cabaret: no pull request at the cursor");
     return;
   }
-  try {
-    const forge = await openForge();
-    if (forge === undefined) {
-      vscode.window.showErrorMessage("cabaret: no reachable forge for this repository");
-      return;
-    }
-    const result = await importRequest(await openBackend(), now, forge, target.request);
-    if (result.kind === "exists") {
-      vscode.window.showInformationMessage(`cabaret: ${result.change} already exists; imported elsewhere`);
-    }
-  } catch (error) {
-    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
-  } finally {
-    provider.refreshAll();
-  }
+  await runImport(target.request);
+  provider.refreshAll();
 }
 
 const now = (): TimestampMs => timestampMs(Date.now());
