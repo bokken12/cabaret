@@ -8,6 +8,7 @@ import {
   type LogEntry,
   landAsConfigured,
   landChain,
+  NotOwnerError,
   parseRefName,
   type RefName,
   readConfig,
@@ -466,31 +467,63 @@ async function actOnSelection(
 }
 
 /**
+ * Run `op` without the ownership override; when it fails because the current
+ * user is not the owner, ask for confirmation — this surface's counterpart to
+ * the CLI's --even-though-not-owner flag — and retry with the override.
+ * Returns whether `op` ran to completion. One confirmation covers the whole
+ * invocation: a retried chain skips the links that already applied.
+ */
+async function confirmNotOwner(button: string, op: (override: boolean) => Promise<void>): Promise<boolean> {
+  try {
+    await op(false);
+    return true;
+  } catch (error) {
+    if (!(error instanceof NotOwnerError)) {
+      throw error;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `${error.change} is owned by ${error.owner}, not you.`,
+      { modal: true },
+      button,
+    );
+    if (choice === undefined) {
+      return false;
+    }
+    await op(true);
+    return true;
+  }
+}
+
+/**
  * Rebase the selection. One change acts alone and reports a landed change as
  * the error it is; several act as a stack, where skipping landed links is
  * part of the semantics.
  */
 async function rebaseSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
-  if (only !== undefined) {
-    await rebaseChange(backend, now, only, await backend.readLog(only), false);
-  } else {
-    await rebaseChain(backend, now, await resolveChain(backend, changes), false);
-  }
+  await confirmNotOwner("Rebase Anyway", async (override) => {
+    if (only !== undefined) {
+      await rebaseChange(backend, now, only, await backend.readLog(only), override);
+    } else {
+      await rebaseChain(backend, now, await resolveChain(backend, changes), override);
+    }
+  });
 }
 
 /** Land the selection, with the same one-versus-stack semantics as `rebaseSelection`. */
 async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const config = await readConfig(backend);
-  const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
-    await landAsConfigured(backend, now, requireForge, config, change, entries, false);
-  };
-  const only = changes.length === 1 ? changes[0] : undefined;
-  if (only !== undefined) {
-    await landOne(only, await backend.readLog(only));
-  } else {
-    await landChain(backend, await resolveChain(backend, changes), landOne);
-  }
+  await confirmNotOwner("Land Anyway", async (override) => {
+    const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
+      await landAsConfigured(backend, now, requireForge, config, change, entries, override);
+    };
+    const only = changes.length === 1 ? changes[0] : undefined;
+    if (only !== undefined) {
+      await landOne(only, await backend.readLog(only));
+    } else {
+      await landChain(backend, await resolveChain(backend, changes), landOne);
+    }
+  });
 }
 
 /** The forge, for an operation that cannot proceed without one. */
@@ -567,7 +600,9 @@ async function rename(
     return;
   }
   const to = parseRefName(raw);
-  await renameChange(backend, from, to, false);
+  if (!(await confirmNotOwner("Rename Anyway", (override) => renameChange(backend, from, to, override)))) {
+    return;
+  }
   // A show page's URI names the change, so the old page cannot re-render;
   // forget it before the post-action refresh and replace it with the page
   // under the new name.
@@ -711,7 +746,9 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         const parent = await pickParent(backend, change);
         if (parent !== undefined) {
-          await reparentChange(backend, now, change, parent, false);
+          await confirmNotOwner("Reparent Anyway", (override) =>
+            reparentChange(backend, now, change, parent, override),
+          );
         }
       }),
     ),
@@ -726,7 +763,9 @@ export function activate(context: vscode.ExtensionContext): void {
           validateInput: (value) => (value === "" ? "owner must be nonempty" : undefined),
         });
         if (raw !== undefined) {
-          await transferChange(backend, now, change, userName(raw), false);
+          await confirmNotOwner("Set Owner Anyway", (override) =>
+            transferChange(backend, now, change, userName(raw), override),
+          );
         }
       }),
     ),
@@ -749,9 +788,12 @@ export function activate(context: vscode.ExtensionContext): void {
         // the child's next rebase lands where a rebase onto the grandparent
         // would have.
         const grandparent = currentParent(child, await backend.readLog(child));
+        // TODO: check ownership of `child` before creating the parent, so a
+        // declined ownership confirmation does not leave the new change
+        // created but never spliced in.
         const parent = await promptCreate(backend, grandparent, `Name for a parent of ${child}`);
         if (parent !== undefined) {
-          await reparentChange(backend, now, child, parent, false);
+          await confirmNotOwner("Reparent Anyway", (override) => reparentChange(backend, now, child, parent, override));
         }
       }),
     ),
