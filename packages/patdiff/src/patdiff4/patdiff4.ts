@@ -18,6 +18,7 @@ import * as Hunk from "./hunk.js";
 import * as Segments from "./segments.js";
 
 export * as Diamond from "./diamond.js";
+export type { Line, LineKind, Provenance } from "./diff-algo.js";
 export * as DiffAlgo from "./diff-algo.js";
 export * as DiffAlgoId from "./diff-algo-id.js";
 export * as Diff4Class from "./diff4-class.js";
@@ -69,8 +70,9 @@ export const hunks = (args: HunksArgs): readonly Hunk.Hunk[] =>
   });
 
 /** All the steps of a full 4-way diff: aligned hunks, each rendered under
- *  every view its class earns, as display lines. */
-export const diff = (args: HunksArgs): readonly string[] => Hunk.listToLines(hunks(args), args.output);
+ *  every view its class earns, as display lines carrying their provenance in
+ *  the four versions. */
+export const diff = (args: HunksArgs): readonly DiffAlgo.Line[] => Hunk.listToLines(hunks(args), args.output);
 
 // TODO: when cabaret grows a review-obligation model, port Iron's
 // [num_lines_to_review]: the line count of each hunk's default view (just
