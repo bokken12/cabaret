@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { UserError } from "cabaret-core";
-import { GitHubForge, parseGitHubRemote } from "cabaret-github";
+import { GitHubForge, githubClient, parseGitHubRemote } from "cabaret-github";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,5 +29,5 @@ async function githubToken(): Promise<string> {
 /** Open the `Forge` for the `origin` remote of the repository containing `dir`. */
 export async function openGitHubForge(dir: string): Promise<GitHubForge> {
   const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: dir });
-  return new GitHubForge(await githubToken(), parseGitHubRemote(stdout.trimEnd()));
+  return new GitHubForge(githubClient(await githubToken()), parseGitHubRemote(stdout.trimEnd()));
 }
