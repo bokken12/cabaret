@@ -10,16 +10,16 @@ test("renders styles as classes, targets as markers, and empty lines as empty di
       { spans: [span("feature/x", { style: "heading", target: { kind: "change", change } })] },
       { spans: [] },
       { spans: [span("  "), span("src/a.ts", { target: { kind: "file", change, file: parseFilePath("src/a.ts") } })] },
-      { spans: [span("+|const x = 1;", { style: "added" })] },
-      { spans: [span("-|const x = 0;", { style: "removed" })] },
+      { spans: [span("const x = 1;", { style: "added" })] },
+      { spans: [span("const x = 0;", { style: "removed" })] },
     ],
   };
   expect(docHtml(doc)).toMatchInlineSnapshot(`
     "<div class="line" data-line="0"><span class="heading target">feature/x</span></div>
     <div class="line" data-line="1"></div>
     <div class="line" data-line="2">  <span class="target">src/a.ts</span></div>
-    <div class="line" data-line="3"><span class="added">+|const x = 1;</span></div>
-    <div class="line" data-line="4"><span class="removed">-|const x = 0;</span></div>"
+    <div class="line" data-line="3"><span class="added">const x = 1;</span></div>
+    <div class="line" data-line="4"><span class="removed">const x = 0;</span></div>"
   `);
 });
 

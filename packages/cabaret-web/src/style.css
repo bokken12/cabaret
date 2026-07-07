@@ -6,6 +6,8 @@
   --accent: #0969da;
   --added: #1a7f37;
   --removed: #d1242f;
+  --added-wash: #e6ffec;
+  --removed-wash: #ffebe9;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,6 +19,8 @@
     --accent: #4493f8;
     --added: #3fb950;
     --removed: #f85149;
+    --added-wash: rgba(63, 185, 80, 0.15);
+    --removed-wash: rgba(248, 81, 73, 0.15);
   }
 }
 
@@ -112,6 +116,16 @@ body.busy .doc {
 
 .removed {
   color: var(--removed);
+}
+
+/* Two-way diff lines carry no sign marks; the wash says which side, whole-line
+   as the vscode host paints it. */
+.line:has(> .added) {
+  background: var(--added-wash);
+}
+
+.line:has(> .removed) {
+  background: var(--removed-wash);
 }
 
 .target {
