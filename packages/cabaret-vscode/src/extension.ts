@@ -215,6 +215,43 @@ function revUri(rev: Rev): vscode.Uri {
   return vscode.Uri.from({ scheme: REV_SCHEME, path: revPath(rev) });
 }
 
+const HIDE_UNCHANGED_DEFAULTED = "hideUnchangedRegionsDefaulted";
+
+/**
+ * Fill in VS Code's hide-unchanged-regions settings the first time a native
+ * diff opens in this workspace: whole files with nothing collapsed bury the
+ * changed lines, and the setting is off by default and little known. Only a
+ * vacuum fills — a value the user set at any scope stands — and the one-shot
+ * memo makes a later removal their answer rather than re-asserting ours.
+ * cabaret.context seeds the collapsed view's context lines; -1 asks for
+ * whole files, which is what leaving collapse off already shows.
+ */
+async function defaultHideUnchangedRegions(state: vscode.Memento): Promise<void> {
+  if (state.get(HIDE_UNCHANGED_DEFAULTED) === true) {
+    return;
+  }
+  await state.update(HIDE_UNCHANGED_DEFAULTED, true);
+  const context = vscode.workspace.getConfiguration("cabaret").get<number>("context") ?? 3;
+  if (context < 0) {
+    return;
+  }
+  const section = vscode.workspace.getConfiguration("diffEditor.hideUnchangedRegions");
+  const untouched = (key: string): boolean => {
+    const value = section.inspect(key);
+    return (
+      value?.globalValue === undefined &&
+      value?.workspaceValue === undefined &&
+      value?.workspaceFolderValue === undefined
+    );
+  };
+  if (untouched("enabled")) {
+    await section.update("enabled", true, vscode.ConfigurationTarget.Workspace);
+  }
+  if (untouched("contextLineCount")) {
+    await section.update("contextLineCount", Math.max(1, context), vscode.ConfigurationTarget.Workspace);
+  }
+}
+
 /**
  * Open the diff left to review for `file`: the native diff editor when git
  * config cabaret.sideBySide asks for two columns and the pending view is a
@@ -223,7 +260,7 @@ function revUri(rev: Rev): vscode.Uri {
  * notifications: unlike opening a page, this path reads the repository
  * before any document exists to display them.
  */
-async function openDiff(provider: PageProvider, change: RefName, file: FilePath): Promise<void> {
+async function openDiff(provider: PageProvider, state: vscode.Memento, change: RefName, file: FilePath): Promise<void> {
   try {
     const backend = await openBackend();
     const sideBySide = (await readConfig(backend)).sideBySide;
@@ -234,6 +271,7 @@ async function openDiff(provider: PageProvider, change: RefName, file: FilePath)
       const page = await diffPage(backend, await changeSnapshot(backend, change), file);
       const view = page.round?.view;
       if (view?.kind === "two" && view.prev !== view.next && !binaryDiff(view.prev, view.next)) {
+        await defaultHideUnchangedRegions(state);
         const next = revUri({ side: "next", change, file });
         // Fresh on open, as openPage refreshes an already-open page: drop any
         // held reading so the panes re-read, already open or not.
@@ -357,7 +395,7 @@ async function showChild(provider: PageProvider): Promise<void> {
 }
 
 /** Enter at the cursor: any of the line's targets answers, links and jumps alike. */
-async function openTarget(provider: PageProvider): Promise<void> {
+async function openTarget(provider: PageProvider, state: vscode.Memento): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
@@ -370,17 +408,17 @@ async function openTarget(provider: PageProvider): Promise<void> {
   if (target === undefined) {
     return;
   }
-  await followTarget(provider, target);
+  await followTarget(provider, state, target);
 }
 
 /** Open what `target` denotes — the navigation Enter and a link click share. */
-async function followTarget(provider: PageProvider, target: Target): Promise<void> {
+async function followTarget(provider: PageProvider, state: vscode.Memento, target: Target): Promise<void> {
   switch (target.kind) {
     case "change":
       await openPage(provider, { kind: "show", change: target.change });
       break;
     case "file":
-      await openDiff(provider, target.change, target.file);
+      await openDiff(provider, state, target.change, target.file);
       break;
     case "request":
       // The as-if-imported view; importing is its own action.
@@ -440,7 +478,7 @@ async function review(provider: PageProvider): Promise<void> {
  * next file, or back to the change's review page when the round is done.
  * Errors surface as notifications, and every open page re-renders afterwards.
  */
-async function markPageReviewed(provider: PageProvider): Promise<void> {
+async function markPageReviewed(provider: PageProvider, state: vscode.Memento): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined) {
     return;
@@ -467,7 +505,7 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     if (result.next === undefined) {
       await openPage(provider, { kind: "review", change });
     } else {
-      await openDiff(provider, change, result.next);
+      await openDiff(provider, state, change, result.next);
     }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
@@ -810,6 +848,7 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
+  const state = context.workspaceState;
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
   context.subscriptions.push(
@@ -817,7 +856,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.workspace.registerTextDocumentContentProvider(REV_SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
-    vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, target)),
+    vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, state, target)),
     // Rendering, the buffer taking a render's new text, and an editor coming
     // on screen each leave paint stale; all three repaint. The first often
     // paints against a buffer still awaiting the render's text — harmless,
@@ -842,11 +881,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
-    vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider, state)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
-    vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
+    vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider, state)),
     vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
