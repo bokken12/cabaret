@@ -266,11 +266,12 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   });
 });
 
-test("a cherry-picked land merge still needs review", async () => {
+test("a cherry-picked land commit is skipped like the land it copies", async () => {
   const repo = await makeStack();
   await repo.cabaret("land");
   // The cherry-pick copies the land merge's message, trailer included, onto
-  // an ordinary single-parent commit; only a true merge marks a landing.
+  // an ordinary single-parent commit — the same shape as a squash land, so
+  // its diff is skipped as already reviewed: it was, where it landed.
   await repo.cabaret("create", "copy", "--parent", "main");
   await repo.git("checkout", "-q", "copy");
   await repo.git("cherry-pick", "-m", "1", "parent");
@@ -278,11 +279,7 @@ test("a cherry-picked land merge still needs review", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/child.txt
-    -1,0 +1,1
-    +|child work
-    ",
+      "stdout": "",
     }
   `);
 });
@@ -420,4 +417,51 @@ test("a landed change can still be reviewed and forgotten", async () => {
     ",
     }
   `);
+});
+
+test("land squashes locally when cabaret.landMethod is squash", async () => {
+  const repo = await makeStack();
+  await repo.git("config", "cabaret.landMethod", "squash");
+  const childTip = await repo.git("rev-parse", "child");
+  const parentTip = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The land advances the parent by one commit with the child's tree and no
+  // second parent; the log freezes the tip the squash does not carry.
+  const squash = await repo.git("rev-parse", "parent");
+  expect(await repo.git("show", "--no-patch", "--format=%P", "parent")).toBe(parentTip);
+  expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
+  expect(await repo.git("show", "parent:child.txt")).toBe("child work");
+  expect((await repo.cabaret("log", "child")).stdout).toContain(
+    `{"kind":"land","merge":"${squash}","tip":"${childTip}"}`,
+  );
+  // The parent's reviewers skip the squash's diff: it was reviewed in the child.
+  expect(await repo.cabaret("diff", "--change", "parent", "child.txt")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The landed change still shows its own diff, frozen at the recorded tip.
+  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "/dev/null
+    new/child.txt
+    -1,0 +1,1
+    +|child work
+    ",
+    }
+  `);
+});
+
+test("a bad cabaret.landMethod fails before anything moves", async () => {
+  const repo = await makeStack();
+  await repo.git("config", "cabaret.landMethod", "rebase");
+  const parentTip = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr: 'git config cabaret.landMethod must be one of merge, squash: "rebase"\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("rev-parse", "parent")).toBe(parentTip);
 });

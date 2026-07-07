@@ -114,6 +114,19 @@ export class GitBackend implements Backend {
     return userName(email);
   }
 
+  async config(key: string): Promise<string | undefined> {
+    try {
+      const out = await git(this.root, ["config", "--get", key]);
+      return out.trimEnd();
+    } catch (error) {
+      // Exit code 1 means exactly "unset"; anything else is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   async resolveCommit(revision: string): Promise<CommitHash> {
     try {
       // --end-of-options keeps a revision that starts with `-` from being
@@ -150,8 +163,16 @@ export class GitBackend implements Backend {
 
   async fetchBranch(branch: RefName): Promise<void> {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
-    // update, so a diverged local branch fails instead of losing work.
-    await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+    // update, so a diverged local branch fails instead of losing work. Git
+    // also refuses to fetch into a checked-out branch, so that case takes a
+    // real fast-forward from FETCH_HEAD, carrying the index and working tree
+    // along — and still failing on divergence.
+    if ((await this.checkedOutBranch()) === branch) {
+      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}`]);
+      await git(this.root, ["merge", "--ff-only", "FETCH_HEAD"]);
+    } else {
+      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+    }
   }
 
   async syncLog(change: RefName): Promise<void> {
@@ -359,13 +380,27 @@ export class GitBackend implements Backend {
     await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
   }
 
-  async merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+  merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, onto, tip, message, ["-p", onto, "-p", tip]);
+  }
+
+  squash(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, onto, tip, message, ["-p", onto]);
+  }
+
+  private async commitLand(
+    into: RefName,
+    onto: CommitHash,
+    tip: CommitHash,
+    message: string,
+    parents: readonly string[],
+  ): Promise<CommitHash> {
     const tree = await git(this.root, ["rev-parse", `${tip}^{tree}`]);
-    const out = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", message, "-p", onto, "-p", tip]);
+    const out = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", message, ...parents]);
     const commit = parseCommitHash(out.trimEnd());
     // A checked-out `into` takes a real fast-forward so the index and working
     // tree follow; otherwise compare-and-swap the ref. Either way a
-    // concurrent move of `into` fails fast instead of merging commits the
+    // concurrent move of `into` fails fast instead of landing commits the
     // caller never validated.
     if ((await this.checkedOutBranch()) === into) {
       await git(this.root, ["merge", "--ff-only", commit]);
@@ -392,12 +427,13 @@ export class GitBackend implements Backend {
       if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
         continue;
       }
-      // The trailer marks nothing on a non-merge: only a true merge carries a
-      // reviewed child as its second parent, so anything else — say a
-      // cherry-pick of a land merge, which copies the message verbatim —
-      // still needs review.
-      const [onto, ...rest] = (parentsField ?? "").split(" ").filter((parent) => parent !== "");
-      if (onto === undefined || rest.length === 0) {
+      // A land merge's onto is its first parent; a squash land's, its sole
+      // parent. Trusting the trailer on a single-parent commit does mean a
+      // cherry-pick of a land commit — which copies the message verbatim —
+      // is skipped too, even though its diff (conflict resolutions included)
+      // may match nothing that was reviewed.
+      const [onto] = (parentsField ?? "").split(" ").filter((parent) => parent !== "");
+      if (onto === undefined) {
         continue;
       }
       merges.push({ commit: parseCommitHash(commit), onto: parseCommitHash(onto) });

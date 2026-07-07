@@ -535,3 +535,30 @@ test("nothing is left to review when the base catches up to the reviewed tip", a
   await repo.git("branch", "-f", "trunk", "main");
   expect(await repo.cabaret("diff", "greeting.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
+
+test("git config cabaret.context sets the default hunk context, and --context overrides it", async () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven"];
+  const repo = await makeChange("list.txt", `${lines.join("\n")}\n`);
+  await repo.cabaret("review", "list.txt");
+  await repo.write("list.txt", `${lines.join("\n").replace("four", "FOUR")}\n`);
+  await repo.git("commit", "-qam", "shout four");
+  await repo.git("config", "cabaret.context", "1");
+  expect((await repo.cabaret("diff", "list.txt")).stdout).toMatchInlineSnapshot(`
+    "old/list.txt
+    new/list.txt
+    -3,3 +3,3
+      three
+    -|four
+    +|FOUR
+      five
+    "
+  `);
+  expect((await repo.cabaret("diff", "list.txt", "--context", "0")).stdout).toMatchInlineSnapshot(`
+    "old/list.txt
+    new/list.txt
+    -4,1 +4,1
+    -|four
+    +|FOUR
+    "
+  `);
+});

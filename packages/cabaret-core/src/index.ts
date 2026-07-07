@@ -1,4 +1,5 @@
 export * from "./backend.js";
+export * from "./config.js";
 export * from "./error.js";
 export * from "./forge.js";
 export * from "./ops.js";

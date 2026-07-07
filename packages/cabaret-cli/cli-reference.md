@@ -85,7 +85,7 @@ Show the diff of a file left to review, given the reviewer's brain: the full bas
 FLAGS
      [--change]   Change to diff (defaults to current)
      [--for]      Show the diff for another user (defaults to self)
-     [--context]  Lines of context around each hunk, -1 for whole files (defaults to 3)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to git config cabaret.context, or 3)
   -h  --help      Print help information and exit
 
 ARGUMENTS
@@ -172,7 +172,7 @@ USAGE
   cabaret land [--even-though-not-owner] [<change>]
   cabaret land --help
 
-Land a change: merge it into its parent with a merge commit marked as landing, so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
+Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with git config cabaret.landMethod squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change with a pull request lands by merging the request on the forge and fetching the result; git config cabaret.landVia local (or forge) picks one side unconditionally. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]

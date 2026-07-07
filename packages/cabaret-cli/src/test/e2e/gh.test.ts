@@ -19,6 +19,7 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
   expect(await forge.getRequest(REQUEST)).toEqual({
     id: REQUEST,
     head: "gadget",
+    tip: parseCommitHash(await repo.git("rev-parse", "gadget")),
     base: "main",
     title: "gadget",
     author: "alice@users.noreply.github.com",
@@ -127,6 +128,20 @@ test("gh pull records a merged PR as landing the change, once", async () => {
   });
   expect((await repo.cabaret("log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
   expect((await repo.cabaret("gh", "pull")).stdout).toBe("pulled 0 comments from github.com/test-org/widgets#1\n");
+});
+
+test("gh pull records a squash-merged PR with the tip that merged", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("gh", "push");
+  const tip = await repo.git("rev-parse", "gadget");
+  // The squash commit descends from no reviewed history, so the land entry
+  // freezes the head that merged as the change's tip.
+  const squash = parseCommitHash("1".repeat(40));
+  forge.merge(REQUEST, squash, 1);
+  expect((await repo.cabaret("gh", "pull")).stdout).toContain("was merged; recorded the land");
+  expect((await repo.cabaret("log")).stdout).toContain(`"action":{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
 });
 
 test("gh pull adopts the branch's open PR when the log names none", async () => {

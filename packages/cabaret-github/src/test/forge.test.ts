@@ -70,6 +70,7 @@ describe("GitHubForge", () => {
               pullRequest: {
                 number: 7,
                 headRefName: "add-tables",
+                headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 baseRefName: "main",
                 title: "Add tables",
                 author: { login: "alice" },
@@ -86,6 +87,7 @@ describe("GitHubForge", () => {
     expect(await forge().getRequest(forgeRequestId(7))).toEqual({
       id: 7,
       head: "add-tables",
+      tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       base: "main",
       title: "Add tables",
       author: "alice@example.com",
@@ -103,11 +105,12 @@ describe("GitHubForge", () => {
               pullRequest: {
                 number: 8,
                 headRefName: "fix-crash",
+                headRefOid: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
                 baseRefName: "release",
                 title: "Fix crash",
                 author: { login: "bob" },
                 state: "MERGED",
-                mergeCommit: { oid: "89e6c98d92887913cadf06b2adb97f26cde4849b" },
+                mergeCommit: { oid: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: { totalCount: 2 } },
                 changedFiles: 1,
               },
             },
@@ -119,11 +122,12 @@ describe("GitHubForge", () => {
     expect(await forge().getRequest(forgeRequestId(8))).toEqual({
       id: 8,
       head: "fix-crash",
+      tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
       base: "release",
       title: "Fix crash",
       author: "bob@users.noreply.github.com",
       state: "merged",
-      merge: "89e6c98d92887913cadf06b2adb97f26cde4849b",
+      merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
       changedFiles: 1,
     });
   });
@@ -137,6 +141,7 @@ describe("GitHubForge", () => {
               pullRequest: {
                 number: 9,
                 headRefName: "abandoned",
+                headRefOid: "44556677889900aabbccddeeff112233445566aa",
                 baseRefName: "main",
                 title: "Abandoned",
                 author: null,
@@ -153,6 +158,7 @@ describe("GitHubForge", () => {
     expect(await forge().getRequest(forgeRequestId(9))).toEqual({
       id: 9,
       head: "abandoned",
+      tip: "44556677889900aabbccddeeff112233445566aa",
       base: "main",
       title: "Abandoned",
       author: "ghost@users.noreply.github.com",
@@ -172,6 +178,7 @@ describe("GitHubForge", () => {
                   {
                     number: 7,
                     headRefName: "add-tables",
+                    headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                     baseRefName: "main",
                     title: "Add tables",
                     author: { login: "alice" },
@@ -190,6 +197,7 @@ describe("GitHubForge", () => {
     expect(await forge().findRequest(parseRefName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
+      tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       base: "main",
       title: "Add tables",
       author: "alice@users.noreply.github.com",
@@ -218,6 +226,7 @@ describe("GitHubForge", () => {
                     {
                       number: 4,
                       headRefName: "first",
+                      headRefOid: "123456789abcdef0123456789abcdef012345678",
                       baseRefName: "main",
                       title: "First",
                       author: { login: "alice" },
@@ -228,6 +237,7 @@ describe("GitHubForge", () => {
                     {
                       number: 5,
                       headRefName: "second",
+                      headRefOid: "23456789abcdef0123456789abcdef0123456789",
                       baseRefName: "first",
                       title: "Second",
                       author: { login: "bob" },
@@ -251,6 +261,7 @@ describe("GitHubForge", () => {
                     {
                       number: 6,
                       headRefName: "third",
+                      headRefOid: "3456789abcdef0123456789abcdef0123456789a",
                       baseRefName: "main",
                       title: "Third",
                       author: { login: "alice" },
@@ -304,6 +315,7 @@ describe("GitHubForge", () => {
               pullRequest: {
                 number: 12,
                 headRefName: "new-work",
+                headRefOid: "456789abcdef0123456789abcdef0123456789ab",
                 baseRefName: "parent-branch",
                 title: "New work",
                 author: { login: "dave" },
@@ -321,6 +333,7 @@ describe("GitHubForge", () => {
     expect(created).toEqual({
       id: 12,
       head: "new-work",
+      tip: "456789abcdef0123456789abcdef0123456789ab",
       base: "parent-branch",
       title: "New work",
       author: "dave@users.noreply.github.com",

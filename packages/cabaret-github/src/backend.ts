@@ -16,7 +16,7 @@ import {
   userName,
 } from "cabaret-core";
 import { z } from "zod";
-import type { GitHubClient, GitHubRepo } from "./client.js";
+import { type GitHubClient, type GitHubRepo, isStatus } from "./client.js";
 
 /**
  * Where changes' logs live: under this namespace, a ref mirroring each
@@ -58,11 +58,6 @@ const TreeSchema = z.object({
   truncated: z.boolean(),
   tree: z.array(z.object({ path: z.string(), mode: z.string(), type: z.string(), sha: z.string() })),
 });
-
-/** Whether `error` is octokit's rejection for HTTP `status`; anything else is a real failure. */
-function isStatus(error: unknown, status: number): boolean {
-  return (error as { status?: unknown }).status === status;
-}
 
 /** Whether the message's final paragraph carries the `Cabaret-Landed` trailer. */
 function hasLandTrailer(message: string): boolean {
@@ -125,6 +120,11 @@ export class GitHubBackend implements Backend {
 
   async currentBranch(): Promise<RefName> {
     throw new UserError("no branch is checked out over the GitHub API; name the change explicitly");
+  }
+
+  async config(): Promise<string | undefined> {
+    // There is no git config over the API; every setting takes its default.
+    return undefined;
   }
 
   currentUser(): Promise<UserName> {
@@ -269,13 +269,26 @@ export class GitHubBackend implements Backend {
     throw new UserError("rebasing needs a working tree; rebase from a local checkout");
   }
 
-  async merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+  merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, tip, message, [onto, tip]);
+  }
+
+  squash(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, tip, message, [onto]);
+  }
+
+  private async commitLand(
+    into: RefName,
+    tip: CommitHash,
+    message: string,
+    parents: readonly CommitHash[],
+  ): Promise<CommitHash> {
     const tree = (await this.commit(tip)).tree.sha;
     const { data } = await this.client.request("POST /repos/{owner}/{repo}/git/commits", {
       ...this.repo,
       message,
       tree,
-      parents: [onto, tip],
+      parents: [...parents],
     });
     const commit = z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha;
     // Unforced ref updates are fast-forward-only: weaker than the promised
@@ -301,10 +314,12 @@ export class GitHubBackend implements Backend {
     // reachable from tip but not from base. Walking first parents within
     // that set finds the first-parent chain and stops where the chain
     // reaches history the base can see, which need not be base itself when
-    // history merged the parent in rather than rebasing. The trailer marks
-    // nothing on a non-merge: only a true merge carries a reviewed child as
-    // its second parent, so anything else — say a cherry-pick of a land
-    // merge, which copies the message verbatim — still needs review.
+    // history merged the parent in rather than rebasing. A land merge's onto
+    // is its first parent; a squash land's, its sole parent. Trusting the
+    // trailer on a single-parent commit does mean a cherry-pick of a land
+    // commit — which copies the message verbatim — is skipped too, even
+    // though its diff (conflict resolutions included) may match nothing that
+    // was reviewed.
     const listed: z.infer<typeof CompareCommitsSchema>["commits"] = [];
     for (let page = 1; ; page++) {
       const { data } = await this.client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
@@ -326,7 +341,7 @@ export class GitHubBackend implements Backend {
       if (onto === undefined) {
         break;
       }
-      if (commit.parents.length > 1 && hasLandTrailer(commit.commit.message)) {
+      if (hasLandTrailer(commit.commit.message)) {
         merges.push({ commit: commit.sha, onto });
       }
       commit = bySha.get(onto);

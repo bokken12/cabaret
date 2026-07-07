@@ -1,4 +1,5 @@
 import {
+  type CommitHash,
   type FilePath,
   type Forge,
   type ForgeComment,
@@ -6,17 +7,19 @@ import {
   type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
+  type LandMethod,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
   timestampMs,
+  UserError,
   type UserName,
   userName,
 } from "cabaret-core";
 import { z } from "zod";
-import type { GitHubClient, GitHubRepo } from "./client.js";
+import { type GitHubClient, type GitHubRepo, isStatus } from "./client.js";
 
 /** The identity for a login whose profile shows no email: GitHub's own noreply convention. */
 function noreplyUser(login: string): UserName {
@@ -26,17 +29,25 @@ function noreplyUser(login: string): UserName {
 // The request fields every query selects. GraphQL rather than REST because
 // the list queries need `changedFiles`, which REST includes only on a single
 // fetched request — per-request follow-ups would make listing N+1.
-const PR_FIELDS = "number headRefName baseRefName title author { login } state mergeCommit { oid } changedFiles";
+const PR_FIELDS =
+  "number headRefName headRefOid baseRefName title author { login } state " +
+  "mergeCommit { oid parents { totalCount } } changedFiles";
 
 const PrSchema = z.object({
   number: z.number().transform(forgeRequestId),
   headRefName: z.string().transform(parseRefName),
+  headRefOid: z.string().transform(parseCommitHash),
   baseRefName: z.string().transform(parseRefName),
   title: z.string(),
   // A deleted account's request has no author; REST's "ghost" stands in.
   author: z.object({ login: z.string() }).nullable(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
-  mergeCommit: z.object({ oid: z.string().transform(parseCommitHash) }).nullable(),
+  mergeCommit: z
+    .object({
+      oid: z.string().transform(parseCommitHash),
+      parents: z.object({ totalCount: z.number() }),
+    })
+    .nullable(),
   changedFiles: z.number(),
 });
 
@@ -122,12 +133,15 @@ export class GitHubForge implements Forge {
     return {
       id: pr.number,
       head: pr.headRefName,
+      tip: pr.headRefOid,
       base: pr.baseRefName,
       title: pr.title,
       author: await this.identity(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
       changedFiles: pr.changedFiles,
-      ...(pr.mergeCommit === null ? {} : { merge: pr.mergeCommit.oid }),
+      ...(pr.mergeCommit === null
+        ? {}
+        : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
     };
   }
 
@@ -183,6 +197,39 @@ export class GitHubForge implements Forge {
       pull_number: id,
       base,
     });
+  }
+
+  async mergeRequest(
+    id: ForgeRequestId,
+    method: LandMethod,
+    tip: CommitHash,
+    title: string,
+    message: string,
+  ): Promise<CommitHash> {
+    let data: unknown;
+    try {
+      ({ data } = await this.client.request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge", {
+        ...this.repo,
+        pull_number: id,
+        merge_method: method,
+        commit_title: title,
+        commit_message: message,
+        // GitHub merges only while the head still matches, closing the race
+        // between the caller's validation and this call.
+        sha: tip,
+      }));
+    } catch (error) {
+      // 405 is GitHub refusing the merge as such — the method is disabled in
+      // repository settings, a protection rule is unmet, or the request does
+      // not merge cleanly — and 409 is a head that moved since `tip` was
+      // validated; both are the user's to resolve, and GitHub's message says
+      // which it was.
+      if (isStatus(error, 405) || isStatus(error, 409)) {
+        throw new UserError(`${this.locator}#${id} did not merge: ${(error as { message?: string }).message ?? ""}`);
+      }
+      throw error;
+    }
+    return z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha;
   }
 
   async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {

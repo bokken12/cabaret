@@ -99,7 +99,7 @@ export type LogAction =
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly request: ForgeRequestId }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath }
-  | { readonly kind: "land"; readonly merge: CommitHash }
+  | { readonly kind: "land"; readonly merge: CommitHash; readonly tip?: CommitHash | undefined }
   | { readonly kind: "comment"; readonly text: string; readonly source?: CommentSource | undefined };
 
 /** One action recorded in a change's log. */
@@ -134,7 +134,11 @@ const LogActionSchema = z.discriminatedUnion("kind", [
     tip: z.string().transform(parseCommitHash),
   }),
   z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
-  z.object({ kind: z.literal("land"), merge: z.string().transform(parseCommitHash) }),
+  z.object({
+    kind: z.literal("land"),
+    merge: z.string().transform(parseCommitHash),
+    tip: z.string().transform(parseCommitHash).optional(),
+  }),
   z.object({ kind: z.literal("comment"), text: z.string().min(1), source: CommentSourceSchema.optional() }),
 ]) satisfies z.ZodType<LogAction>;
 
@@ -208,18 +212,28 @@ export function mergeLogs(a: readonly LogEntry[], b: readonly LogEntry[]): reado
 }
 
 /**
- * The commit-message trailer marking a merge as landing a change. Reviewers
- * of the parent skip the diff such a merge brings in: it was reviewed in the
+ * The commit-message trailer marking a commit as landing a change. Reviewers
+ * of the parent skip the diff such a commit brings in: it was reviewed in the
  * child, under the child's own log.
  */
 export const LAND_TRAILER = "Cabaret-Landed";
 
-/** The message for the merge commit that lands `change`. */
-export function landMessage(change: RefName): string {
-  return `Land ${change}\n\n${LAND_TRAILER}: ${change}\n`;
+/** The title line of the commit that lands `change`. */
+export function landTitle(change: RefName): string {
+  return `Land ${change}`;
 }
 
-/** A merge commit that landed a change, and the parent tip it landed onto. */
+/** The trailer line marking the commit that lands `change`. */
+export function landTrailer(change: RefName): string {
+  return `${LAND_TRAILER}: ${change}`;
+}
+
+/** The message for the commit that lands `change`. */
+export function landMessage(change: RefName): string {
+  return `${landTitle(change)}\n\n${landTrailer(change)}\n`;
+}
+
+/** A commit that landed a change, and the parent tip it landed onto. */
 export interface LandMerge {
   readonly commit: CommitHash;
   readonly onto: CommitHash;
@@ -235,6 +249,9 @@ export interface Backend {
 
   /** The identity attributed to log entries this user writes. */
   currentUser(): Promise<UserName>;
+
+  /** The value of git config `key`, or undefined when unset. */
+  config(key: string): Promise<string | undefined>;
 
   /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
   resolveCommit(revision: string): Promise<CommitHash>;
@@ -276,8 +293,15 @@ export interface Backend {
   merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
 
   /**
-   * The merges carrying the `LAND_TRAILER` trailer on the first-parent chain
-   * from `base` to `tip`, oldest first.
+   * As `merge`, but the new commit's sole parent is `onto`: `tip`'s tree
+   * lands as one commit that does not carry `tip`'s history.
+   */
+  squash(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+
+  /**
+   * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain
+   * from `base` to `tip`, oldest first — land merges, whose `onto` is their
+   * first parent, and squash lands, whose `onto` is their sole parent.
    */
   landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]>;
 
@@ -514,13 +538,18 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
 
 /**
  * The tip of `change`: the revision its diff is computed up to. A landed
- * change is frozen at the tip its land merge carries as its second parent;
- * the branch may since be gone or moved on. An unlanded change's tip is its
- * branch, pinned to the branch namespace so a same-named tag cannot shadow it.
+ * change is frozen at the tip it landed as — a merge carries it as its second
+ * parent, and a squash, whose commit descends from no reviewed history,
+ * records it in the land entry instead; the branch may since be gone or moved
+ * on. An unlanded change's tip is its branch, pinned to the branch namespace
+ * so a same-named tag cannot shadow it.
  */
 export async function changeTip(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
-  const landed = landedMerge(entries);
-  return landed !== undefined ? backend.resolveCommit(`${landed}^2`) : backend.resolveCommit(`refs/heads/${change}`);
+  const landed = latestAction(entries, "land");
+  if (landed === undefined) {
+    return backend.resolveCommit(`refs/heads/${change}`);
+  }
+  return landed.tip ?? backend.resolveCommit(`${landed.merge}^2`);
 }
 
 /** One contiguous span of a change's history that a reviewer must review. */
