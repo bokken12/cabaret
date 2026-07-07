@@ -201,6 +201,25 @@ test("gh import turns a teammate's PR into a change to review", async () => {
   });
 });
 
+test("gh import adopts the PR of the checked-out branch without fetching it", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  // The PR was opened from this very checkout, so its branch is both local
+  // and current — git refuses to fetch into it.
+  await repo.git("checkout", "-qb", "my-feature");
+  await repo.write("mine.txt", "my work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "my work");
+  await repo.git("push", "-q", "origin", "my-feature");
+  forge.openRequest("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
+  expect(await repo.cabaret("gh", "import", "1")).toEqual({
+    stdout: 'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("owner", "show", "my-feature")).stdout).toBe("alice@users.noreply.github.com\n");
+});
+
 test("gh push retargets the PR base after a reparent", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);

@@ -253,7 +253,11 @@ export async function importRequest(
   if ((await backend.readLog(change)).length > 0) {
     return { kind: "exists", change };
   }
-  await backend.fetchBranch(change);
+  // The checked-out branch is already local and git refuses to fetch into
+  // it — importing the request for the branch you are on is fine as it is.
+  if ((await backend.currentBranch()) !== change) {
+    await backend.fetchBranch(change);
+  }
   const user = await backend.currentUser();
   const additions: LogEntry[] = [
     { timestamp: now(), user, action: { kind: "set-parent", parent: request.base } },
