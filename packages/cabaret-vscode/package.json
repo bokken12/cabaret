@@ -123,7 +123,7 @@
         },
         {
           "command": "cabaret.refresh",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.rebase",
@@ -184,7 +184,7 @@
       {
         "command": "cabaret.refresh",
         "key": "shift+r",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (resourceScheme == cabaret || resourceScheme == cabaret-rev) && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.review",

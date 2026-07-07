@@ -2,6 +2,7 @@ import {
   type Backend,
   createChange,
   currentParent,
+  type FilePath,
   type Forge,
   type ForgeRequestId,
   importRequest,
@@ -25,8 +26,12 @@ import {
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
 import {
+  binaryDiff,
   changeSnapshot,
+  type DiffPage,
   type Doc,
+  diffPage,
+  diffTitle,
   docText,
   markReviewed,
   type Page,
@@ -39,8 +44,11 @@ import {
 } from "cabaret-views";
 import * as vscode from "vscode";
 import { linkRanges, styledRanges } from "./ranges.js";
+import { parseRevPath, type Rev, revPath, type Side } from "./revs.js";
 
 const SCHEME = "cabaret";
+/** Documents holding one side of a pending diff, for the native diff editor. */
+const REV_SCHEME = "cabaret-rev";
 
 /** Open the backend for the repository containing the first workspace folder. */
 async function openBackend(): Promise<GitBackend> {
@@ -66,6 +74,10 @@ async function openForge(): Promise<Forge | undefined> {
  */
 class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
   private readonly docs = new Map<string, Doc>();
+  /** Pending diffs behind rev documents, keyed by diff page path so a diff editor's two sides agree. */
+  private readonly revPages = new Map<string, Promise<DiffPage>>();
+  /** Rev URIs with an open document, to re-render on refresh. */
+  private readonly revDocs = new Set<string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
   private readonly rendered = new vscode.EventEmitter<void>();
@@ -99,6 +111,14 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    if (uri.scheme === REV_SCHEME) {
+      const { side, change, file } = parseRevPath(uri.path);
+      this.revDocs.add(uri.toString());
+      const view = (await this.diffPage(change, file)).round?.view;
+      // openDiff only opens rev documents on a two-way view, but review can
+      // advance under an open editor; empty is the truthful rendering then.
+      return view?.kind === "two" ? (view[side] ?? "") : "";
+    }
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
     const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge, {
@@ -109,6 +129,23 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     // repainting only on document changes would leave pre-render paint stale.
     this.rendered.fire();
     return docText(doc);
+  }
+
+  /** The pending diff behind `change`'s `file`, one reading shared by both of a diff editor's sides. */
+  diffPage(change: RefName, file: FilePath): Promise<DiffPage> {
+    const key = pagePath({ kind: "diff", change, file });
+    const held = this.revPages.get(key);
+    if (held !== undefined) {
+      return held;
+    }
+    const fresh = (async () => {
+      const backend = await openBackend();
+      return diffPage(backend, await changeSnapshot(backend, change), file);
+    })();
+    this.revPages.set(key, fresh);
+    // A failed read is not review state; drop it so the next ask retries.
+    fresh.catch(() => this.revPages.delete(key));
+    return fresh;
   }
 
   doc(uri: vscode.Uri): Doc | undefined {
@@ -129,19 +166,71 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   }
 
   refresh(uri: vscode.Uri): void {
+    if (uri.scheme === REV_SCHEME) {
+      // Both sides re-read one fresh diff, whichever side asked.
+      const { change, file } = parseRevPath(uri.path);
+      this.revPages.delete(pagePath({ kind: "diff", change, file }));
+      for (const side of ["prev", "next"] as const) {
+        this.changed.fire(uri.with({ path: revPath({ side, change, file }) }));
+      }
+      return;
+    }
     this.changed.fire(uri);
   }
 
-  /** Re-render every open page: any of them can name a change an action just moved. */
+  /** Re-render every open page and rev: any of them can show a change an action just moved. */
   refreshAll(): void {
+    this.revPages.clear();
     for (const key of this.docs.keys()) {
+      this.changed.fire(vscode.Uri.parse(key));
+    }
+    for (const key of this.revDocs) {
       this.changed.fire(vscode.Uri.parse(key));
     }
   }
 
   forget(uri: vscode.Uri): void {
+    if (uri.scheme === REV_SCHEME) {
+      this.revDocs.delete(uri.toString());
+      const { change, file } = parseRevPath(uri.path);
+      const open = (side: Side): boolean =>
+        this.revDocs.has(uri.with({ path: revPath({ side, change, file }) }).toString());
+      if (!open("prev") && !open("next")) {
+        this.revPages.delete(pagePath({ kind: "diff", change, file }));
+      }
+      return;
+    }
     this.docs.delete(uri.toString());
   }
+}
+
+function revUri(rev: Rev): vscode.Uri {
+  return vscode.Uri.from({ scheme: REV_SCHEME, path: revPath(rev) });
+}
+
+/**
+ * Open the diff left to review for `file`: the native diff editor when git
+ * config cabaret.sideBySide asks for two columns and the pending view is a
+ * plain two-way text diff, else the diff page — which alone renders 4-way
+ * views, binary notices, and the nothing-left guidance.
+ */
+async function openDiff(provider: PageProvider, change: RefName, file: FilePath): Promise<void> {
+  const sideBySide = (await readConfig(await openBackend())).sideBySide;
+  if (sideBySide !== undefined) {
+    const page = await provider.diffPage(change, file);
+    const view = page.round?.view;
+    if (view?.kind === "two" && view.prev !== view.next && !binaryDiff(view.prev, view.next)) {
+      await vscode.commands.executeCommand(
+        "vscode.diff",
+        revUri({ side: "prev", change, file }),
+        revUri({ side: "next", change, file }),
+        diffTitle(page),
+        { preview: false },
+      );
+      return;
+    }
+  }
+  await openPage(provider, { kind: "diff", change, file });
 }
 
 async function openPage(provider: PageProvider, page: Page): Promise<void> {
@@ -188,7 +277,9 @@ async function showChange(provider: PageProvider): Promise<void> {
 
 /** Expose the active page's kind as the `cabaret.page` context so keybindings can scope to one page. */
 function updatePageContext(editor: vscode.TextEditor | undefined): void {
-  const kind = editor?.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path).kind : undefined;
+  const uri = editor?.document.uri;
+  // Either side of a native diff editor counts as the diff page it shows.
+  const kind = uri?.scheme === SCHEME ? parsePagePath(uri.path).kind : uri?.scheme === REV_SCHEME ? "diff" : undefined;
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
 }
 
@@ -264,7 +355,7 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
       await openPage(provider, { kind: "show", change: target.change });
       break;
     case "file":
-      await openPage(provider, { kind: "diff", change: target.change, file: target.file });
+      await openDiff(provider, target.change, target.file);
       break;
     case "request":
       // The as-if-imported view; importing is its own action.
@@ -326,28 +417,30 @@ async function review(provider: PageProvider): Promise<void> {
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+  if (editor === undefined) {
     return;
   }
-  const page = parsePagePath(editor.document.uri.path);
-  if (page.kind !== "diff") {
+  const uri = editor.document.uri;
+  const page =
+    uri.scheme === SCHEME ? parsePagePath(uri.path) : uri.scheme === REV_SCHEME ? parseRevPath(uri.path) : undefined;
+  if (page === undefined || ("kind" in page && page.kind !== "diff")) {
     return;
   }
+  const { change, file } = page;
   try {
     const backend = await openBackend();
-    const result = markReviewed(backend, now, await changeSnapshot(backend, page.change), page.file);
+    const result = markReviewed(backend, now, await changeSnapshot(backend, change), file);
     if (result.kind === "nothing-left") {
-      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${file}`);
       return;
     }
     await result.recorded;
-    await closeTabs(editor.document.uri);
-    await openPage(
-      provider,
-      result.next === undefined
-        ? { kind: "review", change: page.change }
-        : { kind: "diff", change: page.change, file: result.next },
-    );
+    await closeTabs(uri);
+    if (result.next === undefined) {
+      await openPage(provider, { kind: "review", change });
+    } else {
+      await openDiff(provider, change, result.next);
+    }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   } finally {
@@ -535,12 +628,17 @@ async function requireForge(): Promise<Forge> {
   return forge;
 }
 
-/** Close every tab showing `uri`. */
+/** Close every tab showing `uri`, as a document or as either side of a diff editor. */
 async function closeTabs(uri: vscode.Uri): Promise<void> {
   const key = uri.toString();
+  const shows = (input: unknown): boolean =>
+    input instanceof vscode.TabInputText
+      ? input.uri.toString() === key
+      : input instanceof vscode.TabInputTextDiff &&
+        (input.original.toString() === key || input.modified.toString() === key);
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
-      if (tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === key) {
+      if (shows(tab.input)) {
         await vscode.window.tabGroups.close(tab);
       }
     }
@@ -686,6 +784,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    vscode.workspace.registerTextDocumentContentProvider(REV_SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, target)),
     // Rendering, the buffer taking a render's new text, and an editor coming
@@ -700,7 +799,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.window.onDidChangeVisibleTextEditors(repaint),
     vscode.workspace.onDidCloseTextDocument((document) => {
-      if (document.uri.scheme === SCHEME) {
+      if (document.uri.scheme === SCHEME || document.uri.scheme === REV_SCHEME) {
         provider.forget(document.uri);
       }
     }),
@@ -720,7 +819,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
-      if (uri !== undefined && uri.scheme === SCHEME) {
+      if (uri !== undefined && (uri.scheme === SCHEME || uri.scheme === REV_SCHEME)) {
         provider.refresh(uri);
       }
     }),

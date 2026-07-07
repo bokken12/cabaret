@@ -262,6 +262,11 @@ async function rebasedView(
 /** Lines of context around diff hunks when the host does not choose, as git. */
 export const defaultContext = 3;
 
+/** Whether either version diffs as binary, where a notice replaces hunks. */
+export function binaryDiff(prev: string | undefined, next: string | undefined): boolean {
+  return IsBinary.string(prev ?? "") || IsBinary.string(next ?? "");
+}
+
 /**
  * Render the diff between two versions of `file` with patdiff: ANSI-colored
  * with word-level refinement on a terminal, plain ASCII otherwise. An absent
@@ -278,7 +283,7 @@ export function renderDiff(
   context?: number,
   header = true,
 ): string {
-  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
+  if (binaryDiff(prev, next)) {
     return prev === next ? "" : `Binary versions of ${file} differ\n`;
   }
   const prevName = prev === undefined ? "/dev/null" : `old/${file}`;
@@ -318,7 +323,7 @@ export function renderSideBySideDiff(
   context?: number,
   width?: number,
 ): string {
-  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
+  if (binaryDiff(prev, next)) {
     return prev === next ? "" : `Binary versions of ${file} differ\n`;
   }
   const config = Configuration.override(Configuration.defaultConfiguration, {
@@ -479,7 +484,7 @@ function sideBySideDiffLines(
   mode: SideBySide,
   context?: number,
 ): Line[] {
-  if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
+  if (binaryDiff(view.prev, view.next)) {
     return view.prev === view.next ? [] : [{ spans: [span(`Binary versions of ${file} differ`)] }];
   }
   const prevInput = { name: `old/${file}`, text: view.prev ?? "" };
@@ -583,13 +588,17 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
   });
 }
 
+/** The heading a diff page opens with; hosts reuse it to title native diff views. */
+export function diffTitle(page: DiffPage): string {
+  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  return `${page.file} in ${page.change}${round}`;
+}
+
 export function diffDoc(page: DiffPage, context?: number, sideBySide?: SideBySide): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
-  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
-  const title = `${page.file} in ${page.change}${round}`;
   const lines: Line[] = [
-    { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
+    { spans: [span(diffTitle(page), { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },
   ];
   if (page.round === undefined) {
