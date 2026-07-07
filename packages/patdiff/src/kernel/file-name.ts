@@ -1,5 +1,3 @@
-import * as path from "node:path";
-
 export type FileName =
   | { readonly kind: "Real"; readonly realName: string; readonly altName?: string }
   | { readonly kind: "Fake"; readonly name: string };
@@ -27,18 +25,22 @@ export const displayName = (t: FileName): string => {
 
 export const toStringHum = displayName;
 
+// Slash-joining rather than node:path keeps this module portable to the
+// browser; the names here are diff labels, never real filesystem paths.
+const join = (base: string, part: string): string => (base === "" ? part : `${base.replace(/\/+$/, "")}/${part}`);
+
 export const append = (t: FileName, part: string): FileName => {
   switch (t.kind) {
     case "Real":
       return t.altName === undefined
-        ? { kind: "Real", realName: path.join(t.realName, part) }
+        ? { kind: "Real", realName: join(t.realName, part) }
         : {
             kind: "Real",
-            realName: path.join(t.realName, part),
-            altName: path.join(t.altName, part),
+            realName: join(t.realName, part),
+            altName: join(t.altName, part),
           };
     case "Fake":
-      return { kind: "Fake", name: path.join(t.name, part) };
+      return { kind: "Fake", name: join(t.name, part) };
   }
 };
 

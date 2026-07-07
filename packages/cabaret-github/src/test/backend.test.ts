@@ -171,51 +171,65 @@ describe("landMerges", () => {
   const tip = sha("e");
   const landMessage = "Land child\n\nCabaret-Landed: child\n";
 
-  /** The comparison the walk makes to ask whether `commit` is an ancestor of base. */
-  function ancestry(commit: string, status: "ahead" | "behind" | "diverged") {
+  /** One commit of a compare listing. */
+  function listed(commit: string, parents: readonly string[], message = "work") {
+    return { sha: commit, commit: { message }, parents: parents.map((parent) => ({ sha: parent })) };
+  }
+
+  /** The compare listing of base..tip, one page. */
+  function comparePage(commits: readonly ReturnType<typeof listed>[]) {
     return {
-      [`GET ${REPOS}/compare/${commit}...${base}?per_page=1`]: {
-        json: { status, merge_base_commit: { sha: base } },
+      [`GET ${REPOS}/compare/${base}...${tip}?per_page=100&page=1`]: {
+        json: { total_commits: commits.length, commits },
       },
     };
   }
 
   test("finds trailer-bearing merges on the first-parent chain, oldest first", async () => {
-    stubGitHub({
+    const calls = stubGitHub(
       // tip is a cherry-pick of the land merge: same message, one parent.
-      [`GET ${REPOS}/git/commits/${tip}`]: { json: commitJson(tip, [cherry], landMessage) },
-      [`GET ${REPOS}/git/commits/${cherry}`]: { json: commitJson(cherry, [land], landMessage) },
-      [`GET ${REPOS}/git/commits/${land}`]: { json: commitJson(land, [c1, sha("9")], landMessage) },
-      [`GET ${REPOS}/git/commits/${c1}`]: { json: commitJson(c1, [base], "plain work") },
-      ...ancestry(tip, "behind"),
-      ...ancestry(cherry, "behind"),
-      ...ancestry(land, "behind"),
-      ...ancestry(c1, "behind"),
-    });
+      comparePage([
+        listed(c1, [base], "plain work"),
+        listed(land, [c1, sha("9")], landMessage),
+        listed(cherry, [land], landMessage),
+        listed(tip, [cherry], landMessage),
+      ]),
+    );
     expect(await backend().landMerges(base, tip)).toEqual([{ commit: land, onto: c1 }]);
+    expect(calls).toHaveLength(1);
   });
 
-  test("stops at a commit reachable from base, as when the parent was merged in", async () => {
+  test("stops where the first-parent chain leaves base..tip, as when the parent was merged in", async () => {
     // tip merges base in rather than descending from it: base is on tip's
     // second-parent line, and the first-parent chain runs past it to older
-    // history.
-    const older = sha("9");
-    stubGitHub({
-      [`GET ${REPOS}/git/commits/${tip}`]: { json: commitJson(tip, [c1, base], landMessage) },
-      [`GET ${REPOS}/git/commits/${c1}`]: { json: commitJson(c1, [older], "plain work") },
-      ...ancestry(tip, "behind"),
-      ...ancestry(c1, "diverged"),
-      ...ancestry(older, "ahead"),
-    });
+    // history outside the listing.
+    stubGitHub(comparePage([listed(tip, [c1, base], landMessage)]));
     expect(await backend().landMerges(base, tip)).toEqual([{ commit: tip, onto: c1 }]);
   });
 
-  test("an unrelated base walks the whole chain, like git log", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/git/commits/${tip}`]: { json: commitJson(tip, [], "root") },
-      ...ancestry(tip, "diverged"),
+  test("pages a listing longer than one page and caches the answer", async () => {
+    // 150 commits: c(0) is the land merge, everything above is plain work.
+    const chain = Array.from({ length: 150 }, (_, i) => sha("0").slice(0, 37) + String(i).padStart(3, "0"));
+    const commits = chain.map((commit, i) =>
+      listed(
+        commit,
+        [i === 0 ? base : (chain[i - 1] as string), ...(i === 0 ? [sha("9")] : [])],
+        i === 0 ? landMessage : "work",
+      ),
+    );
+    const calls = stubGitHub({
+      [`GET ${REPOS}/compare/${base}...${chain[149]}?per_page=100&page=1`]: {
+        json: { total_commits: 150, commits: commits.slice(0, 100) },
+      },
+      [`GET ${REPOS}/compare/${base}...${chain[149]}?per_page=100&page=2`]: {
+        json: { total_commits: 150, commits: commits.slice(100) },
+      },
     });
-    expect(await backend().landMerges(base, tip)).toEqual([]);
+    const github = backend();
+    const merges = [{ commit: chain[0], onto: base }];
+    expect(await github.landMerges(base, parseCommitHash(chain[149] as string))).toEqual(merges);
+    expect(await github.landMerges(base, parseCommitHash(chain[149] as string))).toEqual(merges);
+    expect(calls).toHaveLength(2);
   });
 });
 
@@ -225,6 +239,34 @@ describe("files", () => {
       [`GET ${REPOS}/contents/src%2Fapp.ts?ref=${sha("1")}`]: { json: "export const x = 1;\n" },
     });
     expect(await backend().readFile(sha("1"), parseFilePath("src/app.ts"))).toBe("export const x = 1;\n");
+  });
+
+  test("hash-keyed queries cache: repeat asks cost no further requests", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/contents/a.ts?ref=${sha("1")}`]: { json: "one\n" },
+      [`GET ${REPOS}/compare/${sha("1")}...${sha("2")}?per_page=1`]: {
+        json: { status: "ahead", merge_base_commit: { sha: sha("1") } },
+      },
+    });
+    const github = backend();
+    expect(await github.readFile(sha("1"), parseFilePath("a.ts"))).toBe("one\n");
+    expect(await github.readFile(sha("1"), parseFilePath("a.ts"))).toBe("one\n");
+    expect(await github.isAncestor(sha("1"), sha("2"))).toBe(true);
+    expect(await github.isAncestor(sha("1"), sha("2"))).toBe(true);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a failed query is not cached: the next ask goes back to the API", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/contents/a.ts?ref=${sha("1")}`]: [
+        { status: 401, json: { message: "Bad credentials" } },
+        { json: "one\n" },
+      ],
+    });
+    const github = backend();
+    await expect(github.readFile(sha("1"), parseFilePath("a.ts"))).rejects.toMatchObject({ status: 401 });
+    expect(await github.readFile(sha("1"), parseFilePath("a.ts"))).toBe("one\n");
+    expect(calls).toHaveLength(2);
   });
 
   test("readFile is undefined for a path absent at the commit", async () => {
@@ -377,6 +419,74 @@ describe("logs", () => {
       { sha: sha("3"), force: false },
       { sha: sha("4"), force: false },
     ]);
+  });
+
+  test("appends issued while one is in flight batch into a single commit", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: [
+        { json: { object: { type: "commit", sha: sha("1") } } },
+        { json: { object: { type: "commit", sha: sha("3") } } },
+      ],
+      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`GET ${REPOS}/contents/log?ref=${sha("3")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
+      [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
+      [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
+      [`POST ${REPOS}/git/commits`]: [
+        { status: 201, json: { sha: sha("3") } },
+        { status: 201, json: { sha: sha("4") } },
+      ],
+      [`PATCH ${REPOS}/git/refs/cabaret%2Flog%2Fbusy`]: { json: {} },
+    });
+    const at = (offset: number, text: string): LogEntry => ({
+      timestamp: timestampMs(1700000002000 + offset),
+      user: userName("alice@example.com"),
+      action: { kind: "comment", text },
+    });
+    const github = backend();
+    const change = parseRefName("busy");
+    // `other` seals a batch first; the two marks that follow while it is in
+    // flight ride the next commit together.
+    const first = github.appendLog(change, [other]);
+    await Promise.resolve();
+    const second = github.appendLog(change, [at(1, "mark a")]);
+    const third = github.appendLog(change, [at(2, "mark b")]);
+    await Promise.all([first, second, third]);
+    const blobs = calls
+      .filter(({ url, method }) => method === "POST" && url.endsWith("/git/blobs"))
+      .map(({ body }) => (JSON.parse(body ?? "{}") as { content: string }).content);
+    expect(blobs).toEqual([
+      formatLogEntry(entry) + formatLogEntry(other),
+      formatLogEntry(entry) + formatLogEntry(other) + formatLogEntry(at(1, "mark a")) + formatLogEntry(at(2, "mark b")),
+    ]);
+    expect(calls.filter(({ method }) => method === "PATCH")).toHaveLength(2);
+  });
+
+  test("a failed append rejects only its own batch", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: [
+        { status: 401, json: { message: "Bad credentials" } },
+        { json: { object: { type: "commit", sha: sha("1") } } },
+      ],
+      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
+      [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
+      [`POST ${REPOS}/git/commits`]: { status: 201, json: { sha: sha("3") } },
+      [`PATCH ${REPOS}/git/refs/cabaret%2Flog%2Fbusy`]: { json: {} },
+    });
+    const github = backend();
+    const change = parseRefName("busy");
+    const first = github.appendLog(change, [other]);
+    await Promise.resolve();
+    const second = github.appendLog(change, [
+      {
+        timestamp: timestampMs(1700000002000),
+        user: userName("alice@example.com"),
+        action: { kind: "comment", text: "after" },
+      },
+    ]);
+    await expect(first).rejects.toMatchObject({ status: 401 });
+    await second;
+    expect(calls.filter(({ method }) => method === "PATCH")).toHaveLength(1);
   });
 
   test("appendLog with no entries stays offline", async () => {

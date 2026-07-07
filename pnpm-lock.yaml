@@ -92,6 +92,10 @@ importers:
       patdiff:
         specifier: workspace:*
         version: link:../patdiff
+    devDependencies:
+      fast-check:
+        specifier: ^4.8.0
+        version: 4.8.0
 
   packages/cabaret-vscode:
     dependencies:
@@ -114,6 +118,28 @@ importers:
       fast-check:
         specifier: ^4.8.0
         version: 4.8.0
+
+  packages/cabaret-web:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+      cabaret-github:
+        specifier: workspace:*
+        version: link:../cabaret-github
+      cabaret-views:
+        specifier: workspace:*
+        version: link:../cabaret-views
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.2
+        version: 25.9.2
+      vite:
+        specifier: ^8.1.3
+        version: 8.1.3(@types/node@25.9.2)(esbuild@0.28.1)
 
   packages/patdiff:
     devDependencies:

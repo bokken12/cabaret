@@ -8,10 +8,12 @@ import {
   type RefName,
   type ReviewedDiff,
   reviewRounds,
+  type TimestampMs,
   type UserName,
 } from "cabaret-core";
-import { PatdiffCore } from "patdiff";
-import { IsBinary } from "patdiff/kernel";
+// The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
+// filesystem and console — imports a browser host cannot load.
+import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
 import { type Doc, type Line, type Style, span, type Target } from "./doc.js";
 
@@ -41,8 +43,7 @@ export interface ReviewPage {
 
 export async function reviewPage(backend: Backend, user: UserName, change: RefName): Promise<ReviewPage> {
   const entries = await backend.readLog(change);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   const rounds = await reviewRounds(backend, entries, user, base, tip);
   const first = rounds[0];
   return {
@@ -70,6 +71,57 @@ export function reviewDoc(page: ReviewPage): Doc {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
   }
   return { lines };
+}
+
+/** What marking a file reviewed did, and where review continues. */
+export type MarkReviewedResult =
+  /** The file had no review pending, so nothing was recorded. */
+  | { readonly kind: "nothing-left" }
+  /**
+   * The file is being marked reviewed at the end of its earliest pending
+   * round. `next` is the round's next file in list order, wrapping past the
+   * end for files skipped earlier; undefined when the round is done, where
+   * the review page takes over — what to read next changes shape there.
+   */
+  | { readonly kind: "marked"; readonly next: FilePath | undefined; readonly recorded: Promise<void> };
+
+/**
+ * Mark `file` reviewed by the current user at the end of its earliest
+ * pending round.
+ *
+ * The result resolves as soon as the round is known, with the append still
+ * in flight behind `recorded`: a host may open `next`'s diff immediately,
+ * because a review entry only changes its own file's view, and concurrent
+ * appends commute (`appendLog` re-reads and retries a lost swap). Pages that
+ * re-derive what the mark removed — the review page, the todo counts — are
+ * only current once `recorded` resolves, and a host that moves on early owes
+ * the user the rejection.
+ *
+ * TODO: take the round end the caller's open page actually rendered once
+ * docs carry their query snapshot; a commit racing the action widens the
+ * marked diff.
+ */
+export async function markReviewed(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: RefName,
+  file: FilePath,
+): Promise<MarkReviewedResult> {
+  const entries = await backend.readLog(change);
+  const [base, tip, user] = await Promise.all([
+    changeBase(backend, change, entries),
+    changeTip(backend, change, entries),
+    backend.currentUser(),
+  ]);
+  const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(file));
+  if (round === undefined) {
+    return { kind: "nothing-left" };
+  }
+  const recorded = backend.appendLog(change, [
+    { timestamp: now(), user, action: { kind: "review", file, base, tip: round.end } },
+  ]);
+  const remaining = [...round.files.keys()].filter((other) => other !== file);
+  return { kind: "marked", next: remaining.find((other) => other > file) ?? remaining[0], recorded };
 }
 
 /** The versions a file's round of review compares. */
@@ -101,8 +153,7 @@ export interface DiffPage {
 
 export async function diffPage(backend: Backend, user: UserName, change: RefName, file: FilePath): Promise<DiffPage> {
   const entries = await backend.readLog(change);
-  const base = await changeBase(backend, change, entries);
-  const tip = await changeTip(backend, change, entries);
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   let found: { end: CommitHash; view: FileView } | undefined;
   let later = 0;
   for (const { end, files } of await reviewRounds(backend, entries, user, base, tip)) {
@@ -120,11 +171,10 @@ export async function diffPage(backend: Backend, user: UserName, change: RefName
     return { change, file, round: undefined };
   }
   const { end, view } = found;
-  const two = async (from: CommitHash): Promise<DiffView> => ({
-    kind: "two",
-    prev: await backend.readFile(from, file),
-    next: await backend.readFile(end, file),
-  });
+  const two = async (from: CommitHash): Promise<DiffView> => {
+    const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(end, file)]);
+    return { kind: "two", prev, next };
+  };
   switch (view.kind) {
     case "span":
       return { change, file, round: { end, later, view: await two(view.start) } };

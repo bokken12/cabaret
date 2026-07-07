@@ -1,16 +1,9 @@
 import type { Backend, Forge } from "cabaret-core";
-import {
-  type Doc,
-  diffDoc,
-  diffPage,
-  reviewDoc,
-  reviewPage,
-  showDoc,
-  showPage,
-  todoDoc,
-  todoPage,
-} from "cabaret-views";
+import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
+import { diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
+import { showDoc, showPage } from "./show.js";
+import { todoDoc, todoPage } from "./todo.js";
 
 /**
  * Query `backend` and render `page` for its current user. `forge` is opened

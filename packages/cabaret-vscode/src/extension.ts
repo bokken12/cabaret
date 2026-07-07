@@ -1,7 +1,5 @@
 import {
   type Backend,
-  changeBase,
-  changeTip,
   createChange,
   currentParent,
   type Forge,
@@ -16,16 +14,23 @@ import {
   renameChange,
   reparentChange,
   resolveChain,
-  reviewRounds,
   type TimestampMs,
   timestampMs,
   UserError,
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
-import { type Doc, docText, type Style, targetAt } from "cabaret-views";
+import {
+  type Doc,
+  docText,
+  markReviewed,
+  type Page,
+  pagePath,
+  parsePagePath,
+  renderPage,
+  type Style,
+  targetAt,
+} from "cabaret-views";
 import * as vscode from "vscode";
-import { type Page, pagePath, parsePagePath } from "./pages.js";
-import { renderPage } from "./render.js";
 import { styledRanges } from "./styles.js";
 
 const SCHEME = "cabaret";
@@ -274,15 +279,11 @@ async function review(provider: PageProvider): Promise<void> {
 }
 
 /**
- * Mark the active diff page's file as reviewed at the end of its earliest
- * pending round, then move on to the round's next file, or back to the
- * change's review page when the round is done. Errors surface as
- * notifications, and every open page re-renders afterwards.
- *
- * TODO: record the round end the open page actually rendered once docs carry
- * their query snapshot; a commit racing the keypress widens the marked diff.
+ * Mark the active diff page's file as reviewed, then move on to the round's
+ * next file, or back to the change's review page when the round is done.
+ * Errors surface as notifications, and every open page re-renders afterwards.
  */
-async function markReviewed(provider: PageProvider): Promise<void> {
+async function markPageReviewed(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
@@ -292,28 +293,18 @@ async function markReviewed(provider: PageProvider): Promise<void> {
     return;
   }
   try {
-    const backend = await openBackend();
-    const entries = await backend.readLog(page.change);
-    const base = await changeBase(backend, page.change, entries);
-    const tip = await changeTip(backend, page.change, entries);
-    const user = await backend.currentUser();
-    const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(page.file));
-    if (round === undefined) {
+    const result = await markReviewed(await openBackend(), now, page.change, page.file);
+    if (result.kind === "nothing-left") {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
       return;
     }
-    await backend.appendLog(page.change, [
-      { timestamp: now(), user, action: { kind: "review", file: page.file, base, tip: round.end } },
-    ]);
+    await result.recorded;
     await closeTabs(editor.document.uri);
-    // The round's next file in list order, wrapping past the end for files
-    // skipped earlier. At a round boundary the review page takes over: what
-    // to read next changes shape there.
-    const remaining = [...round.files.keys()].filter((file) => file !== page.file);
-    const next = remaining.find((file) => file > page.file) ?? remaining[0];
     await openPage(
       provider,
-      next === undefined ? { kind: "review", change: page.change } : { kind: "diff", change: page.change, file: next },
+      result.next === undefined
+        ? { kind: "review", change: page.change }
+        : { kind: "diff", change: page.change, file: result.next },
     );
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
@@ -619,7 +610,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
-    vscode.commands.registerCommand("cabaret.markReviewed", () => markReviewed(provider)),
+    vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;

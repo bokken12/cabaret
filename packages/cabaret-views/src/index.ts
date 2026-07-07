@@ -1,4 +1,6 @@
 export * from "./doc.js";
+export * from "./pages.js";
+export * from "./render.js";
 export * from "./review.js";
 export * from "./show.js";
 export * from "./todo.js";
