@@ -12,11 +12,19 @@ export type Target =
   /** A forge request with no change log yet; `change` names the change importing it would create. */
   | { readonly kind: "request"; readonly request: ForgeRequestId; readonly change: RefName };
 
+/**
+ * How hosts offer a span's target: a link is advertised as clickable, while a
+ * jump answers only an explicit ask, like Enter at the cursor.
+ */
+export type TargetTier = "link" | "jump";
+
 /** A run of single-line text, optionally styled and denoting a target. */
 export interface Span {
   readonly text: string;
   readonly style?: Style | undefined;
   readonly target?: Target | undefined;
+  /** Present exactly when `target` is: `span` supplies the default. */
+  readonly tier?: TargetTier | undefined;
 }
 
 export interface Line {
@@ -29,11 +37,19 @@ export interface Doc {
 }
 
 /** Make a span; multi-line text would break line-to-target mapping, so it is refused. */
-export function span(text: string, opts?: { style?: Style; target?: Target }): Span {
+export function span(text: string, opts?: { style?: Style; target?: Target; tier?: TargetTier }): Span {
   if (text.includes("\n")) {
     throw new Error(`span text must be a single line: ${JSON.stringify(text)}`);
   }
-  return { text, style: opts?.style, target: opts?.target };
+  if (opts?.tier !== undefined && opts.target === undefined) {
+    throw new Error("a span's tier qualifies its target; it cannot stand alone");
+  }
+  return {
+    text,
+    style: opts?.style,
+    target: opts?.target,
+    tier: opts?.target === undefined ? undefined : (opts.tier ?? "link"),
+  };
 }
 
 /**

@@ -95,7 +95,7 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
   ]);
 });
 
-test("diffDoc anchors each hunk line to its place in the new copy", () => {
+test("diffDoc anchors each hunk line to its place in the new copy, on the jump tier", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } }),
   );
@@ -109,6 +109,17 @@ test("diffDoc anchors each hunk line to its place in the new copy", () => {
     location(1), // shared
     location(2), // gone: the removal site, where "here" now sits
     location(2), // here
+  ]);
+  // Only the heading advertises itself as a link; hunk lines answer the cursor alone.
+  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual([
+    "link",
+    undefined,
+    undefined,
+    undefined,
+    "jump",
+    "jump",
+    "jump",
+    "jump",
   ]);
 });
 
@@ -344,6 +355,10 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
   expect(styleOf("| ++-|ONE")).toBe("removed");
   expect(styleOf("|   +|child")).toBe("added");
   expect(styleOf("| --  one")).toBeUndefined();
+  // Anchored lines sit on the jump tier, never advertised as links.
+  const tierOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.tier;
+  expect(tierOf("| +|ONE!")).toBe("jump");
+  expect(tierOf("|   one")).toBeUndefined();
 });
 
 test("diffDoc with an empty diff points at marking the file reviewed", () => {

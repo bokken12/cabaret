@@ -16,7 +16,7 @@ import {
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import { type Doc, type Line, type Style, span, type Target } from "./doc.js";
+import { type Doc, type Line, type Style, span, type Target, type TargetTier } from "./doc.js";
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
 function shortHash(hash: CommitHash): string {
@@ -339,7 +339,7 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
   let at = 1;
   let inHunk = false;
   for (const text of rendered.slice(0, -1).split("\n")) {
-    const opts: { style?: Style; target?: Target } = {};
+    const opts: { style?: Style; target?: Target; tier?: TargetTier } = {};
     let content = text;
     const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
     if (header?.[1] !== undefined) {
@@ -364,6 +364,11 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
       opts.target = { kind: "location", file, line: at };
       content = text.slice(2);
     }
+    if (opts.target !== undefined) {
+      // Jump tier: a wall of clickable diff lines would drown the page's real
+      // links, and the cursor is already on the line a reviewer wants to visit.
+      opts.tier = "jump";
+    }
     lines.push({ spans: [span(content, opts)] });
   }
   return lines;
@@ -383,7 +388,7 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
   const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false, context });
   let at: number | undefined;
   return rendered.map(({ text, kind, provenance }) => {
-    const opts: { style?: Style; target?: Target } = {};
+    const opts: { style?: Style; target?: Target; tier?: TargetTier } = {};
     if (kind === "prev") {
       opts.style = "removed";
     } else if (kind === "next") {
@@ -397,6 +402,10 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
       at = undefined;
     } else if (at !== undefined) {
       opts.target = { kind: "location", file, line: at };
+    }
+    if (opts.target !== undefined) {
+      // Jump tier, as in twoWayDiffLines.
+      opts.tier = "jump";
     }
     return { spans: [span(text, opts)] };
   });
