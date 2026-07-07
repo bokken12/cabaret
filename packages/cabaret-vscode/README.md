@@ -8,7 +8,8 @@ text buffers, so search, selection, and vim keybindings work untouched.
 ## Commands
 
 - **Cabaret: Todo** — open the todo page: what awaits your attention.
-- **Cabaret: Show Change** — pick a change and open its show page.
+- **Cabaret: Show Change** — open the current change's show page, picking
+  one when no change is current.
 - In a cabaret buffer, `enter` opens the target under the cursor and `r`
   re-renders the page. On a show page, `^` climbs to the parent's show page —
   or to the todo page from a change rooted on a trunk — and `$` descends to a
@@ -17,6 +18,8 @@ text buffers, so search, selection, and vim keybindings work untouched.
   a parent, `!rb` rebases, `!rn` renames, `!rp` reparents, and `!la` lands.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
+- With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f
+  t` opens the todo page and `SPC a f s` shows the current change.
 
 ## Installing
 
