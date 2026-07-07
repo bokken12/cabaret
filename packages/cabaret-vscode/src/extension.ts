@@ -4,6 +4,8 @@ import {
   changeTip,
   createChange,
   currentParent,
+  type ForgeRequestId,
+  importRequest,
   landChain,
   landChange,
   parseRefName,
@@ -17,7 +19,7 @@ import {
   type TimestampMs,
   timestampMs,
 } from "cabaret-core";
-import { GitBackend } from "cabaret-node";
+import { GitBackend, GitHubForge } from "cabaret-node";
 import { type Doc, docText, targetAt } from "cabaret-views";
 import * as vscode from "vscode";
 import { type Page, pagePath, parsePagePath } from "./pages.js";
@@ -36,6 +38,15 @@ async function openBackend(): Promise<GitBackend> {
 }
 
 /**
+ * Open the forge for the first workspace folder's origin, or undefined when
+ * none is reachable (no folder, no `gh`, or a non-GitHub origin).
+ */
+async function openForge(): Promise<GitHubForge | undefined> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  return folder === undefined ? undefined : GitHubForge.open(folder.uri.fsPath).catch(() => undefined);
+}
+
+/**
  * Serves `cabaret:` documents, remembering each page's doc so cursor
  * positions hit-test against exactly what is on screen.
  */
@@ -48,7 +59,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
-    const doc = await renderPage(await openBackend(), parsePagePath(uri.path));
+    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge);
     this.docs.set(uri.toString(), doc);
     return docText(doc);
   }
@@ -187,6 +198,10 @@ async function openTarget(provider: PageProvider): Promise<void> {
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
+    case "request":
+      // The as-if-imported view; importing is its own action.
+      await openPage(provider, { kind: "show", change: target.change });
+      break;
     case "location": {
       // Visit the working tree's copy: it is the one worth editing, and while
       // reviewing a checked-out change it is the copy the diff shows. A tree
@@ -207,8 +222,29 @@ async function openTarget(provider: PageProvider): Promise<void> {
   }
 }
 
+/**
+ * When the active page shows an unimported request — its heading resolves to
+ * one — prompt to import and return true, telling the caller to stop.
+ */
+function promptImportFirst(provider: PageProvider): boolean {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return false;
+  }
+  const doc = provider.renderedDoc(editor.document.uri);
+  const heading = doc === undefined ? undefined : targetAt(doc, 0);
+  if (heading?.kind !== "request") {
+    return false;
+  }
+  vscode.window.showInformationMessage(`cabaret: import ${heading.change} first (Cabaret: Import Pull Request)`);
+  return true;
+}
+
 /** Enter review of the shown change: open its list of files to review. */
 async function review(provider: PageProvider): Promise<void> {
+  if (promptImportFirst(provider)) {
+    return;
+  }
   const change = shownChange();
   if (change !== undefined) {
     await openPage(provider, { kind: "review", change });
@@ -264,6 +300,41 @@ async function markReviewed(provider: PageProvider): Promise<void> {
   }
 }
 
+/** Import request `id` as a change, surfacing failure as a notification; returns the change's name. */
+async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
+  try {
+    const forge = await openForge();
+    if (forge === undefined) {
+      vscode.window.showErrorMessage("cabaret: no reachable forge for this repository");
+      return undefined;
+    }
+    return (await importRequest(await openBackend(), now, forge, id)).change;
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+    return undefined;
+  }
+}
+
+/** Import the pull request at the cursor as a change, as `cabaret gh import` does. */
+async function importAtCursor(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const doc = provider.renderedDoc(editor.document.uri);
+  // The cursor's request, or the one the page itself displays: a request's
+  // show page opens with a heading that resolves to it.
+  const atCursor = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+  const heading = doc === undefined ? undefined : targetAt(doc, 0);
+  const target = atCursor?.kind === "request" ? atCursor : heading?.kind === "request" ? heading : undefined;
+  if (target === undefined) {
+    vscode.window.showInformationMessage("cabaret: no pull request at the cursor");
+    return;
+  }
+  await runImport(target.request);
+  provider.refreshAll();
+}
+
 const now = (): TimestampMs => timestampMs(Date.now());
 
 function message(error: unknown): string {
@@ -313,13 +384,22 @@ async function actOnSelection(
   provider: PageProvider,
   act: (backend: Backend, editor: vscode.TextEditor, changes: readonly RefName[]) => Promise<void>,
 ): Promise<void> {
+  if (promptImportFirst(provider)) {
+    return;
+  }
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const changes = selectedChanges(provider, editor);
   if (changes.length === 0) {
-    vscode.window.showInformationMessage("cabaret: no change at the cursor");
+    const doc = provider.renderedDoc(editor.document.uri);
+    const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+    vscode.window.showInformationMessage(
+      target?.kind === "request"
+        ? `cabaret: import ${target.change} first (Cabaret: Import Pull Request)`
+        : "cabaret: no change at the cursor",
+    );
     return;
   }
   try {
@@ -451,6 +531,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markReviewed(provider)),
+    vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

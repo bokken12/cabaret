@@ -359,8 +359,10 @@ const splitLongLinesIntoRangeLists = (
           const [newLen, newRange, newRemaining, hitNewline] = takeUntilMax(lenSoFar, remaining, maxLen);
           newRanges.push({ kind: "range", range: newRange });
           if (newRemaining.length > 0 && !hitNewline) {
-            newRanges.push({ kind: "break" });
+            // The synthetic newline terminates the chunk being flushed — a
+            // break first would leave it mid-line, which collapse rejects.
             newRanges.push({ kind: "range", range: makeNewlineSameRange() });
+            newRanges.push({ kind: "break" });
           }
           lenSoFar = newLen;
           remaining = newRemaining;

@@ -23,6 +23,7 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
+    changedFiles: 1,
   });
   const posted = await forge.listComments(REQUEST);
   expect(posted.map(({ body }) => body)).toEqual([expect.stringMatching(/^ship it\n\n<!-- cabaret:[0-9a-f]{64} -->$/)]);
@@ -198,6 +199,26 @@ test("gh import turns a teammate's PR into a change to review", async () => {
     stderr: 'change already exists: "their-feature"; run `cabaret gh pull` to sync it\n',
     exitCode: 1,
   });
+});
+
+test("gh import adopts the PR of an existing local branch without fetching it", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  // The PR was opened from this very checkout, so its branch is both local
+  // and current. A local branch is never fetched into — git refuses when
+  // any worktree has it checked out, and import should not move it anyway.
+  await repo.git("checkout", "-qb", "my-feature");
+  await repo.write("mine.txt", "my work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "my work");
+  await repo.git("push", "-q", "origin", "my-feature");
+  forge.openRequest("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
+  expect(await repo.cabaret("gh", "import", "1")).toEqual({
+    stdout: 'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("owner", "show", "my-feature")).stdout).toBe("alice@users.noreply.github.com\n");
 });
 
 test("gh push retargets the PR base after a reparent", async () => {

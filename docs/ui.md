@@ -52,8 +52,8 @@ type Target =
 
 Iron's surfaces, under Iron's names:
 
-- **todo** — the landing page: what needs your attention. A section of changes awaiting your review and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state.
-- **show** — one change: an attribute table (next step, owner, tip, base, forge request), files with per-file review state, comments.
+- **todo** — the landing page: what needs your attention. A section of changes awaiting your review and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. When the forge is reachable, open pull requests with no change log yet stand in for the changes importing them would create: they appear in the review section (every file counts as unreviewed) and, when you authored them, under changes you own, with next step `import`. Importing one — enter on its row, `! i` in VS Code, or `cabaret gh import` — materializes it.
+- **show** — one change: an attribute table (next step, owner, tip, base, forge request), files with per-file review state, comments. A name with no log but an open request renders as-if-imported — owner, parent, title, files — with next step `import`; actions other than import prompt for the import first.
 
 Both render through the same view functions in every host, including the CLI (`cabaret todo`, `cabaret show`), which is the cheapest place to exercise them first.
 

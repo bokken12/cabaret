@@ -45,9 +45,11 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       head: "seeded",
       base: "main",
       title: "seeded",
-      author: expect.stringMatching(/@users\.noreply\.github\.com$/),
+      // The account's public profile email when set, else the noreply convention.
+      author: expect.stringMatching(/@/),
       state: "merged",
       merge: expect.stringMatching(/^[0-9a-f]{40}$/),
+      changedFiles: expect.any(Number),
     });
   }, 60000);
 
@@ -58,7 +60,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       Array.from({ length: 105 }, (_, index) => `seed comment ${index + 1}`),
     );
     for (const comment of comments) {
-      expect(comment.author).toMatch(/@users\.noreply\.github\.com$/);
+      expect(comment.author).toMatch(/@/);
       expect(comment.updatedAt).toBeGreaterThan(0);
     }
   }, 60000);
@@ -96,8 +98,9 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
       head: branch,
       base: "main",
       title: `live test ${branch}`,
-      author: expect.stringMatching(/@users\.noreply\.github\.com$/),
+      author: expect.stringMatching(/@/),
       state: "open",
+      changedFiles: 1,
     });
     expect(await forge.findRequest(branch)).toEqual(created);
     // The exact body must survive the round trip: idempotency rides on the

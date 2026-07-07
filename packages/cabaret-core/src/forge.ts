@@ -1,10 +1,13 @@
 import {
+  type Backend,
   type CommitHash,
   compareLogEntries,
+  type FilePath,
   type ForgeLocator,
   type ForgeRequestId,
   formatLogEntry,
   type LogEntry,
+  landedMerge,
   type RefName,
   type TimestampMs,
   type UserName,
@@ -29,6 +32,8 @@ export interface ForgeRequest {
   /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
+  /** How many files the request touches. */
+  readonly changedFiles: number;
   /** The commit that merged the request, when `state` is "merged". */
   readonly merge?: CommitHash;
 }
@@ -54,6 +59,9 @@ export interface Forge {
   /** The open request with head `branch`, or undefined if there is none. */
   findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
 
+  /** Every open request, in no particular order. */
+  listOpenRequests(): Promise<readonly ForgeRequest[]>;
+
   getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
 
   /** Open a request merging `head` into `base`. `head` must already be pushed. */
@@ -61,6 +69,9 @@ export interface Forge {
 
   /** Retarget an open request's base branch. */
   setBase(id: ForgeRequestId, base: RefName): Promise<void>;
+
+  /** The paths of the files the request touches. */
+  listFiles(id: ForgeRequestId): Promise<readonly FilePath[]>;
 
   /** The request-level comments, oldest first. */
   listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]>;
@@ -199,6 +210,71 @@ export async function planPush(
   // machine posts the same sequence.
   pending.sort((a, b) => compareLogEntries(a.entry, b.entry));
   return pending.map(({ body }) => body);
+}
+
+/**
+ * The land entry a merged `request` implies, or undefined when `entries`
+ * already record one: however the merge is observed, it means the change
+ * landed.
+ */
+export function observedLand(
+  now: () => TimestampMs,
+  user: UserName,
+  request: ForgeRequest,
+  entries: readonly LogEntry[],
+): LogEntry | undefined {
+  if (request.state !== "merged" || request.merge === undefined || landedMerge(entries) !== undefined) {
+    return undefined;
+  }
+  return { timestamp: now(), user, action: { kind: "land", merge: request.merge } };
+}
+
+/** What importing a request produced: a new change, or the discovery that its log already exists. */
+export type ImportResult =
+  | { readonly kind: "imported"; readonly change: RefName; readonly comments: number }
+  | { readonly kind: "exists"; readonly change: RefName };
+
+/**
+ * Import request `id` as a change to review: fetch its head branch, create
+ * the change owned by the request's author with the request's base branch as
+ * its parent, and pull the request's comments.
+ */
+export async function importRequest(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  id: ForgeRequestId,
+): Promise<ImportResult> {
+  const request = await forge.getRequest(id);
+  const change = request.head;
+  // Sync first so a change already imported on another machine is adopted as
+  // itself rather than re-created.
+  await backend.syncLog(change);
+  if ((await backend.readLog(change)).length > 0) {
+    return { kind: "exists", change };
+  }
+  // Import creates the log; it never moves local branches. Only a missing
+  // branch is fetched — one that exists stays as it is, not least because
+  // git refuses to fetch into a branch some worktree has checked out.
+  if ((await backend.branchTip(change)) === undefined) {
+    await backend.fetchBranch(change);
+  }
+  const user = await backend.currentUser();
+  const additions: LogEntry[] = [
+    { timestamp: now(), user, action: { kind: "set-parent", parent: request.base } },
+    { timestamp: now(), user, action: { kind: "set-base", base: await backend.mergeBase(request.base, change) } },
+    { timestamp: now(), user, action: { kind: "set-owner", owner: request.author } },
+    { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, request: id } },
+    ...(await planPull(forge.locator, [], await forge.listComments(id))),
+  ];
+  // Without the land entry, a merged request's merge-base slides to its own
+  // tip and the diff to review vanishes.
+  const landing = observedLand(now, user, request, []);
+  if (landing !== undefined) {
+    additions.push(landing);
+  }
+  await backend.appendLog(change, additions);
+  return { kind: "imported", change, comments: additions.filter(({ action }) => action.kind === "comment").length };
 }
 
 /** One comment as displayed: the latest version of its group. */

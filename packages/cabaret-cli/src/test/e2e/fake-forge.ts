@@ -1,10 +1,12 @@
 import {
   type CommitHash,
+  type FilePath,
   type Forge,
   type ForgeComment,
   type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
+  parseFilePath,
   parseForgeLocator,
   type RefName,
   timestampMs,
@@ -25,6 +27,7 @@ interface FakeRequest {
   readonly login: string;
   state: "open" | "closed" | "merged";
   merge?: CommitHash;
+  readonly files: readonly FilePath[];
   readonly comments: FakeComment[];
 }
 
@@ -50,6 +53,12 @@ export class FakeForge implements Forge {
     return undefined;
   }
 
+  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
+    return [...this.requests]
+      .filter(([, request]) => request.state === "open")
+      .map(([id, request]) => this.snapshot(id, request));
+  }
+
   async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
     return this.snapshot(id, this.request(id));
   }
@@ -60,6 +69,10 @@ export class FakeForge implements Forge {
 
   async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
     this.request(id).base = base;
+  }
+
+  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
+    return this.request(id).files;
   }
 
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {
@@ -76,9 +89,9 @@ export class FakeForge implements Forge {
   }
 
   /** A request opened on the forge by `login`; returns its number. */
-  openRequest(login: string, head: RefName, base: RefName, title: string): ForgeRequestId {
+  openRequest(login: string, head: RefName, base: RefName, title: string, files = ["work.txt"]): ForgeRequestId {
     const id = forgeRequestId(this.requests.size + 1);
-    this.requests.set(id, { head, base, title, login, state: "open", comments: [] });
+    this.requests.set(id, { head, base, title, login, state: "open", files: files.map(parseFilePath), comments: [] });
     return id;
   }
 
@@ -122,6 +135,7 @@ export class FakeForge implements Forge {
       title: request.title,
       author: userName(`${request.login}@users.noreply.github.com`),
       state: request.state,
+      changedFiles: request.files.length,
       ...(request.merge === undefined ? {} : { merge: request.merge }),
     };
   }
