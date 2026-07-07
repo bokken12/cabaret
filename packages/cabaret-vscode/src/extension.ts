@@ -5,10 +5,12 @@ import {
   type Forge,
   type ForgeRequestId,
   importRequest,
+  type LogEntry,
+  landAsConfigured,
   landChain,
-  landChange,
   parseRefName,
   type RefName,
+  readConfig,
   rebaseChain,
   rebaseChange,
   renameChange,
@@ -464,22 +466,40 @@ async function actOnSelection(
 }
 
 /**
- * Rebase or land the selection. One change acts alone and reports a landed
- * change as the error it is; several act as a stack, where skipping landed
- * links is part of the semantics.
+ * Rebase the selection. One change acts alone and reports a landed change as
+ * the error it is; several act as a stack, where skipping landed links is
+ * part of the semantics.
  */
-async function actOnChain(
-  backend: Backend,
-  changes: readonly RefName[],
-  one: typeof rebaseChange,
-  chain: typeof rebaseChain,
-): Promise<void> {
+async function rebaseSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
   if (only !== undefined) {
-    await one(backend, now, only, await backend.readLog(only), false);
+    await rebaseChange(backend, now, only, await backend.readLog(only), false);
   } else {
-    await chain(backend, now, await resolveChain(backend, changes), false);
+    await rebaseChain(backend, now, await resolveChain(backend, changes), false);
   }
+}
+
+/** Land the selection, with the same one-versus-stack semantics as `rebaseSelection`. */
+async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+  const config = await readConfig(backend);
+  const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
+    await landAsConfigured(backend, now, requireForge, config, change, entries, false);
+  };
+  const only = changes.length === 1 ? changes[0] : undefined;
+  if (only !== undefined) {
+    await landOne(only, await backend.readLog(only));
+  } else {
+    await landChain(backend, await resolveChain(backend, changes), landOne);
+  }
+}
+
+/** The forge, for an operation that cannot proceed without one. */
+async function requireForge(): Promise<Forge> {
+  const forge = await openForge();
+  if (forge === undefined) {
+    throw new UserError("no reachable forge for this repository");
+  }
+  return forge;
 }
 
 /** Close every tab showing `uri`. */
@@ -670,10 +690,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand("cabaret.rebase", () =>
-      actOnSelection(provider, (backend, _editor, changes) => actOnChain(backend, changes, rebaseChange, rebaseChain)),
+      actOnSelection(provider, (backend, _editor, changes) => rebaseSelection(backend, changes)),
     ),
     vscode.commands.registerCommand("cabaret.land", () =>
-      actOnSelection(provider, (backend, _editor, changes) => actOnChain(backend, changes, landChange, landChain)),
+      actOnSelection(provider, (backend, _editor, changes) => landSelection(backend, changes)),
     ),
     vscode.commands.registerCommand("cabaret.rename", () =>
       actOnSelection(provider, async (backend, editor, changes) => {

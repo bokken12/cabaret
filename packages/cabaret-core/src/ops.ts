@@ -2,6 +2,7 @@ import {
   assertChangeExists,
   assertNotLanded,
   type Backend,
+  type CommitHash,
   changeBase,
   currentBase,
   currentOwner,
@@ -13,6 +14,7 @@ import {
   type TimestampMs,
   type UserName,
 } from "./backend.js";
+import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 
 /**
@@ -202,24 +204,31 @@ export async function rebaseChain(
   }
 }
 
+/** A land's endpoints, resolved once its preconditions have been checked. */
+export interface PreparedLand {
+  readonly parent: RefName;
+  readonly base: CommitHash;
+  readonly tip: CommitHash;
+  readonly user: UserName;
+}
+
 /**
- * Land `target` into its parent: merge it with a merge commit marked as
- * landing and record the landing in the log. The change must sit on its
- * parent's tip; rebase first if it does not.
+ * Check that `target` may land now — unlanded, owned by the current user
+ * (unless overridden), with an unlanded parent, sitting on the parent's tip,
+ * and with commits of its own — and resolve the endpoints the landing writes.
  */
-export async function landChange(
+export async function prepareLand(
   backend: Backend,
-  now: () => TimestampMs,
   target: RefName,
   entries: readonly LogEntry[],
   override: boolean,
-): Promise<void> {
+): Promise<PreparedLand> {
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, override);
   const parent = currentParent(target, entries);
   // A parent that is itself a landed change is frozen too: landing into it
-  // would grow the code its own land merge froze. A parent that is not a
-  // change (an empty log) cannot have landed.
+  // would grow the code its own land froze. A parent that is not a change
+  // (an empty log) cannot have landed.
   assertNotLanded(parent, await backend.readLog(parent));
   const parentTip = await backend.branchTip(parent);
   if (parentTip === undefined) {
@@ -237,29 +246,69 @@ export async function landChange(
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
-  // Resolve the identity before merging so a missing git identity fails
-  // without moving the parent.
+  // Resolve the identity before any ref moves so a missing git identity
+  // fails without landing anything.
   const user = await backend.currentUser();
-  const merge = await backend.merge(parent, base, tip, landMessage(target));
-  // Pin the base alongside the landing: once the parent contains the
-  // change, the merge-base with it is useless, so `changeBase` serves the
-  // stored base of a landed change forever.
-  const pin: LogEntry[] =
-    currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
-  await backend.appendLog(target, [...pin, { timestamp: now(), user, action: { kind: "land", merge } }]);
+  return { parent, base, tip, user };
 }
 
 /**
- * Land every change of `chain` into its parent, deepest first: a change lands
+ * Record `target`'s landing in its log: pin the base — once the parent
+ * contains the change, the merge-base with it is useless, so `changeBase`
+ * serves the stored base of a landed change forever — and write the land
+ * entry. A squash's commit descends from no reviewed history, so the entry
+ * also freezes the tip that landed.
+ */
+export async function recordLand(
+  backend: Backend,
+  now: () => TimestampMs,
+  target: RefName,
+  entries: readonly LogEntry[],
+  { base, tip, user }: PreparedLand,
+  method: LandMethod,
+  merge: CommitHash,
+): Promise<void> {
+  const pin: LogEntry[] =
+    currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
+  await backend.appendLog(target, [
+    ...pin,
+    { timestamp: now(), user, action: { kind: "land", merge, ...(method === "squash" ? { tip } : {}) } },
+  ]);
+}
+
+/**
+ * Land `target` into its parent: write it onto the parent branch as a commit
+ * marked as landing — a land merge, or one squash commit — and record the
+ * landing in the log. The change must sit on its parent's tip; rebase first
+ * if it does not.
+ */
+export async function landChange(
+  backend: Backend,
+  now: () => TimestampMs,
+  target: RefName,
+  entries: readonly LogEntry[],
+  method: LandMethod,
+  override: boolean,
+): Promise<void> {
+  const prepared = await prepareLand(backend, target, entries, override);
+  const { parent, base, tip } = prepared;
+  const merge =
+    method === "merge"
+      ? await backend.merge(parent, base, tip, landMessage(target))
+      : await backend.squash(parent, base, tip, landMessage(target));
+  await recordLand(backend, now, target, entries, prepared, method, merge);
+}
+
+/**
+ * Land every change of `chain` with `land`, deepest first: a change lands
  * into its parent, so the parent's own land must wait until it has absorbed
  * everything below. Changes that already landed are skipped, so a rerun after
  * a mid-chain failure resumes where it left off.
  */
 export async function landChain(
   backend: Backend,
-  now: () => TimestampMs,
   chain: readonly ChainLink[],
-  override: boolean,
+  land: (change: RefName, entries: readonly LogEntry[]) => Promise<void>,
 ): Promise<void> {
   const first = chain[0];
   if (first === undefined) {
@@ -285,7 +334,7 @@ export async function landChain(
     if (landedMerge(entries) !== undefined) {
       continue;
     }
-    await landChange(backend, now, change, entries, override);
+    await land(change, entries);
   }
 }
 

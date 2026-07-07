@@ -49,6 +49,7 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
   const request: ForgeRequest = {
     id: forgeRequestId(7),
     head: parseRefName("their-feature"),
+    tip: fake("7"),
     base: parseRefName("main"),
     title: "Their feature",
     author: alice,
@@ -144,6 +145,7 @@ test("showDoc renders an unimported request as the change importing it would cre
     request: {
       id: forgeRequestId(7),
       head: parseRefName("their-feature"),
+      tip: fake("7"),
       base: parseRefName("main"),
       title: "Their feature",
       author: userName("carol@users.noreply.github.com"),

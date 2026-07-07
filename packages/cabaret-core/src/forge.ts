@@ -2,16 +2,23 @@ import {
   type Backend,
   type CommitHash,
   compareLogEntries,
+  currentForgeRequest,
+  currentParent,
   type FilePath,
   type ForgeLocator,
   type ForgeRequestId,
   formatLogEntry,
   type LogEntry,
   landedMerge,
+  landTitle,
+  landTrailer,
   type RefName,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
+import type { Config, LandMethod } from "./config.js";
+import { UserError } from "./error.js";
+import { landChange, prepareLand, recordLand } from "./ops.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -23,10 +30,19 @@ declare class TextEncoder {
   encode(input: string): Uint8Array;
 }
 
+/** The commit that landed a merged request on its base branch. */
+export interface ForgeMerge {
+  readonly commit: CommitHash;
+  /** How many parents the commit has: 1 for a squash or rebase, 2 for a true merge. */
+  readonly parents: number;
+}
+
 /** A pull request (GitHub) or merge request (GitLab) on a forge. */
 export interface ForgeRequest {
   readonly id: ForgeRequestId;
   readonly head: RefName;
+  /** The commit the head branch points at — for a merged request, what merged. */
+  readonly tip: CommitHash;
   readonly base: RefName;
   readonly title: string;
   /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
@@ -35,7 +51,7 @@ export interface ForgeRequest {
   /** How many files the request touches. */
   readonly changedFiles: number;
   /** The commit that merged the request, when `state` is "merged". */
-  readonly merge?: CommitHash;
+  readonly merge?: ForgeMerge;
 }
 
 /** A request-level discussion comment on a forge. */
@@ -69,6 +85,22 @@ export interface Forge {
 
   /** Retarget an open request's base branch. */
   setBase(id: ForgeRequestId, base: RefName): Promise<void>;
+
+  /**
+   * Merge an open request into its base branch with `method`, the new
+   * commit's message carrying `title` and `message` as its body; returns the
+   * commit. `tip` is what the caller validated as the request's head: the
+   * forge merges only if the head still matches, so a concurrent push cannot
+   * land unreviewed commits. Fails when the head moved, the forge forbids
+   * `method`, or the request cannot merge cleanly.
+   */
+  mergeRequest(
+    id: ForgeRequestId,
+    method: LandMethod,
+    tip: CommitHash,
+    title: string,
+    message: string,
+  ): Promise<CommitHash>;
 
   /** The paths of the files the request touches. */
   listFiles(id: ForgeRequestId): Promise<readonly FilePath[]>;
@@ -215,7 +247,9 @@ export async function planPush(
 /**
  * The land entry a merged `request` implies, or undefined when `entries`
  * already record one: however the merge is observed, it means the change
- * landed.
+ * landed. A single-parent landing commit (a squash or rebase merge) descends
+ * from no reviewed history, so the entry freezes the head that merged as the
+ * change's tip.
  */
 export function observedLand(
   now: () => TimestampMs,
@@ -226,7 +260,125 @@ export function observedLand(
   if (request.state !== "merged" || request.merge === undefined || landedMerge(entries) !== undefined) {
     return undefined;
   }
-  return { timestamp: now(), user, action: { kind: "land", merge: request.merge } };
+  const { commit, parents } = request.merge;
+  return {
+    timestamp: now(),
+    user,
+    action: { kind: "land", merge: commit, ...(parents > 1 ? {} : { tip: request.tip }) },
+  };
+}
+
+/**
+ * The forge request `change` syncs with: the log's `set-forge` when it names
+ * one on this forge, else the change's branch's open request, adopted with a
+ * `set-forge` entry. Undefined when the forge has no request either.
+ */
+export async function syncedRequest(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  change: RefName,
+  entries: readonly LogEntry[],
+): Promise<ForgeRequest | undefined> {
+  const recorded = currentForgeRequest(entries);
+  if (recorded !== undefined && recorded.forge === forge.locator) {
+    return forge.getRequest(recorded.request);
+  }
+  const found = await forge.findRequest(change);
+  if (found !== undefined) {
+    await backend.appendLog(change, [
+      {
+        timestamp: now(),
+        user: await backend.currentUser(),
+        action: { kind: "set-forge", forge: forge.locator, request: found.id },
+      },
+    ]);
+  }
+  return found;
+}
+
+/**
+ * Land `change` by merging its request on the forge: after the same checks a
+ * local land makes — freshening the local parent from origin first, since the
+ * forge merges into origin's copy — merge the request with `method`, record
+ * the landing (as `recordLand`), and fetch the parent so this repository sees
+ * the land. The commit's message carries the land trailer, exactly as a local
+ * land's would, so the parent's reviewers skip the diff it brings in.
+ */
+export async function landRequest(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  change: RefName,
+  entries: readonly LogEntry[],
+  request: ForgeRequest,
+  method: LandMethod,
+  override: boolean,
+): Promise<CommitHash> {
+  if (request.state === "merged") {
+    throw new UserError(
+      `${forge.locator}#${request.id} was already merged; run \`cabaret gh pull\` to record the land`,
+    );
+  }
+  if (request.state === "closed") {
+    throw new UserError(
+      `${forge.locator}#${request.id} is closed; reopen it, or land locally (git config cabaret.landVia local)`,
+    );
+  }
+  if (request.head !== change) {
+    throw new UserError(`${forge.locator}#${request.id} merges ${JSON.stringify(request.head)}, not this change`);
+  }
+  const parent = currentParent(change, entries);
+  if (request.base !== parent) {
+    throw new UserError(
+      `${forge.locator}#${request.id} merges into ${JSON.stringify(request.base)}, ` +
+        `not ${JSON.stringify(parent)}; run \`cabaret gh push\` to retarget it`,
+    );
+  }
+  await backend.fetchBranch(parent);
+  const prepared = await prepareLand(backend, change, entries, override);
+  if (request.tip !== prepared.tip) {
+    throw new UserError(
+      `${forge.locator}#${request.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret gh push\` first`,
+    );
+  }
+  const merge = await forge.mergeRequest(request.id, method, prepared.tip, landTitle(change), landTrailer(change));
+  await recordLand(backend, now, change, entries, prepared, method, merge);
+  await backend.fetchBranch(parent);
+  return merge;
+}
+
+/**
+ * Land `change` where `config` says: on the forge — merging its request — when
+ * `landVia` is "forge", or "auto" with a request recorded in the log; locally
+ * otherwise. Returns the request merged, or undefined for a local land.
+ * `openForge` is consulted only for a forge land, so local lands need no
+ * forge at all.
+ */
+export async function landAsConfigured(
+  backend: Backend,
+  now: () => TimestampMs,
+  openForge: () => Promise<Forge>,
+  config: Config,
+  change: RefName,
+  entries: readonly LogEntry[],
+  override: boolean,
+): Promise<{ readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined> {
+  const viaForge =
+    config.landVia === "forge" || (config.landVia === "auto" && currentForgeRequest(entries) !== undefined);
+  if (!viaForge) {
+    await landChange(backend, now, change, entries, config.landMethod, override);
+    return undefined;
+  }
+  const forge = await openForge();
+  const request = await syncedRequest(backend, now, forge, change, entries);
+  if (request === undefined) {
+    throw new UserError(
+      `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+    );
+  }
+  await landRequest(backend, now, forge, change, entries, request, config.landMethod, override);
+  return { forge: forge.locator, request: request.id };
 }
 
 /** What importing a request produced: a new change, or the discovery that its log already exists. */

@@ -10,6 +10,11 @@ export interface GitHubRepo {
   readonly repo: string;
 }
 
+/** Whether `error` is octokit's rejection for HTTP `status`; anything else is a real failure. */
+export function isStatus(error: unknown, status: number): boolean {
+  return (error as { status?: unknown }).status === status;
+}
+
 // The `origin` URL forms git itself uses for github.com: HTTPS, scp-like SSH,
 // and full SSH, each with or without `.git`.
 const REMOTE_URL =

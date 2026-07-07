@@ -1,36 +1,35 @@
 import { buildApplication, buildCommand, buildRouteMap, text_en } from "@stricli/core";
 import {
   assertChangeExists,
-  type Backend,
   brain,
   changeBase,
   createChange,
-  currentForgeRequest,
   currentParent,
   type DiffSegment,
   type FilePath,
-  type Forge,
-  type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
   formatLogEntry,
   importRequest,
   type LogEntry,
+  landAsConfigured,
   landChain,
-  landChange,
   newTodos,
   observedLand,
+  parseContext,
   parseFilePath,
   parseRefName,
   planPull,
   planPush,
   type RefName,
+  readConfig,
   rebaseChain,
   rebaseChange,
   renameChange,
   reparentChange,
   resolveRange,
   reviewSegments,
+  syncedRequest,
   type Todo,
   transferChange,
   UserError,
@@ -217,15 +216,6 @@ const create = buildCommand({
   },
 });
 
-/** Parse a count of diff context lines: a nonnegative integer, or -1 for whole files. */
-function parseContext(raw: string): number {
-  const context = Number(raw);
-  if (!Number.isInteger(context) || context < -1) {
-    throw new UserError(`context must be a nonnegative integer or -1: ${JSON.stringify(raw)}`);
-  }
-  return context;
-}
-
 const diff = buildCommand({
   docs: {
     brief: "Show the diff of a change left to review for a file",
@@ -260,7 +250,7 @@ const diff = buildCommand({
       context: {
         kind: "parsed",
         parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to ${defaultContext})`,
+        brief: `Lines of context around each hunk, -1 for whole files (defaults to git config cabaret.context, or ${defaultContext})`,
         optional: true,
       },
     },
@@ -269,6 +259,9 @@ const diff = buildCommand({
   // from a subdirectory name the same file the log does.
   async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, file: FilePath) {
     const backend = await this.backend();
+    // Config is read even when the flag preempts it, so a misconfigured
+    // cabaret.* key fails the same way on every invocation.
+    const context = flags.context ?? (await readConfig(backend)).context;
     const change = flags.change ?? (await backend.currentBranch());
     const user = flags.for ?? (await backend.currentUser());
     const entries = await backend.readLog(change);
@@ -293,14 +286,14 @@ const diff = buildCommand({
       // Otherwise the base's copy changed underneath the review, which takes
       // a 4-way diff.
       if (prevBase === nextBase || nextBase === prevTip) {
-        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color, flags.context));
+        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color, context));
       } else {
         const rendered = renderDiff4({
           file,
           revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
           contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
           color,
-          context: flags.context,
+          context,
         });
         this.process.stdout.write(rendered.length === 0 ? "" : `${rendered.map((line) => line.text).join("\n")}\n`);
       }
@@ -326,7 +319,7 @@ const diff = buildCommand({
       throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
     }
     const rendered = segments
-      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, flags.context))
+      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, context))
       .filter((diff) => diff !== "");
     // A blank line between spans, since consecutive diffs of one file would
     // otherwise run together.
@@ -373,35 +366,6 @@ const forget = buildCommand({
     );
   },
 });
-
-/**
- * The forge request `change` syncs with: the log's `set-forge` when it names
- * one on this forge, else the change's branch's open request, adopted with a
- * `set-forge` entry. Undefined when the forge has no request either.
- */
-async function syncedRequest(
-  ctx: LocalContext,
-  backend: Backend,
-  forge: Forge,
-  change: RefName,
-  entries: readonly LogEntry[],
-): Promise<ForgeRequest | undefined> {
-  const recorded = currentForgeRequest(entries);
-  if (recorded !== undefined && recorded.forge === forge.locator) {
-    return forge.getRequest(recorded.request);
-  }
-  const found = await forge.findRequest(change);
-  if (found !== undefined) {
-    await backend.appendLog(change, [
-      {
-        timestamp: ctx.now(),
-        user: await backend.currentUser(),
-        action: { kind: "set-forge", forge: forge.locator, request: found.id },
-      },
-    ]);
-  }
-  return found;
-}
 
 /** Parse a PR-number argument. */
 function parseRequestNumber(raw: string): ForgeRequestId {
@@ -465,7 +429,7 @@ const gh = buildRouteMap({
         await backend.syncLog(change);
         const entries = await backend.readLog(change);
         assertChangeExists(change, entries);
-        const request = await syncedRequest(this, backend, forge, change, entries);
+        const request = await syncedRequest(backend, this.now, forge, change, entries);
         if (request === undefined) {
           throw new UserError(
             `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
@@ -512,7 +476,7 @@ const gh = buildRouteMap({
         assertChangeExists(change, entries);
         const parent = currentParent(change, entries);
         await backend.pushBranch(change);
-        let request = await syncedRequest(this, backend, forge, change, entries);
+        let request = await syncedRequest(backend, this.now, forge, change, entries);
         if (request === undefined) {
           request = await forge.createRequest(change, parent, change);
           await backend.appendLog(change, [
@@ -563,15 +527,19 @@ const land = buildCommand({
   docs: {
     brief: "Land a change into its parent",
     fullDescription:
-      "Land a change: merge it into its parent with a merge commit marked as " +
-      "landing, so the parent's reviewers are not asked to re-review the " +
-      "change's diff, and record the landing in the change's log. The change " +
-      "must sit on its parent's tip; `cabaret rebase` first if it does not. A " +
-      "landed change can no longer be rebased, renamed, reparented, or transferred, " +
-      "though reviewing it is still recorded. A range `ancestor..descendant` " +
-      "lands every change after `ancestor` on `descendant`'s parent chain, " +
-      "`descendant` first, skipping changes that already landed; when one " +
-      "fails, the landings before it stand, and rerunning the range resumes.",
+      "Land a change: write it onto its parent as a commit marked as landing " +
+      "(a merge, or a squash with git config cabaret.landMethod squash), so " +
+      "the parent's reviewers are not asked to re-review the change's diff, " +
+      "and record the landing in the change's log. A change with a pull " +
+      "request lands by merging the request on the forge and fetching the " +
+      "result; git config cabaret.landVia local (or forge) picks one side " +
+      "unconditionally. The change must sit on its parent's tip; `cabaret " +
+      "rebase` first if it does not. A landed change can no longer be " +
+      "rebased, renamed, reparented, or transferred, though reviewing it is " +
+      "still recorded. A range `ancestor..descendant` lands every change " +
+      "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
+      "skipping changes that already landed; when one fails, the landings " +
+      "before it stand, and rerunning the range resumes.",
   },
   parameters: {
     positional: {
@@ -589,13 +557,28 @@ const land = buildCommand({
   },
   async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
     const backend = await this.backend();
+    const config = await readConfig(backend);
+    const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
+      const merged = await landAsConfigured(
+        backend,
+        this.now,
+        this.forge,
+        config,
+        change,
+        entries,
+        flags.evenThoughNotOwner,
+      );
+      if (merged !== undefined) {
+        this.process.stdout.write(`merged ${merged.forge}#${merged.request}\n`);
+      }
+    };
     if (spec === undefined || spec.kind === "one") {
       const target = spec?.change ?? (await backend.currentBranch());
-      await landChange(backend, this.now, target, await backend.readLog(target), flags.evenThoughNotOwner);
+      await landOne(target, await backend.readLog(target));
       return;
     }
     const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
-    await landChain(backend, this.now, chain, flags.evenThoughNotOwner);
+    await landChain(backend, chain, landOne);
   },
 });
 

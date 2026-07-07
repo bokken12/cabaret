@@ -9,6 +9,7 @@ import { GitBackend } from "cabaret-node";
 import { onTestFinished } from "vitest";
 import { app } from "../../app.js";
 import type { LocalContext } from "../../context.js";
+import { FakeForge } from "./fake-forge.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -121,6 +122,9 @@ export async function makeRepo(forge?: Forge): Promise<TestRepo> {
   const origin = await tempDir("cabaret-e2e-origin-");
   await execFileAsync("git", ["init", "-q", "--bare", origin]);
   await repo.git("remote", "add", "origin", origin);
+  if (forge instanceof FakeForge) {
+    forge.origin = origin;
+  }
   return repo;
 }
 

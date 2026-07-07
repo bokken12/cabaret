@@ -185,17 +185,21 @@ describe("landMerges", () => {
     };
   }
 
-  test("finds trailer-bearing merges on the first-parent chain, oldest first", async () => {
+  test("finds trailer-bearing commits on the first-parent chain, oldest first", async () => {
     const calls = stubGitHub(
-      // tip is a cherry-pick of the land merge: same message, one parent.
+      // land is a land merge; squash carries the trailer with one parent, the
+      // shape of a squash land, and is a land too.
       comparePage([
         listed(c1, [base], "plain work"),
         listed(land, [c1, sha("9")], landMessage),
-        listed(cherry, [land], landMessage),
+        listed(cherry, [land], "plain work"),
         listed(tip, [cherry], landMessage),
       ]),
     );
-    expect(await backend().landMerges(base, tip)).toEqual([{ commit: land, onto: c1 }]);
+    expect(await backend().landMerges(base, tip)).toEqual([
+      { commit: land, onto: c1 },
+      { commit: tip, onto: cherry },
+    ]);
     expect(calls).toHaveLength(1);
   });
 
