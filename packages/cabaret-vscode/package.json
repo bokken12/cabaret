@@ -17,11 +17,6 @@
     "onFileSystem:cabaret"
   ],
   "contributes": {
-    "languages": [
-      {
-        "id": "cabaret"
-      }
-    ],
     "commands": [
       {
         "command": "cabaret.todo",
@@ -205,35 +200,6 @@
         "command": "cabaret.import",
         "key": "shift+1 i",
         "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
-      }
-    ],
-    "semanticTokenTypes": [
-      {
-        "id": "heading",
-        "description": "A section heading in a Cabaret page"
-      },
-      {
-        "id": "added",
-        "description": "An added line in a Cabaret diff"
-      },
-      {
-        "id": "removed",
-        "description": "A removed line in a Cabaret diff"
-      }
-    ],
-    "semanticTokenScopes": [
-      {
-        "scopes": {
-          "heading": [
-            "markup.heading"
-          ],
-          "added": [
-            "markup.inserted"
-          ],
-          "removed": [
-            "markup.deleted"
-          ]
-        }
       }
     ]
   },

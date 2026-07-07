@@ -54,7 +54,7 @@ function diffPageWith(round: DiffPage["round"]): DiffPage {
   return { change: widgets, file: parseFilePath("api.ts"), round };
 }
 
-test("diffDoc renders a two-way diff, styling its added and removed lines", () => {
+test("diffDoc renders a two-way diff bare of marks, styling its added and removed lines", () => {
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 1, view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } }),
   );
@@ -64,14 +64,14 @@ test("diffDoc renders a two-way diff, styling its added and removed lines", () =
     old/api.ts
     new/api.ts
     -1,2 +1,2
-      shared
-    -|gone
-    +|here"
+    shared
+    gone
+    here"
   `);
   const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
   expect(styles.filter((line) => line.some(([, style]) => style === "added" || style === "removed"))).toEqual([
-    [["-|gone", "removed"]],
-    [["+|here", "added"]],
+    [["gone", "removed"]],
+    [["here", "added"]],
   ]);
 });
 
@@ -86,9 +86,9 @@ test("diffDoc anchors each hunk line to its place in the new copy", () => {
     undefined, // old/api.ts
     undefined, // new/api.ts
     location(1), // -1,2 +1,2
-    location(1), //   shared
-    location(2), // -|gone: the removal site, where "here" now sits
-    location(2), // +|here
+    location(1), // shared
+    location(2), // gone: the removal site, where "here" now sits
+    location(2), // here
   ]);
 });
 
@@ -96,7 +96,9 @@ test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   // Long enough that patdiff trims leading context and the hunk starts deep.
   const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
   const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next: `${prev}tail\n` } }));
-  const added = doc.lines.findIndex(({ spans }) => spans.some(({ text }) => text === "+|tail"));
+  const added = doc.lines.findIndex(({ spans }) =>
+    spans.some(({ text, style }) => text === "tail" && style === "added"),
+  );
   expect(targetAt(doc, added)).toEqual({ kind: "location", file: "api.ts", line: 41 });
 });
 
@@ -109,8 +111,8 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
     [["old/api.ts", undefined]],
     [["new/api.ts", undefined]],
     [["-1,1 +1,2", undefined]],
-    [["  -|weird", undefined]],
-    [["+|new", "added"]],
+    [["-|weird", undefined]],
+    [["new", "added"]],
   ]);
 });
 
@@ -124,7 +126,7 @@ test("diffDoc names an absent version /dev/null", () => {
     /dev/null
     new/api.ts
     -1,0 +1,1
-    +|new"
+    new"
   `);
 });
 

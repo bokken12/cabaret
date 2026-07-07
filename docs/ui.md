@@ -14,7 +14,7 @@ How the interactive frontends (VSCode, web, maybe a TUI) are structured and why.
 
 1. **Embed a web app in a webview.** One codebase for web and VSCode (Iron's fe-web works this way). But a webview is an iframe: the user's vim extension, incremental search, and registers don't reach inside it. The text-first goal dies here unless we reimplement editor navigation ourselves.
 2. **Native contributions** (TreeView, QuickPick). Cheap and keyboard-friendly, but not text buffers, not vim-navigable, and layout-rigid.
-3. **Virtual text documents** via `TextDocumentContentProvider` on a `cabaret:` URI scheme (edamagit works this way). The UI is an ordinary read-only buffer: editor navigation comes for free, coloring comes from a semantic tokens provider, and interaction is contributed keybindings gated on the buffer's language id.
+3. **Virtual text documents** via `TextDocumentContentProvider` on a `cabaret:` URI scheme (edamagit works this way). The UI is an ordinary read-only buffer: editor navigation comes for free, coloring comes from editor decorations layered behind the file's own syntax highlighting, and interaction is contributed keybindings gated on the buffer's URI scheme.
 
 We take (3). The standalone website then becomes another host over the same views, rather than the thing VSCode embeds — the reverse of the fe-web layering.
 
@@ -42,7 +42,7 @@ type Target =
   | { kind: "file"; change: RefName; file: FilePath };
 ```
 
-- `Style` is semantic (`heading`, `dim`, `added`, ...); each host maps it to its own palette: semantic tokens, DOM classes, ANSI.
+- `Style` is semantic (`heading`, `dim`, `added`, ...); each host maps it to its own palette: editor decorations, DOM classes, ANSI.
 - `targetAt(doc, line)` resolves the cursor's line to a target: selecting a line is the granularity a cursor should need, not a column within it. Hosts own their keymaps and dispatch on the target's `kind` — enter on a change's row opens its show page.
 - Views consume plain snapshots assembled from `Backend` queries and core derivations (`brain`, `reviewSegments`, ...); the snapshot type is the view's whole input.
 - Refresh re-queries and re-renders the whole doc. Docs are small; no diffing.
@@ -61,7 +61,7 @@ Both render through the same view functions in every host, including the CLI (`c
 
 - `cabaret-views`: the doc model, snapshot types, and view functions. Pure; no `vscode`, DOM, or Node imports.
 - `cabaret-cli`: paints docs with ANSI. The first host.
-- `cabaret-vscode`: content provider + semantic tokens provider + contributed keybindings. Runs in the extension host (Node), so it uses `GitBackend` directly — no server.
+- `cabaret-vscode`: content provider + editor decorations + contributed keybindings. Runs in the extension host (Node), so it uses `GitBackend` directly — no server.
 - `cabaret-web`: spans to DOM nodes. Because docs are values, views can render server-side and ship as JSON if a thin client is ever wanted.
 - A TUI would be another ANSI painter with its own cursor tracking; possible, not planned.
 

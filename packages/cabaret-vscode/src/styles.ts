@@ -1,11 +1,6 @@
 import type { Doc, Style } from "cabaret-views";
 
-/** Every `Style`, as the semantic token legend; the mapped type keeps the list exhaustive. */
-const STYLES: { readonly [S in Style]: null } = { heading: null, added: null, removed: null };
-
-export const TOKEN_TYPES: readonly Style[] = Object.keys(STYLES) as Style[];
-
-/** A styled span located on the document grid, ready to encode as a semantic token. */
+/** A styled span located on the document grid, ready to paint as a decoration. */
 export interface StyledRange {
   readonly line: number;
   readonly start: number;

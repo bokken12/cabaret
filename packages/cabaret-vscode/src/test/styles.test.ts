@@ -1,6 +1,6 @@
 import { span } from "cabaret-views";
 import { expect, test } from "vitest";
-import { styledRanges } from "../tokens.js";
+import { styledRanges } from "../styles.js";
 
 test("styledRanges locates styled spans on the grid, skipping empty ones", () => {
   const doc = {
