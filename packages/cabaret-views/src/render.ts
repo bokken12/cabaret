@@ -1,23 +1,52 @@
-import type { Backend, Forge } from "cabaret-core";
+import type { Backend, Forge, RefName } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
-import { diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
+import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
 import { showDoc, showPage } from "./show.js";
 import { todoDoc, todoPage } from "./todo.js";
 
 /**
- * Query `backend` and render `page` for its current user. `forge` is opened
- * lazily: only the todo page and a logless show page query it.
+ * Snapshots a host is holding onto, keyed by change. The host owns the
+ * lifetime: entries live until it decides the review state should be re-read
+ * (a refresh, a failed mark, leaving the change).
  */
-export async function renderPage(backend: Backend, page: Page, forge: () => Promise<Forge | undefined>): Promise<Doc> {
+export type SnapshotCache = Map<RefName, Promise<ChangeSnapshot>>;
+
+/** The cached snapshot of `change`, taking and remembering one when absent; with no cache, always fresh. */
+export function cachedSnapshot(backend: Backend, change: RefName, cache?: SnapshotCache): Promise<ChangeSnapshot> {
+  const held = cache?.get(change);
+  if (held !== undefined) {
+    return held;
+  }
+  const fresh = changeSnapshot(backend, change);
+  if (cache !== undefined) {
+    cache.set(change, fresh);
+    // A failed read is not review state; drop it so the next ask retries.
+    fresh.catch(() => cache.delete(change));
+  }
+  return fresh;
+}
+
+/**
+ * Query `backend` and render `page` for its current user. `forge` is opened
+ * lazily: only the todo page and a logless show page query it. The review
+ * and diff pages render from the change's snapshot in `cache` when one is
+ * held, letting a host reuse one reading across a whole review pass.
+ */
+export async function renderPage(
+  backend: Backend,
+  page: Page,
+  forge: () => Promise<Forge | undefined>,
+  cache?: SnapshotCache,
+): Promise<Doc> {
   switch (page.kind) {
     case "todo":
       return todoDoc(await todoPage(backend, await backend.currentUser(), await forge()));
     case "show":
       return showDoc(await showPage(backend, await backend.currentUser(), page.change, forge));
     case "review":
-      return reviewDoc(await reviewPage(backend, await backend.currentUser(), page.change));
+      return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, cache)));
     case "diff":
-      return diffDoc(await diffPage(backend, await backend.currentUser(), page.change, page.file));
+      return diffDoc(await diffPage(backend, await cachedSnapshot(backend, page.change, cache), page.file));
   }
 }

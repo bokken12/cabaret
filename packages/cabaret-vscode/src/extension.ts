@@ -20,6 +20,7 @@ import {
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
 import {
+  changeSnapshot,
   type Doc,
   docText,
   markReviewed,
@@ -293,7 +294,8 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     return;
   }
   try {
-    const result = await markReviewed(await openBackend(), now, page.change, page.file);
+    const backend = await openBackend();
+    const result = markReviewed(backend, now, await changeSnapshot(backend, page.change), page.file);
     if (result.kind === "nothing-left") {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
       return;

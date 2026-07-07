@@ -7,7 +7,17 @@ import {
   timestampMs,
 } from "cabaret-core";
 import { GitHubBackend, GitHubForge, githubClient } from "cabaret-github";
-import { type Doc, markReviewed, type Page, pagePath, parsePagePath, renderPage, targetAt } from "cabaret-views";
+import {
+  cachedSnapshot,
+  type Doc,
+  markReviewed,
+  type Page,
+  pagePath,
+  parsePagePath,
+  renderPage,
+  type SnapshotCache,
+  targetAt,
+} from "cabaret-views";
 import { type Config, clearConfig, clearRepo } from "./config.js";
 import { docHtml } from "./html.js";
 
@@ -105,13 +115,23 @@ export function startApp(root: HTMLElement, config: Config): void {
       event.preventDefault();
     }
   });
+  // One reading of each change under review, reused across its pages and
+  // updated locally by marks: hopping file to file costs only the next
+  // diff's contents. Held until review state is re-read on purpose — a
+  // refresh, the todo page, a failed mark.
+  const snapshots: SnapshotCache = new Map();
 
   async function render(): Promise<void> {
     const mine = ++seq;
     document.body.classList.add("busy");
     try {
       const page = pageFromHash(location.hash);
-      const doc = await renderPage(backend, page, async () => forge);
+      if (page.kind === "todo") {
+        // The overview must not trust held snapshots, and visiting it is the
+        // natural re-sync point for everything under review.
+        snapshots.clear();
+      }
+      const doc = await renderPage(backend, page, async () => forge, snapshots);
       if (mine !== seq) {
         return;
       }
@@ -153,7 +173,14 @@ export function startApp(root: HTMLElement, config: Config): void {
     } else if (page.kind === "diff") {
       actions.append(button("Mark reviewed", () => void runMarkReviewed(page.change, page.file)));
     }
-    actions.append(button("Refresh", () => void render()));
+    actions.append(
+      button("Refresh", () => {
+        if (page.kind !== "todo") {
+          snapshots.delete(page.change);
+        }
+        void render();
+      }),
+    );
   }
 
   async function runImport(id: ForgeRequestId, change: RefName): Promise<void> {
@@ -169,30 +196,27 @@ export function startApp(root: HTMLElement, config: Config): void {
 
   async function runMarkReviewed(change: RefName, file: FilePath): Promise<void> {
     try {
-      const result = await markReviewed(backend, now, change, file);
+      const result = markReviewed(backend, now, await cachedSnapshot(backend, change, snapshots), file);
       if (result.kind === "nothing-left") {
         notify(`nothing left to review in ${file}`);
         return;
       }
+      // Every following page renders from the marked-off snapshot, so the
+      // hop — next diff or the round's review page — needs no re-read; a
+      // failed append resurfaces here, where dropping the snapshot and
+      // re-rendering shows the file as the log has it.
+      snapshots.set(change, Promise.resolve(result.snapshot));
       pendingMarks++;
-      const recorded = result.recorded.finally(() => {
-        pendingMarks--;
-      });
-      if (result.next === undefined) {
-        // The review page re-derives the round, so it is only current once
-        // the mark lands.
-        await recorded;
-        goto({ kind: "review", change });
-        return;
-      }
-      // The next diff does not depend on the mark, so read it while the
-      // append is in flight; a failed append resurfaces here, where a
-      // re-render shows the file as the log has it.
-      goto({ kind: "diff", change, file: result.next });
-      recorded.catch((error: unknown) => {
-        notify(`marking ${file} failed: ${message(error)}`);
-        void render();
-      });
+      result.recorded
+        .catch((error: unknown) => {
+          notify(`marking ${file} failed: ${message(error)}`);
+          snapshots.delete(change);
+          void render();
+        })
+        .finally(() => {
+          pendingMarks--;
+        });
+      goto(result.next === undefined ? { kind: "review", change } : { kind: "diff", change, file: result.next });
     } catch (error) {
       notify(message(error));
     }
