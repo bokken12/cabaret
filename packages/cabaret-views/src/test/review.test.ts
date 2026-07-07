@@ -182,6 +182,17 @@ test("diffDoc shows a four-way diff whole at context -1", () => {
   expect(docText(diffDoc(page, -1))).toContain("five");
 });
 
+test("diffDoc styles an added blank line, so hosts wash it like its neighbors", () => {
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "one\ntwo\n", next: "one\n\nnew\ntwo\n" } }),
+  );
+  const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(styles.filter((line) => line.some(([, style]) => style === "added"))).toEqual([
+    [["", "added"]],
+    [["new", "added"]],
+  ]);
+});
+
 test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   // Long enough that patdiff trims leading context and the hunk starts deep.
   const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
