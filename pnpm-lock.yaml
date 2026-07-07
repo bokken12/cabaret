@@ -73,6 +73,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/cabaret-gitlab:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/cabaret-node:
     dependencies:
       cabaret-core:

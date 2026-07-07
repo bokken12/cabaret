@@ -113,7 +113,7 @@ export class FakeForge implements Forge {
     expectedTip: CommitHash,
     title: string,
     message: string,
-  ): Promise<CommitHash> {
+  ): Promise<ForgeMerge> {
     const request = this.request(id);
     if (request.state !== "open") {
       throw new Error(`request ${id} is ${request.state}`);
@@ -131,7 +131,7 @@ export class FakeForge implements Forge {
     request.state = "merged";
     request.merge = { commit, parents: method === "merge" ? 2 : 1 };
     request.tip = tip;
-    return commit;
+    return request.merge;
   }
 
   async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {

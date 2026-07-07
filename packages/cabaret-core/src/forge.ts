@@ -33,7 +33,7 @@ declare class TextEncoder {
 /** The commit that landed a merged request on its base branch. */
 export interface ForgeMerge {
   readonly commit: CommitHash;
-  /** How many parents the commit has: 1 for a squash or rebase, 2 for a true merge. */
+  /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
   readonly parents: number;
 }
 
@@ -87,12 +87,14 @@ export interface Forge {
   setBase(id: ForgeRequestId, base: RefName): Promise<void>;
 
   /**
-   * Merge an open request into its base branch with `method`, the new
-   * commit's message carrying `title` and `message` as its body; returns the
-   * commit. `tip` is what the caller validated as the request's head: the
-   * forge merges only if the head still matches, so a concurrent push cannot
-   * land unreviewed commits. Fails when the head moved, the forge forbids
-   * `method`, or the request cannot merge cleanly.
+   * Merge an open request into its base branch, the new commit's message
+   * carrying `title` and `message` as its body; returns what landed. `method`
+   * asks for a merge commit or a squash, but a forge whose settings dictate
+   * the landing shape may write something else — the returned merge reports
+   * the shape that actually landed. `tip` is what the caller validated as
+   * the request's head: the forge merges only if the head still matches, so
+   * a concurrent push cannot land unreviewed commits. Fails when the head
+   * moved or the request cannot merge cleanly.
    */
   mergeRequest(
     id: ForgeRequestId,
@@ -100,7 +102,7 @@ export interface Forge {
     tip: CommitHash,
     title: string,
     message: string,
-  ): Promise<CommitHash>;
+  ): Promise<ForgeMerge>;
 
   /** The paths of the files the request touches. */
   listFiles(id: ForgeRequestId): Promise<readonly FilePath[]>;
@@ -343,9 +345,9 @@ export async function landRequest(
     );
   }
   const merge = await forge.mergeRequest(request.id, method, prepared.tip, landTitle(change), landTrailer(change));
-  await recordLand(backend, now, change, entries, prepared, method, merge);
+  await recordLand(backend, now, change, entries, prepared, merge);
   await backend.fetchBranch(parent);
-  return merge;
+  return merge.commit;
 }
 
 /**

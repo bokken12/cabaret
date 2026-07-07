@@ -4,6 +4,7 @@ import {
   type Forge,
   type ForgeComment,
   type ForgeLocator,
+  type ForgeMerge,
   type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
@@ -205,7 +206,7 @@ export class GitHubForge implements Forge {
     tip: CommitHash,
     title: string,
     message: string,
-  ): Promise<CommitHash> {
+  ): Promise<ForgeMerge> {
     let data: unknown;
     try {
       ({ data } = await this.client.request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge", {
@@ -229,7 +230,12 @@ export class GitHubForge implements Forge {
       }
       throw error;
     }
-    return z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha;
+    // GitHub honors `merge_method` exactly — anything it cannot do 405s
+    // above — so the requested shape is the landed shape.
+    return {
+      commit: z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha,
+      parents: method === "merge" ? 2 : 1,
+    };
   }
 
   async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
