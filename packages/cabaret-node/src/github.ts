@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  type FilePath,
   type Forge,
   type ForgeComment,
   type ForgeLocator,
@@ -8,6 +9,7 @@ import {
   type ForgeRequestId,
   forgeRequestId,
   parseCommitHash,
+  parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
@@ -153,6 +155,22 @@ export class GitHubForge implements Forge {
 
   async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
     await gh(this.root, ["pr", "edit", String(id), "--base", base]);
+  }
+
+  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
+    // --paginate walks every page; --jq flattens each page's array to one
+    // path per line. A renamed file lists under its new path.
+    const out = await gh(this.root, [
+      "api",
+      "--paginate",
+      `repos/{owner}/{repo}/pulls/${id}/files`,
+      "--jq",
+      ".[].filename",
+    ]);
+    return out
+      .split("\n")
+      .filter((line) => line !== "")
+      .map(parseFilePath);
   }
 
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {

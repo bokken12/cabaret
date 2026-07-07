@@ -1,4 +1,6 @@
+import { parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
+import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo } from "./fixture.js";
 
 test("show renders the current change's status page", async () => {
@@ -22,6 +24,34 @@ test("show renders the current change's status page", async () => {
 
     Files to review:
       gadget.txt
+    "
+  `);
+});
+
+test("show for an unimported PR renders the as-if-imported view", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
+    "their.txt",
+    "docs/notes.md",
+  ]);
+  expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
+    "their-feature
+    =============
+
+    ╭───────────────┬────────────────────────────────╮
+    │ attribute     │ value                          │
+    ├───────────────┼────────────────────────────────┤
+    │ next step     │ import                         │
+    │ owner         │ carol@users.noreply.github.com │
+    │ parent        │ main                           │
+    │ forge request │ github.com/test-org/widgets#1  │
+    │ title         │ Their feature                  │
+    ╰───────────────┴────────────────────────────────╯
+
+    Files to review:
+      their.txt
+      docs/notes.md
     "
   `);
 });

@@ -35,14 +35,13 @@ import {
   requireOwner,
   resolveRange,
   reviewSegments,
-  summarizeChange,
   type Todo,
   UserError,
   type UserName,
   userName,
   VERSION,
 } from "cabaret-core";
-import { docText, renderDiff, renderDiff4, showDoc, todoDoc, todoPage } from "cabaret-views";
+import { docText, renderDiff, renderDiff4, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -920,8 +919,10 @@ const show = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
-    const summary = await summarizeChange(backend, target, await backend.readLog(target), await backend.currentUser());
-    this.process.stdout.write(`${docText(showDoc(summary))}\n`);
+    const page = await showPage(backend, await backend.currentUser(), target, () =>
+      this.forge().catch(() => undefined),
+    );
+    this.process.stdout.write(`${docText(showDoc(page))}\n`);
   },
 });
 

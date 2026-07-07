@@ -9,8 +9,8 @@ export type Target =
   | { readonly kind: "file"; readonly change: RefName; readonly file: FilePath }
   /** A position in a file's current copy: `line` is 1-based. */
   | { readonly kind: "location"; readonly file: FilePath; readonly line: number }
-  /** A forge request with no change log yet, awaiting import. */
-  | { readonly kind: "request"; readonly request: ForgeRequestId };
+  /** A forge request with no change log yet; `change` names the change importing it would create. */
+  | { readonly kind: "request"; readonly request: ForgeRequestId; readonly change: RefName };
 
 /** A run of single-line text, optionally styled and denoting a target. */
 export interface Span {

@@ -198,15 +198,10 @@ async function openTarget(provider: PageProvider): Promise<void> {
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
-    case "request": {
-      // Importing materializes the request as a change; land on its show page.
-      const change = await runImport(target.request);
-      provider.refreshAll();
-      if (change !== undefined) {
-        await openPage(provider, { kind: "show", change });
-      }
+    case "request":
+      // The as-if-imported view; importing is its own action.
+      await openPage(provider, { kind: "show", change: target.change });
       break;
-    }
     case "location": {
       // Visit the working tree's copy: it is the one worth editing, and while
       // reviewing a checked-out change it is the copy the diff shows. A tree
@@ -227,8 +222,29 @@ async function openTarget(provider: PageProvider): Promise<void> {
   }
 }
 
+/**
+ * When the active page shows an unimported request — its heading resolves to
+ * one — prompt to import and return true, telling the caller to stop.
+ */
+function promptImportFirst(provider: PageProvider): boolean {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return false;
+  }
+  const doc = provider.renderedDoc(editor.document.uri);
+  const heading = doc === undefined ? undefined : targetAt(doc, 0);
+  if (heading?.kind !== "request") {
+    return false;
+  }
+  vscode.window.showInformationMessage(`cabaret: import ${heading.change} first (Cabaret: Import Pull Request)`);
+  return true;
+}
+
 /** Enter review of the shown change: open its list of files to review. */
 async function review(provider: PageProvider): Promise<void> {
+  if (promptImportFirst(provider)) {
+    return;
+  }
   const change = shownChange();
   if (change !== undefined) {
     await openPage(provider, { kind: "review", change });
@@ -306,8 +322,12 @@ async function importAtCursor(provider: PageProvider): Promise<void> {
     return;
   }
   const doc = provider.renderedDoc(editor.document.uri);
-  const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
-  if (target?.kind !== "request") {
+  // The cursor's request, or the one the page itself displays: a request's
+  // show page opens with a heading that resolves to it.
+  const atCursor = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+  const heading = doc === undefined ? undefined : targetAt(doc, 0);
+  const target = atCursor?.kind === "request" ? atCursor : heading?.kind === "request" ? heading : undefined;
+  if (target === undefined) {
     vscode.window.showInformationMessage("cabaret: no pull request at the cursor");
     return;
   }
@@ -364,13 +384,22 @@ async function actOnSelection(
   provider: PageProvider,
   act: (backend: Backend, editor: vscode.TextEditor, changes: readonly RefName[]) => Promise<void>,
 ): Promise<void> {
+  if (promptImportFirst(provider)) {
+    return;
+  }
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const changes = selectedChanges(provider, editor);
   if (changes.length === 0) {
-    vscode.window.showInformationMessage("cabaret: no change at the cursor");
+    const doc = provider.renderedDoc(editor.document.uri);
+    const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+    vscode.window.showInformationMessage(
+      target?.kind === "request"
+        ? `cabaret: import ${target.change} first (Cabaret: Import Pull Request)`
+        : "cabaret: no change at the cursor",
+    );
     return;
   }
   try {

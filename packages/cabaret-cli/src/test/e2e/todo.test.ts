@@ -89,7 +89,10 @@ test("your own PR joins the changes you own when identities align", async () => 
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("config", "user.email", "alice@users.noreply.github.com");
-  forge.openRequest("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", 2);
+  forge.openRequest("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", [
+    "solo.txt",
+    "docs/solo.md",
+  ]);
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭──────────────┬────────╮
     │ change       │ review │

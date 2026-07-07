@@ -131,7 +131,7 @@
         },
         {
           "command": "cabaret.import",
-          "when": "cabaret.page == 'todo'"
+          "when": "cabaret.page == 'todo' || cabaret.page == 'show'"
         }
       ]
     },
@@ -199,7 +199,7 @@
       {
         "command": "cabaret.import",
         "key": "shift+1 i",
-        "when": "editorTextFocus && cabaret.page == 'todo' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],
     "semanticTokenTypes": [

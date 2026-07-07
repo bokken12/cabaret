@@ -1,10 +1,12 @@
 import {
   type CommitHash,
+  type FilePath,
   type Forge,
   type ForgeComment,
   type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
+  parseFilePath,
   parseForgeLocator,
   type RefName,
   timestampMs,
@@ -25,7 +27,7 @@ interface FakeRequest {
   readonly login: string;
   state: "open" | "closed" | "merged";
   merge?: CommitHash;
-  readonly changedFiles: number;
+  readonly files: readonly FilePath[];
   readonly comments: FakeComment[];
 }
 
@@ -69,6 +71,10 @@ export class FakeForge implements Forge {
     this.request(id).base = base;
   }
 
+  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
+    return this.request(id).files;
+  }
+
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {
     return this.request(id).comments.map((comment) => ({
       id: comment.id,
@@ -83,9 +89,9 @@ export class FakeForge implements Forge {
   }
 
   /** A request opened on the forge by `login`; returns its number. */
-  openRequest(login: string, head: RefName, base: RefName, title: string, changedFiles = 1): ForgeRequestId {
+  openRequest(login: string, head: RefName, base: RefName, title: string, files = ["work.txt"]): ForgeRequestId {
     const id = forgeRequestId(this.requests.size + 1);
-    this.requests.set(id, { head, base, title, login, state: "open", changedFiles, comments: [] });
+    this.requests.set(id, { head, base, title, login, state: "open", files: files.map(parseFilePath), comments: [] });
     return id;
   }
 
@@ -129,7 +135,7 @@ export class FakeForge implements Forge {
       title: request.title,
       author: userName(`${request.login}@users.noreply.github.com`),
       state: request.state,
-      changedFiles: request.changedFiles,
+      changedFiles: request.files.length,
       ...(request.merge === undefined ? {} : { merge: request.merge }),
     };
   }

@@ -2,6 +2,7 @@ import {
   type Backend,
   type CommitHash,
   compareLogEntries,
+  type FilePath,
   type ForgeLocator,
   type ForgeRequestId,
   formatLogEntry,
@@ -68,6 +69,9 @@ export interface Forge {
 
   /** Retarget an open request's base branch. */
   setBase(id: ForgeRequestId, base: RefName): Promise<void>;
+
+  /** The paths of the files the request touches. */
+  listFiles(id: ForgeRequestId): Promise<readonly FilePath[]>;
 
   /** The request-level comments, oldest first. */
   listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]>;

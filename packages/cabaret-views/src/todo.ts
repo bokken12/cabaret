@@ -109,7 +109,7 @@ function itemSpan(item: TodoItem, guide = ""): Span {
   const target =
     item.kind === "change"
       ? ({ kind: "change", change: item.summary.change } as const)
-      : ({ kind: "request", request: item.request.id } as const);
+      : ({ kind: "request", request: item.request.id, change: item.request.head } as const);
   return span(`${guide}${itemName(item)}`, { target });
 }
 

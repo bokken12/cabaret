@@ -89,7 +89,7 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
   const requestLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("their-feature"));
-  expect(targetAt(doc, requestLine)).toEqual({ kind: "request", request: 7 });
+  expect(targetAt(doc, requestLine)).toEqual({ kind: "request", request: 7, change: "their-feature" });
 });
 
 test("todoDoc with nothing to do says so", () => {
@@ -97,12 +97,13 @@ test("todoDoc with nothing to do says so", () => {
 });
 
 test("showDoc renders the attribute table and files left", () => {
-  const doc = showDoc(
-    summary("widgets", {
+  const doc = showDoc({
+    kind: "change",
+    summary: summary("widgets", {
       forgeRequest: { forge: parseForgeLocator("github.com/test-org/widgets"), request: forgeRequestId(7) },
       reviewLeft: files("api.ts", "ui.ts"),
     }),
-  );
+  });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
@@ -128,8 +129,50 @@ test("showDoc renders the attribute table and files left", () => {
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
 });
 
+test("showDoc renders an unimported request as the change importing it would create", () => {
+  const doc = showDoc({
+    kind: "request",
+    forge: parseForgeLocator("github.com/test-org/widgets"),
+    request: {
+      id: forgeRequestId(7),
+      head: parseRefName("their-feature"),
+      base: parseRefName("main"),
+      title: "Their feature",
+      author: userName("carol@users.noreply.github.com"),
+      state: "open",
+      changedFiles: 2,
+    },
+    files: files("api.ts", "ui.ts"),
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "their-feature
+    =============
+
+    ╭───────────────┬────────────────────────────────╮
+    │ attribute     │ value                          │
+    ├───────────────┼────────────────────────────────┤
+    │ next step     │ import                         │
+    │ owner         │ carol@users.noreply.github.com │
+    │ parent        │ main                           │
+    │ forge request │ github.com/test-org/widgets#7  │
+    │ title         │ Their feature                  │
+    ╰───────────────┴────────────────────────────────╯
+
+    Files to review:
+      api.ts
+      ui.ts"
+  `);
+  // The heading resolves to the request, so import actions find it from anywhere on the page.
+  expect(targetAt(doc, 0)).toEqual({ kind: "request", request: 7, change: "their-feature" });
+  // File rows carry no targets: there are no diffs to open until the import.
+  const line = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("api.ts"));
+  expect(targetAt(doc, line)).toBeUndefined();
+});
+
 test("showDoc renders a landed change without a files section", () => {
-  const doc = showDoc(summary("widgets", { landed: fake("5"), nextStep: "landed" }));
+  const doc = showDoc({ kind: "change", summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }) });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
