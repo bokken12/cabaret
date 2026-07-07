@@ -45,30 +45,21 @@ export async function addChange(repo: TestRepo, name: string): Promise<void> {
   await repo.git("commit", "-qm", `${name} work`);
 }
 
-/**
- * A throwaway repo on `main` with one empty root commit, the identity
- * `alice@example.com`, and a bare `origin` remote, removed when the current
- * test finishes. Each repo's clock starts at a fixed epoch and ticks one
- * millisecond per read, so all command output is deterministic. `forge`, when
- * given, is what the `gh` commands talk to; without it they fail.
- */
-export async function makeRepo(forge?: Forge): Promise<TestRepo> {
-  const dir = await mkdtemp(join(tmpdir(), "cabaret-e2e-"));
+/** A throwaway directory, removed when the current test finishes. */
+async function tempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+/** A `TestRepo` over an initialized repo at `dir`, its clock starting at `clockStart`. */
+function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): TestRepo {
   const git = async (...args: string[]) => {
     const { stdout } = await execFileAsync("git", args, { cwd: dir });
     return stdout.trimEnd();
   };
-  await git("init", "-qb", "main");
-  await git("config", "user.name", "Alice Test");
-  await git("config", "user.email", "alice@example.com");
-  await git("commit", "-qm", "root", "--allow-empty");
-  const origin = await mkdtemp(join(tmpdir(), "cabaret-e2e-origin-"));
-  onTestFinished(() => rm(origin, { recursive: true, force: true }));
-  await execFileAsync("git", ["init", "-q", "--bare", origin]);
-  await git("remote", "add", "origin", origin);
 
-  let clock = 1748000000000;
+  let clock = clockStart;
   const cabaret = async (...argv: string[]) => {
     const captured = { stdout: "", stderr: "" };
     const capture = (stream: "stdout" | "stderr") => ({
@@ -100,4 +91,40 @@ export async function makeRepo(forge?: Forge): Promise<TestRepo> {
   };
 
   return { git, write, cabaret };
+}
+
+/**
+ * A throwaway repo on `main` with one empty root commit, the identity
+ * `alice@example.com`, and a bare `origin` remote, removed when the current
+ * test finishes. Each repo's clock starts at a fixed epoch and ticks one
+ * millisecond per read, so all command output is deterministic. `forge`, when
+ * given, is what the `gh` commands talk to; without it they fail.
+ */
+export async function makeRepo(forge?: Forge): Promise<TestRepo> {
+  const dir = await tempDir("cabaret-e2e-");
+  const repo = wrapRepo(dir, forge, 1748000000000);
+  await repo.git("init", "-qb", "main");
+  await repo.git("config", "user.name", "Alice Test");
+  await repo.git("config", "user.email", "alice@example.com");
+  await repo.git("commit", "-qm", "root", "--allow-empty");
+  const origin = await tempDir("cabaret-e2e-origin-");
+  await execFileAsync("git", ["init", "-q", "--bare", origin]);
+  await repo.git("remote", "add", "origin", origin);
+  return repo;
+}
+
+/**
+ * A second machine of `source`'s project: a clone of its origin under the
+ * identity `email`, with a clock 100 seconds ahead so its entries never
+ * collide with the source's. Push `main` before cloning so the clone has a
+ * branch to stand on.
+ */
+export async function makeClone(source: TestRepo, email: string, forge?: Forge): Promise<TestRepo> {
+  const origin = await source.git("remote", "get-url", "origin");
+  const dir = await tempDir("cabaret-e2e-clone-");
+  await execFileAsync("git", ["clone", "-q", origin, dir]);
+  const repo = wrapRepo(dir, forge, 1748000100000);
+  await repo.git("config", "user.name", "Bob Test");
+  await repo.git("config", "user.email", email);
+  return repo;
 }

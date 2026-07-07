@@ -8,6 +8,7 @@ import {
   LAND_TRAILER,
   type LandMerge,
   type LogEntry,
+  mergeLogs,
   parseCommitHash,
   parseFilePath,
   parseLog,
@@ -48,8 +49,15 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
  */
 const LOG_REF_PREFIX = "refs/cabaret/log/";
 
+/** Where `origin`'s logs land when fetched, mirroring `LOG_REF_PREFIX`. */
+const REMOTE_LOG_REF_PREFIX = "refs/cabaret/remote-log/";
+
 function logRef(change: RefName): RefName {
   return parseRefName(`${LOG_REF_PREFIX}${change}`);
+}
+
+function remoteLogRef(change: RefName): RefName {
+  return parseRefName(`${REMOTE_LOG_REF_PREFIX}${change}`);
 }
 
 /** Path of the log file within a log ref's tree. */
@@ -144,6 +152,91 @@ export class GitBackend implements Backend {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
     // update, so a diverged local branch fails instead of losing work.
     await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+  }
+
+  async syncLog(change: RefName): Promise<void> {
+    await this.fetchLogs();
+    await this.reconcileLog(change);
+  }
+
+  async syncLogs(): Promise<readonly RefName[]> {
+    await this.fetchLogs();
+    const names = new Set<RefName>();
+    for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
+      const out = await git(this.root, ["for-each-ref", "--format=%(refname)", prefix]);
+      for (const line of out.split("\n")) {
+        if (line !== "") {
+          names.add(parseRefName(line.slice(prefix.length)));
+        }
+      }
+    }
+    const changes = [...names].sort();
+    for (const changeName of changes) {
+      await this.reconcileLog(changeName);
+    }
+    return changes;
+  }
+
+  /** Fetch every log on `origin` into the remote-log namespace. */
+  private async fetchLogs(): Promise<void> {
+    // Forced: log merging is by content, not ancestry, so any movement of the
+    // remote's logs — even a rebuilt one — is acceptable to observe.
+    await git(this.root, ["fetch", "--quiet", "origin", `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`]);
+  }
+
+  /**
+   * Bring `change`'s local log and `origin`'s to the same content: merge the
+   * fetched remote log into the local one, then push anything the remote
+   * lacks. A concurrent local append or remote push loses us a compare-and-
+   * swap; both mean new entries to merge, so re-observe and retry, bounded so
+   * a persistent failure surfaces.
+   */
+  private async reconcileLog(change: RefName): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const local = await this.commitAt(logRef(change));
+        const remote = await this.commitAt(remoteLogRef(change));
+        let tip = local;
+        if (remote !== undefined && remote !== local) {
+          tip =
+            local === undefined || (await this.isAncestor(local, remote))
+              ? remote
+              : (await this.isAncestor(remote, local))
+                ? local
+                : await this.mergeLogCommits(local, remote);
+          if (tip !== local) {
+            await git(this.root, ["update-ref", logRef(change), tip, local ?? ""]);
+          }
+        }
+        if (tip === undefined || tip === remote) {
+          return;
+        }
+        // Not forced: the push succeeds only while the remote still points at
+        // what was fetched (or an ancestor), so a concurrent push is never
+        // overwritten — it fails here and merges on retry.
+        await git(this.root, ["push", "--quiet", "origin", `${tip}:${logRef(change)}`]);
+        await git(this.root, ["update-ref", remoteLogRef(change), tip]);
+        return;
+      } catch (error) {
+        if (attempt >= 2) {
+          throw error;
+        }
+        await this.fetchLogs();
+      }
+    }
+  }
+
+  /** The merge of two log commits: `mergeLogs` of their entries, atop both. */
+  private async mergeLogCommits(a: CommitHash, b: CommitHash): Promise<CommitHash> {
+    const [logA, logB] = await Promise.all([
+      git(this.root, ["cat-file", "blob", `${a}:${LOG_PATH}`]),
+      git(this.root, ["cat-file", "blob", `${b}:${LOG_PATH}`]),
+    ]);
+    const merged = mergeLogs(parseLog(logA), parseLog(logB)).map(formatLogEntry).join("");
+    const blob = await git(this.root, ["hash-object", "-w", "--stdin"], merged);
+    const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
+    const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", "-p", a, "-p", b]);
+    return parseCommitHash(commit.trimEnd());
   }
 
   async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {

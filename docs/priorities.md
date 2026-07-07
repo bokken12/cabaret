@@ -7,20 +7,12 @@ reproduced or benchmarked, not just read.
 
 ## 1. The distributed story exists only on paper
 
-The README promises conflict-free review across devices; none of the machinery
-is wired up, and several of its foundations have cracks that are cheapest to fix
-before real multi-machine data exists.
+Log sync now exists — `syncLog`/`syncLogs` (cabaret-node `git.ts`) merge
+`refs/cabaret/log/*` with origin via `mergeLogs`' canonical union, `cabaret
+sync` and the `gh` commands invoke it, and reads break equal-timestamp ties on
+the serialized entry — but the remaining foundations still have cracks that
+are cheapest to fix before real multi-machine data exists.
 
-- **Nothing syncs review state.** `pushBranch`/`fetchBranch` (cabaret-node
-  `git.ts`) touch only `refs/heads`; no code pushes or fetches
-  `refs/cabaret/log/*`, and the `.gitattributes` union-merge setup that
-  [state.md](state.md) calls the central mechanism doesn't exist anywhere.
-  Every "union-merged logs interleave…" argument in core is unexercised.
-- **Equal-timestamp ties break convergence.** `latestAction` and `brain`
-  (cabaret-core `backend.ts`) break ties by log position, but union-merged
-  logs interleave in machine-dependent order — two machines with identical
-  entry sets can permanently disagree on a parent, base, owner, or reviewed
-  diff. Deterministic tiebreak (compare the serialized entry): one line.
 - **Concurrent `createChange` merges two creations.** The exists-check in
   `createChange` (`ops.ts`) and `appendLog`'s CAS-retry loop (`git.ts`)
   compose badly: both racers see an empty log, the CAS loser retries and
@@ -278,9 +270,9 @@ current-state.
 
 Three picks, if picking three:
 
-1. **Log-ref sync plus the timestamp tiebreak** (§1) — the product's
-   namesake feature, and the convergence fixes get harder once real
-   multi-machine data exists.
+1. **The `createChange` and `merge()` races** (§1) — the last convergence
+   cracks now that logs sync, and they get harder once real multi-machine
+   data exists.
 2. **Approval gating on `land`** (§2) — closes the review loop; the log
    action design already exists in [forge.md](forge.md).
 3. **Port CLI `diff`/`review` onto the views layer** (§3) — kills the

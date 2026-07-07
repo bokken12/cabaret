@@ -16,6 +16,7 @@ import {
   type LogAction,
   type LogEntry,
   landedMerge,
+  mergeLogs,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -485,7 +486,8 @@ test("brain keeps each file's latest review per user and honors forgets by times
     at(8, bob, { kind: "forget", file: parseFilePath("a.ts") }),
     at(5, alice, { kind: "set-parent", parent: parseRefName("main") }),
     at(10, alice, { kind: "set-base", base: parseCommitHash(SHA256) }),
-    // Equal timestamps: the entry later in the log wins.
+    // Equal timestamps: the serialized entry, not log position, breaks the
+    // tie, and `"kind":"review"` sorts after `"kind":"forget"`.
     at(6, alice, review("d.ts", SHA1, OTHER_SHA1)),
     at(6, alice, { kind: "forget", file: parseFilePath("d.ts") }),
     at(7, alice, { kind: "forget", file: parseFilePath("e.ts") }),
@@ -495,6 +497,7 @@ test("brain keeps each file's latest review per user and honors forgets by times
     new Map([
       [parseFilePath("a.ts"), { base: SHA1, tip: SHA256 }],
       [parseFilePath("c.ts"), { base: SHA1, tip: SHA1 }],
+      [parseFilePath("d.ts"), { base: SHA1, tip: OTHER_SHA1 }],
       [parseFilePath("e.ts"), { base: OTHER_SHA1, tip: SHA256 }],
     ]),
   );
@@ -567,6 +570,71 @@ test("format/parse round-trips arbitrary logs", () => {
   fc.assert(
     fc.property(fc.array(logEntries()), (entries) => {
       expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
+    }),
+  );
+});
+
+/** Entries with clustered timestamps and a small identity pool, so ties are common. */
+function tiedEntries(): fc.Arbitrary<LogEntry> {
+  return fc.record({
+    timestamp: fc.integer({ min: 0, max: 3 }).map(timestampMs),
+    user: fc.constantFrom("alice@example.com", "bob@example.com").map(userName),
+    action: logActions(),
+  });
+}
+
+test("mergeLogs unions, dedupes, and orders by timestamp then serialized line", () => {
+  const alice = userName("alice@example.com");
+  const bob = userName("bob@example.com");
+  const parent = (timestamp: number, user: UserName, name: string): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user,
+    action: { kind: "set-parent", parent: parseRefName(name) },
+  });
+  const shared = parent(1, alice, "main");
+  expect(
+    mergeLogs([shared, parent(3, alice, "trunk-a")], [parent(3, bob, "trunk-b"), shared, parent(2, bob, "dev")]),
+  ).toEqual([shared, parent(2, bob, "dev"), parent(3, alice, "trunk-a"), parent(3, bob, "trunk-b")]);
+});
+
+test("mergeLogs is commutative, associative, and idempotent", () => {
+  const logs = fc.array(tiedEntries());
+  fc.assert(
+    fc.property(logs, logs, logs, (a, b, c) => {
+      const ab = mergeLogs(a, b);
+      expect(mergeLogs(b, a)).toEqual(ab);
+      expect(mergeLogs(ab, c)).toEqual(mergeLogs(a, mergeLogs(b, c)));
+      expect(mergeLogs(ab, ab)).toEqual(ab);
+      expect(mergeLogs(ab, b)).toEqual(ab);
+    }),
+  );
+});
+
+// The convergence guarantee: two machines whose logs hold the same entries
+// read the same state, no matter how merging interleaved them.
+test("log reads agree on any interleaving of the same entries", () => {
+  const alice = userName("alice@example.com");
+  const bob = userName("bob@example.com");
+  const seeded = fc
+    .array(tiedEntries())
+    .map((entries): readonly LogEntry[] => [
+      { timestamp: timestampMs(0), user: alice, action: { kind: "set-parent", parent: parseRefName("main") } },
+      { timestamp: timestampMs(0), user: alice, action: { kind: "set-base", base: parseCommitHash(SHA1) } },
+      { timestamp: timestampMs(0), user: alice, action: { kind: "set-owner", owner: alice } },
+      ...entries,
+    ]);
+  const withShuffle = seeded.chain((log) =>
+    fc.tuple(fc.constant(log), fc.shuffledSubarray([...log], { minLength: log.length })),
+  );
+  fc.assert(
+    fc.property(withShuffle, ([log, shuffled]) => {
+      const change = parseRefName("widgets");
+      expect(currentParent(change, shuffled)).toBe(currentParent(change, log));
+      expect(currentBase(change, shuffled)).toBe(currentBase(change, log));
+      expect(currentOwner(change, shuffled)).toBe(currentOwner(change, log));
+      expect(landedMerge(shuffled)).toBe(landedMerge(log));
+      expect(brain(shuffled, alice)).toEqual(brain(log, alice));
+      expect(brain(shuffled, bob)).toEqual(brain(log, bob));
     }),
   );
 });

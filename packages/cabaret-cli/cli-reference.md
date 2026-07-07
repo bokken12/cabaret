@@ -315,6 +315,17 @@ FLAGS
 ARGUMENTS
   [change]  change to show (defaults to current)
 
+## cabaret sync
+
+USAGE
+  cabaret sync
+  cabaret sync --help
+
+Sync review state with origin: fetch every change's log, merge it with the local log, and push the result. Only logs move; branches sync through git or `cabaret gh`.
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cabaret todo
 
 USAGE
