@@ -1,0 +1,210 @@
+import {
+  type FilePath,
+  type ForgeRequestId,
+  importRequest,
+  type RefName,
+  type TimestampMs,
+  timestampMs,
+} from "cabaret-core";
+import { GitHubBackend, GitHubForge, githubClient } from "cabaret-github";
+import { type Doc, markReviewed, type Page, pagePath, parsePagePath, renderPage, targetAt } from "cabaret-views";
+import { type Config, clearConfig } from "./config.js";
+import { docHtml } from "./html.js";
+
+const now = (): TimestampMs => timestampMs(Date.now());
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The fragment addressing `page`. Percent and the characters `encodeURI`
+ * escapes are encoded so `decodeURIComponent` inverts exactly; `/` and `:`
+ * stay raw, keeping the fragment readable as the page path it is.
+ */
+function pageHash(page: Page): string {
+  return `#${encodeURI(pagePath(page).replace(/%/g, "%25"))}`;
+}
+
+/** The page the fragment addresses; an empty fragment is the todo page. */
+function pageFromHash(hash: string): Page {
+  const raw = hash.replace(/^#/, "");
+  return raw === "" ? { kind: "todo" } : parsePagePath(decodeURIComponent(raw));
+}
+
+function pageTitle(page: Page): string {
+  switch (page.kind) {
+    case "todo":
+      return "cabaret: todo";
+    case "show":
+      return `cabaret: ${page.change}`;
+    case "review":
+      return `cabaret: review ${page.change}`;
+    case "diff":
+      return `cabaret: ${page.file} in ${page.change}`;
+  }
+}
+
+function button(label: string, onClick: () => void): HTMLButtonElement {
+  const element = document.createElement("button");
+  element.type = "button";
+  element.textContent = label;
+  element.addEventListener("click", onClick);
+  return element;
+}
+
+export function startApp(root: HTMLElement, config: Config): void {
+  const client = githubClient(config.token);
+  const backend = new GitHubBackend(client, config.repo);
+  const forge = new GitHubForge(client, config.repo);
+  const repoName = `${config.repo.owner}/${config.repo.repo}`;
+
+  root.replaceChildren();
+  const header = document.createElement("header");
+  const brand = document.createElement("a");
+  brand.className = "brand";
+  brand.href = "#/todo";
+  brand.textContent = "cabaret";
+  const repoLabel = document.createElement("span");
+  repoLabel.className = "repo";
+  repoLabel.textContent = repoName;
+  const actions = document.createElement("span");
+  actions.className = "actions";
+  const status = document.createElement("span");
+  status.className = "status";
+  const signOut = button("Sign out", () => {
+    clearConfig();
+    location.reload();
+  });
+  header.append(brand, repoLabel, actions, status, signOut);
+  const main = document.createElement("main");
+  main.className = "doc";
+  root.append(header, main);
+
+  let statusTimer: number | undefined;
+  function notify(text: string): void {
+    status.textContent = text;
+    clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(() => {
+      status.textContent = "";
+    }, 8000);
+  }
+
+  // Track what is on screen so clicks hit-test against exactly it.
+  let current: { readonly page: Page; readonly doc: Doc } | undefined;
+  let seq = 0;
+
+  async function render(): Promise<void> {
+    const mine = ++seq;
+    document.body.classList.add("busy");
+    try {
+      const page = pageFromHash(location.hash);
+      const doc = await renderPage(backend, page, async () => forge);
+      if (mine !== seq) {
+        return;
+      }
+      current = { page, doc };
+      main.innerHTML = docHtml(doc);
+      updateActions(page, doc);
+      document.title = pageTitle(page);
+    } catch (error) {
+      if (mine !== seq) {
+        return;
+      }
+      current = undefined;
+      main.textContent = `cabaret: ${message(error)}`;
+      actions.replaceChildren(button("Refresh", () => void render()));
+    } finally {
+      if (mine === seq) {
+        document.body.classList.remove("busy");
+      }
+    }
+  }
+
+  /** Navigate to `page`; re-render in place when already there, since no hashchange will fire. */
+  function goto(page: Page): void {
+    const before = location.hash;
+    location.hash = pageHash(page);
+    if (location.hash === before) {
+      void render();
+    }
+  }
+
+  function updateActions(page: Page, doc: Doc): void {
+    actions.replaceChildren();
+    // A request's show page opens with a heading that resolves to it.
+    const heading = targetAt(doc, 0);
+    if (heading?.kind === "request") {
+      actions.append(button("Import pull request", () => void runImport(heading.request, heading.change)));
+    } else if (page.kind === "show") {
+      actions.append(button("Review", () => goto({ kind: "review", change: page.change })));
+    } else if (page.kind === "diff") {
+      actions.append(button("Mark reviewed", () => void runMarkReviewed(page.change, page.file)));
+    }
+    actions.append(button("Refresh", () => void render()));
+  }
+
+  async function runImport(id: ForgeRequestId, change: RefName): Promise<void> {
+    try {
+      await importRequest(backend, now, forge, id);
+      // The change's show page shares the request page's fragment, so land
+      // there whichever page the import ran from.
+      goto({ kind: "show", change });
+    } catch (error) {
+      notify(message(error));
+    }
+  }
+
+  async function runMarkReviewed(change: RefName, file: FilePath): Promise<void> {
+    try {
+      const result = await markReviewed(backend, now, change, file);
+      if (result.kind === "nothing-left") {
+        notify(`nothing left to review in ${file}`);
+        return;
+      }
+      goto(result.next === undefined ? { kind: "review", change } : { kind: "diff", change, file: result.next });
+    } catch (error) {
+      notify(message(error));
+    }
+  }
+
+  main.addEventListener("click", (event) => {
+    const line = (event.target as Element | null)?.closest("[data-line]");
+    if (!(line instanceof HTMLElement) || current === undefined) {
+      return;
+    }
+    const target = targetAt(current.doc, Number(line.dataset.line));
+    if (target === undefined) {
+      return;
+    }
+    switch (target.kind) {
+      case "change":
+        goto({ kind: "show", change: target.change });
+        break;
+      case "file":
+        goto({ kind: "diff", change: target.change, file: target.file });
+        break;
+      case "request":
+        // The as-if-imported view; importing is its own action.
+        goto({ kind: "show", change: target.change });
+        break;
+      case "location": {
+        // No working tree in a browser: visit the file on GitHub at the
+        // change's branch, which is the copy the diff shows.
+        if (current.page.kind !== "todo") {
+          const ref = current.page.change;
+          const path = target.file.split("/").map(encodeURIComponent).join("/");
+          window.open(
+            `https://github.com/${repoName}/blob/${encodeURIComponent(ref)}/${path}#L${target.line}`,
+            "_blank",
+            "noopener",
+          );
+        }
+        break;
+      }
+    }
+  });
+
+  window.addEventListener("hashchange", () => void render());
+  void render();
+}

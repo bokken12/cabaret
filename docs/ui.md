@@ -62,7 +62,7 @@ Both render through the same view functions in every host, including the CLI (`c
 - `cabaret-views`: the doc model, snapshot types, and view functions. Pure; no `vscode`, DOM, or Node imports.
 - `cabaret-cli`: paints docs with ANSI. The first host.
 - `cabaret-vscode`: content provider + editor decorations + contributed keybindings. Runs in the extension host (Node), so it uses `GitBackend` directly — no server.
-- `cabaret-web`: spans to DOM nodes. Because docs are values, views can render server-side and ship as JSON if a thin client is ever wanted.
+- `cabaret-web`: lines to `div`s and spans to styled DOM spans, with clicks hit-testing through `targetAt` like a cursor would. Runs `GitHubBackend` in the browser, so it is a static site with no server. Because docs are values, views could also render server-side and ship as JSON if a thin client is ever wanted.
 - A TUI would be another ANSI painter with its own cursor tracking; possible, not planned.
 
 ## Open questions

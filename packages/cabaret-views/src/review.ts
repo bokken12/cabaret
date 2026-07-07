@@ -8,10 +8,12 @@ import {
   type RefName,
   type ReviewedDiff,
   reviewRounds,
+  type TimestampMs,
   type UserName,
 } from "cabaret-core";
-import { PatdiffCore } from "patdiff";
-import { IsBinary } from "patdiff/kernel";
+// The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
+// filesystem and console — imports a browser host cannot load.
+import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
 import { type Doc, type Line, type Style, span, type Target } from "./doc.js";
 
@@ -70,6 +72,45 @@ export function reviewDoc(page: ReviewPage): Doc {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
   }
   return { lines };
+}
+
+/** What marking a file reviewed did, and where review continues. */
+export type MarkReviewedResult =
+  /** The file had no review pending, so nothing was recorded. */
+  | { readonly kind: "nothing-left" }
+  /**
+   * The file was marked reviewed at the end of its earliest pending round.
+   * `next` is the round's next file in list order, wrapping past the end for
+   * files skipped earlier; undefined when the round is done, where the review
+   * page takes over — what to read next changes shape there.
+   */
+  | { readonly kind: "marked"; readonly next: FilePath | undefined };
+
+/**
+ * Mark `file` reviewed by the current user at the end of its earliest
+ * pending round.
+ *
+ * TODO: take the round end the caller's open page actually rendered once
+ * docs carry their query snapshot; a commit racing the action widens the
+ * marked diff.
+ */
+export async function markReviewed(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: RefName,
+  file: FilePath,
+): Promise<MarkReviewedResult> {
+  const entries = await backend.readLog(change);
+  const base = await changeBase(backend, change, entries);
+  const tip = await changeTip(backend, change, entries);
+  const user = await backend.currentUser();
+  const round = (await reviewRounds(backend, entries, user, base, tip)).find(({ files }) => files.has(file));
+  if (round === undefined) {
+    return { kind: "nothing-left" };
+  }
+  await backend.appendLog(change, [{ timestamp: now(), user, action: { kind: "review", file, base, tip: round.end } }]);
+  const remaining = [...round.files.keys()].filter((other) => other !== file);
+  return { kind: "marked", next: remaining.find((other) => other > file) ?? remaining[0] };
 }
 
 /** The versions a file's round of review compares. */
