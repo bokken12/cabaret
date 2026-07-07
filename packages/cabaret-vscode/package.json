@@ -17,6 +17,11 @@
     "onFileSystem:cabaret"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "cabaret"
+      }
+    ],
     "commands": [
       {
         "command": "cabaret.todo",
