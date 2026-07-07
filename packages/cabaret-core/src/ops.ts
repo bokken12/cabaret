@@ -125,10 +125,24 @@ export async function resolveChain(backend: Backend, changes: readonly RefName[]
 }
 
 /**
- * Fail unless the current user owns `change`; `override`
- * (--even-though-not-owner) skips the check. A log with no owner is malformed
- * and fails regardless of the override: the flag excuses not being the owner,
- * not a broken log.
+ * The ownership check failed: `change` belongs to someone else. The message
+ * states only the fact; each frontend attaches its own override remedy — a
+ * flag, a confirmation dialog — before showing it.
+ */
+export class NotOwnerError extends UserError {
+  constructor(
+    readonly change: RefName,
+    readonly owner: UserName,
+    readonly user: UserName,
+  ) {
+    super(`${JSON.stringify(change)} is owned by ${JSON.stringify(owner)}, not ${JSON.stringify(user)}`);
+  }
+}
+
+/**
+ * Fail unless the current user owns `change`; `override` skips the check. A
+ * log with no owner is malformed and fails regardless of the override: the
+ * override excuses not being the owner, not a broken log.
  */
 export async function requireOwner(
   backend: Backend,
@@ -142,10 +156,7 @@ export async function requireOwner(
   }
   const user = await backend.currentUser();
   if (user !== owner) {
-    throw new UserError(
-      `${JSON.stringify(change)} is owned by ${JSON.stringify(owner)}, not ${JSON.stringify(user)}; ` +
-        "pass --even-though-not-owner to override",
-    );
+    throw new NotOwnerError(change, owner, user);
   }
 }
 

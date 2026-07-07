@@ -14,6 +14,7 @@ import {
   type LogEntry,
   landAsConfigured,
   landChain,
+  NotOwnerError,
   newTodos,
   observedLand,
   parseContext,
@@ -77,6 +78,11 @@ const evenThoughNotOwner = {
   brief: "Proceed even though you do not own the change",
   default: false,
 } as const;
+
+/** A `UserError`'s message, with this frontend's remedy attached to the ownership check. */
+function userMessage(error: UserError): string {
+  return error instanceof NotOwnerError ? `${error.message}; pass --even-though-not-owner to override` : error.message;
+}
 
 /**
  * Report a command that is wired up but whose behavior is not yet implemented,
@@ -923,9 +929,11 @@ export const app = buildApplication(routes, {
       // bare. Any other exception is a bug in Cabaret, where the default
       // stack-bearing rendering earns its keep.
       formatException: (exc) =>
-        exc instanceof UserError ? exc.message : exc instanceof Error ? (exc.stack ?? String(exc)) : String(exc),
+        exc instanceof UserError ? userMessage(exc) : exc instanceof Error ? (exc.stack ?? String(exc)) : String(exc),
       exceptionWhileRunningCommand(exc, ansiColor) {
-        return exc instanceof UserError ? exc.message : text_en.exceptionWhileRunningCommand.call(this, exc, ansiColor);
+        return exc instanceof UserError
+          ? userMessage(exc)
+          : text_en.exceptionWhileRunningCommand.call(this, exc, ansiColor);
       },
     },
   },
