@@ -106,6 +106,8 @@ Small, imperative, everything the planner can't compute:
 interface Forge {
   /** The open request with head `branch`, if any. */
   findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
+  /** Every open request; the todo page lists the ones with no change log as importable. */
+  listOpenRequests(): Promise<readonly ForgeRequest[]>;
   getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
   createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest>;
   setBase(id: ForgeRequestId, base: RefName): Promise<void>;

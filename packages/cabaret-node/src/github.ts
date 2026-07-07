@@ -106,6 +106,13 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : toRequest(found);
   }
 
+  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
+    // `gh pr list` returns 30 requests unless told otherwise; 1000 covers any
+    // repository whose open requests a person still reads through.
+    const out = await gh(this.root, ["pr", "list", "--state", "open", "--limit", "1000", "--json", PR_FIELDS]);
+    return z.array(PrSchema).parse(JSON.parse(out)).map(toRequest);
+  }
+
   async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
     const out = await gh(this.root, ["pr", "view", String(id), "--json", PR_FIELDS]);
     return toRequest(PrSchema.parse(JSON.parse(out)));

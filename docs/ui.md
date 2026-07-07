@@ -52,7 +52,7 @@ type Target =
 
 Iron's surfaces, under Iron's names:
 
-- **todo** — the landing page: what needs your attention. A section of changes awaiting your review and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state.
+- **todo** — the landing page: what needs your attention. A section of changes awaiting your review and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. When the forge is reachable, a third section lists open pull requests with no change log yet — the union of what is imported and what could be — so teammates' PRs surface without anyone hunting for them; importing one (`cabaret gh import`, or the import action on its row in an editor host) moves it into the sections above.
 - **show** — one change: an attribute table (next step, owner, tip, base, forge request), files with per-file review state, comments.
 
 Both render through the same view functions in every host, including the CLI (`cabaret todo`, `cabaret show`), which is the cheapest place to exercise them first.

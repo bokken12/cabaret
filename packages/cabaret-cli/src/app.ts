@@ -17,11 +17,12 @@ import {
   type ForgeRequestId,
   forgeRequestId,
   formatLogEntry,
+  importRequest,
   type LogEntry,
   landChain,
   landChange,
-  landedMerge,
   newTodos,
+  observedLand,
   parseFilePath,
   parseRefName,
   planPull,
@@ -433,23 +434,6 @@ function parseRequestNumber(raw: string): ForgeRequestId {
   return forgeRequestId(Number(raw));
 }
 
-/**
- * The land entry a merged `request` implies, or undefined when `entries`
- * already record one: however the merge is observed, it means the change
- * landed.
- */
-function observedLand(
-  ctx: LocalContext,
-  user: UserName,
-  request: ForgeRequest,
-  entries: readonly LogEntry[],
-): LogEntry | undefined {
-  if (request.state !== "merged" || request.merge === undefined || landedMerge(entries) !== undefined) {
-    return undefined;
-  }
-  return { timestamp: ctx.now(), user, action: { kind: "land", merge: request.merge } };
-}
-
 const gh = buildRouteMap({
   docs: { brief: "GitHub integration" },
   routes: {
@@ -470,38 +454,15 @@ const gh = buildRouteMap({
       async func(this: LocalContext, _flags: Record<never, never>, id: ForgeRequestId) {
         const backend = await this.backend();
         const forge = await this.forge();
-        const request = await forge.getRequest(id);
-        const change = request.head;
-        // Sync first so a change already imported on another machine is
-        // adopted as itself rather than re-created.
-        await backend.syncLog(change);
-        if ((await backend.readLog(change)).length > 0) {
-          throw new UserError(`change already exists: ${JSON.stringify(change)}; run \`cabaret gh pull\` to sync it`);
+        const result = await importRequest(backend, this.now, forge, id);
+        if (result.kind === "exists") {
+          throw new UserError(
+            `change already exists: ${JSON.stringify(result.change)}; run \`cabaret gh pull\` to sync it`,
+          );
         }
-        await backend.fetchBranch(change);
-        const user = await backend.currentUser();
-        const additions: LogEntry[] = [
-          { timestamp: this.now(), user, action: { kind: "set-parent", parent: request.base } },
-          {
-            timestamp: this.now(),
-            user,
-            action: { kind: "set-base", base: await backend.mergeBase(request.base, change) },
-          },
-          { timestamp: this.now(), user, action: { kind: "set-owner", owner: request.author } },
-          { timestamp: this.now(), user, action: { kind: "set-forge", forge: forge.locator, request: id } },
-          ...(await planPull(forge.locator, [], await forge.listComments(id))),
-        ];
-        // Without the land entry, a merged PR's merge-base slides to its own
-        // tip and the diff to review vanishes.
-        const landing = observedLand(this, user, request, []);
-        if (landing !== undefined) {
-          additions.push(landing);
-        }
-        await backend.appendLog(change, additions);
-        const pulled = additions.filter(({ action }) => action.kind === "comment").length;
         this.process.stdout.write(
-          `imported ${forge.locator}#${id} as ${JSON.stringify(change)} with ` +
-            `${pulled} comment${pulled === 1 ? "" : "s"}\n`,
+          `imported ${forge.locator}#${id} as ${JSON.stringify(result.change)} with ` +
+            `${result.comments} comment${result.comments === 1 ? "" : "s"}\n`,
         );
       },
     }),
@@ -537,7 +498,7 @@ const gh = buildRouteMap({
           );
         }
         const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
-        const landing = observedLand(this, await backend.currentUser(), request, entries);
+        const landing = observedLand(this.now, await backend.currentUser(), request, entries);
         if (landing !== undefined) {
           additions.push(landing);
         }
@@ -985,7 +946,10 @@ const todo = buildCommand({
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
-    const page = await todoPage(backend, await backend.currentUser());
+    // A repository whose origin is not on a reachable forge still has a todo
+    // page; only the unimported-requests section needs one.
+    const forge = await this.forge().catch(() => undefined);
+    const page = await todoPage(backend, await backend.currentUser(), forge);
     this.process.stdout.write(`${docText(todoDoc(page))}\n`);
   },
 });

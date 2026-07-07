@@ -50,6 +50,12 @@ export class FakeForge implements Forge {
     return undefined;
   }
 
+  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
+    return [...this.requests]
+      .filter(([, request]) => request.state === "open")
+      .map(([id, request]) => this.snapshot(id, request));
+  }
+
   async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
     return this.snapshot(id, this.request(id));
   }

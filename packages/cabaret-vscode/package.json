@@ -73,6 +73,10 @@
       {
         "command": "cabaret.markReviewed",
         "title": "Cabaret: Mark Reviewed"
+      },
+      {
+        "command": "cabaret.import",
+        "title": "Cabaret: Import Pull Request"
       }
     ],
     "menus": {
@@ -124,6 +128,10 @@
         {
           "command": "cabaret.markReviewed",
           "when": "cabaret.page == 'diff'"
+        },
+        {
+          "command": "cabaret.import",
+          "when": "cabaret.page == 'todo'"
         }
       ]
     },
@@ -187,6 +195,11 @@
         "command": "cabaret.createParent",
         "key": "shift+1 p",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.import",
+        "key": "shift+1 i",
+        "when": "editorTextFocus && cabaret.page == 'todo' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],
     "semanticTokenTypes": [

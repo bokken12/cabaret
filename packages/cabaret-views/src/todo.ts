@@ -4,6 +4,8 @@ import {
   type ChangeSummary,
   changeForest,
   currentParent,
+  type Forge,
+  type ForgeRequest,
   type RefName,
   summarizeChange,
   type UserName,
@@ -26,9 +28,15 @@ export interface TodoPage {
    * is landed or someone else's stays only while kept children hang from it.
    */
   readonly owned: readonly TodoNode[];
+  /**
+   * Open forge requests whose head branch has no change log here, sorted by
+   * id: what `gh import` would turn into changes. Empty without a forge.
+   */
+  readonly unimported: readonly ForgeRequest[];
 }
 
-export async function todoPage(backend: Backend, user: UserName): Promise<TodoPage> {
+export async function todoPage(backend: Backend, user: UserName, forge?: Forge): Promise<TodoPage> {
+  const requests = forge === undefined ? [] : await forge.listOpenRequests();
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
   for (const change of await backend.listChanges()) {
@@ -49,6 +57,7 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
   return {
     review: [...summaries.values()].filter(({ landed, reviewLeft }) => landed === undefined && reviewLeft.length > 0),
     owned: prune(changeForest(parents)),
+    unimported: requests.filter(({ head }) => !summaries.has(head)).sort((a, b) => a.id - b.id),
   };
 }
 
@@ -96,6 +105,28 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "next step", align: "left" },
         ],
         rows,
+      ),
+    );
+  }
+  if (page.unimported.length > 0) {
+    if (lines.length > 0) {
+      lines.push({ spans: [] });
+    }
+    lines.push({ spans: [span("Pull requests:", { style: "heading" })] });
+    lines.push(
+      ...table(
+        [
+          { header: "request", align: "right" },
+          { header: "change", align: "left" },
+          { header: "title", align: "left" },
+          { header: "next step", align: "left" },
+        ],
+        page.unimported.map(({ id, head, title }) => [
+          span(`#${id}`, { target: { kind: "request", request: id } }),
+          span(head),
+          span(title),
+          span("import"),
+        ]),
       ),
     );
   }
