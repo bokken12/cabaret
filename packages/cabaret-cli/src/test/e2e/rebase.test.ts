@@ -42,9 +42,7 @@ test("a parent rewrite stays out of the child's diff until it rebases", async ()
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/child.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|child work
     ",
     }

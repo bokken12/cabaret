@@ -18,9 +18,7 @@ test("an unreviewed file diffs from base to tip", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/greeting.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|hello
     ",
     }
@@ -36,9 +34,7 @@ test("a reviewed file diffs from the reviewed tip to the current tip", async () 
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/greeting.txt
-    new/greeting.txt
-    -1,1 +1,2
+      "stdout": "-1,1 +1,2
       hello
     +|world
     ",
@@ -57,9 +53,7 @@ test("a rewritten tip diffs from the reviewed tip's contents", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/greeting.txt
-    new/greeting.txt
-    -1,1 +1,2
+      "stdout": "-1,1 +1,2
       hello
     +|world
     ",
@@ -80,9 +74,7 @@ test("diff --for uses that user's brain, not the caller's", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/lib/core.ts
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|export const answer = 42;
     ",
     }
@@ -97,9 +89,7 @@ test("a forgotten file diffs from base to tip again", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/greeting.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|salut
     ",
     }
@@ -112,16 +102,14 @@ test("diffs a file whose name contains glob characters literally", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/app/[slug]/page.tsx
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|export default 1;
     ",
     }
   `);
 });
 
-test("a deleted file diffs to /dev/null", async () => {
+test("a deleted file diffs to the empty file", async () => {
   const repo = await makeRepo();
   await repo.write("doomed.txt", "ephemeral\n");
   await repo.git("add", "-A");
@@ -134,9 +122,7 @@ test("a deleted file diffs to /dev/null", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/doomed.txt
-    /dev/null
-    -1,1 +1,0
+      "stdout": "-1,1 +1,0
     -|ephemeral
     ",
     }
@@ -230,9 +216,7 @@ test("after a commit and an unrelated rebase, only the commit is left to review"
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/shared.txt
-    new/shared.txt
-    -6,3 +6,4
+      "stdout": "-6,3 +6,4
       six
       seven
       child
@@ -517,9 +501,7 @@ test("an unreviewed file never needs a 4-way diff, even when the base changed it
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/shared.txt
-    new/shared.txt
-    -5,3 +5,4
+      "stdout": "-5,3 +5,4
       five
       six
       seven
@@ -544,9 +526,7 @@ test("git config cabaret.context sets the default hunk context, and --context ov
   await repo.git("commit", "-qam", "shout four");
   await repo.git("config", "cabaret.context", "1");
   expect((await repo.cabaret("diff", "list.txt")).stdout).toMatchInlineSnapshot(`
-    "old/list.txt
-    new/list.txt
-    -3,3 +3,3
+    "-3,3 +3,3
       three
     -|four
     +|FOUR
@@ -554,9 +534,7 @@ test("git config cabaret.context sets the default hunk context, and --context ov
     "
   `);
   expect((await repo.cabaret("diff", "list.txt", "--context", "0")).stdout).toMatchInlineSnapshot(`
-    "old/list.txt
-    new/list.txt
-    -4,1 +4,1
+    "-4,1 +4,1
     -|four
     +|FOUR
     "

@@ -254,10 +254,8 @@ export const defaultContext = 3;
 /**
  * Render the diff between two versions of `file` with patdiff: ANSI-colored
  * with word-level refinement on a terminal, plain ASCII otherwise. An absent
- * version diffs against the empty file, named /dev/null as in git. Hunks keep
- * `context` lines of surrounding context; -1 shows files whole. `header`
- * prepends the old/new file-name lines; a host that already names the file
- * elsewhere (e.g. diffDoc's title) can pass `false` to skip the redundancy.
+ * version diffs against the empty file. Hunks keep `context` lines of
+ * surrounding context; -1 shows files whole.
  */
 export function renderDiff(
   file: FilePath,
@@ -265,13 +263,10 @@ export function renderDiff(
   next: string | undefined,
   color: boolean,
   context?: number,
-  header = true,
 ): string {
   if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
     return prev === next ? "" : `Binary versions of ${file} differ\n`;
   }
-  const prevName = prev === undefined ? "/dev/null" : `old/${file}`;
-  const nextName = next === undefined ? "/dev/null" : `new/${file}`;
   const diff = PatdiffCore.withoutUnix.patdiff({
     output: color ? "Ansi" : "Ascii",
     context: context ?? defaultContext,
@@ -280,15 +275,12 @@ export function renderDiff(
     // Splitting a long modified line into partial context and changed pieces
     // would break the line-per-source-line mapping structured hosts rely on.
     splitLongLines: color,
-    prev: { name: prevName, text: prev ?? "" },
-    next: { name: nextName, text: next ?? "" },
+    // Names are never printed, but patdiff's language-specific whitespace
+    // heuristics read them.
+    prev: { name: file, text: prev ?? "" },
+    next: { name: file, text: next ?? "" },
   });
-  // patdiff's own global header prints even when no hunks survive (e.g. equal
-  // contents), so an empty diff must skip the header here instead.
-  if (diff === "") {
-    return "";
-  }
-  return header ? `${prevName}\n${nextName}\n${diff}\n` : `${diff}\n`;
+  return diff === "" ? "" : `${diff}\n`;
 }
 
 /**
@@ -337,9 +329,7 @@ export function renderDiff4(args: {
  * mark where each begins.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
-  // diffDoc's title already names the file, so the old/new lines renderDiff
-  // would otherwise prepend are redundant here.
-  const rendered = renderDiff(file, view.prev, view.next, false, context, false);
+  const rendered = renderDiff(file, view.prev, view.next, false, context);
   if (rendered === "") {
     return [];
   }

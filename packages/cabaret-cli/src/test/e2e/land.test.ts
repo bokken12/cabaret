@@ -158,13 +158,9 @@ test("parent work on both sides of a land renders one diff per span", async () =
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/parent.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|parent v1
 
-    old/parent.txt
-    new/parent.txt
     -1,1 +1,2
       parent v1
     +|parent v2
@@ -205,9 +201,7 @@ test("a review between two lands leaves only the later span", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "old/parent.txt
-    new/parent.txt
-    -1,2 +1,3
+      "stdout": "-1,2 +1,3
       parent v1
       parent v2
     +|parent v3
@@ -292,9 +286,7 @@ test("a merge without the land trailer still needs review", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/child.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|child work
     ",
     }
@@ -410,9 +402,7 @@ test("a landed change can still be reviewed and forgotten", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/child.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|child work
     ",
     }
@@ -445,9 +435,7 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "/dev/null
-    new/child.txt
-    -1,0 +1,1
+      "stdout": "-1,0 +1,1
     +|child work
     ",
     }
