@@ -1,7 +1,8 @@
 import { forgeRequestId, parseRefName, UserError } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { parseGitHubRemote } from "../client.js";
+import { githubClient, parseGitHubRemote } from "../client.js";
 import { GitHubForge } from "../forge.js";
+import { type Call, stubGitHub } from "./stub.js";
 
 describe("parseGitHubRemote", () => {
   test("accepts the URL forms git uses for github.com", () => {
@@ -28,58 +29,6 @@ describe("parseGitHubRemote", () => {
   });
 });
 
-// Node provides the WHATWG `Response` octokit consumes; the class is absent
-// from the bare es2025 lib this platform-agnostic package compiles against.
-declare class Response {
-  constructor(body: string, init: { status: number; headers: Readonly<Record<string, string>> });
-}
-
-interface Call {
-  readonly method: string;
-  readonly url: string;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly body: string | undefined;
-}
-
-interface Route {
-  readonly status?: number;
-  readonly link?: string;
-  readonly json: unknown;
-}
-
-/**
- * Stub `fetch` with canned responses keyed by "METHOD url", recording every
- * request. An array route answers successive calls in order (every GraphQL
- * query shares one URL). An unrouted request fails as a 400 naming itself —
- * a status the retry plugin treats as final; a thrown error would surface as
- * a retryable 500, and the retries would outlive the stub and reach the real
- * GitHub.
- */
-function stubGitHub(routes: Readonly<Record<string, Route | readonly Route[]>>): Call[] {
-  const calls: Call[] = [];
-  const consumed = new Map<string, number>();
-  vi.stubGlobal(
-    "fetch",
-    async (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => {
-      calls.push({ method: init.method, url, headers: init.headers, body: init.body });
-      const key = `${init.method} ${url}`;
-      const entry = routes[key];
-      const index = consumed.get(key) ?? 0;
-      consumed.set(key, index + 1);
-      // A single route answers every call; an array answers them in order.
-      const route = (entry === undefined ? undefined : "json" in entry ? entry : entry[index]) ?? {
-        status: 400,
-        json: { message: `unrouted request: ${key}` },
-      };
-      return new Response(JSON.stringify(route.json), {
-        status: route.status ?? 200,
-        headers: { "content-type": "application/json", ...(route.link === undefined ? {} : { link: route.link }) },
-      });
-    },
-  );
-  return calls;
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -89,7 +38,7 @@ const REPOS = `${API}/repos/test-org/widgets`;
 const GRAPHQL = `POST ${API}/graphql`;
 
 function forge(): GitHubForge {
-  return new GitHubForge("token-123", { owner: "test-org", repo: "widgets" });
+  return new GitHubForge(githubClient("token-123", { throttled: false }), { owner: "test-org", repo: "widgets" });
 }
 
 /** The variables each GraphQL call in `calls` sent, in call order. */

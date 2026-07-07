@@ -16,7 +16,7 @@ import {
   userName,
 } from "cabaret-core";
 import { z } from "zod";
-import { type GitHubClient, type GitHubRepo, githubClient } from "./client.js";
+import type { GitHubClient, GitHubRepo } from "./client.js";
 
 /** The identity for a login whose profile shows no email: GitHub's own noreply convention. */
 function noreplyUser(login: string): UserName {
@@ -87,14 +87,13 @@ const IssueCommentSchema = z.object({
 
 /** A `Forge` for a github.com repository, speaking the API directly. */
 export class GitHubForge implements Forge {
-  private readonly client: GitHubClient;
-  private readonly repo: GitHubRepo;
   private readonly identities = new Map<string, Promise<UserName>>();
   readonly locator: ForgeLocator;
 
-  constructor(token: string, repo: GitHubRepo) {
-    this.client = githubClient(token);
-    this.repo = repo;
+  constructor(
+    private readonly client: GitHubClient,
+    private readonly repo: GitHubRepo,
+  ) {
     this.locator = parseForgeLocator(`github.com/${repo.owner}/${repo.repo}`);
   }
 
