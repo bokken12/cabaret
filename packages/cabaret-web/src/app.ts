@@ -18,7 +18,7 @@ import {
   type SnapshotCache,
   targetAt,
 } from "cabaret-views";
-import { type Config, clearConfig, clearRepo } from "./config.js";
+import { type Config, clearConfig, clearRepo, loadContext } from "./config.js";
 import { docHtml } from "./html.js";
 
 const now = (): TimestampMs => timestampMs(Date.now());
@@ -131,7 +131,7 @@ export function startApp(root: HTMLElement, config: Config): void {
         // natural re-sync point for everything under review.
         snapshots.clear();
       }
-      const doc = await renderPage(backend, page, async () => forge, snapshots);
+      const doc = await renderPage(backend, page, async () => forge, { cache: snapshots, context: loadContext() });
       if (mine !== seq) {
         return;
       }

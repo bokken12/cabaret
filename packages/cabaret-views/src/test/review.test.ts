@@ -110,6 +110,29 @@ test("diffDoc anchors each hunk line to its place in the new copy", () => {
   ]);
 });
 
+test("diffDoc trims each hunk to the requested context", () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), 1);
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    old/api.ts
+    new/api.ts
+    -1,3 +1,3
+    one
+    two
+    TWO
+    three
+    -7,3 +7,3
+    seven
+    eight
+    EIGHT
+    nine"
+  `);
+});
+
 test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   // Long enough that patdiff trims leading context and the hunk starts deep.
   const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;

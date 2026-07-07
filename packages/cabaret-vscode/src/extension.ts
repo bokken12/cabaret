@@ -69,7 +69,9 @@ class PageProvider implements vscode.TextDocumentContentProvider {
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
-    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge);
+    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge, {
+      context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+    });
     this.docs.set(uri.toString(), doc);
     // A render whose text matches the buffer emits no document change, so
     // repainting only on document changes would leave pre-render paint stale.
@@ -606,6 +608,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("cabaret.context")) {
+        provider.refreshAll();
+      }
+    }),
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),

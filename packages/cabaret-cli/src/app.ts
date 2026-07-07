@@ -41,7 +41,7 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
-import { docText, renderDiff, renderDiff4, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
+import { defaultContext, docText, renderDiff, renderDiff4, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -259,6 +259,15 @@ const create = buildCommand({
   },
 });
 
+/** Parse a count of diff context lines. */
+function parseContext(raw: string): number {
+  const context = Number(raw);
+  if (!Number.isInteger(context) || context < 0) {
+    throw new UserError(`context must be a nonnegative integer: ${JSON.stringify(raw)}`);
+  }
+  return context;
+}
+
 const diff = buildCommand({
   docs: {
     brief: "Show the diff of a change left to review for a file",
@@ -290,11 +299,17 @@ const diff = buildCommand({
         brief: "Show the diff for another user (defaults to self)",
         optional: true,
       },
+      context: {
+        kind: "parsed",
+        parse: parseContext,
+        brief: `Lines of context around each hunk (defaults to ${defaultContext})`,
+        optional: true,
+      },
     },
   },
   // TODO: normalize the file argument to a repo-relative path so lookups made
   // from a subdirectory name the same file the log does.
-  async func(this: LocalContext, flags: { change?: RefName; for?: UserName }, file: FilePath) {
+  async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, file: FilePath) {
     const backend = await this.backend();
     const change = flags.change ?? (await backend.currentBranch());
     const user = flags.for ?? (await backend.currentUser());
@@ -320,13 +335,14 @@ const diff = buildCommand({
       // Otherwise the base's copy changed underneath the review, which takes
       // a 4-way diff.
       if (prevBase === nextBase || nextBase === prevTip) {
-        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color));
+        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color, flags.context));
       } else {
         const rendered = renderDiff4({
           file,
           revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
           contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
           color,
+          context: flags.context,
         });
         this.process.stdout.write(rendered.length === 0 ? "" : `${rendered.map((line) => line.text).join("\n")}\n`);
       }
@@ -352,7 +368,7 @@ const diff = buildCommand({
       throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
     }
     const rendered = segments
-      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color))
+      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, flags.context))
       .filter((diff) => diff !== "");
     // A blank line between spans, since consecutive diffs of one file would
     // otherwise run together.
