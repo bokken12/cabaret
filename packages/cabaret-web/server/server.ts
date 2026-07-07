@@ -113,7 +113,14 @@ async function serveFile(res: ServerResponse, pathname: string): Promise<void> {
   }
   try {
     const body = await readFile(path);
-    res.writeHead(200, { "content-type": CONTENT_TYPES[extname(path)] ?? "application/octet-stream" }).end(body);
+    res
+      .writeHead(200, {
+        "content-type": CONTENT_TYPES[extname(path)] ?? "application/octet-stream",
+        // Assets carry content hashes in their names and may cache forever;
+        // the page itself must revalidate so deploys take effect on reload.
+        "cache-control": extname(path) === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+      })
+      .end(body);
   } catch {
     res.writeHead(404).end("not found");
   }
