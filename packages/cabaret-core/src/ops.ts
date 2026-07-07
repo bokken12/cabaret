@@ -16,6 +16,7 @@ import {
 } from "./backend.js";
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
+import type { ForgeMerge } from "./forge.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -267,8 +268,9 @@ export async function prepareLand(
  * Record `target`'s landing in its log: pin the base — once the parent
  * contains the change, the merge-base with it is useless, so `changeBase`
  * serves the stored base of a landed change forever — and write the land
- * entry. A squash's commit descends from no reviewed history, so the entry
- * also freezes the tip that landed.
+ * entry. A landing commit that descends from no reviewed history — a squash,
+ * or whatever else the forge chose to write — also freezes the tip that
+ * landed.
  */
 export async function recordLand(
   backend: Backend,
@@ -276,14 +278,13 @@ export async function recordLand(
   target: RefName,
   entries: readonly LogEntry[],
   { base, tip, user }: PreparedLand,
-  method: LandMethod,
-  merge: CommitHash,
+  merge: ForgeMerge,
 ): Promise<void> {
   const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
   await backend.appendLog(target, [
     ...pin,
-    { timestamp: now(), user, action: { kind: "land", merge, ...(method === "squash" ? { tip } : {}) } },
+    { timestamp: now(), user, action: { kind: "land", merge: merge.commit, ...(merge.parents > 1 ? {} : { tip }) } },
   ]);
 }
 
@@ -307,7 +308,10 @@ export async function landChange(
     method === "merge"
       ? await backend.merge(parent, base, tip, landMessage(target))
       : await backend.squash(parent, base, tip, landMessage(target));
-  await recordLand(backend, now, target, entries, prepared, method, merge);
+  await recordLand(backend, now, target, entries, prepared, {
+    commit: merge,
+    parents: method === "merge" ? 2 : 1,
+  });
 }
 
 /**
