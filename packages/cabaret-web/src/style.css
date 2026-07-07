@@ -84,12 +84,16 @@ button:hover {
 
 .doc {
   padding: 1em;
-  white-space: pre;
   overflow-x: auto;
+  /* Tight enough that box-drawing borders connect across lines. */
+  line-height: 1.25;
 }
 
+/* pre on the line, not the container, so the markup's own inter-line
+   whitespace collapses instead of rendering as blank lines. */
 .line {
   min-height: 1lh;
+  white-space: pre;
 }
 
 body.busy .doc {
