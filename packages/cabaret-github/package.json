@@ -1,0 +1,24 @@
+{
+  "name": "cabaret-github",
+  "description": "Cabaret's GitHub integration, over the REST API so it runs wherever fetch exists",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@octokit/core": "^7.0.6",
+    "@octokit/plugin-paginate-rest": "^14.0.0",
+    "@octokit/plugin-retry": "^8.1.0",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "cabaret-core": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

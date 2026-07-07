@@ -1,0 +1,459 @@
+import { forgeRequestId, parseRefName, UserError } from "cabaret-core";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { parseGitHubRemote } from "../client.js";
+import { GitHubForge } from "../forge.js";
+
+describe("parseGitHubRemote", () => {
+  test("accepts the URL forms git uses for github.com", () => {
+    expect(parseGitHubRemote("https://github.com/test-org/widgets.git")).toEqual({
+      owner: "test-org",
+      repo: "widgets",
+    });
+    expect(parseGitHubRemote("https://github.com/alice/dotfiles")).toEqual({ owner: "alice", repo: "dotfiles" });
+    expect(parseGitHubRemote("git@github.com:test-org/widgets.git")).toEqual({ owner: "test-org", repo: "widgets" });
+    expect(parseGitHubRemote("ssh://git@github.com/bob/tools.git")).toEqual({ owner: "bob", repo: "tools" });
+  });
+
+  test("lowercases, so every spelling of one repository yields one locator", () => {
+    expect(parseGitHubRemote("https://GitHub.com/Test-Org/Widgets.git")).toEqual({
+      owner: "test-org",
+      repo: "widgets",
+    });
+  });
+
+  test("rejects URLs that are not github.com repositories", () => {
+    expect(() => parseGitHubRemote("https://gitlab.com/test-org/widgets.git")).toThrow(UserError);
+    expect(() => parseGitHubRemote("git@github.com:widgets.git")).toThrow(UserError);
+    expect(() => parseGitHubRemote("/home/alice/widgets")).toThrow(UserError);
+  });
+});
+
+// Node provides the WHATWG `Response` octokit consumes; the class is absent
+// from the bare es2025 lib this platform-agnostic package compiles against.
+declare class Response {
+  constructor(body: string, init: { status: number; headers: Readonly<Record<string, string>> });
+}
+
+interface Call {
+  readonly method: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string | undefined;
+}
+
+interface Route {
+  readonly status?: number;
+  readonly link?: string;
+  readonly json: unknown;
+}
+
+/**
+ * Stub `fetch` with canned responses keyed by "METHOD url", recording every
+ * request. An array route answers successive calls in order (every GraphQL
+ * query shares one URL). An unrouted request fails as a 400 naming itself —
+ * a status the retry plugin treats as final; a thrown error would surface as
+ * a retryable 500, and the retries would outlive the stub and reach the real
+ * GitHub.
+ */
+function stubGitHub(routes: Readonly<Record<string, Route | readonly Route[]>>): Call[] {
+  const calls: Call[] = [];
+  const consumed = new Map<string, number>();
+  vi.stubGlobal(
+    "fetch",
+    async (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => {
+      calls.push({ method: init.method, url, headers: init.headers, body: init.body });
+      const key = `${init.method} ${url}`;
+      const entry = routes[key];
+      const index = consumed.get(key) ?? 0;
+      consumed.set(key, index + 1);
+      // A single route answers every call; an array answers them in order.
+      const route = (entry === undefined ? undefined : "json" in entry ? entry : entry[index]) ?? {
+        status: 400,
+        json: { message: `unrouted request: ${key}` },
+      };
+      return new Response(JSON.stringify(route.json), {
+        status: route.status ?? 200,
+        headers: { "content-type": "application/json", ...(route.link === undefined ? {} : { link: route.link }) },
+      });
+    },
+  );
+  return calls;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const API = "https://api.github.com";
+const REPOS = `${API}/repos/test-org/widgets`;
+const GRAPHQL = `POST ${API}/graphql`;
+
+function forge(): GitHubForge {
+  return new GitHubForge("token-123", { owner: "test-org", repo: "widgets" });
+}
+
+/** The variables each GraphQL call in `calls` sent, in call order. */
+function graphqlVariables(calls: readonly Call[]): readonly unknown[] {
+  return calls
+    .filter(({ url }) => url === `${API}/graphql`)
+    .map(({ body }) => (JSON.parse(body ?? "{}") as { variables?: unknown }).variables);
+}
+
+describe("GitHubForge", () => {
+  test("locator names the repository", () => {
+    expect(forge().locator).toBe("github.com/test-org/widgets");
+  });
+
+  test("requests carry the token", async () => {
+    const calls = stubGitHub({
+      [`PATCH ${REPOS}/pulls/12`]: { json: {} },
+    });
+    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    expect(calls[0]?.headers.authorization).toBe("token token-123");
+  });
+
+  test("getRequest maps an open request, using the author's public profile email", async () => {
+    stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                number: 7,
+                headRefName: "add-tables",
+                baseRefName: "main",
+                title: "Add tables",
+                author: { login: "alice" },
+                state: "OPEN",
+                mergeCommit: null,
+                changedFiles: 3,
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
+    });
+    expect(await forge().getRequest(forgeRequestId(7))).toEqual({
+      id: 7,
+      head: "add-tables",
+      base: "main",
+      title: "Add tables",
+      author: "alice@example.com",
+      state: "open",
+      changedFiles: 3,
+    });
+  });
+
+  test("getRequest maps a merged request, falling back to the noreply identity", async () => {
+    stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                number: 8,
+                headRefName: "fix-crash",
+                baseRefName: "release",
+                title: "Fix crash",
+                author: { login: "bob" },
+                state: "MERGED",
+                mergeCommit: { oid: "89e6c98d92887913cadf06b2adb97f26cde4849b" },
+                changedFiles: 1,
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/bob`]: { json: { email: null } },
+    });
+    expect(await forge().getRequest(forgeRequestId(8))).toEqual({
+      id: 8,
+      head: "fix-crash",
+      base: "release",
+      title: "Fix crash",
+      author: "bob@users.noreply.github.com",
+      state: "merged",
+      merge: "89e6c98d92887913cadf06b2adb97f26cde4849b",
+      changedFiles: 1,
+    });
+  });
+
+  test("getRequest maps a closed request by a deleted account", async () => {
+    stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                number: 9,
+                headRefName: "abandoned",
+                baseRefName: "main",
+                title: "Abandoned",
+                author: null,
+                state: "CLOSED",
+                mergeCommit: null,
+                changedFiles: 5,
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/ghost`]: { status: 404, json: { message: "Not Found" } },
+    });
+    expect(await forge().getRequest(forgeRequestId(9))).toEqual({
+      id: 9,
+      head: "abandoned",
+      base: "main",
+      title: "Abandoned",
+      author: "ghost@users.noreply.github.com",
+      state: "closed",
+      changedFiles: 5,
+    });
+  });
+
+  test("findRequest queries by head branch and maps the request", async () => {
+    const calls = stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequests: {
+                nodes: [
+                  {
+                    number: 7,
+                    headRefName: "add-tables",
+                    baseRefName: "main",
+                    title: "Add tables",
+                    author: { login: "alice" },
+                    state: "OPEN",
+                    mergeCommit: null,
+                    changedFiles: 3,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/alice`]: { json: { email: null } },
+    });
+    expect(await forge().findRequest(parseRefName("add-tables"))).toEqual({
+      id: 7,
+      head: "add-tables",
+      base: "main",
+      title: "Add tables",
+      author: "alice@users.noreply.github.com",
+      state: "open",
+      changedFiles: 3,
+    });
+    expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", branch: "add-tables" }]);
+  });
+
+  test("findRequest is undefined when no open request has the branch", async () => {
+    stubGitHub({
+      [GRAPHQL]: { json: { data: { repository: { pullRequests: { nodes: [] } } } } },
+    });
+    expect(await forge().findRequest(parseRefName("orphan"))).toBeUndefined();
+  });
+
+  test("listOpenRequests follows the pagination cursor", async () => {
+    const calls = stubGitHub({
+      [GRAPHQL]: [
+        {
+          json: {
+            data: {
+              repository: {
+                pullRequests: {
+                  nodes: [
+                    {
+                      number: 4,
+                      headRefName: "first",
+                      baseRefName: "main",
+                      title: "First",
+                      author: { login: "alice" },
+                      state: "OPEN",
+                      mergeCommit: null,
+                      changedFiles: 2,
+                    },
+                    {
+                      number: 5,
+                      headRefName: "second",
+                      baseRefName: "first",
+                      title: "Second",
+                      author: { login: "bob" },
+                      state: "OPEN",
+                      mergeCommit: null,
+                      changedFiles: 1,
+                    },
+                  ],
+                  pageInfo: { hasNextPage: true, endCursor: "CUR1" },
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
+            data: {
+              repository: {
+                pullRequests: {
+                  nodes: [
+                    {
+                      number: 6,
+                      headRefName: "third",
+                      baseRefName: "main",
+                      title: "Third",
+                      author: { login: "alice" },
+                      state: "OPEN",
+                      mergeCommit: null,
+                      changedFiles: 9,
+                    },
+                  ],
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                },
+              },
+            },
+          },
+        },
+      ],
+      [`GET ${API}/users/alice`]: { json: { email: null } },
+      [`GET ${API}/users/bob`]: { json: { email: null } },
+    });
+    expect((await forge().listOpenRequests()).map(({ id, head }) => [id, head])).toEqual([
+      [4, "first"],
+      [5, "second"],
+      [6, "third"],
+    ]);
+    expect(graphqlVariables(calls)).toEqual([
+      { owner: "test-org", repo: "widgets", cursor: null },
+      { owner: "test-org", repo: "widgets", cursor: "CUR1" },
+    ]);
+  });
+
+  test("identities are looked up once per login", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/issues/7/comments?per_page=100`]: {
+        json: [
+          { id: 101, user: { login: "alice" }, body: "first", updated_at: "2026-05-01T00:00:00Z" },
+          { id: 102, user: { login: "alice" }, body: "second", updated_at: "2026-05-02T12:30:00Z" },
+        ],
+      },
+      [`GET ${API}/users/alice`]: { json: { email: null } },
+    });
+    await forge().listComments(forgeRequestId(7));
+    expect(calls.filter(({ url }) => url === `${API}/users/alice`)).toHaveLength(1);
+  });
+
+  test("createRequest posts the request and fetches it by number", async () => {
+    const calls = stubGitHub({
+      [`POST ${REPOS}/pulls`]: { status: 201, json: { number: 12 } },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                number: 12,
+                headRefName: "new-work",
+                baseRefName: "parent-branch",
+                title: "New work",
+                author: { login: "dave" },
+                state: "OPEN",
+                mergeCommit: null,
+                changedFiles: 1,
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/dave`]: { json: { email: null } },
+    });
+    const created = await forge().createRequest(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
+    expect(created).toEqual({
+      id: 12,
+      head: "new-work",
+      base: "parent-branch",
+      title: "New work",
+      author: "dave@users.noreply.github.com",
+      state: "open",
+      changedFiles: 1,
+    });
+    expect(calls[0]?.body).toBe(
+      JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "" }),
+    );
+  });
+
+  test("setBase patches the request's base branch", async () => {
+    const calls = stubGitHub({
+      [`PATCH ${REPOS}/pulls/12`]: { json: {} },
+    });
+    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    expect(calls[0]?.body).toBe(JSON.stringify({ base: "develop" }));
+  });
+
+  test("listFiles returns the request's paths", async () => {
+    stubGitHub({
+      [`GET ${REPOS}/pulls/7/files?per_page=100`]: {
+        json: [{ filename: "src/app.ts" }, { filename: "docs/guide.md" }],
+      },
+    });
+    expect(await forge().listFiles(forgeRequestId(7))).toEqual(["src/app.ts", "docs/guide.md"]);
+  });
+
+  test("listComments follows Link pagination, oldest first", async () => {
+    const page2 = `${API}/repositories/555/issues/7/comments?per_page=100&page=2`;
+    stubGitHub({
+      [`GET ${REPOS}/issues/7/comments?per_page=100`]: {
+        json: [
+          { id: 101, user: { login: "alice" }, body: "first", updated_at: "2026-05-01T00:00:00Z" },
+          { id: 102, user: { login: "bob" }, body: "second", updated_at: "2026-05-02T12:30:00Z" },
+        ],
+        link: `<${page2}>; rel="next", <${page2}>; rel="last"`,
+      },
+      [`GET ${page2}`]: {
+        json: [{ id: 103, user: { login: "alice" }, body: "third", updated_at: "2026-05-03T08:15:00Z" }],
+      },
+      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
+      [`GET ${API}/users/bob`]: { json: { email: null } },
+    });
+    expect(await forge().listComments(forgeRequestId(7))).toEqual([
+      {
+        id: "101",
+        author: "alice@example.com",
+        body: "first",
+        updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+      },
+      {
+        id: "102",
+        author: "bob@users.noreply.github.com",
+        body: "second",
+        updatedAt: Date.parse("2026-05-02T12:30:00Z"),
+      },
+      {
+        id: "103",
+        author: "alice@example.com",
+        body: "third",
+        updatedAt: Date.parse("2026-05-03T08:15:00Z"),
+      },
+    ]);
+  });
+
+  test("addComment posts the body verbatim, marker included", async () => {
+    const body = `ship it\n\n<!-- cabaret:${"ab".repeat(32)} -->`;
+    const calls = stubGitHub({
+      [`POST ${REPOS}/issues/7/comments`]: { status: 201, json: {} },
+    });
+    await forge().addComment(forgeRequestId(7), body);
+    expect(calls[0]?.body).toBe(JSON.stringify({ body }));
+  });
+
+  test("a failing request reports the status and GitHub's message", async () => {
+    stubGitHub({
+      [`GET ${REPOS}/pulls/404/files?per_page=100`]: { status: 404, json: { message: "Not Found" } },
+    });
+    await expect(forge().listFiles(forgeRequestId(404))).rejects.toMatchObject({
+      status: 404,
+      message: expect.stringContaining("Not Found"),
+    });
+  });
+});

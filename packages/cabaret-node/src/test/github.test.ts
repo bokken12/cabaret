@@ -3,12 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { type ForgeRequestId, forgeRequestId, parseRefName } from "cabaret-core";
+import { type Forge, type ForgeRequestId, forgeRequestId, parseRefName } from "cabaret-core";
 import { describe, expect, onTestFinished, test } from "vitest";
-import { GitHubForge } from "../github.js";
+import { openGitHubForge } from "../github.js";
 
 // Live tests against a real GitHub repository, covering what FakeForge
-// cannot: the exact `gh` invocations and GitHub's actual responses. Skipped
+// cannot: the exact HTTP requests and GitHub's actual responses. Skipped
 // unless a fixture repository (created once by scripts/seed-forge-fixture.sh)
 // is named:
 //
@@ -25,11 +25,11 @@ const execFileAsync = promisify(execFile);
 const SEEDED = forgeRequestId(1);
 
 /** Clone the fixture repository into a throwaway directory and open it. */
-async function openFixture(fixture: string): Promise<{ dir: string; forge: GitHubForge }> {
+async function openFixture(fixture: string): Promise<{ dir: string; forge: Forge }> {
   const dir = await mkdtemp(join(tmpdir(), "cabaret-forge-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   await execFileAsync("gh", ["repo", "clone", fixture, dir, "--", "--quiet"]);
-  return { dir, forge: await GitHubForge.open(dir) };
+  return { dir, forge: await openGitHubForge(dir) };
 }
 
 describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () => {

@@ -11,18 +11,16 @@ Tentative: the interface is `Forge`, implemented by `GitHubForge` and `GitLabFor
 ## Shape of the feature
 
 - `Forge` interface and all sync logic live in `cabaret-core` (`forge.ts`), mirroring `Backend`: a small imperative interface plus pure free functions that do the actual thinking.
-- Concrete implementations live in `cabaret-node`, next to `GitBackend`.
+- Concrete implementations live in `cabaret-github` (and eventually `cabaret-gitlab`), platform-agnostic so browsers can run them; `cabaret-node` contributes only what needs a local machine — finding the repository and a token.
 - `LocalContext` grows a `forge()` next to `backend()`, and the existing `gh pull` / `gh push` stubs in `app.ts` call into the sync functions.
 
 The sync logic should be pure planning over data: `planPull(log, requestState) → entries to append` and `planPush(log, requestState) → comments to post`. The commands fetch state, plan, apply. This keeps the interesting logic (idempotency, dedup, supersession) testable without any fake HTTP — and idempotency itself becomes a property test: planning again after applying must yield the empty plan.
 
 ## Transport and auth
 
-Rather than taking on octokit, an HTTP client, and token management, shell out to the `gh` CLI (`gh api` reaches the full REST/GraphQL surface), exactly as `GitBackend` shells out to `git`. Auth is delegated wholesale to `gh auth login`; Cabaret never sees a token, and there is nothing to configure. `glab` offers the same for GitLab, so the symmetry holds.
+`GitHubForge` speaks the REST API directly through octokit (`@octokit/core` with GitHub's own throttling and retry plugins, so rate limits are handled the way GitHub documents). Octokit runs on `fetch`, which is what lets `cabaret-web` run the same forge in a browser.
 
-Which repo to talk to is derived from `remote.origin.url` — consistent with `currentUser()` reading `git config user.email`.
-
-Tentative: shell out to `gh`. Requiring `gh` to be installed is an acceptable oddity; the `Forge` interface keeps a direct-HTTP implementation possible if it isn't.
+Auth is a bearer token the host supplies. On Node, `openGitHubForge` takes it from `$GH_TOKEN`/`$GITHUB_TOKEN` or `gh auth token`, so auth stays delegated to `gh auth login` and Cabaret stores nothing; a browser host is handed a token by its user. Which repo to talk to is likewise host-supplied: on Node it is derived from `remote.origin.url` — consistent with `currentUser()` reading `git config user.email` — while a browser host names the repository directly.
 
 ## Associating a change with a pull request
 
