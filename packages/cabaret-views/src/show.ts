@@ -86,9 +86,13 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
 export function showDoc(page: ShowPage): Doc {
   if (page.kind === "request") {
     const { forge, request, files } = page;
+    // The heading resolves to the request so hosts can find what to import
+    // from anywhere on the page, but on the jump tier: as a link it would
+    // only lead back here.
     const heading = span(request.head, {
       style: "heading",
       target: { kind: "request", request: request.id, change: request.head },
+      tier: "jump",
     });
     return {
       lines: [
@@ -117,7 +121,8 @@ export function showDoc(page: ShowPage): Doc {
     attributes.push(["landed", shortHash(summary.landed)]);
   }
   attributes.push(["tip", shortHash(summary.tip)], ["base", shortHash(summary.base)]);
-  const heading = span(summary.change, { style: "heading", target: { kind: "change", change: summary.change } });
+  // No target: the heading names the page itself.
+  const heading = span(summary.change, { style: "heading" });
   return {
     lines: [
       ...header(heading, attributes),

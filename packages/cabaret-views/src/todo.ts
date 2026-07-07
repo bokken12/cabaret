@@ -10,8 +10,8 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, type Line, type Span, span } from "./doc.js";
-import { table } from "./table.js";
+import { type Doc, type Line, span } from "./doc.js";
+import { type Cell, table } from "./table.js";
 
 /**
  * One row of the todo page: a change, or an open forge request with no
@@ -104,13 +104,18 @@ export async function todoPage(backend: Backend, user: UserName, forge?: Forge):
   };
 }
 
-/** A cell naming `item` behind its tree guide, resolving to its change or to its request awaiting import. */
-function itemSpan(item: TodoItem, guide = ""): Span {
+/**
+ * A cell naming `item`, resolving to its change or to its request awaiting
+ * import. The tree guide rides alongside as plain text, keeping the link on
+ * exactly the name.
+ */
+function itemCell(item: TodoItem, guide = ""): Cell {
   const target =
     item.kind === "change"
       ? ({ kind: "change", change: item.summary.change } as const)
       : ({ kind: "request", request: item.request.id, change: item.request.head } as const);
-  return span(`${guide}${itemName(item)}`, { target });
+  const name = span(itemName(item), { target });
+  return guide === "" ? name : [span(guide), name];
 }
 
 export function todoDoc(page: TodoPage): Doc {
@@ -122,7 +127,7 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "change", align: "left" },
           { header: "review", align: "right" },
         ],
-        page.review.map((item) => [itemSpan(item), span(String(itemReview(item)))]),
+        page.review.map((item) => [itemCell(item), span(String(itemReview(item)))]),
       ),
     );
   }
@@ -131,12 +136,12 @@ export function todoDoc(page: TodoPage): Doc {
       lines.push({ spans: [] });
     }
     lines.push({ spans: [span("Changes you own:", { style: "heading" })] });
-    const rows: (readonly Span[])[] = [];
+    const rows: (readonly Cell[])[] = [];
     const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
       nodes.forEach(({ item, children }, i) => {
         const last = i === nodes.length - 1;
         rows.push([
-          itemSpan(item, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
+          itemCell(item, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
           span(itemReview(item) === 0 ? "" : String(itemReview(item))),
           span(itemNextStep(item)),
         ]);
