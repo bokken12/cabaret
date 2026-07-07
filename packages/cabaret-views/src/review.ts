@@ -179,6 +179,9 @@ export function renderDiff(file: FilePath, prev: string | undefined, next: strin
     output: color ? "Ansi" : "Ascii",
     // Unified lines are unsupported in Ascii output.
     produceUnifiedLines: color,
+    // Splitting a long modified line into partial context and changed pieces
+    // would break the line-per-source-line mapping structured hosts rely on.
+    splitLongLines: color,
     prev: { name: prevName, text: prev ?? "" },
     next: { name: nextName, text: next ?? "" },
   });
@@ -222,9 +225,11 @@ export function renderDiff4(args: {
  * Walk a two-way render tracking where each hunk line sits in the file's new
  * copy, so the cursor can jump from the diff to the file itself. A hunk
  * header carries the new side's start; context and added lines advance it,
- * and a removed line anchors at the removal site without advancing. Only a
- * `+|`/`-|` mark at column 0 counts — a context line's own text may begin
- * with the same characters.
+ * and a removed line anchors at the removal site without advancing. Hunk
+ * lines shed their two-column marks — the added/removed styles carry the
+ * same information — leaving bare code a host can syntax-highlight and a
+ * reviewer can copy. Only a mark at column 0 counts as one — a context
+ * line's own text may begin with the same characters.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>): Line[] {
   const rendered = renderDiff(file, view.prev, view.next, false);
@@ -235,6 +240,7 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
   let at = 1;
   for (const text of rendered.slice(0, -1).split("\n")) {
     const opts: { style?: Style; target?: Target } = {};
+    let content = text;
     const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
     if (header?.[1] !== undefined) {
       at = Number(header[1]);
@@ -243,14 +249,17 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
       opts.style = "added";
       opts.target = { kind: "location", file, line: at };
       at++;
+      content = text.slice(2);
     } else if (text.startsWith("  ")) {
       opts.target = { kind: "location", file, line: at };
       at++;
+      content = text.slice(2);
     } else if (text.startsWith("-|")) {
       opts.style = "removed";
       opts.target = { kind: "location", file, line: at };
+      content = text.slice(2);
     }
-    lines.push({ spans: [span(text, opts)] });
+    lines.push({ spans: [span(content, opts)] });
   }
   return lines;
 }
@@ -261,7 +270,9 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
  * to it. Lines absent from the new tip anchor at the running insertion point,
  * like a two-way removal; decoration (view titles, grouping pipes) resets the
  * point so one view's anchor cannot leak into views that never touch the new
- * tip. Hunk headers anchor without advancing.
+ * tip. Hunk headers anchor without advancing. Unlike two-way lines, these
+ * keep their sign marks: a ddiff line's stacked signs say more than one
+ * style can express.
  */
 function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>): Line[] {
   const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false });

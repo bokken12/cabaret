@@ -21,11 +21,11 @@ import {
   timestampMs,
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
-import { type Doc, docText, targetAt } from "cabaret-views";
+import { type Doc, docText, type Style, targetAt } from "cabaret-views";
 import * as vscode from "vscode";
 import { type Page, pagePath, parsePagePath } from "./pages.js";
 import { renderPage } from "./render.js";
-import { styledRanges, TOKEN_TYPES } from "./tokens.js";
+import { styledRanges } from "./styles.js";
 
 const SCHEME = "cabaret";
 
@@ -51,13 +51,13 @@ async function openForge(): Promise<Forge | undefined> {
  * Serves `cabaret:` documents, remembering each page's doc so cursor
  * positions hit-test against exactly what is on screen.
  */
-class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentSemanticTokensProvider {
+class PageProvider implements vscode.TextDocumentContentProvider {
   private readonly docs = new Map<string, Doc>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
-  private readonly tokensChanged = new vscode.EventEmitter<void>();
-  readonly onDidChangeSemanticTokens = this.tokensChanged.event;
-  readonly legend = new vscode.SemanticTokensLegend([...TOKEN_TYPES]);
+  private readonly rendered = new vscode.EventEmitter<void>();
+  /** Fires after a render lands in the cache, so editors repaint their decorations. */
+  readonly onDidRender = this.rendered.event;
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
@@ -65,17 +65,9 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge);
     this.docs.set(uri.toString(), doc);
     // A render whose text matches the buffer emits no document change, so
-    // tokens served from a pre-render cache miss would never be re-requested.
-    this.tokensChanged.fire();
+    // repainting only on document changes would leave pre-render paint stale.
+    this.rendered.fire();
     return docText(doc);
-  }
-
-  provideDocumentSemanticTokens(document: vscode.TextDocument): vscode.SemanticTokens {
-    const builder = new vscode.SemanticTokensBuilder(this.legend);
-    for (const { line, start, length, style } of styledRanges(this.renderedDoc(document.uri) ?? { lines: [] })) {
-      builder.push(new vscode.Range(line, start, line, start + length), style);
-    }
-    return builder.build();
   }
 
   doc(uri: vscode.Uri): Doc | undefined {
@@ -512,32 +504,85 @@ async function rename(
   }
 }
 
+/** One editor decoration per `Style`; the mapped type keeps the palette exhaustive. */
+type StyleDecorations = { readonly [S in Style]: vscode.TextEditorDecorationType };
+
+/** A diff sign as a gutter icon; mid-gray reads on light and dark themes alike. */
+function signIcon(glyph: string): vscode.Uri {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
+    `<text x="8" y="12" text-anchor="middle" font-family="monospace" font-size="13" fill="#888">${glyph}</text></svg>`;
+  return vscode.Uri.parse(`data:image/svg+xml,${encodeURIComponent(svg)}`);
+}
+
 /**
- * Give a cabaret document the extension's own language. A diff page's path
- * ends in the reviewed file's name, so VS Code would otherwise infer that
- * file's language — bringing its grammar and a competing semantic-token
- * provider that displaces the page's own styling.
+ * Styles paint as decorations rather than semantic tokens: decorations layer
+ * behind the text's own color, so a diff page keeps the reviewed file's
+ * syntax highlighting (inferred from the page path's file name) while
+ * added/removed wash whole lines like a highlighter pen.
  */
-function claimLanguage(document: vscode.TextDocument): void {
-  if (document.uri.scheme === SCHEME && document.languageId !== "cabaret") {
-    vscode.languages.setTextDocumentLanguage(document, "cabaret");
+function createDecorations(): StyleDecorations {
+  const wash = (background: string, ruler: string, glyph: string): vscode.TextEditorDecorationType =>
+    vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor(background),
+      isWholeLine: true,
+      gutterIconPath: signIcon(glyph),
+      gutterIconSize: "contain",
+      overviewRulerColor: new vscode.ThemeColor(ruler),
+      overviewRulerLane: vscode.OverviewRulerLane.Left,
+    });
+  return {
+    heading: vscode.window.createTextEditorDecorationType({ fontWeight: "bold" }),
+    // Our own contributed pair rather than the diff editor's: its default
+    // green is duller than its red, and a wash this prominent wants balance.
+    added: wash("cabaret.addedLineBackground", "editorOverviewRuler.addedForeground", "+"),
+    removed: wash("cabaret.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
+  };
+}
+
+/**
+ * Repaint every visible cabaret editor's styled ranges. Every style sets its
+ * ranges even when empty: a re-render can drop paint an editor still shows.
+ * An editor whose doc is not cached is skipped — `renderedDoc` asks for the
+ * render, which repaints when it lands.
+ */
+function paintVisible(provider: PageProvider, decorations: StyleDecorations): void {
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (editor.document.uri.scheme !== SCHEME) {
+      continue;
+    }
+    const doc = provider.renderedDoc(editor.document.uri);
+    if (doc === undefined) {
+      continue;
+    }
+    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [] };
+    for (const { line, start, length, style } of styledRanges(doc)) {
+      ranges[style].push(new vscode.Range(line, start, line, start + length));
+    }
+    for (const style of Object.keys(ranges) as readonly Style[]) {
+      editor.setDecorations(decorations[style], ranges[style]);
+    }
   }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
-  vscode.workspace.textDocuments.forEach(claimLanguage);
+  const decorations = createDecorations();
+  const repaint = (): void => paintVisible(provider, decorations);
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(claimLanguage),
+    ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
-    // TODO: move 2-way diff signs out of the text and into the gutter, so
-    // selecting lines copies clean content: have diffDoc emit the hunk lines
-    // without their `+|`/`-|` marks (the added/removed styles already say
-    // which is which) and paint them here with whole-line background
-    // decorations plus a gutter sign, applied to every visible editor showing
-    // a diff page and reapplied on render. Semantic tokens can only color
-    // text, so this takes a per-editor decoration pass alongside them.
-    vscode.languages.registerDocumentSemanticTokensProvider({ scheme: SCHEME }, provider, provider.legend),
+    // Rendering, the buffer taking a render's new text, and an editor coming
+    // on screen each leave paint stale; all three repaint. The first often
+    // paints against a buffer still awaiting the render's text — harmless,
+    // since the buffer update follows and repaints.
+    provider.onDidRender(repaint),
+    vscode.workspace.onDidChangeTextDocument(({ document }) => {
+      if (document.uri.scheme === SCHEME) {
+        repaint();
+      }
+    }),
+    vscode.window.onDidChangeVisibleTextEditors(repaint),
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (document.uri.scheme === SCHEME) {
         provider.forget(document.uri);
@@ -611,4 +656,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
   updatePageContext(vscode.window.activeTextEditor);
+  // An extension-host restart re-syncs open cabaret editors without a render;
+  // painting them misses the cache and so asks for one.
+  repaint();
 }

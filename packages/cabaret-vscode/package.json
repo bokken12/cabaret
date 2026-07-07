@@ -17,9 +17,26 @@
     "onFileSystem:cabaret"
   ],
   "contributes": {
-    "languages": [
+    "colors": [
       {
-        "id": "cabaret"
+        "id": "cabaret.addedLineBackground",
+        "description": "Background of an added line in a Cabaret diff",
+        "defaults": {
+          "dark": "#2ea04333",
+          "light": "#2ea04326",
+          "highContrast": "#2ea04333",
+          "highContrastLight": "#2ea04326"
+        }
+      },
+      {
+        "id": "cabaret.removedLineBackground",
+        "description": "Background of a removed line in a Cabaret diff",
+        "defaults": {
+          "dark": "#f8514933",
+          "light": "#f8514926",
+          "highContrast": "#f8514933",
+          "highContrastLight": "#f8514926"
+        }
       }
     ],
     "commands": [
@@ -205,35 +222,6 @@
         "command": "cabaret.import",
         "key": "shift+1 i",
         "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
-      }
-    ],
-    "semanticTokenTypes": [
-      {
-        "id": "heading",
-        "description": "A section heading in a Cabaret page"
-      },
-      {
-        "id": "added",
-        "description": "An added line in a Cabaret diff"
-      },
-      {
-        "id": "removed",
-        "description": "A removed line in a Cabaret diff"
-      }
-    ],
-    "semanticTokenScopes": [
-      {
-        "scopes": {
-          "heading": [
-            "markup.heading"
-          ],
-          "added": [
-            "markup.inserted"
-          ],
-          "removed": [
-            "markup.deleted"
-          ]
-        }
       }
     ]
   },
