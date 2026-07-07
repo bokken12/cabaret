@@ -54,6 +54,8 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   private readonly docs = new Map<string, Doc>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
+  private readonly tokensChanged = new vscode.EventEmitter<void>();
+  readonly onDidChangeSemanticTokens = this.tokensChanged.event;
   readonly legend = new vscode.SemanticTokensLegend([...TOKEN_TYPES]);
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -61,6 +63,9 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     // of step with the buffer; the next render resolves it, so no guard.
     const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge);
     this.docs.set(uri.toString(), doc);
+    // A render whose text matches the buffer emits no document change, so
+    // tokens served from a pre-render cache miss would never be re-requested.
+    this.tokensChanged.fire();
     return docText(doc);
   }
 
@@ -506,9 +511,23 @@ async function rename(
   }
 }
 
+/**
+ * Give a cabaret document the extension's own language. A diff page's path
+ * ends in the reviewed file's name, so VS Code would otherwise infer that
+ * file's language — bringing its grammar and a competing semantic-token
+ * provider that displaces the page's own styling.
+ */
+function claimLanguage(document: vscode.TextDocument): void {
+  if (document.uri.scheme === SCHEME && document.languageId !== "cabaret") {
+    vscode.languages.setTextDocumentLanguage(document, "cabaret");
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
+  vscode.workspace.textDocuments.forEach(claimLanguage);
   context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(claimLanguage),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     // TODO: move 2-way diff signs out of the text and into the gutter, so
     // selecting lines copies clean content: have diffDoc emit the hunk lines
