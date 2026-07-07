@@ -80,11 +80,15 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
     │ their-feature │      3 │ import    │
     ╰───────────────┴────────┴───────────╯"
   `);
-  // A tree entry's row resolves to that change.
+  // A tree entry's row resolves to that change, with the link on exactly the
+  // name: the guide and the table chrome stay plain.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("└─ gizmo"));
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gizmo" });
+  expect(doc.lines[line]?.spans.filter(({ target }) => target !== undefined)).toEqual([
+    { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
+  ]);
   // An unimported request's row resolves to the request.
   const requestLine = docText(doc)
     .split("\n")
@@ -127,6 +131,8 @@ test("showDoc renders the attribute table and files left", () => {
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  // The heading names the page itself, so it goes nowhere.
+  expect(targetAt(doc, 0)).toBeUndefined();
 });
 
 test("showDoc renders an unimported request as the change importing it would create", () => {
@@ -162,8 +168,10 @@ test("showDoc renders an unimported request as the change importing it would cre
       api.ts
       ui.ts"
   `);
-  // The heading resolves to the request, so import actions find it from anywhere on the page.
+  // The heading resolves to the request, so import actions find it from
+  // anywhere on the page — but as a jump, not an advertised link to itself.
   expect(targetAt(doc, 0)).toEqual({ kind: "request", request: 7, change: "their-feature" });
+  expect(doc.lines[0]?.spans[0]?.tier).toBe("jump");
   // File rows carry no targets: there are no diffs to open until the import.
   const line = docText(doc)
     .split("\n")

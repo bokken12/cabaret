@@ -5,9 +5,20 @@ export interface Column {
   readonly align: "left" | "right";
 }
 
+/** A cell's content: one span, or several laid out side by side. */
+export type Cell = Span | readonly Span[];
+
+function cellSpans(cell: Cell): readonly Span[] {
+  return "text" in cell ? [cell] : cell;
+}
+
+function cellWidth(cell: Cell): number {
+  return cellSpans(cell).reduce((width, { text }) => width + text.length, 0);
+}
+
 /**
- * Lay rows out as a bordered table, one span per cell so cell targets map to
- * exactly the cell's text:
+ * Lay rows out as a bordered table, keeping each cell's spans intact so a
+ * cell's targets map to exactly their own span's text:
  *
  *     ╭────────┬────────╮
  *     │ change │ review │
@@ -15,23 +26,24 @@ export interface Column {
  *     │ root   │      1 │
  *     ╰────────┴────────╯
  */
-export function table(columns: readonly Column[], rows: readonly (readonly Span[])[]): readonly Line[] {
+export function table(columns: readonly Column[], rows: readonly (readonly Cell[])[]): readonly Line[] {
   for (const cells of rows) {
     if (cells.length !== columns.length) {
       throw new Error(`row has ${cells.length} cells for ${columns.length} columns`);
     }
   }
   const widths = columns.map((column, i) =>
-    Math.max(column.header.length, ...rows.map((row) => (row[i] as Span).text.length)),
+    Math.max(column.header.length, ...rows.map((row) => cellWidth(row[i] as Cell))),
   );
-  const pad = (cell: Span, width: number, align: Column["align"]): readonly Span[] => {
-    const padding = span(" ".repeat(width - cell.text.length));
+  const pad = (cell: Cell, width: number, align: Column["align"]): readonly Span[] => {
+    const spans = cellSpans(cell);
+    const padding = span(" ".repeat(width - cellWidth(cell)));
     if (padding.text === "") {
-      return [cell];
+      return spans;
     }
-    return align === "left" ? [cell, padding] : [padding, cell];
+    return align === "left" ? [...spans, padding] : [padding, ...spans];
   };
-  const row = (cells: readonly Span[]): Line => {
+  const row = (cells: readonly Cell[]): Line => {
     const spans: Span[] = [span("│ ")];
     cells.forEach((cell, i) => {
       if (i > 0) {

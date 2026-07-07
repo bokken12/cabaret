@@ -29,10 +29,11 @@ import {
   parsePagePath,
   renderPage,
   type Style,
+  type Target,
   targetAt,
 } from "cabaret-views";
 import * as vscode from "vscode";
-import { styledRanges } from "./styles.js";
+import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
 
@@ -58,13 +59,39 @@ async function openForge(): Promise<Forge | undefined> {
  * Serves `cabaret:` documents, remembering each page's doc so cursor
  * positions hit-test against exactly what is on screen.
  */
-class PageProvider implements vscode.TextDocumentContentProvider {
+class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
   private readonly docs = new Map<string, Doc>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
   private readonly rendered = new vscode.EventEmitter<void>();
   /** Fires after a render lands in the cache, so editors repaint their decorations. */
   readonly onDidRender = this.rendered.event;
+
+  /**
+   * Advertised links over exactly the spans that carry them. Each opens
+   * through the `cabaret.followLink` command, sharing Enter's navigation;
+   * jump targets stay Enter-only. A cache miss returns none — `renderedDoc`
+   * requests the render, whose text landing re-queries links.
+   */
+  provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] | undefined {
+    const doc = this.renderedDoc(document.uri);
+    return doc === undefined
+      ? undefined
+      : linkRanges(doc).map(({ line, start, length, target }) => {
+          const args = encodeURIComponent(JSON.stringify(target));
+          const link = new vscode.DocumentLink(
+            new vscode.Range(line, start, line, start + length),
+            vscode.Uri.parse(`command:cabaret.followLink?${args}`, true),
+          );
+          link.tooltip =
+            target.kind === "file"
+              ? `Open ${target.file}`
+              : target.kind === "location"
+                ? `Open ${target.file}:${target.line}`
+                : `Open ${target.change}`;
+          return link;
+        });
+  }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
@@ -208,6 +235,7 @@ async function showChild(provider: PageProvider): Promise<void> {
   }
 }
 
+/** Enter at the cursor: any of the line's targets answers, links and jumps alike. */
 async function openTarget(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
@@ -221,6 +249,11 @@ async function openTarget(provider: PageProvider): Promise<void> {
   if (target === undefined) {
     return;
   }
+  await followTarget(provider, target);
+}
+
+/** Open what `target` denotes — the navigation Enter and a link click share. */
+async function followTarget(provider: PageProvider, target: Target): Promise<void> {
   switch (target.kind) {
     case "change":
       await openPage(provider, { kind: "show", change: target.change });
@@ -596,6 +629,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
+    vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, target)),
     // Rendering, the buffer taking a render's new text, and an editor coming
     // on screen each leave paint stale; all three repaint. The first often
     // paints against a buffer still awaiting the render's text — harmless,

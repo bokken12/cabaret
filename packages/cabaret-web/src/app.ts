@@ -222,12 +222,15 @@ export function startApp(root: HTMLElement, config: Config): void {
     }
   }
 
+  // Only a link span answers a click, not the rest of its line; location
+  // targets are jump tier, so no case here follows one.
   main.addEventListener("click", (event) => {
-    const line = (event.target as Element | null)?.closest("[data-line]");
-    if (!(line instanceof HTMLElement) || current === undefined) {
+    const linked = (event.target as Element | null)?.closest("[data-span]");
+    const line = linked?.closest("[data-line]");
+    if (!(linked instanceof HTMLElement) || !(line instanceof HTMLElement) || current === undefined) {
       return;
     }
-    const target = targetAt(current.doc, Number(line.dataset.line));
+    const target = current.doc.lines[Number(line.dataset.line)]?.spans[Number(linked.dataset.span)]?.target;
     if (target === undefined) {
       return;
     }
@@ -242,20 +245,6 @@ export function startApp(root: HTMLElement, config: Config): void {
         // The as-if-imported view; importing is its own action.
         goto({ kind: "show", change: target.change });
         break;
-      case "location": {
-        // No working tree in a browser: visit the file on GitHub at the
-        // change's branch, which is the copy the diff shows.
-        if (current.page.kind !== "todo") {
-          const ref = current.page.change;
-          const path = target.file.split("/").map(encodeURIComponent).join("/");
-          window.open(
-            `https://github.com/${repoName}/blob/${encodeURIComponent(ref)}/${path}#L${target.line}`,
-            "_blank",
-            "noopener",
-          );
-        }
-        break;
-      }
     }
   });
 
