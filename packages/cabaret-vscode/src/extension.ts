@@ -159,24 +159,30 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
  * Show the change being worked on — the one the active cabaret page is about,
  * or the one whose branch is checked out — falling back to picking one when
  * neither resolves, as on a detached HEAD or a branch that is not a change.
+ * The todo page surveys every change, so it always picks rather than assuming
+ * the checked-out branch is the one wanted.
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
+  let onTodo = false;
   if (editor !== undefined && editor.document.uri.scheme === SCHEME) {
     const page = parsePagePath(editor.document.uri.path);
     if (page.kind !== "todo") {
       await openPage(provider, { kind: "show", change: page.change });
       return;
     }
+    onTodo = true;
   }
   const backend = await openBackend();
   const changes = await backend.listChanges();
-  const branch = await backend.currentBranch().catch((error: unknown) => {
-    if (error instanceof UserError) {
-      return undefined;
-    }
-    throw error;
-  });
+  const branch = onTodo
+    ? undefined
+    : await backend.currentBranch().catch((error: unknown) => {
+        if (error instanceof UserError) {
+          return undefined;
+        }
+        throw error;
+      });
   const change =
     branch !== undefined && changes.includes(branch)
       ? branch
