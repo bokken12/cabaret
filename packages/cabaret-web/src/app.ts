@@ -8,7 +8,7 @@ import {
 } from "cabaret-core";
 import { GitHubBackend, GitHubForge, githubClient } from "cabaret-github";
 import { type Doc, markReviewed, type Page, pagePath, parsePagePath, renderPage, targetAt } from "cabaret-views";
-import { type Config, clearConfig } from "./config.js";
+import { type Config, clearConfig, clearRepo } from "./config.js";
 import { docHtml } from "./html.js";
 
 const now = (): TimestampMs => timestampMs(Date.now());
@@ -65,9 +65,14 @@ export function startApp(root: HTMLElement, config: Config): void {
   brand.className = "brand";
   brand.href = "#/todo";
   brand.textContent = "cabaret";
-  const repoLabel = document.createElement("span");
+  const repoLabel = document.createElement("button");
   repoLabel.className = "repo";
   repoLabel.textContent = repoName;
+  repoLabel.title = "Switch repository";
+  repoLabel.addEventListener("click", () => {
+    clearRepo();
+    location.href = "/";
+  });
   const actions = document.createElement("span");
   actions.className = "actions";
   const status = document.createElement("span");

@@ -171,3 +171,45 @@ body.busy .doc {
 .setup button {
   align-self: flex-start;
 }
+
+.sign-in {
+  align-self: flex-start;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.4em 0.8em;
+  text-decoration: none;
+}
+
+.sign-in:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.setup details {
+  color: var(--muted);
+}
+
+.setup form {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+  margin-top: 1em;
+}
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.repo-row {
+  text-align: left;
+  border: none;
+  padding: 0.3em 0;
+}
+
+.repo-row:hover .target {
+  text-decoration: underline;
+  color: var(--accent);
+}

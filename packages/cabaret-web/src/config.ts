@@ -20,22 +20,33 @@ export function parseRepo(raw: string): GitHubRepo {
 const REPO_KEY = "cabaret.repo";
 const TOKEN_KEY = "cabaret.token";
 
-export function loadConfig(): Config | undefined {
-  const repo = localStorage.getItem(REPO_KEY);
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (repo === null || token === null) {
+export function loadToken(): string | undefined {
+  return localStorage.getItem(TOKEN_KEY) ?? undefined;
+}
+
+export function saveToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function loadRepo(): GitHubRepo | undefined {
+  const raw = localStorage.getItem(REPO_KEY);
+  if (raw === null) {
     return undefined;
   }
   try {
-    return { repo: parseRepo(repo), token };
+    return parseRepo(raw);
   } catch {
     return undefined;
   }
 }
 
-export function saveConfig(config: Config): void {
-  localStorage.setItem(REPO_KEY, `${config.repo.owner}/${config.repo.repo}`);
-  localStorage.setItem(TOKEN_KEY, config.token);
+export function saveRepo(repo: GitHubRepo): void {
+  localStorage.setItem(REPO_KEY, `${repo.owner}/${repo.repo}`);
+}
+
+/** Forget the repository but stay signed in, returning to the repository picker. */
+export function clearRepo(): void {
+  localStorage.removeItem(REPO_KEY);
 }
 
 export function clearConfig(): void {
