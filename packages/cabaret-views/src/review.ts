@@ -255,7 +255,7 @@ export const defaultContext = 3;
  * Render the diff between two versions of `file` with patdiff: ANSI-colored
  * with word-level refinement on a terminal, plain ASCII otherwise. An absent
  * version diffs against the empty file, named /dev/null as in git. Hunks keep
- * `context` lines of surrounding context.
+ * `context` lines of surrounding context; -1 shows files whole.
  */
 export function renderDiff(
   file: FilePath,
@@ -304,13 +304,14 @@ export function renderDiff4(args: {
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
     return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
   }
+  const context = args.context ?? defaultContext;
   return Patdiff4.diff({
     // Hash prefixes keep patdiff4's contract that equal names imply equal
     // contents, where "old"/"new" labels would not (the tips can coincide).
     revNames: Patdiff4.Diamond.map(args.revs, shortHash),
     fileNames: Patdiff4.Diamond.singleton(args.file),
     headerFileName: args.file,
-    context: args.context ?? defaultContext,
+    context: context < 0 ? Patdiff4.DiffAlgo.infiniteContext : context,
     linesRequiredToSeparateDdiffHunks: 0,
     contents,
     output: args.color ? "Ansi" : "Ascii",

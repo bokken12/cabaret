@@ -46,14 +46,14 @@ export function saveRepo(repo: GitHubRepo): void {
 }
 
 /**
- * Lines of context to show around diff hunks; unset (the renderer's default)
- * when absent or not a whole number. The knob is the localStorage entry
- * itself until a settings page exists.
+ * Lines of context to show around diff hunks: a nonnegative integer, or -1
+ * for whole files; unset (the renderer's default) when absent or malformed.
+ * The knob is the localStorage entry itself until a settings page exists.
  */
 export function loadContext(): number | undefined {
   const raw = localStorage.getItem(CONTEXT_KEY);
   const context = raw === null ? Number.NaN : Number(raw);
-  return Number.isInteger(context) && context >= 0 ? context : undefined;
+  return Number.isInteger(context) && context >= -1 ? context : undefined;
 }
 
 /** Forget the repository but stay signed in, returning to the repository picker. */

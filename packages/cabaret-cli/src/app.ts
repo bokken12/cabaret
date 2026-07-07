@@ -259,11 +259,11 @@ const create = buildCommand({
   },
 });
 
-/** Parse a count of diff context lines. */
+/** Parse a count of diff context lines: a nonnegative integer, or -1 for whole files. */
 function parseContext(raw: string): number {
   const context = Number(raw);
-  if (!Number.isInteger(context) || context < 0) {
-    throw new UserError(`context must be a nonnegative integer: ${JSON.stringify(raw)}`);
+  if (!Number.isInteger(context) || context < -1) {
+    throw new UserError(`context must be a nonnegative integer or -1: ${JSON.stringify(raw)}`);
   }
   return context;
 }
@@ -302,7 +302,7 @@ const diff = buildCommand({
       context: {
         kind: "parsed",
         parse: parseContext,
-        brief: `Lines of context around each hunk (defaults to ${defaultContext})`,
+        brief: `Lines of context around each hunk, -1 for whole files (defaults to ${defaultContext})`,
         optional: true,
       },
     },

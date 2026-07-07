@@ -29,7 +29,7 @@ export function cachedSnapshot(backend: Backend, change: RefName, cache?: Snapsh
 
 /** What a host brings to a render beyond the page itself. */
 export interface RenderOptions {
-  /** Lines of context around diff hunks; `defaultContext` when unset. */
+  /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
   readonly context?: number | undefined;
   /** Held snapshots for the review and diff pages to render from; always fresh when absent. */
   readonly cache?: SnapshotCache | undefined;

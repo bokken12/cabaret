@@ -133,6 +133,52 @@ test("diffDoc trims each hunk to the requested context", () => {
   `);
 });
 
+test("diffDoc shows the whole file in one hunk at context -1", () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), -1);
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    old/api.ts
+    new/api.ts
+    -1,9 +1,9
+    one
+    two
+    TWO
+    three
+    four
+    five
+    six
+    seven
+    eight
+    EIGHT
+    nine"
+  `);
+});
+
+test("diffDoc shows a four-way diff whole at context -1", () => {
+  const middle = ["two", "three", "four", "five", "six", "seven", "eight"].join("\n");
+  const page = diffPageWith({
+    end: fake("4"),
+    later: 0,
+    view: {
+      kind: "four",
+      revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+      contents: {
+        b1: `one\n${middle}\nnine\n`,
+        b2: `ONE\n${middle}\nnine\n`,
+        f1: `one\n${middle}\nnine\nchild\n`,
+        f2: `ONE!\n${middle}\nnine\nchild\n`,
+      },
+    },
+  });
+  // "five" sits mid-file, farther from both changes than the trimmed context.
+  expect(docText(diffDoc(page, 1))).not.toContain("five");
+  expect(docText(diffDoc(page, -1))).toContain("five");
+});
+
 test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   // Long enough that patdiff trims leading context and the hunk starts deep.
   const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;

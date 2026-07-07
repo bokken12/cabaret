@@ -36,7 +36,10 @@ import * as Header from "./header.js";
 import * as Range from "./range.js";
 import * as Slice from "./slice.js";
 
-const infiniteContext = 100_000;
+/** A context wider than any file. The 4-way pipeline sizes and compares
+ *  context arithmetically, so infinity is a large count, not patdiff's
+ *  negative sentinel. */
+export const infiniteContext = 100_000;
 
 /** Where a line's content lives: its 1-based line number in each version that
  *  contains it. */

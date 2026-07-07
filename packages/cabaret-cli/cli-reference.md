@@ -99,7 +99,7 @@ Show the diff of a file left to review, given the reviewer's brain: the full bas
 FLAGS
      [--change]   Change to diff (defaults to current)
      [--for]      Show the diff for another user (defaults to self)
-     [--context]  Lines of context around each hunk (defaults to 3)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to 3)
   -h  --help      Print help information and exit
 
 ARGUMENTS
