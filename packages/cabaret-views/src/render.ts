@@ -1,4 +1,4 @@
-import type { Backend, Forge, RefName } from "cabaret-core";
+import type { Backend, Forge, RefName, SideBySide } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
 import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
@@ -31,6 +31,8 @@ export function cachedSnapshot(backend: Backend, change: RefName, cache?: Snapsh
 export interface RenderOptions {
   /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
   readonly context?: number | undefined;
+  /** Render diff pages side by side, wrapping or truncating long rows; unified when unset. */
+  readonly sideBySide?: SideBySide | undefined;
   /** Held snapshots for the review and diff pages to render from; always fresh when absent. */
   readonly cache?: SnapshotCache | undefined;
 }
@@ -58,6 +60,7 @@ export async function renderPage(
       return diffDoc(
         await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file),
         options.context,
+        options.sideBySide,
       );
   }
 }

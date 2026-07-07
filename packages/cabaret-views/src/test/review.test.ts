@@ -358,6 +358,189 @@ test("diffDoc reports binary versions instead of diffing them", () => {
   `);
 });
 
+test("diffDoc side by side pairs the panes around a divider, styling changed words", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "intro\ncount = one\noutro\n", next: "intro\ncount = two\noutro\n" },
+    }),
+    undefined,
+    "wrap",
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    1 intro                                                       │ 1 intro
+    2 count = one                                                 │ 2 count = two
+    3 outro                                                       │ 3 outro"
+  `);
+  const styles = doc.lines.map(({ spans }) => spans.flatMap(({ text, style }) => (style ? [[text, style]] : [])));
+  expect(styles.filter((line) => line.length > 0)).toMatchInlineSnapshot(`
+    [
+      [
+        [
+          "api.ts in widgets (up to 333333333333)",
+          "heading",
+        ],
+      ],
+      [
+        [
+          " one",
+          "removed",
+        ],
+        [
+          " two",
+          "added",
+        ],
+      ],
+    ]
+  `);
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    { kind: "change", change: "widgets" },
+    undefined, // blank
+    location(1), // intro
+    location(2), // count = ...
+    location(3), // outro
+  ]);
+  // Only the heading advertises itself as a link; rows answer the cursor alone.
+  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual(["link", undefined, "jump", "jump", "jump"]);
+});
+
+test("diffDoc side by side leaves the other pane empty on pure adds and removes", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "keep\ndrop me\nend\n", next: "keep\nend\nbrand new\n" },
+    }),
+    undefined,
+    "wrap",
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    1 keep                                                        │ 1 keep
+    2 drop me                                                     │
+    3 end                                                         │ 2 end
+                                                                  │ 3 brand new"
+  `);
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.slice(2).map((_, i) => targetAt(doc, i + 2))).toEqual([
+    location(1), // keep
+    location(2), // drop me: the removal site, where "end" now sits
+    location(2), // end
+    location(3), // brand new
+  ]);
+});
+
+test("diffDoc side by side styles an added blank line, so hosts wash it like its neighbors", () => {
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "one\ntwo\n", next: "one\n\nnew\ntwo\n" } }),
+    undefined,
+    "wrap",
+  );
+  const styles = doc.lines.map(({ spans }) => spans.flatMap(({ text, style }) => (style ? [[text, style]] : [])));
+  expect(styles.filter((line) => line.some(([, style]) => style === "added"))).toEqual([
+    [["", "added"]],
+    [["new", "added"]],
+  ]);
+});
+
+test("diffDoc side by side trims context and separates hunks with a blank row", () => {
+  const lines = ["ant", "bee", "cat", "dog", "eel", "fox", "gnu", "hen", "ibis"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("bee", "BEE").replace("hen", "HEN")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), 1, "wrap");
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    1 ant                                                         │ 1 ant
+    2 bee                                                         │
+                                                                  │ 2 BEE
+    3 cat                                                         │ 3 cat
+
+    7 gnu                                                         │ 7 gnu
+    8 hen                                                         │
+                                                                  │ 8 HEN
+    9 ibis                                                        │ 9 ibis"
+  `);
+});
+
+test("diffDoc side by side wraps a long row into anchored continuation lines", () => {
+  const long = (word: string) => `const banner = "${word}: ${"x".repeat(70)}";\n`;
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: long("before"), next: long("after") } }),
+    undefined,
+    "wrap",
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    1 const banner = "before: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│ 1 const banner = "after: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";                        │   xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";"
+  `);
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.slice(2).map((_, i) => targetAt(doc, i + 2))).toEqual([location(1), location(1)]);
+});
+
+test("diffDoc side by side truncates a long row to one line when asked", () => {
+  const long = (word: string) => `const banner = "${word}: ${"x".repeat(70)}";\n`;
+  const doc = diffDoc(
+    diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: long("before"), next: long("after") } }),
+    undefined,
+    "truncate",
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    1 const banner = "before: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│ 1 const banner = "after: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  `);
+});
+
+test("diffDoc side by side keeps whitespace changes visible where they are semantic", () => {
+  const doc = diffDoc(
+    {
+      change: widgets,
+      file: parseFilePath("script.py"),
+      round: {
+        end: fake("3"),
+        later: 0,
+        view: { kind: "two", prev: "def f():\n  go()\n", next: "def f():\n    go()\n" },
+      },
+    },
+    undefined,
+    "wrap",
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "script.py in widgets (up to 333333333333)
+
+    1 def f():                                                    │ 1 def f():
+    2   go()                                                      │ 2     go()"
+  `);
+});
+
+test("diffDoc side by side leaves a four-way diff unified, which patdiff4 alone renders", () => {
+  const page = diffPageWith({
+    end: fake("4"),
+    later: 0,
+    view: {
+      kind: "four",
+      revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+      contents: { b1: "one\n", b2: "ONE\n", f1: "one\nchild\n", f2: "ONE!\nchild\n" },
+    },
+  });
+  expect(docText(diffDoc(page, undefined, "wrap"))).toBe(docText(diffDoc(page)));
+});
+
+test("diffDoc side by side reports binary versions and empty diffs like the unified view", () => {
+  const binary = diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "a\0b\n", next: "c\0d\n" } });
+  expect(docText(diffDoc(binary, undefined, "wrap"))).toBe(docText(diffDoc(binary)));
+  const empty = diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "same\n", next: "same\n" } });
+  expect(docText(diffDoc(empty, undefined, "truncate"))).toBe(docText(diffDoc(empty)));
+});
+
 test("diffDoc with no review left says so", () => {
   expect(docText(diffDoc(diffPageWith(undefined)))).toMatchInlineSnapshot(`
     "api.ts in widgets

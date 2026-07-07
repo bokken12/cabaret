@@ -1,3 +1,4 @@
+import type { SideBySide } from "cabaret-core";
 import { type GitHubRepo, parseGitHubRemote } from "cabaret-github";
 
 /** What the app needs to talk to GitHub: a repository and a token for it. */
@@ -20,6 +21,7 @@ export function parseRepo(raw: string): GitHubRepo {
 const REPO_KEY = "cabaret.repo";
 const TOKEN_KEY = "cabaret.token";
 const CONTEXT_KEY = "cabaret.context";
+const SIDE_BY_SIDE_KEY = "cabaret.sideBySide";
 
 export function loadToken(): string | undefined {
   return localStorage.getItem(TOKEN_KEY) ?? undefined;
@@ -54,6 +56,16 @@ export function loadContext(): number | undefined {
   const raw = localStorage.getItem(CONTEXT_KEY);
   const context = raw === null ? Number.NaN : Number(raw);
   return Number.isInteger(context) && context >= -1 ? context : undefined;
+}
+
+/**
+ * Lay diff pages out side by side, wrapping or truncating long rows; unified
+ * when absent or malformed. As with context, the knob is the localStorage
+ * entry itself.
+ */
+export function loadSideBySide(): SideBySide | undefined {
+  const raw = localStorage.getItem(SIDE_BY_SIDE_KEY);
+  return raw === "wrap" || raw === "truncate" ? raw : undefined;
 }
 
 /** Forget the repository but stay signed in, returning to the repository picker. */

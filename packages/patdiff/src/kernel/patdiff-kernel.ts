@@ -1,3 +1,6 @@
+// The kernel's public types embed AnsiText (e.g. [SideBySide.Line] contents), so
+// consumers of those types need the module itself.
+export * as AnsiText from "../ansi-text/ansi-text.js";
 export * as AnsiOutput from "./ansi-output.js";
 export * as AsciiOutput from "./ascii-output.js";
 export * as CompareCore from "./compare-core.js";

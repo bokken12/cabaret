@@ -562,3 +562,52 @@ test("git config cabaret.context sets the default hunk context, and --context ov
     "
   `);
 });
+
+test("git config cabaret.sideBySide lays the diff out in two panes", async () => {
+  const repo = await makeChange("poem.txt", "roses\nviolets\n");
+  await repo.cabaret("review", "poem.txt");
+  await repo.write("poem.txt", "roses\ntulips\nviolets\n");
+  await repo.git("commit", "-qam", "plant tulips");
+  await repo.git("config", "cabaret.sideBySide", "wrap");
+  expect(await repo.cabaret("diff", "poem.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "  -|old/poem.txt                                           |  +|new/poem.txt
+    1  |roses                                                   |1  |roses
+                                                                |2 +|tulips
+    2  |violets                                                 |3  |violets
+    ",
+    }
+  `);
+});
+
+test("a truncated side-by-side diff cuts long rows at the pane edge", async () => {
+  const wide = `narrow\n${"wide ".repeat(30)}\n`;
+  const repo = await makeChange("rows.txt", wide);
+  await repo.cabaret("review", "rows.txt");
+  await repo.write("rows.txt", wide.replace("narrow", "slim"));
+  await repo.git("commit", "-qam", "slim down");
+  await repo.git("config", "cabaret.sideBySide", "truncate");
+  expect(await repo.cabaret("diff", "rows.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "  -|old/rows.txt                                           |  +|new/rows.txt
+    1 -|narrow                                                  |
+                                                                |1 +|slim
+    2  |wide wide wide wide wide wide wide wide wide wide wide w|2  |wide wide wide wide wide wide wide wide wide wide wide w
+    ",
+    }
+  `);
+});
+
+test("an unrecognized cabaret.sideBySide fails with the choices", async () => {
+  const repo = await makeChange("greeting.txt", "hello\n");
+  await repo.git("config", "cabaret.sideBySide", "sideways");
+  expect(await repo.cabaret("diff", "greeting.txt")).toEqual({
+    stdout: "",
+    stderr: 'git config cabaret.sideBySide must be one of wrap, truncate: "sideways"\n',
+    exitCode: 1,
+  });
+});

@@ -9,14 +9,25 @@ import {
   type ReviewedDiff,
   type ReviewRound,
   reviewRounds,
+  type SideBySide,
   type TimestampMs,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
 // filesystem and console — imports a browser host cannot load.
-import { IsBinary, PatdiffCore } from "patdiff/kernel";
+import {
+  AnsiText,
+  CompareCore,
+  ComparisonResult,
+  Configuration,
+  FileHelpers,
+  IsBinary,
+  PatdiffCore,
+  ShouldKeepWhitespace,
+  SideBySide as SideBySideView,
+} from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import { type Doc, type Line, type Style, span, type Target, type TargetTier } from "./doc.js";
+import { type Doc, type Line, type Span, type Style, span, type Target, type TargetTier } from "./doc.js";
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
 function shortHash(hash: CommitHash): string {
@@ -292,6 +303,39 @@ export function renderDiff(
 }
 
 /**
+ * Render the diff between two versions of `file` side by side with patdiff,
+ * long lines wrapped or truncated to their pane per `mode`. Naming, coloring,
+ * and binary handling follow `renderDiff`; the rendering opens with a row
+ * naming the versions, so there is no separate header to prepend. `width` is
+ * the full two-pane width in columns, patdiff's default when unset.
+ */
+export function renderSideBySideDiff(
+  file: FilePath,
+  prev: string | undefined,
+  next: string | undefined,
+  color: boolean,
+  mode: SideBySide,
+  context?: number,
+  width?: number,
+): string {
+  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
+    return prev === next ? "" : `Binary versions of ${file} differ\n`;
+  }
+  const config = Configuration.override(Configuration.defaultConfiguration, {
+    output: color ? "Ansi" : "Ascii",
+    context: context ?? defaultContext,
+    sideBySide: mode,
+    widthOverride: width,
+  });
+  const diff = CompareCore.withoutUnix.diffStrings({
+    config,
+    prev: { name: prev === undefined ? "/dev/null" : `old/${file}`, text: prev ?? "" },
+    next: { name: next === undefined ? "/dev/null" : `new/${file}`, text: next ?? "" },
+  });
+  return diff.kind === "Same" ? "" : `${diff.value}\n`;
+}
+
+/**
  * Render what remains to review when the base's copy of `file` changed
  * underneath the reviewed diff: Iron's diff4 over the old and new base and
  * tip, each aligned hunk shown under every view its equivalence class earns.
@@ -382,6 +426,126 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
   return lines;
 }
 
+/** Characters of file content shown per pane of a side-by-side diff page. */
+const paneWidth = 60;
+
+/** One pane's content as spans: changed words style removed or added, same words stay bare. */
+function paneSpans(side: SideBySideView.Line): Span[] {
+  return side.contents.flatMap(([tag, text]) => {
+    const raw = AnsiText.toUnstyled(text);
+    return raw === "" ? [] : [span(raw, tag === "Same" ? {} : { style: tag === "Prev" ? "removed" : "added" })];
+  });
+}
+
+/** A row's Doc line: `numWidth`-wide line numbers, `paneWidth` panes, a `│` divider between. */
+function paneRow(row: SideBySideView.LineInfo, numWidth: number, target: Target): Line {
+  const [prev, next] = SideBySideView.LineInfo.lines(row);
+  const num = (side: SideBySideView.Line): string => String(side.lineNumber ?? "").padStart(numWidth);
+  const left = paneSpans(prev);
+  // A blank changed line still styles — empty, as twoWayDiffLines — so hosts
+  // wash it like its neighbors.
+  if (row.kind === "Prev" && left.length === 0) {
+    left.push(span("", { style: "removed" }));
+  }
+  const right = paneSpans(next);
+  if (row.kind === "Next" && right.length === 0) {
+    right.push(span("", { style: "added" }));
+  }
+  // Jump tier, as in twoWayDiffLines; the whole row shares one anchor, so
+  // only its first span carries the target.
+  const spans: Span[] = [span(`${num(prev)} `, { target, tier: "jump" }), ...left];
+  const pad = " ".repeat(paneWidth - SideBySideView.Line.width(prev));
+  if (right.length === 0 && next.lineNumber === undefined) {
+    spans.push(span(`${pad}│`));
+  } else {
+    const spacer = right.some(({ text }) => text !== "") ? " " : "";
+    spans.push(span(`${pad}│ ${num(next)}${spacer}`), ...right);
+  }
+  return { spans };
+}
+
+/**
+ * Walk a side-by-side render, one Doc line per pane row: line numbers and a
+ * divider orient the reader, and changed words style removed on the prev pane
+ * and added on the next — finer than the unified view, whose styles paint
+ * whole lines. Rows anchor at their line in the file's new copy; a prev-only
+ * row anchors at the running insertion point, the removal site. Rows longer
+ * than a pane wrap or truncate per `mode`; a wrapped row's continuation lines
+ * keep its anchor under blank number columns.
+ */
+function sideBySideDiffLines(
+  file: FilePath,
+  view: Extract<DiffView, { kind: "two" }>,
+  mode: SideBySide,
+  context?: number,
+): Line[] {
+  if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
+    return view.prev === view.next ? [] : [{ spans: [span(`Binary versions of ${file} differ`)] }];
+  }
+  const prevInput = { name: `old/${file}`, text: view.prev ?? "" };
+  const nextInput = { name: `new/${file}`, text: view.next ?? "" };
+  // Ansi output, though nothing renders through it: Ascii would imply an
+  // unrefined comparison, and refinement is what pairs a replaced line with
+  // its replacement and tags the words that changed. Styles express here
+  // what colors express on a terminal. keepWs is inferred by name because
+  // compareLines, unlike the whole-file entry points, never sees one — and
+  // an indentation change in Python must not compare equal.
+  const config = Configuration.override(Configuration.defaultConfiguration, {
+    output: "Ansi",
+    context: context ?? defaultContext,
+    sideBySide: mode,
+    keepWs: ShouldKeepWhitespace.forDiff({ prev: prevInput, next: nextInput }),
+  });
+  const compared = CompareCore.withoutUnix.compareLines({
+    config,
+    prev: FileHelpers.linesOfContents(prevInput.text)[0],
+    next: FileHelpers.linesOfContents(nextInput.text)[0],
+  });
+  if (compared.kind !== "StructuredHunks") {
+    throw new Error("a side-by-side comparison must produce structured hunks");
+  }
+  // Equal contents still yield all-context hunks, as in renderDiff.
+  if (ComparisonResult.hasNoDiff(compared)) {
+    return [];
+  }
+  const hunks = SideBySideView.hunksToLines(compared.hunks);
+  let maxLine = 1;
+  for (const rows of hunks) {
+    for (const row of rows) {
+      for (const side of SideBySideView.LineInfo.lines(row)) {
+        maxLine = Math.max(maxLine, side.lineNumber ?? 1);
+      }
+    }
+  }
+  const numWidth = String(maxLine).length;
+  const lines: Line[] = [];
+  hunks.forEach((rows, i) => {
+    if (i > 0) {
+      // Consecutive hunks would read as one run of rows; the line-number jump
+      // alone is easy to miss, so a blank line marks the seam.
+      lines.push({ spans: [] });
+    }
+    const nextStart = compared.hunks[i]?.nextStart;
+    if (nextStart === undefined) {
+      throw new Error("hunksToLines must yield one block of rows per hunk");
+    }
+    let at = nextStart;
+    for (const row of rows) {
+      const next = SideBySideView.LineInfo.lines(row)[1];
+      const target: Target = { kind: "location", file, line: next.lineNumber ?? at };
+      at = next.lineNumber === undefined ? at : next.lineNumber + 1;
+      const subRows =
+        mode === "wrap"
+          ? SideBySideView.LineInfo.wrap({ width: paneWidth }, row)
+          : [SideBySideView.LineInfo.truncate({ width: paneWidth }, row)];
+      for (const subRow of subRows) {
+        lines.push(paneRow(subRow, numWidth, target));
+      }
+    }
+  });
+  return lines;
+}
+
 /**
  * A 4-way render already knows each line's home in the four versions; the
  * new tip is the copy a reviewer visits, so lines carrying one jump straight
@@ -419,7 +583,7 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
   });
 }
 
-export function diffDoc(page: DiffPage, context?: number): Doc {
+export function diffDoc(page: DiffPage, context?: number, sideBySide?: SideBySide): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
   const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
@@ -433,8 +597,13 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     return { lines };
   }
   const view = page.round.view;
+  // patdiff4 renders no side-by-side view, so 4-way diffs stay unified.
   const body =
-    view.kind === "two" ? twoWayDiffLines(page.file, view, context) : fourWayDiffLines(page.file, view, context);
+    view.kind === "four"
+      ? fourWayDiffLines(page.file, view, context)
+      : sideBySide === undefined
+        ? twoWayDiffLines(page.file, view, context)
+        : sideBySideDiffLines(page.file, view, sideBySide, context);
   if (body.length === 0) {
     // A moved base can leave nothing visible to read (the rebase carried the
     // change cleanly) while the stale review still counts the file as left;

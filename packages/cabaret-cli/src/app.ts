@@ -38,7 +38,17 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
-import { defaultContext, docText, renderDiff, renderDiff4, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
+import {
+  defaultContext,
+  docText,
+  renderDiff,
+  renderDiff4,
+  renderSideBySideDiff,
+  showDoc,
+  showPage,
+  todoDoc,
+  todoPage,
+} from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -233,7 +243,9 @@ const diff = buildCommand({
       "tip's copy — or a 4-way diff of the reviewed and current diffs when " +
       "the base's copy changed underneath the review. The diff a land merge " +
       "brings in was reviewed in the landed change, so it is skipped: what " +
-      "prints is one diff per span of history between land merges.",
+      "prints is one diff per span of history between land merges. Diffs " +
+      "print side by side when git config cabaret.sideBySide is wrap or " +
+      "truncate.",
   },
   parameters: {
     positional: {
@@ -267,7 +279,8 @@ const diff = buildCommand({
     const backend = await this.backend();
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
-    const context = flags.context ?? (await readConfig(backend)).context;
+    const config = await readConfig(backend);
+    const context = flags.context ?? config.context;
     const change = flags.change ?? (await backend.currentBranch());
     const user = flags.for ?? (await backend.currentUser());
     const entries = await backend.readLog(change);
@@ -276,8 +289,14 @@ const diff = buildCommand({
     // change's tip.
     const tip = await backend.resolveCommit(`refs/heads/${change}`);
     const reviewed = brain(entries, user).get(file);
-    // Stricli's process type omits isTTY, but the runtime process underneath has it.
-    const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
+    // Stricli's process type omits isTTY and columns, but the runtime process
+    // underneath has them.
+    const stdout = this.process.stdout as { isTTY?: boolean; columns?: number };
+    const color = stdout.isTTY === true;
+    const render = (prev: string | undefined, next: string | undefined): string =>
+      config.sideBySide === undefined
+        ? renderDiff(file, prev, next, color, context)
+        : renderSideBySideDiff(file, prev, next, color, config.sideBySide, context, stdout.columns);
     if (reviewed !== undefined && reviewed.base !== base) {
       const [prevBase, nextBase, prevTip, nextTip] = await Promise.all([
         backend.readFile(reviewed.base, file),
@@ -292,7 +311,7 @@ const diff = buildCommand({
       // Otherwise the base's copy changed underneath the review, which takes
       // a 4-way diff.
       if (prevBase === nextBase || nextBase === prevTip) {
-        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color, context));
+        this.process.stdout.write(render(prevTip, nextTip));
       } else {
         const rendered = renderDiff4({
           file,
@@ -325,7 +344,7 @@ const diff = buildCommand({
       throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
     }
     const rendered = segments
-      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, context))
+      .map(({ start, end }) => render(contents.get(start), contents.get(end)))
       .filter((diff) => diff !== "");
     // A blank line between spans, since consecutive diffs of one file would
     // otherwise run together.
