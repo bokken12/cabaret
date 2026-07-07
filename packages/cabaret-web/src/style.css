@@ -8,6 +8,7 @@
   --removed: #d1242f;
   --added-wash: #e6ffec;
   --removed-wash: #ffebe9;
+  --hunk-wash: #eaeef2;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +22,7 @@
     --removed: #f85149;
     --added-wash: rgba(63, 185, 80, 0.15);
     --removed-wash: rgba(248, 81, 73, 0.15);
+    --hunk-wash: rgba(110, 118, 129, 0.15);
   }
 }
 
@@ -126,6 +128,15 @@ body.busy .doc {
 
 .line:has(> .removed) {
   background: var(--removed-wash);
+}
+
+/* A neutral wash on hunk headers, as magit paints its hunk headings. */
+.hunk {
+  color: var(--muted);
+}
+
+.line:has(> .hunk) {
+  background: var(--hunk-wash);
 }
 
 .target {

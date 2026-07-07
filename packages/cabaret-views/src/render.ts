@@ -55,6 +55,9 @@ export async function renderPage(
     case "review":
       return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
     case "diff":
-      return diffDoc(await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file), options.context);
+      return diffDoc(
+        await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file),
+        options.context,
+      );
   }
 }

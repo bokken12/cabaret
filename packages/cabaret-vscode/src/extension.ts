@@ -556,6 +556,11 @@ function createDecorations(): StyleDecorations {
     // green is duller than its red, and a wash this prominent wants balance.
     added: wash("cabaret.addedLineBackground", "editorOverviewRuler.addedForeground", "+"),
     removed: wash("cabaret.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
+    // A neutral wash on hunk headers, as magit paints its hunk headings.
+    hunk: vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("cabaret.hunkLineBackground"),
+      isWholeLine: true,
+    }),
   };
 }
 
@@ -574,7 +579,7 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
     if (doc === undefined) {
       continue;
     }
-    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [] };
+    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [], hunk: [] };
     for (const { line, start, length, style } of styledRanges(doc)) {
       ranges[style].push(new vscode.Range(line, start, line, start + length));
     }

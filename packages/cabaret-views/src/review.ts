@@ -326,7 +326,9 @@ export function renderDiff4(args: {
  * lines shed their two-column marks — the added/removed styles carry the
  * same information — leaving bare code a host can syntax-highlight and a
  * reviewer can copy. Only a mark at column 0 counts as one — a context
- * line's own text may begin with the same characters.
+ * line's own text may begin with the same characters. Consecutive hunks
+ * would read as one run of code, so a styled header and a blank line
+ * mark where each begins.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
   const rendered = renderDiff(file, view.prev, view.next, false, context);
@@ -335,12 +337,18 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
   }
   const lines: Line[] = [];
   let at = 1;
+  let inHunk = false;
   for (const text of rendered.slice(0, -1).split("\n")) {
     const opts: { style?: Style; target?: Target } = {};
     let content = text;
     const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
     if (header?.[1] !== undefined) {
+      if (inHunk) {
+        lines.push({ spans: [] });
+      }
+      inHunk = true;
       at = Number(header[1]);
+      opts.style = "hunk";
       opts.target = { kind: "location", file, line: at };
     } else if (text.startsWith("+|")) {
       opts.style = "added";

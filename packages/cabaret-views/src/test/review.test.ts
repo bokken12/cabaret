@@ -87,7 +87,9 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
     here"
   `);
   const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
-  expect(styles.filter((line) => line.some(([, style]) => style === "added" || style === "removed"))).toEqual([
+  expect(styles.filter((line) => line.some(([, style]) => style !== undefined))).toEqual([
+    [["api.ts in widgets (up to 333333333333; 1 more round follows)", "heading"]],
+    [["-1,2 +1,2", "hunk"]],
     [["gone", "removed"]],
     [["here", "added"]],
   ]);
@@ -125,6 +127,7 @@ test("diffDoc trims each hunk to the requested context", () => {
     two
     TWO
     three
+
     -7,3 +7,3
     seven
     eight
@@ -207,7 +210,7 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
   expect(hunk).toEqual([
     [["old/api.ts", undefined]],
     [["new/api.ts", undefined]],
-    [["-1,1 +1,2", undefined]],
+    [["-1,1 +1,2", "hunk"]],
     [["-|weird", undefined]],
     [["new", "added"]],
   ]);
