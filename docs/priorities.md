@@ -192,9 +192,8 @@ and a review system.
   - The VS Code extension's interactive logic (next-file wrap,
     `selectedChanges`, rename-follow) has no tests, in contrast to the
     strong CLI e2e suite; it's exactly extractable-pure logic.
-  - Docs drift: [cli.md](cli.md) documents `create --child` and
-    `rebase --allow-invalid-base`, which don't exist; `glab pull/push`
-    stubs appear in `cli-reference.md` unmarked.
+  - Docs drift: `glab pull/push` stubs appear in `cli-reference.md`
+    unmarked.
   - patdiff fail-fast gaps: the side-by-side move back-patch silently
     no-ops on bookkeeping mismatch; `matchRatio([], [])` is `NaN`.
   - ansi-text parses colon-form SGR (`38:2:r:g:b`, the form modern tools

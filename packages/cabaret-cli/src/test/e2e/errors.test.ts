@@ -16,7 +16,7 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
 
 test("an argument that fails to parse names the argument and the reason", async () => {
   const repo = await makeRepo();
-  expect(await repo.cabaret("comments", "show", "bad..name")).toEqual({
+  expect(await repo.cabaret("log", "bad..name")).toEqual({
     stdout: "",
     stderr: 'Failed to parse "bad..name" for change: not a valid ref name: "bad..name"\n',
     exitCode: -4,

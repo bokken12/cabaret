@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeClone, makeRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, shownComments } from "./fixture.js";
 
 test("sync carries a change's log to a fresh machine verbatim", async () => {
   const alice = await makeRepo();
@@ -42,26 +42,18 @@ test("concurrent work on two machines merges into one identical log", async () =
   await bob.cabaret("sync");
 
   // Concurrently: neither machine has seen the other's comment.
-  await alice.cabaret("comments", "add", "does this handle empty diffs?", "--change", "widgets");
-  await bob.cabaret("comments", "add", "looks good overall", "--change", "widgets");
+  await alice.cabaret("comment", "does this handle empty diffs?", "--change", "widgets");
+  await bob.cabaret("comment", "looks good overall", "--change", "widgets");
   await alice.cabaret("sync");
   await bob.cabaret("sync");
   await alice.cabaret("sync");
 
   const aliceLog = await alice.cabaret("log", "widgets");
   expect(await bob.cabaret("log", "widgets")).toEqual(aliceLog);
-  const comments = {
-    stdout:
-      "2025-05-23T11:33:20.003Z alice@example.com\n" +
-      "  does this handle empty diffs?\n" +
-      "\n" +
-      "2025-05-23T11:35:00.000Z bob@example.com\n" +
-      "  looks good overall\n",
-    stderr: "",
-    exitCode: 0,
-  };
-  expect(await alice.cabaret("comments", "show", "widgets")).toEqual(comments);
-  expect(await bob.cabaret("comments", "show", "widgets")).toEqual(comments);
+  expect(await shownComments(alice, "widgets")).toBe(
+    "Comments:\n  2025-05-23T11:33:20.003Z alice@example.com\n    does this handle empty diffs?\n\n" +
+      "  2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",
+  );
 });
 
 test("sync with nothing to sync reports zero changes", async () => {

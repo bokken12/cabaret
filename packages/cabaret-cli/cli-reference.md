@@ -43,13 +43,13 @@ FLAGS
 ARGUMENTS
   user  user to remove
 
-### cabaret comments add
+## cabaret comment
 
 USAGE
-  cabaret comments add [--change value] <text>
-  cabaret comments add --help
+  cabaret comment [--change value] <text>
+  cabaret comment --help
 
-Add a comment to a change. Appends one `comment` entry to the change's log.
+Add a comment to a change. Appends one `comment` entry to the change's log; `show` displays the comments.
 
 FLAGS
      [--change]  Change to comment on (defaults to current)
@@ -57,20 +57,6 @@ FLAGS
 
 ARGUMENTS
   text  the comment text
-
-### cabaret comments show
-
-USAGE
-  cabaret comments show [<change>]
-  cabaret comments show --help
-
-Show the comments on a change, oldest first: each comment's time and author, then its text.
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  [change]  change to inspect (defaults to current)
 
 ## cabaret create
 
@@ -209,36 +195,6 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-### cabaret owner show
-
-USAGE
-  cabaret owner show [<change>]
-  cabaret owner show --help
-
-Show a change's owner
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  [change]  change to inspect (defaults to current)
-
-### cabaret owner transfer
-
-USAGE
-  cabaret owner transfer [--change value] [--even-though-not-owner] <user>
-  cabaret owner transfer --help
-
-Transfer ownership of a change, replacing the current owner. Only the owner may transfer ownership.
-
-FLAGS
-     [--change]                 Change to transfer (defaults to current)
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
-
-ARGUMENTS
-  user  the new owner
-
 ## cabaret rebase
 
 USAGE
@@ -301,6 +257,22 @@ FLAGS
 
 ARGUMENTS
   file...  files to mark as reviewed
+
+## cabaret set-owner
+
+USAGE
+  cabaret set-owner [--change value] [--even-though-not-owner] <user>
+  cabaret set-owner --help
+
+Set a change's owner, replacing the current one. Only the owner may transfer ownership; `show` displays the owner.
+
+FLAGS
+     [--change]                 Change to transfer (defaults to current)
+     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
+  -h  --help                    Print help information and exit
+
+ARGUMENTS
+  user  the new owner
 
 ## cabaret show
 

@@ -1,7 +1,9 @@
 import {
   type Backend,
+  type ChangeComment,
   type ChangeSummary,
   type CommitHash,
+  currentComments,
   type FilePath,
   type Forge,
   type ForgeLocator,
@@ -18,12 +20,17 @@ import { table } from "./table.js";
  * change log yet, shown as the change importing it would create.
  */
 export type ShowPage =
-  | { readonly kind: "change"; readonly summary: ChangeSummary }
+  | {
+      readonly kind: "change";
+      readonly summary: ChangeSummary;
+      readonly comments: readonly ChangeComment[];
+    }
   | {
       readonly kind: "request";
       readonly forge: ForgeLocator;
       readonly request: ForgeRequest;
       readonly files: readonly FilePath[];
+      readonly comments: readonly ChangeComment[];
     };
 
 /**
@@ -42,10 +49,19 @@ export async function showPage(
     const opened = await forge();
     const request = opened === undefined ? undefined : await opened.findRequest(change);
     if (opened !== undefined && request !== undefined) {
-      return { kind: "request", forge: opened.locator, request, files: await opened.listFiles(request.id) };
+      const comments = (await opened.listComments(request.id)).map(({ updatedAt, author, body }) => ({
+        timestamp: updatedAt,
+        user: author,
+        text: body,
+      }));
+      return { kind: "request", forge: opened.locator, request, files: await opened.listFiles(request.id), comments };
     }
   }
-  return { kind: "change", summary: await summarizeChange(backend, change, entries, user) };
+  return {
+    kind: "change",
+    summary: await summarizeChange(backend, change, entries, user),
+    comments: await currentComments(entries),
+  };
 }
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
@@ -83,6 +99,26 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
   ];
 }
 
+/** The comments section: each comment's time and author, then its indented text. */
+function commentsSection(comments: readonly ChangeComment[]): Line[] {
+  if (comments.length === 0) {
+    return [];
+  }
+  const lines: Line[] = [{ spans: [] }, { spans: [span("Comments:", { style: "heading" })] }];
+  comments.forEach(({ timestamp, user, text }, index) => {
+    // A blank line between comments, since consecutive comments would
+    // otherwise run together.
+    if (index > 0) {
+      lines.push({ spans: [] });
+    }
+    lines.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`)] });
+    for (const line of text.split("\n")) {
+      lines.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
+    }
+  });
+  return lines;
+}
+
 export function showDoc(page: ShowPage): Doc {
   if (page.kind === "request") {
     const { forge, request, files } = page;
@@ -103,6 +139,7 @@ export function showDoc(page: ShowPage): Doc {
           ["forge request", `${forge}#${request.id}`],
           ["title", request.title],
         ]),
+        ...commentsSection(page.comments),
         // No file targets: the files have no diffs to open until the import.
         ...filesToReview(files),
       ],
@@ -126,6 +163,7 @@ export function showDoc(page: ShowPage): Doc {
   return {
     lines: [
       ...header(heading, attributes),
+      ...commentsSection(page.comments),
       ...filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
     ],
   };

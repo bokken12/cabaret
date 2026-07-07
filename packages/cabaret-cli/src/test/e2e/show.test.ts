@@ -28,13 +28,48 @@ test("show renders the current change's status page", async () => {
   `);
 });
 
+test("show renders the comments on a change, oldest first, above the files", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("comment", "does this handle empty diffs?");
+  await repo.cabaret("comment", "second thoughts:\n\nthe flag name reads oddly");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ f37230616d25      │
+    │ base      │ 1ac0b33426d0      │
+    ╰───────────┴───────────────────╯
+
+    Comments:
+      2025-05-23T11:33:20.003Z alice@example.com
+        does this handle empty diffs?
+
+      2025-05-23T11:33:20.004Z alice@example.com
+        second thoughts:
+
+        the flag name reads oddly
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
 test("show for an unimported PR renders the as-if-imported view", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
+  const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
     "their.txt",
     "docs/notes.md",
   ]);
+  forge.comment(id, "carol", "please take a look");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
     "their-feature
     =============
@@ -48,6 +83,10 @@ test("show for an unimported PR renders the as-if-imported view", async () => {
     │ forge request │ github.com/test-org/widgets#1  │
     │ title         │ Their feature                  │
     ╰───────────────┴────────────────────────────────╯
+
+    Comments:
+      2025-06-15T15:06:40.000Z carol@users.noreply.github.com
+        please take a look
 
     Files to review:
       their.txt

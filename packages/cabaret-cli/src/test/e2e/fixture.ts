@@ -36,6 +36,17 @@ export interface TestRepo {
   cabaret(...argv: string[]): Promise<Invocation>;
 }
 
+/** The Comments section of a change's show page, or "" when it has none. */
+export async function shownComments(repo: TestRepo, ...argv: string[]): Promise<string> {
+  const { stdout } = await repo.cabaret("show", ...argv);
+  const start = stdout.indexOf("Comments:");
+  if (start === -1) {
+    return "";
+  }
+  const end = stdout.indexOf("\nFiles to review:", start);
+  return end === -1 ? stdout.slice(start) : stdout.slice(start, end);
+}
+
 /** Create change `name` stacked on the current branch, with one commit adding `<name>.txt`. */
 export async function addChange(repo: TestRepo, name: string): Promise<void> {
   await repo.cabaret("create", name);

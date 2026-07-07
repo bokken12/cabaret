@@ -16,7 +16,9 @@ import {
   resolveChain,
   type TimestampMs,
   timestampMs,
+  transferChange,
   UserError,
+  userName,
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
 import {
@@ -690,6 +692,21 @@ export function activate(context: vscode.ExtensionContext): void {
         const parent = await pickParent(backend, change);
         if (parent !== undefined) {
           await reparentChange(backend, now, change, parent, false);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.setOwner", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "set the owner of");
+        if (change === undefined) {
+          return;
+        }
+        const raw = await vscode.window.showInputBox({
+          prompt: `New owner for ${change}`,
+          validateInput: (value) => (value === "" ? "owner must be nonempty" : undefined),
+        });
+        if (raw !== undefined) {
+          await transferChange(backend, now, change, userName(raw), false);
         }
       }),
     ),
