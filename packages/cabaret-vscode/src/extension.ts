@@ -19,6 +19,7 @@ import {
   reviewRounds,
   type TimestampMs,
   timestampMs,
+  UserError,
 } from "cabaret-core";
 import { GitBackend, openGitHubForge } from "cabaret-node";
 import { type Doc, docText, type Style, targetAt } from "cabaret-views";
@@ -114,9 +115,32 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
   await vscode.window.showTextDocument(document, { preview: false });
 }
 
+/**
+ * Show the change being worked on — the one the active cabaret page is about,
+ * or the one whose branch is checked out — falling back to picking one when
+ * neither resolves, as on a detached HEAD or a branch that is not a change.
+ */
 async function showChange(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor !== undefined && editor.document.uri.scheme === SCHEME) {
+    const page = parsePagePath(editor.document.uri.path);
+    if (page.kind !== "todo") {
+      await openPage(provider, { kind: "show", change: page.change });
+      return;
+    }
+  }
   const backend = await openBackend();
-  const change = await vscode.window.showQuickPick(await backend.listChanges(), { placeHolder: "Change to show" });
+  const changes = await backend.listChanges();
+  const branch = await backend.currentBranch().catch((error: unknown) => {
+    if (error instanceof UserError) {
+      return undefined;
+    }
+    throw error;
+  });
+  const change =
+    branch !== undefined && changes.includes(branch)
+      ? branch
+      : await vscode.window.showQuickPick(changes, { placeHolder: "Change to show" });
   if (change !== undefined) {
     await openPage(provider, { kind: "show", change: parseRefName(change) });
   }
@@ -659,4 +683,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // An extension-host restart re-syncs open cabaret editors without a render;
   // painting them misses the cache and so asks for one.
   repaint();
+  // Leaderkey scans `leaderkey.overrides.*` contributions when it activates,
+  // which can precede this extension registering its own; a rescan picks the
+  // bindings up either way.
+  // TODO: reconsider the binding choices — `SPC a f t`/`SPC a f s` were a
+  // first guess, not a considered mnemonic.
+  if (vscode.extensions.getExtension("JimmyZJX.leaderkey") !== undefined) {
+    void vscode.commands.executeCommand("leaderkey.refreshConfigs").then(undefined, () => undefined);
+  }
 }
