@@ -38,9 +38,28 @@ import * as Slice from "./slice.js";
 
 const infiniteContext = 100_000;
 
+/** Where a line's content lives: its 1-based line number in each version that
+ *  contains it. */
+export type Provenance = Partial<DiamondT<number>>;
+
+/** The innermost 2-way range a rendered line belongs to; a ddiff line keeps
+ *  the kind of the inner diff line it displays, since the inner sign is the
+ *  one that reads as added/removed. Undefined for decoration: headers, hints,
+ *  and grouping pipes. */
+export type LineKind = "same" | "prev" | "next" | "unified";
+
+/** One rendered display line with its provenance in the four versions. Hunk
+ *  headers carry their hunk's start lines as an anchor; other decoration
+ *  carries an empty provenance. */
+export type Line = {
+  readonly text: string;
+  readonly kind: LineKind | undefined;
+  readonly provenance: Provenance;
+};
+
 export type Block = {
   readonly hint: readonly string[];
-  readonly lines: readonly string[];
+  readonly lines: readonly Line[];
 };
 
 export type View = {
@@ -82,6 +101,15 @@ const headerOfChange = (args: {
   };
 };
 
+/** A rendered line of one 2-way diff, with 1-based line numbers into the
+ *  change's from/to sources where its content exists. */
+type Diff2Line = {
+  readonly text: string;
+  readonly kind: LineKind | undefined;
+  readonly from: number | undefined;
+  readonly to: number | undefined;
+};
+
 const diffOfChange = (args: {
   refined?: boolean;
   produceUnifiedLines?: boolean;
@@ -91,7 +119,7 @@ const diffOfChange = (args: {
   context: number;
   output: Header.Output4;
   change: Change;
-}): string[] => {
+}): Diff2Line[] => {
   const refined = args.refined ?? true;
   const rules = args.formatRules ?? FormatRules.innerDefault;
   // Unified lines are unsupported in Ascii output.
@@ -117,17 +145,65 @@ const diffOfChange = (args: {
       })
     : PatienceHunks.unified(diffed);
   const blocks = withoutUnix.buildUnified({ rules, output: args.output, hunks });
-  const lines: string[] = [];
+  // Hunk starts are 1-based within the slices, so slice starts convert them
+  // (and every position walked from them) straight to 1-based file lines.
+  const fromStart = args.change.from.range.lineStart;
+  const toStart = args.change.to.range.lineStart;
+  const lines: Diff2Line[] = [];
   hunks.forEach((hunk, i) => {
     if (args.includeHunkBreaks) {
       const header = Header.addHunkBreak(args.header, [hunk.prevStart, hunk.prevSize], [hunk.nextStart, hunk.nextSize]);
-      lines.push(...Header.toString(args.output, header));
+      for (const text of Header.toString(args.output, header)) {
+        lines.push({ text, kind: undefined, from: fromStart + hunk.prevStart, to: toStart + hunk.nextStart });
+      }
     }
-    for (const line of blocks[i] ?? []) {
-      lines.push(line.replace(/\s+$/, ""));
+    // Walk the hunk's ranges in the order buildUnified renders them, pairing
+    // each display line with its position in the from/to sources. Moves never
+    // appear (findMoves is off above), so every range consumes positions by
+    // its plain size.
+    const meta: Omit<Diff2Line, "text">[] = [];
+    let from = fromStart + hunk.prevStart;
+    let to = toStart + hunk.nextStart;
+    for (const range of hunk.ranges) {
+      switch (range.kind) {
+        case "same":
+          for (let k = 0; k < range.contents.length; k++) meta.push({ kind: "same", from: from++, to: to++ });
+          break;
+        case "prev":
+          for (let k = 0; k < range.contents.length; k++) meta.push({ kind: "prev", from: from++, to: undefined });
+          break;
+        case "next":
+          for (let k = 0; k < range.contents.length; k++) meta.push({ kind: "next", from: undefined, to: to++ });
+          break;
+        case "unified":
+          for (let k = 0; k < range.contents.length; k++) meta.push({ kind: "unified", from: from++, to: to++ });
+          break;
+        case "replace":
+          for (let k = 0; k < range.prev.length; k++) meta.push({ kind: "prev", from: from++, to: undefined });
+          for (let k = 0; k < range.next.length; k++) meta.push({ kind: "next", from: undefined, to: to++ });
+          break;
+      }
     }
+    const rendered = blocks[i];
+    if (rendered === undefined || rendered.length !== meta.length) {
+      throw new Error(`patdiff4 rendered ${rendered?.length ?? 0} lines for a hunk of ${meta.length}`);
+    }
+    rendered.forEach((text, j) => {
+      const at = meta[j];
+      if (at === undefined) throw new Error(`patdiff4 hunk position ${j} out of ${meta.length} missing`);
+      lines.push({ ...at, text: text.replace(/\s+$/, "") });
+    });
   });
   return lines;
+};
+
+/** Provenance from per-node line numbers, keeping only the known ones. */
+const provenance = (at: readonly (readonly [Node, number | undefined])[]): Provenance => {
+  const result: { [K in Node]?: number } = {};
+  for (const [node, line] of at) {
+    if (line !== undefined) result[node] = line;
+  }
+  return result;
 };
 
 const threeWayDiff = (args: { oldBase: Slice.Slice; newBase: Slice.Slice; oldTip: Slice.Slice }): readonly string[] => [
@@ -166,7 +242,10 @@ const conflictResolution: DiffAlgo = {
         plus: Range.toHeader(newTip.range, []),
       },
     };
-    const lines = diffOfChange({ includeHunkBreaks, header, context, output, change });
+    // The from side is the synthetic conflict text, which lives in no file.
+    const lines = diffOfChange({ includeHunkBreaks, header, context, output, change }).map(
+      (line): Line => ({ text: line.text, kind: line.kind, provenance: provenance([["f2", line.to]]) }),
+    );
     return { id: "conflict_resolution", blocks: [{ hint: [], lines }] };
   },
 };
@@ -189,28 +268,33 @@ const makeDdiffAlgo = (args: { id: "base_ddiff" | "feature_ddiff"; hints?: reado
         from: Diamond.get(slices, nodes[0]),
         to: Diamond.get(slices, nodes[1]),
       });
-      const changeA = change(from);
-      const changeB = change(to);
       const aHeader = headerOfChange({ diff4Class, fullDiff: slices, from: from[0], to: from[1] });
       const bHeader = headerOfChange({ diff4Class, fullDiff: slices, from: to[0], to: to[1] });
-      const innerDiff = (withHunkBreaks: boolean, header: Header.Diff2, c: Change): string[] =>
+      const innerDiff = (withHunkBreaks: boolean, header: Header.Diff2, nodes: readonly [Node, Node]): Line[] =>
         diffOfChange({
           includeHunkBreaks: withHunkBreaks,
           header: { kind: "Diff2", diff: header },
           context: withHunkBreaks ? context : infiniteContext,
           output,
-          change: c,
-        });
+          change: change(nodes),
+        }).map((line) => ({
+          text: line.text,
+          kind: line.kind,
+          provenance: provenance([
+            [nodes[0], line.from],
+            [nodes[1], line.to],
+          ]),
+        }));
       // Heuristic: when the ddiff is essentially a diff (one side empty), keep
       // the hunk breaks on the inner level; otherwise use full inner context
       // so the outer diff aligns whole inner diffs.
-      const aWithBreaks = innerDiff(true, aHeader, changeA);
-      const bWithBreaks = innerDiff(true, bHeader, changeB);
+      const aWithBreaks = innerDiff(true, aHeader, from);
+      const bWithBreaks = innerDiff(true, bHeader, to);
       const [aInner, bInner] =
         aWithBreaks.length === 0 || bWithBreaks.length === 0
           ? [aWithBreaks, bWithBreaks]
-          : [innerDiff(false, aHeader, changeA), innerDiff(false, bHeader, changeB)];
-      const lines = diffOfChange({
+          : [innerDiff(false, aHeader, from), innerDiff(false, bHeader, to)];
+      const outer = diffOfChange({
         refined: false,
         produceUnifiedLines: false,
         formatRules: FormatRules.outerDefault,
@@ -218,7 +302,31 @@ const makeDdiffAlgo = (args: { id: "base_ddiff" | "feature_ddiff"; hints?: reado
         header: { kind: "Diff4", diff: { minus: aHeader, plus: bHeader } },
         context,
         output,
-        change: { from: Slice.create("", 0, aInner), to: Slice.create("", 0, bInner) },
+        change: {
+          from: Slice.create(
+            "",
+            0,
+            aInner.map((line) => line.text),
+          ),
+          to: Slice.create(
+            "",
+            0,
+            bInner.map((line) => line.text),
+          ),
+        },
+      });
+      // The outer diff's positions index the inner renders, so each outer
+      // line inherits the provenance of the inner line(s) it displays. Outer
+      // headers anchor past an inner render's end when a hunk is empty on one
+      // side; they just get no provenance from that side.
+      const lines = outer.map((line): Line => {
+        const a = line.from === undefined ? undefined : aInner[line.from - 1];
+        const b = line.to === undefined ? undefined : bInner[line.to - 1];
+        return {
+          text: line.text,
+          kind: line.kind === undefined ? undefined : (a ?? b)?.kind,
+          provenance: { ...a?.provenance, ...b?.provenance },
+        };
       });
       const hint = (args.hints ?? []).map((key) => renderHint(output, key));
       return { id: args.id, blocks: [{ hint, lines }] };
@@ -235,7 +343,7 @@ const renderHint = (output: Header.Output4, key: HintKey): string => Header.rend
 const buildDiffLines = (
   elements: readonly [Node, Node],
   { includeHunkBreaks, diff4Class, context, output, slices }: AlgoArgs,
-): string[] => {
+): Line[] => {
   const [from, to] = elements;
   const header = headerOfChange({ diff4Class, fullDiff: slices, from, to });
   return diffOfChange({
@@ -244,7 +352,14 @@ const buildDiffLines = (
     context,
     output,
     change: { from: Diamond.get(slices, from), to: Diamond.get(slices, to) },
-  });
+  }).map((line) => ({
+    text: line.text,
+    kind: line.kind,
+    provenance: provenance([
+      [from, line.from],
+      [to, line.to],
+    ]),
+  }));
 };
 
 const buildDiffAlgo = (elements: readonly [Node, Node], hints?: readonly HintKey[]): DiffAlgo => {

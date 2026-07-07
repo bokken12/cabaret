@@ -116,13 +116,15 @@ and a review system.
 
 ## 5. Structural debt
 
-- **Structured patdiff4 output unblocks the most.** patdiff4 flattens
-  rendered hunks into display strings (stripping trailing whitespace from
-  real content on the way), and cabaret-views `diffDoc` regex-parses sign
-  stacks back out — fragility that blocks 4-way jump targets and moving
-  diff signs to the VS Code gutter (both have standing TODOs). The kernel's
-  2-way path already returns `StructuredHunks`; extend patdiff4's `Block`
-  with per-line provenance.
+- **Structured patdiff4 output: done for 4-way; 2-way still parses text.**
+  patdiff4's `Block` now carries per-line structure (`Line` in patdiff4
+  `diff-algo.ts`: display text, innermost range kind, and 1-based line
+  numbers in each of the four versions), and cabaret-views `diffDoc` styles
+  and anchors 4-way lines from it — Enter on a diff4 line jumps to the new
+  tip's copy. Remaining: the 2-way path still regex-parses patdiff's
+  rendered strings (the kernel's `StructuredHunks` would fix it the same
+  way), rendered lines still lose trailing whitespace, and the VS Code
+  gutter move (`extension.ts` TODO) is now unblocked for both diff shapes.
 - **patdiff keeps two caller-less surfaces on purpose.** The standalone
   CLI, sexp config loading, and the terminal-emulator ANSI token modules
   are gone (the parser folds non-SGR escapes into `UnknownEsc` and
@@ -193,9 +195,8 @@ and a review system.
   - Docs drift: [cli.md](cli.md) documents `create --child` and
     `rebase --allow-invalid-base`, which don't exist; `glab pull/push`
     stubs appear in `cli-reference.md` unmarked.
-  - patdiff fail-fast gaps: `blocks[i] ?? []` in `diff-algo.ts` renders a
-    header with no body on misalignment; the side-by-side move back-patch
-    silently no-ops on bookkeeping mismatch; `matchRatio([], [])` is `NaN`.
+  - patdiff fail-fast gaps: the side-by-side move back-patch silently
+    no-ops on bookkeeping mismatch; `matchRatio([], [])` is `NaN`.
   - ansi-text parses colon-form SGR (`38:2:r:g:b`, the form modern tools
     emit) as a spurious Reset — the empty param list after dropping colon
     args defaults to `[0]`. Related: `\x1b[;31m` loses its implied reset,

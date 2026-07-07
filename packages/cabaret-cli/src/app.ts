@@ -319,16 +319,17 @@ const diff = buildCommand({
       // tip's (the whole new diff starts at contents the reviewer knows).
       // Otherwise the base's copy changed underneath the review, which takes
       // a 4-way diff.
-      this.process.stdout.write(
-        prevBase === nextBase || nextBase === prevTip
-          ? renderDiff(file, prevTip, nextTip, color)
-          : renderDiff4({
-              file,
-              revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
-              contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
-              color,
-            }),
-      );
+      if (prevBase === nextBase || nextBase === prevTip) {
+        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color));
+      } else {
+        const rendered = renderDiff4({
+          file,
+          revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
+          contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
+          color,
+        });
+        this.process.stdout.write(rendered.length === 0 ? "" : `${rendered.map((line) => line.text).join("\n")}\n`);
+      }
       return;
     }
     let segments: readonly DiffSegment[];

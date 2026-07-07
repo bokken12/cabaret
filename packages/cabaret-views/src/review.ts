@@ -191,20 +191,21 @@ export function renderDiff(file: FilePath, prev: string | undefined, next: strin
  * Render what remains to review when the base's copy of `file` changed
  * underneath the reviewed diff: Iron's diff4 over the old and new base and
  * tip, each aligned hunk shown under every view its equivalence class earns.
+ * Empty when nothing is left to show.
  */
 export function renderDiff4(args: {
   file: FilePath;
   revs: Patdiff4.Diamond.Diamond<CommitHash>;
   contents: Patdiff4.Diamond.Diamond<string | undefined>;
   color: boolean;
-}): string {
+}): readonly Patdiff4.Line[] {
   // TODO: name absent versions distinctly (Iron renders them as <absent>
   // with a per-version file-name table) instead of diffing an empty file.
   const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
-    return `Binary versions of ${args.file} differ\n`;
+    return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
   }
-  const lines = Patdiff4.diff({
+  return Patdiff4.diff({
     // Hash prefixes keep patdiff4's contract that equal names imply equal
     // contents, where "old"/"new" labels would not (the tips can coincide).
     revNames: Patdiff4.Diamond.map(args.revs, shortHash),
@@ -215,21 +216,74 @@ export function renderDiff4(args: {
     contents,
     output: args.color ? "Ansi" : "Ascii",
   });
-  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
 /**
- * The paint a rendered ASCII diff line earns: patdiff marks the lines of a
- * hunk with a sign run ending in `|` (`+|`, `-|`, and 4-way stacks like
- * `++-|`). A two-way hunk marks at column 0, so only a mark there counts — a
- * context line's own text may begin with the same characters. A 4-way hunk
- * stacks signs behind the `|`/`_` gutter diff4 draws around hunk groups,
- * which takes a lenient match past the gutter.
+ * Walk a two-way render tracking where each hunk line sits in the file's new
+ * copy, so the cursor can jump from the diff to the file itself. A hunk
+ * header carries the new side's start; context and added lines advance it,
+ * and a removed line anchors at the removal site without advancing. Only a
+ * `+|`/`-|` mark at column 0 counts — a context line's own text may begin
+ * with the same characters.
  */
-function diffLineStyle(text: string, kind: DiffView["kind"]): Style | undefined {
-  const body = kind === "two" ? text : text.replace(/^[ |_]+/, "");
-  const signs = /^[+-]*([+-])\|/.exec(body);
-  return signs === null ? undefined : signs[1] === "+" ? "added" : "removed";
+function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>): Line[] {
+  const rendered = renderDiff(file, view.prev, view.next, false);
+  if (rendered === "") {
+    return [];
+  }
+  const lines: Line[] = [];
+  let at = 1;
+  for (const text of rendered.slice(0, -1).split("\n")) {
+    const opts: { style?: Style; target?: Target } = {};
+    const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
+    if (header?.[1] !== undefined) {
+      at = Number(header[1]);
+      opts.target = { kind: "location", file, line: at };
+    } else if (text.startsWith("+|")) {
+      opts.style = "added";
+      opts.target = { kind: "location", file, line: at };
+      at++;
+    } else if (text.startsWith("  ")) {
+      opts.target = { kind: "location", file, line: at };
+      at++;
+    } else if (text.startsWith("-|")) {
+      opts.style = "removed";
+      opts.target = { kind: "location", file, line: at };
+    }
+    lines.push({ spans: [span(text, opts)] });
+  }
+  return lines;
+}
+
+/**
+ * A 4-way render already knows each line's home in the four versions; the
+ * new tip is the copy a reviewer visits, so lines carrying one jump straight
+ * to it. Lines absent from the new tip anchor at the running insertion point,
+ * like a two-way removal; decoration (view titles, grouping pipes) resets the
+ * point so one view's anchor cannot leak into views that never touch the new
+ * tip. Hunk headers anchor without advancing.
+ */
+function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>): Line[] {
+  const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false });
+  let at: number | undefined;
+  return rendered.map(({ text, kind, provenance }) => {
+    const opts: { style?: Style; target?: Target } = {};
+    if (kind === "prev") {
+      opts.style = "removed";
+    } else if (kind === "next") {
+      opts.style = "added";
+    }
+    if (provenance.f2 !== undefined) {
+      const line = Math.max(1, provenance.f2);
+      opts.target = { kind: "location", file, line };
+      at = kind === undefined ? line : line + 1;
+    } else if (Object.keys(provenance).length === 0) {
+      at = undefined;
+    } else if (at !== undefined) {
+      opts.target = { kind: "location", file, line: at };
+    }
+    return { spans: [span(text, opts)] };
+  });
 }
 
 export function diffDoc(page: DiffPage): Doc {
@@ -247,47 +301,14 @@ export function diffDoc(page: DiffPage): Doc {
     return { lines };
   }
   const view = page.round.view;
-  const rendered =
-    view.kind === "two"
-      ? renderDiff(page.file, view.prev, view.next, false)
-      : renderDiff4({ file: page.file, revs: view.revs, contents: view.contents, color: false });
-  if (rendered === "") {
+  const body = view.kind === "two" ? twoWayDiffLines(page.file, view) : fourWayDiffLines(page.file, view);
+  if (body.length === 0) {
     // A moved base can leave nothing visible to read (the rebase carried the
     // change cleanly) while the stale review still counts the file as left;
     // marking it reviewed is how the reviewer clears it.
     lines.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
     return { lines };
   }
-  // Walk a two-way render tracking where each hunk line sits in the file's
-  // new copy, so the cursor can jump from the diff to the file itself. A hunk
-  // header carries the new side's start; context and added lines advance it,
-  // and a removed line anchors at the removal site without advancing. The
-  // 4-way views interleave four line numberings behind per-view sign stacks,
-  // so their lines get none.
-  // TODO: have patdiff4 return structured hunks (per-line provenance in each
-  // of the four revisions) instead of re-parsing rendered text; that gives
-  // 4-way lines their new-tip targets and lets hosts draw signs outside the
-  // text, where this walk cannot reach.
-  let at = 1;
-  for (const text of rendered.slice(0, -1).split("\n")) {
-    const opts: { style?: Style; target?: Target } = {};
-    const style = diffLineStyle(text, view.kind);
-    if (style !== undefined) {
-      opts.style = style;
-    }
-    if (view.kind === "two") {
-      const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
-      if (header?.[1] !== undefined) {
-        at = Number(header[1]);
-        opts.target = { kind: "location", file: page.file, line: at };
-      } else if (text.startsWith("+|") || text.startsWith("  ")) {
-        opts.target = { kind: "location", file: page.file, line: at };
-        at++;
-      } else if (text.startsWith("-|")) {
-        opts.target = { kind: "location", file: page.file, line: at };
-      }
-    }
-    lines.push({ spans: [span(text, opts)] });
-  }
+  lines.push(...body);
   return { lines };
 }

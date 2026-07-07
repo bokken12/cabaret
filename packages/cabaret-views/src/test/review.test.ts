@@ -210,8 +210,27 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
     | -|>>>>>>> new base
     |_"
   `);
-  // Four line numberings interleave in a 4-way diff, so no line anchors one.
-  expect(doc.lines.slice(1).every(({ spans }) => spans.every(({ target }) => target === undefined))).toBe(true);
+  // Lines anchor to their home in the new tip where they have one: added and
+  // context lines directly, removed lines at the site their replacement now
+  // holds, and lines of views that never touch the new tip not at all.
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  const rendered = docText(doc).split("\n");
+  const targetOf = (text: string) => targetAt(doc, rendered.indexOf(text));
+  expect(targetOf("| @@@@@@@@ new base 1,2 new tip 1,3 @@@@@@@@")).toEqual(location(1));
+  expect(targetOf("| -|ONE")).toEqual(location(1)); // the removal site in the new tip
+  expect(targetOf("| +|ONE!")).toEqual(location(1));
+  expect(targetOf("| +|child")).toEqual(location(2));
+  expect(targetOf("| +++|ONE!")).toEqual(location(1)); // ddiff lines know their inner homes
+  expect(targetOf("|   +|child")).toEqual(location(2));
+  expect(targetOf("| ++-|ONE")).toBeUndefined(); // removed before its view's first anchor
+  expect(targetOf("|   one")).toBeUndefined(); // old-base-to-old-tip: no new-tip content
+  expect(targetOf("| +|ONE")).toBeUndefined(); // old-base-to-new-base: no new-tip content
+  expect(targetOf("| -|<<<<<<< old tip")).toBeUndefined(); // conflict text lives in no file
+  // The stacked signs still read through to added/removed styling.
+  const styleOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.style;
+  expect(styleOf("| ++-|ONE")).toBe("removed");
+  expect(styleOf("|   +|child")).toBe("added");
+  expect(styleOf("| --  one")).toBeUndefined();
 });
 
 test("diffDoc with an empty diff points at marking the file reviewed", () => {

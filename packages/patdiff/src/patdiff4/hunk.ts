@@ -18,11 +18,14 @@ const indexWithSpaceIfNonTrivial = (t: Index): string => (t.total <= 1 ? "" : ` 
 /** Nested blocks of lines, rendered with box-drawing pipes so a reader can
  *  see where each view of a hunk begins and ends. */
 type Nesting =
-  | { readonly kind: "Lines"; readonly lines: readonly string[] }
+  | { readonly kind: "Lines"; readonly lines: readonly DiffAlgo.Line[] }
   | { readonly kind: "Group"; readonly group: readonly Nesting[] };
 
-const lines = (l: readonly string[]): Nesting => ({ kind: "Lines", lines: l });
-const block = (l: readonly string[]): Nesting => ({ kind: "Group", group: [lines(l)] });
+/** Decoration around the diff lines: titles, labels, and grouping pipes. */
+const plain = (text: string): DiffAlgo.Line => ({ text, kind: undefined, provenance: {} });
+
+const lines = (l: readonly DiffAlgo.Line[]): Nesting => ({ kind: "Lines", lines: l });
+const block = (l: readonly DiffAlgo.Line[]): Nesting => ({ kind: "Group", group: [lines(l)] });
 const group = (g: readonly Nesting[]): Nesting => ({ kind: "Group", group: g });
 
 /** Use the grouping syntax only where at least two elements group together,
@@ -58,12 +61,12 @@ const simplify = (t: Nesting): readonly Nesting[] => {
   return [simplified];
 };
 
-const nestingToStrings = (t: Nesting, output: Header.Output4): readonly string[] => {
+const nestingToLines = (t: Nesting, output: Header.Output4): readonly DiffAlgo.Line[] => {
   const [pipe, open, close] = output === "Ansi" ? ["│ ", "┌", "└"] : ["| ", "_", "|_"];
-  const loop = (t: Nesting, nesting: number): readonly string[] => {
+  const loop = (t: Nesting, nesting: number): readonly DiffAlgo.Line[] => {
     const prefix = pipe.repeat(nesting);
-    if (t.kind === "Lines") return t.lines.map((line) => prefix + line);
-    return [prefix + open, ...t.group.flatMap((child) => loop(child, nesting + 1)), prefix + close];
+    if (t.kind === "Lines") return t.lines.map((line) => ({ ...line, text: prefix + line.text }));
+    return [plain(prefix + open), ...t.group.flatMap((child) => loop(child, nesting + 1)), plain(prefix + close)];
   };
   return simplify(t).flatMap((child) => loop(child, 0));
 };
@@ -78,7 +81,7 @@ export type Hunk = {
 
 const nestedViews = (t: Hunk, output: Header.Output4, hunkName?: string): readonly Nesting[] => {
   const blockToLines = (b: DiffAlgo.Block, header?: readonly string[]): Nesting =>
-    block([...(header ?? []), ...b.hint, ...b.lines]);
+    block([...(header ?? []).map(plain), ...b.hint.map(plain), ...b.lines]);
   const total = t.views.length;
   return t.views.map((view, current) => {
     const viewName = DiffAlgoId.toString(view.id);
@@ -97,7 +100,7 @@ const nestedViews = (t: Hunk, output: Header.Output4, hunkName?: string): readon
       return group([blockToLines(view.blocks[0] as DiffAlgo.Block, header)]);
     }
     const blocks = view.blocks.map((b) => blockToLines(b));
-    return group(header === undefined ? blocks : [lines(header), ...blocks]);
+    return group(header === undefined ? blocks : [lines(header.map(plain)), ...blocks]);
   });
 };
 
@@ -130,7 +133,7 @@ const fileAndRevNamesInformation = (args: {
   return out;
 };
 
-export const listToLines = (hunks: readonly Hunk[], output: Header.Output4): readonly string[] => {
+export const listToLines = (hunks: readonly Hunk[], output: Header.Output4): readonly DiffAlgo.Line[] => {
   const useFileSeparator = new Set(hunks.map((hunk) => hunk.headerFileName)).size > 1;
   const total = hunks.length;
   const blocks: Nesting[] = [];
@@ -138,10 +141,10 @@ export const listToLines = (hunks: readonly Hunk[], output: Header.Output4): rea
   hunks.forEach((t, current) => {
     const hunkName = total > 1 ? `Hunk ${indexToString({ current, total })}` : undefined;
     const views: Nesting[] = nestedViews(t, output, hunkName).slice();
-    if (hunkName !== undefined) views.unshift(lines([Header.title(output, hunkName)]));
-    blocks.push(lines(fileAndRevNamesInformation({ t, output, useFileSeparator, inScope })));
+    if (hunkName !== undefined) views.unshift(lines([plain(Header.title(output, hunkName))]));
+    blocks.push(lines(fileAndRevNamesInformation({ t, output, useFileSeparator, inScope }).map(plain)));
     blocks.push(group(views));
     inScope = t;
   });
-  return nestingToStrings(group(blocks), output);
+  return nestingToLines(group(blocks), output);
 };
