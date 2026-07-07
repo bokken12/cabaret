@@ -116,8 +116,15 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
       this.revDocs.add(uri.toString());
       const view = (await this.diffPage(change, file)).round?.view;
       // openDiff only opens rev documents on a two-way view, but review can
-      // advance under an open editor; empty is the truthful rendering then.
-      return view?.kind === "two" ? (view[side] ?? "") : "";
+      // advance under an open editor; both panes say what moved rather than
+      // going silently blank.
+      if (view === undefined) {
+        return "Nothing left to review.\n";
+      }
+      if (view.kind === "four") {
+        return "The base moved under this review; reopen the diff for its 4-way view.\n";
+      }
+      return view[side] ?? "";
     }
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
@@ -132,7 +139,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   }
 
   /** The pending diff behind `change`'s `file`, one reading shared by both of a diff editor's sides. */
-  diffPage(change: RefName, file: FilePath): Promise<DiffPage> {
+  private diffPage(change: RefName, file: FilePath): Promise<DiffPage> {
     const key = pagePath({ kind: "diff", change, file });
     const held = this.revPages.get(key);
     if (held !== undefined) {
@@ -212,25 +219,39 @@ function revUri(rev: Rev): vscode.Uri {
  * Open the diff left to review for `file`: the native diff editor when git
  * config cabaret.sideBySide asks for two columns and the pending view is a
  * plain two-way text diff, else the diff page — which alone renders 4-way
- * views, binary notices, and the nothing-left guidance.
+ * views, binary notices, and the nothing-left guidance. Errors surface as
+ * notifications: unlike opening a page, this path reads the repository
+ * before any document exists to display them.
  */
 async function openDiff(provider: PageProvider, change: RefName, file: FilePath): Promise<void> {
-  const sideBySide = (await readConfig(await openBackend())).sideBySide;
-  if (sideBySide !== undefined) {
-    const page = await provider.diffPage(change, file);
-    const view = page.round?.view;
-    if (view?.kind === "two" && view.prev !== view.next && !binaryDiff(view.prev, view.next)) {
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        revUri({ side: "prev", change, file }),
-        revUri({ side: "next", change, file }),
-        diffTitle(page),
-        { preview: false },
-      );
-      return;
+  try {
+    const backend = await openBackend();
+    const sideBySide = (await readConfig(backend)).sideBySide;
+    if (sideBySide !== undefined) {
+      // A reading of its own, never cached: the gate must see the world as it
+      // is now, and a fallback must not park a page no rev document ever
+      // consumes. The panes take their own shared fresh reading below.
+      const page = await diffPage(backend, await changeSnapshot(backend, change), file);
+      const view = page.round?.view;
+      if (view?.kind === "two" && view.prev !== view.next && !binaryDiff(view.prev, view.next)) {
+        const next = revUri({ side: "next", change, file });
+        // Fresh on open, as openPage refreshes an already-open page: drop any
+        // held reading so the panes re-read, already open or not.
+        provider.refresh(next);
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          revUri({ side: "prev", change, file }),
+          next,
+          diffTitle(page),
+          { preview: false },
+        );
+        return;
+      }
     }
+    await openPage(provider, { kind: "diff", change, file });
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   }
-  await openPage(provider, { kind: "diff", change, file });
 }
 
 async function openPage(provider: PageProvider, page: Page): Promise<void> {
@@ -251,6 +272,10 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
+  if (editor !== undefined && editor.document.uri.scheme === REV_SCHEME) {
+    await openPage(provider, { kind: "show", change: parseRevPath(editor.document.uri.path).change });
+    return;
+  }
   if (editor !== undefined && editor.document.uri.scheme === SCHEME) {
     const page = parsePagePath(editor.document.uri.path);
     if (page.kind !== "todo") {
@@ -429,6 +454,9 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   const { change, file } = page;
   try {
     const backend = await openBackend();
+    // TODO: mark from the snapshot the page displayed (held with the doc)
+    // instead of a fresh one, so a commit racing the keypress cannot widen
+    // the marked diff.
     const result = markReviewed(backend, now, await changeSnapshot(backend, change), file);
     if (result.kind === "nothing-left") {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${file}`);
@@ -505,6 +533,9 @@ function invalidRefName(value: string): string | undefined {
  * covers, which is just the cursor's line when nothing is selected.
  */
 function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly RefName[] {
+  if (editor.document.uri.scheme === REV_SCHEME) {
+    return [parseRevPath(editor.document.uri.path).change];
+  }
   const page = parsePagePath(editor.document.uri.path);
   if (page.kind === "show") {
     return [page.change];
@@ -536,7 +567,7 @@ async function actOnSelection(
     return;
   }
   const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+  if (editor === undefined || (editor.document.uri.scheme !== SCHEME && editor.document.uri.scheme !== REV_SCHEME)) {
     return;
   }
   const changes = selectedChanges(provider, editor);
@@ -704,7 +735,7 @@ async function rename(
   // A show page's URI names the change, so the old page cannot re-render;
   // forget it before the post-action refresh and replace it with the page
   // under the new name.
-  if (parsePagePath(editor.document.uri.path).kind === "show") {
+  if (editor.document.uri.scheme === SCHEME && parsePagePath(editor.document.uri.path).kind === "show") {
     provider.forget(editor.document.uri);
     await closeTabs(editor.document.uri);
     await openPage(provider, { kind: "show", change: to });

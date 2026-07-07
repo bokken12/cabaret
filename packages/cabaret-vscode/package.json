@@ -127,31 +127,31 @@
         },
         {
           "command": "cabaret.rebase",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.land",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.rename",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.reparent",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.setOwner",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.createChild",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.createParent",
-          "when": "resourceScheme == cabaret"
+          "when": "resourceScheme == cabaret || resourceScheme == cabaret-rev"
         },
         {
           "command": "cabaret.showParent",
@@ -214,7 +214,7 @@
       {
         "command": "cabaret.land",
         "key": "shift+1 l a",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (resourceScheme == cabaret || resourceScheme == cabaret-rev) && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rename",
@@ -234,12 +234,12 @@
       {
         "command": "cabaret.createChild",
         "key": "shift+1 c",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (resourceScheme == cabaret || resourceScheme == cabaret-rev) && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createParent",
         "key": "shift+1 p",
-        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (resourceScheme == cabaret || resourceScheme == cabaret-rev) && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.import",
