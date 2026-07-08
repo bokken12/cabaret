@@ -113,6 +113,10 @@
       {
         "command": "cabaret.import",
         "title": "Cabaret: Import Pull Request"
+      },
+      {
+        "command": "cabaret.syncForge",
+        "title": "Cabaret: Sync Forge"
       }
     ],
     "menus": {
@@ -172,6 +176,10 @@
         {
           "command": "cabaret.import",
           "when": "cabaret.page == 'todo' || cabaret.page == 'show'"
+        },
+        {
+          "command": "cabaret.syncForge",
+          "when": "resourceScheme == cabaret"
         }
       ]
     },
@@ -245,6 +253,11 @@
         "command": "cabaret.import",
         "key": "shift+1 i",
         "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.syncForge",
+        "key": "shift+1 s",
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],
     "configuration": {

@@ -2,6 +2,7 @@ import {
   type Backend,
   type CommitHash,
   type FilePath,
+  type ForgeSnapshot,
   formatLogEntry,
   LAND_TRAILER,
   type LandMerge,
@@ -99,11 +100,23 @@ export class GitHubBackend implements Backend {
   // failures surface through each batch's own `done`.
   private readonly waiting = new Map<RefName, { entries: LogEntry[]; done: Promise<void> }>();
   private readonly running = new Map<RefName, Promise<void>>();
+  // Held in memory only: this backend lives in a browser session with no
+  // filesystem, and its host is online by construction, so it re-syncs the
+  // snapshot rather than persisting one.
+  private snapshot: ForgeSnapshot | undefined;
 
   constructor(
     private readonly client: GitHubClient,
     private readonly repo: GitHubRepo,
   ) {}
+
+  async readForgeSnapshot(): Promise<ForgeSnapshot | undefined> {
+    return this.snapshot;
+  }
+
+  async writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void> {
+    this.snapshot = snapshot;
+  }
 
   /** The cached promise for `key`, computing and remembering it on the first ask; a rejection is not cached. */
   private cached<K, V>(cache: Map<K, Promise<V>>, key: K, compute: () => Promise<V>): Promise<V> {

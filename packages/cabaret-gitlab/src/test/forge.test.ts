@@ -421,7 +421,7 @@ describe("GitLabForge", () => {
     expect(await forge().findRequest(parseRefName("orphan"))).toBeUndefined();
   });
 
-  test("listOpenRequests follows the pagination cursor", async () => {
+  test("fetchSnapshot follows the pagination cursor, carrying files and non-system notes", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: [
         {
@@ -440,6 +440,25 @@ describe("GitLabForge", () => {
                       state: "opened",
                       mergeCommitSha: null,
                       diffStatsSummary: { fileCount: 2 },
+                      diffStats: [{ path: "src/app.ts" }, { path: "docs/guide.md" }],
+                      notes: {
+                        nodes: [
+                          {
+                            id: "gid://gitlab/Note/101",
+                            author: { username: "bob" },
+                            body: "please take a look",
+                            system: false,
+                            updatedAt: "2026-05-01T00:00:00Z",
+                          },
+                          {
+                            id: "gid://gitlab/Note/102",
+                            author: { username: "gitlab-bot" },
+                            body: "changed target branch from `main` to `develop`",
+                            system: true,
+                            updatedAt: "2026-05-02T00:00:00Z",
+                          },
+                        ],
+                      },
                     },
                     {
                       iid: "5",
@@ -451,6 +470,8 @@ describe("GitLabForge", () => {
                       state: "opened",
                       mergeCommitSha: null,
                       diffStatsSummary: { fileCount: 1 },
+                      diffStats: [{ path: "widgets.sql" }],
+                      notes: { nodes: [] },
                     },
                   ],
                   pageInfo: { hasNextPage: true, endCursor: "CUR1" },
@@ -479,6 +500,8 @@ describe("GitLabForge", () => {
                       state: "opened",
                       mergeCommitSha: null,
                       diffStatsSummary: { fileCount: 9 },
+                      diffStats: null,
+                      notes: { nodes: [] },
                     },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
@@ -489,10 +512,56 @@ describe("GitLabForge", () => {
         },
       ],
     });
-    expect((await forge().listOpenRequests()).map(({ id, head }) => [id, head])).toEqual([
-      [4, "first"],
-      [5, "second"],
-      [6, "third"],
+    expect(await forge().fetchSnapshot()).toEqual([
+      {
+        request: {
+          id: 4,
+          head: "first",
+          tip: "123456789abcdef0123456789abcdef012345678",
+          base: "main",
+          title: "First",
+          author: "31-alice@users.noreply.gitlab.com",
+          state: "open",
+          changedFiles: 2,
+        },
+        files: ["src/app.ts", "docs/guide.md"],
+        comments: [
+          {
+            id: "101",
+            author: "12-bob@users.noreply.gitlab.com",
+            body: "please take a look",
+            updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+          },
+        ],
+      },
+      {
+        request: {
+          id: 5,
+          head: "second",
+          tip: "23456789abcdef0123456789abcdef0123456789",
+          base: "first",
+          title: "Second",
+          author: "12-bob@users.noreply.gitlab.com",
+          state: "open",
+          changedFiles: 1,
+        },
+        files: ["widgets.sql"],
+        comments: [],
+      },
+      {
+        request: {
+          id: 6,
+          head: "third",
+          tip: "3456789abcdef0123456789abcdef0123456789a",
+          base: "main",
+          title: "Third",
+          author: "31-alice@users.noreply.gitlab.com",
+          state: "open",
+          changedFiles: 9,
+        },
+        files: [],
+        comments: [],
+      },
     ]);
     expect(graphqlVariables(calls)).toEqual([
       { path: "test-org/widgets", cursor: null },
@@ -659,19 +728,6 @@ describe("GitLabForge", () => {
     );
   });
 
-  test("listFiles pages through the diffs, listing each file's new path", async () => {
-    stubGitLab({
-      [`GET ${PROJECT}/merge_requests/7/diffs?per_page=100&page=1`]: {
-        json: [{ new_path: "src/app.ts" }, { new_path: "docs/guide.md" }],
-        nextPage: "2",
-      },
-      [`GET ${PROJECT}/merge_requests/7/diffs?per_page=100&page=2`]: {
-        json: [{ new_path: "src/render.ts" }],
-      },
-    });
-    expect(await forge().listFiles(forgeRequestId(7))).toEqual(["src/app.ts", "docs/guide.md", "src/render.ts"]);
-  });
-
   test("listComments lists oldest first and drops system notes", async () => {
     stubGitLab({
       [`GET ${PROJECT}/merge_requests/7/notes?sort=asc&per_page=100&page=1`]: {
@@ -719,12 +775,12 @@ describe("GitLabForge", () => {
 
   test("a failing request reports the status and GitLab's message", async () => {
     stubGitLab({
-      [`GET ${PROJECT}/merge_requests/404/diffs?per_page=100&page=1`]: {
+      [`GET ${PROJECT}/merge_requests/404/notes?sort=asc&per_page=100&page=1`]: {
         status: 404,
         json: { message: "404 Not Found" },
       },
     });
-    await expect(forge().listFiles(forgeRequestId(404))).rejects.toMatchObject({
+    await expect(forge().listComments(forgeRequestId(404))).rejects.toMatchObject({
       status: 404,
       message: expect.stringContaining("404 Not Found") as string,
     });

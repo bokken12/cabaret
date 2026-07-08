@@ -1,6 +1,5 @@
 import {
   type CommitHash,
-  type FilePath,
   type Forge,
   type ForgeComment,
   type ForgeLocator,
@@ -14,6 +13,7 @@ import {
   parseForgeLocator,
   parseRefName,
   type RefName,
+  type SnapshotRequest,
   timestampMs,
   UserError,
   type UserName,
@@ -58,10 +58,18 @@ const FIND_REQUEST = `query ($owner: String!, $repo: String!, $branch: String!) 
   }
 }`;
 
-const LIST_OPEN_REQUESTS = `query ($owner: String!, $repo: String!, $cursor: String) {
+// A snapshot's nested collections are capped at their first hundred entries
+// rather than paginated per request, keeping the whole sweep to one query per
+// hundred open requests. The request's own `changedFiles` still reports the
+// true count, and an import reads comments in full over REST.
+const SNAPSHOT_FIELDS =
+  `${PR_FIELDS} files(first: 100) { nodes { path } } ` +
+  "comments(first: 100) { nodes { databaseId author { login } body updatedAt } }";
+
+const FETCH_SNAPSHOT = `query ($owner: String!, $repo: String!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequests(states: OPEN, first: 100, after: $cursor) {
-      nodes { ${PR_FIELDS} }
+      nodes { ${SNAPSHOT_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -77,10 +85,25 @@ const FindRequestSchema = z.object({
   repository: z.object({ pullRequests: z.object({ nodes: z.array(PrSchema) }) }),
 });
 
-const ListOpenRequestsSchema = z.object({
+const SnapshotPrSchema = PrSchema.extend({
+  files: z.object({ nodes: z.array(z.object({ path: z.string().transform(parseFilePath) })) }).nullable(),
+  comments: z.object({
+    nodes: z.array(
+      z.object({
+        // Numbered like REST comment ids; GraphQL admits its absence.
+        databaseId: z.number().nullable(),
+        author: z.object({ login: z.string() }).nullable(),
+        body: z.string(),
+        updatedAt: z.string(),
+      }),
+    ),
+  }),
+});
+
+const FetchSnapshotSchema = z.object({
   repository: z.object({
     pullRequests: z.object({
-      nodes: z.array(PrSchema),
+      nodes: z.array(SnapshotPrSchema),
       pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
     }),
   }),
@@ -161,13 +184,28 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : this.toRequest(found);
   }
 
-  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
-    const requests: Promise<ForgeRequest>[] = [];
+  private async toSnapshotRequest(pr: z.infer<typeof SnapshotPrSchema>): Promise<SnapshotRequest> {
+    const request = await this.toRequest(pr);
+    const comments = await Promise.all(
+      pr.comments.nodes
+        .filter((comment) => comment.databaseId !== null)
+        .map(async (comment) => ({
+          id: String(comment.databaseId),
+          author: await this.identity(comment.author?.login ?? "ghost"),
+          body: comment.body,
+          updatedAt: timestampMs(Date.parse(comment.updatedAt)),
+        })),
+    );
+    return { request, files: pr.files?.nodes.map(({ path }) => path) ?? [], comments };
+  }
+
+  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
+    const requests: Promise<SnapshotRequest>[] = [];
     let cursor: string | null = null;
     do {
-      const out: unknown = await this.client.graphql(LIST_OPEN_REQUESTS, { ...this.repo, cursor });
-      const { nodes, pageInfo } = ListOpenRequestsSchema.parse(out).repository.pullRequests;
-      requests.push(...nodes.map(this.toRequest, this));
+      const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { ...this.repo, cursor });
+      const { nodes, pageInfo } = FetchSnapshotSchema.parse(out).repository.pullRequests;
+      requests.push(...nodes.map(this.toSnapshotRequest, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
     return Promise.all(requests);
@@ -236,19 +274,6 @@ export class GitHubForge implements Forge {
       commit: z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha,
       parents: method === "merge" ? 2 : 1,
     };
-  }
-
-  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
-    // A renamed file lists under its new path.
-    const data = await this.client.paginate("GET /repos/{owner}/{repo}/pulls/{pull_number}/files", {
-      ...this.repo,
-      pull_number: id,
-      per_page: 100,
-    });
-    return z
-      .array(z.object({ filename: z.string() }))
-      .parse(data)
-      .map(({ filename }) => parseFilePath(filename));
   }
 
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {

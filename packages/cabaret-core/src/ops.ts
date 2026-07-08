@@ -7,6 +7,7 @@ import {
   currentBase,
   currentOwner,
   currentParent,
+  type ForgeMerge,
   type LogEntry,
   landedMerge,
   landMessage,
@@ -16,7 +17,6 @@ import {
 } from "./backend.js";
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
-import type { ForgeMerge } from "./forge.js";
 import { assertObligationsSatisfied } from "./obligations.js";
 
 /**

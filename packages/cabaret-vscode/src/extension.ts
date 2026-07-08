@@ -18,6 +18,7 @@ import {
   renameChange,
   reparentChange,
   resolveChain,
+  syncForgeSnapshot,
   type TimestampMs,
   timestampMs,
   transferChange,
@@ -103,7 +104,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
-    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), openForge, {
+    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
       context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
     });
     this.docs.set(uri.toString(), doc);
@@ -371,10 +372,29 @@ async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
       vscode.window.showErrorMessage("cabaret: no reachable forge for this repository");
       return undefined;
     }
-    return (await importRequest(await openBackend(), now, forge, id)).change;
+    const backend = await openBackend();
+    const { change } = await importRequest(backend, now, forge, id);
+    await syncForgeSnapshot(backend, now, forge);
+    return change;
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
     return undefined;
+  }
+}
+
+/** Refresh the forge snapshot every page renders from, surfacing failure as a notification. */
+async function runSyncForge(provider: PageProvider): Promise<void> {
+  try {
+    const snapshot = await syncForgeSnapshot(await openBackend(), now, await requireForge());
+    const open = snapshot.requests.length;
+    vscode.window.setStatusBarMessage(
+      `cabaret: synced ${snapshot.locator}, ${open} open request${open === 1 ? "" : "s"}`,
+      5000,
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
   }
 }
 
@@ -525,9 +545,11 @@ async function rebaseSelection(backend: Backend, changes: readonly RefName[]): P
  */
 async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const config = await readConfig(backend);
+  let anyMerged = false;
   const landAll = async (overrides: LandOverrides) => {
     const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
-      await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
+      const merged = await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
+      anyMerged = anyMerged || merged !== undefined;
     };
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only !== undefined) {
@@ -537,26 +559,38 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
     }
   };
   let overrides: LandOverrides = { notOwner: false, unreviewed: false };
-  for (;;) {
-    try {
-      return await landAll(overrides);
-    } catch (error) {
-      let options: vscode.MessageOptions;
-      let message: string;
-      if (error instanceof NotOwnerError && !overrides.notOwner) {
-        message = `${error.change} is owned by ${error.owner}, not you.`;
-        options = { modal: true };
-        overrides = { ...overrides, notOwner: true };
-      } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
-        message = "Review obligations are unsatisfied.";
-        options = { modal: true, detail: error.details.join("\n") };
-        overrides = { ...overrides, unreviewed: true };
-      } else {
-        throw error;
+  try {
+    for (;;) {
+      try {
+        return await landAll(overrides);
+      } catch (error) {
+        let options: vscode.MessageOptions;
+        let message: string;
+        if (error instanceof NotOwnerError && !overrides.notOwner) {
+          message = `${error.change} is owned by ${error.owner}, not you.`;
+          options = { modal: true };
+          overrides = { ...overrides, notOwner: true };
+        } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
+          message = "Review obligations are unsatisfied.";
+          options = { modal: true, detail: error.details.join("\n") };
+          overrides = { ...overrides, unreviewed: true };
+        } else {
+          throw error;
+        }
+        const choice = await vscode.window.showWarningMessage(message, options, "Land Anyway");
+        if (choice === undefined) {
+          return;
+        }
       }
-      const choice = await vscode.window.showWarningMessage(message, options, "Land Anyway");
-      if (choice === undefined) {
-        return;
+    }
+  } finally {
+    // Whatever merged is no longer open; the mirror must not keep showing
+    // it. Best-effort: the land itself already succeeded.
+    if (anyMerged) {
+      try {
+        await syncForgeSnapshot(backend, now, await requireForge());
+      } catch {
+        // The next sync refreshes the mirror.
       }
     }
   }
@@ -754,6 +788,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
+    vscode.commands.registerCommand("cabaret.syncForge", () => runSyncForge(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

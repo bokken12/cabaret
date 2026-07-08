@@ -63,6 +63,10 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
       { item: change(widgets), children: [] },
       { item: { kind: "request", request }, children: [] },
     ],
+    forge: {
+      locator: parseForgeLocator("github.com/test-org/widgets"),
+      takenAt: timestampMs(Date.UTC(2025, 5, 15, 15, 6, 40)),
+    },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "╭───────────────┬────────╮
@@ -80,7 +84,9 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
     │ └─ gizmo      │      2 │ review    │
     │ widgets       │        │ land      │
     │ their-feature │      3 │ import    │
-    ╰───────────────┴────────┴───────────╯"
+    ╰───────────────┴────────┴───────────╯
+
+    github.com/test-org/widgets synced 2025-06-15T15:06:40.000Z"
   `);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.

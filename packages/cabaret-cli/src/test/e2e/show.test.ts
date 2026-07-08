@@ -70,6 +70,7 @@ test("show for an unimported PR renders the as-if-imported view", async () => {
     "docs/notes.md",
   ]);
   forge.comment(id, "carol", "please take a look");
+  await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
     "their-feature
     =============

@@ -1,6 +1,5 @@
 import {
   type CommitHash,
-  type FilePath,
   type Forge,
   type ForgeComment,
   type ForgeLocator,
@@ -14,6 +13,7 @@ import {
   parseForgeLocator,
   parseRefName,
   type RefName,
+  type SnapshotRequest,
   timestampMs,
   UserError,
   type UserName,
@@ -62,10 +62,17 @@ const FIND_REQUEST = `query ($path: ID!, $branch: String!) {
   }
 }`;
 
-const LIST_OPEN_REQUESTS = `query ($path: ID!, $cursor: String) {
+// A snapshot's comments are capped at the first hundred per request rather
+// than paginated, keeping the whole sweep to one query per hundred open
+// requests; an import still reads them in full over REST. `diffStats` lists
+// every touched path with no pagination to cap.
+const SNAPSHOT_FIELDS =
+  `${MR_FIELDS} diffStats { path } notes(first: 100) { nodes { id author { username } body system updatedAt } }`;
+
+const FETCH_SNAPSHOT = `query ($path: ID!, $cursor: String) {
   project(fullPath: $path) {
     mergeRequests(state: opened, first: 100, after: $cursor) {
-      nodes { ${MR_FIELDS} }
+      nodes { ${SNAPSHOT_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -86,11 +93,31 @@ const FindRequestSchema = z.object({
   project: z.object({ mergeRequests: z.object({ nodes: z.array(MrSchema) }) }).nullable(),
 });
 
-const ListOpenRequestsSchema = z.object({
+// A GraphQL note's id is a gid ("gid://gitlab/Note/123"); the numeric tail is
+// the REST note id, which is how `listComments` (and the comment sync built
+// on it) identifies the same note.
+const NOTE_GID = /(\d+)$/;
+
+const SnapshotMrSchema = MrSchema.extend({
+  diffStats: z.array(z.object({ path: z.string().transform(parseFilePath) })).nullable(),
+  notes: z.object({
+    nodes: z.array(
+      z.object({
+        id: z.string(),
+        author: z.object({ username: z.string() }).nullable(),
+        body: z.string(),
+        system: z.boolean(),
+        updatedAt: z.string(),
+      }),
+    ),
+  }),
+});
+
+const FetchSnapshotSchema = z.object({
   project: z
     .object({
       mergeRequests: z.object({
-        nodes: z.array(MrSchema),
+        nodes: z.array(SnapshotMrSchema),
         pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
       }),
     })
@@ -246,13 +273,36 @@ export class GitLabForge implements Forge {
     return found === undefined ? undefined : this.toRequest(found);
   }
 
-  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
-    const requests: Promise<ForgeRequest>[] = [];
+  private async toSnapshotRequest(mr: z.infer<typeof SnapshotMrSchema>): Promise<SnapshotRequest> {
+    const request = await this.toRequest(mr);
+    const comments = await Promise.all(
+      mr.notes.nodes
+        .filter((note) => !note.system)
+        .map(async (note) => {
+          const id = NOTE_GID.exec(note.id)?.[1];
+          // A gid in any other shape must not silently desynchronize the
+          // snapshot's note identities from REST's.
+          if (id === undefined) {
+            throw new Error(`unexpected note id format: ${note.id}`);
+          }
+          return {
+            id,
+            author: note.author === null ? GHOST : await this.identity(note.author.username),
+            body: note.body,
+            updatedAt: timestampMs(Date.parse(note.updatedAt)),
+          };
+        }),
+    );
+    return { request, files: mr.diffStats?.map(({ path }) => path) ?? [], comments };
+  }
+
+  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
+    const requests: Promise<SnapshotRequest>[] = [];
     let cursor: string | null = null;
     do {
-      const out: unknown = await this.client.graphql(LIST_OPEN_REQUESTS, { path: this.project.path, cursor });
-      const { nodes, pageInfo } = this.requireProject(ListOpenRequestsSchema.parse(out).project).mergeRequests;
-      requests.push(...nodes.map(this.toRequest, this));
+      const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { path: this.project.path, cursor });
+      const { nodes, pageInfo } = this.requireProject(FetchSnapshotSchema.parse(out).project).mergeRequests;
+      requests.push(...nodes.map(this.toSnapshotRequest, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
     return Promise.all(requests);
@@ -319,16 +369,6 @@ export class GitLabForge implements Forge {
     // may squash, rebase, or fast-forward whatever was asked, so the shape
     // is read off the landed commit rather than trusted from `method`.
     return this.landingShape(landedCommit(MergedMrSchema.parse(data)), tip);
-  }
-
-  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
-    // A renamed file lists under its new path (which for a deletion still
-    // names the deleted file).
-    const data = await this.client.getPaginated(`${this.api}/merge_requests/${id}/diffs`);
-    return z
-      .array(z.object({ new_path: z.string() }))
-      .parse(data)
-      .map(({ new_path }) => parseFilePath(new_path));
   }
 
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {

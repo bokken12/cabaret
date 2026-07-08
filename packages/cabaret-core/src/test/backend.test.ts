@@ -10,7 +10,10 @@ import {
   currentOwner,
   currentParent,
   type FilePath,
+  type ForgeRequest,
+  type ForgeSnapshot,
   forgeRequestId,
+  formatForgeSnapshot,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -20,6 +23,7 @@ import {
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
+  parseForgeSnapshot,
   parseLog,
   parseRefName,
   type RefName,
@@ -572,6 +576,49 @@ test("format/parse round-trips arbitrary logs", () => {
       expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
     }),
   );
+});
+
+function forgeSnapshots(): fc.Arbitrary<ForgeSnapshot> {
+  const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
+  const requests: fc.Arbitrary<ForgeRequest> = fc.record(
+    {
+      id: fc.integer({ min: 1 }).map(forgeRequestId),
+      head: refNames(),
+      tip: commitHashes(),
+      base: refNames(),
+      title: fc.string({ unit: "grapheme" }),
+      author: users,
+      state: fc.constantFrom("open" as const, "closed" as const, "merged" as const),
+      changedFiles: fc.nat(),
+      merge: fc.record({ commit: commitHashes(), parents: fc.constantFrom(1, 2) }),
+    },
+    { requiredKeys: ["id", "head", "tip", "base", "title", "author", "state", "changedFiles"] },
+  );
+  const comments = fc.record({
+    id: fc.string({ minLength: 1 }),
+    author: users,
+    body: fc.string({ unit: "grapheme" }),
+    updatedAt: fc.maxSafeNat().map(timestampMs),
+  });
+  return fc.record({
+    locator: fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator),
+    takenAt: fc.maxSafeNat().map(timestampMs),
+    requests: fc.array(fc.record({ request: requests, files: fc.array(filePaths()), comments: fc.array(comments) })),
+  });
+}
+
+test("format/parse round-trips arbitrary forge snapshots", () => {
+  fc.assert(
+    fc.property(forgeSnapshots(), (snapshot) => {
+      expect(parseForgeSnapshot(formatForgeSnapshot(snapshot))).toEqual(snapshot);
+    }),
+  );
+});
+
+test("parseForgeSnapshot reads anything unrecognizable as no snapshot", () => {
+  expect(parseForgeSnapshot("")).toBeUndefined();
+  expect(parseForgeSnapshot("not json")).toBeUndefined();
+  expect(parseForgeSnapshot('{"locator":"github.com/test-org/widgets"}')).toBeUndefined();
 });
 
 /** Entries with clustered timestamps and a small identity pool, so ties are common. */

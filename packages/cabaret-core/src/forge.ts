@@ -4,15 +4,19 @@ import {
   compareLogEntries,
   currentForgeRequest,
   currentParent,
-  type FilePath,
+  type ForgeComment,
   type ForgeLocator,
+  type ForgeMerge,
+  type ForgeRequest,
   type ForgeRequestId,
+  type ForgeSnapshot,
   formatLogEntry,
   type LogEntry,
   landedMerge,
   landTitle,
   landTrailer,
   type RefName,
+  type SnapshotRequest,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
@@ -30,53 +34,28 @@ declare class TextEncoder {
   encode(input: string): Uint8Array;
 }
 
-/** The commit that landed a merged request on its base branch. */
-export interface ForgeMerge {
-  readonly commit: CommitHash;
-  /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
-  readonly parents: number;
-}
-
-/** A pull request (GitHub) or merge request (GitLab) on a forge. */
-export interface ForgeRequest {
-  readonly id: ForgeRequestId;
-  readonly head: RefName;
-  /** The commit the head branch points at — for a merged request, what merged. */
-  readonly tip: CommitHash;
-  readonly base: RefName;
-  readonly title: string;
-  /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
-  readonly author: UserName;
-  readonly state: "open" | "closed" | "merged";
-  /** How many files the request touches. */
-  readonly changedFiles: number;
-  /** The commit that merged the request, when `state` is "merged". */
-  readonly merge?: ForgeMerge;
-}
-
-/** A request-level discussion comment on a forge. */
-export interface ForgeComment {
-  readonly id: string;
-  /** The author, mapped to a Cabaret identity by the `Forge` implementation. */
-  readonly author: UserName;
-  readonly body: string;
-  /** When the comment was last edited in place; its creation time until then. */
-  readonly updatedAt: TimestampMs;
-}
-
 /**
  * The operations Cabaret needs from a code forge (GitHub, GitLab, …).
  * Implementations live in `cabaret-github` and friends.
+ *
+ * Rendering never calls a forge: it reads the backend's `ForgeSnapshot`,
+ * which the commands that talk to the forge refresh via `syncForgeSnapshot`.
  */
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
   readonly locator: ForgeLocator;
 
+  /**
+   * Every open request with the files and comments previewing it needs, in no
+   * particular order. Taken in one sweep so a snapshot costs a handful of API
+   * calls however many requests are open; in return each request's files and
+   * comments may be capped (at the first hundred or so) — an import still
+   * reads comments in full through `listComments`.
+   */
+  fetchSnapshot(): Promise<readonly SnapshotRequest[]>;
+
   /** The open request with head `branch`, or undefined if there is none. */
   findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
-
-  /** Every open request, in no particular order. */
-  listOpenRequests(): Promise<readonly ForgeRequest[]>;
 
   getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
 
@@ -104,14 +83,25 @@ export interface Forge {
     message: string,
   ): Promise<ForgeMerge>;
 
-  /** The paths of the files the request touches. */
-  listFiles(id: ForgeRequestId): Promise<readonly FilePath[]>;
-
   /** The request-level comments, oldest first. */
   listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]>;
 
   /** Post a request-level comment. */
   addComment(id: ForgeRequestId, body: string): Promise<void>;
+}
+
+/**
+ * Mirror the forge's open requests into the backend's stored snapshot,
+ * returning what was written.
+ */
+export async function syncForgeSnapshot(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+): Promise<ForgeSnapshot> {
+  const snapshot: ForgeSnapshot = { locator: forge.locator, takenAt: now(), requests: await forge.fetchSnapshot() };
+  await backend.writeForgeSnapshot(snapshot);
+  return snapshot;
 }
 
 /**
