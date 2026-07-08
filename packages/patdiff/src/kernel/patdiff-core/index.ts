@@ -200,6 +200,11 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
       prev: prevLines,
       next: nextLines,
     });
+    // Tolerance must see raw lines: refine styles them, and styled strings
+    // never compare float-equal. Matches [CompareCore.compareLines]'s ordering.
+    if (args.floatTolerance !== undefined) {
+      hunks = FloatTolerance.apply(hunks, args.floatTolerance, context);
+    }
     hunks = runRefine({
       rules,
       produceUnifiedLines,
@@ -211,9 +216,6 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
       wordBigEnough,
       hunks,
     });
-    if (args.floatTolerance !== undefined) {
-      hunks = FloatTolerance.apply(hunks, args.floatTolerance, context);
-    }
     const fileNames = [FileNameMod.fake(args.prev.name), FileNameMod.fake(args.next.name)] as const;
     return outputToString({
       ...(args.printGlobalHeader !== undefined ? { printGlobalHeader: args.printGlobalHeader } : {}),

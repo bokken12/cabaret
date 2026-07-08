@@ -451,34 +451,36 @@ export const hunksToLines = (hunks: StructuredHunks): readonly (readonly LineInf
   // ranges and patch them.
   for (const [moveId, ranges] of nextsByMoveId) {
     const start = startOfMoveInPrev.get(moveId);
-    if (start === undefined) continue;
+    if (start === undefined) {
+      throw new Error(`side-by-side move back-patch: no prev start recorded for move ${String(moveId)}`);
+    }
     const cursor: LineIndex = { hunkIndex: start.hunkIndex, lineIndex: start.lineIndex };
+    // A patch target that is missing or not a [Prev] means the recorded move
+    // positions have drifted from the grid — an upstream bug, not a state to
+    // tolerate.
+    const patchPrevAtCursor = (newContents: ParsedLine): void => {
+      const target = result[cursor.hunkIndex]?.[cursor.lineIndex];
+      if (target === undefined || target.kind !== "Prev") {
+        throw new Error(
+          `side-by-side move back-patch: expected Prev at hunk ${cursor.hunkIndex}, line ${cursor.lineIndex} for move ${String(moveId)}, found ${target?.kind ?? "nothing"}`,
+        );
+      }
+      result[cursor.hunkIndex]![cursor.lineIndex] = LineInfo.prev(
+        { lineNumber: target.line.lineNumber, contents: newContents },
+        target.moveId,
+      );
+      cursor.lineIndex++;
+    };
     for (const range of ranges) {
       if (range.kind === "prev" && range.moveKind !== undefined) {
         // OCaml: Prev with [Some _]: rewrite tags, then overwrite contents.
         for (const lineContents of range.contents) {
-          const newContents = sameToPrev(toContents(lineContents));
-          const target = result[cursor.hunkIndex]?.[cursor.lineIndex];
-          if (target !== undefined && target.kind === "Prev") {
-            result[cursor.hunkIndex]![cursor.lineIndex] = LineInfo.prev(
-              { lineNumber: target.line.lineNumber, contents: newContents },
-              target.moveId,
-            );
-          }
-          cursor.lineIndex++;
+          patchPrevAtCursor(sameToPrev(toContents(lineContents)));
         }
       } else if (range.kind === "replace" && range.moveId !== undefined) {
         // Replace already refined, contents are correct from refinement; just copy.
         for (const lineContents of range.prev) {
-          const newContents = toContents(lineContents);
-          const target = result[cursor.hunkIndex]?.[cursor.lineIndex];
-          if (target !== undefined && target.kind === "Prev") {
-            result[cursor.hunkIndex]![cursor.lineIndex] = LineInfo.prev(
-              { lineNumber: target.line.lineNumber, contents: newContents },
-              target.moveId,
-            );
-          }
-          cursor.lineIndex++;
+          patchPrevAtCursor(toContents(lineContents));
         }
       } else if (range.kind === "next") {
         // Skip ahead in the prev-grid by however many lines were on the next side

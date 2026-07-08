@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Percent } from "../shared/percent.js";
 import * as CompareCore from "./compare-core.js";
 import { defaultConfiguration, override } from "./configuration.js";
+import * as PatdiffCore from "./patdiff-core.js";
 
 describe("CompareCore.withoutUnix.compareLines", () => {
   it("returns an all-Same Hunks result for identical inputs", () => {
@@ -38,6 +40,26 @@ describe("CompareCore.withoutUnix.compareLines", () => {
       next: ["hello", "WORLD"],
     });
     expect(res.kind).toBe("StructuredHunks");
+  });
+});
+
+describe("float tolerance", () => {
+  it("compareLines and patdiff agree that within-tolerance floats are no diff", () => {
+    const tolerance = Percent.ofMult(0.01);
+    const prev = "value: 1.0";
+    const next = "value: 1.005";
+    const cl = CompareCore.withoutUnix.compareLines({
+      config: override(defaultConfiguration, { floatTolerance: tolerance }),
+      prev: [prev],
+      next: [next],
+    });
+    expect(cl).toEqual({ kind: "Hunks", hunks: [] });
+    const rendered = PatdiffCore.withoutUnix.patdiff({
+      floatTolerance: tolerance,
+      prev: { name: "old", text: `${prev}\n` },
+      next: { name: "new", text: `${next}\n` },
+    });
+    expect(rendered).toBe("");
   });
 });
 

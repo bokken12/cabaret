@@ -65,6 +65,13 @@ describe("Percent.parse", () => {
   it("throws on bad number", () => {
     expect(() => Percent.parse("abc%")).toThrow();
   });
+
+  it("throws on a bare unit suffix", () => {
+    expect(() => Percent.parse("x")).toThrow();
+    expect(() => Percent.parse("%")).toThrow();
+    expect(() => Percent.parse("bp")).toThrow();
+    expect(() => Percent.parse(" x ")).toThrow();
+  });
 });
 
 describe("Percent round-trip", () => {

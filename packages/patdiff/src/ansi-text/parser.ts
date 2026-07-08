@@ -74,7 +74,7 @@ const parseCsi = (cur: Cursor): Element[] => {
   const next = cur.peek();
   if (next !== undefined && isCsiFinalByte(next)) {
     cur.advance(1);
-    return [Ansi.ofCsi(params, next, privatePrefix)];
+    return [Ansi.ofCsi(params, intermediate, next, privatePrefix)];
   }
   const paramsCombined = privatePrefix !== undefined ? `${privatePrefix}${params}` : params;
   return [{ kind: "Unknown", value: UnknownEsc.Fe("[") }, ...textOfTrailing(paramsCombined + intermediate)];

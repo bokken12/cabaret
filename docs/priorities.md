@@ -79,22 +79,6 @@ and a review system.
   `for-each-ref` + one `cat-file --batch` session (which also fixes
   `readFile`'s two-spawns-per-blob); only then the parent index the
   `Backend.readLog` TODO anticipates.
-- **patdiff4 segment classification is quadratic with a huge constant.**
-  **[measured: 108 ms → 3.6 s from 500 → 4,000 lines]** `equalForClassify`
-  (patdiff `segments.ts`) runs the full diff+refine pipeline per equality
-  test, `Diamond.classify` does up to six per segment, and the merge path
-  re-classifies the whole accumulated slice each time a segment merges in.
-  A normalized-line equality pre-check plus classifying only the newly
-  merged pair collapses it. This is the one patdiff hot path the rebase
-  review flow actually hits.
-- **Quadratic hunk splitting in `getHunks`.** **[measured: 22× overhead]**
-  (patdiff `patience-diff.ts`) rebuilds the remaining-ranges array via
-  spread on every hunk break; same prepend-spread pattern in `explode.ts`
-  and `float-tolerance.ts`. Mechanical fixes (push + reverse once).
-- **Wide characters hang patdiff.** **[measured: OOM]** `split` in
-  ansi-text `text-with-ansi.ts` makes no progress when the first character
-  is wider than the remaining column, so wrapping `"中"` at width 1 loops
-  until heap exhaustion. Any CJK/emoji in a narrow diff kills the process.
 - **`reviewRounds` re-runs `git log` per distinct reviewed tip.**
   `remainingSpans` (cabaret-core `summary.ts`) re-invokes
   `backend.landMerges` though base..tip is fixed for the whole call —
@@ -109,11 +93,6 @@ and a review system.
   at every call site instead of caching per workspace folder, and
   `showChild`/`pickParent` re-read every change's log serially for parent
   links `todoPage` already derives.
-- **ansi-text materializes a `CharInfo` object per codepoint** of every
-  styled line (`text.ts`), and its `concat` re-spreads the accumulator per
-  chunk — felt on every render of long lines. Same pattern class as the
-  `getHunks` fix.
-
 ## 5. Structural debt
 
 - **Structured patdiff4 output: done for 4-way; 2-way still parses text.**
@@ -170,13 +149,6 @@ and a review system.
   `<!-- cabaret:<hash> -->` matching a local entry is treated as our
   reflection or a supersession — a quoted/pasted marker can silently hide
   someone else's comment. Check the claimed author at minimum.
-- **`patdiff()` applies float tolerance after refine; `compareLines` before.**
-  **[measured]** With tolerance set, `compareLines` returns no hunks but
-  default-Ansi `patdiff()` still renders the diff (tolerance ends up
-  comparing ANSI-styled strings). Match `compare-core.ts`'s ordering.
-- **Binary detection runs after UTF-8 decoding** in patdiff
-  `lib/compare-core.ts`: invalid bytes become U+FFFD first, so two
-  byte-different binaries can compare "Same". Detect on a Buffer.
 - Smaller, same spirit:
   - `userName` (cabaret-core `backend.ts`) is the one brand that doesn't
     validate; empty names only explode later in the schema re-parse.
@@ -194,12 +166,6 @@ and a review system.
     strong CLI e2e suite; it's exactly extractable-pure logic.
   - Docs drift: `glab pull/push` stubs appear in `cli-reference.md`
     unmarked.
-  - patdiff fail-fast gaps: the side-by-side move back-patch silently
-    no-ops on bookkeeping mismatch; `matchRatio([], [])` is `NaN`.
-  - ansi-text parses colon-form SGR (`38:2:r:g:b`, the form modern tools
-    emit) as a spurious Reset — the empty param list after dropping colon
-    args defaults to `[0]`. Related: `\x1b[;31m` loses its implied reset,
-    and CSI intermediate bytes are dropped so `\x1b[0 m` misparses as Reset.
 
 ## 7. Noted, not prioritized
 
@@ -208,29 +174,18 @@ several become relevant the moment nearby code is touched.
 
 ### patdiff correctness tail
 
-- **Unbounded recursion in patience `matches`.** The OCaml tail calls were
-  TCO'd; the JS port grows the stack (`patience-diff.ts` `recurse`,
-  four self-call sites). `plain-diff.ts` already got the explicit-stack
-  conversion this function did not; adversarially nested input can
-  overflow with no recovery.
 - **Side-by-side width handling is inconsistent.** The body clamps pane
   width to `MIN_COL_WIDTH` but the header computes its divider unclamped,
   so at `widthOverride: 80` the dividers misalign and overrides below
   ~121 are silently ignored for the body; `withoutUnix` also reports
   width 120 where the OCaml default appears to be 121 — check upstream.
-- **Lenient parsing where the port should reject.** `Percent.parse("x")`
-  succeeds as 0 because `Number("")` is 0, so a typo'd threshold silently
-  becomes 0; the sexp lexer accepts `\999` escapes sexplib rejects and its
-  block-comment scanner ignores quoted strings, so `#| "|#" |#` terminates
-  early.
+- **Lenient parsing where the port should reject.** The sexp lexer accepts
+  `\999` escapes sexplib rejects and its block-comment scanner ignores
+  quoted strings, so `#| "|#" |#` terminates early.
 - **A guard in `refine.ts` is asymmetric** (`prev < 200 && next < 100`)
   where OCaml's check looks symmetric — possibly a transcription typo that
   shifts refinement boundaries for 100–199-line replace blocks; verify
   against upstream before "fixing" either way.
-- **`infiniteContext = 100_000` is a cliff, not infinity.** patdiff4's
-  inner ddiffs use it as "infinite" context; files past 100k lines
-  silently misalign the outer ddiff. `getHunks` already treats `-1` as
-  infinite — use that.
 - **`extractTodos` linear-scans `lineStarts` per TODO** (cabaret-core
   `todo.ts`) — O(todos × lines); binary search if big generated files
   ever matter.
@@ -248,8 +203,6 @@ several become relevant the moment nearby code is touched.
   the generator produces equal arrays, and the function demonstrably
   diverges from `getHunks` on identical inputs — the function is kept
   deliberately (§5), so fix the divergence or constrain the generator.
-- patdiff's `smoke.test.ts` asserts `1+1 === 2` — against the
-  no-tautological-tests rule.
 
 ### Forge sync: designed but not built
 

@@ -18,21 +18,21 @@ function slice<T>(arr: ReadonlyArray<T>, i: number, j: number): T[] {
   return arr.slice(i, j) as T[];
 }
 
-// Does the nitty gritty of turning indexes into line numbers and reversing the ranges,
-// returning a nice new hunk.
+// Does the nitty gritty of turning indexes into line numbers, returning a nice new
+// hunk. Takes ownership of [ranges].
 function createHunk<T>(
   prevStart: number,
   prevStop: number,
   nextStart: number,
   nextStop: number,
-  rangesRev: Range<T>[],
+  ranges: Range<T>[],
 ): Hunk<T> {
   return {
     prevStart: prevStart + 1,
     prevSize: prevStop - prevStart,
     nextStart: nextStart + 1,
     nextSize: nextStop - nextStart,
-    ranges: rangesRev.slice().reverse(),
+    ranges,
   };
 }
 
@@ -228,72 +228,118 @@ function uniqueLcs<Elt>(
 }
 
 // ===== matches =====
+// Jobs for the explicit work stack replacing the OCaml original's recursion: the JS call
+// stack would grow with input nesting depth and can overflow. "diff" processes a
+// subproblem, "emitRun" appends a run of matches deferred until an earlier region is
+// done, and "lcs" resumes walking an LCS after diffing the gap before its next element.
+type MatchesJob =
+  | { tag: "diff"; alo: number; blo: number; ahi: number; bhi: number }
+  | { tag: "emitRun"; astart: number; bstart: number; count: number }
+  | {
+      tag: "lcs";
+      lcs: OrderedElt[];
+      idx: number;
+      lastAPos: number;
+      lastBPos: number;
+      alo: number;
+      blo: number;
+      ahi: number;
+      bhi: number;
+      oldLength: number;
+    };
+
 function matches<Elt>(ops: EltOps<Elt>, alpha: ReadonlyArray<Elt>, bravo: ReadonlyArray<Elt>): Array<[number, number]> {
   const out: Array<[number, number]> = [];
-  let outLen = 0;
-  const addMatch = (m: [number, number]): void => {
-    outLen += 1;
-    out.push(m);
+
+  const plainDiff = (alo: number, blo: number, ahi: number, bhi: number): void => {
+    PlainDiff.iterMatches({
+      a: alpha.slice(alo, ahi),
+      b: bravo.slice(blo, bhi),
+      hash: ops.hash,
+      f: ([i1, i2]) => out.push([alo + i1, blo + i2]),
+    });
   };
 
-  const recurse = (alo: number, blo: number, ahi: number, bhi: number): void => {
-    const oldLength = outLen;
-    if (alo >= ahi || blo >= bhi) return;
-    if (ops.compare(alpha[alo]!, bravo[blo]!) === 0) {
-      let a = alo;
-      let b = blo;
-      while (a < ahi && b < bhi && ops.compare(alpha[a]!, bravo[b]!) === 0) {
-        addMatch([a, b]);
-        a += 1;
-        b += 1;
+  const stack: MatchesJob[] = [{ tag: "diff", alo: 0, blo: 0, ahi: alpha.length, bhi: bravo.length }];
+  while (stack.length > 0) {
+    const job = stack.pop()!;
+    switch (job.tag) {
+      case "emitRun": {
+        for (let i = 0; i < job.count; i++) {
+          out.push([job.astart + i, job.bstart + i]);
+        }
+        break;
       }
-      recurse(a, b, ahi, bhi);
-      return;
-    }
-    if (ops.compare(alpha[ahi - 1]!, bravo[bhi - 1]!) === 0) {
-      let nahi = ahi - 1;
-      let nbhi = bhi - 1;
-      while (nahi > alo && nbhi > blo && ops.compare(alpha[nahi - 1]!, bravo[nbhi - 1]!) === 0) {
-        nahi -= 1;
-        nbhi -= 1;
+      case "lcs": {
+        if (job.idx === job.lcs.length) {
+          if (out.length > job.oldLength) {
+            stack.push({ tag: "diff", alo: job.lastAPos + 1, blo: job.lastBPos + 1, ahi: job.ahi, bhi: job.bhi });
+          } else {
+            plainDiff(job.alo, job.blo, job.ahi, job.bhi);
+          }
+          break;
+        }
+        const [apos, bpos] = job.lcs[job.idx]!;
+        const gap = job.lastAPos + 1 !== apos || job.lastBPos + 1 !== bpos;
+        const gapAlo = job.lastAPos + 1;
+        const gapBlo = job.lastBPos + 1;
+        job.idx += 1;
+        job.lastAPos = apos;
+        job.lastBPos = bpos;
+        stack.push(job);
+        stack.push({ tag: "emitRun", astart: apos, bstart: bpos, count: 1 });
+        if (gap) {
+          stack.push({ tag: "diff", alo: gapAlo, blo: gapBlo, ahi: apos, bhi: bpos });
+        }
+        break;
       }
-      recurse(alo, blo, nahi, nbhi);
-      for (let i = 0; i < ahi - nahi; i++) {
-        addMatch([nahi + i, nbhi + i]);
+      case "diff": {
+        let { alo, blo, ahi, bhi } = job;
+        while (alo < ahi && blo < bhi) {
+          if (ops.compare(alpha[alo]!, bravo[blo]!) === 0) {
+            while (alo < ahi && blo < bhi && ops.compare(alpha[alo]!, bravo[blo]!) === 0) {
+              out.push([alo, blo]);
+              alo += 1;
+              blo += 1;
+            }
+            continue;
+          }
+          if (ops.compare(alpha[ahi - 1]!, bravo[bhi - 1]!) === 0) {
+            let nahi = ahi - 1;
+            let nbhi = bhi - 1;
+            while (nahi > alo && nbhi > blo && ops.compare(alpha[nahi - 1]!, bravo[nbhi - 1]!) === 0) {
+              nahi -= 1;
+              nbhi -= 1;
+            }
+            // Emit the equal tail only after the middle region has been diffed.
+            stack.push({ tag: "emitRun", astart: nahi, bstart: nbhi, count: ahi - nahi });
+            ahi = nahi;
+            bhi = nbhi;
+            continue;
+          }
+          const result = uniqueLcs(ops, alpha, alo, ahi, bravo, blo, bhi);
+          if (result.kind === "notEnoughUniqueTokens") {
+            plainDiff(alo, blo, ahi, bhi);
+          } else {
+            stack.push({
+              tag: "lcs",
+              lcs: result.lcs,
+              idx: 0,
+              lastAPos: alo - 1,
+              lastBPos: blo - 1,
+              alo,
+              blo,
+              ahi,
+              bhi,
+              oldLength: out.length,
+            });
+          }
+          break;
+        }
+        break;
       }
-      return;
     }
-    let lastAPos = alo - 1;
-    let lastBPos = blo - 1;
-    const plainDiff = (): void => {
-      PlainDiff.iterMatches({
-        a: alpha.slice(alo, ahi),
-        b: bravo.slice(blo, bhi),
-        hash: ops.hash,
-        f: ([i1, i2]) => addMatch([alo + i1, blo + i2]),
-      });
-    };
-    const result = uniqueLcs(ops, alpha, alo, ahi, bravo, blo, bhi);
-    if (result.kind === "notEnoughUniqueTokens") {
-      plainDiff();
-      return;
-    }
-    for (const [apos, bpos] of result.lcs) {
-      if (lastAPos + 1 !== apos || lastBPos + 1 !== bpos) {
-        recurse(lastAPos + 1, lastBPos + 1, apos, bpos);
-      }
-      lastAPos = apos;
-      lastBPos = bpos;
-      addMatch([apos, bpos]);
-    }
-    if (outLen > oldLength) {
-      recurse(lastAPos + 1, lastBPos + 1, ahi, bhi);
-    } else {
-      plainDiff();
-    }
-  };
-
-  recurse(0, 0, alpha.length, bravo.length);
+  }
   return out;
 }
 
@@ -622,11 +668,12 @@ function getRangesRev<A, Elt>(ops: EltOps<Elt>, args: GetMatchingBlocksArgs<A, E
 
 function getHunksFromOps<A, Elt>(ops: EltOps<Elt>, args: GetHunksArgs<A, Elt>): Hunk<A>[] {
   const context = args.context;
-  const ranges = getRangesRev(ops, args);
+  // We own the array getRangesRev returns, so it can be mutated in place below.
+  const remaining = getRangesRev(ops, args);
   const a = args.prev;
   const b = args.next;
   if (context < 0) {
-    const singleton = createHunk(0, a.length, 0, b.length, ranges.slice().reverse());
+    const singleton = createHunk(0, a.length, 0, b.length, remaining);
     return [singleton];
   }
 
@@ -635,14 +682,12 @@ function getHunksFromOps<A, Elt>(ops: EltOps<Elt>, args: GetHunksArgs<A, Elt>): 
   let ahi = 0;
   let blo = 0;
   let bhi = 0;
-  let remaining: Range<A>[] = ranges;
   if (remaining.length > 0 && remaining[0]!.kind === "same") {
     const first = remaining[0]!;
     const arr = first.contents;
     const stop = arr.length;
     const start = Math.max(0, stop - context);
-    const trimmed = Range.same(arr.slice(start, stop));
-    remaining = [trimmed, ...remaining.slice(1)];
+    remaining[0] = Range.same(arr.slice(start, stop));
     alo = start;
     ahi = start;
     blo = start;
@@ -650,8 +695,7 @@ function getHunksFromOps<A, Elt>(ops: EltOps<Elt>, args: GetHunksArgs<A, Elt>): 
   }
 
   const accHunks: Hunk<A>[] = [];
-  let currRangesRev: Range<A>[] = [];
-  // Use index-based traversal of `remaining` so we can prepend without copying often.
+  let currRanges: Range<A>[] = [];
   let idx = 0;
   while (idx < remaining.length) {
     const range = remaining[idx]!;
@@ -660,39 +704,34 @@ function getHunksFromOps<A, Elt>(ops: EltOps<Elt>, args: GetHunksArgs<A, Elt>): 
       if (isLast) {
         const arr = range.contents;
         const stop = Math.min(arr.length, context);
-        const newRange = Range.same(arr.slice(0, stop));
-        currRangesRev = [newRange, ...currRangesRev];
+        currRanges.push(Range.same(arr.slice(0, stop)));
         ahi = ahi + stop;
         bhi = bhi + stop;
-        accHunks.push(createHunk(alo, ahi, blo, bhi, currRangesRev));
-        idx += 1;
+        accHunks.push(createHunk(alo, ahi, blo, bhi, currRanges));
         return accHunks;
       }
       const arr = range.contents;
       const size = arr.length;
       if (size > context * 2) {
-        const newRange = Range.same(arr.slice(0, context));
-        currRangesRev = [newRange, ...currRangesRev];
+        currRanges.push(Range.same(arr.slice(0, context)));
         ahi = ahi + context;
         bhi = bhi + context;
-        accHunks.push(createHunk(alo, ahi, blo, bhi, currRangesRev));
-        // start a new hunk
+        accHunks.push(createHunk(alo, ahi, blo, bhi, currRanges));
+        // Start a new hunk; the trailing context of this range becomes its lead-in.
         alo = ahi + size - 2 * context;
         ahi = alo;
         blo = bhi + size - 2 * context;
         bhi = blo;
-        const tail = Range.same(arr.slice(size - context, size));
-        remaining = [tail, ...remaining.slice(idx + 1)];
-        idx = 0;
-        currRangesRev = [];
+        remaining[idx] = Range.same(arr.slice(size - context, size));
+        currRanges = [];
       } else {
-        currRangesRev = [Range.same(arr), ...currRangesRev];
+        currRanges.push(Range.same(arr));
         ahi = ahi + size;
         bhi = bhi + size;
         idx += 1;
       }
     } else {
-      currRangesRev = [range, ...currRangesRev];
+      currRanges.push(range);
       switch (range.kind) {
         case "next": {
           bhi = bhi + range.contents.length;
@@ -716,11 +755,16 @@ function getHunksFromOps<A, Elt>(ops: EltOps<Elt>, args: GetHunksArgs<A, Elt>): 
     }
   }
   // No more remaining: finish the last hunk.
-  accHunks.push(createHunk(alo, ahi, blo, bhi, currRangesRev));
+  accHunks.push(createHunk(alo, ahi, blo, bhi, currRanges));
   return accHunks;
 }
 
 function matchRatioFromOps<Elt>(ops: EltOps<Elt>, a: ReadonlyArray<Elt>, b: ReadonlyArray<Elt>): number {
+  // Two empty sequences have no well-defined ratio (0/0); callers compare non-empty
+  // candidate blocks, so reject rather than silently return NaN.
+  if (a.length === 0 && b.length === 0) {
+    throw new Error("matchRatio: both inputs are empty");
+  }
   const ms = matches(ops, a, b);
   return (ms.length * 2) / (a.length + b.length);
 }

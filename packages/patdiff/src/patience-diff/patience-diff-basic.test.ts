@@ -30,3 +30,15 @@ describe("matches (basic)", () => {
     }
   });
 });
+
+describe("matchRatio", () => {
+  it("is 2·matches / (|a| + |b|)", () => {
+    expect(Int.matchRatio([0, 1, 2, 9], [0, 1, 2, 7])).toBe(6 / 8);
+  });
+  it("is 0 when one side is empty", () => {
+    expect(Int.matchRatio([], [4, 5])).toBe(0);
+  });
+  it("rejects two empty inputs rather than returning NaN", () => {
+    expect(() => Int.matchRatio([], [])).toThrow("matchRatio: both inputs are empty");
+  });
+});

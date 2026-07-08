@@ -28,6 +28,9 @@ const ansiCharArb: fc.Arbitrary<string> = fc.oneof(
   { arbitrary: fc.constant("\\"), weight: 1 },
   { arbitrary: fc.constant("m"), weight: 1 },
   { arbitrary: fc.constant(";"), weight: 1 },
+  // Colon-form SGR subparams and CSI intermediate bytes.
+  { arbitrary: fc.constant(":"), weight: 1 },
+  { arbitrary: fc.constant(" "), weight: 1 },
   {
     arbitrary: fc.integer({ min: 0x30, max: 0x39 }).map((n) => String.fromCharCode(n)),
     weight: 3,
@@ -55,6 +58,8 @@ const escHeavyCharArb: fc.Arbitrary<string> = fc.oneof(
   { arbitrary: fc.constant("\\"), weight: 1 },
   { arbitrary: fc.constant("m"), weight: 1 },
   { arbitrary: fc.constant(";"), weight: 1 },
+  { arbitrary: fc.constant(":"), weight: 1 },
+  { arbitrary: fc.constant(" "), weight: 1 },
   {
     arbitrary: fc.integer({ min: 0x30, max: 0x39 }).map((n) => String.fromCharCode(n)),
     weight: 2,

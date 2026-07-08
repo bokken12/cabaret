@@ -10,18 +10,35 @@ export const equalLiteral = (a: T, b: T): boolean => {
   return true;
 };
 
-export const ofSgrParams = (params: readonly (number | undefined)[]): T => {
-  let codes: readonly number[] = params.filter((p): p is number => p !== undefined);
-  if (codes.length === 0) codes = [0];
+/** Each param is a subparam group: singletons for `;`-separated codes, longer
+ *  groups for colon-form colors (already validated by the parser). */
+export const ofSgrParams = (params: readonly (readonly number[])[]): T => {
+  const single = (i: number): number | undefined => {
+    const p = params[i];
+    return p !== undefined && p.length === 1 ? p[0] : undefined;
+  };
   const acc: Attr.T[] = [];
   let i = 0;
-  while (i < codes.length) {
-    const c0 = codes[i]!;
-    if ((c0 === 38 || c0 === 48 || c0 === 58) && codes[i + 1] === 2 && i + 4 < codes.length) {
-      acc.push(Attr.ofCodes(codes.slice(i, i + 5)));
+  while (i < params.length) {
+    const piece = params[i]!;
+    if (piece.length > 1) {
+      acc.push(Attr.ofCodes(piece));
+      i += 1;
+      continue;
+    }
+    const c0 = piece[0]!;
+    const isColorIntro = c0 === 38 || c0 === 48 || c0 === 58;
+    if (
+      isColorIntro &&
+      single(i + 1) === 2 &&
+      single(i + 2) !== undefined &&
+      single(i + 3) !== undefined &&
+      single(i + 4) !== undefined
+    ) {
+      acc.push(Attr.ofCodes([c0, 2, single(i + 2)!, single(i + 3)!, single(i + 4)!]));
       i += 5;
-    } else if ((c0 === 38 || c0 === 48 || c0 === 58) && codes[i + 1] === 5 && i + 2 < codes.length) {
-      acc.push(Attr.ofCodes(codes.slice(i, i + 3)));
+    } else if (isColorIntro && single(i + 1) === 5 && single(i + 2) !== undefined) {
+      acc.push(Attr.ofCodes([c0, 5, single(i + 2)!]));
       i += 3;
     } else {
       acc.push(Attr.ofCodes([c0]));

@@ -3,14 +3,10 @@
  * Tracks per-codepoint widths to support [split] correctly.
  */
 
-interface CharInfo {
-  readonly str: string;
-  readonly width: number;
-}
-
 export interface T {
   readonly str: string;
-  readonly charInfos: readonly CharInfo[];
+  /** Display width of each codepoint of [str], in codepoint iteration order. */
+  readonly widths: readonly number[];
   readonly width: number;
 }
 
@@ -168,7 +164,7 @@ const zeroWidthRanges: readonly [number, number][] = [
 
 const codepointWidth = (cp: number): number => {
   // Approximation of Uucp.Break.tty_width_hint:
-  // - C0/C1 controls return -1 (we clamp to 0 via max 0)
+  // - C0/C1 controls return 0 (tty_width_hint says -1; we clamp)
   // - zero-width combining marks return 0
   // - East Asian Wide/Fullwidth return 2
   // - everything else returns 1
@@ -178,20 +174,15 @@ const codepointWidth = (cp: number): number => {
   return 1;
 };
 
-const codepointsOf = (s: string): CharInfo[] => {
-  const result: CharInfo[] = [];
-  for (const ch of s) {
-    const cp = ch.codePointAt(0)!;
-    result.push({ str: ch, width: Math.max(0, codepointWidth(cp)) });
-  }
-  return result;
-};
-
 export const ofString = (str: string): T => {
-  const charInfos = codepointsOf(str);
+  const widths: number[] = [];
   let width = 0;
-  for (const ci of charInfos) width += ci.width;
-  return { str, charInfos, width };
+  for (const ch of str) {
+    const w = codepointWidth(ch.codePointAt(0)!);
+    widths.push(w);
+    width += w;
+  }
+  return { str, widths, width };
 };
 
 export const width = (t: T): number => t.width;
@@ -200,26 +191,28 @@ export const toString = (t: T): string => t.str;
 
 export const split = (t: T, pos: number): readonly [T, T] => {
   let widthSoFar = 0;
-  let n = 0;
-  for (let i = 0; i < t.charInfos.length; i++) {
-    const w = t.charInfos[i]!.width;
-    if (widthSoFar + w > pos) break;
+  let n = 0; // codepoints in the prefix
+  let cut = 0; // code units in the prefix
+  for (const ch of t.str) {
+    const w = t.widths[n]!;
+    const fits = widthSoFar + w <= pos;
+    // A first char wider than [pos] is still taken — otherwise callers that split
+    // repeatedly (wrapping) never make progress — and zero-width followers
+    // (combining marks) stay attached to it.
+    const forced = pos > 0 && (n === 0 || (widthSoFar > pos && w === 0));
+    if (!fits && !forced) break;
     widthSoFar += w;
-    n = i + 1;
+    n += 1;
+    cut += ch.length;
   }
-  const prefixInfos = t.charInfos.slice(0, n);
-  const suffixInfos = t.charInfos.slice(n);
-  let prefixStr = "";
-  for (const ci of prefixInfos) prefixStr += ci.str;
-  const suffixStr = t.str.slice(prefixStr.length);
   const prefix: T = {
-    str: prefixStr,
-    charInfos: prefixInfos,
+    str: t.str.slice(0, cut),
+    widths: t.widths.slice(0, n),
     width: widthSoFar,
   };
   const suffix: T = {
-    str: suffixStr,
-    charInfos: suffixInfos,
+    str: t.str.slice(cut),
+    widths: t.widths.slice(n),
     width: t.width - widthSoFar,
   };
   return [prefix, suffix];
@@ -227,15 +220,20 @@ export const split = (t: T, pos: number): readonly [T, T] => {
 
 export const concat2 = (t1: T, t2: T): T => ({
   str: t1.str + t2.str,
-  charInfos: [...t1.charInfos, ...t2.charInfos],
+  widths: [...t1.widths, ...t2.widths],
   width: t1.width + t2.width,
 });
 
 export const concat = (ts: readonly T[]): T => {
-  const empty: T = { str: "", charInfos: [], width: 0 };
-  let acc = empty;
-  for (const t of ts) acc = concat2(acc, t);
-  return acc;
+  let str = "";
+  const widths: number[] = [];
+  let width = 0;
+  for (const t of ts) {
+    str += t.str;
+    for (const w of t.widths) widths.push(w);
+    width += t.width;
+  }
+  return { str, widths, width };
 };
 
 export const equal = (a: T, b: T): boolean => a.str === b.str;
