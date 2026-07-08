@@ -36,9 +36,9 @@ import * as Header from "./header.js";
 import * as Range from "./range.js";
 import * as Slice from "./slice.js";
 
-/** A context wider than any file. The 4-way pipeline sizes and compares
- *  context arithmetically, so infinity is a large count, not patdiff's
- *  negative sentinel. */
+/** Effectively infinite context for the 4-way segment alignment, which sizes
+ *  and compares context arithmetically and so needs a large count, not
+ *  patdiff's negative sentinel. */
 export const infiniteContext = 100_000;
 
 /** Where a line's content lives: its 1-based line number in each version that
@@ -277,7 +277,9 @@ const makeDdiffAlgo = (args: { id: "base_ddiff" | "feature_ddiff"; hints?: reado
         diffOfChange({
           includeHunkBreaks: withHunkBreaks,
           header: { kind: "Diff2", diff: header },
-          context: withHunkBreaks ? context : infiniteContext,
+          // Negative context is patdiff's true-infinity sentinel; a large
+          // count would silently trim files longer than it.
+          context: withHunkBreaks ? context : -1,
           output,
           change: change(nodes),
         }).map((line) => ({

@@ -58,6 +58,48 @@ describe("Compare_core (Node I/O)", () => {
     }
   });
 
+  it("compareFiles distinguishes binaries differing only in invalid-UTF-8 bytes", () => {
+    const dir = mkTmp();
+    try {
+      const a = path.join(dir, "a.bin");
+      const b = path.join(dir, "b.bin");
+      // The differing bytes are invalid UTF-8, so both files decode to the
+      // same string (U+FFFD); a post-decoding check would report BinarySame.
+      fs.writeFileSync(a, Buffer.from([0x00, 0xff, 0xfe, 0x01]));
+      fs.writeFileSync(b, Buffer.from([0x00, 0xff, 0xfd, 0x01]));
+      const result = compareFiles({
+        config: defaultConfiguration,
+        prevFile: FileName.real(a),
+        nextFile: FileName.real(b),
+      });
+      expect(result).toEqual({
+        kind: "BinaryDifferent",
+        prevIsBinary: true,
+        nextIsBinary: true,
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("compareFiles returns BinarySame for byte-identical binaries", () => {
+    const dir = mkTmp();
+    try {
+      const a = path.join(dir, "a.bin");
+      const b = path.join(dir, "b.bin");
+      fs.writeFileSync(a, Buffer.from([0x00, 0xff, 0xfe, 0x01]));
+      fs.writeFileSync(b, Buffer.from([0x00, 0xff, 0xfe, 0x01]));
+      const result = compareFiles({
+        config: defaultConfiguration,
+        prevFile: FileName.real(a),
+        nextFile: FileName.real(b),
+      });
+      expect(result).toEqual({ kind: "BinarySame" });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("diffFiles returns 'Same' for identical files (quiet)", () => {
     const dir = mkTmp();
     try {

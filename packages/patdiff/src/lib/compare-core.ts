@@ -12,6 +12,7 @@ import type { Configuration } from "../kernel/configuration.js";
 import * as FileHelpers from "../kernel/file-helpers.js";
 import * as FileName from "../kernel/file-name.js";
 import type { Hunks } from "../kernel/hunks.js";
+import * as IsBinary from "../kernel/is-binary.js";
 
 import { withNodeIo } from "./patdiff-core.js";
 
@@ -25,8 +26,6 @@ export type {
 /** [CompareCoreS] backed by the Node-aware [PatdiffCore]. */
 export const withNodeIoCompare: CompareCoreS = makeKernelCompare(withNodeIo);
 
-const readFileText = (p: string): string => fs.readFileSync(p, "utf8");
-
 /** Read both files and compute the [ComparisonResult]. */
 export const compareFiles = (args: {
   config: Configuration;
@@ -34,12 +33,22 @@ export const compareFiles = (args: {
   nextFile: FileName.FileName;
 }): ComparisonResult.ComparisonResult => {
   const { config, prevFile, nextFile } = args;
-  const prev = readFileText(FileName.realNameExn(prevFile));
-  const next = readFileText(FileName.realNameExn(nextFile));
+  const prevBytes = fs.readFileSync(FileName.realNameExn(prevFile));
+  const nextBytes = fs.readFileSync(FileName.realNameExn(nextFile));
+  // Detect binaries on raw bytes: decoding first maps invalid UTF-8 to U+FFFD,
+  // which can make byte-different binaries compare equal.
+  if (!config.assumeText) {
+    const prevIsBinary = IsBinary.bytes(prevBytes);
+    const nextIsBinary = IsBinary.bytes(nextBytes);
+    if (prevIsBinary || nextIsBinary) {
+      if (prevBytes.equals(nextBytes)) return { kind: "BinarySame" };
+      return { kind: "BinaryDifferent", prevIsBinary, nextIsBinary };
+    }
+  }
   return ComparisonResult.create({
     config,
-    prev: { name: FileName.displayName(prevFile), text: prev },
-    next: { name: FileName.displayName(nextFile), text: next },
+    prev: { name: FileName.displayName(prevFile), text: prevBytes.toString("utf8") },
+    next: { name: FileName.displayName(nextFile), text: nextBytes.toString("utf8") },
     compareAssumingText: ({ config: cfg, prev: p, next: n }) => {
       const [prevLines, prevNl] = FileHelpers.linesOfContents(p.text);
       const [nextLines, nextNl] = FileHelpers.linesOfContents(n.text);

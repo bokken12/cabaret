@@ -87,36 +87,41 @@ const needlemanWunsch = <T>(xs: readonly T[], ys: readonly T[], equal: (a: T, b:
 };
 
 type PartialRangeIndexes =
-  | { kind: "matching"; pairs: readonly (readonly [number, number])[] }
-  | { kind: "nonmatching"; is: readonly number[]; js: readonly number[] };
+  | { kind: "matching"; pairs: Array<readonly [number, number]> }
+  | { kind: "nonmatching"; is: number[]; js: number[] };
 
 const smallest = (a: number, b: number, c: number): number => {
   if (a < b) return a < c ? 0 : 2;
   return b < c ? 1 : 2;
 };
 
-const consMinusOne = (car: number, cdr: readonly number[], ifUnequalTo: number): readonly number[] => {
-  if (car === ifUnequalTo) return cdr;
-  return [car - 1, ...cdr];
-};
-
 const recoverRanges = (xs: readonly string[], ys: readonly string[], a: number[][]): Range<string>[] => {
-  let acc: PartialRangeIndexes[] = [];
+  // The table is walked back-to-front, so parts and the indices within them are
+  // accumulated in reverse and reversed once at the end, keeping recovery linear.
+  const parts: PartialRangeIndexes[] = [];
+  const pushMatch = (ii: number, jj: number): void => {
+    const head = parts[parts.length - 1];
+    if (head === undefined || head.kind === "nonmatching") {
+      parts.push({ kind: "matching", pairs: [[ii, jj]] });
+    } else {
+      head.pairs.push([ii, jj]);
+    }
+  };
+  const nonmatchingHead = (): { is: number[]; js: number[] } => {
+    const head = parts[parts.length - 1];
+    if (head !== undefined && head.kind === "nonmatching") return head;
+    const fresh = { kind: "nonmatching" as const, is: [], js: [] };
+    parts.push(fresh);
+    return fresh;
+  };
   let i = xs.length;
   let j = ys.length;
   while (true) {
     if (i <= 0 || j <= 0) {
       if (i <= 0 && j <= 0) break;
-      const is_: number[] = [];
-      for (let k = 0; k < i; k++) is_.push(k);
-      const js_: number[] = [];
-      for (let k = 0; k < j; k++) js_.push(k);
-      const head = acc[0];
-      if (head === undefined || head.kind === "matching") {
-        acc = [{ kind: "nonmatching", is: is_, js: js_ }, ...acc];
-      } else {
-        acc = [{ kind: "nonmatching", is: [...is_, ...head.is], js: [...js_, ...head.js] }, ...acc.slice(1)];
-      }
+      const head = nonmatchingHead();
+      for (let k = i - 1; k >= 0; k--) head.is.push(k);
+      for (let k = j - 1; k >= 0; k--) head.js.push(k);
       break;
     }
     const which = smallest(a[i - 1]![j]!, a[i - 1]![j - 1]!, a[i]![j - 1]!);
@@ -143,43 +148,25 @@ const recoverRanges = (xs: readonly string[], ys: readonly string[], a: number[]
         throw new Error("unreachable");
     }
     if (matched) {
-      const head = acc[0];
-      if (head === undefined || head.kind === "nonmatching") {
-        acc = [{ kind: "matching", pairs: [[i - 1, j - 1]] }, ...acc];
-      } else {
-        acc = [{ kind: "matching", pairs: [[i - 1, j - 1], ...head.pairs] }, ...acc.slice(1)];
-      }
+      pushMatch(i - 1, j - 1);
     } else {
-      const head = acc[0];
-      if (head === undefined || head.kind === "matching") {
-        acc = [
-          {
-            kind: "nonmatching",
-            is: consMinusOne(i, [], iNew),
-            js: consMinusOne(j, [], jNew),
-          },
-          ...acc,
-        ];
-      } else {
-        acc = [
-          {
-            kind: "nonmatching",
-            is: consMinusOne(i, head.is, iNew),
-            js: consMinusOne(j, head.js, jNew),
-          },
-          ...acc.slice(1),
-        ];
-      }
+      const head = nonmatchingHead();
+      if (i !== iNew) head.is.push(i - 1);
+      if (j !== jNew) head.js.push(j - 1);
     }
     i = iNew;
     j = jNew;
   }
+  parts.reverse();
   const eltsOfIndices = (is: readonly number[], src: readonly string[]): readonly string[] => is.map((k) => src[k]!);
-  return acc.map((part): Range<string> => {
+  return parts.map((part): Range<string> => {
     if (part.kind === "matching") {
+      part.pairs.reverse();
       const pairs = part.pairs.map(([ii, jj]) => [xs[ii]!, ys[jj]!] as const);
       return Range.same(pairs);
     }
+    part.is.reverse();
+    part.js.reverse();
     if (part.is.length > 0 && part.js.length === 0) {
       return Range.prev(eltsOfIndices(part.is, xs));
     }
@@ -307,10 +294,10 @@ const reconstructHunks = (args: {
   type State = {
     prevStart: number;
     nextStart: number;
-    rangesRev: Range<string>[];
+    ranges: Range<string>[];
   };
   const toHunk = (s: State): Hunk<string> => {
-    const ranges = s.rangesRev.slice().reverse();
+    const ranges = s.ranges;
     return {
       prevStart: s.prevStart,
       prevSize: ranges.reduce((a, r) => a + Range.prevSize(r), 0),
@@ -323,17 +310,17 @@ const reconstructHunks = (args: {
   let state: State = {
     prevStart: args.prevStart,
     nextStart: args.nextStart,
-    rangesRev: [],
+    ranges: [],
   };
   for (const dk of args.dropOrKeeps) {
     if (dk.kind === "keep") {
-      state.rangesRev.unshift(dk.range);
+      state.ranges.push(dk.range);
     } else {
       const hunk = toHunk(state);
       const newState: State = {
         prevStart: state.prevStart + hunk.prevSize + dk.n,
         nextStart: state.nextStart + hunk.nextSize + dk.n,
-        rangesRev: [],
+        ranges: [],
       };
       if (hunk.ranges.length !== 0) {
         out.push(hunk);
@@ -341,7 +328,7 @@ const reconstructHunks = (args: {
       state = newState;
     }
   }
-  if (state.rangesRev.length > 0) {
+  if (state.ranges.length > 0) {
     out.push(toHunk(state));
   }
   return out;

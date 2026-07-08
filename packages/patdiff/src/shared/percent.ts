@@ -27,21 +27,15 @@ export const toString = (p: Percent): string => {
 
 export const parse = (s: string): Percent => {
   const t = s.trim();
-  if (t.endsWith("bp")) {
-    const n = Number(t.slice(0, -2));
+  // [Number("")] is 0, so a bare suffix must be rejected explicitly.
+  const numberOf = (numeric: string): number => {
+    const n = numeric.trim() === "" ? NaN : Number(numeric);
     if (!Number.isFinite(n)) throw new Error(`Invalid percent: ${s}`);
-    return ofBp(n);
-  }
-  if (t.endsWith("x")) {
-    const n = Number(t.slice(0, -1));
-    if (!Number.isFinite(n)) throw new Error(`Invalid percent: ${s}`);
-    return ofMult(n);
-  }
-  if (t.endsWith("%")) {
-    const n = Number(t.slice(0, -1));
-    if (!Number.isFinite(n)) throw new Error(`Invalid percent: ${s}`);
-    return ofPercentage(n);
-  }
+    return n;
+  };
+  if (t.endsWith("bp")) return ofBp(numberOf(t.slice(0, -2)));
+  if (t.endsWith("x")) return ofMult(numberOf(t.slice(0, -1)));
+  if (t.endsWith("%")) return ofPercentage(numberOf(t.slice(0, -1)));
   throw new Error(`Invalid percent (no unit suffix): ${s}`);
 };
 

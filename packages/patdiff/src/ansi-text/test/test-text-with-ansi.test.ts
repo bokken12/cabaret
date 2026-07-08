@@ -1,3 +1,4 @@
+import * as fc from "fast-check";
 import { expect, it } from "vitest";
 import * as AnsiText from "../ansi-text.js";
 
@@ -12,6 +13,7 @@ const {
   styleAtEnd,
   split,
   visualize,
+  wrap,
   Attr,
   Style,
   Text,
@@ -64,14 +66,14 @@ it("map over styles, escapes, and texts", () => {
     return undefined;
   });
   expect(toStringHum(t)).toMatchInlineSnapshot(
-    `"(off +bold)foo(off +faint +italic)bar(off +blink +fastblink)baz(off fg:rgb256-1-1-1 +invert)(ANSI-CSI:4B)(ANSI-CSI:T)(ANSI-CSI:B)"`,
+    `"(off +bold off)foo(off +faint +italic)bar(off +blink +fastblink)baz(off fg:rgb256-1-1-1 +invert)(ANSI-CSI:4B)(ANSI-CSI:T)(ANSI-CSI:B)"`,
   );
 });
 
 it("simplify_styles combines, shortens, and drops", () => {
   const t = parse("\x1b[0;1;m\x1b[2;3;mfoo\x1b[2;3m  bar  \x1b[5;6mbaz\x1b[38;2;1;1;1;7m");
   expect(toStringHum(simplifyStyles(t))).toMatchInlineSnapshot(
-    `"(off +faint +italic)foo  bar  (+fastblink)baz(fg:rgb256-1-1-1 +invert)"`,
+    `"(off)foo(+faint +italic)  bar  (+fastblink)baz(fg:rgb256-1-1-1 +invert)"`,
   );
 });
 
@@ -141,4 +143,41 @@ it("split handles unicode", () => {
     `"(+bold bg:red)(ANSI-CSI:2J)0123(+faint fg:green)4👋(bg:default -weight fg:default)"`,
   );
   expect(visualize(afterStr)).toMatchInlineSnapshot(`"(bg:red +faint fg:green)👋5(+uline +subscript)6789(off)"`);
+});
+
+it("split takes an overwide leading char so repeated splits make progress", () => {
+  const [before, after] = split(1, parse("中文"));
+  expect([toString(before), toString(after)]).toEqual(["中", "文"]);
+});
+
+it("wrap puts a char wider than the width on its own overflowing line", () => {
+  expect(wrap(parse("中文字"), { width: 1 }).map((l) => toString(l))).toEqual(["中", "文", "字"]);
+  expect(wrap(parse("a中b"), { width: 2 }).map((l) => toString(l))).toEqual(["a", "中", "b"]);
+});
+
+it("wrap of styled emoji at width 1 keeps styles per line", () => {
+  expect(wrap(parse("\x1b[31m👋🌍\x1b[0m"), { width: 1 }).map((l) => toString(l))).toEqual([
+    "\x1b[31m👋\x1b[39m",
+    "\x1b[31m🌍\x1b[39m",
+  ]);
+});
+
+it("an overflowing char keeps its zero-width combining marks", () => {
+  expect(wrap(parse("中́x"), { width: 1 }).map((l) => toString(l))).toEqual(["中́", "x"]);
+});
+
+it("wrap rejects widths below 1", () => {
+  expect(() => wrap(parse("abc"), { width: 0 })).toThrowError("wrap: width must be at least 1, got 0");
+});
+
+it("wrap terminates and preserves unstyled content at any width", () => {
+  const unitArb = fc.oneof(...["中", "👋", "́", "a", " ", "\x1b", "[", "3", ";", "m"].map((c) => fc.constant(c)));
+  fc.assert(
+    fc.property(fc.string({ unit: unitArb, maxLength: 30 }), fc.integer({ min: 1, max: 4 }), (s, w) => {
+      const t = parse(s);
+      const lines = wrap(t, { width: w });
+      expect(lines.map((l) => AnsiText.toUnstyled(l)).join("")).toBe(AnsiText.toUnstyled(t));
+    }),
+    { numRuns: 300 },
+  );
 });

@@ -7,7 +7,7 @@
  *  into segments, each classified by which of its four slices are equal. */
 
 import * as Format from "../kernel/format.js";
-import { defaultLineBigEnough, defaultWordBigEnough, withoutUnix } from "../kernel/patdiff-core.js";
+import { defaultLineBigEnough, defaultWordBigEnough, removeWs, withoutUnix } from "../kernel/patdiff-core.js";
 import { String as PatienceString } from "../patience-diff/patience-diff.js";
 import { iterMatches } from "../patience-diff/plain-diff.js";
 import { splitLines } from "../shared/string-util.js";
@@ -27,16 +27,48 @@ const tail = <A>(list: readonly A[], n: number): readonly A[] =>
 /** The first `n` elements. */
 const head = <A>(list: readonly A[], n: number): readonly A[] => (n <= 0 ? [] : list.slice(0, n));
 
+/** The lines' whitespace-stripped concatenation. The classification pipeline
+ *  ignores whitespace at every level — line matching and word refinement both
+ *  compare through [removeWs] — so it can only ever show differences between
+ *  these characters: unequal projections prove inequality without diffing.
+ *  Stripping distributes over concatenation, so the merge loop below can
+ *  maintain the projection incrementally instead of rescanning accumulated
+ *  slices. */
+const stripAllWs = (lines: readonly string[]): string => {
+  const parts: string[] = [];
+  for (const line of lines) parts.push(line.replace(/[ \t\r\n]+/g, ""));
+  return parts.join("");
+};
+
+/** Line-by-line equality under the diff's whitespace normalization. Equal
+ *  normalized sequences diff to all-Same ranges, which refine drops, so this
+ *  implies pipeline equality without running it. */
+const equalModuloWs = (lines1: readonly string[], lines2: readonly string[]): boolean => {
+  if (lines1.length !== lines2.length) return false;
+  for (let i = 0; i < lines1.length; i++) {
+    const a = lines1[i]!;
+    const b = lines2[i]!;
+    if (a !== b && removeWs(a) !== removeWs(b)) return false;
+  }
+  return true;
+};
+
+/** A slice's lines paired with their [stripAllWs] projection. */
+type ClassifyInput = { readonly lines: readonly string[]; readonly stripped: string };
+
 /** Equality modulo whitespace: two slices classify as equal when patdiff
- *  finds nothing to show between them. */
-const equalForClassify = (lines1: readonly string[], lines2: readonly string[]): boolean => {
+ *  finds nothing to show between them. The projection and line pre-checks
+ *  decide most pairs; the full diff+refine pipeline is the last resort. */
+const equalForClassify = (a: ClassifyInput, b: ClassifyInput): boolean => {
+  if (a.stripped !== b.stripped) return false;
+  if (equalModuloWs(a.lines, b.lines)) return true;
   const hunks = withoutUnix.diff({
     context: 0,
     lineBigEnough: defaultLineBigEnough,
     keepWs: false,
     findMoves: false,
-    prev: lines1,
-    next: lines2,
+    prev: a.lines,
+    next: b.lines,
   });
   const refined = withoutUnix.refine({
     rules: Format.Rules.defaultRules,
@@ -51,10 +83,10 @@ const equalForClassify = (lines1: readonly string[], lines2: readonly string[]):
   return refined.length === 0;
 };
 
-const classifySlices = (slice: DiamondT<Slice.Slice>): Diff4Class.Diff4Class =>
+const classifyStripped = (slice: DiamondT<Slice.Slice>, stripped: DiamondT<string>): Diff4Class.Diff4Class =>
   Diamond.classify(
     equalForClassify,
-    Diamond.map(slice, (s) => s.lines),
+    Diamond.map2(slice, stripped, (s, st): ClassifyInput => ({ lines: s.lines, stripped: st })),
   );
 
 const splitAround = <A>(list: readonly A[], n: number): readonly [readonly A[], A, readonly A[]] => {
@@ -75,26 +107,50 @@ const ofMatches = (args: {
 }): Segment[] => {
   const { fileNames, context, linesRequiredToSeparateDdiffHunks, diamond, matches } = args;
   const segments: Segment[] = [];
-  // The pending segment, paired with the last raw segment merged into it.
-  let currentSegment: readonly [Segment, Segment] | undefined;
+  // The pending segment and the last raw segment merged into it, each paired
+  // with the stripped projection of its slices so merged classifications
+  // need not rescan the accumulated lines.
+  type Pending = {
+    readonly seg: Segment;
+    readonly segStripped: DiamondT<string>;
+    readonly last: Segment;
+    readonly lastStripped: DiamondT<string>;
+  };
+  let current: Pending | undefined;
   let currentRevCommon: string[] = [];
 
-  const enqueueSegment = (segment: Segment): void => {
-    if (currentSegment === undefined) {
+  const enqueueSegment = (segment: Segment, stripped: DiamondT<string>): void => {
+    if (current === undefined) {
       const preCommon = tail(currentRevCommon, context);
       currentRevCommon = [];
-      currentSegment = [SegmentM.prepend(preCommon, segment), segment];
+      const preStripped = stripAllWs(preCommon);
+      current = {
+        seg: SegmentM.prepend(preCommon, segment),
+        segStripped: Diamond.map(stripped, (s) => preStripped + s),
+        last: segment,
+        lastStripped: stripped,
+      };
       return;
     }
-    const [seg1, lastOfSeg1] = currentSegment;
+    const { seg: seg1, segStripped: seg1Stripped, last: lastOfSeg1, lastStripped } = current;
     const seg2 = segment;
     const contextBetween = currentRevCommon;
     currentRevCommon = [];
+    const contextStripped = stripAllWs(contextBetween);
     const diff4ClassOfLastTwo = (): Diff4Class.Diff4Class => {
       if (lastOfSeg1.diff4Class === seg2.diff4Class) return lastOfSeg1.diff4Class;
       return Diamond.classify(
         equalForClassify,
-        Diamond.map2(lastOfSeg1.slice, seg2.slice, (s1, s2) => [...s1.lines, ...contextBetween, ...s2.lines]),
+        Diamond.init(
+          (node): ClassifyInput => ({
+            lines: [
+              ...Diamond.get(lastOfSeg1.slice, node).lines,
+              ...contextBetween,
+              ...Diamond.get(seg2.slice, node).lines,
+            ],
+            stripped: Diamond.get(lastStripped, node) + contextStripped + Diamond.get(stripped, node),
+          }),
+        ),
       );
     };
     // Either merge the segments or separate them, distributing the common
@@ -108,8 +164,10 @@ const ofMatches = (args: {
         range: Range.merge(sl1.range, sl2.range),
         lines: [...sl1.lines, ...contextBetween, ...sl2.lines],
       }));
-      const diff4Class = seg1.diff4Class === seg2.diff4Class ? seg1.diff4Class : classifySlices(slice);
-      currentSegment = [{ slice, diff4Class }, seg2];
+      const mergedStripped = Diamond.map2(seg1Stripped, stripped, (s1, s2) => s1 + contextStripped + s2);
+      const diff4Class =
+        seg1.diff4Class === seg2.diff4Class ? seg1.diff4Class : classifyStripped(slice, mergedStripped);
+      current = { seg: { slice, diff4Class }, segStripped: mergedStripped, last: seg2, lastStripped: stripped };
     } else {
       const splitAt = Math.min(context, Math.floor(contextBetween.length / 2));
       if (SegmentM.isShown(seg1)) {
@@ -117,20 +175,26 @@ const ofMatches = (args: {
         segments.push(SegmentM.append(seg1, head(contextBetween, splitSeg1)));
       }
       const splitSeg2 = SegmentM.isShown(seg1) ? splitAt : context;
-      const started = SegmentM.prepend(tail(contextBetween, splitSeg2), seg2);
-      currentSegment = [started, seg2];
+      const preCommon = tail(contextBetween, splitSeg2);
+      const preStripped = stripAllWs(preCommon);
+      current = {
+        seg: SegmentM.prepend(preCommon, seg2),
+        segStripped: Diamond.map(stripped, (s) => preStripped + s),
+        last: seg2,
+        lastStripped: stripped,
+      };
     }
   };
 
   const finalize = (): Segment[] => {
-    if (currentSegment !== undefined) {
-      const [segment] = currentSegment;
+    if (current !== undefined) {
+      const { seg: segment } = current;
       if (SegmentM.isShown(segment)) {
         const postCommon = head(currentRevCommon, context);
         segments.push(SegmentM.append(segment, postCommon));
       }
     }
-    currentSegment = undefined;
+    current = undefined;
     currentRevCommon = [];
     return segments;
   };
@@ -140,7 +204,8 @@ const ofMatches = (args: {
     const slice = Diamond.map3(fileNames, matchLines, sourceLines, (source, line, lines) =>
       Slice.create(source, line, lines),
     );
-    enqueueSegment({ slice, diff4Class: classifySlices(slice) });
+    const stripped = Diamond.map(slice, (s) => stripAllWs(s.lines));
+    enqueueSegment({ slice, diff4Class: classifyStripped(slice, stripped) }, stripped);
   };
 
   let matchLines = Diamond.singleton(0);
@@ -186,9 +251,13 @@ export const ofFiles = (args: {
   const lines = Diamond.map(contents, splitLines);
 
   const filesDiff4Class = Diamond.classify(
-    (a: readonly [string, readonly string[]], b: readonly [string, readonly string[]]) =>
+    (a: readonly [string, ClassifyInput], b: readonly [string, ClassifyInput]) =>
       a[0] === b[0] || equalForClassify(a[1], b[1]),
-    Diamond.map2(revNames, lines, (rev, fileLines) => [rev, fileLines] as const),
+    Diamond.map2(
+      revNames,
+      lines,
+      (rev, fileLines) => [rev, { lines: fileLines, stripped: stripAllWs(fileLines) }] as const,
+    ),
   );
 
   if (!(shouldSplitFilesInHunks(filesDiff4Class) || (args.forceShouldSplitFilesInHunksForTests ?? false))) {

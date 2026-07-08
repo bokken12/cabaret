@@ -125,7 +125,7 @@ it("all the attributes", () => {
 
 it("apply turns on and off but doesn't simplify", () => {
   const str = "some \x1b[2;48;5;1m\x1b[1K text";
-  const style = Style.ofSgrParams([1, 2, 3, 4, 38, 5, 250]);
+  const style = Style.ofSgrParams([[1], [2], [3], [4], [38], [5], [250]]);
   const styled = apply(style, str);
   expect(styled).toMatchInlineSnapshot(`"[1;2;3;4;38;5;250msome [2;48;5;1m[1K text[22;23;24;39m"`);
   expect(minimize(styled)).toMatchInlineSnapshot(`"[2;3;4;38;5;250msome [41m[1K text[22;23;24;39m"`);
@@ -490,4 +490,102 @@ it("OSC sequences - other/unknown", () => {
   const s = "\x1b]99;some payload\x07";
   expect(visualize(s)).toMatchInlineSnapshot(`"(ANSI-OSC:99;some payload)"`);
   expect(escString(toString(parse(s)))).toMatchInlineSnapshot(`"\\027]99;some payload\\007"`);
+});
+
+describe("colon-form SGR", () => {
+  const test = (s: string): readonly [string, string] => [visualize(s), escString(toString(parse(s)))];
+
+  it("truecolor foreground", () => {
+    expect(test("\x1b[38:2:255:0:0mred\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(fg:rgb256-255-0-0)red(off)",
+        "\\027[38;2;255;0;0mred\\027[0m",
+      ]
+    `);
+  });
+  it("truecolor with empty colorspace id", () => {
+    expect(test("\x1b[48:2::0:255:0mgreen bg\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(bg:rgb256-0-255-0)green bg(off)",
+        "\\027[48;2;0;255;0mgreen bg\\027[0m",
+      ]
+    `);
+  });
+  it("truecolor with colorspace id", () => {
+    expect(test("\x1b[38:2:1:0:0:255mblue\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(fg:rgb256-0-0-255)blue(off)",
+        "\\027[38;2;0;0;255mblue\\027[0m",
+      ]
+    `);
+  });
+  it("256-color foreground and underline", () => {
+    expect(test("\x1b[38:5:196m\x1b[58:5:32mtext\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(fg:rgb6-5-0-0)(ul:rgb6-0-2-4)text(off)",
+        "\\027[38;5;196m\\027[58;5;32mtext\\027[0m",
+      ]
+    `);
+  });
+  it("mixed with semicolon params", () => {
+    expect(test("\x1b[1;38:2:10:20:30;4mtext\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(+bold fg:rgb256-10-20-30 +uline)text(off)",
+        "\\027[1;38;2;10;20;30;4mtext\\027[0m",
+      ]
+    `);
+  });
+  it("non-color colon form has no Attr shape and round-trips as Unknown", () => {
+    expect(test("\x1b[4:3mcurly\x1b[4:0m")).toMatchInlineSnapshot(`
+      [
+        "(ANSI-CSI:4:3m)curly(ANSI-CSI:4:0m)",
+        "\\027[4:3mcurly\\027[4:0m",
+      ]
+    `);
+  });
+});
+
+describe("SGR edge cases that must not become a spurious Reset", () => {
+  const test = (s: string): readonly [string, string] => [visualize(s), escString(toString(parse(s)))];
+
+  it("leading empty param is an implied reset", () => {
+    expect(test("\x1b[;31mred\x1b[0m")).toMatchInlineSnapshot(`
+      [
+        "(off fg:red)red(off)",
+        "\\027[0;31mred\\027[0m",
+      ]
+    `);
+  });
+  it("trailing empty param is an implied reset", () => {
+    expect(test("\x1b[31;mplain")).toMatchInlineSnapshot(`
+      [
+        "(fg:red off)plain",
+        "\\027[31;0mplain",
+      ]
+    `);
+  });
+  it("an intermediate byte disqualifies SGR", () => {
+    expect(test("\x1b[0 mtext")).toMatchInlineSnapshot(`
+      [
+        "(ANSI-CSI:0 m)text",
+        "\\027[0 mtext",
+      ]
+    `);
+  });
+  it("intermediate bytes round-trip on any CSI final", () => {
+    expect(test("\x1b[4 q")).toMatchInlineSnapshot(`
+      [
+        "(ANSI-CSI:4 q)",
+        "\\027[4 q",
+      ]
+    `);
+  });
+  it("SGR mouse release report is not a style", () => {
+    expect(test("\x1b[<0;33;22m")).toMatchInlineSnapshot(`
+      [
+        "(ANSI-CSI:<0;33;22m)",
+        "\\027[<0;33;22m",
+      ]
+    `);
+  });
 });

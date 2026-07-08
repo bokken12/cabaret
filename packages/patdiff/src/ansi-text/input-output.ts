@@ -55,6 +55,8 @@ export const truncate = (t: TextWithAnsiT, opts: { width: number }): TextWithAns
   TextWithAnsi.split(opts.width, t)[0];
 
 export const wrap = (t: TextWithAnsiT, opts: { width: number }): readonly TextWithAnsiT[] => {
+  // split only guarantees progress for positive widths.
+  if (opts.width < 1) throw new Error(`wrap: width must be at least 1, got ${opts.width}`);
   const result: TextWithAnsiT[] = [];
   let cur = t;
   while (!TextWithAnsi.isEmpty(cur)) {

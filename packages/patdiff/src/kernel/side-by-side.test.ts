@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { MoveId } from "../patience-diff/move-id.js";
+import { MoveKind } from "../patience-diff/move-kind.js";
 import { ansiOutput } from "./ansi-output.js";
 import { asciiOutput } from "./ascii-output.js";
 import * as Format from "./format.js";
@@ -34,6 +36,27 @@ describe("SideBySide.hunksToLines", () => {
     // context line) and one Prev/Next/Same for the changed line.
     const allKinds = rows.flat().map((r) => r.kind);
     expect(allKinds).toContain("Same");
+  });
+
+  it("throws when a move's next side has no recorded prev side", () => {
+    // A next-side move whose prev side never appears is a bookkeeping bug in
+    // the hunks handed to us; the back-patch must not silently skip it.
+    const hunks = [
+      {
+        prevStart: 1,
+        prevSize: 0,
+        nextStart: 1,
+        nextSize: 1,
+        ranges: [
+          {
+            kind: "next" as const,
+            moveKind: MoveKind.move(MoveId.zero),
+            contents: [[["Same", "moved line"] as const]],
+          },
+        ],
+      },
+    ];
+    expect(() => SideBySide.hunksToLines(hunks)).toThrow(/no prev start recorded for move 0/);
   });
 });
 

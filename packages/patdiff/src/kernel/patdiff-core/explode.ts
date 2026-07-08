@@ -37,48 +37,27 @@ export const explodeInternal = (wordsByLine: ReadonlyArray<readonly string[]>, k
     }
   }
 
-  // Step 2: fold from the right to collapse adjacent newlines. We mirror OCaml's
-  // [List.fold_right]: we iterate from the back and prepend each [x] to [acc], with
-  // collapse logic where [x] is a newline and [hd acc] is a newline.
-  let acc: WordOrNewline[] = [];
+  // Step 2: fold from the right to collapse adjacent newlines, mirroring OCaml's
+  // [List.fold_right]. [acc] is built back-to-front (its last element is the head of
+  // the OCaml accumulator) and reversed once at the end, keeping the fold linear.
+  const acc: WordOrNewline[] = [];
   for (let i = tokens.length - 1; i >= 0; i--) {
     const x = tokens[i]!;
-    if (acc.length === 0) {
-      acc = [x];
-      continue;
-    }
-    const head = acc[0]!;
-    if (head.kind === "word") {
-      acc = [x, ...acc];
-      continue;
-    }
-    // head is newline
-    if (head.trailer === undefined) {
-      if (x.kind === "word") {
-        // x : Word — keep order as [x; head; ...]
-        acc = [x, ...acc];
-      } else {
-        // collapse: [head] becomes Newline(i+j, x.trailer)
-        const collapsed = newline(x.count + head.count, x.trailer);
-        acc = [collapsed, ...acc.slice(1)];
-      }
+    const head = acc[acc.length - 1];
+    if (head === undefined || head.kind === "word" || x.kind === "word") {
+      acc.push(x);
     } else {
-      // head.trailer is Some s1
-      if (x.kind === "word") {
-        acc = [x, ...acc];
-      } else {
-        // collapse: trailer = (x.trailer ?? "") ++ head.trailer
-        const s1 = (x.trailer ?? "") + head.trailer;
-        const collapsed = newline(x.count + head.count, s1);
-        acc = [collapsed, ...acc.slice(1)];
-      }
+      // Both newlines: collapse into one, concatenating trailers.
+      const trailer = head.trailer === undefined ? x.trailer : (x.trailer ?? "") + head.trailer;
+      acc[acc.length - 1] = newline(x.count + head.count, trailer);
     }
   }
+  acc.reverse();
 
   // Step 3: drop one newline from the leading newline.
   if (acc.length > 0 && acc[0]!.kind === "newline") {
     const h = acc[0]!;
-    acc = [newline(h.count - 1, h.trailer), ...acc.slice(1)];
+    acc[0] = newline(h.count - 1, h.trailer);
   }
 
   // Step 4: append a Newline(1, None) at end if there are any words. (OCaml: don't drop
