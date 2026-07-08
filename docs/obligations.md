@@ -15,7 +15,7 @@ A directory may contain at most one obligations file, named `.obligations`. It i
 }
 ```
 
-- `match` is a gitignore-style pattern, interpreted relative to the directory containing the file, matching anywhere in that subtree.
+- `match` is a gitignore-style pattern, interpreted relative to the directory containing the file. A pattern without `/` matches the file's name at any depth; one with `/` matches the whole relative path, where `*` stops at separators and `**` does not. Dotfiles match like any other file. Patterns ending in `/` are rejected: rules govern files, not directories.
 - `require` demands that at least `atLeast` distinct users from `of` review the file. Users are identified by email, as everywhere in Cabaret.
 - `atLeast` must satisfy `0 < atLeast <= |of|`; anything else is unsatisfiable or vacuous and is rejected at parse.
 - An optional top-level `"root": true` stops inheritance: obligations files in ancestor directories are ignored for this subtree.
@@ -37,6 +37,8 @@ Coverage is not required. A file matched by no rule carries no obligation, and a
 A user counts toward a rule on a file when their review state covers the change's current base-to-tip diff for that file. The owner counts like any other user; writing the code and reviewing it are both ways of knowing it.
 
 A rule is satisfied when at least `atLeast` of its `of` users count. A change is sufficiently reviewed when every changed file's obligation is satisfied, and `land` refuses until it is.
+
+Only files changed within the change's own review spans are governed. The diff a land merge brings in was reviewed in the landed child, under the child's own obligations, so it imposes nothing here.
 
 Obligations introduce no new log action: satisfaction is a pure function of the tree and the existing `review` entries in the log.
 

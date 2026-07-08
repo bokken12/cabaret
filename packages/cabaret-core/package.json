@@ -12,12 +12,14 @@
   },
   "dependencies": {
     "cabaret-util": "workspace:*",
+    "picomatch": "^4.0.5",
     "zod": "^4.4.3"
   },
   "scripts": {
     "build": "tsc -b"
   },
   "devDependencies": {
+    "@types/picomatch": "^4.0.3",
     "fast-check": "^4.8.0"
   }
 }

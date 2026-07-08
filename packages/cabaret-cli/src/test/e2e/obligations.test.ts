@@ -1,0 +1,80 @@
+import { expect, test } from "vitest";
+import { addChange, makeRepo, type TestRepo } from "./fixture.js";
+
+/** Commit an `.obligations` file at `path` on the current branch. */
+async function commitPolicy(repo: TestRepo, path: string, policy: object): Promise<void> {
+  await repo.write(path, `${JSON.stringify(policy)}\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "policy");
+}
+
+test("land refuses until obligations are satisfied, counting the owner's review", async () => {
+  const repo = await makeRepo();
+  await commitPolicy(repo, ".obligations", {
+    rules: [{ match: "*.txt", require: { atLeast: 1, of: ["alice@example.com"] } }],
+  });
+  await addChange(repo, "feature");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr: "review obligations are unsatisfied:\n  feature.txt: 1 more of alice@example.com (.obligations)\n",
+    exitCode: 1,
+  });
+  await repo.cabaret("review", "feature.txt");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("a requirement on two users needs both reviews", async () => {
+  const repo = await makeRepo();
+  await commitPolicy(repo, ".obligations", {
+    rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }],
+  });
+  await addChange(repo, "feature");
+  await repo.cabaret("review", "feature.txt");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr: "review obligations are unsatisfied:\n  feature.txt: 1 more of bob@example.com (.obligations)\n",
+    exitCode: 1,
+  });
+  await repo.git("config", "user.email", "bob@example.com");
+  await repo.cabaret("review", "feature.txt");
+  await repo.git("config", "user.email", "alice@example.com");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("weakening an obligations file needs sign-off under the policy it replaces", async () => {
+  const repo = await makeRepo();
+  await commitPolicy(repo, ".obligations", {
+    rules: [{ match: "*.txt", require: { atLeast: 1, of: ["bob@example.com"] } }],
+  });
+  await repo.cabaret("create", "loosen");
+  await repo.git("checkout", "-q", "loosen");
+  await repo.write(".obligations", `${JSON.stringify({ rules: [] })}\n`);
+  await repo.git("commit", "-qam", "drop review requirements");
+  // The new policy demands nothing, but the replaced version's requirement
+  // still governs the file that replaced it.
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr: "review obligations are unsatisfied:\n  .obligations: 1 more of bob@example.com (.obligations)\n",
+    exitCode: 1,
+  });
+  await repo.git("config", "user.email", "bob@example.com");
+  await repo.cabaret("review", ".obligations");
+  await repo.git("config", "user.email", "alice@example.com");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("a malformed obligations file blocks landing with a diagnostic", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.write(".obligations", '{"rules": [{"match": "*.txt"}]}\n');
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "broken policy");
+  const tip = await repo.git("rev-parse", "feature");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr:
+      `malformed obligations file ".obligations" at ${tip.slice(0, 12)}\n` +
+      "✖ Invalid input: expected object, received undefined\n  → at rules[0].require\n",
+    exitCode: 1,
+  });
+});

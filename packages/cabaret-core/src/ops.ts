@@ -17,6 +17,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import type { ForgeMerge } from "./forge.js";
+import { assertObligationsSatisfied } from "./obligations.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -227,7 +228,8 @@ export interface PreparedLand {
 /**
  * Check that `target` may land now — unlanded, owned by the current user
  * (unless overridden), with an unlanded parent, sitting on the parent's tip,
- * and with commits of its own — and resolve the endpoints the landing writes.
+ * with commits of its own, and with its review obligations satisfied — and
+ * resolve the endpoints the landing writes.
  */
 export async function prepareLand(
   backend: Backend,
@@ -258,6 +260,7 @@ export async function prepareLand(
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
+  await assertObligationsSatisfied(backend, entries, base, tip);
   // Resolve the identity before any ref moves so a missing git identity
   // fails without landing anything.
   const user = await backend.currentUser();
