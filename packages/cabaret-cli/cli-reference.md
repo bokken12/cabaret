@@ -61,15 +61,16 @@ ARGUMENTS
 ## cabaret create
 
 USAGE
-  cabaret create [--parent value] [--owner value] <change>
+  cabaret create [--parent value] [--owner value] [--even-though-parent-out-of-date] <change>
   cabaret create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
-     [--parent]  The new change's parent (defaults to the current branch)
-     [--owner]   The new change's owner (defaults to you)
-  -h  --help     Print help information and exit
+     [--parent]                          The new change's parent (defaults to the current branch)
+     [--owner]                           The new change's owner (defaults to you)
+     [--even-though-parent-out-of-date]  Proceed even though the parent is behind its origin copy [default = false]
+  -h  --help                             Print help information and exit
 
 ARGUMENTS
   change  name for the new change
@@ -109,13 +110,14 @@ ARGUMENTS
 ### cabaret gh import
 
 USAGE
-  cabaret gh import <number>
+  cabaret gh import [--even-though-parent-out-of-date] <number>
   cabaret gh import --help
 
 Import a PR as a change to review: fetch its head branch, create the change owned by the PR's author with the PR's base branch as its parent, and pull the PR's comments.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--even-though-parent-out-of-date]  Proceed even though the parent is behind its origin copy [default = false]
+  -h  --help                             Print help information and exit
 
 ARGUMENTS
   number  PR number to import

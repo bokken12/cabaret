@@ -373,7 +373,7 @@ async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
       return undefined;
     }
     const backend = await openBackend();
-    const { change } = await importRequest(backend, now, forge, id);
+    const { change } = await importRequest(backend, now, forge, id, false);
     await syncForgeSnapshot(backend, now, forge);
     return change;
   } catch (error) {
@@ -633,7 +633,7 @@ async function promptCreate(backend: Backend, parent: RefName, prompt: string): 
     return undefined;
   }
   const change = parseRefName(raw);
-  await createChange(backend, now, change, parent);
+  await createChange(backend, now, change, parent, false);
   return change;
 }
 

@@ -116,6 +116,28 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   });
 });
 
+test("rebase refuses a parent behind the change's base instead of replaying backwards", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  await repo.cabaret("rebase", "feature");
+  const before = await repo.cabaret("log", "feature");
+  // Step main back behind the base the rebase just pinned. The rebase left
+  // HEAD on the change, so return to main first.
+  await repo.git("checkout", "-q", "main");
+  await repo.git("reset", "-q", "--hard", "HEAD~1");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr: 'parent "main" is behind the base of "feature"; pull it first\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("log", "--format=%s", "feature")).toBe("feature work\ntrunk work\nroot");
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
+});
+
 test("rebase stops on conflict without recording a base", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");

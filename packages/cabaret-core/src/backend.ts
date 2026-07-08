@@ -369,6 +369,12 @@ export interface Backend {
   /** The commit branch `branch` points at, or undefined if it does not exist. */
   branchTip(branch: RefName): Promise<CommitHash | undefined>;
 
+  /**
+   * The commit `origin`'s copy of `branch` pointed at when last fetched or
+   * pushed, or undefined when no such remote-tracking state exists.
+   */
+  remoteTip(branch: RefName): Promise<CommitHash | undefined>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   createBranch(name: RefName, commit: CommitHash): Promise<void>;
 

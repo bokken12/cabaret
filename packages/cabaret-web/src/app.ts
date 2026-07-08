@@ -190,7 +190,7 @@ export function startApp(root: HTMLElement, config: Config): void {
 
   async function runImport(id: ForgeRequestId, change: RefName): Promise<void> {
     try {
-      await importRequest(backend, now, forge, id);
+      await importRequest(backend, now, forge, id, false);
       // The change's show page shares the request page's fragment, so land
       // there whichever page the import ran from.
       goto({ kind: "show", change });

@@ -255,6 +255,40 @@ test("gh import adopts the PR of an existing local branch without fetching it", 
   );
 });
 
+test("gh import fails when the PR's base branch is behind its origin copy", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  // The teammate's branch exists on origin and in a PR, but not locally.
+  await repo.git("checkout", "-qb", "their-feature");
+  await repo.write("their.txt", "their work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "their work");
+  await repo.git("push", "-q", "origin", "their-feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.git("branch", "-qD", "their-feature");
+  // Push a commit to origin's main, then step the local branch back behind it.
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  await repo.git("push", "-q", "origin", "main");
+  await repo.git("reset", "-q", "--hard", "HEAD~1");
+  forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  expect(await repo.cabaret("gh", "import", "1")).toEqual({
+    stdout: "",
+    stderr:
+      'parent "main" is behind "origin/main"; pull it first, or pass --even-though-parent-out-of-date to override\n',
+    exitCode: 1,
+  });
+  // Nothing was imported: no log, and the PR's branch was not fetched.
+  expect(await repo.cabaret("log", "their-feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("branch", "--list", "their-feature")).toBe("");
+  expect(await repo.cabaret("gh", "import", "1", "--even-though-parent-out-of-date")).toEqual({
+    stdout: 'imported github.com/test-org/widgets#1 as "their-feature" with 0 comments\n',
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
 test("gh push retargets the PR base after a reparent", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);

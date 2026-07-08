@@ -88,6 +88,42 @@ test("create fails without a git identity, leaving no branch behind", async () =
   expect(await repo.git("branch", "--list", "feature")).toBe("");
 });
 
+test("create fails when the parent is behind its origin copy, creating nothing", async () => {
+  const repo = await makeRepo();
+  // Push a commit to origin, then step the local branch back behind it.
+  await repo.write("upstream.txt", "upstream work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "upstream work");
+  await repo.git("push", "-q", "origin", "main");
+  await repo.git("reset", "-q", "--hard", "HEAD~1");
+  expect(await repo.cabaret("create", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      'parent "main" is behind "origin/main"; pull it first, or pass --even-though-parent-out-of-date to override\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "feature")).toBe("");
+  expect(await repo.cabaret("create", "feature", "--even-though-parent-out-of-date")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("create allows a parent that has diverged from its origin copy", async () => {
+  const repo = await makeRepo();
+  await repo.write("upstream.txt", "upstream work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "upstream work");
+  await repo.git("push", "-q", "origin", "main");
+  await repo.git("reset", "-q", "--hard", "HEAD~1");
+  // Deliberate local work on the parent: diverged from origin, not strictly behind.
+  await repo.write("local.txt", "local work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "local work");
+  expect(await repo.cabaret("create", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
 test("create rejects a change that is its own parent", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("create", "main")).toEqual({

@@ -22,7 +22,7 @@ import {
 } from "./backend.js";
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
-import { type LandOverrides, landChange, prepareLand, recordLand } from "./ops.js";
+import { assertParentUpToDate, type LandOverrides, landChange, prepareLand, recordLand } from "./ops.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -381,13 +381,17 @@ export type ImportResult =
 /**
  * Import request `id` as a change to review: fetch its head branch, create
  * the change owned by the request's author with the request's base branch as
- * its parent, and pull the request's comments.
+ * its parent, and pull the request's comments. The base branch must not be
+ * behind `origin`'s copy — the request is really against the origin, so a
+ * stale local base would drag its missing commits into the diff to review —
+ * and `override` skips that freshness check.
  */
 export async function importRequest(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   id: ForgeRequestId,
+  override: boolean,
 ): Promise<ImportResult> {
   const request = await forge.getRequest(id);
   const change = request.head;
@@ -396,6 +400,10 @@ export async function importRequest(
   await backend.syncLog(change);
   if ((await backend.readLog(change)).length > 0) {
     return { kind: "exists", change };
+  }
+  const parentTip = await backend.branchTip(request.base);
+  if (parentTip !== undefined) {
+    await assertParentUpToDate(backend, request.base, parentTip, override);
   }
   // Import creates the log; it never moves local branches. Only a missing
   // branch is fetched — one that exists stays as it is, not least because

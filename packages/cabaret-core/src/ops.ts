@@ -20,17 +20,52 @@ import { UserError } from "./error.js";
 import { assertObligationsSatisfied } from "./obligations.js";
 
 /**
+ * The parent-freshness check failed: the parent's branch is strictly behind
+ * `origin`'s copy. The message states only the fact; each frontend attaches
+ * its own override remedy — a flag, a confirmation dialog — before showing it.
+ */
+export class ParentOutOfDateError extends UserError {
+  constructor(readonly parent: RefName) {
+    super(`parent ${JSON.stringify(parent)} is behind ${JSON.stringify(`origin/${parent}`)}`);
+  }
+}
+
+/**
+ * Fail when `parent`'s branch is strictly behind the last-fetched state of
+ * `origin`'s copy: a change based there would drag the parent's missing
+ * commits into its diff. A parent with no remote-tracking state, or one that
+ * has diverged from it (deliberate local work), passes; `override` skips the
+ * check.
+ */
+export async function assertParentUpToDate(
+  backend: Backend,
+  parent: RefName,
+  parentTip: CommitHash,
+  override: boolean,
+): Promise<void> {
+  if (override) {
+    return;
+  }
+  const remote = await backend.remoteTip(parent);
+  if (remote !== undefined && remote !== parentTip && (await backend.isAncestor(parentTip, remote))) {
+    throw new ParentOutOfDateError(parent);
+  }
+}
+
+/**
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
  * with the last revision shared with the parent as its base. The change must
- * not already exist.
+ * not already exist, and the parent must not be behind `origin`'s copy;
+ * `override` skips that freshness check.
  */
 export async function createChange(
   backend: Backend,
   now: () => TimestampMs,
   change: RefName,
   parent: RefName,
+  override: boolean,
   owner?: UserName,
 ): Promise<void> {
   if (change === parent) {
@@ -43,6 +78,7 @@ export async function createChange(
   if (parentTip === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  await assertParentUpToDate(backend, parent, parentTip, override);
   // Resolve the identity before mutating any ref so a missing git identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
@@ -178,6 +214,14 @@ export async function rebaseChange(
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
+  // A parent strictly behind the change's own base can only be a local branch
+  // that `origin` has moved past: replaying onto it would drag the change
+  // backwards and pull the parent's missing commits into its diff.
+  if (base !== onto && (await backend.isAncestor(onto, base))) {
+    throw new UserError(
+      `parent ${JSON.stringify(parent)} is behind the base of ${JSON.stringify(target)}; pull it first`,
+    );
+  }
   // Replay the change's own commits onto the parent's tip. When the change
   // already sits there (base === onto), whether because it was just rebased
   // or an out-of-band `git rebase` put it there, there is nothing to replay.

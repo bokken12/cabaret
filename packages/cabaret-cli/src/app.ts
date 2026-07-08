@@ -22,6 +22,7 @@ import {
   NotOwnerError,
   newTodos,
   observedLand,
+  ParentOutOfDateError,
   parseContext,
   parseFilePath,
   parseRefName,
@@ -93,6 +94,13 @@ const evenThoughUnreviewed = {
   default: false,
 } as const;
 
+/** The escape hatch for the parent-freshness check on `create` and `gh import`. */
+const evenThoughParentOutOfDate = {
+  kind: "boolean",
+  brief: "Proceed even though the parent is behind its origin copy",
+  default: false,
+} as const;
+
 /** A `UserError`'s message, with this frontend's remedy attached to the overridable checks. */
 function userMessage(error: UserError): string {
   if (error instanceof NotOwnerError) {
@@ -100,6 +108,9 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
+  }
+  if (error instanceof ParentOutOfDateError) {
+    return `${error.message}; pull it first, or pass --even-though-parent-out-of-date to override`;
   }
   return error.message;
 }
@@ -234,11 +245,23 @@ const create = buildCommand({
         brief: "The new change's owner (defaults to you)",
         optional: true,
       },
+      evenThoughParentOutOfDate,
     },
   },
-  async func(this: LocalContext, flags: { parent?: RefName; owner?: UserName }, change: RefName) {
+  async func(
+    this: LocalContext,
+    flags: { parent?: RefName; owner?: UserName; evenThoughParentOutOfDate: boolean },
+    change: RefName,
+  ) {
     const backend = await this.backend();
-    await createChange(backend, this.now, change, flags.parent ?? (await backend.currentBranch()), flags.owner);
+    await createChange(
+      backend,
+      this.now,
+      change,
+      flags.parent ?? (await backend.currentBranch()),
+      flags.evenThoughParentOutOfDate,
+      flags.owner,
+    );
   },
 });
 
@@ -442,11 +465,12 @@ const gh = buildRouteMap({
           kind: "tuple",
           parameters: [{ brief: "PR number to import", placeholder: "number", parse: parseRequestNumber }],
         },
+        flags: { evenThoughParentOutOfDate },
       },
-      async func(this: LocalContext, _flags: Record<never, never>, id: ForgeRequestId) {
+      async func(this: LocalContext, flags: { evenThoughParentOutOfDate: boolean }, id: ForgeRequestId) {
         const backend = await this.backend();
         const forge = await this.forge();
-        const result = await importRequest(backend, this.now, forge, id);
+        const result = await importRequest(backend, this.now, forge, id, flags.evenThoughParentOutOfDate);
         await syncForgeSnapshot(backend, this.now, forge);
         if (result.kind === "exists") {
           throw new UserError(

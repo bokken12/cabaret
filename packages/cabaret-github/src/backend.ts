@@ -206,6 +206,12 @@ export class GitHubBackend implements Backend {
     return this.refTip(`refs/heads/${branch}`);
   }
 
+  async remoteTip(): Promise<CommitHash | undefined> {
+    // This repository is the origin itself: there is no separately fetched
+    // copy that could lag behind it.
+    return undefined;
+  }
+
   /** The commit `ref` (a full `refs/...` name) points at, or undefined if it does not exist. */
   private async refTip(ref: string): Promise<CommitHash | undefined> {
     try {
