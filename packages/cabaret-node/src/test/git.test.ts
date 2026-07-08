@@ -1,13 +1,17 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   changeBase,
+  type ForgeSnapshot,
+  forgeRequestId,
   type LogAction,
   type LogEntry,
   parseCommitHash,
+  parseFilePath,
+  parseForgeLocator,
   parseRefName,
   timestampMs,
   userName,
@@ -242,6 +246,61 @@ test("renameChange refuses a branch checked out in another worktree", async () =
   expect(await backend.branchTip(parseRefName("wt-src"))).toBe(tip);
   expect(await backend.branchTip(parseRefName("wt-dst"))).toBeUndefined();
   await git("worktree", "remove", linked);
+});
+
+test("the forge snapshot persists across backends and is shared by worktrees", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.readForgeSnapshot()).toBeUndefined();
+  const snapshot: ForgeSnapshot = {
+    locator: parseForgeLocator("github.com/test-org/widgets"),
+    takenAt: timestampMs(1748000000000),
+    requests: [
+      {
+        request: {
+          id: forgeRequestId(7),
+          head: parseRefName("their-feature"),
+          tip: parseCommitHash("1".repeat(40)),
+          base: parseRefName("main"),
+          title: "Their feature",
+          author: userName("carol@users.noreply.github.com"),
+          state: "open",
+          changedFiles: 2,
+        },
+        files: [parseFilePath("their.txt"), parseFilePath("docs/notes.md")],
+        comments: [
+          {
+            id: "101",
+            author: userName("carol@users.noreply.github.com"),
+            body: "please take a look",
+            updatedAt: timestampMs(1748000000001),
+          },
+        ],
+      },
+    ],
+  };
+  await backend.writeForgeSnapshot(snapshot);
+  expect(await (await GitBackend.open(repo)).readForgeSnapshot()).toEqual(snapshot);
+  // Worktrees share the common git dir, so they see the same snapshot.
+  const linked = join(repo, "snapshot-worktree");
+  await git("worktree", "add", "-q", linked, "--detach");
+  try {
+    expect(await (await GitBackend.open(linked)).readForgeSnapshot()).toEqual(snapshot);
+  } finally {
+    await git("worktree", "remove", linked);
+  }
+});
+
+test("an unreadable forge snapshot reads as never having synced", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+  try {
+    await gitIn(dir, "init", "-q");
+    const backend = await GitBackend.open(dir);
+    await mkdir(join(dir, ".git", "cabaret"), { recursive: true });
+    await writeFile(join(dir, ".git", "cabaret", "forge-snapshot.json"), "not a snapshot");
+    expect(await backend.readForgeSnapshot()).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("listChanges names every change with a log, sorted by name", async () => {

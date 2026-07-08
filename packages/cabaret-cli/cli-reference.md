@@ -126,10 +126,10 @@ USAGE
   cabaret gh pull [--change value]
   cabaret gh pull --help
 
-Pull PR activity from GitHub: import the PR's comments — new ones, and new versions of ones edited in place — into the change's log, and record a merged PR as landing the change.
+Pull PR activity from GitHub: refresh the mirror of open PRs that the todo and show pages render from, import PR comments — new ones, and new versions of ones edited in place — into change logs, and record merged PRs as landing their changes. Pulls every unlanded change with a PR; --change restricts it to one.
 
 FLAGS
-     [--change]  Change to pull (defaults to current)
+     [--change]  Only change to pull
   -h  --help     Print help information and exit
 
 ### cabaret gh push

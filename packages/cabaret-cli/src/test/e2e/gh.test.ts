@@ -68,7 +68,8 @@ test("gh pull imports comments under forge identities, and again is a no-op", as
   await repo.cabaret("gh", "push");
   forge.comment(REQUEST, "carol", "does this handle empty diffs?");
   expect(await repo.cabaret("gh", "pull")).toEqual({
-    stdout: "pulled 1 comment from github.com/test-org/widgets#1\n",
+    stdout:
+      "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
     stderr: "",
     exitCode: 0,
   });
@@ -76,7 +77,8 @@ test("gh pull imports comments under forge identities, and again is a no-op", as
     "Comments:\n  2025-06-15T15:06:40.000Z carol@users.noreply.github.com\n    does this handle empty diffs?\n",
   );
   expect(await repo.cabaret("gh", "pull")).toEqual({
-    stdout: "pulled 0 comments from github.com/test-org/widgets#1\n",
+    stdout:
+      "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
     stderr: "",
     exitCode: 0,
   });
@@ -90,7 +92,9 @@ test("gh pull imports a forge-side edit as a new version, displayed once", async
   const commentId = forge.comment(REQUEST, "carol", "looks wrong");
   await repo.cabaret("gh", "pull");
   forge.edit(REQUEST, commentId, "looks wrong (never mind)");
-  expect((await repo.cabaret("gh", "pull")).stdout).toBe("pulled 1 comment from github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+  );
   expect(await shownComments(repo)).toBe(
     "Comments:\n  2025-06-15T15:06:40.001Z carol@users.noreply.github.com\n    looks wrong (never mind)\n",
   );
@@ -105,7 +109,9 @@ test("gh pull does not echo comments gh push posted", async () => {
   await repo.git("config", "user.email", "alice@example.com");
   await repo.cabaret("comment", "ship it");
   await repo.cabaret("gh", "push");
-  expect((await repo.cabaret("gh", "pull")).stdout).toBe("pulled 0 comments from github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+  );
   expect(await shownComments(repo)).toBe(
     "Comments:\n  2025-05-23T11:33:20.003Z bob@example.com\n    one nit\n\n" +
       "  2025-05-23T11:33:20.004Z alice@example.com\n    ship it\n",
@@ -122,12 +128,14 @@ test("gh pull records a merged PR as landing the change, once", async () => {
   expect(await repo.cabaret("gh", "pull")).toEqual({
     stdout:
       "github.com/test-org/widgets#1 was merged; recorded the land\n" +
-      "pulled 0 comments from github.com/test-org/widgets#1\n",
+      "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 0 open requests\n",
     stderr: "",
     exitCode: 0,
   });
   expect((await repo.cabaret("log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
-  expect((await repo.cabaret("gh", "pull")).stdout).toBe("pulled 0 comments from github.com/test-org/widgets#1\n");
+  // The landed change is done: the next sweep passes it by.
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open requests\n");
 });
 
 test("gh pull records a squash-merged PR with the tip that merged", async () => {
@@ -150,20 +158,28 @@ test("gh pull adopts the branch's open PR when the log names none", async () => 
   await addChange(repo, "gadget");
   await forge.createRequest(parseRefName("gadget"), parseRefName("main"), "gadget");
   forge.comment(REQUEST, "carol", "opened this by hand");
-  expect((await repo.cabaret("gh", "pull")).stdout).toBe("pulled 1 comment from github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+  );
   expect((await repo.cabaret("log")).stdout).toContain(
     '"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}',
   );
 });
 
-test("gh pull fails when there is no PR", async () => {
+test("gh pull --change fails when the change has no PR", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  expect(await repo.cabaret("gh", "pull")).toEqual({
+  expect(await repo.cabaret("gh", "pull", "--change", "gadget")).toEqual({
     stdout: "",
     stderr: 'no pull request for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first\n',
     exitCode: 1,
+  });
+  // The sweep just passes such a change by.
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout: "synced github.com/test-org/widgets: 0 open requests\n",
+    stderr: "",
+    exitCode: 0,
   });
 });
 

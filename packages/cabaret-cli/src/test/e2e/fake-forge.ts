@@ -14,6 +14,7 @@ import {
   parseFilePath,
   parseForgeLocator,
   type RefName,
+  type SnapshotRequest,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -87,11 +88,15 @@ export class FakeForge implements Forge {
     return undefined;
   }
 
-  async listOpenRequests(): Promise<readonly ForgeRequest[]> {
+  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
     return Promise.all(
       [...this.requests]
         .filter(([, request]) => request.state === "open")
-        .map(([id, request]) => this.snapshot(id, request)),
+        .map(async ([id, request]) => ({
+          request: await this.snapshot(id, request),
+          files: request.files,
+          comments: await this.listComments(id),
+        })),
     );
   }
 
@@ -132,10 +137,6 @@ export class FakeForge implements Forge {
     request.merge = { commit, parents: method === "merge" ? 2 : 1 };
     request.tip = tip;
     return request.merge;
-  }
-
-  async listFiles(id: ForgeRequestId): Promise<readonly FilePath[]> {
-    return this.request(id).files;
   }
 
   async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {

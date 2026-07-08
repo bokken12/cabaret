@@ -3,6 +3,7 @@ import {
   type ForgeRequestId,
   importRequest,
   type RefName,
+  syncForgeSnapshot,
   type TimestampMs,
   timestampMs,
 } from "cabaret-core";
@@ -128,10 +129,14 @@ export function startApp(root: HTMLElement, config: Config): void {
       const page = pageFromHash(location.hash);
       if (page.kind === "todo") {
         // The overview must not trust held snapshots, and visiting it is the
-        // natural re-sync point for everything under review.
+        // natural re-sync point for everything under review — including the
+        // forge mirror, which this backend only holds in memory: the web app
+        // is online by construction, so the todo page pays for a fresh sweep
+        // the way `cabaret gh pull` does elsewhere.
         snapshots.clear();
+        await syncForgeSnapshot(backend, now, forge);
       }
-      const doc = await renderPage(backend, page, async () => forge, { cache: snapshots, context: loadContext() });
+      const doc = await renderPage(backend, page, { cache: snapshots, context: loadContext() });
       if (mine !== seq) {
         return;
       }

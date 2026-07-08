@@ -1,4 +1,4 @@
-import type { Backend, Forge, RefName } from "cabaret-core";
+import type { Backend, RefName } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
 import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
@@ -36,22 +36,20 @@ export interface RenderOptions {
 }
 
 /**
- * Query `backend` and render `page` for its current user. `forge` is opened
- * lazily: only the todo page and a logless show page query it. The review
- * and diff pages render from the change's snapshot in `options.cache` when
- * one is held, letting a host reuse one reading across a whole review pass.
+ * Query `backend` and render `page` for its current user. Forge state comes
+ * from the backend's stored snapshot — rendering never calls the forge. The
+ * review and diff pages render from the change's snapshot in `options.cache`
+ * when one is held, letting a host reuse one reading across a whole review
+ * pass.
  */
-export async function renderPage(
-  backend: Backend,
-  page: Page,
-  forge: () => Promise<Forge | undefined>,
-  options: RenderOptions = {},
-): Promise<Doc> {
+export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
   switch (page.kind) {
     case "todo":
-      return todoDoc(await todoPage(backend, await backend.currentUser(), await forge()));
+      return todoDoc(await todoPage(backend, await backend.currentUser(), await backend.readForgeSnapshot()));
     case "show":
-      return showDoc(await showPage(backend, await backend.currentUser(), page.change, forge));
+      return showDoc(
+        await showPage(backend, await backend.currentUser(), page.change, await backend.readForgeSnapshot()),
+      );
     case "review":
       return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
     case "diff":

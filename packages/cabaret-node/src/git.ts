@@ -1,9 +1,13 @@
 import { execFile } from "node:child_process";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
   type CommitHash,
   type FilePath,
+  type ForgeSnapshot,
+  formatForgeSnapshot,
   formatLogEntry,
   LAND_TRAILER,
   type LandMerge,
@@ -11,6 +15,7 @@ import {
   mergeLogs,
   parseCommitHash,
   parseFilePath,
+  parseForgeSnapshot,
   parseLog,
   parseRefName,
   type RefName,
@@ -65,12 +70,49 @@ const LOG_PATH = "log";
 
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
-  private constructor(readonly root: string) {}
+  private constructor(
+    readonly root: string,
+    /** The repository's common git dir, shared by all its worktrees. */
+    private readonly gitDir: string,
+  ) {}
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const out = await git(dir, ["rev-parse", "--show-toplevel"]);
-    return new GitBackend(out.trimEnd());
+    const [root, gitDir] = await Promise.all([
+      git(dir, ["rev-parse", "--show-toplevel"]),
+      git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    ]);
+    return new GitBackend(root.trimEnd(), gitDir.trimEnd());
+  }
+
+  /**
+   * The snapshot lives as one JSON file under the common git dir: local like
+   * the cache of the forge it is (origin already holds the truth), and shared
+   * by every worktree, so a sync in any of them refreshes all.
+   */
+  private get snapshotPath(): string {
+    return join(this.gitDir, "cabaret", "forge-snapshot.json");
+  }
+
+  async readForgeSnapshot(): Promise<ForgeSnapshot | undefined> {
+    let text: string;
+    try {
+      text = await readFile(this.snapshotPath, "utf8");
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    }
+    return parseForgeSnapshot(text);
+  }
+
+  async writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void> {
+    await mkdir(dirname(this.snapshotPath), { recursive: true });
+    // Write-then-rename so a concurrent read never sees a torn file.
+    const temp = `${this.snapshotPath}.tmp`;
+    await writeFile(temp, formatForgeSnapshot(snapshot));
+    await rename(temp, this.snapshotPath);
   }
 
   async currentBranch(): Promise<RefName> {

@@ -4,10 +4,12 @@ import {
   type ChangeSummary,
   changeForest,
   currentParent,
-  type Forge,
+  type ForgeLocator,
   type ForgeRequest,
+  type ForgeSnapshot,
   type RefName,
   summarizeChange,
+  type TimestampMs,
   type UserName,
 } from "cabaret-core";
 import { type Doc, type Line, span } from "./doc.js";
@@ -37,6 +39,8 @@ export interface TodoPage {
    * only while kept children hang from it.
    */
   readonly owned: readonly TodoNode[];
+  /** Which forge the page's requests mirror and when, absent without a snapshot. */
+  readonly forge?: { readonly locator: ForgeLocator; readonly takenAt: TimestampMs } | undefined;
 }
 
 function itemName(item: TodoItem): RefName {
@@ -52,7 +56,7 @@ function itemNextStep(item: TodoItem): string {
   return item.kind === "change" ? item.summary.nextStep : "import";
 }
 
-export async function todoPage(backend: Backend, user: UserName, forge?: Forge): Promise<TodoPage> {
+export async function todoPage(backend: Backend, user: UserName, snapshot?: ForgeSnapshot): Promise<TodoPage> {
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
   for (const change of await backend.listChanges()) {
@@ -64,8 +68,8 @@ export async function todoPage(backend: Backend, user: UserName, forge?: Forge):
   // create. Requests sharing a head (one branch opened against several bases)
   // collapse to the oldest.
   const requests = new Map<RefName, ForgeRequest>();
-  if (forge !== undefined) {
-    for (const request of [...(await forge.listOpenRequests())].sort((a, b) => a.id - b.id)) {
+  if (snapshot !== undefined) {
+    for (const { request } of [...snapshot.requests].sort((a, b) => a.request.id - b.request.id)) {
       if (!summaries.has(request.head) && !requests.has(request.head)) {
         requests.set(request.head, request);
         parents.set(request.head, request.base);
@@ -101,6 +105,7 @@ export async function todoPage(backend: Backend, user: UserName, forge?: Forge):
       .map(item)
       .filter((candidate) => unlanded(candidate) && itemReview(candidate) > 0),
     owned: prune(changeForest(parents)),
+    ...(snapshot === undefined ? {} : { forge: { locator: snapshot.locator, takenAt: snapshot.takenAt } }),
   };
 }
 
@@ -162,6 +167,12 @@ export function todoDoc(page: TodoPage): Doc {
   }
   if (lines.length === 0) {
     lines.push({ spans: [span("Nothing to do.")] });
+  }
+  // Requests come from a mirror, not the forge itself; saying when it was
+  // taken keeps a stale page from being mistaken for the forge's truth.
+  if (page.forge !== undefined) {
+    lines.push({ spans: [] });
+    lines.push({ spans: [span(`${page.forge.locator} synced ${new Date(page.forge.takenAt).toISOString()}`)] });
   }
   return { lines };
 }

@@ -50,6 +50,7 @@ test("an open PR stands in as a change to review until imported", async () => {
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
   forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭───────────────┬────────╮
     │ change        │ review │
@@ -64,6 +65,8 @@ test("an open PR stands in as a change to review until imported", async () => {
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
+
+    github.com/test-org/widgets synced 2025-05-23T11:33:20.003Z
     "
   `);
   await repo.cabaret("gh", "import", "1");
@@ -81,6 +84,8 @@ test("an open PR stands in as a change to review until imported", async () => {
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
+
+    github.com/test-org/widgets synced 2025-05-23T11:33:20.008Z
     "
   `);
 });
@@ -93,6 +98,7 @@ test("your own PR joins the changes you own when identities align", async () => 
     "solo.txt",
     "docs/solo.md",
   ]);
+  await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭──────────────┬────────╮
     │ change       │ review │
@@ -106,6 +112,8 @@ test("your own PR joins the changes you own when identities align", async () => 
     ├──────────────┼────────┼───────────┤
     │ solo-feature │      2 │ import    │
     ╰──────────────┴────────┴───────────╯
+
+    github.com/test-org/widgets synced 2025-05-23T11:33:20.000Z
     "
   `);
 });
@@ -115,8 +123,11 @@ test("a merged PR is not offered for import", async () => {
   const repo = await makeRepo(forge);
   const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
+  await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Nothing to do.
+
+    github.com/test-org/widgets synced 2025-05-23T11:33:20.000Z
     "
   `);
 });

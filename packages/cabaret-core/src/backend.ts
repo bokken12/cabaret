@@ -239,6 +239,116 @@ export interface LandMerge {
   readonly onto: CommitHash;
 }
 
+/** The commit that landed a merged request on its base branch. */
+export interface ForgeMerge {
+  readonly commit: CommitHash;
+  /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
+  readonly parents: number;
+}
+
+/** A pull request (GitHub) or merge request (GitLab) on a forge. */
+export interface ForgeRequest {
+  readonly id: ForgeRequestId;
+  readonly head: RefName;
+  /** The commit the head branch points at — for a merged request, what merged. */
+  readonly tip: CommitHash;
+  readonly base: RefName;
+  readonly title: string;
+  /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
+  readonly author: UserName;
+  readonly state: "open" | "closed" | "merged";
+  /** How many files the request touches. */
+  readonly changedFiles: number;
+  /** The commit that merged the request, when `state` is "merged". */
+  readonly merge?: ForgeMerge | undefined;
+}
+
+/** A request-level discussion comment on a forge. */
+export interface ForgeComment {
+  readonly id: string;
+  /** The author, mapped to a Cabaret identity by the `Forge` implementation. */
+  readonly author: UserName;
+  readonly body: string;
+  /** When the comment was last edited in place; its creation time until then. */
+  readonly updatedAt: TimestampMs;
+}
+
+/** An open request as a snapshot holds it: the request plus what previewing it needs. */
+export interface SnapshotRequest {
+  readonly request: ForgeRequest;
+  /** The paths the request touches; a request touching very many may carry only the first hundred. */
+  readonly files: readonly FilePath[];
+  /** The request-level comments, oldest first; a long discussion may carry only the first hundred. */
+  readonly comments: readonly ForgeComment[];
+}
+
+/**
+ * A local mirror of a forge's open requests, taken whole at one sync.
+ * Rendering reads forge state only from here — never from the forge itself —
+ * so pages cost no API calls and work offline; only the commands that talk to
+ * the forge anyway refresh it.
+ */
+export interface ForgeSnapshot {
+  readonly locator: ForgeLocator;
+  /** When the snapshot was taken, so staleness can be shown rather than mistaken for truth. */
+  readonly takenAt: TimestampMs;
+  readonly requests: readonly SnapshotRequest[];
+}
+
+const ForgeMergeSchema = z.object({
+  commit: z.string().transform(parseCommitHash),
+  parents: z.number(),
+}) satisfies z.ZodType<ForgeMerge>;
+
+const ForgeRequestSchema = z.object({
+  id: z.number().transform(forgeRequestId),
+  head: z.string().transform(parseRefName),
+  tip: z.string().transform(parseCommitHash),
+  base: z.string().transform(parseRefName),
+  title: z.string(),
+  author: z.string().min(1).transform(userName),
+  state: z.enum(["open", "closed", "merged"]),
+  changedFiles: z.number(),
+  merge: ForgeMergeSchema.optional(),
+}) satisfies z.ZodType<ForgeRequest>;
+
+const ForgeCommentSchema = z.object({
+  id: z.string().min(1),
+  author: z.string().min(1).transform(userName),
+  body: z.string(),
+  updatedAt: z.number().transform(timestampMs),
+}) satisfies z.ZodType<ForgeComment>;
+
+const ForgeSnapshotSchema = z.object({
+  locator: z.string().transform(parseForgeLocator),
+  takenAt: z.number().transform(timestampMs),
+  requests: z.array(
+    z.object({
+      request: ForgeRequestSchema,
+      files: z.array(z.string().transform(parseFilePath)),
+      comments: z.array(ForgeCommentSchema),
+    }),
+  ),
+}) satisfies z.ZodType<ForgeSnapshot>;
+
+/** Render a snapshot as the JSON `parseForgeSnapshot` reads, validating it on the way. */
+export function formatForgeSnapshot(snapshot: ForgeSnapshot): string {
+  return JSON.stringify(ForgeSnapshotSchema.parse(snapshot));
+}
+
+/**
+ * Parse a stored snapshot, or undefined when `text` is not one. A snapshot is
+ * a cache of the forge, so anything unreadable — including a snapshot written
+ * under an older schema — reads as never having synced, never as an error.
+ */
+export function parseForgeSnapshot(text: string): ForgeSnapshot | undefined {
+  try {
+    return ForgeSnapshotSchema.parse(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The operations Cabaret needs from a version-control backend.
  * The primary implementation (`cabaret-node`) shells out to a local git.
@@ -350,6 +460,12 @@ export interface Backend {
    * change exists — though a landed change's branch may be gone.
    */
   listChanges(): Promise<readonly RefName[]>;
+
+  /** The stored forge snapshot, or undefined when none has been taken. */
+  readForgeSnapshot(): Promise<ForgeSnapshot | undefined>;
+
+  /** Store `snapshot` as the forge snapshot, replacing any prior one. */
+  writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does

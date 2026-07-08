@@ -5,9 +5,9 @@ import {
   type CommitHash,
   currentComments,
   type FilePath,
-  type Forge,
   type ForgeLocator,
   type ForgeRequest,
+  type ForgeSnapshot,
   type RefName,
   summarizeChange,
   type UserName,
@@ -35,26 +35,28 @@ export type ShowPage =
 
 /**
  * Query the show page for `change`. A name with no log yet falls back to its
- * open request on the forge, opened only then — showing a change never pays
- * for the forge.
+ * open request in the forge snapshot, so an unimported request previews as
+ * the change importing it would create.
  */
 export async function showPage(
   backend: Backend,
   user: UserName,
   change: RefName,
-  forge?: () => Promise<Forge | undefined>,
+  snapshot?: ForgeSnapshot,
 ): Promise<ShowPage> {
   const entries = await backend.readLog(change);
-  if (entries.length === 0 && forge !== undefined) {
-    const opened = await forge();
-    const request = opened === undefined ? undefined : await opened.findRequest(change);
-    if (opened !== undefined && request !== undefined) {
-      const comments = (await opened.listComments(request.id)).map(({ updatedAt, author, body }) => ({
+  if (entries.length === 0 && snapshot !== undefined) {
+    // Requests sharing a head collapse to the oldest, as on the todo page.
+    const found = [...snapshot.requests]
+      .sort((a, b) => a.request.id - b.request.id)
+      .find(({ request }) => request.head === change);
+    if (found !== undefined) {
+      const comments = found.comments.map(({ updatedAt, author, body }) => ({
         timestamp: updatedAt,
         user: author,
         text: body,
       }));
-      return { kind: "request", forge: opened.locator, request, files: await opened.listFiles(request.id), comments };
+      return { kind: "request", forge: snapshot.locator, request: found.request, files: found.files, comments };
     }
   }
   return {

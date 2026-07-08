@@ -214,7 +214,7 @@ describe("GitHubForge", () => {
     expect(await forge().findRequest(parseRefName("orphan"))).toBeUndefined();
   });
 
-  test("listOpenRequests follows the pagination cursor", async () => {
+  test("fetchSnapshot follows the pagination cursor, carrying files and comments", async () => {
     const calls = stubGitHub({
       [GRAPHQL]: [
         {
@@ -233,6 +233,17 @@ describe("GitHubForge", () => {
                       state: "OPEN",
                       mergeCommit: null,
                       changedFiles: 2,
+                      files: { nodes: [{ path: "src/app.ts" }, { path: "docs/guide.md" }] },
+                      comments: {
+                        nodes: [
+                          {
+                            databaseId: 101,
+                            author: { login: "bob" },
+                            body: "please take a look",
+                            updatedAt: "2026-05-01T00:00:00Z",
+                          },
+                        ],
+                      },
                     },
                     {
                       number: 5,
@@ -244,6 +255,8 @@ describe("GitHubForge", () => {
                       state: "OPEN",
                       mergeCommit: null,
                       changedFiles: 1,
+                      files: { nodes: [{ path: "widgets.sql" }] },
+                      comments: { nodes: [] },
                     },
                   ],
                   pageInfo: { hasNextPage: true, endCursor: "CUR1" },
@@ -268,6 +281,8 @@ describe("GitHubForge", () => {
                       state: "OPEN",
                       mergeCommit: null,
                       changedFiles: 9,
+                      files: null,
+                      comments: { nodes: [] },
                     },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
@@ -280,10 +295,56 @@ describe("GitHubForge", () => {
       [`GET ${API}/users/alice`]: { json: { email: null } },
       [`GET ${API}/users/bob`]: { json: { email: null } },
     });
-    expect((await forge().listOpenRequests()).map(({ id, head }) => [id, head])).toEqual([
-      [4, "first"],
-      [5, "second"],
-      [6, "third"],
+    expect(await forge().fetchSnapshot()).toEqual([
+      {
+        request: {
+          id: 4,
+          head: "first",
+          tip: "123456789abcdef0123456789abcdef012345678",
+          base: "main",
+          title: "First",
+          author: "alice@users.noreply.github.com",
+          state: "open",
+          changedFiles: 2,
+        },
+        files: ["src/app.ts", "docs/guide.md"],
+        comments: [
+          {
+            id: "101",
+            author: "bob@users.noreply.github.com",
+            body: "please take a look",
+            updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+          },
+        ],
+      },
+      {
+        request: {
+          id: 5,
+          head: "second",
+          tip: "23456789abcdef0123456789abcdef0123456789",
+          base: "first",
+          title: "Second",
+          author: "bob@users.noreply.github.com",
+          state: "open",
+          changedFiles: 1,
+        },
+        files: ["widgets.sql"],
+        comments: [],
+      },
+      {
+        request: {
+          id: 6,
+          head: "third",
+          tip: "3456789abcdef0123456789abcdef0123456789a",
+          base: "main",
+          title: "Third",
+          author: "alice@users.noreply.github.com",
+          state: "open",
+          changedFiles: 9,
+        },
+        files: [],
+        comments: [],
+      },
     ]);
     expect(graphqlVariables(calls)).toEqual([
       { owner: "test-org", repo: "widgets", cursor: null },
@@ -353,15 +414,6 @@ describe("GitHubForge", () => {
     expect(calls[0]?.body).toBe(JSON.stringify({ base: "develop" }));
   });
 
-  test("listFiles returns the request's paths", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/pulls/7/files?per_page=100`]: {
-        json: [{ filename: "src/app.ts" }, { filename: "docs/guide.md" }],
-      },
-    });
-    expect(await forge().listFiles(forgeRequestId(7))).toEqual(["src/app.ts", "docs/guide.md"]);
-  });
-
   test("listComments follows Link pagination, oldest first", async () => {
     const page2 = `${API}/repositories/555/issues/7/comments?per_page=100&page=2`;
     stubGitHub({
@@ -411,9 +463,9 @@ describe("GitHubForge", () => {
 
   test("a failing request reports the status and GitHub's message", async () => {
     stubGitHub({
-      [`GET ${REPOS}/pulls/404/files?per_page=100`]: { status: 404, json: { message: "Not Found" } },
+      [`GET ${REPOS}/issues/404/comments?per_page=100`]: { status: 404, json: { message: "Not Found" } },
     });
-    await expect(forge().listFiles(forgeRequestId(404))).rejects.toMatchObject({
+    await expect(forge().listComments(forgeRequestId(404))).rejects.toMatchObject({
       status: 404,
       message: expect.stringContaining("Not Found"),
     });

@@ -1,12 +1,16 @@
 import { buildApplication, buildCommand, buildRouteMap, text_en } from "@stricli/core";
 import {
   assertChangeExists,
+  type Backend,
   brain,
   changeBase,
   createChange,
+  currentForgeRequest,
   currentParent,
   type DiffSegment,
   type FilePath,
+  type Forge,
+  type ForgeRequest,
   type ForgeRequestId,
   forgeRequestId,
   formatLogEntry,
@@ -14,6 +18,7 @@ import {
   type LogEntry,
   landAsConfigured,
   landChain,
+  landedMerge,
   NotOwnerError,
   newTodos,
   observedLand,
@@ -31,6 +36,7 @@ import {
   resolveRange,
   reviewSegments,
   syncedRequest,
+  syncForgeSnapshot,
   type Todo,
   transferChange,
   UnsatisfiedObligationsError,
@@ -392,6 +398,34 @@ function parseRequestNumber(raw: string): ForgeRequestId {
   return forgeRequestId(Number(raw));
 }
 
+/**
+ * Pull one change's request activity into its log: comments the log lacks —
+ * new ones, and new versions of ones edited in place — and the land a merged
+ * request implies. Reports what it appended on `stdout`.
+ */
+async function pullChange(
+  context: LocalContext,
+  backend: Backend,
+  forge: Forge,
+  change: RefName,
+  entries: readonly LogEntry[],
+  request: ForgeRequest,
+): Promise<void> {
+  const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
+  const landing = observedLand(context.now, await backend.currentUser(), request, entries);
+  if (landing !== undefined) {
+    additions.push(landing);
+  }
+  await backend.appendLog(change, additions);
+  if (landing !== undefined) {
+    context.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
+  }
+  const pulled = additions.filter(({ action }) => action.kind === "comment").length;
+  context.process.stdout.write(
+    `pulled ${pulled} comment${pulled === 1 ? "" : "s"} from ${forge.locator}#${request.id}\n`,
+  );
+}
+
 const gh = buildRouteMap({
   docs: { brief: "GitHub integration" },
   routes: {
@@ -413,6 +447,7 @@ const gh = buildRouteMap({
         const backend = await this.backend();
         const forge = await this.forge();
         const result = await importRequest(backend, this.now, forge, id);
+        await syncForgeSnapshot(backend, this.now, forge);
         if (result.kind === "exists") {
           throw new UserError(
             `change already exists: ${JSON.stringify(result.change)}; run \`cabaret gh pull\` to sync it`,
@@ -428,16 +463,18 @@ const gh = buildRouteMap({
       docs: {
         brief: "Pull PR activity from GitHub",
         fullDescription:
-          "Pull PR activity from GitHub: import the PR's comments — new ones, " +
-          "and new versions of ones edited in place — into the change's log, " +
-          "and record a merged PR as landing the change.",
+          "Pull PR activity from GitHub: refresh the mirror of open PRs that " +
+          "the todo and show pages render from, import PR comments — new " +
+          "ones, and new versions of ones edited in place — into change " +
+          "logs, and record merged PRs as landing their changes. Pulls every " +
+          "unlanded change with a PR; --change restricts it to one.",
       },
       parameters: {
         flags: {
           change: {
             kind: "parsed",
             parse: parseRefName,
-            brief: "Change to pull (defaults to current)",
+            brief: "Only change to pull",
             optional: true,
           },
         },
@@ -445,29 +482,55 @@ const gh = buildRouteMap({
       async func(this: LocalContext, flags: { change?: RefName }) {
         const backend = await this.backend();
         const forge = await this.forge();
-        const change = flags.change ?? (await backend.currentBranch());
-        await backend.syncLog(change);
-        const entries = await backend.readLog(change);
-        assertChangeExists(change, entries);
-        const request = await syncedRequest(backend, this.now, forge, change, entries);
-        if (request === undefined) {
-          throw new UserError(
-            `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
-          );
+        const snapshot = await syncForgeSnapshot(backend, this.now, forge);
+        if (flags.change !== undefined) {
+          const change = flags.change;
+          await backend.syncLog(change);
+          const entries = await backend.readLog(change);
+          assertChangeExists(change, entries);
+          const request = await syncedRequest(backend, this.now, forge, change, entries);
+          if (request === undefined) {
+            throw new UserError(
+              `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+            );
+          }
+          await pullChange(this, backend, forge, change, entries, request);
+          return;
         }
-        const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
-        const landing = observedLand(this.now, await backend.currentUser(), request, entries);
-        if (landing !== undefined) {
-          additions.push(landing);
+        // The open requests by head branch: what an untracked change can
+        // adopt without asking the forge change by change.
+        const open = new Map(snapshot.requests.map(({ request }) => [request.head, request]));
+        for (const change of await backend.syncLogs()) {
+          const entries = await backend.readLog(change);
+          if (landedMerge(entries) !== undefined) {
+            continue;
+          }
+          const recorded = currentForgeRequest(entries);
+          let request: ForgeRequest | undefined;
+          if (recorded !== undefined) {
+            if (recorded.forge !== forge.locator) {
+              continue;
+            }
+            // Fetched live: a request merged or closed since the snapshot
+            // still lands its change on this pull.
+            request = await forge.getRequest(recorded.request);
+          } else {
+            request = open.get(change);
+            if (request === undefined) {
+              continue;
+            }
+            await backend.appendLog(change, [
+              {
+                timestamp: this.now(),
+                user: await backend.currentUser(),
+                action: { kind: "set-forge", forge: forge.locator, request: request.id },
+              },
+            ]);
+          }
+          await pullChange(this, backend, forge, change, entries, request);
         }
-        await backend.appendLog(change, additions);
-        if (landing !== undefined) {
-          this.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
-        }
-        const pulled = additions.filter(({ action }) => action.kind === "comment").length;
-        this.process.stdout.write(
-          `pulled ${pulled} comment${pulled === 1 ? "" : "s"} from ${forge.locator}#${request.id}\n`,
-        );
+        const requests = snapshot.requests.length;
+        this.process.stdout.write(`synced ${forge.locator}: ${requests} open request${requests === 1 ? "" : "s"}\n`);
       },
     }),
     push: buildCommand({
@@ -515,6 +578,7 @@ const gh = buildRouteMap({
           await forge.addComment(request.id, body);
         }
         await backend.syncLog(change);
+        await syncForgeSnapshot(backend, this.now, forge);
         this.process.stdout.write(
           `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${request.id}\n`,
         );
@@ -582,22 +646,36 @@ const land = buildCommand({
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
+    let anyMerged = false;
     const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
       const merged = await landAsConfigured(backend, this.now, this.forge, config, change, entries, {
         notOwner: flags.evenThoughNotOwner,
         unreviewed: flags.evenThoughUnreviewed,
       });
       if (merged !== undefined) {
+        anyMerged = true;
         this.process.stdout.write(`merged ${merged.forge}#${merged.request}\n`);
       }
     };
-    if (spec === undefined || spec.kind === "one") {
-      const target = spec?.change ?? (await backend.currentBranch());
-      await landOne(target, await backend.readLog(target));
-      return;
+    try {
+      if (spec === undefined || spec.kind === "one") {
+        const target = spec?.change ?? (await backend.currentBranch());
+        await landOne(target, await backend.readLog(target));
+      } else {
+        const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
+        await landChain(backend, chain, landOne);
+      }
+    } finally {
+      // Whatever merged is no longer open; the mirror must not keep showing
+      // it. The land itself already stands, so a failed refresh only warns.
+      if (anyMerged) {
+        try {
+          await syncForgeSnapshot(backend, this.now, await this.forge());
+        } catch (error) {
+          this.process.stderr.write(`warning: forge snapshot not refreshed: ${(error as Error).message}\n`);
+        }
+      }
     }
-    const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
-    await landChain(backend, chain, landOne);
   },
 });
 
@@ -866,9 +944,7 @@ const show = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
-    const page = await showPage(backend, await backend.currentUser(), target, () =>
-      this.forge().catch(() => undefined),
-    );
+    const page = await showPage(backend, await backend.currentUser(), target, await backend.readForgeSnapshot());
     this.process.stdout.write(`${docText(showDoc(page))}\n`);
   },
 });
@@ -894,10 +970,7 @@ const todo = buildCommand({
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
-    // A repository whose origin is not on a reachable forge still has a todo
-    // page; only the unimported-requests section needs one.
-    const forge = await this.forge().catch(() => undefined);
-    const page = await todoPage(backend, await backend.currentUser(), forge);
+    const page = await todoPage(backend, await backend.currentUser(), await backend.readForgeSnapshot());
     this.process.stdout.write(`${docText(todoDoc(page))}\n`);
   },
 });
