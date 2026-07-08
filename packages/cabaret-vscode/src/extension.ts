@@ -5,6 +5,7 @@ import {
   type Forge,
   type ForgeRequestId,
   importRequest,
+  type LandOverrides,
   type LogEntry,
   landAsConfigured,
   landChain,
@@ -20,6 +21,7 @@ import {
   type TimestampMs,
   timestampMs,
   transferChange,
+  UnsatisfiedObligationsError,
   UserError,
   userName,
 } from "cabaret-core";
@@ -516,12 +518,16 @@ async function rebaseSelection(backend: Backend, changes: readonly RefName[]): P
   });
 }
 
-/** Land the selection, with the same one-versus-stack semantics as `rebaseSelection`. */
+/**
+ * Land the selection, with the same one-versus-stack semantics as
+ * `rebaseSelection`, confirming each overridable check the land trips.
+ * Reruns after a confirmation skip the links that already landed.
+ */
 async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const config = await readConfig(backend);
-  await confirmNotOwner("Land Anyway", async (override) => {
+  const landAll = async (overrides: LandOverrides) => {
     const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
-      await landAsConfigured(backend, now, requireForge, config, change, entries, override);
+      await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only !== undefined) {
@@ -529,7 +535,31 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
     } else {
       await landChain(backend, await resolveChain(backend, changes), landOne);
     }
-  });
+  };
+  let overrides: LandOverrides = { notOwner: false, unreviewed: false };
+  for (;;) {
+    try {
+      return await landAll(overrides);
+    } catch (error) {
+      let options: vscode.MessageOptions;
+      let message: string;
+      if (error instanceof NotOwnerError && !overrides.notOwner) {
+        message = `${error.change} is owned by ${error.owner}, not you.`;
+        options = { modal: true };
+        overrides = { ...overrides, notOwner: true };
+      } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
+        message = "Review obligations are unsatisfied.";
+        options = { modal: true, detail: error.details.join("\n") };
+        overrides = { ...overrides, unreviewed: true };
+      } else {
+        throw error;
+      }
+      const choice = await vscode.window.showWarningMessage(message, options, "Land Anyway");
+      if (choice === undefined) {
+        return;
+      }
+    }
+  }
 }
 
 /** The forge, for an operation that cannot proceed without one. */

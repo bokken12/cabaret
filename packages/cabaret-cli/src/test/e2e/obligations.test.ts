@@ -8,6 +8,25 @@ async function commitPolicy(repo: TestRepo, path: string, policy: object): Promi
   await repo.git("commit", "-qm", "policy");
 }
 
+test("land requires the owner's self-review even without obligations files", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "",
+    stderr:
+      "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n  feature.txt: 1 more of alice@example.com (owner)\n",
+    exitCode: 1,
+  });
+  await repo.cabaret("review", "feature.txt");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("--even-though-unreviewed lands with obligations unsatisfied", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
 test("land refuses until obligations are satisfied, counting the owner's review", async () => {
   const repo = await makeRepo();
   await commitPolicy(repo, ".obligations", {
@@ -16,7 +35,10 @@ test("land refuses until obligations are satisfied, counting the owner's review"
   await addChange(repo, "feature");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: "review obligations are unsatisfied:\n  feature.txt: 1 more of alice@example.com (.obligations)\n",
+    stderr:
+      "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n" +
+      "  feature.txt: 1 more of alice@example.com (owner)\n" +
+      "  feature.txt: 1 more of alice@example.com (.obligations)\n",
     exitCode: 1,
   });
   await repo.cabaret("review", "feature.txt");
@@ -32,7 +54,8 @@ test("a requirement on two users needs both reviews", async () => {
   await repo.cabaret("review", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: "review obligations are unsatisfied:\n  feature.txt: 1 more of bob@example.com (.obligations)\n",
+    stderr:
+      "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n  feature.txt: 1 more of bob@example.com (.obligations)\n",
     exitCode: 1,
   });
   await repo.git("config", "user.email", "bob@example.com");
@@ -54,9 +77,13 @@ test("weakening an obligations file needs sign-off under the policy it replaces"
   // still governs the file that replaced it.
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: "review obligations are unsatisfied:\n  .obligations: 1 more of bob@example.com (.obligations)\n",
+    stderr:
+      "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n" +
+      "  .obligations: 1 more of alice@example.com (owner)\n" +
+      "  .obligations: 1 more of bob@example.com (.obligations)\n",
     exitCode: 1,
   });
+  await repo.cabaret("review", ".obligations");
   await repo.git("config", "user.email", "bob@example.com");
   await repo.cabaret("review", ".obligations");
   await repo.git("config", "user.email", "alice@example.com");

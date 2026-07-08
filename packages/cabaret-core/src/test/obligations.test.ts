@@ -243,14 +243,18 @@ test("statuses count the users whose review covers the file", async () => {
     trees: { "1": { ".obligations": policyText([rule("*.rs", 2, alice, bob, carol)]) } },
   });
   const entries = [review(alice, "keys.rs", "0", "1"), review(carol, "keys.rs", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, fake("0"), fake("1"));
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
   expect(statuses).toEqual([
+    {
+      obligation: { file: "keys.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
     {
       obligation: { file: "keys.rs", source: ".obligations", require: { atLeast: 2, of: [alice, bob, carol] } },
       reviewedBy: [alice, carol],
     },
   ]);
-  expect(statuses.map(isSatisfied)).toEqual([true]);
+  expect(statuses.map(isSatisfied)).toEqual([true, true]);
 });
 
 test("a review that stops short of the tip does not count", async () => {
@@ -262,8 +266,12 @@ test("a review that stops short of the tip does not count", async () => {
   // alice reviewed to the tip; bob only to the middle commit, and a.rs
   // changed again after it.
   const entries = [review(alice, "a.rs", "0", "2"), review(bob, "a.rs", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, fake("0"), fake("2"));
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("2"));
   expect(statuses).toEqual([
+    {
+      obligation: { file: "a.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
     {
       obligation: { file: "a.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
@@ -273,7 +281,7 @@ test("a review that stops short of the tip does not count", async () => {
       reviewedBy: [],
     },
   ]);
-  expect(statuses.map(isSatisfied)).toEqual([true, false]);
+  expect(statuses.map(isSatisfied)).toEqual([true, true, false]);
 });
 
 test("files changed only by a land merge carry no obligations", async () => {
@@ -285,7 +293,21 @@ test("files changed only by a land merge carry no obligations", async () => {
     changed: { "01": ["a.rs"], "23": [] },
     trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
   });
-  const statuses = await obligationStatuses(backend, [], fake("0"), fake("3"));
-  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs"]);
-  expect(statuses.map(isSatisfied)).toEqual([false]);
+  const statuses = await obligationStatuses(backend, [], alice, fake("0"), fake("3"));
+  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
+  expect(statuses.map(isSatisfied)).toEqual([false, false]);
+});
+
+test("the owner must review every governed file, rules or none", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["b.txt", "a.txt"] },
+  });
+  const entries = [review(alice, "a.txt", "0", "1"), review(bob, "b.txt", "0", "1")];
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  expect(statuses).toEqual([
+    { obligation: { file: "a.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
+    { obligation: { file: "b.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+  ]);
+  expect(statuses.map(isSatisfied)).toEqual([true, false]);
 });

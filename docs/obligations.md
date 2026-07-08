@@ -30,13 +30,15 @@ Inheritance is additive by design: a subdirectory can strengthen the requirement
 - "and" is simply multiple matching rules,
 - "or" across compound requirements is deliberately not expressible.
 
-Coverage is not required. A file matched by no rule carries no obligation, and a repository with no `.obligations` files behaves exactly as one where review is purely voluntary. Adoption is incremental.
+Independent of any rules, every governed file carries one implicit requirement: the change's owner must review it. Writing the code is not the same as reading what the change came to say — after rebases, merges, and revisions, the owner lands the diff, not their memory of it.
+
+Beyond that floor, coverage is not required. A file matched by no rule obliges nobody but the owner, and a repository with no `.obligations` files demands nothing but self-review. Adoption is incremental.
 
 ## Satisfaction
 
-A user counts toward a rule on a file when their review state covers the change's current base-to-tip diff for that file. The owner counts like any other user; writing the code and reviewing it are both ways of knowing it.
+A user counts toward a rule on a file when their review state covers the change's current base-to-tip diff for that file. The owner counts like any other user: a review is a review, whoever wrote the code.
 
-A rule is satisfied when at least `atLeast` of its `of` users count. A change is sufficiently reviewed when every changed file's obligation is satisfied, and `land` refuses until it is.
+A rule is satisfied when at least `atLeast` of its `of` users count. A change is sufficiently reviewed when every changed file's obligation is satisfied, and `land` refuses until it is — short of an explicit override, which each frontend offers the way it offers the ownership override.
 
 Only files changed within the change's own review spans are governed. The diff a land merge brings in was reviewed in the landed child, under the child's own obligations, so it imposes nothing here.
 

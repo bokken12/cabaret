@@ -97,10 +97,11 @@ function patternMatches(pattern: string, path: string): boolean {
   return picomatch(anchored, { dot: true })(target);
 }
 
-/** One requirement put on one changed file, and the obligations file that put it there. */
+/** One requirement put on one changed file. */
 export interface Obligation {
   readonly file: FilePath;
-  readonly source: FilePath;
+  /** The obligations file that put the requirement there, or undefined for the owner's implicit self-review. */
+  readonly source: FilePath | undefined;
   readonly require: Requirement;
 }
 
@@ -168,15 +169,17 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
- * The status of every obligation on `base`..`tip`. Only files changed within
- * the change's own review spans are governed: the diff a land merge brings in
- * was reviewed in the landed child, under the child's own obligations. A user
- * counts toward a requirement exactly when no round of review is left for
- * them on the file.
+ * The status of every obligation on `base`..`tip`, owned by `owner`. Only
+ * files changed within the change's own review spans are governed: the diff a
+ * land merge brings in was reviewed in the landed child, under the child's
+ * own obligations. Independent of any rules, every governed file carries the
+ * owner's implicit self-review requirement. A user counts toward a
+ * requirement exactly when no round of review is left for them on the file.
  */
 export async function obligationStatuses(
   backend: Backend,
   entries: readonly LogEntry[],
+  owner: UserName,
   base: CommitHash,
   tip: CommitHash,
 ): Promise<readonly ObligationStatus[]> {
@@ -186,7 +189,11 @@ export async function obligationStatuses(
       files.add(file);
     }
   }
-  const obligations = await changeObligations(backend, base, tip, [...files].sort());
+  const sorted = [...files].sort();
+  const obligations: Obligation[] = [
+    ...sorted.map((file) => ({ file, source: undefined, require: { atLeast: 1, of: [owner] } })),
+    ...(await changeObligations(backend, base, tip, sorted)),
+  ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
   for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
     const rounds = await reviewRounds(backend, entries, user, base, tip);
@@ -206,23 +213,34 @@ export async function obligationStatuses(
 }
 
 /**
- * Fail unless every obligation on `base`..`tip` is satisfied, naming per
- * requirement how many reviews are missing and who can still provide them.
+ * Review obligations block the land. Each detail line names one unsatisfied
+ * requirement: how many reviews are missing and who can still provide them.
+ * The message states only the facts; each frontend attaches its own override
+ * remedy — a flag, a confirmation dialog — before showing it.
  */
+export class UnsatisfiedObligationsError extends UserError {
+  constructor(readonly details: readonly string[]) {
+    super(`review obligations are unsatisfied:\n${details.join("\n")}`);
+  }
+}
+
+/** Fail with `UnsatisfiedObligationsError` unless every obligation on `base`..`tip` is satisfied. */
 export async function assertObligationsSatisfied(
   backend: Backend,
   entries: readonly LogEntry[],
+  owner: UserName,
   base: CommitHash,
   tip: CommitHash,
 ): Promise<void> {
-  const unsatisfied = (await obligationStatuses(backend, entries, base, tip)).filter((status) => !isSatisfied(status));
+  const statuses = await obligationStatuses(backend, entries, owner, base, tip);
+  const unsatisfied = statuses.filter((status) => !isSatisfied(status));
   if (unsatisfied.length === 0) {
     return;
   }
-  const lines = unsatisfied.map(({ obligation: { file, source, require }, reviewedBy }) => {
+  const details = unsatisfied.map(({ obligation: { file, source, require }, reviewedBy }) => {
     const missing = require.atLeast - reviewedBy.length;
     const candidates = require.of.filter((user) => !reviewedBy.includes(user));
-    return `  ${file}: ${missing} more of ${candidates.join(", ")} (${source})`;
+    return `  ${file}: ${missing} more of ${candidates.join(", ")} (${source ?? "owner"})`;
   });
-  throw new UserError(`review obligations are unsatisfied:\n${lines.join("\n")}`);
+  throw new UnsatisfiedObligationsError(details);
 }
