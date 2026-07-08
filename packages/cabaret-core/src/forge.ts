@@ -18,7 +18,7 @@ import {
 } from "./backend.js";
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
-import { landChange, prepareLand, recordLand } from "./ops.js";
+import { type LandOverrides, landChange, prepareLand, recordLand } from "./ops.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -315,7 +315,7 @@ export async function landRequest(
   entries: readonly LogEntry[],
   request: ForgeRequest,
   method: LandMethod,
-  override: boolean,
+  overrides: LandOverrides,
 ): Promise<CommitHash> {
   if (request.state === "merged") {
     throw new UserError(
@@ -338,7 +338,7 @@ export async function landRequest(
     );
   }
   await backend.fetchBranch(parent);
-  const prepared = await prepareLand(backend, change, entries, override);
+  const prepared = await prepareLand(backend, change, entries, overrides);
   if (request.tip !== prepared.tip) {
     throw new UserError(
       `${forge.locator}#${request.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret gh push\` first`,
@@ -364,12 +364,12 @@ export async function landAsConfigured(
   config: Config,
   change: RefName,
   entries: readonly LogEntry[],
-  override: boolean,
+  overrides: LandOverrides,
 ): Promise<{ readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined> {
   const viaForge =
     config.landVia === "forge" || (config.landVia === "auto" && currentForgeRequest(entries) !== undefined);
   if (!viaForge) {
-    await landChange(backend, now, change, entries, config.landMethod, override);
+    await landChange(backend, now, change, entries, config.landMethod, overrides);
     return undefined;
   }
   const forge = await openForge();
@@ -379,7 +379,7 @@ export async function landAsConfigured(
       `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
     );
   }
-  await landRequest(backend, now, forge, change, entries, request, config.landMethod, override);
+  await landRequest(backend, now, forge, change, entries, request, config.landMethod, overrides);
   return { forge: forge.locator, request: request.id };
 }
 

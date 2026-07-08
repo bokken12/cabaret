@@ -25,6 +25,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   const repo = await makeStack();
   const childTip = await repo.git("rev-parse", "child");
   const parentTip = await repo.git("rev-parse", "parent");
+  await repo.cabaret("review", "child.txt");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The land advances the parent by exactly the merge, without moving HEAD.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
@@ -37,7 +38,8 @@ test("land merges the child into its parent with a marked merge commit", async (
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
       '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
+      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -67,7 +69,7 @@ test("land refuses a change with no commits of its own", async () => {
 
 test("land refuses a change that already landed", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land", "child");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
@@ -78,8 +80,8 @@ test("land refuses a change that already landed", async () => {
 
 test("land refuses a parent that itself landed", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land", "child");
-  await repo.cabaret("land", "parent");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
+  await repo.cabaret("land", "parent", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "main");
   await repo.cabaret("create", "late", "--parent", "parent");
   await repo.git("checkout", "-q", "late");
@@ -102,7 +104,15 @@ test("land requires ownership, with the usual override", async () => {
       '"child" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
     exitCode: 1,
   });
+  // Skipping the ownership check does not skip the owner's obligations.
   expect(await repo.cabaret("land", "child", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr:
+      "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n" +
+      "  child.txt: 1 more of bob@example.com (owner)\n",
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("land", "child", "--even-though-not-owner", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
@@ -111,7 +121,7 @@ test("land requires ownership, with the usual override", async () => {
 
 test("a landed change refuses rebase, reparent, and set-owner", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land", "child");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "parent");
   for (const argv of [
     ["rebase", "child"],
@@ -128,7 +138,7 @@ test("a landed change refuses rebase, reparent, and set-owner", async () => {
 
 test("the diff a land merge brings into the parent needs no review", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   // child.txt arrived through the land merge, reviewed under the child's log.
   expect(await repo.cabaret("diff", "--change", "parent", "child.txt")).toEqual({
     stdout: "",
@@ -140,7 +150,7 @@ test("the diff a land merge brings into the parent needs no review", async () =>
 test("a review made before a land still stands after it", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "parent.txt", "--change", "parent");
-  await repo.cabaret("land", "child");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
   expect(await repo.cabaret("diff", "--change", "parent", "parent.txt")).toEqual({
     stdout: "",
     stderr: "",
@@ -150,7 +160,7 @@ test("a review made before a land still stands after it", async () => {
 
 test("parent work on both sides of a land renders one diff per span", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
   await repo.git("commit", "-qam", "more parent work");
@@ -178,7 +188,7 @@ test("parent work on both sides of a land renders one diff per span", async () =
 
 test("a review between two lands leaves only the later span", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
   await repo.git("commit", "-qam", "more parent work");
@@ -188,7 +198,7 @@ test("a review between two lands leaves only the later span", async () => {
   await repo.write("sibling.txt", "sibling work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "sibling work");
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\nparent v3\n");
   await repo.git("commit", "-qam", "even more parent work");
@@ -213,7 +223,11 @@ test("a review between two lands leaves only the later span", async () => {
 test("landing with the parent checked out carries its working tree along", async () => {
   const repo = await makeStack();
   await repo.git("checkout", "-q", "parent");
-  expect(await repo.cabaret("land", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("parent");
   expect(await repo.git("status", "--porcelain")).toBe("");
   expect(await repo.git("show", "HEAD:child.txt")).toBe("child work");
@@ -226,7 +240,7 @@ test("land into a plain branch that is not a change", async () => {
   await repo.write("feature.txt", "feature work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "feature work");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // All fixture commits share one pinned date, so pin the order too.
   expect(await repo.git("log", "--topo-order", "--format=%s", "main")).toBe("Land feature\nfeature work\nroot");
 });
@@ -240,7 +254,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   const advanced = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
@@ -262,7 +276,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
 
 test("a cherry-picked land commit is skipped like the land it copies", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   // The cherry-pick copies the land merge's message, trailer included, onto
   // an ordinary single-parent commit — the same shape as a squash land, so
   // its diff is skipped as already reviewed: it was, where it landed.
@@ -301,7 +315,11 @@ test("a range lands the whole chain, deepest first", async () => {
   await addChange(repo, "b");
   const bTip = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
-  expect(await repo.cabaret("land", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
   // Each parent advanced by exactly its child's land merge, so main holds it all.
   expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("Land a\nroot");
   expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Land b\na work\nroot");
@@ -347,7 +365,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
   await addChange(repo, "b");
   await addChange(repo, "c");
   await repo.cabaret("set-owner", "bob@example.com", "--change", "b");
-  expect(await repo.cabaret("land", "main..c")).toEqual({
+  expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: '"b" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
     exitCode: 1,
@@ -356,7 +374,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
   expect(await repo.git("log", "--format=%s", "--first-parent", "main")).toBe("root");
   // The rerun skips the landed c and finishes the chain.
-  expect(await repo.cabaret("land", "main..c", "--even-though-not-owner")).toEqual({
+  expect(await repo.cabaret("land", "main..c", "--even-though-not-owner", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
@@ -370,7 +388,7 @@ test("a range that would land into a landed change refuses before landing anythi
   await addChange(repo, "a");
   await addChange(repo, "b");
   await addChange(repo, "c");
-  await repo.cabaret("land", "a");
+  await repo.cabaret("land", "a", "--even-though-unreviewed");
   expect(await repo.cabaret("land", "main..c")).toEqual({
     stdout: "",
     stderr: '"b" would land into "a", which has landed; run `cabaret reparent` first\n',
@@ -382,7 +400,7 @@ test("a range that would land into a landed change refuses before landing anythi
 
 test("a landed change can still be reviewed and forgotten", async () => {
   const repo = await makeStack();
-  await repo.cabaret("land", "child");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
   expect(await repo.cabaret("review", "child.txt", "--change", "child")).toEqual({
     stdout: "",
     stderr: "",
@@ -414,7 +432,7 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
   await repo.git("config", "cabaret.landMethod", "squash");
   const childTip = await repo.git("rev-parse", "child");
   const parentTip = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The land advances the parent by one commit with the child's tree and no
   // second parent; the log freezes the tip the squash does not carry.
   const squash = await repo.git("rev-parse", "parent");

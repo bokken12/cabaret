@@ -71,7 +71,7 @@ test("rename refuses a name that is not a change", async () => {
 test("rename refuses a landed change", async () => {
   const repo = await makeRepo();
   await addChange(repo, "shipped");
-  await repo.cabaret("land");
+  await repo.cabaret("land", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rename", "shipped", "sailed")).toEqual({
     stdout: "",

@@ -1,0 +1,313 @@
+import fc from "fast-check";
+import { expect, test } from "vitest";
+import {
+  type Backend,
+  type CommitHash,
+  changeObligations,
+  type FilePath,
+  isSatisfied,
+  type LogEntry,
+  obligationStatuses,
+  parseCommitHash,
+  parseFilePath,
+  parseObligationsFile,
+  timestampMs,
+  type UserName,
+  userName,
+} from "../index.js";
+
+const alice = userName("alice@example.com");
+const bob = userName("bob@example.com");
+const carol = userName("carol@example.com");
+
+/** A rule object as it appears in an `.obligations` file. */
+function rule(match: string, atLeast: number, ...of: readonly string[]) {
+  return { match, require: { atLeast, of } };
+}
+
+test("parseObligationsFile accepts the documented shape", () => {
+  const text = JSON.stringify({
+    root: true,
+    rules: [rule("**/*.rs", 2, "alice@example.com", "bob@example.com", "carol@example.com")],
+  });
+  expect(parseObligationsFile(text)).toEqual({
+    root: true,
+    rules: [{ match: "**/*.rs", require: { atLeast: 2, of: [alice, bob, carol] } }],
+  });
+});
+
+test("parseObligationsFile rejects vacuous and unsatisfiable requirements", () => {
+  const parse =
+    (atLeast: number, ...of: string[]) =>
+    () =>
+      parseObligationsFile(JSON.stringify({ rules: [rule("*.rs", atLeast, ...of)] }));
+  expect(parse(0, "alice@example.com")).toThrow("expected number to be >0");
+  expect(parse(3, "alice@example.com", "bob@example.com")).toThrow("`atLeast` asks for more reviewers than `of` lists");
+  expect(parse(1, "alice@example.com", "alice@example.com")).toThrow("`of` lists a user twice");
+  expect(parse(1)).toThrow();
+});
+
+test("parseObligationsFile rejects directory patterns and unknown keys", () => {
+  expect(() => parseObligationsFile(JSON.stringify({ rules: [rule("vendor/", 1, "alice@example.com")] }))).toThrow(
+    "patterns match files, not directories",
+  );
+  expect(() => parseObligationsFile(JSON.stringify({ rules: [], owner: "alice@example.com" }))).toThrow(
+    /Unrecognized key: \\"owner\\"/,
+  );
+});
+
+test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
+  const user = fc.emailAddress();
+  const requirement = fc
+    .uniqueArray(user, { minLength: 1, maxLength: 4 })
+    .chain((of) => fc.integer({ min: 1, max: of.length }).map((atLeast) => ({ atLeast, of })));
+  const file = fc.record(
+    {
+      root: fc.boolean(),
+      rules: fc.array(
+        fc.record({
+          match: fc.stringMatching(/^[a-z*?[\]/.]+$/).filter((p) => p !== "" && !p.endsWith("/")),
+          require: requirement,
+        }),
+        { maxLength: 4 },
+      ),
+    },
+    { requiredKeys: ["rules"] },
+  );
+  fc.assert(
+    fc.property(file, (value) => {
+      expect(parseObligationsFile(JSON.stringify(value))).toEqual(value);
+    }),
+  );
+});
+
+/** The fake commit `digit.repeat(40)`, hex digits only. */
+function fake(digit: string): CommitHash {
+  return parseCommitHash(digit.repeat(40));
+}
+
+/**
+ * A backend over fake one-digit commits. `trees` maps each commit to the
+ * obligations files in its tree; `history` maps each commit to its first
+ * parent; `changed` maps `<base><tip>` digit pairs to the files differing
+ * between them, and a pair the test did not anticipate is an error. Only the
+ * members obligations evaluation touches exist.
+ */
+function repoBackend(opts: {
+  trees?: Record<string, Record<string, string>>;
+  history?: Record<string, string>;
+  changed?: Record<string, readonly string[]>;
+  merges?: readonly { commit: string; onto: string }[];
+}): Backend {
+  const ancestry = (tip: CommitHash): CommitHash[] => {
+    const chain = [tip];
+    for (let up = opts.history?.[tip[0] as string]; up !== undefined; up = opts.history?.[up]) {
+      chain.push(fake(up));
+    }
+    return chain;
+  };
+  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor"> = {
+    async readFile(commit, file) {
+      return opts.trees?.[commit[0] as string]?.[file as string];
+    },
+    async changedFiles(base, tip) {
+      if (base === tip) {
+        return [];
+      }
+      const files = opts.changed?.[`${base[0]}${tip[0]}`];
+      if (files === undefined) {
+        throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
+      }
+      return files.map(parseFilePath);
+    },
+    async landMerges(base, tip) {
+      const path = ancestry(tip);
+      const cut = path.indexOf(base);
+      const between = new Set(cut === -1 ? path : path.slice(0, cut));
+      return (opts.merges ?? [])
+        .map(({ commit, onto }) => ({ commit: fake(commit), onto: fake(onto) }))
+        .filter(({ commit }) => between.has(commit))
+        .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
+    },
+    async isAncestor(ancestor, descendant) {
+      return ancestry(descendant).includes(ancestor);
+    },
+  };
+  return stub as Backend;
+}
+
+/** `.obligations` file text with the given rules. */
+function policyText(rules: readonly ReturnType<typeof rule>[], root?: boolean): string {
+  return JSON.stringify(root === undefined ? { rules } : { root, rules });
+}
+
+function paths(names: readonly string[]): readonly FilePath[] {
+  return names.map(parseFilePath);
+}
+
+test("obligations accumulate from every governing file, nearest first", async () => {
+  const backend = repoBackend({
+    trees: {
+      "1": {
+        ".obligations": policyText([rule("*.rs", 1, alice, bob)]),
+        "crypto/.obligations": policyText([rule("**", 2, alice, bob, carol)]),
+      },
+    },
+  });
+  const files = paths(["crypto/keys.rs", "main.rs", "docs/notes.md"]);
+  expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
+    { file: "crypto/keys.rs", source: "crypto/.obligations", require: { atLeast: 2, of: [alice, bob, carol] } },
+    { file: "crypto/keys.rs", source: ".obligations", require: { atLeast: 1, of: [alice, bob] } },
+    { file: "main.rs", source: ".obligations", require: { atLeast: 1, of: [alice, bob] } },
+  ]);
+});
+
+test("a root obligations file cuts off its ancestors", async () => {
+  const backend = repoBackend({
+    trees: {
+      "1": {
+        ".obligations": policyText([rule("**", 1, alice)]),
+        "vendor/.obligations": policyText([rule("*.gen.rs", 1, bob)], true),
+      },
+    },
+  });
+  const files = paths(["vendor/lib.gen.rs", "vendor/notes.md", "src/main.rs"]);
+  expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
+    { file: "vendor/lib.gen.rs", source: "vendor/.obligations", require: { atLeast: 1, of: [bob] } },
+    { file: "src/main.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
+  ]);
+});
+
+test("a pattern without a slash matches names at any depth; with a slash, the whole relative path", async () => {
+  const backend = repoBackend({
+    trees: {
+      "1": {
+        ".obligations": policyText([rule("*.rs", 1, alice), rule("sub/*.txt", 1, bob)]),
+      },
+    },
+  });
+  const files = paths(["deep/nested/lib.rs", "sub/a.txt", "sub/deep/b.txt", "other/sub/c.txt"]);
+  expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
+    { file: "deep/nested/lib.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
+    { file: "sub/a.txt", source: ".obligations", require: { atLeast: 1, of: [bob] } },
+  ]);
+});
+
+test("a changed obligations file carries its base version's requirements", async () => {
+  const backend = repoBackend({
+    trees: {
+      "0": { "crypto/.obligations": policyText([rule("*.rs", 1, carol)]) },
+      "1": {
+        ".obligations": policyText([rule("**", 1, bob)]),
+        "crypto/.obligations": policyText([rule("*.rs", 1, alice)]),
+      },
+    },
+  });
+  // The tip rules of crypto/.obligations do not match the file itself, but
+  // the root policy does, and the replaced base version applies in full even
+  // though its own pattern never matched the file either.
+  expect(await changeObligations(backend, fake("0"), fake("1"), paths(["crypto/.obligations"]))).toEqual([
+    { file: "crypto/.obligations", source: ".obligations", require: { atLeast: 1, of: [bob] } },
+    { file: "crypto/.obligations", source: "crypto/.obligations", require: { atLeast: 1, of: [carol] } },
+  ]);
+});
+
+test("a brand-new obligations file answers only to the tip tree", async () => {
+  const backend = repoBackend({
+    trees: { "1": { "a/.obligations": policyText([rule("**", 1, alice)]) } },
+  });
+  expect(await changeObligations(backend, fake("0"), fake("1"), paths(["a/.obligations"]))).toEqual([
+    { file: "a/.obligations", source: "a/.obligations", require: { atLeast: 1, of: [alice] } },
+  ]);
+});
+
+test("a malformed obligations file is a user error naming the file", async () => {
+  const backend = repoBackend({ trees: { "1": { ".obligations": "not json" } } });
+  await expect(changeObligations(backend, fake("0"), fake("1"), paths(["a.rs"]))).rejects.toThrow(
+    'malformed obligations file ".obligations" at 111111111111',
+  );
+});
+
+function review(user: UserName, file: string, base: string, tip: string): LogEntry {
+  return {
+    timestamp: timestampMs(1748000000000),
+    user,
+    action: { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) },
+  };
+}
+
+test("statuses count the users whose review covers the file", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["keys.rs"] },
+    trees: { "1": { ".obligations": policyText([rule("*.rs", 2, alice, bob, carol)]) } },
+  });
+  const entries = [review(alice, "keys.rs", "0", "1"), review(carol, "keys.rs", "0", "1")];
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  expect(statuses).toEqual([
+    {
+      obligation: { file: "keys.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "keys.rs", source: ".obligations", require: { atLeast: 2, of: [alice, bob, carol] } },
+      reviewedBy: [alice, carol],
+    },
+  ]);
+  expect(statuses.map(isSatisfied)).toEqual([true, true]);
+});
+
+test("a review that stops short of the tip does not count", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    changed: { "02": ["a.rs"], "12": ["a.rs"] },
+    trees: { "2": { ".obligations": policyText([rule("*.rs", 1, alice), rule("*.rs", 1, bob)]) } },
+  });
+  // alice reviewed to the tip; bob only to the middle commit, and a.rs
+  // changed again after it.
+  const entries = [review(alice, "a.rs", "0", "2"), review(bob, "a.rs", "0", "1")];
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("2"));
+  expect(statuses).toEqual([
+    {
+      obligation: { file: "a.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "a.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "a.rs", source: ".obligations", require: { atLeast: 1, of: [bob] } },
+      reviewedBy: [],
+    },
+  ]);
+  expect(statuses.map(isSatisfied)).toEqual([true, true, false]);
+});
+
+test("files changed only by a land merge carry no obligations", async () => {
+  // 2 is a land merge (onto 1): whatever it brought in was reviewed in the
+  // landed child, so only the spans 0-1 and 2-3 are governed here.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    merges: [{ commit: "2", onto: "1" }],
+    changed: { "01": ["a.rs"], "23": [] },
+    trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
+  });
+  const statuses = await obligationStatuses(backend, [], alice, fake("0"), fake("3"));
+  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
+  expect(statuses.map(isSatisfied)).toEqual([false, false]);
+});
+
+test("the owner must review every governed file, rules or none", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["b.txt", "a.txt"] },
+  });
+  const entries = [review(alice, "a.txt", "0", "1"), review(bob, "b.txt", "0", "1")];
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  expect(statuses).toEqual([
+    { obligation: { file: "a.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
+    { obligation: { file: "b.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+  ]);
+  expect(statuses.map(isSatisfied)).toEqual([true, false]);
+});

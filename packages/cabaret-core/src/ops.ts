@@ -17,6 +17,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import type { ForgeMerge } from "./forge.js";
+import { assertObligationsSatisfied } from "./obligations.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -224,19 +225,28 @@ export interface PreparedLand {
   readonly user: UserName;
 }
 
+/** The land checks the user may explicitly override. */
+export interface LandOverrides {
+  /** Land a change the current user does not own. */
+  readonly notOwner: boolean;
+  /** Land with review obligations unsatisfied. */
+  readonly unreviewed: boolean;
+}
+
 /**
- * Check that `target` may land now — unlanded, owned by the current user
- * (unless overridden), with an unlanded parent, sitting on the parent's tip,
- * and with commits of its own — and resolve the endpoints the landing writes.
+ * Check that `target` may land now — unlanded, owned by the current user,
+ * with an unlanded parent, sitting on the parent's tip, with commits of its
+ * own, and with its review obligations satisfied — and resolve the endpoints
+ * the landing writes. `overrides` skips the checks it names.
  */
 export async function prepareLand(
   backend: Backend,
   target: RefName,
   entries: readonly LogEntry[],
-  override: boolean,
+  overrides: LandOverrides,
 ): Promise<PreparedLand> {
   assertNotLanded(target, entries);
-  await requireOwner(backend, target, entries, override);
+  await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
   // A parent that is itself a landed change is frozen too: landing into it
   // would grow the code its own land froze. A parent that is not a change
@@ -257,6 +267,9 @@ export async function prepareLand(
   const tip = await backend.resolveCommit(`refs/heads/${target}`);
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
+  }
+  if (!overrides.unreviewed) {
+    await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), base, tip);
   }
   // Resolve the identity before any ref moves so a missing git identity
   // fails without landing anything.
@@ -300,9 +313,9 @@ export async function landChange(
   target: RefName,
   entries: readonly LogEntry[],
   method: LandMethod,
-  override: boolean,
+  overrides: LandOverrides,
 ): Promise<void> {
-  const prepared = await prepareLand(backend, target, entries, override);
+  const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, tip } = prepared;
   const merge =
     method === "merge"

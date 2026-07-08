@@ -33,6 +33,7 @@ import {
   syncedRequest,
   type Todo,
   transferChange,
+  UnsatisfiedObligationsError,
   UserError,
   type UserName,
   userName,
@@ -79,9 +80,22 @@ const evenThoughNotOwner = {
   default: false,
 } as const;
 
-/** A `UserError`'s message, with this frontend's remedy attached to the ownership check. */
+/** The escape hatch for the review-obligations check on `land`. */
+const evenThoughUnreviewed = {
+  kind: "boolean",
+  brief: "Land even though review obligations are unsatisfied",
+  default: false,
+} as const;
+
+/** A `UserError`'s message, with this frontend's remedy attached to the overridable checks. */
 function userMessage(error: UserError): string {
-  return error instanceof NotOwnerError ? `${error.message}; pass --even-though-not-owner to override` : error.message;
+  if (error instanceof NotOwnerError) {
+    return `${error.message}; pass --even-though-not-owner to override`;
+  }
+  if (error instanceof UnsatisfiedObligationsError) {
+    return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
+  }
+  return error.message;
 }
 
 /**
@@ -559,21 +573,20 @@ const land = buildCommand({
         },
       ],
     },
-    flags: { evenThoughNotOwner },
+    flags: { evenThoughNotOwner, evenThoughUnreviewed },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
+  async func(
+    this: LocalContext,
+    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean },
+    spec?: ChangeSpec,
+  ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
     const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
-      const merged = await landAsConfigured(
-        backend,
-        this.now,
-        this.forge,
-        config,
-        change,
-        entries,
-        flags.evenThoughNotOwner,
-      );
+      const merged = await landAsConfigured(backend, this.now, this.forge, config, change, entries, {
+        notOwner: flags.evenThoughNotOwner,
+        unreviewed: flags.evenThoughUnreviewed,
+      });
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.request}\n`);
       }

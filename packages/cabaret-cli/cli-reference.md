@@ -169,14 +169,15 @@ FLAGS
 ## cabaret land
 
 USAGE
-  cabaret land [--even-though-not-owner] [<change>]
+  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [<change>]
   cabaret land --help
 
 Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with git config cabaret.landMethod squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change with a pull request lands by merging the request on the forge and fetching the result; git config cabaret.landVia local (or forge) picks one side unconditionally. The change must sit on its parent's tip; `cabaret rebase` first if it does not. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
+     [--even-though-not-owner]   Proceed even though you do not own the change       [default = false]
+     [--even-though-unreviewed]  Land even though review obligations are unsatisfied [default = false]
+  -h  --help                     Print help information and exit
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to land (defaults to current)
