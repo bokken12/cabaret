@@ -10,10 +10,12 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - **Cabaret: Todo** — open the todo page: what awaits your attention.
 - **Cabaret: Show Change** — open the current change's show page, picking
   one when no change is current.
-- In a cabaret buffer, `enter` opens the target under the cursor and `r`
-  re-renders the page. On a show page, `^` climbs to the parent's show page —
-  or to the todo page from a change rooted on a trunk — and `$` descends to a
-  child's, picking one when there are several.
+- In a cabaret buffer, `enter` opens the target under the cursor and `R`
+  re-renders the page. On a show page, `r` opens the change's review page,
+  `^` climbs to the parent's show page — or to the todo page from a change
+  rooted on a trunk — and `$` descends to a child's, picking one when there
+  are several. On the review page, `enter` opens the first file left to
+  review unless the cursor is on another file's line.
 - Change actions sit behind `!` chords: `!c` creates a child, `!p` splices in
   a parent, `!o` sets the owner, `!rb` rebases, `!rn` renames, `!rp`
   reparents, and `!la` lands.
