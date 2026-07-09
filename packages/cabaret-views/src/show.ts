@@ -82,6 +82,27 @@ function shortHash(hash: CommitHash): string {
   return hash.slice(0, 12);
 }
 
+/** `value (note)`, or just `value` without a note. */
+function noted(value: string, note: string | undefined): string {
+  return note === undefined ? value : `${value} (${note})`;
+}
+
+const ORIGIN_NOTES: Record<NonNullable<ChangeSummary["origin"]>, string> = {
+  ahead: "ahead of origin",
+  behind: "behind origin",
+  diverged: "diverged from origin",
+};
+
+const PARENT_NOTES: Record<NonNullable<ChangeSummary["deadParent"]>, string> = {
+  landed: "landed",
+  missing: "does not exist",
+};
+
+const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>, string> = {
+  behind: "behind parent",
+  diverged: "diverged from parent",
+};
+
 /** The heading, its rule, and the attribute table every show page opens with. */
 function header(heading: Span, attributes: readonly (readonly [string, string])[]): Line[] {
   return [
@@ -171,10 +192,11 @@ export function showDoc(page: ShowPage): Doc {
     };
   }
   const summary = page.summary;
+  // Each row notes how its own reading disagrees with what it should track.
   const attributes: [string, string][] = [
     ["next step", summary.nextStep],
     ["owner", summary.owner],
-    ["parent", summary.parent],
+    ["parent", noted(summary.parent, summary.deadParent && PARENT_NOTES[summary.deadParent])],
   ];
   if (summary.forgeChange !== undefined) {
     attributes.push(["forge change", `${summary.forgeChange.forge}#${summary.forgeChange.id}`]);
@@ -182,7 +204,10 @@ export function showDoc(page: ShowPage): Doc {
   if (summary.landed !== undefined) {
     attributes.push(["landed", shortHash(summary.landed)]);
   }
-  attributes.push(["tip", shortHash(summary.tip)], ["base", shortHash(summary.base)]);
+  attributes.push(
+    ["tip", noted(shortHash(summary.tip), summary.origin && ORIGIN_NOTES[summary.origin])],
+    ["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])],
+  );
   // No target: the heading names the page itself.
   const heading = span(summary.change, { style: "heading" });
   return {

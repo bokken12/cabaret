@@ -370,6 +370,14 @@ export interface Backend {
   /** The commit branch `branch` points at, or undefined if it does not exist. */
   branchTip(branch: RefName): Promise<CommitHash | undefined>;
 
+  /**
+   * The commit `origin`'s copy of `branch` pointed at when last fetched, or
+   * undefined when none is known. Pinned to `origin` like every other remote
+   * operation, whatever upstream the branch is configured with. A local
+   * reading, so it may trail the remote itself.
+   */
+  originTip(branch: RefName): Promise<CommitHash | undefined>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   createBranch(name: RefName, commit: CommitHash): Promise<void>;
 
@@ -644,8 +652,18 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
     return currentBase(change, entries);
   }
   const parent = currentParent(change, entries);
-  const derived = await backend.mergeBase(parent, change);
   const stored = currentBase(change, entries);
+  // With no parent branch there is no merge-base; the stored base is the only
+  // candidate, still valid while it remains an ancestor of the tip.
+  if ((await backend.branchTip(parent)) === undefined) {
+    if (await backend.isAncestor(stored, await backend.resolveCommit(`refs/heads/${change}`))) {
+      return stored;
+    }
+    throw new UserError(
+      `parent branch of ${JSON.stringify(change)} does not exist: ${JSON.stringify(parent)}; run \`cabaret reparent\``,
+    );
+  }
+  const derived = await backend.mergeBase(parent, change);
   if (stored === derived) {
     return derived;
   }

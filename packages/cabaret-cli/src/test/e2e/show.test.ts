@@ -1,7 +1,7 @@
 import { parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
-import { addChange, makeRepo } from "./fixture.js";
+import { addChange, makeRepo, tempDir } from "./fixture.js";
 
 test("show renders the current change's status page", async () => {
   const repo = await makeRepo();
@@ -148,6 +148,219 @@ test("show by name reflects review progress", async () => {
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
     ╰───────────┴───────────────────╯
+    "
+  `);
+});
+
+test("show notes a tip behind origin's copy and makes sync the step", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.write("gadget.txt", "gadget work v2\n");
+  await repo.git("commit", "-qam", "more gadget work");
+  await repo.git("push", "-q", "origin", "gadget");
+  await repo.git("reset", "-q", "--hard", "HEAD~1");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬──────────────────────────────╮
+    │ attribute │ value                        │
+    ├───────────┼──────────────────────────────┤
+    │ next step │ sync                         │
+    │ owner     │ alice@example.com            │
+    │ parent    │ main                         │
+    │ tip       │ f37230616d25 (behind origin) │
+    │ base      │ 1ac0b33426d0                 │
+    ╰───────────┴──────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
+test("show notes a stale base on its row while review stays the step", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  await repo.git("checkout", "-q", "gadget");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬──────────────────────────────╮
+    │ attribute │ value                        │
+    ├───────────┼──────────────────────────────┤
+    │ next step │ review                       │
+    │ owner     │ alice@example.com            │
+    │ parent    │ main                         │
+    │ tip       │ f37230616d25                 │
+    │ base      │ 1ac0b33426d0 (behind parent) │
+    ╰───────────┴──────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
+test("show tells a change whose parent has landed to reparent", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await addChange(repo, "gizmo");
+  await repo.git("checkout", "-q", "gadget");
+  await repo.cabaret("review", "gadget.txt");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("show", "gizmo")).stdout).toMatchInlineSnapshot(`
+    "gizmo
+    =====
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ reparent          │
+    │ owner     │ alice@example.com │
+    │ parent    │ gadget (landed)   │
+    │ tip       │ 03c72c897f10      │
+    │ base      │ f37230616d25      │
+    ╰───────────┴───────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gizmo.txt
+    "
+  `);
+});
+
+test("show tells a change whose parent branch is gone to reparent", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "-q", "topic");
+  await repo.cabaret("create", "feature", "--parent", "topic");
+  await repo.git("checkout", "-q", "feature");
+  await repo.write("feature.txt", "feature work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "feature work");
+  await repo.git("branch", "-qD", "topic");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "feature
+    =======
+
+    ╭───────────┬────────────────────────╮
+    │ attribute │ value                  │
+    ├───────────┼────────────────────────┤
+    │ next step │ reparent               │
+    │ owner     │ alice@example.com      │
+    │ parent    │ topic (does not exist) │
+    │ tip       │ db5a7532d33d           │
+    │ base      │ 1ac0b33426d0           │
+    ╰───────────┴────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      feature.txt
+    "
+  `);
+});
+
+test("show notes a tip diverged from origin's copy and makes sync the step", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.git("push", "-q", "origin", "gadget");
+  await repo.git("commit", "-q", "--amend", "-m", "gadget work, reworded");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬─────────────────────────────────────╮
+    │ attribute │ value                               │
+    ├───────────┼─────────────────────────────────────┤
+    │ next step │ sync                                │
+    │ owner     │ alice@example.com                   │
+    │ parent    │ main                                │
+    │ tip       │ 7eccbe63002f (diverged from origin) │
+    │ base      │ 1ac0b33426d0                        │
+    ╰───────────┴─────────────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
+test("show notes a tip ahead of origin's copy without changing the step", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.git("push", "-q", "origin", "gadget");
+  await repo.write("gadget.txt", "gadget work v2\n");
+  await repo.git("commit", "-qam", "more gadget work");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ review                         │
+    │ owner     │ alice@example.com              │
+    │ parent    │ main                           │
+    │ tip       │ cd374afd6b0a (ahead of origin) │
+    │ base      │ 1ac0b33426d0                   │
+    ╰───────────┴────────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
+test("show reads origin's copy even when the branch tracks another remote", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  // The branch tracks a second remote and diverges from it, but Cabaret pins
+  // every remote reading to origin — which has no copy, so no note appears.
+  const fork = await tempDir("cabaret-e2e-fork-");
+  await repo.git("init", "-q", "--bare", fork);
+  await repo.git("remote", "add", "fork", fork);
+  await repo.git("push", "-qu", "fork", "gadget");
+  await repo.git("commit", "-q", "--amend", "-m", "gadget work, reworded");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ 7eccbe63002f      │
+    │ base      │ 1ac0b33426d0      │
+    ╰───────────┴───────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      gadget.txt
     "
   `);
 });
