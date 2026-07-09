@@ -67,3 +67,7 @@ What should signify a comment needing to be addressed?
 - Iron uses "CR"
 
 honestly I kind of like "TODO"? It's longer, but feels more universally acknowledged - and in general I prefer to avoid acronyms?
+
+# Versions
+
+I like JJ's "revision" over git's "commit", the commit feels like the action
