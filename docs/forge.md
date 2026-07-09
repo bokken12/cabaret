@@ -14,7 +14,7 @@ Tentative: the interface is `Forge`, implemented by `GitHubForge` and `GitLabFor
 - Concrete implementations live in `cabaret-github` (and eventually `cabaret-gitlab`), platform-agnostic so browsers can run them; `cabaret-node` contributes only what needs a local machine — finding the repository and a token.
 - `LocalContext` grows a `forge()` next to `backend()`, and the existing `gh pull` / `gh push` stubs in `app.ts` call into the sync functions.
 
-The sync logic should be pure planning over data: `planPull(log, requestState) → entries to append` and `planPush(log, requestState) → comments to post`. The commands fetch state, plan, apply. This keeps the interesting logic (idempotency, dedup, supersession) testable without any fake HTTP — and idempotency itself becomes a property test: planning again after applying must yield the empty plan.
+The sync logic should be pure planning over data: `planPull(log, forgeState) → entries to append` and `planPush(log, forgeState) → comments to post`. The commands fetch state, plan, apply. This keeps the interesting logic (idempotency, dedup, supersession) testable without any fake HTTP — and idempotency itself becomes a property test: planning again after applying must yield the empty plan.
 
 ## Transport and auth
 
@@ -28,7 +28,7 @@ A change maps to a PR: the change's branch is the head, its parent's branch is t
 
 The association could be derived purely from the head branch name, but branches get renamed, PRs get closed and reopened, and a branch can have had several PRs over its life. Instead the association is recorded in the log, where it merges and syncs like everything else:
 
-- `set-forge` with a `forge` locator (e.g. `github.com/org/repo`) and a `request` number, latest wins.
+- `set-forge` with a `forge` locator (e.g. `github.com/org/repo`) and the forge change's `id` number, latest wins.
 
 `gh push` creates the PR if the log doesn't name one (title from the change name, base from the parent) and records `set-forge`. `gh pull` can adopt an existing PR found by head branch and record the same.
 
@@ -102,25 +102,25 @@ Small, imperative, everything the planner can't compute:
 
 ```ts
 interface Forge {
-  /** The open request with head `branch`, if any. */
-  findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
-  /** Every open request; on the todo page the ones with no change log stand in as changes awaiting import. */
-  listOpenRequests(): Promise<readonly ForgeRequest[]>;
-  getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
-  createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest>;
-  setBase(id: ForgeRequestId, base: RefName): Promise<void>;
-  listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]>;
-  addComment(id: ForgeRequestId, body: string): Promise<void>;
+  /** The open forge change with head `branch`, if any. */
+  findChange(branch: RefName): Promise<ForgeChange | undefined>;
+  /** Every open forge change; on the todo page the ones with no change log stand in as changes awaiting import. */
+  fetchSnapshot(): Promise<readonly SnapshotChange[]>;
+  getChange(id: ForgeChangeId): Promise<ForgeChange>;
+  createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange>;
+  setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
+  listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]>;
+  addComment(id: ForgeChangeId, body: string): Promise<void>;
 }
 ```
 
-with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeRequest` carrying `id`, `head`, `base`, `title`, `author`, `state`, `merge`, `changedFiles`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeChange` carrying `id`, `head`, `parent`, `title`, `author`, `state`, `merge`, `changedFiles`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
 
 ## Data model changes
 
 - `comment` action: optional `source: { forge, id }`.
-- New `set-forge` action: `{ forge, request }`, latest wins.
-- New pure derivations: current forge request; comments grouped by identity with latest-version-wins.
+- New `set-forge` action: `{ forge, id }`, latest wins.
+- New pure derivations: current forge change; comments grouped by identity with latest-version-wins.
 
 All additive to `LogActionSchema`; no migrations (pre-1.0).
 

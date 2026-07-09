@@ -4,17 +4,17 @@ import {
   type CommitHash,
   type FilePath,
   type Forge,
+  type ForgeChange,
+  type ForgeChangeId,
   type ForgeComment,
   type ForgeMerge,
-  type ForgeRequest,
-  type ForgeRequestId,
-  forgeRequestId,
+  forgeChangeId,
   type LandMethod,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   type RefName,
-  type SnapshotRequest,
+  type SnapshotChange,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -28,7 +28,7 @@ interface FakeComment {
   updatedAt: number;
 }
 
-interface FakeRequest {
+interface FakePr {
   readonly head: RefName;
   base: RefName;
   readonly title: string;
@@ -54,7 +54,7 @@ export class FakeForge implements Forge {
   tokenLogin = "alice";
   /** The bare repository this forge hosts; `makeRepo` sets it. */
   origin: string | undefined;
-  private readonly requests = new Map<ForgeRequestId, FakeRequest>();
+  private readonly prs = new Map<ForgeChangeId, FakePr>();
   private clock = 1750000000000;
   private nextComment = 100;
 
@@ -68,7 +68,7 @@ export class FakeForge implements Forge {
 
   /**
    * The commit `branch` points at on the hosted repository. A real forge
-   * cannot host a request for a branch it does not have, but tests fabricate
+   * cannot host a PR for a branch it does not have, but tests fabricate
    * them; the zero hash stands in, and never matches a real local tip.
    */
   private async branchTip(branch: RefName): Promise<CommitHash> {
@@ -79,68 +79,68 @@ export class FakeForge implements Forge {
     }
   }
 
-  async findRequest(branch: RefName): Promise<ForgeRequest | undefined> {
-    for (const [id, request] of this.requests) {
-      if (request.head === branch && request.state === "open") {
-        return this.snapshot(id, request);
+  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+    for (const [id, pr] of this.prs) {
+      if (pr.head === branch && pr.state === "open") {
+        return this.snapshot(id, pr);
       }
     }
     return undefined;
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
+  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
     return Promise.all(
-      [...this.requests]
-        .filter(([, request]) => request.state === "open")
-        .map(async ([id, request]) => ({
-          request: await this.snapshot(id, request),
-          files: request.files,
+      [...this.prs]
+        .filter(([, pr]) => pr.state === "open")
+        .map(async ([id, pr]) => ({
+          change: await this.snapshot(id, pr),
+          files: pr.files,
           comments: await this.listComments(id),
         })),
     );
   }
 
-  async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
-    return this.snapshot(id, this.request(id));
+  async getChange(id: ForgeChangeId): Promise<ForgeChange> {
+    return this.snapshot(id, this.pr(id));
   }
 
-  async createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest> {
-    return this.getRequest(this.openRequest(this.tokenLogin, head, base, title));
+  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
+    return this.getChange(this.openPr(this.tokenLogin, head, parent, title));
   }
 
-  async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
-    this.request(id).base = base;
+  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+    this.pr(id).base = parent;
   }
 
-  async mergeRequest(
-    id: ForgeRequestId,
+  async landChange(
+    id: ForgeChangeId,
     method: LandMethod,
     expectedTip: CommitHash,
     title: string,
     message: string,
   ): Promise<ForgeMerge> {
-    const request = this.request(id);
-    if (request.state !== "open") {
-      throw new Error(`request ${id} is ${request.state}`);
+    const pr = this.pr(id);
+    if (pr.state !== "open") {
+      throw new Error(`PR ${id} is ${pr.state}`);
     }
-    const onto = await this.branchTip(request.base);
-    const tip = await this.branchTip(request.head);
+    const onto = await this.branchTip(pr.base);
+    const tip = await this.branchTip(pr.head);
     if (tip !== expectedTip) {
-      throw new Error(`request ${id} head is at ${tip}, not ${expectedTip}`);
+      throw new Error(`PR ${id} head is at ${tip}, not ${expectedTip}`);
     }
     const tree = await this.git("rev-parse", `${tip}^{tree}`);
     const parents = method === "merge" ? ["-p", onto, "-p", tip] : ["-p", onto];
     // GitHub composes the commit message as the title, a blank line, and the body.
     const commit = parseCommitHash(await this.git("commit-tree", tree, "-m", `${title}\n\n${message}`, ...parents));
-    await this.git("update-ref", `refs/heads/${request.base}`, commit, onto);
-    request.state = "merged";
-    request.merge = { commit, parents: method === "merge" ? 2 : 1 };
-    request.tip = tip;
-    return request.merge;
+    await this.git("update-ref", `refs/heads/${pr.base}`, commit, onto);
+    pr.state = "merged";
+    pr.merge = { commit, parents: method === "merge" ? 2 : 1 };
+    pr.tip = tip;
+    return pr.merge;
   }
 
-  async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {
-    return this.request(id).comments.map((comment) => ({
+  async listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]> {
+    return this.pr(id).comments.map((comment) => ({
       id: comment.id,
       author: userName(`${comment.login}@users.noreply.github.com`),
       body: comment.body,
@@ -148,60 +148,60 @@ export class FakeForge implements Forge {
     }));
   }
 
-  async addComment(id: ForgeRequestId, body: string): Promise<void> {
+  async addComment(id: ForgeChangeId, body: string): Promise<void> {
     this.comment(id, this.tokenLogin, body);
   }
 
-  /** A request opened on the forge by `login`; returns its number. */
-  openRequest(login: string, head: RefName, base: RefName, title: string, files = ["work.txt"]): ForgeRequestId {
-    const id = forgeRequestId(this.requests.size + 1);
-    this.requests.set(id, { head, base, title, login, state: "open", files: files.map(parseFilePath), comments: [] });
+  /** A PR opened on the forge by `login`; returns its number. */
+  openPr(login: string, head: RefName, base: RefName, title: string, files = ["work.txt"]): ForgeChangeId {
+    const id = forgeChangeId(this.prs.size + 1);
+    this.prs.set(id, { head, base, title, login, state: "open", files: files.map(parseFilePath), comments: [] });
     return id;
   }
 
   /** A comment posted on the forge by `login`; returns its id. */
-  comment(id: ForgeRequestId, login: string, body: string): string {
+  comment(id: ForgeChangeId, login: string, body: string): string {
     const commentId = String(this.nextComment++);
-    this.request(id).comments.push({ id: commentId, login, body, updatedAt: this.clock++ });
+    this.pr(id).comments.push({ id: commentId, login, body, updatedAt: this.clock++ });
     return commentId;
   }
 
   /** Edit comment `commentId` in place, as the forge does. */
-  edit(id: ForgeRequestId, commentId: string, body: string): void {
-    const comment = this.request(id).comments.find((candidate) => candidate.id === commentId);
+  edit(id: ForgeChangeId, commentId: string, body: string): void {
+    const comment = this.pr(id).comments.find((candidate) => candidate.id === commentId);
     if (comment === undefined) {
-      throw new Error(`no comment ${commentId} on request ${id}`);
+      throw new Error(`no comment ${commentId} on PR ${id}`);
     }
     comment.body = body;
     comment.updatedAt = this.clock++;
   }
 
   /** The merge button, pressed after `mergeCommit` reached the base branch out of band. */
-  merge(id: ForgeRequestId, mergeCommit: CommitHash, parents = 2): void {
-    const request = this.request(id);
-    request.state = "merged";
-    request.merge = { commit: mergeCommit, parents };
+  merge(id: ForgeChangeId, mergeCommit: CommitHash, parents = 2): void {
+    const pr = this.pr(id);
+    pr.state = "merged";
+    pr.merge = { commit: mergeCommit, parents };
   }
 
-  private request(id: ForgeRequestId): FakeRequest {
-    const request = this.requests.get(id);
-    if (request === undefined) {
-      throw new Error(`no request ${id}`);
+  private pr(id: ForgeChangeId): FakePr {
+    const pr = this.prs.get(id);
+    if (pr === undefined) {
+      throw new Error(`no PR ${id}`);
     }
-    return request;
+    return pr;
   }
 
-  private async snapshot(id: ForgeRequestId, request: FakeRequest): Promise<ForgeRequest> {
+  private async snapshot(id: ForgeChangeId, pr: FakePr): Promise<ForgeChange> {
     return {
       id,
-      head: request.head,
-      tip: request.tip ?? (await this.branchTip(request.head)),
-      base: request.base,
-      title: request.title,
-      author: userName(`${request.login}@users.noreply.github.com`),
-      state: request.state,
-      changedFiles: request.files.length,
-      ...(request.merge === undefined ? {} : { merge: request.merge }),
+      head: pr.head,
+      tip: pr.tip ?? (await this.branchTip(pr.head)),
+      parent: pr.base,
+      title: pr.title,
+      author: userName(`${pr.login}@users.noreply.github.com`),
+      state: pr.state,
+      changedFiles: pr.files.length,
+      ...(pr.merge === undefined ? {} : { merge: pr.merge }),
     };
   }
 }

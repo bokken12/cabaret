@@ -49,7 +49,7 @@ test("an open PR stands in as a change to review until imported", async () => {
   await repo.git("push", "-q", "origin", "their-feature");
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
-  forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭───────────────┬────────╮
@@ -94,7 +94,7 @@ test("your own PR joins the changes you own when identities align", async () => 
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("config", "user.email", "alice@users.noreply.github.com");
-  forge.openRequest("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", [
+  forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", [
     "solo.txt",
     "docs/solo.md",
   ]);
@@ -121,7 +121,7 @@ test("your own PR joins the changes you own when identities align", async () => 
 test("a merged PR is not offered for import", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
   await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`

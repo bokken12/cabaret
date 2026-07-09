@@ -4,8 +4,8 @@ import {
   type ChangeSummary,
   changeForest,
   currentParent,
+  type ForgeChange,
   type ForgeLocator,
-  type ForgeRequest,
   type ForgeSnapshot,
   type RefName,
   summarizeChange,
@@ -16,12 +16,12 @@ import { type Doc, type Line, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
 /**
- * One row of the todo page: a change, or an open forge request with no
+ * One row of the todo page: a change, or an open forge change with no
  * change log yet, standing in for the change importing it would create.
  */
 export type TodoItem =
   | { readonly kind: "change"; readonly summary: ChangeSummary }
-  | { readonly kind: "request"; readonly request: ForgeRequest };
+  | { readonly kind: "forge-change"; readonly change: ForgeChange };
 
 /** A change to act on and the changes stacked on it. */
 export interface TodoNode {
@@ -34,22 +34,22 @@ export interface TodoPage {
   /** Unlanded changes with files left for the user to review, sorted by name. */
   readonly review: readonly TodoItem[];
   /**
-   * The user's unlanded changes as a forest along parent links, requests the
-   * user authored included. A change that is landed or someone else's stays
-   * only while kept children hang from it.
+   * The user's unlanded changes as a forest along parent links, forge changes
+   * the user authored included. A change that is landed or someone else's
+   * stays only while kept children hang from it.
    */
   readonly owned: readonly TodoNode[];
-  /** Which forge the page's requests mirror and when, absent without a snapshot. */
+  /** Which forge the page's forge changes mirror and when, absent without a snapshot. */
   readonly forge?: { readonly locator: ForgeLocator; readonly takenAt: TimestampMs } | undefined;
 }
 
 function itemName(item: TodoItem): RefName {
-  return item.kind === "change" ? item.summary.change : item.request.head;
+  return item.kind === "change" ? item.summary.change : item.change.head;
 }
 
-/** Files with review left: for a request, every file it touches, since the user has reviewed none. */
+/** Files with review left: for a forge change, every file it touches, since the user has reviewed none. */
 function itemReview(item: TodoItem): number {
-  return item.kind === "change" ? item.summary.reviewLeft.length : item.request.changedFiles;
+  return item.kind === "change" ? item.summary.reviewLeft.length : item.change.changedFiles;
 }
 
 function itemNextStep(item: TodoItem): string {
@@ -64,15 +64,15 @@ export async function todoPage(backend: Backend, user: UserName, snapshot?: Forg
     summaries.set(change, await summarizeChange(backend, change, entries, user));
     parents.set(change, currentParent(change, entries));
   }
-  // Open requests with no log yet, keyed by the change importing them would
-  // create. Requests sharing a head (one branch opened against several bases)
-  // collapse to the oldest.
-  const requests = new Map<RefName, ForgeRequest>();
+  // Open forge changes with no log yet, keyed by the change importing them
+  // would create. Those sharing a head (one branch opened against several
+  // parents) collapse to the oldest.
+  const unimported = new Map<RefName, ForgeChange>();
   if (snapshot !== undefined) {
-    for (const { request } of [...snapshot.requests].sort((a, b) => a.request.id - b.request.id)) {
-      if (!summaries.has(request.head) && !requests.has(request.head)) {
-        requests.set(request.head, request);
-        parents.set(request.head, request.base);
+    for (const { change } of [...snapshot.changes].sort((a, b) => a.change.id - b.change.id)) {
+      if (!summaries.has(change.head) && !unimported.has(change.head)) {
+        unimported.set(change.head, change);
+        parents.set(change.head, change.parent);
       }
     }
   }
@@ -81,16 +81,16 @@ export async function todoPage(backend: Backend, user: UserName, snapshot?: Forg
     if (summary !== undefined) {
       return { kind: "change", summary };
     }
-    const request = requests.get(change);
-    if (request === undefined) {
+    const found = unimported.get(change);
+    if (found === undefined) {
       throw new Error(`change vanished while summarizing: ${change}`);
     }
-    return { kind: "request", request };
+    return { kind: "forge-change", change: found };
   };
   const mine = (candidate: TodoItem): boolean =>
     candidate.kind === "change"
       ? candidate.summary.landed === undefined && candidate.summary.owner === user
-      : candidate.request.author === user;
+      : candidate.change.author === user;
   const prune = (nodes: readonly ChangeNode[]): TodoNode[] =>
     nodes.flatMap((node) => {
       const candidate = item(node.change);
@@ -98,9 +98,9 @@ export async function todoPage(backend: Backend, user: UserName, snapshot?: Forg
       return mine(candidate) || children.length > 0 ? [{ item: candidate, children }] : [];
     });
   const unlanded = (candidate: TodoItem): boolean =>
-    candidate.kind === "request" || candidate.summary.landed === undefined;
+    candidate.kind === "forge-change" || candidate.summary.landed === undefined;
   return {
-    review: [...summaries.keys(), ...requests.keys()]
+    review: [...summaries.keys(), ...unimported.keys()]
       .sort()
       .map(item)
       .filter((candidate) => unlanded(candidate) && itemReview(candidate) > 0),
@@ -110,15 +110,15 @@ export async function todoPage(backend: Backend, user: UserName, snapshot?: Forg
 }
 
 /**
- * A cell naming `item`, resolving to its change or to its request awaiting
- * import. The tree guide rides alongside as plain text, keeping the link on
- * exactly the name.
+ * A cell naming `item`, resolving to its change or to its forge change
+ * awaiting import. The tree guide rides alongside as plain text, keeping the
+ * link on exactly the name.
  */
 function itemCell(item: TodoItem, guide = ""): Cell {
   const target =
     item.kind === "change"
       ? ({ kind: "change", change: item.summary.change } as const)
-      : ({ kind: "request", request: item.request.id, change: item.request.head } as const);
+      : ({ kind: "forge-change", id: item.change.id, change: item.change.head } as const);
   const name = span(itemName(item), { target });
   return guide === "" ? name : [span(guide), name];
 }
@@ -168,8 +168,8 @@ export function todoDoc(page: TodoPage): Doc {
   if (lines.length === 0) {
     lines.push({ spans: [span("Nothing to do.")] });
   }
-  // Requests come from a mirror, not the forge itself; saying when it was
-  // taken keeps a stale page from being mistaken for the forge's truth.
+  // Forge changes come from a mirror, not the forge itself; saying when it
+  // was taken keeps a stale page from being mistaken for the forge's truth.
   if (page.forge !== undefined) {
     lines.push({ spans: [] });
     lines.push({ spans: [span(`${page.forge.locator} synced ${new Date(page.forge.takenAt).toISOString()}`)] });

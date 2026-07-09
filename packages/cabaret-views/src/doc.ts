@@ -1,4 +1,4 @@
-import type { FilePath, ForgeRequestId, RefName } from "cabaret-core";
+import type { FilePath, ForgeChangeId, RefName } from "cabaret-core";
 
 /** Semantic paint for a span; each host maps styles to its own palette. */
 export type Style = "heading" | "added" | "removed" | "hunk";
@@ -9,8 +9,8 @@ export type Target =
   | { readonly kind: "file"; readonly change: RefName; readonly file: FilePath }
   /** A position in a file's current copy: `line` is 1-based. */
   | { readonly kind: "location"; readonly file: FilePath; readonly line: number }
-  /** A forge request with no change log yet; `change` names the change importing it would create. */
-  | { readonly kind: "request"; readonly request: ForgeRequestId; readonly change: RefName };
+  /** A forge change with no change log yet; `change` names the change importing it would create. */
+  | { readonly kind: "forge-change"; readonly id: ForgeChangeId; readonly change: RefName };
 
 /**
  * How hosts offer a span's target: a link is advertised as clickable, while a

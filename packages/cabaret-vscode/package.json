@@ -112,7 +112,7 @@
       },
       {
         "command": "cabaret.import",
-        "title": "Cabaret: Import Pull Request"
+        "title": "Cabaret: Import Change"
       },
       {
         "command": "cabaret.syncForge",

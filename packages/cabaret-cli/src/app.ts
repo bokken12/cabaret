@@ -5,16 +5,16 @@ import {
   brain,
   changeBase,
   createChange,
-  currentForgeRequest,
+  currentForgeChange,
   currentParent,
   type DiffSegment,
   type FilePath,
   type Forge,
-  type ForgeRequest,
-  type ForgeRequestId,
-  forgeRequestId,
+  type ForgeChange,
+  type ForgeChangeId,
+  forgeChangeId,
   formatLogEntry,
-  importRequest,
+  importChange,
   type LogEntry,
   landAsConfigured,
   landChain,
@@ -35,7 +35,7 @@ import {
   reparentChange,
   resolveRange,
   reviewSegments,
-  syncedRequest,
+  syncedForgeChange,
   syncForgeSnapshot,
   type Todo,
   transferChange,
@@ -394,14 +394,14 @@ const forget = buildCommand({
 });
 
 /** Parse a PR-number argument. */
-function parseRequestNumber(raw: string): ForgeRequestId {
-  return forgeRequestId(Number(raw));
+function parseChangeNumber(raw: string): ForgeChangeId {
+  return forgeChangeId(Number(raw));
 }
 
 /**
- * Pull one change's request activity into its log: comments the log lacks —
+ * Pull one change's forge activity into its log: comments the log lacks —
  * new ones, and new versions of ones edited in place — and the land a merged
- * request implies. Reports what it appended on `stdout`.
+ * forge change implies. Reports what it appended on `stdout`.
  */
 async function pullChange(
   context: LocalContext,
@@ -409,20 +409,20 @@ async function pullChange(
   forge: Forge,
   change: RefName,
   entries: readonly LogEntry[],
-  request: ForgeRequest,
+  forgeChange: ForgeChange,
 ): Promise<void> {
-  const additions = [...(await planPull(forge.locator, entries, await forge.listComments(request.id)))];
-  const landing = observedLand(context.now, await backend.currentUser(), request, entries);
+  const additions = [...(await planPull(forge.locator, entries, await forge.listComments(forgeChange.id)))];
+  const landing = observedLand(context.now, await backend.currentUser(), forgeChange, entries);
   if (landing !== undefined) {
     additions.push(landing);
   }
   await backend.appendLog(change, additions);
   if (landing !== undefined) {
-    context.process.stdout.write(`${forge.locator}#${request.id} was merged; recorded the land\n`);
+    context.process.stdout.write(`${forge.locator}#${forgeChange.id} was merged; recorded the land\n`);
   }
   const pulled = additions.filter(({ action }) => action.kind === "comment").length;
   context.process.stdout.write(
-    `pulled ${pulled} comment${pulled === 1 ? "" : "s"} from ${forge.locator}#${request.id}\n`,
+    `pulled ${pulled} comment${pulled === 1 ? "" : "s"} from ${forge.locator}#${forgeChange.id}\n`,
   );
 }
 
@@ -440,13 +440,13 @@ const gh = buildRouteMap({
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [{ brief: "PR number to import", placeholder: "number", parse: parseRequestNumber }],
+          parameters: [{ brief: "PR number to import", placeholder: "number", parse: parseChangeNumber }],
         },
       },
-      async func(this: LocalContext, _flags: Record<never, never>, id: ForgeRequestId) {
+      async func(this: LocalContext, _flags: Record<never, never>, id: ForgeChangeId) {
         const backend = await this.backend();
         const forge = await this.forge();
-        const result = await importRequest(backend, this.now, forge, id);
+        const result = await importChange(backend, this.now, forge, id);
         await syncForgeSnapshot(backend, this.now, forge);
         if (result.kind === "exists") {
           throw new UserError(
@@ -488,49 +488,49 @@ const gh = buildRouteMap({
           await backend.syncLog(change);
           const entries = await backend.readLog(change);
           assertChangeExists(change, entries);
-          const request = await syncedRequest(backend, this.now, forge, change, entries);
-          if (request === undefined) {
+          const forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
+          if (forgeChange === undefined) {
             throw new UserError(
-              `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+              `no PR for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
             );
           }
-          await pullChange(this, backend, forge, change, entries, request);
+          await pullChange(this, backend, forge, change, entries, forgeChange);
           return;
         }
-        // The open requests by head branch: what an untracked change can
+        // The open PRs by head branch: what an untracked change can
         // adopt without asking the forge change by change.
-        const open = new Map(snapshot.requests.map(({ request }) => [request.head, request]));
+        const open = new Map(snapshot.changes.map(({ change }) => [change.head, change]));
         for (const change of await backend.syncLogs()) {
           const entries = await backend.readLog(change);
           if (landedMerge(entries) !== undefined) {
             continue;
           }
-          const recorded = currentForgeRequest(entries);
-          let request: ForgeRequest | undefined;
+          const recorded = currentForgeChange(entries);
+          let forgeChange: ForgeChange | undefined;
           if (recorded !== undefined) {
             if (recorded.forge !== forge.locator) {
               continue;
             }
-            // Fetched live: a request merged or closed since the snapshot
+            // Fetched live: a PR merged or closed since the snapshot
             // still lands its change on this pull.
-            request = await forge.getRequest(recorded.request);
+            forgeChange = await forge.getChange(recorded.id);
           } else {
-            request = open.get(change);
-            if (request === undefined) {
+            forgeChange = open.get(change);
+            if (forgeChange === undefined) {
               continue;
             }
             await backend.appendLog(change, [
               {
                 timestamp: this.now(),
                 user: await backend.currentUser(),
-                action: { kind: "set-forge", forge: forge.locator, request: request.id },
+                action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
               },
             ]);
           }
-          await pullChange(this, backend, forge, change, entries, request);
+          await pullChange(this, backend, forge, change, entries, forgeChange);
         }
-        const requests = snapshot.requests.length;
-        this.process.stdout.write(`synced ${forge.locator}: ${requests} open request${requests === 1 ? "" : "s"}\n`);
+        const count = snapshot.changes.length;
+        this.process.stdout.write(`synced ${forge.locator}: ${count} open PR${count === 1 ? "" : "s"}\n`);
       },
     }),
     push: buildCommand({
@@ -559,28 +559,28 @@ const gh = buildRouteMap({
         assertChangeExists(change, entries);
         const parent = currentParent(change, entries);
         await backend.pushBranch(change);
-        let request = await syncedRequest(backend, this.now, forge, change, entries);
-        if (request === undefined) {
-          request = await forge.createRequest(change, parent, change);
+        let forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
+        if (forgeChange === undefined) {
+          forgeChange = await forge.createChange(change, parent, change);
           await backend.appendLog(change, [
             {
               timestamp: this.now(),
               user: await backend.currentUser(),
-              action: { kind: "set-forge", forge: forge.locator, request: request.id },
+              action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
             },
           ]);
-          this.process.stdout.write(`opened ${forge.locator}#${request.id}\n`);
-        } else if (request.state === "open" && request.base !== parent) {
-          await forge.setBase(request.id, parent);
+          this.process.stdout.write(`opened ${forge.locator}#${forgeChange.id}\n`);
+        } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
+          await forge.setParent(forgeChange.id, parent);
         }
-        const bodies = await planPush(entries, await forge.listComments(request.id), await backend.currentUser());
+        const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
         for (const body of bodies) {
-          await forge.addComment(request.id, body);
+          await forge.addComment(forgeChange.id, body);
         }
         await backend.syncLog(change);
         await syncForgeSnapshot(backend, this.now, forge);
         this.process.stdout.write(
-          `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${request.id}\n`,
+          `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${forgeChange.id}\n`,
         );
       },
     }),
@@ -614,9 +614,9 @@ const land = buildCommand({
       "Land a change: write it onto its parent as a commit marked as landing " +
       "(a merge, or a squash with git config cabaret.landMethod squash), so " +
       "the parent's reviewers are not asked to re-review the change's diff, " +
-      "and record the landing in the change's log. A change with a pull " +
-      "request lands by merging the request on the forge and fetching the " +
-      "result; git config cabaret.landVia local (or forge) picks one side " +
+      "and record the landing in the change's log. A change tracked on a " +
+      "forge lands by merging there and fetching the result; git config " +
+      "cabaret.landVia local (or forge) picks one side " +
       "unconditionally. The change must sit on its parent's tip; `cabaret " +
       "rebase` first if it does not. A landed change can no longer be " +
       "rebased, renamed, reparented, or transferred, though reviewing it is " +
@@ -654,7 +654,7 @@ const land = buildCommand({
       });
       if (merged !== undefined) {
         anyMerged = true;
-        this.process.stdout.write(`merged ${merged.forge}#${merged.request}\n`);
+        this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
       }
     };
     try {

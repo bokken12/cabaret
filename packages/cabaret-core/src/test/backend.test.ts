@@ -10,9 +10,9 @@ import {
   currentOwner,
   currentParent,
   type FilePath,
-  type ForgeRequest,
+  type ForgeChange,
   type ForgeSnapshot,
-  forgeRequestId,
+  forgeChangeId,
   formatForgeSnapshot,
   formatLogEntry,
   type LandMerge,
@@ -246,7 +246,7 @@ test("a formatted log parses back to the original entries", () => {
       action: {
         kind: "set-forge",
         forge: parseForgeLocator("github.com/test-org/widgets"),
-        request: forgeRequestId(7),
+        id: forgeChangeId(7),
       },
     },
     {
@@ -306,9 +306,9 @@ test("parseLog rejects malformed logs", () => {
       line({ ...entry, action: { kind: "comment", text: "hi", source: { forge: "gh.test/a/b" } } }),
       "malformed log line",
     ],
-    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", request: 0 } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", request: 1.5 } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "set-forge", request: 1 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", id: 0 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", id: 1.5 } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "set-forge", id: 1 } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
     expect(() => parseLog(log)).toThrow(error);
@@ -550,7 +550,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     fc.record({
       kind: fc.constant("set-forge" as const),
       forge: forges,
-      request: fc.integer({ min: 1 }).map(forgeRequestId),
+      id: fc.integer({ min: 1 }).map(forgeChangeId),
     }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
@@ -580,19 +580,19 @@ test("format/parse round-trips arbitrary logs", () => {
 
 function forgeSnapshots(): fc.Arbitrary<ForgeSnapshot> {
   const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
-  const requests: fc.Arbitrary<ForgeRequest> = fc.record(
+  const forgeChanges: fc.Arbitrary<ForgeChange> = fc.record(
     {
-      id: fc.integer({ min: 1 }).map(forgeRequestId),
+      id: fc.integer({ min: 1 }).map(forgeChangeId),
       head: refNames(),
       tip: commitHashes(),
-      base: refNames(),
+      parent: refNames(),
       title: fc.string({ unit: "grapheme" }),
       author: users,
       state: fc.constantFrom("open" as const, "closed" as const, "merged" as const),
       changedFiles: fc.nat(),
       merge: fc.record({ commit: commitHashes(), parents: fc.constantFrom(1, 2) }),
     },
-    { requiredKeys: ["id", "head", "tip", "base", "title", "author", "state", "changedFiles"] },
+    { requiredKeys: ["id", "head", "tip", "parent", "title", "author", "state", "changedFiles"] },
   );
   const comments = fc.record({
     id: fc.string({ minLength: 1 }),
@@ -603,7 +603,7 @@ function forgeSnapshots(): fc.Arbitrary<ForgeSnapshot> {
   return fc.record({
     locator: fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator),
     takenAt: fc.maxSafeNat().map(timestampMs),
-    requests: fc.array(fc.record({ request: requests, files: fc.array(filePaths()), comments: fc.array(comments) })),
+    changes: fc.array(fc.record({ change: forgeChanges, files: fc.array(filePaths()), comments: fc.array(comments) })),
   });
 }
 

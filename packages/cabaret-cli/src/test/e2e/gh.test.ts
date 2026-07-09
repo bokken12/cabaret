@@ -1,9 +1,9 @@
-import { forgeRequestId, parseCommitHash, parseRefName } from "cabaret-core";
+import { forgeChangeId, parseCommitHash, parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo, shownComments } from "./fixture.js";
 
-const REQUEST = forgeRequestId(1);
+const PR = forgeChangeId(1);
 
 test("gh push pushes the branch, opens a PR on the parent, and posts comments with markers", async () => {
   const forge = new FakeForge();
@@ -16,20 +16,20 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
     exitCode: 0,
   });
   expect(await repo.git("ls-remote", "--heads", "origin", "gadget")).toContain("refs/heads/gadget");
-  expect(await forge.getRequest(REQUEST)).toEqual({
-    id: REQUEST,
+  expect(await forge.getChange(PR)).toEqual({
+    id: PR,
     head: "gadget",
     tip: parseCommitHash(await repo.git("rev-parse", "gadget")),
-    base: "main",
+    parent: "main",
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
     changedFiles: 1,
   });
-  const posted = await forge.listComments(REQUEST);
+  const posted = await forge.listComments(PR);
   expect(posted.map(({ body }) => body)).toEqual([expect.stringMatching(/^ship it\n\n<!-- cabaret:[0-9a-f]{64} -->$/)]);
   expect((await repo.cabaret("log")).stdout).toContain(
-    '"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}',
+    '"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}',
   );
 });
 
@@ -44,7 +44,7 @@ test("gh push again is a no-op", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await forge.listComments(REQUEST)).toHaveLength(1);
+  expect(await forge.listComments(PR)).toHaveLength(1);
 });
 
 test("gh push attributes another user's comment to its author", async () => {
@@ -55,7 +55,7 @@ test("gh push attributes another user's comment to its author", async () => {
   await repo.cabaret("comment", "one nit");
   await repo.git("config", "user.email", "alice@example.com");
   await repo.cabaret("gh", "push");
-  const posted = await forge.listComments(REQUEST);
+  const posted = await forge.listComments(PR);
   expect(posted.map(({ body }) => body)).toEqual([
     expect.stringMatching(/^\*\*bob@example\.com:\*\*\n\none nit\n\n<!-- cabaret:[0-9a-f]{64} -->$/),
   ]);
@@ -66,10 +66,9 @@ test("gh pull imports comments under forge identities, and again is a no-op", as
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("gh", "push");
-  forge.comment(REQUEST, "carol", "does this handle empty diffs?");
+  forge.comment(PR, "carol", "does this handle empty diffs?");
   expect(await repo.cabaret("gh", "pull")).toEqual({
-    stdout:
-      "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+    stdout: "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
     stderr: "",
     exitCode: 0,
   });
@@ -78,7 +77,7 @@ test("gh pull imports comments under forge identities, and again is a no-op", as
   );
   expect(await repo.cabaret("gh", "pull")).toEqual({
     stdout:
-      "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+      "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
     stderr: "",
     exitCode: 0,
   });
@@ -89,11 +88,11 @@ test("gh pull imports a forge-side edit as a new version, displayed once", async
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("gh", "push");
-  const commentId = forge.comment(REQUEST, "carol", "looks wrong");
+  const commentId = forge.comment(PR, "carol", "looks wrong");
   await repo.cabaret("gh", "pull");
-  forge.edit(REQUEST, commentId, "looks wrong (never mind)");
+  forge.edit(PR, commentId, "looks wrong (never mind)");
   expect((await repo.cabaret("gh", "pull")).stdout).toBe(
-    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
   );
   expect(await shownComments(repo)).toBe(
     "Comments:\n  2025-06-15T15:06:40.001Z carol@users.noreply.github.com\n    looks wrong (never mind)\n",
@@ -110,7 +109,7 @@ test("gh pull does not echo comments gh push posted", async () => {
   await repo.cabaret("comment", "ship it");
   await repo.cabaret("gh", "push");
   expect((await repo.cabaret("gh", "pull")).stdout).toBe(
-    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
   );
   expect(await shownComments(repo)).toBe(
     "Comments:\n  2025-05-23T11:33:20.003Z bob@example.com\n    one nit\n\n" +
@@ -124,18 +123,18 @@ test("gh pull records a merged PR as landing the change, once", async () => {
   await addChange(repo, "gadget");
   await repo.cabaret("gh", "push");
   const merge = parseCommitHash(await repo.git("rev-parse", "main"));
-  forge.merge(REQUEST, merge);
+  forge.merge(PR, merge);
   expect(await repo.cabaret("gh", "pull")).toEqual({
     stdout:
       "github.com/test-org/widgets#1 was merged; recorded the land\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
-      "synced github.com/test-org/widgets: 0 open requests\n",
+      "synced github.com/test-org/widgets: 0 open PRs\n",
     stderr: "",
     exitCode: 0,
   });
   expect((await repo.cabaret("log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
   // The landed change is done: the next sweep passes it by.
-  expect((await repo.cabaret("gh", "pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open requests\n");
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open PRs\n");
 });
 
 test("gh pull records a squash-merged PR with the tip that merged", async () => {
@@ -147,7 +146,7 @@ test("gh pull records a squash-merged PR with the tip that merged", async () => 
   // The squash commit descends from no reviewed history, so the land entry
   // freezes the head that merged as the change's tip.
   const squash = parseCommitHash("1".repeat(40));
-  forge.merge(REQUEST, squash, 1);
+  forge.merge(PR, squash, 1);
   expect((await repo.cabaret("gh", "pull")).stdout).toContain("was merged; recorded the land");
   expect((await repo.cabaret("log")).stdout).toContain(`"action":{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
 });
@@ -156,13 +155,13 @@ test("gh pull adopts the branch's open PR when the log names none", async () => 
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await forge.createRequest(parseRefName("gadget"), parseRefName("main"), "gadget");
-  forge.comment(REQUEST, "carol", "opened this by hand");
+  await forge.createChange(parseRefName("gadget"), parseRefName("main"), "gadget");
+  forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("gh", "pull")).stdout).toBe(
-    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open request\n",
+    "pulled 1 comment from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
   );
   expect((await repo.cabaret("log")).stdout).toContain(
-    '"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}',
+    '"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}',
   );
 });
 
@@ -172,12 +171,12 @@ test("gh pull --change fails when the change has no PR", async () => {
   await addChange(repo, "gadget");
   expect(await repo.cabaret("gh", "pull", "--change", "gadget")).toEqual({
     stdout: "",
-    stderr: 'no pull request for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first\n',
+    stderr: 'no PR for "gadget" on github.com/test-org/widgets; run `cabaret gh push` first\n',
     exitCode: 1,
   });
   // The sweep just passes such a change by.
   expect(await repo.cabaret("gh", "pull")).toEqual({
-    stdout: "synced github.com/test-org/widgets: 0 open requests\n",
+    stdout: "synced github.com/test-org/widgets: 0 open PRs\n",
     stderr: "",
     exitCode: 0,
   });
@@ -188,7 +187,7 @@ test("gh push does not record forge activity, even an observed merge", async () 
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("gh", "push");
-  forge.merge(REQUEST, parseCommitHash(await repo.git("rev-parse", "main")));
+  forge.merge(PR, parseCommitHash(await repo.git("rev-parse", "main")));
   expect(await repo.cabaret("gh", "push")).toEqual({
     stdout: "pushed 0 comments to github.com/test-org/widgets#1\n",
     stderr: "",
@@ -209,7 +208,7 @@ test("gh import turns a teammate's PR into a change to review", async () => {
   const theirTip = await repo.git("rev-parse", "their-feature");
   await repo.git("checkout", "-q", "main");
   await repo.git("branch", "-qD", "their-feature");
-  const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
   expect(await repo.cabaret("gh", "import", "1")).toEqual({
     stdout: 'imported github.com/test-org/widgets#1 as "their-feature" with 1 comment\n',
@@ -224,7 +223,7 @@ test("gh import turns a teammate's PR into a change to review", async () => {
   const log = (await repo.cabaret("log", "their-feature")).stdout;
   expect(log).toContain('"action":{"kind":"set-parent","parent":"main"}');
   expect(log).toContain('"action":{"kind":"set-owner","owner":"carol@users.noreply.github.com"}');
-  expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","request":1}');
+  expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}');
   // Importing again refuses rather than doubling the change.
   expect(await repo.cabaret("gh", "import", "1")).toEqual({
     stdout: "",
@@ -244,7 +243,7 @@ test("gh import adopts the PR of an existing local branch without fetching it", 
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "my work");
   await repo.git("push", "-q", "origin", "my-feature");
-  forge.openRequest("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
+  forge.openPr("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
   expect(await repo.cabaret("gh", "import", "1")).toEqual({
     stdout: 'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n',
     stderr: "",
@@ -261,8 +260,8 @@ test("gh push retargets the PR base after a reparent", async () => {
   await addChange(repo, "gadget");
   await addChange(repo, "widget");
   await repo.cabaret("gh", "push");
-  expect((await forge.getRequest(REQUEST)).base).toBe("gadget");
+  expect((await forge.getChange(PR)).parent).toBe("gadget");
   await repo.cabaret("reparent", "widget", "main");
   await repo.cabaret("gh", "push");
-  expect((await forge.getRequest(REQUEST)).base).toBe("main");
+  expect((await forge.getChange(PR)).parent).toBe("main");
 });

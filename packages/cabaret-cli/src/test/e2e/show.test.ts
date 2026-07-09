@@ -65,7 +65,7 @@ test("show renders the comments on a change, oldest first, above the files", asy
 test("show for an unimported PR renders the as-if-imported view", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  const id = forge.openRequest("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
     "their.txt",
     "docs/notes.md",
   ]);
@@ -75,15 +75,15 @@ test("show for an unimported PR renders the as-if-imported view", async () => {
     "their-feature
     =============
 
-    ╭───────────────┬────────────────────────────────╮
-    │ attribute     │ value                          │
-    ├───────────────┼────────────────────────────────┤
-    │ next step     │ import                         │
-    │ owner         │ carol@users.noreply.github.com │
-    │ parent        │ main                           │
-    │ forge request │ github.com/test-org/widgets#1  │
-    │ title         │ Their feature                  │
-    ╰───────────────┴────────────────────────────────╯
+    ╭──────────────┬────────────────────────────────╮
+    │ attribute    │ value                          │
+    ├──────────────┼────────────────────────────────┤
+    │ next step    │ import                         │
+    │ owner        │ carol@users.noreply.github.com │
+    │ parent       │ main                           │
+    │ forge change │ github.com/test-org/widgets#1  │
+    │ title        │ Their feature                  │
+    ╰──────────────┴────────────────────────────────╯
 
     Comments:
       2025-06-15T15:06:40.000Z carol@users.noreply.github.com

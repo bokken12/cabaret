@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import {
   changeBase,
   type ForgeSnapshot,
-  forgeRequestId,
+  forgeChangeId,
   type LogAction,
   type LogEntry,
   parseCommitHash,
@@ -254,13 +254,13 @@ test("the forge snapshot persists across backends and is shared by worktrees", a
   const snapshot: ForgeSnapshot = {
     locator: parseForgeLocator("github.com/test-org/widgets"),
     takenAt: timestampMs(1748000000000),
-    requests: [
+    changes: [
       {
-        request: {
-          id: forgeRequestId(7),
+        change: {
+          id: forgeChangeId(7),
           head: parseRefName("their-feature"),
           tip: parseCommitHash("1".repeat(40)),
-          base: parseRefName("main"),
+          parent: parseRefName("main"),
           title: "Their feature",
           author: userName("carol@users.noreply.github.com"),
           state: "open",

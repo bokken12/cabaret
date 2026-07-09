@@ -69,14 +69,14 @@ export function parseForgeLocator(raw: string): ForgeLocator {
   return raw as ForgeLocator;
 }
 
-/** A pull-request (or merge-request) number on a forge. Obtain via `forgeRequestId`. */
-export type ForgeRequestId = Branded<number, "ForgeRequestId">;
+/** A change's number on a forge: its pull-request (GitHub) or merge-request (GitLab) number. Obtain via `forgeChangeId`. */
+export type ForgeChangeId = Branded<number, "ForgeChangeId">;
 
-export function forgeRequestId(raw: number): ForgeRequestId {
+export function forgeChangeId(raw: number): ForgeChangeId {
   if (!Number.isSafeInteger(raw) || raw <= 0) {
-    throw new UserError(`not a forge request number: ${raw}`);
+    throw new UserError(`not a forge change number: ${raw}`);
   }
-  return raw as ForgeRequestId;
+  return raw as ForgeChangeId;
 }
 
 /**
@@ -96,7 +96,7 @@ export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "set-owner"; readonly owner: UserName }
-  | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly request: ForgeRequestId }
+  | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath }
   | { readonly kind: "land"; readonly merge: CommitHash; readonly tip?: CommitHash | undefined }
@@ -125,7 +125,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("set-forge"),
     forge: z.string().transform(parseForgeLocator),
-    request: z.number().transform(forgeRequestId),
+    id: z.number().transform(forgeChangeId),
   }),
   z.object({
     kind: z.literal("review"),
@@ -239,31 +239,32 @@ export interface LandMerge {
   readonly onto: CommitHash;
 }
 
-/** The commit that landed a merged request on its base branch. */
+/** The commit that landed a merged forge change on its parent branch. */
 export interface ForgeMerge {
   readonly commit: CommitHash;
   /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
   readonly parents: number;
 }
 
-/** A pull request (GitHub) or merge request (GitLab) on a forge. */
-export interface ForgeRequest {
-  readonly id: ForgeRequestId;
+/** A change as a forge holds it: a pull request (GitHub) or merge request (GitLab). */
+export interface ForgeChange {
+  readonly id: ForgeChangeId;
   readonly head: RefName;
-  /** The commit the head branch points at — for a merged request, what merged. */
+  /** The commit the head branch points at — for a merged change, what merged. */
   readonly tip: CommitHash;
-  readonly base: RefName;
+  /** The branch the change merges into. */
+  readonly parent: RefName;
   readonly title: string;
-  /** Who opened the request, mapped to a Cabaret identity by the `Forge` implementation. */
+  /** Who opened the change, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
-  /** How many files the request touches. */
+  /** How many files the change touches. */
   readonly changedFiles: number;
-  /** The commit that merged the request, when `state` is "merged". */
+  /** The commit that merged the change, when `state` is "merged". */
   readonly merge?: ForgeMerge | undefined;
 }
 
-/** A request-level discussion comment on a forge. */
+/** A change-level discussion comment on a forge. */
 export interface ForgeComment {
   readonly id: string;
   /** The author, mapped to a Cabaret identity by the `Forge` implementation. */
@@ -273,17 +274,17 @@ export interface ForgeComment {
   readonly updatedAt: TimestampMs;
 }
 
-/** An open request as a snapshot holds it: the request plus what previewing it needs. */
-export interface SnapshotRequest {
-  readonly request: ForgeRequest;
-  /** The paths the request touches; a request touching very many may carry only the first hundred. */
+/** An open forge change as a snapshot holds it: the change plus what previewing it needs. */
+export interface SnapshotChange {
+  readonly change: ForgeChange;
+  /** The paths the change touches; a change touching very many may carry only the first hundred. */
   readonly files: readonly FilePath[];
-  /** The request-level comments, oldest first; a long discussion may carry only the first hundred. */
+  /** The change-level comments, oldest first; a long discussion may carry only the first hundred. */
   readonly comments: readonly ForgeComment[];
 }
 
 /**
- * A local mirror of a forge's open requests, taken whole at one sync.
+ * A local mirror of a forge's open changes, taken whole at one sync.
  * Rendering reads forge state only from here — never from the forge itself —
  * so pages cost no API calls and work offline; only the commands that talk to
  * the forge anyway refresh it.
@@ -292,7 +293,7 @@ export interface ForgeSnapshot {
   readonly locator: ForgeLocator;
   /** When the snapshot was taken, so staleness can be shown rather than mistaken for truth. */
   readonly takenAt: TimestampMs;
-  readonly requests: readonly SnapshotRequest[];
+  readonly changes: readonly SnapshotChange[];
 }
 
 const ForgeMergeSchema = z.object({
@@ -300,17 +301,17 @@ const ForgeMergeSchema = z.object({
   parents: z.number(),
 }) satisfies z.ZodType<ForgeMerge>;
 
-const ForgeRequestSchema = z.object({
-  id: z.number().transform(forgeRequestId),
+const ForgeChangeSchema = z.object({
+  id: z.number().transform(forgeChangeId),
   head: z.string().transform(parseRefName),
   tip: z.string().transform(parseCommitHash),
-  base: z.string().transform(parseRefName),
+  parent: z.string().transform(parseRefName),
   title: z.string(),
   author: z.string().min(1).transform(userName),
   state: z.enum(["open", "closed", "merged"]),
   changedFiles: z.number(),
   merge: ForgeMergeSchema.optional(),
-}) satisfies z.ZodType<ForgeRequest>;
+}) satisfies z.ZodType<ForgeChange>;
 
 const ForgeCommentSchema = z.object({
   id: z.string().min(1),
@@ -322,9 +323,9 @@ const ForgeCommentSchema = z.object({
 const ForgeSnapshotSchema = z.object({
   locator: z.string().transform(parseForgeLocator),
   takenAt: z.number().transform(timestampMs),
-  requests: z.array(
+  changes: z.array(
     z.object({
-      request: ForgeRequestSchema,
+      change: ForgeChangeSchema,
       files: z.array(z.string().transform(parseFilePath)),
       comments: z.array(ForgeCommentSchema),
     }),
@@ -537,13 +538,13 @@ export function currentOwner(change: RefName, entries: readonly LogEntry[]): Use
   return action.owner;
 }
 
-/** The forge request from the log's latest `set-forge`, or undefined if none is recorded. */
-export function currentForgeRequest(
+/** The forge change from the log's latest `set-forge`, or undefined if none is recorded. */
+export function currentForgeChange(
   entries: readonly LogEntry[],
-): { readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined {
+): { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined {
   const action = latestAction(entries, "set-forge");
   // Rebuilt so the value is what the type says, with no `kind` tagging along.
-  return action && { forge: action.forge, request: action.request };
+  return action && { forge: action.forge, id: action.id };
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */

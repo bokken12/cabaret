@@ -1,4 +1,4 @@
-import { forgeRequestId, parseCommitHash, parseRefName, UserError } from "cabaret-core";
+import { forgeChangeId, parseCommitHash, parseRefName, UserError } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitLabClient, parseGitLabRemote } from "../client.js";
 import { GitLabForge } from "../forge.js";
@@ -58,11 +58,11 @@ describe("GitLabForge", () => {
     const calls = stubGitLab({
       [`PUT ${PROJECT}/merge_requests/12`]: { json: {} },
     });
-    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
     expect(calls[0]?.headers.authorization).toBe("Bearer token-123");
   });
 
-  test("getRequest maps an open request, using the author's public email", async () => {
+  test("getChange maps an open MR, using the author's public email", async () => {
     stubGitLab({
       [GRAPHQL]: [
         {
@@ -87,11 +87,11 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: "alice@example.com" } } } },
       ],
     });
-    expect(await forge().getRequest(forgeRequestId(7))).toEqual({
+    expect(await forge().getChange(forgeChangeId(7))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-      base: "main",
+      parent: "main",
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
@@ -99,7 +99,7 @@ describe("GitLabForge", () => {
     });
   });
 
-  test("getRequest maps a true merge, falling back to the id-prefixed noreply identity", async () => {
+  test("getChange maps a true merge, falling back to the id-prefixed noreply identity", async () => {
     stubGitLab({
       [GRAPHQL]: [
         {
@@ -129,11 +129,11 @@ describe("GitLabForge", () => {
         },
       },
     });
-    expect(await forge().getRequest(forgeRequestId(8))).toEqual({
+    expect(await forge().getChange(forgeChangeId(8))).toEqual({
       id: 8,
       head: "fix-crash",
       tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
-      base: "release",
+      parent: "release",
       title: "Fix crash",
       author: "12-bob@users.noreply.gitlab.com",
       state: "merged",
@@ -174,7 +174,7 @@ describe("GitLabForge", () => {
         },
       },
     });
-    expect((await forge().getRequest(forgeRequestId(9))).merge).toEqual({
+    expect((await forge().getChange(forgeChangeId(9))).merge).toEqual({
       commit: "2222222222222222222222222222222222222222",
       parents: 1,
     });
@@ -215,13 +215,13 @@ describe("GitLabForge", () => {
         json: { parent_ids: ["1111111111111111111111111111111111111111"] },
       },
     });
-    expect((await forge().getRequest(forgeRequestId(10))).merge).toEqual({
+    expect((await forge().getChange(forgeChangeId(10))).merge).toEqual({
       commit: "3333333333333333333333333333333333333333",
       parents: 1,
     });
   });
 
-  test("getRequest maps a closed, authorless request to the ghost identity without a lookup", async () => {
+  test("getChange maps a closed, authorless MR to the ghost identity without a lookup", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: {
         json: {
@@ -243,11 +243,11 @@ describe("GitLabForge", () => {
         },
       },
     });
-    expect(await forge().getRequest(forgeRequestId(11))).toEqual({
+    expect(await forge().getChange(forgeChangeId(11))).toEqual({
       id: 11,
       head: "abandoned",
       tip: "44556677889900aabbccddeeff112233445566aa",
-      base: "main",
+      parent: "main",
       title: "Abandoned",
       author: "ghost@users.noreply.gitlab.com",
       state: "closed",
@@ -256,7 +256,7 @@ describe("GitLabForge", () => {
     expect(calls).toHaveLength(1);
   });
 
-  test("a locked request reads as open", async () => {
+  test("a locked MR reads as open", async () => {
     stubGitLab({
       [GRAPHQL]: [
         {
@@ -281,7 +281,7 @@ describe("GitLabForge", () => {
         { json: { data: { user: null } } },
       ],
     });
-    expect((await forge().getRequest(forgeRequestId(13))).state).toBe("open");
+    expect((await forge().getChange(forgeChangeId(13))).state).toBe("open");
   });
 
   test("an unknown username still maps to a stable noreply identity", async () => {
@@ -309,10 +309,10 @@ describe("GitLabForge", () => {
         { json: { data: { user: null } } },
       ],
     });
-    expect((await forge().getRequest(forgeRequestId(14))).author).toBe("vanished@users.noreply.gitlab.com");
+    expect((await forge().getChange(forgeChangeId(14))).author).toBe("vanished@users.noreply.gitlab.com");
   });
 
-  test("an externally merged request without merge or squash commit lands its head", async () => {
+  test("an externally merged MR without merge or squash commit lands its head", async () => {
     stubGitLab({
       [GRAPHQL]: [
         {
@@ -347,7 +347,7 @@ describe("GitLabForge", () => {
         json: { parent_ids: ["1111111111111111111111111111111111111111"] },
       },
     });
-    expect((await forge().getRequest(forgeRequestId(15))).merge).toEqual({
+    expect((await forge().getChange(forgeChangeId(15))).merge).toEqual({
       commit: "8899aabbccddeeff001122334455667788990011",
       parents: 1,
     });
@@ -357,8 +357,8 @@ describe("GitLabForge", () => {
     stubGitLab({
       [GRAPHQL]: { json: { data: { project: { mergeRequest: null } } } },
     });
-    await expect(forge().getRequest(forgeRequestId(99))).rejects.toThrow(UserError);
-    await expect(forge().getRequest(forgeRequestId(99))).rejects.toThrow(
+    await expect(forge().getChange(forgeChangeId(99))).rejects.toThrow(UserError);
+    await expect(forge().getChange(forgeChangeId(99))).rejects.toThrow(
       "no merge request !99 on gitlab.com/test-org/widgets",
     );
   });
@@ -367,12 +367,12 @@ describe("GitLabForge", () => {
     stubGitLab({
       [GRAPHQL]: { json: { data: { project: null } } },
     });
-    await expect(forge().findRequest(parseRefName("add-tables"))).rejects.toThrow(
+    await expect(forge().findChange(parseRefName("add-tables"))).rejects.toThrow(
       "no project test-org/widgets on gitlab.com, or the token cannot see it",
     );
   });
 
-  test("findRequest queries by source branch and maps the request", async () => {
+  test("findChange queries by source branch and maps the MR", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: [
         {
@@ -401,11 +401,11 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
       ],
     });
-    expect(await forge().findRequest(parseRefName("add-tables"))).toEqual({
+    expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-      base: "main",
+      parent: "main",
       title: "Add tables",
       author: "31-alice@users.noreply.gitlab.com",
       state: "open",
@@ -414,11 +414,11 @@ describe("GitLabForge", () => {
     expect(graphqlVariables(calls)[0]).toEqual({ path: "test-org/widgets", branch: "add-tables" });
   });
 
-  test("findRequest is undefined when no open request has the branch", async () => {
+  test("findChange is undefined when no open MR has the branch", async () => {
     stubGitLab({
       [GRAPHQL]: { json: { data: { project: { mergeRequests: { nodes: [] } } } } },
     });
-    expect(await forge().findRequest(parseRefName("orphan"))).toBeUndefined();
+    expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
   });
 
   test("fetchSnapshot follows the pagination cursor, carrying files and non-system notes", async () => {
@@ -514,11 +514,11 @@ describe("GitLabForge", () => {
     });
     expect(await forge().fetchSnapshot()).toEqual([
       {
-        request: {
+        change: {
           id: 4,
           head: "first",
           tip: "123456789abcdef0123456789abcdef012345678",
-          base: "main",
+          parent: "main",
           title: "First",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
@@ -535,11 +535,11 @@ describe("GitLabForge", () => {
         ],
       },
       {
-        request: {
+        change: {
           id: 5,
           head: "second",
           tip: "23456789abcdef0123456789abcdef0123456789",
-          base: "first",
+          parent: "first",
           title: "Second",
           author: "12-bob@users.noreply.gitlab.com",
           state: "open",
@@ -549,11 +549,11 @@ describe("GitLabForge", () => {
         comments: [],
       },
       {
-        request: {
+        change: {
           id: 6,
           head: "third",
           tip: "3456789abcdef0123456789abcdef0123456789a",
-          base: "main",
+          parent: "main",
           title: "Third",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
@@ -587,11 +587,11 @@ describe("GitLabForge", () => {
       },
       [GRAPHQL]: { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
     });
-    await forge().listComments(forgeRequestId(7));
+    await forge().listComments(forgeChangeId(7));
     expect(calls.filter(({ url }) => url === GRAPHQL_URL)).toHaveLength(1);
   });
 
-  test("createRequest posts the request and fetches it by iid", async () => {
+  test("createChange posts the MR and fetches it by iid", async () => {
     const calls = stubGitLab({
       [`POST ${PROJECT}/merge_requests`]: { status: 201, json: { iid: 12 } },
       [GRAPHQL]: [
@@ -617,12 +617,12 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/9", publicEmail: null } } } },
       ],
     });
-    const created = await forge().createRequest(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
+    const created = await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
     expect(created).toEqual({
       id: 12,
       head: "new-work",
       tip: "456789abcdef0123456789abcdef0123456789ab",
-      base: "parent-branch",
+      parent: "parent-branch",
       title: "New work",
       author: "9-dave@users.noreply.gitlab.com",
       state: "open",
@@ -633,15 +633,15 @@ describe("GitLabForge", () => {
     );
   });
 
-  test("setBase puts the request's target branch", async () => {
+  test("setParent puts the MR's target branch", async () => {
     const calls = stubGitLab({
       [`PUT ${PROJECT}/merge_requests/12`]: { json: {} },
     });
-    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
     expect(calls[0]?.body).toBe(JSON.stringify({ target_branch: "develop" }));
   });
 
-  test("mergeRequest merges at the validated tip and returns the verified merge commit", async () => {
+  test("landChange merges at the validated tip and returns the verified merge commit", async () => {
     const tip = parseCommitHash("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678");
     const calls = stubGitLab({
       [`PUT ${PROJECT}/merge_requests/7/merge`]: {
@@ -655,9 +655,9 @@ describe("GitLabForge", () => {
         json: { parent_ids: ["1111111111111111111111111111111111111111", tip] },
       },
     });
-    expect(
-      await forge().mergeRequest(forgeRequestId(7), "merge", tip, "land: add-tables", "Cabaret-Landed: yes"),
-    ).toEqual({ commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 });
+    expect(await forge().landChange(forgeChangeId(7), "merge", tip, "land: add-tables", "Cabaret-Landed: yes")).toEqual(
+      { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
+    );
     expect(calls[0]?.body).toBe(
       JSON.stringify({
         squash: false,
@@ -687,7 +687,7 @@ describe("GitLabForge", () => {
         },
       },
     });
-    expect(await forge().mergeRequest(forgeRequestId(7), "merge", tip, "t", "m")).toEqual({
+    expect(await forge().landChange(forgeChangeId(7), "merge", tip, "t", "m")).toEqual({
       commit: "89e6c98d92887913cadf06b2adb97f26cde4849b",
       parents: 1,
     });
@@ -707,14 +707,14 @@ describe("GitLabForge", () => {
         json: { parent_ids: ["1111111111111111111111111111111111111111"] },
       },
     });
-    expect(await forge().mergeRequest(forgeRequestId(8), "squash", tip, "land: fix-crash", "body")).toEqual({
+    expect(await forge().landChange(forgeChangeId(8), "squash", tip, "land: fix-crash", "body")).toEqual({
       commit: "3333333333333333333333333333333333333333",
       parents: 1,
     });
     expect((JSON.parse(calls[0]?.body ?? "{}") as { squash: boolean }).squash).toBe(true);
   });
 
-  test("a moved head surfaces as a UserError naming the request", async () => {
+  test("a moved head surfaces as a UserError naming the MR", async () => {
     stubGitLab({
       [`PUT ${PROJECT}/merge_requests/7/merge`]: {
         status: 409,
@@ -722,8 +722,8 @@ describe("GitLabForge", () => {
       },
     });
     const tip = parseCommitHash("a1b2c3d4e5f60718293a4b5c6d7e8f9012345678");
-    await expect(forge().mergeRequest(forgeRequestId(7), "merge", tip, "t", "m")).rejects.toThrow(UserError);
-    await expect(forge().mergeRequest(forgeRequestId(7), "merge", tip, "t", "m")).rejects.toThrow(
+    await expect(forge().landChange(forgeChangeId(7), "merge", tip, "t", "m")).rejects.toThrow(UserError);
+    await expect(forge().landChange(forgeChangeId(7), "merge", tip, "t", "m")).rejects.toThrow(
       /gitlab\.com\/test-org\/widgets!7 did not merge: .*SHA does not match/,
     );
   });
@@ -748,7 +748,7 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: null } } } },
       ],
     });
-    expect(await forge().listComments(forgeRequestId(7))).toEqual([
+    expect(await forge().listComments(forgeChangeId(7))).toEqual([
       {
         id: "101",
         author: "alice@example.com",
@@ -769,7 +769,7 @@ describe("GitLabForge", () => {
     const calls = stubGitLab({
       [`POST ${PROJECT}/merge_requests/7/notes`]: { status: 201, json: {} },
     });
-    await forge().addComment(forgeRequestId(7), body);
+    await forge().addComment(forgeChangeId(7), body);
     expect(calls[0]?.body).toBe(JSON.stringify({ body }));
   });
 
@@ -780,7 +780,7 @@ describe("GitLabForge", () => {
         json: { message: "404 Not Found" },
       },
     });
-    await expect(forge().listComments(forgeRequestId(404))).rejects.toMatchObject({
+    await expect(forge().listComments(forgeChangeId(404))).rejects.toMatchObject({
       status: 404,
       message: expect.stringContaining("404 Not Found") as string,
     });

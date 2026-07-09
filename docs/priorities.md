@@ -61,7 +61,7 @@ and a review system.
   divergence, not just duplication. Port the CLI onto `diffPage`/`reviewPage`
   and round-safe marking; the CLI also gains the round list it currently
   can't show.
-- **Forge-sync policy lives in the CLI host.** `syncedRequest`,
+- **Forge-sync policy lives in the CLI host.** `syncedForgeChange`,
   `observedLand`, and the `gh import`/`pull`/`push` bodies sit in `app.ts`;
   [forge.md](forge.md) places them in cabaret-core next to the `Forge`
   planning functions. Until they move, the VS Code host can never grow forge
@@ -140,10 +140,10 @@ and a review system.
   unpushed work, or at least a `UserError` saying what to do.
 - **No CI.** The suite is green and ~10 s; a workflow running
   `build`/`test`/`check` on PRs is an hour of work.
-- **Wrong-PR selection on multi-base heads.** `findRequest` uses
+- **Wrong-PR selection on multi-base heads.** `findChange` uses
   `gh pr list --head X --limit 1` (cabaret-node `github.ts`); GitHub allows
   several open PRs per head, so comment sync can target the wrong one.
-  `createRequest` discards `gh pr create`'s URL and re-finds by head,
+  `createChange` discards `gh pr create`'s URL and re-finds by head,
   inheriting the ambiguity plus a race — parse the URL instead.
 - **planPull trusts any marker.** A forge comment whose body carries a
   `<!-- cabaret:<hash> -->` matching a local entry is treated as our
@@ -209,7 +209,7 @@ several become relevant the moment nearby code is touched.
 [forge.md](forge.md)'s follow-ups, listed here so the doc is one-stop:
 no anchored/inline comments (§2 covers the Cabaret half), no `approve`
 action or approval sync, no `GitLabForge` to prove the interface
-generalizes, no PR descriptions — `createRequest` posts `--body ""`,
+generalizes, no PR descriptions — `createChange` posts `--body ""`,
 which also forfeits the trailer-in-description squash mitigation the doc
 proposes — and no rename retargeting or teammate-side merge handling.
 
