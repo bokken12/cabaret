@@ -321,37 +321,66 @@ type DiffSide = { readonly line: Style; readonly word: Style };
 const removedSide: DiffSide = { line: "removed", word: "removed-word" };
 const addedSide: DiffSide = { line: "added", word: "added-word" };
 
+type SegmentTag = PatdiffCore.StructuredLine[0];
+
+/** One line's segments with empties dropped and same-tag neighbors merged —
+    refinement's bookkeeping splits, which a display has no use for. */
+function mergedParts(segments: readonly PatdiffCore.StructuredLine[]): { text: string; tag: SegmentTag }[] {
+  const parts: { text: string; tag: SegmentTag }[] = [];
+  for (const [tag, text] of segments) {
+    if (text === "") {
+      continue;
+    }
+    const last = parts.at(-1);
+    if (last !== undefined && last.tag === tag) {
+      last.text += text;
+    } else {
+      parts.push({ text, tag });
+    }
+  }
+  return parts;
+}
+
 /**
- * Spans for one changed line, from patdiff's refinement of it into kept and
- * changed words. Changed words carry the side's word style over the line's
- * own — but only when the line keeps something: with nothing kept, there is
- * nothing for emphasis to set the changed words apart from, so the line
- * stays one plain span. The target rides the first span alone; a line
- * resolves to its first target.
+ * Spans for one side of a replaced line, from patdiff's refinement of it
+ * into kept and changed words. Changed words carry the side's word style
+ * over the line's own — but only when the line keeps something: with nothing
+ * kept, there is nothing for emphasis to set the changed words apart from,
+ * so the line stays one plain span. The target rides the first span alone; a
+ * line resolves to its first target.
  */
 function changedLineSpans(
   segments: readonly PatdiffCore.StructuredLine[],
   side: DiffSide,
   jump: { target: Target; tier: TargetTier },
 ): Span[] {
-  const parts: { text: string; changed: boolean }[] = [];
-  for (const [tag, text] of segments) {
-    if (text === "") {
-      continue;
-    }
-    const changed = tag !== "Same";
-    const last = parts.at(-1);
-    if (last !== undefined && last.changed === changed) {
-      last.text += text;
-    } else {
-      parts.push({ text, changed });
-    }
-  }
-  if (!parts.some(({ changed }) => changed) || !parts.some(({ changed }) => !changed)) {
+  const parts = mergedParts(segments);
+  if (!parts.some(({ tag }) => tag !== "Same") || !parts.some(({ tag }) => tag === "Same")) {
     return [span(parts.map(({ text }) => text).join(""), { style: side.line, ...jump })];
   }
-  return parts.map(({ text, changed }, i) =>
-    span(text, { style: changed ? side.word : side.line, ...(i === 0 ? jump : {}) }),
+  return parts.map(({ text, tag }, i) =>
+    span(text, { style: tag === "Same" ? side.line : side.word, ...(i === 0 ? jump : {}) }),
+  );
+}
+
+/**
+ * Spans for a unified line — one that patdiff shows once because only one
+ * side of it changed words: kept text stays plain while deleted and inserted
+ * words carry the word styles, as the ANSI renderer paints it.
+ */
+function unifiedLineSpans(
+  segments: readonly PatdiffCore.StructuredLine[],
+  jump: { target: Target; tier: TargetTier },
+): Span[] {
+  const parts = mergedParts(segments);
+  if (parts.length === 0) {
+    return [span("", jump)];
+  }
+  return parts.map(({ text, tag }, i) =>
+    span(text, {
+      ...(tag === "Same" ? {} : { style: tag === "Prev" ? removedSide.word : addedSide.word }),
+      ...(i === 0 ? jump : {}),
+    }),
   );
 }
 
@@ -361,10 +390,13 @@ function changedLineSpans(
  * header carries the new side's start; context and added lines advance it,
  * and a removed line anchors at the removal site without advancing. Lines
  * carry bare code a host can syntax-highlight and a reviewer can copy; the
- * added/removed styles say which side. Unified lines and long-line splitting
- * stay off — either would break the line-per-source-line mapping structured
- * hosts rely on. Consecutive hunks would read as one run of code, so a
- * styled header and a blank line mark where each begins.
+ * added/removed styles say which side. A line only one side of which changed
+ * words shows once, unified, with just those words styled; the pair form
+ * remains for lines whose both sides changed words, which need both versions
+ * shown. Long-line splitting stays off — it would break the
+ * line-per-source-line mapping structured hosts rely on. Consecutive hunks
+ * would read as one run of code, so a styled header and a blank line mark
+ * where each begins.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
   if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
@@ -372,7 +404,7 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
   }
   const hunks = PatdiffCore.withoutUnix.patdiffStructured({
     context: context ?? defaultContext,
-    produceUnifiedLines: false,
+    produceUnifiedLines: true,
     splitLongLines: false,
     // Names are never printed, but patdiff's language-specific whitespace
     // heuristics read them.
@@ -422,7 +454,16 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
           }
           break;
         case "unified":
-          throw new Error("two-way diff refined without unified lines cannot produce one");
+          for (const segments of range.contents) {
+            lines.push({ spans: unifiedLineSpans(segments, jump()) });
+            // A line's final segment holds the tag of the newline that ended
+            // it. A boundary only the old copy had — deleting words joined
+            // two lines — leaves the cursor on the same line of the new copy.
+            if (segments.at(-1)?.[0] !== "Prev") {
+              at++;
+            }
+          }
+          break;
       }
     }
   }

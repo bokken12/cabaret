@@ -249,6 +249,76 @@ test("diffDoc emphasizes the changed words within a modified line", () => {
   ]);
 });
 
+test("diffDoc unifies a line that only gained words, styling just those words", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "dogs are best pets\ntail\n", next: "dogs are the very best pets\ntail\n" },
+    }),
+  );
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([
+    [["-1,2 +1,2", "hunk"]],
+    [
+      ["dogs are", undefined],
+      [" the very", "added-word"],
+      [" best pets", undefined],
+    ],
+    [["tail", undefined]],
+  ]);
+  // The unified line lives in both copies; lines after it stay anchored.
+  expect(targetAt(doc, 3)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 2 });
+});
+
+test("diffDoc unifies a line that only lost words, keeping the old line as the marked superset", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "dogs are the very best pets\ntail\n", next: "dogs are best pets\ntail\n" },
+    }),
+  );
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([
+    [["-1,2 +1,2", "hunk"]],
+    [
+      ["dogs are", undefined],
+      [" the very", "removed-word"],
+      [" best pets", undefined],
+    ],
+    [["tail", undefined]],
+  ]);
+});
+
+test("diffDoc keeps line anchors across a unified join, whose boundary the new copy lost", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "keep alpha\nbeta tail\nlast\n", next: "keep tail\nlast\n" },
+    }),
+  );
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([
+    [["-1,3 +1,2", "hunk"]],
+    [
+      ["keep", undefined],
+      [" alpha", "removed-word"],
+    ],
+    [
+      ["beta", "removed-word"],
+      [" tail", undefined],
+    ],
+    [["last", undefined]],
+  ]);
+  // Both halves of the joined line anchor at the join; "last" is unmoved past it.
+  expect(targetAt(doc, 3)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 5)).toEqual({ kind: "location", file: "api.ts", line: 2 });
+});
+
 test("diffDoc leaves a line replaced wholesale as one plain span", () => {
   const doc = diffDoc(
     diffPageWith({
