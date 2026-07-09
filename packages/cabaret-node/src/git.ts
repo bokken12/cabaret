@@ -387,6 +387,10 @@ export class GitBackend implements Backend {
     return this.commitAt(parseRefName(`refs/heads/${branch}`));
   }
 
+  async originTip(branch: RefName): Promise<CommitHash | undefined> {
+    return this.commitAt(parseRefName(`refs/remotes/origin/${branch}`));
+  }
+
   async createBranch(name: RefName, commit: CommitHash): Promise<void> {
     // The empty old-value makes update-ref fail if the branch already exists.
     await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);

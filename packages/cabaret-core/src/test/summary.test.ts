@@ -69,6 +69,10 @@ function repoBackend(opts: {
   changed?: Record<string, readonly string[]>;
   /** Second parents of merge commits, for `<merge>^2` resolution. */
   tips?: Record<string, string>;
+  /** Origin's last-fetched branch tips, for `originTip`. */
+  origin?: Record<string, string>;
+  /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
+  logs?: Record<string, readonly LogEntry[]>;
 }): Backend {
   const ancestry = (tip: CommitHash): CommitHash[] => {
     const chain = [tip];
@@ -86,7 +90,7 @@ function repoBackend(opts: {
   };
   const stub: Pick<
     Backend,
-    "resolveCommit" | "branchTip" | "mergeBase" | "isAncestor" | "landMerges" | "changedFiles"
+    "resolveCommit" | "branchTip" | "originTip" | "mergeBase" | "isAncestor" | "landMerges" | "changedFiles" | "readLog"
   > = {
     async resolveCommit(revision) {
       const merge = /^(\w)\1{39}\^2$/.exec(revision);
@@ -102,6 +106,13 @@ function repoBackend(opts: {
     async branchTip(branch) {
       const digit = opts.branches[branch as string];
       return digit === undefined ? undefined : fake(digit);
+    },
+    async originTip(branch) {
+      const digit = opts.origin?.[branch as string];
+      return digit === undefined ? undefined : fake(digit);
+    },
+    async readLog(change) {
+      return opts.logs?.[change as string] ?? [];
     },
     async mergeBase(a, b) {
       const shared = new Set(ancestry(tipOf(b)));
@@ -169,6 +180,9 @@ test("a change with no commits of its own must add code", async () => {
     landed: undefined,
     base: fake("1"),
     tip: fake("1"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: [],
     nextStep: "add code",
   });
@@ -189,6 +203,9 @@ test("files outside the user's brain are left to review", async () => {
     landed: undefined,
     base: fake("1"),
     tip: fake("3"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: ["b.ts"],
     nextStep: "review",
   });
@@ -201,6 +218,9 @@ test("files outside the user's brain are left to review", async () => {
     landed: undefined,
     base: fake("1"),
     tip: fake("3"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: ["a.ts", "b.ts"],
     nextStep: "review",
   });
@@ -222,6 +242,9 @@ test("a reviewed change not based on its parent's tip must rebase", async () => 
     landed: undefined,
     base: fake("1"),
     tip: fake("4"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: "behind",
     reviewLeft: [],
     nextStep: "rebase",
   });
@@ -242,6 +265,9 @@ test("a reviewed change based on its parent's tip may land", async () => {
     landed: undefined,
     base: fake("1"),
     tip: fake("4"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: [],
     nextStep: "land",
   });
@@ -249,12 +275,14 @@ test("a reviewed change based on its parent's tip may land", async () => {
 
 test("a landed change reports its merge, and a moved-base review counts as left", async () => {
   // The branch is gone, as after post-land cleanup: the tip comes from the
-  // land merge's second parent.
+  // land merge's second parent. Origin having moved on does not matter; the
+  // change is frozen, so landed outranks sync.
   const backend = repoBackend({
     history: { "1": "0", "3": "1", "4": "3" },
     branches: { main: "5" },
     changed: { "14": ["b.ts", "a.ts"] },
     tips: { "5": "4" },
+    origin: { feature: "9" },
   });
   const entries = [
     ...created("main", "1"),
@@ -271,6 +299,9 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     landed: fake("5"),
     base: fake("1"),
     tip: fake("4"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: ["a.ts", "b.ts"],
     nextStep: "landed",
   });
@@ -369,7 +400,161 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     landed: undefined,
     base: fake("0"),
     tip: fake("3"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: ["b.ts", "c.ts"],
+    nextStep: "review",
+  });
+});
+
+test("a change behind origin's copy must sync, before anything else", async () => {
+  // Origin's widgets moved to 2 while the local branch still sits at 1.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", widgets: "1" },
+    origin: { widgets: "2" },
+  });
+  const widgets = parseRefName("widgets");
+  expect(await summarizeChange(backend, widgets, created("main", "1"), alice)).toEqual({
+    change: "widgets",
+    parent: "main",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("1"),
+    origin: "behind",
+    deadParent: undefined,
+    staleBase: undefined,
+    reviewLeft: [],
+    nextStep: "sync",
+  });
+});
+
+test("a change diverged from origin's copy must sync, review left or not", async () => {
+  // The local branch was rewritten to 3 while origin still holds the old 2.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "1" },
+    branches: { main: "1", widgets: "3" },
+    origin: { widgets: "2" },
+    changed: { "13": ["a.ts"] },
+  });
+  const widgets = parseRefName("widgets");
+  expect(await summarizeChange(backend, widgets, created("main", "1"), alice)).toEqual({
+    change: "widgets",
+    parent: "main",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("3"),
+    origin: "diverged",
+    deadParent: undefined,
+    staleBase: undefined,
+    reviewLeft: ["a.ts"],
+    nextStep: "sync",
+  });
+});
+
+test("a change ahead of origin's copy notes it and moves on", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", widgets: "2" },
+    origin: { widgets: "1" },
+    changed: { "12": ["a.ts"] },
+  });
+  const widgets = parseRefName("widgets");
+  expect(await summarizeChange(backend, widgets, created("main", "1"), alice)).toEqual({
+    change: "widgets",
+    parent: "main",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: "ahead",
+    deadParent: undefined,
+    staleBase: undefined,
+    reviewLeft: ["a.ts"],
+    nextStep: "review",
+  });
+});
+
+test("a change whose parent has landed must reparent, review left or not", async () => {
+  const opts = {
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", gadget: "1", "gadget-ui": "2" },
+    changed: { "12": ["ui.ts"] },
+    logs: { gadget: [...created("main", "0"), entry({ kind: "land", merge: fake("9") })] },
+  };
+  const ui = parseRefName("gadget-ui");
+  expect(await summarizeChange(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({
+    change: "gadget-ui",
+    parent: "gadget",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: undefined,
+    deadParent: "landed",
+    staleBase: undefined,
+    reviewLeft: ["ui.ts"],
+    nextStep: "reparent",
+  });
+  // A disagreeing origin outranks even the dead parent, but both readings show.
+  const behind = repoBackend({ ...opts, history: { "1": "0", "2": "1", "3": "2" }, origin: { "gadget-ui": "3" } });
+  const summary = await summarizeChange(behind, ui, created("gadget", "1"), alice);
+  expect({ origin: summary.origin, deadParent: summary.deadParent, nextStep: summary.nextStep }).toEqual({
+    origin: "behind",
+    deadParent: "landed",
+    nextStep: "sync",
+  });
+});
+
+test("a change whose parent branch is gone must reparent", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { docs: "2" },
+    changed: { "12": ["notes.md"] },
+  });
+  const docs = parseRefName("docs");
+  expect(await summarizeChange(backend, docs, created("gone", "1"), alice)).toEqual({
+    change: "docs",
+    parent: "gone",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: undefined,
+    deadParent: "missing",
+    staleBase: undefined,
+    reviewLeft: ["notes.md"],
+    nextStep: "reparent",
+  });
+});
+
+test("a base under a rewritten parent reads as diverged, review still the step", async () => {
+  // main was rewritten to 3 (forking from 0) while feature still builds on 1.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "0" },
+    branches: { main: "3", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  expect(await summarizeChange(backend, feature, created("main", "1"), alice)).toEqual({
+    change: "feature",
+    parent: "main",
+    owner: alice,
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: "diverged",
+    reviewLeft: ["a.ts"],
     nextStep: "review",
   });
 });

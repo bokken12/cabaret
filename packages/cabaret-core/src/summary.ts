@@ -60,7 +60,7 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
 }
 
 /** What must happen next to move a change toward landing. */
-export type NextStep = "add code" | "review" | "rebase" | "land" | "landed";
+export type NextStep = "sync" | "reparent" | "add code" | "review" | "rebase" | "land" | "landed";
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
@@ -72,6 +72,12 @@ export interface ChangeSummary {
   readonly landed: CommitHash | undefined;
   readonly base: CommitHash;
   readonly tip: CommitHash;
+  /** How the tip stands relative to origin's last-fetched copy, when they differ. */
+  readonly origin: "ahead" | "behind" | "diverged" | undefined;
+  /** What became of a parent that can no longer be built on. */
+  readonly deadParent: "landed" | "missing" | undefined;
+  /** How the base stands relative to a live parent's tip, when they differ. */
+  readonly staleBase: "behind" | "diverged" | undefined;
   /** Files with review left for the user, sorted by name. */
   readonly reviewLeft: readonly FilePath[];
   readonly nextStep: NextStep;
@@ -93,7 +99,33 @@ export async function summarizeChange(
   const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   const rounds = await reviewRounds(backend, entries, user, base, tip);
   const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
-  return {
+  // A landed change is frozen, so nothing about its surroundings bears on it.
+  // These are all local readings — origin's tip is whatever was last fetched
+  // — so summarizing never makes a remote query.
+  let origin: ChangeSummary["origin"];
+  let deadParent: ChangeSummary["deadParent"];
+  let staleBase: ChangeSummary["staleBase"];
+  if (landed === undefined) {
+    const originTip = await backend.originTip(change);
+    if (originTip !== undefined && originTip !== tip) {
+      origin = (await backend.isAncestor(originTip, tip))
+        ? "ahead"
+        : (await backend.isAncestor(tip, originTip))
+          ? "behind"
+          : "diverged";
+    }
+    if (landedMerge(await backend.readLog(parent)) !== undefined) {
+      deadParent = "landed";
+    } else {
+      const parentTip = await backend.branchTip(parent);
+      if (parentTip === undefined) {
+        deadParent = "missing";
+      } else if (parentTip !== base) {
+        staleBase = (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged";
+      }
+    }
+  }
+  const readings = {
     change,
     parent,
     owner: currentOwner(change, entries),
@@ -101,31 +133,39 @@ export async function summarizeChange(
     landed,
     base,
     tip,
+    origin,
+    deadParent,
+    staleBase,
     reviewLeft,
-    nextStep: await nextStep(backend, parent, landed, base, tip, reviewLeft),
   };
+  return { ...readings, nextStep: nextStep(readings) };
 }
 
-async function nextStep(
-  backend: Backend,
-  parent: RefName,
-  landed: CommitHash | undefined,
-  base: CommitHash,
-  tip: CommitHash,
-  reviewLeft: readonly FilePath[],
-): Promise<NextStep> {
-  if (landed !== undefined) {
+/**
+ * What must happen next, from the summary's other readings. An origin that
+ * disagrees outranks everything: each reading below is a question about
+ * revisions this clone may lack. A dead parent comes next: nothing can land
+ * until the change hangs somewhere real. A stale base waits for review to
+ * finish — the parent moving on is routine, and rebasing mid-review churns
+ * reviewers — becoming the step only where `land` would refuse it.
+ */
+function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
+  if (readings.landed !== undefined) {
     return "landed";
   }
-  if (tip === base) {
+  if (readings.origin === "behind" || readings.origin === "diverged") {
+    return "sync";
+  }
+  if (readings.deadParent !== undefined) {
+    return "reparent";
+  }
+  if (readings.tip === readings.base) {
     return "add code";
   }
-  if (reviewLeft.length > 0) {
+  if (readings.reviewLeft.length > 0) {
     return "review";
   }
-  // `land` refuses a change not based on its parent's tip, so a stale base
-  // must rebase first.
-  return (await backend.branchTip(parent)) === base ? "land" : "rebase";
+  return readings.staleBase === undefined ? "land" : "rebase";
 }
 
 /** What a reviewer looks at to review a file in a round. */

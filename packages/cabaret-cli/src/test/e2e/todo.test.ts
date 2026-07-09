@@ -150,7 +150,7 @@ test("a landed change stays only while children hang from it", async () => {
     │ change   │ review │ next step │
     ├──────────┼────────┼───────────┤
     │ gadget   │        │ landed    │
-    │ └─ gizmo │      1 │ review    │
+    │ └─ gizmo │      1 │ reparent  │
     ╰──────────┴────────┴───────────╯
     "
   `);

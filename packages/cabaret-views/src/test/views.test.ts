@@ -28,6 +28,9 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     landed: undefined,
     base: fake("1"),
     tip: fake("2"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
     reviewLeft: [],
     nextStep: "review",
     ...opts,
@@ -147,6 +150,65 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
+});
+
+test("showDoc notes disagreeing readings on their own rows", () => {
+  const doc = showDoc({
+    kind: "change",
+    summary: summary("widgets", {
+      reviewLeft: files("api.ts"),
+      origin: "behind",
+      staleBase: "behind",
+      nextStep: "sync",
+    }),
+    comments: [],
+    remaining: ["alice@example.com: 1 file"],
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "widgets
+    =======
+
+    ╭───────────┬──────────────────────────────╮
+    │ attribute │ value                        │
+    ├───────────┼──────────────────────────────┤
+    │ next step │ sync                         │
+    │ owner     │ alice@example.com            │
+    │ parent    │ main                         │
+    │ tip       │ 222222222222 (behind origin) │
+    │ base      │ 111111111111 (behind parent) │
+    ╰───────────┴──────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      api.ts"
+  `);
+});
+
+test("showDoc words each note by its reading", () => {
+  const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
+    const doc = showDoc({
+      kind: "change",
+      summary: summary("widgets", { parent: parseRefName("gadget"), ...opts }),
+      comments: [],
+      remaining: [],
+    });
+    return docText(doc)
+      .split("\n")
+      .find((line) => line.startsWith(`│ ${attribute}`));
+  };
+  expect(attributeRow({ origin: "ahead" }, "tip")).toBe("│ tip       │ 222222222222 (ahead of origin) │");
+  expect(attributeRow({ origin: "behind" }, "tip")).toBe("│ tip       │ 222222222222 (behind origin) │");
+  expect(attributeRow({ origin: "diverged" }, "tip")).toBe("│ tip       │ 222222222222 (diverged from origin) │");
+  expect(attributeRow({ deadParent: "landed" }, "parent")).toBe("│ parent    │ gadget (landed)   │");
+  expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
+  expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
+  expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
+  // Readings that agree with what they track go unannotated.
+  expect(attributeRow({}, "tip")).toBe("│ tip       │ 222222222222      │");
+  expect(attributeRow({}, "parent")).toBe("│ parent    │ gadget            │");
+  expect(attributeRow({}, "base")).toBe("│ base      │ 111111111111      │");
 });
 
 test("showDoc renders an unimported forge change as the change importing it would create", () => {

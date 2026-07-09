@@ -58,7 +58,7 @@ export async function addChange(repo: TestRepo, name: string): Promise<void> {
 }
 
 /** A throwaway directory, removed when the current test finishes. */
-async function tempDir(prefix: string): Promise<string> {
+export async function tempDir(prefix: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   return dir;
