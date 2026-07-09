@@ -18,6 +18,7 @@ import {
   renameChange,
   reparentChange,
   resolveChain,
+  reviewerSummary,
   syncForgeSnapshot,
   type TimestampMs,
   timestampMs,
@@ -574,7 +575,7 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
           overrides = { ...overrides, notOwner: true };
         } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
           message = "Review obligations are unsatisfied.";
-          options = { modal: true, detail: error.details.join("\n") };
+          options = { modal: true, detail: reviewerSummary(error.unsatisfied).join("\n") };
           overrides = { ...overrides, unreviewed: true };
         } else {
           throw error;
