@@ -39,6 +39,26 @@
         }
       },
       {
+        "id": "cabaret.addedWordBackground",
+        "description": "Background of the changed words within an added line in a Cabaret diff",
+        "defaults": {
+          "dark": "#2ea04366",
+          "light": "#2ea0434d",
+          "highContrast": "#2ea04366",
+          "highContrastLight": "#2ea0434d"
+        }
+      },
+      {
+        "id": "cabaret.removedWordBackground",
+        "description": "Background of the changed words within a removed line in a Cabaret diff",
+        "defaults": {
+          "dark": "#f8514966",
+          "light": "#f851494d",
+          "highContrast": "#f8514966",
+          "highContrastLight": "#f851494d"
+        }
+      },
+      {
         "id": "cabaret.hunkLineBackground",
         "description": "Background of a hunk header line in a Cabaret diff",
         "defaults": {

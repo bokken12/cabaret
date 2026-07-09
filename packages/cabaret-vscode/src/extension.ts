@@ -718,6 +718,14 @@ function createDecorations(): StyleDecorations {
     // green is duller than its red, and a wash this prominent wants balance.
     added: wash("cabaret.addedLineBackground", "editorOverviewRuler.addedForeground", "+"),
     removed: wash("cabaret.removedLineBackground", "editorOverviewRuler.deletedForeground", "-"),
+    // Changed words within a line: a stronger wash on just those characters,
+    // layered over the whole-line wash.
+    "added-word": vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("cabaret.addedWordBackground"),
+    }),
+    "removed-word": vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("cabaret.removedWordBackground"),
+    }),
     // A neutral wash on hunk headers, as magit paints its hunk headings.
     hunk: vscode.window.createTextEditorDecorationType({
       backgroundColor: new vscode.ThemeColor("cabaret.hunkLineBackground"),
@@ -741,9 +749,22 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
     if (doc === undefined) {
       continue;
     }
-    const ranges: { readonly [S in Style]: vscode.Range[] } = { heading: [], added: [], removed: [], hunk: [] };
+    const ranges: { readonly [S in Style]: vscode.Range[] } = {
+      heading: [],
+      added: [],
+      removed: [],
+      "added-word": [],
+      "removed-word": [],
+      hunk: [],
+    };
     for (const { line, start, length, style } of styledRanges(doc)) {
-      ranges[style].push(new vscode.Range(line, start, line, start + length));
+      const bucket = ranges[style];
+      // added/removed wash whole lines, and a refined line carries several
+      // such spans: a second range would stack the translucent wash.
+      if ((style === "added" || style === "removed") && bucket.at(-1)?.start.line === line) {
+        continue;
+      }
+      bucket.push(new vscode.Range(line, start, line, start + length));
     }
     for (const style of Object.keys(ranges) as readonly Style[]) {
       editor.setDecorations(decorations[style], ranges[style]);

@@ -1,7 +1,12 @@
 import type { FilePath, ForgeChangeId, RefName } from "cabaret-core";
 
-/** Semantic paint for a span; each host maps styles to its own palette. */
-export type Style = "heading" | "added" | "removed" | "hunk";
+/**
+ * Semantic paint for a span; each host maps styles to its own palette. The
+ * word styles mark the words that actually changed within a line — over the
+ * line's own style on an added or removed line, and alone on a unified line
+ * whose kept text is plain.
+ */
+export type Style = "heading" | "added" | "removed" | "added-word" | "removed-word" | "hunk";
 
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =
