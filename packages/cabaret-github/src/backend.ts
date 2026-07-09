@@ -143,7 +143,7 @@ export class GitHubBackend implements Backend {
   currentUser(): Promise<UserName> {
     // The token's account, by its public profile email when it shows one,
     // else GitHub's noreply convention — the same identity mapping the forge
-    // uses for request authors, so one person is one user either way. Only a
+    // uses for PR authors, so one person is one user either way. Only a
     // success is cached: a transient failure must not poison a long-lived
     // session.
     this.user ??= this.client

@@ -16,6 +16,12 @@ Possibly something like a "change" following JJ might be reasonable? Although if
 
 Tentative: I'm going to call this a "change" - and in a future JJ backend I think a JJ change would line up 1:1 with a Cabaret change. If this turns out badly, my second choice is "feature".
 
+### Forge counterpart
+
+What should one call the forge-side object a change syncs with — GitHub's "pull request", GitLab's "merge request"?
+
+It is the external equivalent of a change, so: a "forge change" (`ForgeChange`, numbered by `ForgeChangeId`). PR/MR vocabulary stays confined to code that speaks a specific forge's API. Likewise the branch a forge change merges into is its "parent", not its "base" — in Cabaret a change's base is the commit its diff is computed against, and the forge's target branch is the counterpart of the change's parent.
+
 ## Groups
 
 What should one call a set of people responsible for review?

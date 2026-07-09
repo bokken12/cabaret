@@ -3,8 +3,8 @@ import {
   createChange,
   currentParent,
   type Forge,
-  type ForgeRequestId,
-  importRequest,
+  type ForgeChangeId,
+  importChange,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -275,7 +275,7 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
-    case "request":
+    case "forge-change":
       // The as-if-imported view; importing is its own action.
       await openPage(provider, { kind: "show", change: target.change });
       break;
@@ -300,8 +300,9 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
 }
 
 /**
- * When the active page shows an unimported request — its heading resolves to
- * one — prompt to import and return true, telling the caller to stop.
+ * When the active page shows an unimported forge change — its heading
+ * resolves to one — prompt to import and return true, telling the caller to
+ * stop.
  */
 function promptImportFirst(provider: PageProvider): boolean {
   const editor = vscode.window.activeTextEditor;
@@ -310,10 +311,10 @@ function promptImportFirst(provider: PageProvider): boolean {
   }
   const doc = provider.renderedDoc(editor.document.uri);
   const heading = doc === undefined ? undefined : targetAt(doc, 0);
-  if (heading?.kind !== "request") {
+  if (heading?.kind !== "forge-change") {
     return false;
   }
-  vscode.window.showInformationMessage(`cabaret: import ${heading.change} first (Cabaret: Import Pull Request)`);
+  vscode.window.showInformationMessage(`cabaret: import ${heading.change} first (Cabaret: Import Change)`);
   return true;
 }
 
@@ -364,8 +365,8 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Import request `id` as a change, surfacing failure as a notification; returns the change's name. */
-async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
+/** Import forge change `id` as a change, surfacing failure as a notification; returns the change's name. */
+async function runImport(id: ForgeChangeId): Promise<RefName | undefined> {
   try {
     const forge = await openForge();
     if (forge === undefined) {
@@ -373,7 +374,7 @@ async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
       return undefined;
     }
     const backend = await openBackend();
-    const { change } = await importRequest(backend, now, forge, id);
+    const { change } = await importChange(backend, now, forge, id);
     await syncForgeSnapshot(backend, now, forge);
     return change;
   } catch (error) {
@@ -386,9 +387,9 @@ async function runImport(id: ForgeRequestId): Promise<RefName | undefined> {
 async function runSyncForge(provider: PageProvider): Promise<void> {
   try {
     const snapshot = await syncForgeSnapshot(await openBackend(), now, await requireForge());
-    const open = snapshot.requests.length;
+    const open = snapshot.changes.length;
     vscode.window.setStatusBarMessage(
-      `cabaret: synced ${snapshot.locator}, ${open} open request${open === 1 ? "" : "s"}`,
+      `cabaret: synced ${snapshot.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
     );
   } catch (error) {
@@ -398,23 +399,24 @@ async function runSyncForge(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Import the pull request at the cursor as a change, as `cabaret gh import` does. */
+/** Import the forge change at the cursor, as `cabaret gh import` does. */
 async function importAtCursor(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const doc = provider.renderedDoc(editor.document.uri);
-  // The cursor's request, or the one the page itself displays: a request's
-  // show page opens with a heading that resolves to it.
+  // The cursor's forge change, or the one the page itself displays: an
+  // unimported forge change's show page opens with a heading that resolves
+  // to it.
   const atCursor = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
   const heading = doc === undefined ? undefined : targetAt(doc, 0);
-  const target = atCursor?.kind === "request" ? atCursor : heading?.kind === "request" ? heading : undefined;
+  const target = atCursor?.kind === "forge-change" ? atCursor : heading?.kind === "forge-change" ? heading : undefined;
   if (target === undefined) {
-    vscode.window.showInformationMessage("cabaret: no pull request at the cursor");
+    vscode.window.showInformationMessage("cabaret: no forge change at the cursor");
     return;
   }
-  await runImport(target.request);
+  await runImport(target.id);
   provider.refreshAll();
 }
 
@@ -479,8 +481,8 @@ async function actOnSelection(
     const doc = provider.renderedDoc(editor.document.uri);
     const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
     vscode.window.showInformationMessage(
-      target?.kind === "request"
-        ? `cabaret: import ${target.change} first (Cabaret: Import Pull Request)`
+      target?.kind === "forge-change"
+        ? `cabaret: import ${target.change} first (Cabaret: Import Change)`
         : "cabaret: no change at the cursor",
     );
     return;

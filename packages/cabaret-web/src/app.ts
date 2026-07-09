@@ -1,7 +1,7 @@
 import {
   type FilePath,
-  type ForgeRequestId,
-  importRequest,
+  type ForgeChangeId,
+  importChange,
   type RefName,
   syncForgeSnapshot,
   type TimestampMs,
@@ -169,10 +169,10 @@ export function startApp(root: HTMLElement, config: Config): void {
 
   function updateActions(page: Page, doc: Doc): void {
     actions.replaceChildren();
-    // A request's show page opens with a heading that resolves to it.
+    // An unimported forge change's show page opens with a heading that resolves to it.
     const heading = targetAt(doc, 0);
-    if (heading?.kind === "request") {
-      actions.append(button("Import pull request", () => void runImport(heading.request, heading.change)));
+    if (heading?.kind === "forge-change") {
+      actions.append(button("Import change", () => void runImport(heading.id, heading.change)));
     } else if (page.kind === "show") {
       actions.append(button("Review", () => goto({ kind: "review", change: page.change })));
     } else if (page.kind === "diff") {
@@ -188,11 +188,11 @@ export function startApp(root: HTMLElement, config: Config): void {
     );
   }
 
-  async function runImport(id: ForgeRequestId, change: RefName): Promise<void> {
+  async function runImport(id: ForgeChangeId, change: RefName): Promise<void> {
     try {
-      await importRequest(backend, now, forge, id);
-      // The change's show page shares the request page's fragment, so land
-      // there whichever page the import ran from.
+      await importChange(backend, now, forge, id);
+      // The change's show page shares the forge change's page fragment, so
+      // land there whichever page the import ran from.
       goto({ kind: "show", change });
     } catch (error) {
       notify(message(error));
@@ -246,7 +246,7 @@ export function startApp(root: HTMLElement, config: Config): void {
       case "file":
         goto({ kind: "diff", change: target.change, file: target.file });
         break;
-      case "request":
+      case "forge-change":
         // The as-if-imported view; importing is its own action.
         goto({ kind: "show", change: target.change });
         break;

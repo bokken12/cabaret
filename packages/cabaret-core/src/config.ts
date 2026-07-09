@@ -5,9 +5,9 @@ import { UserError } from "./error.js";
 export type LandMethod = "merge" | "squash";
 
 /**
- * Where a land executes: in this repository, by merging the change's request
- * on the forge, or ("auto") on the forge exactly when the change's log
- * records a request.
+ * Where a land executes: in this repository, by merging the change on the
+ * forge, or ("auto") on the forge exactly when the change's log records a
+ * forge change.
  */
 export type LandVia = "local" | "forge" | "auto";
 

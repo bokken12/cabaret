@@ -4,12 +4,12 @@ import {
   type CommitHash,
   changeBase,
   changeTip,
-  currentForgeRequest,
+  currentForgeChange,
   currentOwner,
   currentParent,
   type FilePath,
+  type ForgeChangeId,
   type ForgeLocator,
-  type ForgeRequestId,
   type LogEntry,
   landedMerge,
   type RefName,
@@ -67,7 +67,7 @@ export interface ChangeSummary {
   readonly change: RefName;
   readonly parent: RefName;
   readonly owner: UserName;
-  readonly forgeRequest: { readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined;
+  readonly forgeChange: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: CommitHash | undefined;
   readonly base: CommitHash;
@@ -97,7 +97,7 @@ export async function summarizeChange(
     change,
     parent,
     owner: currentOwner(change, entries),
-    forgeRequest: currentForgeRequest(entries),
+    forgeChange: currentForgeChange(entries),
     landed,
     base,
     tip,

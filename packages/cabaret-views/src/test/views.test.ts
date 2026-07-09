@@ -1,8 +1,8 @@
 import {
   type ChangeSummary,
   type CommitHash,
-  type ForgeRequest,
-  forgeRequestId,
+  type ForgeChange,
+  forgeChangeId,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -24,7 +24,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     change: parseRefName(change),
     parent: parseRefName("main"),
     owner: alice,
-    forgeRequest: undefined,
+    forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
     tip: fake("2"),
@@ -36,7 +36,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 
 const files = (...names: string[]) => names.map(parseFilePath);
 
-test("todoDoc lays out the review table and the owned tree, requests standing in as changes", () => {
+test("todoDoc lays out the review table and the owned tree, forge changes standing in as changes", () => {
   const change = (summary: ChangeSummary): TodoItem => ({ kind: "change", summary });
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
@@ -46,22 +46,22 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
-  const request: ForgeRequest = {
-    id: forgeRequestId(7),
+  const forgeChange: ForgeChange = {
+    id: forgeChangeId(7),
     head: parseRefName("their-feature"),
     tip: fake("7"),
-    base: parseRefName("main"),
+    parent: parseRefName("main"),
     title: "Their feature",
     author: alice,
     state: "open",
     changedFiles: 3,
   };
   const doc = todoDoc({
-    review: [change(gizmo), { kind: "request", request }],
+    review: [change(gizmo), { kind: "forge-change", change: forgeChange }],
     owned: [
       { item: change(gadget), children: [{ item: change(gizmo), children: [] }] },
       { item: change(widgets), children: [] },
-      { item: { kind: "request", request }, children: [] },
+      { item: { kind: "forge-change", change: forgeChange }, children: [] },
     ],
     forge: {
       locator: parseForgeLocator("github.com/test-org/widgets"),
@@ -97,11 +97,11 @@ test("todoDoc lays out the review table and the owned tree, requests standing in
   expect(doc.lines[line]?.spans.filter(({ target }) => target !== undefined)).toEqual([
     { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
   ]);
-  // An unimported request's row resolves to the request.
-  const requestLine = docText(doc)
+  // An unimported forge change's row resolves to it.
+  const forgeChangeLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("their-feature"));
-  expect(targetAt(doc, requestLine)).toEqual({ kind: "request", request: 7, change: "their-feature" });
+  expect(targetAt(doc, forgeChangeLine)).toEqual({ kind: "forge-change", id: 7, change: "their-feature" });
 });
 
 test("todoDoc with nothing to do says so", () => {
@@ -112,7 +112,7 @@ test("showDoc renders the attribute table and files left", () => {
   const doc = showDoc({
     kind: "change",
     summary: summary("widgets", {
-      forgeRequest: { forge: parseForgeLocator("github.com/test-org/widgets"), request: forgeRequestId(7) },
+      forgeChange: { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) },
       reviewLeft: files("api.ts", "ui.ts"),
     }),
     comments: [],
@@ -121,16 +121,16 @@ test("showDoc renders the attribute table and files left", () => {
     "widgets
     =======
 
-    ╭───────────────┬───────────────────────────────╮
-    │ attribute     │ value                         │
-    ├───────────────┼───────────────────────────────┤
-    │ next step     │ review                        │
-    │ owner         │ alice@example.com             │
-    │ parent        │ main                          │
-    │ forge request │ github.com/test-org/widgets#7 │
-    │ tip           │ 222222222222                  │
-    │ base          │ 111111111111                  │
-    ╰───────────────┴───────────────────────────────╯
+    ╭──────────────┬───────────────────────────────╮
+    │ attribute    │ value                         │
+    ├──────────────┼───────────────────────────────┤
+    │ next step    │ review                        │
+    │ owner        │ alice@example.com             │
+    │ parent       │ main                          │
+    │ forge change │ github.com/test-org/widgets#7 │
+    │ tip          │ 222222222222                  │
+    │ base         │ 111111111111                  │
+    ╰──────────────┴───────────────────────────────╯
 
     Files to review:
       api.ts
@@ -144,15 +144,15 @@ test("showDoc renders the attribute table and files left", () => {
   expect(targetAt(doc, 0)).toBeUndefined();
 });
 
-test("showDoc renders an unimported request as the change importing it would create", () => {
+test("showDoc renders an unimported forge change as the change importing it would create", () => {
   const doc = showDoc({
-    kind: "request",
+    kind: "forge-change",
     forge: parseForgeLocator("github.com/test-org/widgets"),
-    request: {
-      id: forgeRequestId(7),
+    change: {
+      id: forgeChangeId(7),
       head: parseRefName("their-feature"),
       tip: fake("7"),
-      base: parseRefName("main"),
+      parent: parseRefName("main"),
       title: "Their feature",
       author: userName("carol@users.noreply.github.com"),
       state: "open",
@@ -171,15 +171,15 @@ test("showDoc renders an unimported request as the change importing it would cre
     "their-feature
     =============
 
-    ╭───────────────┬────────────────────────────────╮
-    │ attribute     │ value                          │
-    ├───────────────┼────────────────────────────────┤
-    │ next step     │ import                         │
-    │ owner         │ carol@users.noreply.github.com │
-    │ parent        │ main                           │
-    │ forge request │ github.com/test-org/widgets#7  │
-    │ title         │ Their feature                  │
-    ╰───────────────┴────────────────────────────────╯
+    ╭──────────────┬────────────────────────────────╮
+    │ attribute    │ value                          │
+    ├──────────────┼────────────────────────────────┤
+    │ next step    │ import                         │
+    │ owner        │ carol@users.noreply.github.com │
+    │ parent       │ main                           │
+    │ forge change │ github.com/test-org/widgets#7  │
+    │ title        │ Their feature                  │
+    ╰──────────────┴────────────────────────────────╯
 
     Comments:
       2025-06-15T15:06:40.000Z carol@users.noreply.github.com
@@ -189,9 +189,9 @@ test("showDoc renders an unimported request as the change importing it would cre
       api.ts
       ui.ts"
   `);
-  // The heading resolves to the request, so import actions find it from
+  // The heading resolves to the forge change, so import actions find it from
   // anywhere on the page — but as a jump, not an advertised link to itself.
-  expect(targetAt(doc, 0)).toEqual({ kind: "request", request: 7, change: "their-feature" });
+  expect(targetAt(doc, 0)).toEqual({ kind: "forge-change", id: 7, change: "their-feature" });
   expect(doc.lines[0]?.spans[0]?.tier).toBe("jump");
   // File rows carry no targets: there are no diffs to open until the import.
   const line = docText(doc)

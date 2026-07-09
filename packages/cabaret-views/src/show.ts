@@ -5,8 +5,8 @@ import {
   type CommitHash,
   currentComments,
   type FilePath,
+  type ForgeChange,
   type ForgeLocator,
-  type ForgeRequest,
   type ForgeSnapshot,
   type RefName,
   summarizeChange,
@@ -16,7 +16,7 @@ import { type Doc, type Line, type Span, span, type Target } from "./doc.js";
 import { table } from "./table.js";
 
 /**
- * What the show page displays: a change, or an open forge request with no
+ * What the show page displays: a change, or an open forge change with no
  * change log yet, shown as the change importing it would create.
  */
 export type ShowPage =
@@ -26,17 +26,17 @@ export type ShowPage =
       readonly comments: readonly ChangeComment[];
     }
   | {
-      readonly kind: "request";
+      readonly kind: "forge-change";
       readonly forge: ForgeLocator;
-      readonly request: ForgeRequest;
+      readonly change: ForgeChange;
       readonly files: readonly FilePath[];
       readonly comments: readonly ChangeComment[];
     };
 
 /**
  * Query the show page for `change`. A name with no log yet falls back to its
- * open request in the forge snapshot, so an unimported request previews as
- * the change importing it would create.
+ * open forge change in the snapshot, so an unimported forge change previews
+ * as the change importing it would create.
  */
 export async function showPage(
   backend: Backend,
@@ -46,17 +46,17 @@ export async function showPage(
 ): Promise<ShowPage> {
   const entries = await backend.readLog(change);
   if (entries.length === 0 && snapshot !== undefined) {
-    // Requests sharing a head collapse to the oldest, as on the todo page.
-    const found = [...snapshot.requests]
-      .sort((a, b) => a.request.id - b.request.id)
-      .find(({ request }) => request.head === change);
+    // Forge changes sharing a head collapse to the oldest, as on the todo page.
+    const found = [...snapshot.changes]
+      .sort((a, b) => a.change.id - b.change.id)
+      .find((candidate) => candidate.change.head === change);
     if (found !== undefined) {
       const comments = found.comments.map(({ updatedAt, author, body }) => ({
         timestamp: updatedAt,
         user: author,
         text: body,
       }));
-      return { kind: "request", forge: snapshot.locator, request: found.request, files: found.files, comments };
+      return { kind: "forge-change", forge: snapshot.locator, change: found.change, files: found.files, comments };
     }
   }
   return {
@@ -122,24 +122,24 @@ function commentsSection(comments: readonly ChangeComment[]): Line[] {
 }
 
 export function showDoc(page: ShowPage): Doc {
-  if (page.kind === "request") {
-    const { forge, request, files } = page;
-    // The heading resolves to the request so hosts can find what to import
-    // from anywhere on the page, but on the jump tier: as a link it would
-    // only lead back here.
-    const heading = span(request.head, {
+  if (page.kind === "forge-change") {
+    const { forge, change, files } = page;
+    // The heading resolves to the forge change so hosts can find what to
+    // import from anywhere on the page, but on the jump tier: as a link it
+    // would only lead back here.
+    const heading = span(change.head, {
       style: "heading",
-      target: { kind: "request", request: request.id, change: request.head },
+      target: { kind: "forge-change", id: change.id, change: change.head },
       tier: "jump",
     });
     return {
       lines: [
         ...header(heading, [
           ["next step", "import"],
-          ["owner", request.author],
-          ["parent", request.base],
-          ["forge request", `${forge}#${request.id}`],
-          ["title", request.title],
+          ["owner", change.author],
+          ["parent", change.parent],
+          ["forge change", `${forge}#${change.id}`],
+          ["title", change.title],
         ]),
         ...commentsSection(page.comments),
         // No file targets: the files have no diffs to open until the import.
@@ -153,8 +153,8 @@ export function showDoc(page: ShowPage): Doc {
     ["owner", summary.owner],
     ["parent", summary.parent],
   ];
-  if (summary.forgeRequest !== undefined) {
-    attributes.push(["forge request", `${summary.forgeRequest.forge}#${summary.forgeRequest.request}`]);
+  if (summary.forgeChange !== undefined) {
+    attributes.push(["forge change", `${summary.forgeChange.forge}#${summary.forgeChange.id}`]);
   }
   if (summary.landed !== undefined) {
     attributes.push(["landed", shortHash(summary.landed)]);

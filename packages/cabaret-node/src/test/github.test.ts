@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { type Forge, type ForgeRequestId, forgeRequestId, parseRefName } from "cabaret-core";
+import { type Forge, type ForgeChangeId, forgeChangeId, parseRefName } from "cabaret-core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import { openGitHubForge } from "../github.js";
 
@@ -22,7 +22,7 @@ const WRITES = process.env.CABARET_FORGE_WRITES === "1";
 
 const execFileAsync = promisify(execFile);
 
-const SEEDED = forgeRequestId(1);
+const SEEDED = forgeChangeId(1);
 
 /** Clone the fixture repository into a throwaway directory and open it. */
 async function openFixture(fixture: string): Promise<{ dir: string; forge: Forge }> {
@@ -38,17 +38,18 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
     expect(forge.locator).toBe(`github.com/${FIXTURE}`);
   }, 60000);
 
-  test("getRequest reads the seeded merged PR, including its merge commit", async () => {
+  test("getChange reads the seeded merged PR, including its merge commit", async () => {
     const { forge } = await openFixture(FIXTURE ?? "");
-    expect(await forge.getRequest(SEEDED)).toEqual({
+    expect(await forge.getChange(SEEDED)).toEqual({
       id: SEEDED,
       head: "seeded",
-      base: "main",
+      tip: expect.stringMatching(/^[0-9a-f]{40}$/),
+      parent: "main",
       title: "seeded",
       // The account's public profile email when set, else the noreply convention.
       author: expect.stringMatching(/@/),
       state: "merged",
-      merge: expect.stringMatching(/^[0-9a-f]{40}$/),
+      merge: { commit: expect.stringMatching(/^[0-9a-f]{40}$/), parents: expect.any(Number) },
       changedFiles: expect.any(Number),
     });
   }, 60000);
@@ -65,9 +66,9 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
     }
   }, 60000);
 
-  test("findRequest is undefined for a branch with no open PR", async () => {
+  test("findChange is undefined for a branch with no open PR", async () => {
     const { forge } = await openFixture(FIXTURE ?? "");
-    expect(await forge.findRequest(parseRefName("main"))).toBeUndefined();
+    expect(await forge.findChange(parseRefName("main"))).toBeUndefined();
   }, 60000);
 });
 
@@ -85,30 +86,30 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
     await git("add", "-A");
     await git("commit", "-qm", `${branch} work`);
     await git("push", "-q", "origin", branch);
-    let id: ForgeRequestId | undefined;
+    let id: ForgeChangeId | undefined;
     onTestFinished(async () => {
       if (id !== undefined) {
         await execFileAsync("gh", ["pr", "close", String(id), "--delete-branch"], { cwd: dir });
       }
     });
-    const created = await forge.createRequest(branch, parseRefName("main"), `live test ${branch}`);
+    const created = await forge.createChange(branch, parseRefName("main"), `live test ${branch}`);
     id = created.id;
     expect(created).toEqual({
       id: expect.any(Number),
       head: branch,
-      base: "main",
+      parent: "main",
       title: `live test ${branch}`,
       author: expect.stringMatching(/@/),
       state: "open",
       changedFiles: 1,
     });
-    expect(await forge.findRequest(branch)).toEqual(created);
+    expect(await forge.findChange(branch)).toEqual(created);
     // The exact body must survive the round trip: idempotency rides on the
     // raw marker coming back byte-identical.
     const body = `ship it\n\n<!-- cabaret:${"ab".repeat(32)} -->`;
     await forge.addComment(created.id, body);
     expect((await forge.listComments(created.id)).map((comment) => comment.body)).toEqual([body]);
-    await forge.setBase(created.id, parseRefName("base2"));
-    expect((await forge.getRequest(created.id)).base).toBe("base2");
+    await forge.setParent(created.id, parseRefName("base2"));
+    expect((await forge.getChange(created.id)).parent).toBe("base2");
   }, 300000);
 });

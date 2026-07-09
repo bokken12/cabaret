@@ -1,19 +1,19 @@
 import {
   type CommitHash,
   type Forge,
+  type ForgeChange,
+  type ForgeChangeId,
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
-  type ForgeRequest,
-  type ForgeRequestId,
-  forgeRequestId,
+  forgeChangeId,
   type LandMethod,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
-  type SnapshotRequest,
+  type SnapshotChange,
   timestampMs,
   UserError,
   type UserName,
@@ -27,20 +27,20 @@ function noreplyUser(login: string): UserName {
   return userName(`${login}@users.noreply.github.com`);
 }
 
-// The request fields every query selects. GraphQL rather than REST because
+// The PR fields every query selects. GraphQL rather than REST because
 // the list queries need `changedFiles`, which REST includes only on a single
-// fetched request — per-request follow-ups would make listing N+1.
+// fetched PR — per-PR follow-ups would make listing N+1.
 const PR_FIELDS =
   "number headRefName headRefOid baseRefName title author { login } state " +
   "mergeCommit { oid parents { totalCount } } changedFiles";
 
 const PrSchema = z.object({
-  number: z.number().transform(forgeRequestId),
+  number: z.number().transform(forgeChangeId),
   headRefName: z.string().transform(parseRefName),
   headRefOid: z.string().transform(parseCommitHash),
   baseRefName: z.string().transform(parseRefName),
   title: z.string(),
-  // A deleted account's request has no author; REST's "ghost" stands in.
+  // A deleted account's PR has no author; REST's "ghost" stands in.
   author: z.object({ login: z.string() }).nullable(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
   mergeCommit: z
@@ -52,16 +52,16 @@ const PrSchema = z.object({
   changedFiles: z.number(),
 });
 
-const FIND_REQUEST = `query ($owner: String!, $repo: String!, $branch: String!) {
+const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
   repository(owner: $owner, name: $repo) {
     pullRequests(headRefName: $branch, states: OPEN, first: 1) { nodes { ${PR_FIELDS} } }
   }
 }`;
 
 // A snapshot's nested collections are capped at their first hundred entries
-// rather than paginated per request, keeping the whole sweep to one query per
-// hundred open requests. The request's own `changedFiles` still reports the
-// true count, and an import reads comments in full over REST.
+// rather than paginated per PR, keeping the whole sweep to one query per
+// hundred open PRs. The PR's own `changedFiles` still reports the true
+// count, and an import reads comments in full over REST.
 const SNAPSHOT_FIELDS =
   `${PR_FIELDS} files(first: 100) { nodes { path } } ` +
   "comments(first: 100) { nodes { databaseId author { login } body updatedAt } }";
@@ -75,13 +75,13 @@ const FETCH_SNAPSHOT = `query ($owner: String!, $repo: String!, $cursor: String)
   }
 }`;
 
-const GET_REQUEST = `query ($owner: String!, $repo: String!, $number: Int!) {
+const GET_PR = `query ($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) { ${PR_FIELDS} }
   }
 }`;
 
-const FindRequestSchema = z.object({
+const FindPrSchema = z.object({
   repository: z.object({ pullRequests: z.object({ nodes: z.array(PrSchema) }) }),
 });
 
@@ -109,7 +109,7 @@ const FetchSnapshotSchema = z.object({
   }),
 });
 
-const GetRequestSchema = z.object({
+const GetPrSchema = z.object({
   repository: z.object({ pullRequest: PrSchema }),
 });
 
@@ -146,19 +146,19 @@ export class GitHubForge implements Forge {
           const { email } = z.object({ email: z.string().nullable() }).parse(data);
           return email === null || email === "" ? noreplyUser(login) : userName(email);
         })
-        // Deleted accounts 404; their requests and comments still need an identity.
+        // Deleted accounts 404; their PRs and comments still need an identity.
         .catch(() => noreplyUser(login));
       this.identities.set(login, pending);
     }
     return pending;
   }
 
-  private async toRequest(pr: z.infer<typeof PrSchema>): Promise<ForgeRequest> {
+  private async toChange(pr: z.infer<typeof PrSchema>): Promise<ForgeChange> {
     return {
       id: pr.number,
       head: pr.headRefName,
       tip: pr.headRefOid,
-      base: pr.baseRefName,
+      parent: pr.baseRefName,
       title: pr.title,
       author: await this.identity(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
@@ -178,14 +178,14 @@ export class GitHubForge implements Forge {
     };
   }
 
-  async findRequest(branch: RefName): Promise<ForgeRequest | undefined> {
-    const out = await this.client.graphql(FIND_REQUEST, { ...this.repo, branch });
-    const found = FindRequestSchema.parse(out).repository.pullRequests.nodes[0];
-    return found === undefined ? undefined : this.toRequest(found);
+  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+    const out = await this.client.graphql(FIND_PR, { ...this.repo, branch });
+    const found = FindPrSchema.parse(out).repository.pullRequests.nodes[0];
+    return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toSnapshotRequest(pr: z.infer<typeof SnapshotPrSchema>): Promise<SnapshotRequest> {
-    const request = await this.toRequest(pr);
+  private async toSnapshotChange(pr: z.infer<typeof SnapshotPrSchema>): Promise<SnapshotChange> {
+    const change = await this.toChange(pr);
     const comments = await Promise.all(
       pr.comments.nodes
         .filter((comment) => comment.databaseId !== null)
@@ -196,50 +196,50 @@ export class GitHubForge implements Forge {
           updatedAt: timestampMs(Date.parse(comment.updatedAt)),
         })),
     );
-    return { request, files: pr.files?.nodes.map(({ path }) => path) ?? [], comments };
+    return { change, files: pr.files?.nodes.map(({ path }) => path) ?? [], comments };
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
-    const requests: Promise<SnapshotRequest>[] = [];
+  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
+    const changes: Promise<SnapshotChange>[] = [];
     let cursor: string | null = null;
     do {
       const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { ...this.repo, cursor });
       const { nodes, pageInfo } = FetchSnapshotSchema.parse(out).repository.pullRequests;
-      requests.push(...nodes.map(this.toSnapshotRequest, this));
+      changes.push(...nodes.map(this.toSnapshotChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return Promise.all(requests);
+    return Promise.all(changes);
   }
 
-  async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
-    const out = await this.client.graphql(GET_REQUEST, { ...this.repo, number: id });
-    return this.toRequest(GetRequestSchema.parse(out).repository.pullRequest);
+  async getChange(id: ForgeChangeId): Promise<ForgeChange> {
+    const out = await this.client.graphql(GET_PR, { ...this.repo, number: id });
+    return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest> {
-    // The creation response names the new request; fetching by its number —
-    // never by head, which could race another request on the same branch —
-    // reuses the one query that maps a request.
+  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
+    // The creation response names the new PR; fetching by its number —
+    // never by head, which could race another PR on the same branch —
+    // reuses the one query that maps a PR.
     const { data } = await this.client.request("POST /repos/{owner}/{repo}/pulls", {
       ...this.repo,
       title,
       head,
-      base,
+      base: parent,
       body: "",
     });
-    return this.getRequest(forgeRequestId(z.object({ number: z.number() }).parse(data).number));
+    return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }
 
-  async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
     await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
       ...this.repo,
       pull_number: id,
-      base,
+      base: parent,
     });
   }
 
-  async mergeRequest(
-    id: ForgeRequestId,
+  async landChange(
+    id: ForgeChangeId,
     method: LandMethod,
     tip: CommitHash,
     title: string,
@@ -259,7 +259,7 @@ export class GitHubForge implements Forge {
       }));
     } catch (error) {
       // 405 is GitHub refusing the merge as such — the method is disabled in
-      // repository settings, a protection rule is unmet, or the request does
+      // repository settings, a protection rule is unmet, or the PR does
       // not merge cleanly — and 409 is a head that moved since `tip` was
       // validated; both are the user's to resolve, and GitHub's message says
       // which it was.
@@ -276,7 +276,7 @@ export class GitHubForge implements Forge {
     };
   }
 
-  async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {
+  async listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]> {
     // GitHub returns issue comments in creation order — oldest first, as the
     // interface promises — and paginate walks every page.
     const data = await this.client.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
@@ -287,7 +287,7 @@ export class GitHubForge implements Forge {
     return Promise.all(z.array(IssueCommentSchema).parse(data).map(this.toComment, this));
   }
 
-  async addComment(id: ForgeRequestId, body: string): Promise<void> {
+  async addComment(id: ForgeChangeId, body: string): Promise<void> {
     await this.client.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
       ...this.repo,
       issue_number: id,

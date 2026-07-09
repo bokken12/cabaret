@@ -1,19 +1,19 @@
 import {
   type CommitHash,
   type Forge,
+  type ForgeChange,
+  type ForgeChangeId,
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
-  type ForgeRequest,
-  type ForgeRequestId,
-  forgeRequestId,
+  forgeChangeId,
   type LandMethod,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
-  type SnapshotRequest,
+  type SnapshotChange,
   timestampMs,
   UserError,
   type UserName,
@@ -32,20 +32,20 @@ function noreplyUser(id: string | undefined, username: string): UserName {
 }
 
 // GitLab reattributes a deleted account's contributions to a per-instance
-// "ghost" user, so an authorless request is nearly unreachable — but the API
+// "ghost" user, so an authorless MR is nearly unreachable — but the API
 // admits one, and this fixed identity keeps the mapping total.
 const GHOST = noreplyUser(undefined, "ghost");
 
-// The request fields every query selects. GraphQL rather than REST because
+// The MR fields every query selects. GraphQL rather than REST because
 // the queries need a changed-file count, which REST carries only on a single
-// fetched request — and there as a string capped at "1000+".
+// fetched MR — and there as a string capped at "1000+".
 const MR_FIELDS =
   "iid sourceBranch diffHeadSha targetBranch title author { username } state " +
   "mergeCommitSha diffStatsSummary { fileCount }";
 
 const MrSchema = z.object({
   // GraphQL serializes the iid as a string.
-  iid: z.string().transform((raw) => forgeRequestId(Number(raw))),
+  iid: z.string().transform((raw) => forgeChangeId(Number(raw))),
   sourceBranch: z.string().transform(parseRefName),
   diffHeadSha: z.string().transform(parseCommitHash),
   targetBranch: z.string().transform(parseRefName),
@@ -56,18 +56,17 @@ const MrSchema = z.object({
   diffStatsSummary: z.object({ fileCount: z.number() }),
 });
 
-const FIND_REQUEST = `query ($path: ID!, $branch: String!) {
+const FIND_MR = `query ($path: ID!, $branch: String!) {
   project(fullPath: $path) {
     mergeRequests(sourceBranches: [$branch], state: opened, first: 1) { nodes { ${MR_FIELDS} } }
   }
 }`;
 
-// A snapshot's comments are capped at the first hundred per request rather
+// A snapshot's comments are capped at the first hundred per MR rather
 // than paginated, keeping the whole sweep to one query per hundred open
-// requests; an import still reads them in full over REST. `diffStats` lists
+// MRs; an import still reads them in full over REST. `diffStats` lists
 // every touched path with no pagination to cap.
-const SNAPSHOT_FIELDS =
-  `${MR_FIELDS} diffStats { path } notes(first: 100) { nodes { id author { username } body system updatedAt } }`;
+const SNAPSHOT_FIELDS = `${MR_FIELDS} diffStats { path } notes(first: 100) { nodes { id author { username } body system updatedAt } }`;
 
 const FETCH_SNAPSHOT = `query ($path: ID!, $cursor: String) {
   project(fullPath: $path) {
@@ -78,7 +77,7 @@ const FETCH_SNAPSHOT = `query ($path: ID!, $cursor: String) {
   }
 }`;
 
-const GET_REQUEST = `query ($path: ID!, $iid: String!) {
+const GET_MR = `query ($path: ID!, $iid: String!) {
   project(fullPath: $path) {
     mergeRequest(iid: $iid) { ${MR_FIELDS} }
   }
@@ -89,7 +88,7 @@ const USER = "query ($username: String!) { user(username: $username) { id public
 // GitLab's GraphQL nulls a missing or unauthorized record instead of
 // erroring, so every query's schema admits the null and absence is raised as
 // a `UserError` naming what was asked for.
-const FindRequestSchema = z.object({
+const FindMrSchema = z.object({
   project: z.object({ mergeRequests: z.object({ nodes: z.array(MrSchema) }) }).nullable(),
 });
 
@@ -124,7 +123,7 @@ const FetchSnapshotSchema = z.object({
     .nullable(),
 });
 
-const GetRequestSchema = z.object({
+const GetMrSchema = z.object({
   project: z.object({ mergeRequest: MrSchema.nullable() }).nullable(),
 });
 
@@ -133,7 +132,7 @@ const UserSchema = z.object({
 });
 
 // The merged-commit fields of a REST merge-request object: what the merge
-// call returns, and what a merged request is re-fetched for, since GraphQL
+// call returns, and what a merged MR is re-fetched for, since GraphQL
 // never exposes the squash commit.
 const MergedMrSchema = z.object({
   merge_commit_sha: z.string().transform(parseCommitHash).nullable(),
@@ -211,15 +210,15 @@ export class GitLabForge implements Forge {
     return pending;
   }
 
-  private async toRequest(mr: z.infer<typeof MrSchema>): Promise<ForgeRequest> {
+  private async toChange(mr: z.infer<typeof MrSchema>): Promise<ForgeChange> {
     return {
       id: mr.iid,
       head: mr.sourceBranch,
       tip: mr.diffHeadSha,
-      base: mr.targetBranch,
+      parent: mr.targetBranch,
       title: mr.title,
       author: mr.author === null ? GHOST : await this.identity(mr.author.username),
-      // A locked request is mid-merge on the server; until that lands it has
+      // A locked MR is mid-merge on the server; until that lands it has
       // not merged, so it reads as open.
       state: mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open",
       changedFiles: mr.diffStatsSummary.fileCount,
@@ -230,7 +229,7 @@ export class GitLabForge implements Forge {
   private async mergeOf(mr: z.infer<typeof MrSchema>): Promise<ForgeMerge> {
     // A merge without a merge commit landed something GraphQL never exposes —
     // the squash commit, or a fast-forward of the head itself — so only that
-    // case re-fetches the request over REST.
+    // case re-fetches the MR over REST.
     const commit =
       mr.mergeCommitSha ??
       landedCommit(MergedMrSchema.parse(await this.client.get(`${this.api}/merge_requests/${mr.iid}`)));
@@ -238,7 +237,7 @@ export class GitLabForge implements Forge {
   }
 
   /**
-   * How `commit` landed a request whose reviewed head was `tip`. GitLab's
+   * How `commit` landed an MR whose reviewed head was `tip`. GitLab's
    * landing shapes: a true merge's commit carries the reviewed head as its
    * second parent; a squash under the merge-commit method carries the
    * unreviewed squash commit there instead; and the fast-forward variants
@@ -267,14 +266,14 @@ export class GitLabForge implements Forge {
     return project;
   }
 
-  async findRequest(branch: RefName): Promise<ForgeRequest | undefined> {
-    const out = await this.client.graphql(FIND_REQUEST, { path: this.project.path, branch });
-    const found = this.requireProject(FindRequestSchema.parse(out).project).mergeRequests.nodes[0];
-    return found === undefined ? undefined : this.toRequest(found);
+  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+    const out = await this.client.graphql(FIND_MR, { path: this.project.path, branch });
+    const found = this.requireProject(FindMrSchema.parse(out).project).mergeRequests.nodes[0];
+    return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toSnapshotRequest(mr: z.infer<typeof SnapshotMrSchema>): Promise<SnapshotRequest> {
-    const request = await this.toRequest(mr);
+  private async toSnapshotChange(mr: z.infer<typeof SnapshotMrSchema>): Promise<SnapshotChange> {
+    const change = await this.toChange(mr);
     const comments = await Promise.all(
       mr.notes.nodes
         .filter((note) => !note.system)
@@ -293,48 +292,48 @@ export class GitLabForge implements Forge {
           };
         }),
     );
-    return { request, files: mr.diffStats?.map(({ path }) => path) ?? [], comments };
+    return { change, files: mr.diffStats?.map(({ path }) => path) ?? [], comments };
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotRequest[]> {
-    const requests: Promise<SnapshotRequest>[] = [];
+  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
+    const changes: Promise<SnapshotChange>[] = [];
     let cursor: string | null = null;
     do {
       const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { path: this.project.path, cursor });
       const { nodes, pageInfo } = this.requireProject(FetchSnapshotSchema.parse(out).project).mergeRequests;
-      requests.push(...nodes.map(this.toSnapshotRequest, this));
+      changes.push(...nodes.map(this.toSnapshotChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return Promise.all(requests);
+    return Promise.all(changes);
   }
 
-  async getRequest(id: ForgeRequestId): Promise<ForgeRequest> {
-    const out = await this.client.graphql(GET_REQUEST, { path: this.project.path, iid: String(id) });
-    const found = this.requireProject(GetRequestSchema.parse(out).project).mergeRequest;
+  async getChange(id: ForgeChangeId): Promise<ForgeChange> {
+    const out = await this.client.graphql(GET_MR, { path: this.project.path, iid: String(id) });
+    const found = this.requireProject(GetMrSchema.parse(out).project).mergeRequest;
     if (found === null) {
       throw new UserError(`no merge request !${id} on ${this.locator}`);
     }
-    return this.toRequest(found);
+    return this.toChange(found);
   }
 
-  async createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest> {
-    // The creation response names the new request; fetching by its iid —
-    // never by head, which could race another request on the same branch —
-    // reuses the one query that maps a request.
+  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
+    // The creation response names the new MR; fetching by its iid —
+    // never by head, which could race another MR on the same branch —
+    // reuses the one query that maps an MR.
     const data = await this.client.post(`${this.api}/merge_requests`, {
       source_branch: head,
-      target_branch: base,
+      target_branch: parent,
       title,
     });
-    return this.getRequest(forgeRequestId(z.object({ iid: z.number() }).parse(data).iid));
+    return this.getChange(forgeChangeId(z.object({ iid: z.number() }).parse(data).iid));
   }
 
-  async setBase(id: ForgeRequestId, base: RefName): Promise<void> {
-    await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: base });
+  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+    await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
   }
 
-  async mergeRequest(
-    id: ForgeRequestId,
+  async landChange(
+    id: ForgeChangeId,
     method: LandMethod,
     tip: CommitHash,
     title: string,
@@ -358,23 +357,23 @@ export class GitLabForge implements Forge {
     } catch (error) {
       // 409 is a head that moved since `tip` was validated; 405 and 422 are
       // GitLab refusing the merge as such — an unmet approval or pipeline
-      // rule, or a request that does not merge cleanly. All are the user's to
+      // rule, or an MR that does not merge cleanly. All are the user's to
       // resolve, and GitLab's message says which it was.
       if (isStatus(error, 405) || isStatus(error, 409) || isStatus(error, 422)) {
         throw new UserError(`${this.locator}!${id} did not merge: ${(error as Error).message}`);
       }
       throw error;
     }
-    // GitLab has no per-request merge method: the project's merge settings
+    // GitLab has no per-MR merge method: the project's merge settings
     // may squash, rebase, or fast-forward whatever was asked, so the shape
     // is read off the landed commit rather than trusted from `method`.
     return this.landingShape(landedCommit(MergedMrSchema.parse(data)), tip);
   }
 
-  async listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]> {
+  async listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]> {
     // sort=asc lists creation order, oldest first, as the interface
     // promises. System notes — retargets, approvals, GitLab's own narration
-    // of the request — are not comments.
+    // of the MR — are not comments.
     const data = await this.client.getPaginated(`${this.api}/merge_requests/${id}/notes`, { sort: "asc" });
     const notes = z
       .array(NoteSchema)
@@ -383,7 +382,7 @@ export class GitLabForge implements Forge {
     return Promise.all(notes.map(this.toComment, this));
   }
 
-  async addComment(id: ForgeRequestId, body: string): Promise<void> {
+  async addComment(id: ForgeChangeId, body: string): Promise<void> {
     await this.client.post(`${this.api}/merge_requests/${id}/notes`, { body });
   }
 }

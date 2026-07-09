@@ -1,4 +1,4 @@
-import { forgeRequestId, parseRefName, UserError } from "cabaret-core";
+import { forgeChangeId, parseRefName, UserError } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { githubClient, parseGitHubRemote } from "../client.js";
 import { GitHubForge } from "../forge.js";
@@ -57,11 +57,11 @@ describe("GitHubForge", () => {
     const calls = stubGitHub({
       [`PATCH ${REPOS}/pulls/12`]: { json: {} },
     });
-    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
-  test("getRequest maps an open request, using the author's public profile email", async () => {
+  test("getChange maps an open PR, using the author's public profile email", async () => {
     stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -84,11 +84,11 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
     });
-    expect(await forge().getRequest(forgeRequestId(7))).toEqual({
+    expect(await forge().getChange(forgeChangeId(7))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-      base: "main",
+      parent: "main",
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
@@ -96,7 +96,7 @@ describe("GitHubForge", () => {
     });
   });
 
-  test("getRequest maps a merged request, falling back to the noreply identity", async () => {
+  test("getChange maps a merged PR, falling back to the noreply identity", async () => {
     stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -119,11 +119,11 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/bob`]: { json: { email: null } },
     });
-    expect(await forge().getRequest(forgeRequestId(8))).toEqual({
+    expect(await forge().getChange(forgeChangeId(8))).toEqual({
       id: 8,
       head: "fix-crash",
       tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
-      base: "release",
+      parent: "release",
       title: "Fix crash",
       author: "bob@users.noreply.github.com",
       state: "merged",
@@ -132,7 +132,7 @@ describe("GitHubForge", () => {
     });
   });
 
-  test("getRequest maps a closed request by a deleted account", async () => {
+  test("getChange maps a closed PR by a deleted account", async () => {
     stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -155,11 +155,11 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/ghost`]: { status: 404, json: { message: "Not Found" } },
     });
-    expect(await forge().getRequest(forgeRequestId(9))).toEqual({
+    expect(await forge().getChange(forgeChangeId(9))).toEqual({
       id: 9,
       head: "abandoned",
       tip: "44556677889900aabbccddeeff112233445566aa",
-      base: "main",
+      parent: "main",
       title: "Abandoned",
       author: "ghost@users.noreply.github.com",
       state: "closed",
@@ -167,7 +167,7 @@ describe("GitHubForge", () => {
     });
   });
 
-  test("findRequest queries by head branch and maps the request", async () => {
+  test("findChange queries by head branch and maps the PR", async () => {
     const calls = stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -194,11 +194,11 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/alice`]: { json: { email: null } },
     });
-    expect(await forge().findRequest(parseRefName("add-tables"))).toEqual({
+    expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-      base: "main",
+      parent: "main",
       title: "Add tables",
       author: "alice@users.noreply.github.com",
       state: "open",
@@ -207,11 +207,11 @@ describe("GitHubForge", () => {
     expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", branch: "add-tables" }]);
   });
 
-  test("findRequest is undefined when no open request has the branch", async () => {
+  test("findChange is undefined when no open PR has the branch", async () => {
     stubGitHub({
       [GRAPHQL]: { json: { data: { repository: { pullRequests: { nodes: [] } } } } },
     });
-    expect(await forge().findRequest(parseRefName("orphan"))).toBeUndefined();
+    expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
   });
 
   test("fetchSnapshot follows the pagination cursor, carrying files and comments", async () => {
@@ -297,11 +297,11 @@ describe("GitHubForge", () => {
     });
     expect(await forge().fetchSnapshot()).toEqual([
       {
-        request: {
+        change: {
           id: 4,
           head: "first",
           tip: "123456789abcdef0123456789abcdef012345678",
-          base: "main",
+          parent: "main",
           title: "First",
           author: "alice@users.noreply.github.com",
           state: "open",
@@ -318,11 +318,11 @@ describe("GitHubForge", () => {
         ],
       },
       {
-        request: {
+        change: {
           id: 5,
           head: "second",
           tip: "23456789abcdef0123456789abcdef0123456789",
-          base: "first",
+          parent: "first",
           title: "Second",
           author: "bob@users.noreply.github.com",
           state: "open",
@@ -332,11 +332,11 @@ describe("GitHubForge", () => {
         comments: [],
       },
       {
-        request: {
+        change: {
           id: 6,
           head: "third",
           tip: "3456789abcdef0123456789abcdef0123456789a",
-          base: "main",
+          parent: "main",
           title: "Third",
           author: "alice@users.noreply.github.com",
           state: "open",
@@ -362,11 +362,11 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/alice`]: { json: { email: null } },
     });
-    await forge().listComments(forgeRequestId(7));
+    await forge().listComments(forgeChangeId(7));
     expect(calls.filter(({ url }) => url === `${API}/users/alice`)).toHaveLength(1);
   });
 
-  test("createRequest posts the request and fetches it by number", async () => {
+  test("createChange posts the PR and fetches it by number", async () => {
     const calls = stubGitHub({
       [`POST ${REPOS}/pulls`]: { status: 201, json: { number: 12 } },
       [GRAPHQL]: {
@@ -390,12 +390,12 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/dave`]: { json: { email: null } },
     });
-    const created = await forge().createRequest(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
+    const created = await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
     expect(created).toEqual({
       id: 12,
       head: "new-work",
       tip: "456789abcdef0123456789abcdef0123456789ab",
-      base: "parent-branch",
+      parent: "parent-branch",
       title: "New work",
       author: "dave@users.noreply.github.com",
       state: "open",
@@ -406,11 +406,11 @@ describe("GitHubForge", () => {
     );
   });
 
-  test("setBase patches the request's base branch", async () => {
+  test("setParent patches the PR's base branch", async () => {
     const calls = stubGitHub({
       [`PATCH ${REPOS}/pulls/12`]: { json: {} },
     });
-    await forge().setBase(forgeRequestId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
     expect(calls[0]?.body).toBe(JSON.stringify({ base: "develop" }));
   });
 
@@ -430,7 +430,7 @@ describe("GitHubForge", () => {
       [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
       [`GET ${API}/users/bob`]: { json: { email: null } },
     });
-    expect(await forge().listComments(forgeRequestId(7))).toEqual([
+    expect(await forge().listComments(forgeChangeId(7))).toEqual([
       {
         id: "101",
         author: "alice@example.com",
@@ -457,7 +457,7 @@ describe("GitHubForge", () => {
     const calls = stubGitHub({
       [`POST ${REPOS}/issues/7/comments`]: { status: 201, json: {} },
     });
-    await forge().addComment(forgeRequestId(7), body);
+    await forge().addComment(forgeChangeId(7), body);
     expect(calls[0]?.body).toBe(JSON.stringify({ body }));
   });
 
@@ -465,7 +465,7 @@ describe("GitHubForge", () => {
     stubGitHub({
       [`GET ${REPOS}/issues/404/comments?per_page=100`]: { status: 404, json: { message: "Not Found" } },
     });
-    await expect(forge().listComments(forgeRequestId(404))).rejects.toMatchObject({
+    await expect(forge().listComments(forgeChangeId(404))).rejects.toMatchObject({
       status: 404,
       message: expect.stringContaining("Not Found"),
     });

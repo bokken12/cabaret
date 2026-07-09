@@ -2,13 +2,13 @@ import {
   type Backend,
   type CommitHash,
   compareLogEntries,
-  currentForgeRequest,
+  currentForgeChange,
   currentParent,
+  type ForgeChange,
+  type ForgeChangeId,
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
-  type ForgeRequest,
-  type ForgeRequestId,
   type ForgeSnapshot,
   formatLogEntry,
   type LogEntry,
@@ -16,7 +16,7 @@ import {
   landTitle,
   landTrailer,
   type RefName,
-  type SnapshotRequest,
+  type SnapshotChange,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
@@ -46,52 +46,52 @@ export interface Forge {
   readonly locator: ForgeLocator;
 
   /**
-   * Every open request with the files and comments previewing it needs, in no
+   * Every open change with the files and comments previewing it needs, in no
    * particular order. Taken in one sweep so a snapshot costs a handful of API
-   * calls however many requests are open; in return each request's files and
+   * calls however many changes are open; in return each change's files and
    * comments may be capped (at the first hundred or so) — an import still
    * reads comments in full through `listComments`.
    */
-  fetchSnapshot(): Promise<readonly SnapshotRequest[]>;
+  fetchSnapshot(): Promise<readonly SnapshotChange[]>;
 
-  /** The open request with head `branch`, or undefined if there is none. */
-  findRequest(branch: RefName): Promise<ForgeRequest | undefined>;
+  /** The open change with head `branch`, or undefined if there is none. */
+  findChange(branch: RefName): Promise<ForgeChange | undefined>;
 
-  getRequest(id: ForgeRequestId): Promise<ForgeRequest>;
+  getChange(id: ForgeChangeId): Promise<ForgeChange>;
 
-  /** Open a request merging `head` into `base`. `head` must already be pushed. */
-  createRequest(head: RefName, base: RefName, title: string): Promise<ForgeRequest>;
+  /** Open a change merging `head` into `parent`. `head` must already be pushed. */
+  createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange>;
 
-  /** Retarget an open request's base branch. */
-  setBase(id: ForgeRequestId, base: RefName): Promise<void>;
+  /** Retarget an open change's parent branch. */
+  setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
 
   /**
-   * Merge an open request into its base branch, the new commit's message
-   * carrying `title` and `message` as its body; returns what landed. `method`
-   * asks for a merge commit or a squash, but a forge whose settings dictate
-   * the landing shape may write something else — the returned merge reports
-   * the shape that actually landed. `tip` is what the caller validated as
-   * the request's head: the forge merges only if the head still matches, so
+   * Land an open change by merging it into its parent branch, the new commit's
+   * message carrying `title` and `message` as its body; returns what landed.
+   * `method` asks for a merge commit or a squash, but a forge whose settings
+   * dictate the landing shape may write something else — the returned merge
+   * reports the shape that actually landed. `tip` is what the caller validated
+   * as the change's head: the forge merges only if the head still matches, so
    * a concurrent push cannot land unreviewed commits. Fails when the head
-   * moved or the request cannot merge cleanly.
+   * moved or the change cannot merge cleanly.
    */
-  mergeRequest(
-    id: ForgeRequestId,
+  landChange(
+    id: ForgeChangeId,
     method: LandMethod,
     tip: CommitHash,
     title: string,
     message: string,
   ): Promise<ForgeMerge>;
 
-  /** The request-level comments, oldest first. */
-  listComments(id: ForgeRequestId): Promise<readonly ForgeComment[]>;
+  /** The change-level comments, oldest first. */
+  listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]>;
 
-  /** Post a request-level comment. */
-  addComment(id: ForgeRequestId, body: string): Promise<void>;
+  /** Post a change-level comment. */
+  addComment(id: ForgeChangeId, body: string): Promise<void>;
 }
 
 /**
- * Mirror the forge's open requests into the backend's stored snapshot,
+ * Mirror the forge's open changes into the backend's stored snapshot,
  * returning what was written.
  */
 export async function syncForgeSnapshot(
@@ -99,7 +99,7 @@ export async function syncForgeSnapshot(
   now: () => TimestampMs,
   forge: Forge,
 ): Promise<ForgeSnapshot> {
-  const snapshot: ForgeSnapshot = { locator: forge.locator, takenAt: now(), requests: await forge.fetchSnapshot() };
+  const snapshot: ForgeSnapshot = { locator: forge.locator, takenAt: now(), changes: await forge.fetchSnapshot() };
   await backend.writeForgeSnapshot(snapshot);
   return snapshot;
 }
@@ -237,7 +237,7 @@ export async function planPush(
 }
 
 /**
- * The land entry a merged `request` implies, or undefined when `entries`
+ * The land entry a merged `forgeChange` implies, or undefined when `entries`
  * already record one: however the merge is observed, it means the change
  * landed. A single-parent landing commit (a squash or rebase merge) descends
  * from no reviewed history, so the entry freezes the head that merged as the
@@ -246,43 +246,43 @@ export async function planPush(
 export function observedLand(
   now: () => TimestampMs,
   user: UserName,
-  request: ForgeRequest,
+  forgeChange: ForgeChange,
   entries: readonly LogEntry[],
 ): LogEntry | undefined {
-  if (request.state !== "merged" || request.merge === undefined || landedMerge(entries) !== undefined) {
+  if (forgeChange.state !== "merged" || forgeChange.merge === undefined || landedMerge(entries) !== undefined) {
     return undefined;
   }
-  const { commit, parents } = request.merge;
+  const { commit, parents } = forgeChange.merge;
   return {
     timestamp: now(),
     user,
-    action: { kind: "land", merge: commit, ...(parents > 1 ? {} : { tip: request.tip }) },
+    action: { kind: "land", merge: commit, ...(parents > 1 ? {} : { tip: forgeChange.tip }) },
   };
 }
 
 /**
- * The forge request `change` syncs with: the log's `set-forge` when it names
- * one on this forge, else the change's branch's open request, adopted with a
- * `set-forge` entry. Undefined when the forge has no request either.
+ * The forge change `change` syncs with: the log's `set-forge` when it names
+ * one on this forge, else the change's branch's open forge change, adopted
+ * with a `set-forge` entry. Undefined when the forge has none either.
  */
-export async function syncedRequest(
+export async function syncedForgeChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: RefName,
   entries: readonly LogEntry[],
-): Promise<ForgeRequest | undefined> {
-  const recorded = currentForgeRequest(entries);
+): Promise<ForgeChange | undefined> {
+  const recorded = currentForgeChange(entries);
   if (recorded !== undefined && recorded.forge === forge.locator) {
-    return forge.getRequest(recorded.request);
+    return forge.getChange(recorded.id);
   }
-  const found = await forge.findRequest(change);
+  const found = await forge.findChange(change);
   if (found !== undefined) {
     await backend.appendLog(change, [
       {
         timestamp: now(),
         user: await backend.currentUser(),
-        action: { kind: "set-forge", forge: forge.locator, request: found.id },
+        action: { kind: "set-forge", forge: forge.locator, id: found.id },
       },
     ]);
   }
@@ -290,62 +290,65 @@ export async function syncedRequest(
 }
 
 /**
- * Land `change` by merging its request on the forge: after the same checks a
- * local land makes — freshening the local parent from origin first, since the
- * forge merges into origin's copy — merge the request with `method`, record
- * the landing (as `recordLand`), and fetch the parent so this repository sees
- * the land. The commit's message carries the land trailer, exactly as a local
- * land's would, so the parent's reviewers skip the diff it brings in.
+ * Land `change` by merging it on the forge: after the same checks a local
+ * land makes — freshening the local parent from origin first, since the
+ * forge merges into origin's copy — land the forge change with `method`,
+ * record the landing (as `recordLand`), and fetch the parent so this
+ * repository sees the land. The commit's message carries the land trailer,
+ * exactly as a local land's would, so the parent's reviewers skip the diff
+ * it brings in.
  */
-export async function landRequest(
+export async function landOnForge(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: RefName,
   entries: readonly LogEntry[],
-  request: ForgeRequest,
+  forgeChange: ForgeChange,
   method: LandMethod,
   overrides: LandOverrides,
 ): Promise<CommitHash> {
-  if (request.state === "merged") {
+  if (forgeChange.state === "merged") {
     throw new UserError(
-      `${forge.locator}#${request.id} was already merged; run \`cabaret gh pull\` to record the land`,
+      `${forge.locator}#${forgeChange.id} was already merged; run \`cabaret gh pull\` to record the land`,
     );
   }
-  if (request.state === "closed") {
+  if (forgeChange.state === "closed") {
     throw new UserError(
-      `${forge.locator}#${request.id} is closed; reopen it, or land locally (git config cabaret.landVia local)`,
+      `${forge.locator}#${forgeChange.id} is closed; reopen it, or land locally (git config cabaret.landVia local)`,
     );
   }
-  if (request.head !== change) {
-    throw new UserError(`${forge.locator}#${request.id} merges ${JSON.stringify(request.head)}, not this change`);
+  if (forgeChange.head !== change) {
+    throw new UserError(
+      `${forge.locator}#${forgeChange.id} merges ${JSON.stringify(forgeChange.head)}, not this change`,
+    );
   }
   const parent = currentParent(change, entries);
-  if (request.base !== parent) {
+  if (forgeChange.parent !== parent) {
     throw new UserError(
-      `${forge.locator}#${request.id} merges into ${JSON.stringify(request.base)}, ` +
+      `${forge.locator}#${forgeChange.id} merges into ${JSON.stringify(forgeChange.parent)}, ` +
         `not ${JSON.stringify(parent)}; run \`cabaret gh push\` to retarget it`,
     );
   }
   await backend.fetchBranch(parent);
   const prepared = await prepareLand(backend, change, entries, overrides);
-  if (request.tip !== prepared.tip) {
+  if (forgeChange.tip !== prepared.tip) {
     throw new UserError(
-      `${forge.locator}#${request.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret gh push\` first`,
+      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret gh push\` first`,
     );
   }
-  const merge = await forge.mergeRequest(request.id, method, prepared.tip, landTitle(change), landTrailer(change));
+  const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
   await recordLand(backend, now, change, entries, prepared, merge);
   await backend.fetchBranch(parent);
   return merge.commit;
 }
 
 /**
- * Land `change` where `config` says: on the forge — merging its request — when
- * `landVia` is "forge", or "auto" with a request recorded in the log; locally
- * otherwise. Returns the request merged, or undefined for a local land.
- * `openForge` is consulted only for a forge land, so local lands need no
- * forge at all.
+ * Land `change` where `config` says: on the forge — merging its forge change —
+ * when `landVia` is "forge", or "auto" with a forge change recorded in the
+ * log; locally otherwise. Returns the forge change landed, or undefined for a
+ * local land. `openForge` is consulted only for a forge land, so local lands
+ * need no forge at all.
  */
 export async function landAsConfigured(
   backend: Backend,
@@ -355,42 +358,42 @@ export async function landAsConfigured(
   change: RefName,
   entries: readonly LogEntry[],
   overrides: LandOverrides,
-): Promise<{ readonly forge: ForgeLocator; readonly request: ForgeRequestId } | undefined> {
+): Promise<{ readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined> {
   const viaForge =
-    config.landVia === "forge" || (config.landVia === "auto" && currentForgeRequest(entries) !== undefined);
+    config.landVia === "forge" || (config.landVia === "auto" && currentForgeChange(entries) !== undefined);
   if (!viaForge) {
     await landChange(backend, now, change, entries, config.landMethod, overrides);
     return undefined;
   }
   const forge = await openForge();
-  const request = await syncedRequest(backend, now, forge, change, entries);
-  if (request === undefined) {
+  const forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
+  if (forgeChange === undefined) {
     throw new UserError(
-      `no pull request for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+      `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
     );
   }
-  await landRequest(backend, now, forge, change, entries, request, config.landMethod, overrides);
-  return { forge: forge.locator, request: request.id };
+  await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
+  return { forge: forge.locator, id: forgeChange.id };
 }
 
-/** What importing a request produced: a new change, or the discovery that its log already exists. */
+/** What importing a forge change produced: a new change, or the discovery that its log already exists. */
 export type ImportResult =
   | { readonly kind: "imported"; readonly change: RefName; readonly comments: number }
   | { readonly kind: "exists"; readonly change: RefName };
 
 /**
- * Import request `id` as a change to review: fetch its head branch, create
- * the change owned by the request's author with the request's base branch as
- * its parent, and pull the request's comments.
+ * Import forge change `id` as a change to review: fetch its head branch,
+ * create the change owned by its author with its parent branch as the
+ * change's parent, and pull its comments.
  */
-export async function importRequest(
+export async function importChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
-  id: ForgeRequestId,
+  id: ForgeChangeId,
 ): Promise<ImportResult> {
-  const request = await forge.getRequest(id);
-  const change = request.head;
+  const forgeChange = await forge.getChange(id);
+  const change = forgeChange.head;
   // Sync first so a change already imported on another machine is adopted as
   // itself rather than re-created.
   await backend.syncLog(change);
@@ -405,15 +408,19 @@ export async function importRequest(
   }
   const user = await backend.currentUser();
   const additions: LogEntry[] = [
-    { timestamp: now(), user, action: { kind: "set-parent", parent: request.base } },
-    { timestamp: now(), user, action: { kind: "set-base", base: await backend.mergeBase(request.base, change) } },
-    { timestamp: now(), user, action: { kind: "set-owner", owner: request.author } },
-    { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, request: id } },
+    { timestamp: now(), user, action: { kind: "set-parent", parent: forgeChange.parent } },
+    {
+      timestamp: now(),
+      user,
+      action: { kind: "set-base", base: await backend.mergeBase(forgeChange.parent, change) },
+    },
+    { timestamp: now(), user, action: { kind: "set-owner", owner: forgeChange.author } },
+    { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, id } },
     ...(await planPull(forge.locator, [], await forge.listComments(id))),
   ];
-  // Without the land entry, a merged request's merge-base slides to its own
-  // tip and the diff to review vanishes.
-  const landing = observedLand(now, user, request, []);
+  // Without the land entry, a merged forge change's merge-base slides to its
+  // own tip and the diff to review vanishes.
+  const landing = observedLand(now, user, forgeChange, []);
   if (landing !== undefined) {
     additions.push(landing);
   }
