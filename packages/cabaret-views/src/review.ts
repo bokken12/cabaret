@@ -16,7 +16,7 @@ import {
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import { type Doc, type Line, type Style, span, type Target, type TargetTier } from "./doc.js";
+import { type Doc, type Line, type Span, type Style, span, type Target, type TargetTier } from "./doc.js";
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
 function shortHash(hash: CommitHash): string {
@@ -316,58 +316,115 @@ export function renderDiff4(args: {
   });
 }
 
+/** The line and changed-word styles of one side of a two-way diff. */
+type DiffSide = { readonly line: Style; readonly word: Style };
+const removedSide: DiffSide = { line: "removed", word: "removed-word" };
+const addedSide: DiffSide = { line: "added", word: "added-word" };
+
 /**
- * Walk a two-way render tracking where each hunk line sits in the file's new
+ * Spans for one changed line, from patdiff's refinement of it into kept and
+ * changed words. Changed words carry the side's word style over the line's
+ * own — but only when the line keeps something: with nothing kept, there is
+ * nothing for emphasis to set the changed words apart from, so the line
+ * stays one plain span. The target rides the first span alone; a line
+ * resolves to its first target.
+ */
+function changedLineSpans(
+  segments: readonly PatdiffCore.StructuredLine[],
+  side: DiffSide,
+  jump: { target: Target; tier: TargetTier },
+): Span[] {
+  const parts: { text: string; changed: boolean }[] = [];
+  for (const [tag, text] of segments) {
+    if (text === "") {
+      continue;
+    }
+    const changed = tag !== "Same";
+    const last = parts.at(-1);
+    if (last !== undefined && last.changed === changed) {
+      last.text += text;
+    } else {
+      parts.push({ text, changed });
+    }
+  }
+  if (!parts.some(({ changed }) => changed) || !parts.some(({ changed }) => !changed)) {
+    return [span(parts.map(({ text }) => text).join(""), { style: side.line, ...jump })];
+  }
+  return parts.map(({ text, changed }, i) =>
+    span(text, { style: changed ? side.word : side.line, ...(i === 0 ? jump : {}) }),
+  );
+}
+
+/**
+ * Walk a two-way diff tracking where each hunk line sits in the file's new
  * copy, so the cursor can jump from the diff to the file itself. A hunk
  * header carries the new side's start; context and added lines advance it,
- * and a removed line anchors at the removal site without advancing. Hunk
- * lines shed their two-column marks — the added/removed styles carry the
- * same information — leaving bare code a host can syntax-highlight and a
- * reviewer can copy. Only a mark at column 0 counts as one — a context
- * line's own text may begin with the same characters. Consecutive hunks
- * would read as one run of code, so a styled header and a blank line
- * mark where each begins.
+ * and a removed line anchors at the removal site without advancing. Lines
+ * carry bare code a host can syntax-highlight and a reviewer can copy; the
+ * added/removed styles say which side. Unified lines and long-line splitting
+ * stay off — either would break the line-per-source-line mapping structured
+ * hosts rely on. Consecutive hunks would read as one run of code, so a
+ * styled header and a blank line mark where each begins.
  */
 function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
-  const rendered = renderDiff(file, view.prev, view.next, false, context);
-  if (rendered === "") {
-    return [];
+  if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
+    return view.prev === view.next ? [] : [{ spans: [span(`Binary versions of ${file} differ`)] }];
   }
+  const hunks = PatdiffCore.withoutUnix.patdiffStructured({
+    context: context ?? defaultContext,
+    produceUnifiedLines: false,
+    splitLongLines: false,
+    // Names are never printed, but patdiff's language-specific whitespace
+    // heuristics read them.
+    prev: { name: file, text: view.prev ?? "" },
+    next: { name: file, text: view.next ?? "" },
+  });
   const lines: Line[] = [];
-  let at = 1;
-  let inHunk = false;
-  for (const text of rendered.slice(0, -1).split("\n")) {
-    const opts: { style?: Style; target?: Target; tier?: TargetTier } = {};
-    let content = text;
-    const header = /^-\d+,\d+ \+(\d+),\d+$/.exec(text);
-    if (header?.[1] !== undefined) {
-      if (inHunk) {
-        lines.push({ spans: [] });
+  for (const hunk of hunks) {
+    if (lines.length > 0) {
+      lines.push({ spans: [] });
+    }
+    let at = hunk.nextStart;
+    // Jump tier: a wall of clickable diff lines would drown the page's real
+    // links, and the cursor is already on the line a reviewer wants to visit.
+    const jump = (): { target: Target; tier: TargetTier } => ({
+      target: { kind: "location", file, line: at },
+      tier: "jump",
+    });
+    const header = `-${hunk.prevStart},${hunk.prevSize} +${hunk.nextStart},${hunk.nextSize}`;
+    lines.push({ spans: [span(header, { style: "hunk", ...jump() })] });
+    for (const range of hunk.ranges) {
+      switch (range.kind) {
+        case "same":
+          for (const [, next] of range.contents) {
+            lines.push({ spans: [span(next.map(([, text]) => text).join(""), jump())] });
+            at++;
+          }
+          break;
+        case "prev":
+          for (const segments of range.contents) {
+            lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
+          }
+          break;
+        case "next":
+          for (const segments of range.contents) {
+            lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
+            at++;
+          }
+          break;
+        case "replace":
+          for (const segments of range.prev) {
+            lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
+          }
+          for (const segments of range.next) {
+            lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
+            at++;
+          }
+          break;
+        case "unified":
+          throw new Error("two-way diff refined without unified lines cannot produce one");
       }
-      inHunk = true;
-      at = Number(header[1]);
-      opts.style = "hunk";
-      opts.target = { kind: "location", file, line: at };
-    } else if (text.startsWith("+|")) {
-      opts.style = "added";
-      opts.target = { kind: "location", file, line: at };
-      at++;
-      content = text.slice(2);
-    } else if (text.startsWith("  ")) {
-      opts.target = { kind: "location", file, line: at };
-      at++;
-      content = text.slice(2);
-    } else if (text.startsWith("-|")) {
-      opts.style = "removed";
-      opts.target = { kind: "location", file, line: at };
-      content = text.slice(2);
     }
-    if (opts.target !== undefined) {
-      // Jump tier: a wall of clickable diff lines would drown the page's real
-      // links, and the cursor is already on the line a reviewer wants to visit.
-      opts.tier = "jump";
-    }
-    lines.push({ spans: [span(content, opts)] });
   }
   return lines;
 }

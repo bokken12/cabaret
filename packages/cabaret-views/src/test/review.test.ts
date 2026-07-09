@@ -203,8 +203,67 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: long("before"), next: long("after") } }),
   );
   const hunk = doc.lines.slice(3).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
-  expect(hunk).toEqual([[[long("before").slice(0, -1), "removed"]], [[long("after").slice(0, -1), "added"]]]);
+  const tail = `: ${"x".repeat(90)}";`;
+  expect(hunk).toEqual([
+    [
+      ['const banner = "', "removed"],
+      ["before", "removed-word"],
+      [tail, "removed"],
+    ],
+    [
+      ['const banner = "', "added"],
+      ["after", "added-word"],
+      [tail, "added"],
+    ],
+  ]);
   expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+});
+
+test("diffDoc emphasizes the changed words within a modified line", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "dogs are the best pets\n", next: "dogs are the cutest pets\n" },
+    }),
+  );
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([
+    [["-1,1 +1,1", "hunk"]],
+    [
+      ["dogs are the", "removed"],
+      [" best", "removed-word"],
+      [" pets", "removed"],
+    ],
+    [
+      ["dogs are the", "added"],
+      [" cutest", "added-word"],
+      [" pets", "added"],
+    ],
+  ]);
+  // The line's target and tier ride its first span alone.
+  expect(doc.lines[3]?.spans.map(({ target, tier }) => [target, tier])).toEqual([
+    [{ kind: "location", file: "api.ts", line: 1 }, "jump"],
+    [undefined, undefined],
+    [undefined, undefined],
+  ]);
+});
+
+test("diffDoc leaves a line replaced wholesale as one plain span", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("3"),
+      later: 0,
+      view: { kind: "two", prev: "shared\ngone\n", next: "shared\nfresh words\n" },
+    }),
+  );
+  const hunk = doc.lines.slice(2).map(({ spans }) => spans.map(({ text, style }) => [text, style]));
+  expect(hunk).toEqual([
+    [["-1,2 +1,2", "hunk"]],
+    [["shared", undefined]],
+    [["gone", "removed"]],
+    [["fresh words", "added"]],
+  ]);
 });
 
 test("diffDoc leaves a context line unstyled even when its text starts like a mark", () => {

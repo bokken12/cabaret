@@ -119,6 +119,23 @@ export type PatdiffCoreS = {
     prev: DiffInput;
     next: DiffInput;
   }) => string;
+
+  /** [patdiff]'s pipeline up through refinement, without rendering: the same
+      defaults and whitespace heuristics, returning tagged word segments per
+      line for a caller that paints styles itself. */
+  patdiffStructured: (args: {
+    context?: number;
+    keepWs?: boolean;
+    findMoves?: boolean;
+    produceUnifiedLines?: boolean;
+    splitLongLines?: boolean;
+    interleave?: boolean;
+    floatTolerance?: Percent;
+    lineBigEnough?: number;
+    wordBigEnough?: number;
+    prev: DiffInput;
+    next: DiffInput;
+  }) => StructuredHunks;
 };
 
 export type OutputImpls = {

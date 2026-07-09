@@ -8,6 +8,8 @@
   --removed: #d1242f;
   --added-wash: #e6ffec;
   --removed-wash: #ffebe9;
+  --added-word-wash: #abf2bc;
+  --removed-word-wash: #ffc0c0;
   --hunk-wash: #eaeef2;
 }
 
@@ -22,6 +24,8 @@
     --removed: #f85149;
     --added-wash: rgba(63, 185, 80, 0.15);
     --removed-wash: rgba(248, 81, 73, 0.15);
+    --added-word-wash: rgba(63, 185, 80, 0.4);
+    --removed-word-wash: rgba(248, 81, 73, 0.4);
     --hunk-wash: rgba(110, 118, 129, 0.15);
   }
 }
@@ -128,6 +132,18 @@ body.busy .doc {
 
 .line:has(> .removed) {
   background: var(--removed-wash);
+}
+
+/* Changed words within a line: a stronger wash on just those characters,
+   layered over the whole-line wash. */
+.added-word {
+  color: var(--added);
+  background: var(--added-word-wash);
+}
+
+.removed-word {
+  color: var(--removed);
+  background: var(--removed-word-wash);
 }
 
 /* A neutral wash on hunk headers, as magit paints its hunk headings. */

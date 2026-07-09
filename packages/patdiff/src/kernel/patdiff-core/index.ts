@@ -1,11 +1,13 @@
 /** Public API for the patdiff core. Wires together the diff/refine/render pipeline
  *  and mirrors OCaml's [Patdiff_core] / [Patdiff_core.Without_unix]. */
 
+import type { Percent } from "../../shared/percent.js";
 import { type OrError, ok } from "../../shared/result.js";
 import { splitLines } from "../../shared/string-util.js";
 import * as AnsiOutput from "../ansi-output.js";
 import * as AsciiOutput from "../ascii-output.js";
 import * as Configuration from "../configuration.js";
+import type { DiffInput } from "../diff-input.js";
 import * as FileNameMod from "../file-name.js";
 import * as FloatTolerance from "../float-tolerance.js";
 import * as Format from "../format.js";
@@ -176,36 +178,48 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
       computeWidth: computeSideBySideWidth,
     });
 
-  const patdiff: PatdiffCoreS["patdiff"] = (args) => {
+  /** The shared front half of [patdiff] and [patdiffStructured]: resolve the
+      whitespace heuristic, diff, and apply float tolerance, leaving hunks
+      ready for either refinement. */
+  const diffForRefine = (args: {
+    context?: number;
+    keepWs?: boolean;
+    findMoves?: boolean;
+    floatTolerance?: Percent;
+    lineBigEnough?: number;
+    prev: DiffInput;
+    next: DiffInput;
+  }): { hunks: Hunks; keepWs: boolean } => {
     const context = args.context ?? Configuration.defaultContext;
-    const findMovesArg = args.findMoves ?? false;
-    const rules = args.rules ?? Format.Rules.defaultRules;
-    const output: Output = args.output ?? "Ansi";
-    const produceUnifiedLines = args.produceUnifiedLines ?? true;
-    const splitLongLines = args.splitLongLines ?? true;
-    const locationStyle: Format.LocationStyle = args.locationStyle ?? "Diff";
-    const interleave = args.interleave ?? true;
     const lineBigEnough = args.lineBigEnough ?? Configuration.defaultLineBigEnough;
-    const wordBigEnough = args.wordBigEnough ?? Configuration.defaultWordBigEnough;
     const keepWsExplicit = args.keepWs ?? false;
     const keepWs = keepWsExplicit || ShouldKeepWhitespace.forDiff({ prev: args.prev, next: args.next });
-
-    const prevLines = splitLines(args.prev.text);
-    const nextLines = splitLines(args.next.text);
     let hunks: Hunks = runDiff({
       context,
       lineBigEnough,
       keepWs,
-      findMoves: findMovesArg,
-      prev: prevLines,
-      next: nextLines,
+      findMoves: args.findMoves ?? false,
+      prev: splitLines(args.prev.text),
+      next: splitLines(args.next.text),
     });
     // Tolerance must see raw lines: refine styles them, and styled strings
     // never compare float-equal. Matches [CompareCore.compareLines]'s ordering.
     if (args.floatTolerance !== undefined) {
       hunks = FloatTolerance.apply(hunks, args.floatTolerance, context);
     }
-    hunks = runRefine({
+    return { hunks, keepWs };
+  };
+
+  const patdiff: PatdiffCoreS["patdiff"] = (args) => {
+    const rules = args.rules ?? Format.Rules.defaultRules;
+    const output: Output = args.output ?? "Ansi";
+    const produceUnifiedLines = args.produceUnifiedLines ?? true;
+    const splitLongLines = args.splitLongLines ?? true;
+    const locationStyle: Format.LocationStyle = args.locationStyle ?? "Diff";
+    const interleave = args.interleave ?? true;
+    const wordBigEnough = args.wordBigEnough ?? Configuration.defaultWordBigEnough;
+    const { hunks: diffed, keepWs } = diffForRefine(args);
+    const hunks = runRefine({
       rules,
       produceUnifiedLines,
       output,
@@ -214,7 +228,7 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
       splitLongLines,
       interleave,
       wordBigEnough,
-      hunks,
+      hunks: diffed,
     });
     const fileNames = [FileNameMod.fake(args.prev.name), FileNameMod.fake(args.next.name)] as const;
     return outputToString({
@@ -223,6 +237,18 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
       rules,
       output,
       locationStyle,
+      hunks,
+    });
+  };
+
+  const patdiffStructured: PatdiffCoreS["patdiffStructured"] = (args) => {
+    const { hunks, keepWs } = diffForRefine(args);
+    return runRefineStructured({
+      produceUnifiedLines: args.produceUnifiedLines ?? true,
+      keepWs,
+      splitLongLines: args.splitLongLines ?? true,
+      interleave: args.interleave ?? true,
+      wordBigEnough: args.wordBigEnough ?? Configuration.defaultWordBigEnough,
       hunks,
     });
   };
@@ -242,6 +268,7 @@ export const make = (impls: OutputImpls): PatdiffCoreS => {
     outputToStringSideBySide,
     outputWidth,
     patdiff,
+    patdiffStructured,
   };
 };
 
