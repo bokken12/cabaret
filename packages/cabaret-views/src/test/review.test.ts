@@ -40,11 +40,33 @@ test("reviewDoc lists the round's files and what follows", () => {
       api.ts
       ui.ts"
   `);
-  const line = docText(doc)
-    .split("\n")
-    .findIndex((text) => text.includes("api.ts"));
-  expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
-  expect(targetAt(doc, 0)).toEqual({ kind: "change", change: "widgets" });
+});
+
+test("reviewDoc targets the round's first file from every line but a file's own", () => {
+  const doc = reviewDoc({
+    change: widgets,
+    round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
+  });
+  const api = { kind: "file", change: "widgets", file: "api.ts" };
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    api, // the heading: no way back to the change
+    api, // its underline
+    api, // blank
+    api, // "Reviewing up to ..."
+    api, // blank
+    api, // api.ts's own line
+    { kind: "file", change: "widgets", file: "ui.ts" },
+  ]);
+  // Only the file names advertise as links; the rest answers the cursor alone.
+  expect(doc.lines.map(({ spans }) => spans.find(({ target }) => target !== undefined)?.tier)).toEqual([
+    "jump",
+    "jump",
+    "jump",
+    "jump",
+    "jump",
+    "link",
+    "link",
+  ]);
 });
 
 test("reviewDoc of the last round drops the indicator", () => {
@@ -59,13 +81,15 @@ test("reviewDoc of the last round drops the indicator", () => {
   `);
 });
 
-test("reviewDoc with nothing left says so", () => {
-  expect(docText(reviewDoc({ change: widgets, round: undefined }))).toMatchInlineSnapshot(`
+test("reviewDoc with nothing left says so, targeting nothing", () => {
+  const doc = reviewDoc({ change: widgets, round: undefined });
+  expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
 
     Nothing left to review."
   `);
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([undefined, undefined, undefined, undefined]);
 });
 
 function diffPageWith(round: DiffPage["round"]): DiffPage {

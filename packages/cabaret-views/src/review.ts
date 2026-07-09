@@ -80,18 +80,25 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
 
 export function reviewDoc(page: ReviewPage): Doc {
   const title = `Review ${page.change}`;
+  // The page's whole target is proceeding with review: every line resolves
+  // to the round's first file, on the jump tier so only the file names read
+  // as links, and a file's own line resolves to that file instead. The title
+  // offers no way back to the change — here, going deeper means reviewing.
+  const first = page.round?.files[0];
+  const proceed: { target: Target; tier: TargetTier } | undefined =
+    first === undefined ? undefined : { target: { kind: "file", change: page.change, file: first }, tier: "jump" };
   const lines: Line[] = [
-    { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
-    { spans: [span("=".repeat(title.length))] },
-    { spans: [] },
+    { spans: [span(title, { style: "heading", ...proceed })] },
+    { spans: [span("=".repeat(title.length), proceed)] },
+    { spans: [span("", proceed)] },
   ];
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
     return { lines };
   }
   lines.push(
-    { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`)] },
-    { spans: [] },
+    { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
+    { spans: [span("", proceed)] },
   );
   for (const file of page.round.files) {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
