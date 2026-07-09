@@ -311,11 +311,7 @@ test("reviewerSummary counts each outstanding reviewer's distinct files", () => 
       status("src/lib.rs", [], 1, bob),
       status("src/lib.rs", [], 1, bob, carol),
     ]),
-  ).toEqual([
-    "alice@example.com needs to review 1 file",
-    "bob@example.com needs to review 2 files",
-    "carol@example.com needs to review 1 file",
-  ]);
+  ).toEqual(["alice@example.com: 1 file", "bob@example.com: 2 files", "carol@example.com: 1 file"]);
 });
 
 test("the owner must review every governed file, rules or none", async () => {

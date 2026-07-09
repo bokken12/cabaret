@@ -241,7 +241,9 @@ export class UnsatisfiedObligationsError extends UserError {
 /**
  * One line per user whose review could satisfy some of `unsatisfied`, sorted
  * by name: how many files await them. A per-reviewer digest of the per-file
- * `details`, for surfaces too small to show every obligation.
+ * `details`, for surfaces too small to show every obligation. Deliberately
+ * vague about who must act: a requirement satisfiable by any of several users
+ * tallies the file under each of them.
  */
 export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
   const due = new Map<UserName, Set<FilePath>>();
@@ -257,7 +259,7 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   }
   return [...due]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([user, files]) => `${user} needs to review ${files.size} ${files.size === 1 ? "file" : "files"}`);
+    .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
 }
 
 /** Fail with `UnsatisfiedObligationsError` unless every obligation on `base`..`tip` is satisfied. */
