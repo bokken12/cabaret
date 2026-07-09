@@ -354,6 +354,24 @@ describe("logs", () => {
     expect(await backend().listChanges()).toEqual(["alpha", "zeta"]);
   });
 
+  test("wipeOriginLogs deletes every log ref", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`]: {
+        json: [{ ref: "refs/cabaret/log/zeta" }, { ref: "refs/cabaret/log/alpha" }],
+      },
+      // GitHub answers 204, but a body-less status cannot carry the stub's
+      // json; 200 exercises the same success path.
+      [`DELETE ${REPOS}/git/refs/cabaret%2Flog%2Falpha`]: { json: {} },
+      [`DELETE ${REPOS}/git/refs/cabaret%2Flog%2Fzeta`]: { json: {} },
+    });
+    expect(await backend().wipeOriginLogs()).toEqual(["alpha", "zeta"]);
+    expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      `GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`,
+      `DELETE ${REPOS}/git/refs/cabaret%2Flog%2Falpha`,
+      `DELETE ${REPOS}/git/refs/cabaret%2Flog%2Fzeta`,
+    ]);
+  });
+
   test("readLog is empty for a change with no log ref", async () => {
     stubGitHub({
       [`GET ${REPOS}/git/ref/cabaret%2Flog%2Funknown`]: { status: 404, json: { message: "Not Found" } },
