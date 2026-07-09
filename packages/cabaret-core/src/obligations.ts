@@ -212,6 +212,11 @@ export async function obligationStatuses(
   }));
 }
 
+/** The users who can still count toward the requirement. */
+function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
+  return obligation.require.of.filter((user) => !reviewedBy.includes(user));
+}
+
 /**
  * Review obligations block the land. Each detail line names one unsatisfied
  * requirement: how many reviews are missing and who can still provide them.
@@ -219,9 +224,42 @@ export async function obligationStatuses(
  * remedy — a flag, a confirmation dialog — before showing it.
  */
 export class UnsatisfiedObligationsError extends UserError {
-  constructor(readonly details: readonly string[]) {
+  /** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+  readonly details: readonly string[];
+
+  constructor(readonly unsatisfied: readonly ObligationStatus[]) {
+    const details = unsatisfied.map((status) => {
+      const { file, source, require } = status.obligation;
+      const missing = require.atLeast - status.reviewedBy.length;
+      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source ?? "owner"})`;
+    });
     super(`review obligations are unsatisfied:\n${details.join("\n")}`);
+    this.details = details;
   }
+}
+
+/**
+ * One line per user whose review could satisfy some of `unsatisfied`, sorted
+ * by name: how many files await them. A per-reviewer digest of the per-file
+ * `details`, for surfaces too small to show every obligation. Deliberately
+ * vague about who must act: a requirement satisfiable by any of several users
+ * tallies the file under each of them.
+ */
+export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  const due = new Map<UserName, Set<FilePath>>();
+  for (const status of unsatisfied) {
+    for (const user of outstanding(status)) {
+      let files = due.get(user);
+      if (files === undefined) {
+        files = new Set();
+        due.set(user, files);
+      }
+      files.add(status.obligation.file);
+    }
+  }
+  return [...due]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
 }
 
 /** Fail with `UnsatisfiedObligationsError` unless every obligation on `base`..`tip` is satisfied. */
@@ -234,13 +272,7 @@ export async function assertObligationsSatisfied(
 ): Promise<void> {
   const statuses = await obligationStatuses(backend, entries, owner, base, tip);
   const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-  if (unsatisfied.length === 0) {
-    return;
+  if (unsatisfied.length > 0) {
+    throw new UnsatisfiedObligationsError(unsatisfied);
   }
-  const details = unsatisfied.map(({ obligation: { file, source, require }, reviewedBy }) => {
-    const missing = require.atLeast - reviewedBy.length;
-    const candidates = require.of.filter((user) => !reviewedBy.includes(user));
-    return `  ${file}: ${missing} more of ${candidates.join(", ")} (${source ?? "owner"})`;
-  });
-  throw new UnsatisfiedObligationsError(details);
 }
