@@ -8,7 +8,10 @@ import {
   type ForgeChange,
   type ForgeLocator,
   type ForgeSnapshot,
+  isSatisfied,
+  obligationStatuses,
   type RefName,
+  reviewerSummary,
   summarizeChange,
   type UserName,
 } from "cabaret-core";
@@ -24,6 +27,8 @@ export type ShowPage =
       readonly kind: "change";
       readonly summary: ChangeSummary;
       readonly comments: readonly ChangeComment[];
+      /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
+      readonly remaining: readonly string[];
     }
   | {
       readonly kind: "forge-change";
@@ -59,11 +64,17 @@ export async function showPage(
       return { kind: "forge-change", forge: snapshot.locator, change: found.change, files: found.files, comments };
     }
   }
-  return {
-    kind: "change",
-    summary: await summarizeChange(backend, change, entries, user),
-    comments: await currentComments(entries),
-  };
+  const summary = await summarizeChange(backend, change, entries, user);
+  // A landed change has no review to demand, whatever state it landed in.
+  const remaining =
+    summary.landed === undefined
+      ? reviewerSummary(
+          (await obligationStatuses(backend, entries, summary.owner, summary.base, summary.tip)).filter(
+            (status) => !isSatisfied(status),
+          ),
+        )
+      : [];
+  return { kind: "change", summary, comments: await currentComments(entries), remaining };
 }
 
 /** Hashes display abbreviated; full hashes travel in targets, never prose. */
@@ -98,6 +109,18 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
     ...files.map((file) => ({
       spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
     })),
+  ];
+}
+
+/** The remaining review section: one tally row per reviewer with files left. */
+function remainingReview(remaining: readonly string[]): Line[] {
+  if (remaining.length === 0) {
+    return [];
+  }
+  return [
+    { spans: [] },
+    { spans: [span("Remaining review:", { style: "heading" })] },
+    ...remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
   ];
 }
 
@@ -165,6 +188,7 @@ export function showDoc(page: ShowPage): Doc {
   return {
     lines: [
       ...header(heading, attributes),
+      ...remainingReview(page.remaining),
       ...commentsSection(page.comments),
       ...filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
     ],
