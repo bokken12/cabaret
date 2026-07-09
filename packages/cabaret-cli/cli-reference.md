@@ -74,6 +74,18 @@ FLAGS
 ARGUMENTS
   change  name for the new change
 
+### cabaret dev wipe
+
+USAGE
+  cabaret dev wipe [--remote]
+  cabaret dev wipe --help
+
+Delete the review state this repository holds: every change's log, the fetched copies of origin's logs, and the forge snapshot. Branches and commits stay, and origin keeps its logs, so `cabaret sync` restores them. --remote deletes origin's logs too, for every user of the repository.
+
+FLAGS
+     [--remote]  Also delete every log on origin (unrecoverable) [default = false]
+  -h  --help     Print help information and exit
+
 ## cabaret diff
 
 USAGE

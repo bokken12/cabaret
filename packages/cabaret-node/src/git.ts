@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -48,14 +48,17 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
   return stdout;
 }
 
+/** The namespace holding every ref Cabaret writes. */
+const CABARET_REF_PREFIX = "refs/cabaret/";
+
 /**
  * Where changes' logs live: under this namespace, a ref mirroring each
  * change's branch name, whose tree holds the log text in a single file.
  */
-const LOG_REF_PREFIX = "refs/cabaret/log/";
+const LOG_REF_PREFIX = `${CABARET_REF_PREFIX}log/`;
 
 /** Where `origin`'s logs land when fetched, mirroring `LOG_REF_PREFIX`. */
-const REMOTE_LOG_REF_PREFIX = "refs/cabaret/remote-log/";
+const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
 
 function logRef(change: RefName): RefName {
   return parseRefName(`${LOG_REF_PREFIX}${change}`);
@@ -238,6 +241,48 @@ export class GitBackend implements Backend {
       await this.reconcileLog(changeName);
     }
     return changes;
+  }
+
+  async wipeReviewState(): Promise<readonly RefName[]> {
+    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", CABARET_REF_PREFIX]);
+    const refs = out.split("\n").filter((line) => line !== "");
+    if (refs.length > 0) {
+      // One transaction, so a failure partway through deletes nothing.
+      await git(this.root, ["update-ref", "--stdin"], refs.map((ref) => `delete ${ref}\n`).join(""));
+    }
+    // The whole directory, not just the snapshot file: everything under it is
+    // a local cache of the forge.
+    await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
+    const names = new Set<RefName>();
+    for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
+      for (const ref of refs) {
+        if (ref.startsWith(prefix)) {
+          names.add(parseRefName(ref.slice(prefix.length)));
+        }
+      }
+    }
+    return [...names].sort();
+  }
+
+  async wipeOriginLogs(): Promise<readonly RefName[]> {
+    const out = await git(this.root, ["ls-remote", "origin", `${CABARET_REF_PREFIX}*`]);
+    const refs = out
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => {
+        const [, ref] = line.split("\t");
+        if (ref === undefined) {
+          throw new Error(`malformed ls-remote line: ${JSON.stringify(line)}`);
+        }
+        return ref;
+      });
+    if (refs.length > 0) {
+      await git(this.root, ["push", "--quiet", "origin", ...refs.map((ref) => `:${ref}`)]);
+    }
+    return refs
+      .filter((ref) => ref.startsWith(LOG_REF_PREFIX))
+      .map((ref) => parseRefName(ref.slice(LOG_REF_PREFIX.length)))
+      .sort();
   }
 
   /** Fetch every log on `origin` into the remote-log namespace. */

@@ -242,6 +242,45 @@ const create = buildCommand({
   },
 });
 
+const dev = buildRouteMap({
+  docs: { brief: "Utilities for developing Cabaret" },
+  routes: {
+    wipe: buildCommand({
+      docs: {
+        brief: "Delete all review state",
+        fullDescription:
+          "Delete the review state this repository holds: every change's log, " +
+          "the fetched copies of origin's logs, and the forge snapshot. " +
+          "Branches and commits stay, and origin keeps its logs, so `cabaret " +
+          "sync` restores them. --remote deletes origin's logs too, for every " +
+          "user of the repository.",
+      },
+      parameters: {
+        flags: {
+          remote: {
+            kind: "boolean",
+            brief: "Also delete every log on origin (unrecoverable)",
+            default: false,
+          },
+        },
+      },
+      async func(this: LocalContext, flags: { remote: boolean }) {
+        const backend = await this.backend();
+        const wiped = await backend.wipeReviewState();
+        this.process.stdout.write(
+          `wiped the logs of ${wiped.length} change${wiped.length === 1 ? "" : "s"} and the forge snapshot\n`,
+        );
+        if (flags.remote) {
+          const origin = await backend.wipeOriginLogs();
+          this.process.stdout.write(
+            `wiped the logs of ${origin.length} change${origin.length === 1 ? "" : "s"} on origin\n`,
+          );
+        }
+      },
+    }),
+  },
+});
+
 const diff = buildCommand({
   docs: {
     brief: "Show the diff of a change left to review for a file",
@@ -984,6 +1023,7 @@ const routes = buildRouteMap({
     approvers,
     comment,
     create,
+    dev,
     diff,
     forget,
     gh,

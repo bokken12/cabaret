@@ -379,6 +379,24 @@ export class GitHubBackend implements Backend {
     return this.listChanges();
   }
 
+  async wipeReviewState(): Promise<readonly RefName[]> {
+    // The logs live on origin itself, out of this wipe's scope; the snapshot
+    // cache is the only review state held on this side.
+    this.snapshot = undefined;
+    return [];
+  }
+
+  async wipeOriginLogs(): Promise<readonly RefName[]> {
+    const changes = await this.listChanges();
+    for (const change of changes) {
+      await this.client.request("DELETE /repos/{owner}/{repo}/git/refs/{ref}", {
+        ...this.repo,
+        ref: `${LOG_REF_PREFIX.slice("refs/".length)}${change}`,
+      });
+    }
+    return changes;
+  }
+
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
     return this.cached(this.contents, `${commit}:${file}`, () => this.readFileUncached(commit, file));
   }
