@@ -108,7 +108,7 @@ test("todoDoc with nothing to do says so", () => {
   expect(docText(todoDoc({ review: [], owned: [] }))).toMatchInlineSnapshot(`"Nothing to do."`);
 });
 
-test("showDoc renders the attribute table and files left", () => {
+test("showDoc renders the attribute table, remaining review, and files left", () => {
   const doc = showDoc({
     kind: "change",
     summary: summary("widgets", {
@@ -116,6 +116,7 @@ test("showDoc renders the attribute table and files left", () => {
       reviewLeft: files("api.ts", "ui.ts"),
     }),
     comments: [],
+    remaining: ["alice@example.com: 2 files", "bob@example.com: 1 file"],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -131,6 +132,10 @@ test("showDoc renders the attribute table and files left", () => {
     │ tip          │ 222222222222                  │
     │ base         │ 111111111111                  │
     ╰──────────────┴───────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 2 files
+      bob@example.com: 1 file
 
     Files to review:
       api.ts
@@ -200,10 +205,11 @@ test("showDoc renders an unimported forge change as the change importing it woul
   expect(targetAt(doc, line)).toBeUndefined();
 });
 
-test("showDoc renders comments between the attributes and the files, multi-line text indented", () => {
+test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
     kind: "change",
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
+    remaining: ["bob@example.com: 1 file"],
     comments: [
       {
         timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
@@ -231,6 +237,9 @@ test("showDoc renders comments between the attributes and the files, multi-line 
     │ base      │ 111111111111      │
     ╰───────────┴───────────────────╯
 
+    Remaining review:
+      bob@example.com: 1 file
+
     Comments:
       2025-05-23T11:33:20.003Z alice@example.com
         does this handle empty diffs?
@@ -250,6 +259,7 @@ test("showDoc renders a landed change without a files section", () => {
     kind: "change",
     summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
     comments: [],
+    remaining: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
