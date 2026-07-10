@@ -1,6 +1,6 @@
 import { parseFilePath, parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
-import { type Doc, docText, span, targetAt } from "../index.js";
+import { type Doc, docText, foldDoc, inSection, sectionAt, span, targetAt } from "../index.js";
 
 const change = { kind: "change", change: parseRefName("widgets") } as const;
 const location = { kind: "location", file: parseFilePath("api.ts"), line: 7 } as const;
@@ -42,4 +42,41 @@ test("span refuses multi-line text", () => {
 
 test("span refuses a tier without a target", () => {
   expect(() => span("plain", { tier: "jump" })).toThrow("a span's tier qualifies its target; it cannot stand alone");
+});
+
+const nested: Doc = {
+  lines: [
+    { spans: [span("intro")] },
+    ...inSection("outer", [
+      { spans: [span("outer head")] },
+      ...inSection("inner", [{ spans: [span("inner head")] }, { spans: [span("inner body")] }]),
+      { spans: [span("outer tail")] },
+    ]),
+  ],
+};
+
+test("sectionAt answers the innermost section, and nothing outside any", () => {
+  expect([0, 1, 2, 3, 4, 9].map((line) => sectionAt(nested, line))).toEqual([
+    undefined,
+    "outer",
+    "inner",
+    "inner",
+    "outer",
+    undefined,
+  ]);
+});
+
+test("foldDoc keeps a folded section's marked head, whose sections still answer a toggle", () => {
+  const folded = foldDoc(nested, new Set(["inner"]));
+  expect(docText(folded)).toBe("intro\nouter head\ninner head …\nouter tail");
+  expect(sectionAt(folded, 2)).toBe("inner");
+});
+
+test("foldDoc folds an outer section over an inner one, whatever the inner's own state", () => {
+  expect(docText(foldDoc(nested, new Set(["outer"])))).toBe("intro\nouter head …");
+  expect(docText(foldDoc(nested, new Set(["outer", "inner"])))).toBe("intro\nouter head …");
+});
+
+test("foldDoc ignores ids no section carries, as stale fold state", () => {
+  expect(foldDoc(nested, new Set(["vanished"]))).toEqual({ lines: nested.lines });
 });

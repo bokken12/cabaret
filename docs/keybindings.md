@@ -88,6 +88,7 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 | `$`         | show child                                      | show         |
 | `^`         | previous file left to review, marking nothing   | diff         |
 | `$`         | next file left to review, marking nothing       | diff         |
+| `tab`       | fold or unfold the section under the cursor     | all          |
 | `! r`       | mark file reviewed, advance to the next         | diff         |
 | `! c`       | create child                                    | all          |
 | `! p`       | create parent                                   | all          |
@@ -103,7 +104,6 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 
 Where the current table falls short of the principles:
 
-- **`tab` is unbound.** There is no folding for it to toggle yet.
 - **`! r` is both a chord and a prefix.** On diff pages it marks the file
   reviewed; elsewhere it prefixes rebase / rename / reparent. The page gating
   disambiguates for the machine but not for the user's model — the letter `r`

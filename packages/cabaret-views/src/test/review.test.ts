@@ -14,9 +14,11 @@ import {
   type DiffPage,
   diffDoc,
   docText,
+  foldDoc,
   markReviewed,
   reviewDoc,
   reviewPage,
+  sectionAt,
   targetAt,
 } from "../index.js";
 
@@ -594,4 +596,37 @@ test("markReviewed of a file with no review pending records nothing", () => {
   const result = markReviewed(appendOnly(appended), () => at, snapshotWith(["a.ts"]), parseFilePath("other.ts"));
   expect(result).toEqual({ kind: "nothing-left" });
   expect(appended).toEqual([]);
+});
+
+test("diffDoc sections each hunk under its header, folding to just the marked header", () => {
+  const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const prev = `${lines.join("\n")}\n`;
+  const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
+  const doc = diffDoc(diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev, next } }), 1);
+  expect(doc.lines.map(({ sections }, i) => [sectionAt(doc, i), sections?.length ?? 0])).toEqual([
+    [undefined, 0], // title
+    [undefined, 0], // blank
+    ["-1,3 +1,3", 1],
+    ["-1,3 +1,3", 1],
+    ["-1,3 +1,3", 1],
+    ["-1,3 +1,3", 1],
+    ["-1,3 +1,3", 1],
+    [undefined, 0], // the separating blank stays out of both hunks
+    ["-7,3 +7,3", 1],
+    ["-7,3 +7,3", 1],
+    ["-7,3 +7,3", 1],
+    ["-7,3 +7,3", 1],
+    ["-7,3 +7,3", 1],
+  ]);
+  expect(docText(foldDoc(doc, new Set(["-1,3 +1,3"])))).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    -1,3 +1,3 …
+
+    -7,3 +7,3
+    seven
+    eight
+    EIGHT
+    nine"
+  `);
 });

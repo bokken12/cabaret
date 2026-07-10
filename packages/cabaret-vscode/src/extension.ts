@@ -38,6 +38,7 @@ import {
   parsePagePath,
   renderPage,
   type Style,
+  sectionAt,
   type Target,
   targetAt,
 } from "cabaret-views";
@@ -70,6 +71,8 @@ async function openForge(): Promise<Forge | undefined> {
  */
 class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
   private readonly docs = new Map<string, Doc>();
+  /** Folded sections per page, held across re-renders so a refresh keeps the folds. */
+  private readonly folds = new Map<string, Set<string>>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
   private readonly rendered = new vscode.EventEmitter<void>();
@@ -107,6 +110,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     // of step with the buffer; the next render resolves it, so no guard.
     const doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
       context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+      folded: this.folds.get(uri.toString()),
     });
     this.docs.set(uri.toString(), doc);
     // A render whose text matches the buffer emits no document change, so
@@ -143,8 +147,20 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     }
   }
 
+  /** Fold `section` on `uri`'s page, or unfold it when already folded, and re-render. */
+  toggleFold(uri: vscode.Uri, section: string): void {
+    const key = uri.toString();
+    const folded = this.folds.get(key) ?? new Set<string>();
+    this.folds.set(key, folded);
+    if (!folded.delete(section)) {
+      folded.add(section);
+    }
+    this.changed.fire(uri);
+  }
+
   forget(uri: vscode.Uri): void {
     this.docs.delete(uri.toString());
+    this.folds.delete(uri.toString());
   }
 }
 
@@ -370,6 +386,22 @@ async function stepReviewFile(provider: PageProvider, direction: "previous" | "n
   }
   await closeTabs(editor.document.uri);
   await openPage(provider, { kind: "diff", change: page.change, file });
+}
+
+/** Fold or unfold the section under the cursor: hunks on a diff, titled sections, todo subtrees. */
+function toggleSection(provider: PageProvider): void {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const doc = provider.renderedDoc(editor.document.uri);
+  if (doc === undefined) {
+    return;
+  }
+  const section = sectionAt(doc, editor.selection.active.line);
+  if (section !== undefined) {
+    provider.toggleFold(editor.document.uri, section);
+  }
 }
 
 /** Enter review of the shown change: open its list of files to review. */
@@ -863,6 +895,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.stepOut", () => stepOut(provider)),
+    vscode.commands.registerCommand("cabaret.toggleSection", () => toggleSection(provider)),
     vscode.commands.registerCommand("cabaret.previousFile", () => stepReviewFile(provider, "previous")),
     vscode.commands.registerCommand("cabaret.nextFile", () => stepReviewFile(provider, "next")),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),

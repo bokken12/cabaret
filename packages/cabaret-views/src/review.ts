@@ -431,6 +431,7 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
       tier: "jump",
     });
     const header = `-${hunk.prevStart},${hunk.prevSize} +${hunk.nextStart},${hunk.nextSize}`;
+    const start = lines.length;
     lines.push({ spans: [span(header, { style: "hunk", ...jump() })] });
     for (const range of hunk.ranges) {
       switch (range.kind) {
@@ -473,6 +474,12 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
           break;
       }
     }
+    // The whole hunk folds under its header; the separating blank line stays
+    // out, keeping folded hunks visually apart. Hunk starts are strictly
+    // increasing, so the header text is unique within the page.
+    for (let i = start; i < lines.length; i++) {
+      lines[i] = { ...(lines[i] as Line), sections: [header] };
+    }
   }
   return lines;
 }
@@ -488,6 +495,8 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
  * style can express.
  */
 function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Line[] {
+  // TODO: section these lines for folding; patdiff4's flat output would need
+  // hunk boundaries recovered from its decoration lines first.
   const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false, context });
   let at: number | undefined;
   return rendered.map(({ text, kind, provenance }) => {

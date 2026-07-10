@@ -1,5 +1,5 @@
 import type { Backend, RefName } from "cabaret-core";
-import type { Doc } from "./doc.js";
+import { type Doc, foldDoc } from "./doc.js";
 import type { Page } from "./pages.js";
 import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
 import { showDoc, showPage } from "./show.js";
@@ -33,6 +33,8 @@ export interface RenderOptions {
   readonly context?: number | undefined;
   /** Held snapshots for the review and diff pages to render from; always fresh when absent. */
   readonly cache?: SnapshotCache | undefined;
+  /** Sections to render collapsed — the host's per-page fold state; none when absent. */
+  readonly folded?: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -43,19 +45,24 @@ export interface RenderOptions {
  * pass.
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
-  switch (page.kind) {
-    case "todo":
-      return todoDoc(await todoPage(backend, await backend.currentUser(), await backend.readForgeSnapshot()));
-    case "show":
-      return showDoc(
-        await showPage(backend, await backend.currentUser(), page.change, await backend.readForgeSnapshot()),
-      );
-    case "review":
-      return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
-    case "diff":
-      return diffDoc(
-        await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file),
-        options.context,
-      );
-  }
+  const doc = await (async () => {
+    switch (page.kind) {
+      case "todo":
+        return todoDoc(await todoPage(backend, await backend.currentUser(), await backend.readForgeSnapshot()));
+      case "show":
+        return showDoc(
+          await showPage(backend, await backend.currentUser(), page.change, await backend.readForgeSnapshot()),
+        );
+      case "review":
+        return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
+      case "diff":
+        return diffDoc(
+          await diffPage(backend, await cachedSnapshot(backend, page.change, options.cache), page.file),
+          options.context,
+        );
+    }
+  })();
+  // Folding after the render keeps hit-testing honest: the doc a host caches
+  // is exactly what is on screen.
+  return options.folded === undefined ? doc : foldDoc(doc, options.folded);
 }

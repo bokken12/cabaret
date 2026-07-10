@@ -142,18 +142,24 @@ export function todoDoc(page: TodoPage): Doc {
     }
     lines.push({ spans: [span("Changes you own:", { style: "heading" })] });
     const rows: (readonly Cell[])[] = [];
-    const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
+    // Each subtree folds under its root's row: the root's own row heads a
+    // section named by its change, and every descendant row carries the
+    // sections of all its collapsible ancestors.
+    const rowSections: (readonly string[])[] = [];
+    const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean, enclosing: readonly string[]): void => {
       nodes.forEach(({ item, children }, i) => {
         const last = i === nodes.length - 1;
+        const sections = children.length === 0 ? enclosing : [...enclosing, itemName(item)];
         rows.push([
           itemCell(item, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
           span(itemReview(item) === 0 ? "" : String(itemReview(item))),
           span(itemNextStep(item)),
         ]);
-        walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
+        rowSections.push(sections);
+        walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false, sections);
       });
     };
-    walk(page.owned, "", true);
+    walk(page.owned, "", true, []);
     lines.push(
       ...table(
         [
@@ -162,7 +168,11 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "next step", align: "left" },
         ],
         rows,
-      ),
+      ).map((line, i) => {
+        // table() lays out two rules and a header row before the data rows.
+        const sections = rowSections[i - 3];
+        return sections === undefined || sections.length === 0 ? line : { ...line, sections };
+      }),
     );
   }
   if (lines.length === 0) {

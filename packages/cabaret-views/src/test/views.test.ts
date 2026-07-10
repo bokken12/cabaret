@@ -11,7 +11,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { docText, showDoc, type TodoItem, targetAt, todoDoc } from "../index.js";
+import { docText, foldDoc, showDoc, type TodoItem, targetAt, todoDoc } from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -337,5 +337,76 @@ test("showDoc renders a landed change without a files section", () => {
     │ tip       │ 222222222222      │
     │ base      │ 111111111111      │
     ╰───────────┴───────────────────╯"
+  `);
+});
+
+test("todoDoc sections each owned subtree under its root's row", () => {
+  const change = (summary: ChangeSummary): TodoItem => ({ kind: "change", summary });
+  const doc = todoDoc({
+    review: [],
+    owned: [
+      {
+        item: change(summary("gadget", { nextStep: "land" })),
+        children: [
+          {
+            item: change(summary("gizmo", { parent: parseRefName("gadget"), base: fake("3") })),
+            children: [
+              { item: change(summary("doohickey", { parent: parseRefName("gizmo"), base: fake("4") })), children: [] },
+            ],
+          },
+        ],
+      },
+      { item: change(summary("widgets", { nextStep: "land" })), children: [] },
+    ],
+  });
+  expect(docText(foldDoc(doc, new Set(["gizmo"])))).toMatchInlineSnapshot(`
+    "Changes you own:
+    ╭─────────────────┬────────┬───────────╮
+    │ change          │ review │ next step │
+    ├─────────────────┼────────┼───────────┤
+    │ gadget          │        │ land      │
+    │ └─ gizmo        │        │ review    │ …
+    │ widgets         │        │ land      │
+    ╰─────────────────┴────────┴───────────╯"
+  `);
+  expect(docText(foldDoc(doc, new Set(["gadget"])))).toMatchInlineSnapshot(`
+    "Changes you own:
+    ╭─────────────────┬────────┬───────────╮
+    │ change          │ review │ next step │
+    ├─────────────────┼────────┼───────────┤
+    │ gadget          │        │ land      │ …
+    │ widgets         │        │ land      │
+    ╰─────────────────┴────────┴───────────╯"
+  `);
+});
+
+test("showDoc sections fold under their headings, leaving their neighbors whole", () => {
+  const doc = showDoc({
+    kind: "change",
+    summary: summary("widgets", { reviewLeft: files("api.ts", "ui.ts") }),
+    comments: [{ timestamp: timestampMs(Date.UTC(2025, 5, 15, 15, 6, 40)), user: alice, text: "looks close\none nit" }],
+    remaining: ["alice@example.com: 2 files"],
+  });
+  expect(docText(foldDoc(doc, new Set(["Remaining review:", "Comments:"])))).toMatchInlineSnapshot(`
+    "widgets
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ parent    │ main              │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯
+
+    Remaining review: …
+
+    Comments: …
+
+    Files to review:
+      api.ts
+      ui.ts"
   `);
 });

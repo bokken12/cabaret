@@ -15,7 +15,7 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, type Line, type Span, span, type Target } from "./doc.js";
+import { type Doc, inSection, type Line, type Span, span, type Target } from "./doc.js";
 import { table } from "./table.js";
 
 /**
@@ -119,17 +119,24 @@ function header(heading: Span, attributes: readonly (readonly [string, string])[
   ];
 }
 
-/** The files section, each row resolving to `target(file)` when one is given. */
+/**
+ * The files section, each row resolving to `target(file)` when one is given.
+ * Each titled section folds under its heading — the heading text is the
+ * section id — while the blank line before it stays out, keeping folded
+ * sections visually apart.
+ */
 function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => Target): Line[] {
   if (files.length === 0) {
     return [];
   }
   return [
     { spans: [] },
-    { spans: [span("Files to review:", { style: "heading" })] },
-    ...files.map((file) => ({
-      spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
-    })),
+    ...inSection("Files to review:", [
+      { spans: [span("Files to review:", { style: "heading" })] },
+      ...files.map((file) => ({
+        spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
+      })),
+    ]),
   ];
 }
 
@@ -140,8 +147,10 @@ function remainingReview(remaining: readonly string[]): Line[] {
   }
   return [
     { spans: [] },
-    { spans: [span("Remaining review:", { style: "heading" })] },
-    ...remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
+    ...inSection("Remaining review:", [
+      { spans: [span("Remaining review:", { style: "heading" })] },
+      ...remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
+    ]),
   ];
 }
 
@@ -150,7 +159,7 @@ function commentsSection(comments: readonly ChangeComment[]): Line[] {
   if (comments.length === 0) {
     return [];
   }
-  const lines: Line[] = [{ spans: [] }, { spans: [span("Comments:", { style: "heading" })] }];
+  const lines: Line[] = [{ spans: [span("Comments:", { style: "heading" })] }];
   comments.forEach(({ timestamp, user, text }, index) => {
     // A blank line between comments, since consecutive comments would
     // otherwise run together.
@@ -162,7 +171,7 @@ function commentsSection(comments: readonly ChangeComment[]): Line[] {
       lines.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
     }
   });
-  return lines;
+  return [{ spans: [] }, ...inSection("Comments:", lines)];
 }
 
 export function showDoc(page: ShowPage): Doc {
