@@ -123,6 +123,18 @@
         "title": "Cabaret: Show Child"
       },
       {
+        "command": "cabaret.stepOut",
+        "title": "Cabaret: Step Out"
+      },
+      {
+        "command": "cabaret.previousFile",
+        "title": "Cabaret: Previous File to Review"
+      },
+      {
+        "command": "cabaret.nextFile",
+        "title": "Cabaret: Next File to Review"
+      },
+      {
         "command": "cabaret.review",
         "title": "Cabaret: Review"
       },
@@ -186,6 +198,18 @@
           "when": "cabaret.page == 'show'"
         },
         {
+          "command": "cabaret.stepOut",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.previousFile",
+          "when": "cabaret.page == 'diff'"
+        },
+        {
+          "command": "cabaret.nextFile",
+          "when": "cabaret.page == 'diff'"
+        },
+        {
           "command": "cabaret.review",
           "when": "cabaret.page == 'show'"
         },
@@ -233,6 +257,26 @@
         "command": "cabaret.showChild",
         "key": "shift+4",
         "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.previousFile",
+        "key": "shift+6",
+        "when": "editorTextFocus && cabaret.page == 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.nextFile",
+        "key": "shift+4",
+        "when": "editorTextFocus && cabaret.page == 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.stepOut",
+        "key": "-",
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.stepOut",
+        "key": "escape",
+        "when": "editorTextFocus && resourceScheme == cabaret && !vim.active && !findWidgetVisible && !editorHoverVisible && !editorHasSelection && !editorHasMultipleSelections"
       },
       {
         "command": "cabaret.rebase",

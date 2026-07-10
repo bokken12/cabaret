@@ -319,6 +319,59 @@ function promptImportFirst(provider: PageProvider): boolean {
   return true;
 }
 
+/** Step one page level shallower — diff → review → show → todo — closing the departed page. */
+async function stepOut(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "todo") {
+    return;
+  }
+  const out: Page =
+    page.kind === "show"
+      ? { kind: "todo" }
+      : page.kind === "review"
+        ? { kind: "show", change: page.change }
+        : { kind: "review", change: page.change };
+  await closeTabs(editor.document.uri);
+  await openPage(provider, out);
+}
+
+/**
+ * Move a diff page to the round's previous or next file left to review,
+ * marking nothing. Seeks by list order and wraps past the ends, as
+ * `markReviewed` picks its next file, so it lands right even when the page's
+ * own file has already been reviewed out of the round.
+ */
+async function stepReviewFile(provider: PageProvider, direction: "previous" | "next"): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind !== "diff") {
+    return;
+  }
+  const snapshot = await changeSnapshot(await openBackend(), page.change);
+  const files = [...(snapshot.rounds[0]?.files.keys() ?? [])];
+  const file =
+    direction === "next"
+      ? (files.find((other) => other > page.file) ?? files[0])
+      : (files.findLast((other) => other < page.file) ?? files.at(-1));
+  if (file === undefined) {
+    vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.change}`);
+    return;
+  }
+  if (file === page.file) {
+    vscode.window.showInformationMessage(`cabaret: ${page.file} is the only file left to review`);
+    return;
+  }
+  await closeTabs(editor.document.uri);
+  await openPage(provider, { kind: "diff", change: page.change, file });
+}
+
 /** Enter review of the shown change: open its list of files to review. */
 async function review(provider: PageProvider): Promise<void> {
   if (promptImportFirst(provider)) {
@@ -809,6 +862,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.stepOut", () => stepOut(provider)),
+    vscode.commands.registerCommand("cabaret.previousFile", () => stepReviewFile(provider, "previous")),
+    vscode.commands.registerCommand("cabaret.nextFile", () => stepReviewFile(provider, "next")),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),

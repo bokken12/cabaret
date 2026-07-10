@@ -53,51 +53,57 @@ The keys every page shares. Pages nest — todo → show → review → diff →
 location — and separately each change sits in a parent/child tree; the two
 axes get distinct keys.
 
-| Key     | Meaning                                                              |
-| ------- | -------------------------------------------------------------------- |
-| `enter` | step inside: open the target under the cursor, one page level deeper |
-| `esc`   | step outside: back out one page level                                 |
-| `^`     | go up the change tree: the parent change                              |
-| `$`     | go down the change tree: a child change                               |
-| `!`     | prefix for state-mutating actions                                     |
-| `tab`   | toggle the thing under the cursor (folding and the like)              |
-| `R`     | refresh the page                                                      |
+| Key       | Meaning                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| `enter`   | step inside: open the target under the cursor, one page level deeper     |
+| `esc` `-` | step outside: back out one page level                                     |
+| `^`       | go up: the parent change on a show page, the previous file on a diff      |
+| `$`       | go down: a child change on a show page, the next file to review on a diff |
+| `!`       | prefix for state-mutating actions                                         |
+| `tab`     | toggle the thing under the cursor (folding and the like)                  |
+| `R`       | refresh the page                                                          |
 
-The vim mnemonics carry over sideways: `^` and `$` move to the "start" and
-"end" of the change's lineage the way they move within a line.
+The vim mnemonics carry over sideways: `^` and `$` move toward the "start"
+and "end" of the page's own sequence — a change's lineage, a review round's
+files — the way they move within a line.
+
+`esc` gets a synonym because vim owns it wholesale: vscode-vim binds escape
+across all of normal mode (pending input, extension state), so cabaret only
+binds `esc` when vim is inactive. `-` is the step-out that works everywhere,
+borrowed from vinegar/dirvish/oil, where it means "go up one level" — and as
+vim's own `-` is just `k` with column motion, it costs nothing to reclaim.
 
 ## Current bindings
 
 VS Code, from `packages/cabaret-vscode/package.json`. Keys are written as the
 character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 
-| Keys    | Action                                          | Pages        |
-| ------- | ----------------------------------------------- | ------------ |
-| `enter` | open the target under the cursor                | all          |
-| `R`     | refresh                                         | all          |
-| `r`     | review: open the change's review page           | show         |
-| `^`     | show parent                                     | show         |
-| `$`     | show child                                      | show         |
-| `! r`   | mark file reviewed, advance to the next         | diff         |
-| `! c`   | create child                                    | all          |
-| `! p`   | create parent                                   | all          |
-| `! i`   | import forge change                             | todo, show   |
-| `! s`   | sync forge                                      | all          |
-| `! l a` | land                                            | all          |
-| `! o`   | set owner                                       | all but diff |
-| `! r n` | rename                                          | all but diff |
-| `! r p` | reparent                                        | all but diff |
-| `! r b` | rebase                                          | all but diff |
+| Keys        | Action                                          | Pages        |
+| ----------- | ----------------------------------------------- | ------------ |
+| `enter`     | open the target under the cursor                | all          |
+| `esc` `-`   | step outside (`esc` only when vim is inactive)  | all          |
+| `R`         | refresh                                         | all          |
+| `r`         | review: open the change's review page           | show         |
+| `^`         | show parent                                     | show         |
+| `$`         | show child                                      | show         |
+| `^`         | previous file left to review, marking nothing   | diff         |
+| `$`         | next file left to review, marking nothing       | diff         |
+| `! r`       | mark file reviewed, advance to the next         | diff         |
+| `! c`       | create child                                    | all          |
+| `! p`       | create parent                                   | all          |
+| `! i`       | import forge change                             | todo, show   |
+| `! s`       | sync forge                                      | all          |
+| `! l a`     | land                                            | all          |
+| `! o`       | set owner                                       | all but diff |
+| `! r n`     | rename                                          | all but diff |
+| `! r p`     | reparent                                        | all but diff |
+| `! r b`     | rebase                                          | all but diff |
 
 ## Divergences and open questions
 
 Where the current table falls short of the principles:
 
-- **`esc` and `tab` are unbound.** Step-outside doesn't exist yet; nor does
-  any folding for `tab` to toggle. `esc` needs care: VS Code uses it to
-  dismiss find widgets, extra cursors, and peek views, and vim users hit it
-  reflexively to cancel pending input — a step-outside binding must not
-  swallow those.
+- **`tab` is unbound.** There is no folding for it to toggle yet.
 - **`! r` is both a chord and a prefix.** On diff pages it marks the file
   reviewed; elsewhere it prefixes rebase / rename / reparent. The page gating
   disambiguates for the machine but not for the user's model — the letter `r`
@@ -105,9 +111,9 @@ Where the current table falls short of the principles:
   locked out of diff pages at all. Likely fix: move rebase / rename /
   reparent to letters of their own, keeping the short `! r` for the
   high-frequency mark-reviewed.
-- **`^` / `$` only work on show pages.** One-meaning says they should work on
-  any page with a current change (review, diff), landing on the relative's
-  show page.
+- **`^` / `$` do nothing on todo and review pages.** Fine under "a key that
+  can't act does nothing" — but if those pages grow a natural sequence to
+  walk, these are the keys.
 - **`r` (review) is bare but arguably a sibling of `enter`.** It navigates —
   opens the review page — so bare is right; but it's show-page-only, and the
   same guessability argument as `^` / `$` applies.
