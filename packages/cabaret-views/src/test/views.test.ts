@@ -82,8 +82,19 @@ test("todoDoc lays out the review table and the owned tree", () => {
   ]);
 });
 
-test("todoDoc with nothing to do says so", () => {
-  expect(docText(todoDoc({ review: [], owned: [] }))).toMatchInlineSnapshot(`"Nothing to do."`);
+test("todoDoc with nothing to do keeps both sections, empty", () => {
+  expect(docText(todoDoc({ review: [], owned: [] }))).toMatchInlineSnapshot(`
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯"
+  `);
 });
 
 test("showDoc renders the attribute table, remaining review, and files left", () => {
