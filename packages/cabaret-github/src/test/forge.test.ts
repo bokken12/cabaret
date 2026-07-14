@@ -1,4 +1,4 @@
-import { forgeChangeId, parseRefName, UserError } from "cabaret-core";
+import { forgeChangeId, parseRefName, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { githubClient, parseGitHubRemote } from "../client.js";
 import { GitHubForge } from "../forge.js";
@@ -36,6 +36,9 @@ afterEach(() => {
 const API = "https://api.github.com";
 const REPOS = `${API}/repos/test-org/widgets`;
 const GRAPHQL = `POST ${API}/graphql`;
+
+/** The reviewer fields of a PR node nobody was asked to review. */
+const NO_REVIEWERS = { reviewRequests: { nodes: [] }, latestReviews: { nodes: [] } };
 
 function forge(): GitHubForge {
   return new GitHubForge(githubClient("token-123", { throttled: false }), { owner: "test-org", repo: "widgets" });
@@ -76,6 +79,7 @@ describe("GitHubForge", () => {
                 author: { login: "alice" },
                 state: "OPEN",
                 mergeCommit: null,
+                ...NO_REVIEWERS,
               },
             },
           },
@@ -91,6 +95,7 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
+      reviewers: [],
     });
   });
 
@@ -109,6 +114,7 @@ describe("GitHubForge", () => {
                 author: { login: "bob" },
                 state: "MERGED",
                 mergeCommit: { oid: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: { totalCount: 2 } },
+                ...NO_REVIEWERS,
               },
             },
           },
@@ -124,6 +130,7 @@ describe("GitHubForge", () => {
       title: "Fix crash",
       author: "bob@users.noreply.github.com",
       state: "merged",
+      reviewers: [],
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
   });
@@ -143,6 +150,7 @@ describe("GitHubForge", () => {
                 author: null,
                 state: "CLOSED",
                 mergeCommit: null,
+                ...NO_REVIEWERS,
               },
             },
           },
@@ -158,6 +166,57 @@ describe("GitHubForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.github.com",
       state: "closed",
+      reviewers: [],
+    });
+  });
+
+  test("getChange unions pending requests with submitted reviews, skipping teams and deleted accounts", async () => {
+    stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequest: {
+                number: 10,
+                headRefName: "reviewed",
+                headRefOid: "5566778899aabbccddeeff00112233445566aabb",
+                baseRefName: "main",
+                title: "Reviewed",
+                author: { login: "alice" },
+                state: "OPEN",
+                mergeCommit: null,
+                // A team request yields an empty node from the User fragment;
+                // GraphQL admits null too.
+                reviewRequests: {
+                  nodes: [
+                    { requestedReviewer: { login: "carol" } },
+                    { requestedReviewer: {} },
+                    { requestedReviewer: null },
+                  ],
+                },
+                // carol both requested and reviewed: deduplicated. A deleted
+                // account's review has no author: skipped.
+                latestReviews: {
+                  nodes: [{ author: { login: "bob" } }, { author: { login: "carol" } }, { author: null }],
+                },
+              },
+            },
+          },
+        },
+      },
+      [`GET ${API}/users/alice`]: { json: { email: null } },
+      [`GET ${API}/users/bob`]: { json: { email: null } },
+      [`GET ${API}/users/carol`]: { json: { email: "carol@example.com" } },
+    });
+    expect(await forge().getChange(forgeChangeId(10))).toEqual({
+      id: 10,
+      head: "reviewed",
+      tip: "5566778899aabbccddeeff00112233445566aabb",
+      parent: "main",
+      title: "Reviewed",
+      author: "alice@users.noreply.github.com",
+      state: "open",
+      reviewers: ["bob@users.noreply.github.com", "carol@example.com"],
     });
   });
 
@@ -178,6 +237,7 @@ describe("GitHubForge", () => {
                     author: { login: "alice" },
                     state: "OPEN",
                     mergeCommit: null,
+                    ...NO_REVIEWERS,
                   },
                 ],
               },
@@ -195,6 +255,7 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@users.noreply.github.com",
       state: "open",
+      reviewers: [],
     });
     expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", branch: "add-tables" }]);
   });
@@ -224,6 +285,8 @@ describe("GitHubForge", () => {
                       author: { login: "alice" },
                       state: "OPEN",
                       mergeCommit: null,
+                      reviewRequests: { nodes: [{ requestedReviewer: { login: "bob" } }] },
+                      latestReviews: { nodes: [] },
                       comments: {
                         nodes: [
                           {
@@ -245,6 +308,7 @@ describe("GitHubForge", () => {
                       author: { login: "bob" },
                       state: "OPEN",
                       mergeCommit: null,
+                      ...NO_REVIEWERS,
                       comments: { nodes: [], pageInfo: { hasNextPage: false } },
                     },
                   ],
@@ -269,6 +333,7 @@ describe("GitHubForge", () => {
                       author: { login: "alice" },
                       state: "OPEN",
                       mergeCommit: null,
+                      ...NO_REVIEWERS,
                       comments: { nodes: [], pageInfo: { hasNextPage: true } },
                     },
                   ],
@@ -292,6 +357,7 @@ describe("GitHubForge", () => {
           title: "First",
           author: "alice@users.noreply.github.com",
           state: "open",
+          reviewers: ["bob@users.noreply.github.com"],
         },
         comments: [
           {
@@ -312,6 +378,7 @@ describe("GitHubForge", () => {
           title: "Second",
           author: "bob@users.noreply.github.com",
           state: "open",
+          reviewers: [],
         },
         comments: [],
         commentsTruncated: false,
@@ -325,6 +392,7 @@ describe("GitHubForge", () => {
           title: "Third",
           author: "alice@users.noreply.github.com",
           state: "open",
+          reviewers: [],
         },
         comments: [],
         commentsTruncated: true,
@@ -366,6 +434,7 @@ describe("GitHubForge", () => {
                 author: { login: "dave" },
                 state: "OPEN",
                 mergeCommit: null,
+                ...NO_REVIEWERS,
               },
             },
           },
@@ -382,6 +451,7 @@ describe("GitHubForge", () => {
       title: "New work",
       author: "dave@users.noreply.github.com",
       state: "open",
+      reviewers: [],
     });
     expect(calls[0]?.body).toBe(
       JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "" }),
@@ -441,6 +511,70 @@ describe("GitHubForge", () => {
     });
     await forge().addComment(forgeChangeId(7), body);
     expect(calls[0]?.body).toBe(JSON.stringify({ body }));
+  });
+
+  test("setReviewers maps identities to logins, unwrapping noreply and searching the rest", async () => {
+    const search = `${API}/search/users?q=${encodeURIComponent("carol@example.com in:email")}`;
+    const calls = stubGitHub({
+      [`GET ${search}`]: { json: { items: [{ login: "carol" }] } },
+      [`POST ${REPOS}/pulls/12/requested_reviewers`]: { status: 201, json: {} },
+      [`GET ${REPOS}/pulls/12/requested_reviewers`]: { json: { users: [{ login: "erin" }], teams: [] } },
+      [`DELETE ${REPOS}/pulls/12/requested_reviewers`]: { json: {} },
+    });
+    await forge().setReviewers(
+      forgeChangeId(12),
+      [userName("carol@example.com"), userName("12345+dave@users.noreply.github.com")],
+      [userName("erin@users.noreply.github.com")],
+    );
+    expect(calls.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
+      { method: "GET", url: search, body: undefined },
+      {
+        method: "POST",
+        url: `${REPOS}/pulls/12/requested_reviewers`,
+        body: JSON.stringify({ reviewers: ["carol", "dave"] }),
+      },
+      { method: "GET", url: `${REPOS}/pulls/12/requested_reviewers`, body: undefined },
+      { method: "DELETE", url: `${REPOS}/pulls/12/requested_reviewers`, body: JSON.stringify({ reviewers: ["erin"] }) },
+    ]);
+  });
+
+  test("setReviewers withdraws only pending requests: a reviewer who reviewed is left alone", async () => {
+    const calls = stubGitHub({
+      [`GET ${REPOS}/pulls/12/requested_reviewers`]: { json: { users: [], teams: [] } },
+    });
+    await forge().setReviewers(forgeChangeId(12), [], [userName("erin@users.noreply.github.com")]);
+    expect(calls.map(({ method, url }) => ({ method, url }))).toEqual([
+      { method: "GET", url: `${REPOS}/pulls/12/requested_reviewers` },
+    ]);
+  });
+
+  test("setReviewers fails when no account claims the email, or several match the search", async () => {
+    stubGitHub({
+      [`GET ${API}/search/users?q=${encodeURIComponent("frank@example.com in:email")}`]: { json: { items: [] } },
+    });
+    const failure = forge().setReviewers(forgeChangeId(12), [userName("frank@example.com")], []);
+    await expect(failure).rejects.toThrow(UserError);
+    await expect(failure).rejects.toThrow('no github.com account found for "frank@example.com"');
+    stubGitHub({
+      [`GET ${API}/search/users?q=${encodeURIComponent("grace@example.com in:email")}`]: {
+        json: { items: [{ login: "grace" }, { login: "gracie" }] },
+      },
+    });
+    const ambiguous = forge().setReviewers(forgeChangeId(12), [userName("grace@example.com")], []);
+    await expect(ambiguous).rejects.toThrow(UserError);
+    await expect(ambiguous).rejects.toThrow('"grace@example.com" is ambiguous on github.com');
+  });
+
+  test("setReviewers surfaces GitHub's refusal of an unassignable reviewer", async () => {
+    stubGitHub({
+      [`POST ${REPOS}/pulls/12/requested_reviewers`]: {
+        status: 422,
+        json: { message: "Reviews may only be requested from collaborators." },
+      },
+    });
+    const failure = forge().setReviewers(forgeChangeId(12), [userName("erin@users.noreply.github.com")], []);
+    await expect(failure).rejects.toThrow(UserError);
+    await expect(failure).rejects.toThrow(/^github\.com\/test-org\/widgets#12 reviewers not updated: .*collaborators/);
   });
 
   test("a failing request reports the status and GitHub's message", async () => {

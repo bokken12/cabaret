@@ -23,6 +23,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     change: parseRefName(change),
     parent: parseRefName("main"),
     owner: alice,
+    reviewers: [],
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -88,6 +89,7 @@ test("todoDoc with nothing to do says so", () => {
 test("showDoc renders the attribute table, remaining review, and files left", () => {
   const doc = showDoc({
     summary: summary("widgets", {
+      reviewers: [userName("bob@example.com"), userName("carol@example.com")],
       forgeChange: { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) },
       reviewLeft: files("api.ts", "ui.ts"),
     }),
@@ -98,16 +100,17 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     "widgets
     =======
 
-    ╭──────────────┬───────────────────────────────╮
-    │ attribute    │ value                         │
-    ├──────────────┼───────────────────────────────┤
-    │ next step    │ review                        │
-    │ owner        │ alice@example.com             │
-    │ parent       │ main                          │
-    │ forge change │ github.com/test-org/widgets#7 │
-    │ tip          │ 222222222222                  │
-    │ base         │ 111111111111                  │
-    ╰──────────────┴───────────────────────────────╯
+    ╭──────────────┬────────────────────────────────────╮
+    │ attribute    │ value                              │
+    ├──────────────┼────────────────────────────────────┤
+    │ next step    │ review                             │
+    │ owner        │ alice@example.com                  │
+    │ reviewers    │ bob@example.com, carol@example.com │
+    │ parent       │ main                               │
+    │ forge change │ github.com/test-org/widgets#7      │
+    │ tip          │ 222222222222                       │
+    │ base         │ 111111111111                       │
+    ╰──────────────┴────────────────────────────────────╯
 
     Remaining review:
       alice@example.com: 2 files

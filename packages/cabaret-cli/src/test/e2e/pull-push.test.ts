@@ -24,6 +24,7 @@ test("push pushes the branch, opens a forge change on the parent, and posts comm
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
+    reviewers: [],
   });
   const posted = await forge.listComments(PR);
   expect(posted.map(({ body }) => body)).toEqual([expect.stringMatching(/^ship it\n\n<!-- cabaret:[0-9a-f]{64} -->$/)]);
@@ -233,7 +234,9 @@ test("pull turns a teammate's forge change into a change to review", async () =>
     "Comments:\n  2025-06-15T15:06:40.000Z carol@users.noreply.github.com\n    please take a look\n",
   );
   const log = (await repo.cabaret("log", "their-feature")).stdout;
-  expect(log).toContain('"action":{"kind":"set-parent","parent":"main","source":"github.com/test-org/widgets"}');
+  expect(log).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"main"}',
+  );
   expect(log).toContain('"action":{"kind":"set-owner","owner":"carol@users.noreply.github.com"}');
   expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}');
   // The import published: origin holds the log, and pulling again refreshes
@@ -355,7 +358,7 @@ test("pull mirrors a forge-side retarget into the change", async () => {
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
   expect((await repo.cabaret("log")).stdout).toContain(
-    '"action":{"kind":"set-parent","parent":"develop","source":"github.com/test-org/widgets"}',
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"develop"}',
   );
   // The retarget was observed once; pulling again re-mirrors nothing.
   expect((await repo.cabaret("pull")).stdout).toBe(

@@ -14,6 +14,7 @@ import {
   parseForgeLocator,
   type RefName,
   timestampMs,
+  type UserName,
   userName,
 } from "cabaret-core";
 
@@ -36,6 +37,24 @@ interface FakePr {
   /** The head that merged; the live branch tip until then. */
   tip?: CommitHash;
   readonly comments: FakeComment[];
+  /** Logins with a pending review request. */
+  readonly requested: Set<string>;
+  /** Logins that submitted a review; GitHub reports them as reviewers forever. */
+  readonly reviewed: Set<string>;
+}
+
+/** The identity every fake login maps to, mirroring `makeRepo`'s user setup. */
+function loginIdentity(login: string): UserName {
+  return userName(`${login}@users.noreply.github.com`);
+}
+
+/** Invert `loginIdentity`, as a real forge maps an identity back to an account. */
+function identityLogin(user: string): string {
+  const login = /^([^@]+)@users\.noreply\.github\.com$/.exec(user)?.[1];
+  if (login === undefined) {
+    throw new Error(`no github.com account for ${JSON.stringify(user)}`);
+  }
+  return login;
 }
 
 /**
@@ -145,7 +164,7 @@ export class FakeForge implements Forge {
   async listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]> {
     return this.pr(id).comments.map((comment) => ({
       id: comment.id,
-      author: userName(`${comment.login}@users.noreply.github.com`),
+      author: loginIdentity(comment.login),
       body: comment.body,
       updatedAt: timestampMs(comment.updatedAt),
     }));
@@ -155,11 +174,49 @@ export class FakeForge implements Forge {
     this.comment(id, this.tokenLogin, body);
   }
 
+  async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
+    const pr = this.pr(id);
+    for (const user of add) {
+      pr.requested.add(identityLogin(user));
+    }
+    // Only a pending request can be withdrawn, as on GitHub: a submitted
+    // review cannot be unmade.
+    for (const user of remove) {
+      pr.requested.delete(identityLogin(user));
+    }
+  }
+
   /** A PR opened on the forge by `login`; returns its number. */
   openPr(login: string, head: RefName, base: RefName, title: string): ForgeChangeId {
     const id = forgeChangeId(this.prs.size + 1);
-    this.prs.set(id, { head, base, title, login, state: "open", comments: [] });
+    this.prs.set(id, {
+      head,
+      base,
+      title,
+      login,
+      state: "open",
+      comments: [],
+      requested: new Set(),
+      reviewed: new Set(),
+    });
     return id;
+  }
+
+  /** Review requested from `login` on the forge, as by a teammate. */
+  requestReviewer(id: ForgeChangeId, login: string): void {
+    this.pr(id).requested.add(login);
+  }
+
+  /** A review request withdrawn on the forge, as by a teammate. */
+  withdrawReviewer(id: ForgeChangeId, login: string): void {
+    this.pr(id).requested.delete(login);
+  }
+
+  /** A review submitted by `login`: the pending request completes, and GitHub counts them a reviewer forever. */
+  review(id: ForgeChangeId, login: string): void {
+    const pr = this.pr(id);
+    pr.requested.delete(login);
+    pr.reviewed.add(login);
   }
 
   /** The close button: the PR is declined without merging. */
@@ -206,8 +263,9 @@ export class FakeForge implements Forge {
       tip: pr.tip ?? (await this.branchTip(pr.head)),
       parent: pr.base,
       title: pr.title,
-      author: userName(`${pr.login}@users.noreply.github.com`),
+      author: loginIdentity(pr.login),
       state: pr.state,
+      reviewers: [...new Set([...pr.requested, ...pr.reviewed])].sort().map(loginIdentity),
       ...(pr.merge === undefined ? {} : { merge: pr.merge }),
     };
   }

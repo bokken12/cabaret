@@ -4,6 +4,7 @@ import {
   compareLogEntries,
   currentForgeChange,
   currentParent,
+  currentReviewers,
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
@@ -15,6 +16,7 @@ import {
   landTitle,
   landTrailer,
   observedForgeParent,
+  observedForgeReviewers,
   type RefName,
   type TimestampMs,
   type UserName,
@@ -95,6 +97,15 @@ export interface Forge {
 
   /** Post a change-level comment. */
   addComment(id: ForgeChangeId, body: string): Promise<void>;
+
+  /**
+   * Request review from each of `add` and withdraw it from each of `remove`,
+   * identified as Cabaret knows them; the implementation maps identities back
+   * to forge accounts. Fails when an identity has no such account. Best
+   * effort within the forge's model: GitHub, for one, cannot withdraw a
+   * reviewer who has already reviewed.
+   */
+  setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void>;
 }
 
 /**
@@ -149,10 +160,10 @@ export async function planPull(
   // The latest imported version of each forge comment already in the log.
   const imported = new Map<string, CommentEntry>();
   for (const entry of commentEntries(entries)) {
-    const source = entry.action.source;
+    const source = entry.source;
     if (source === undefined) {
       local.set(await commentHash(entry), entry);
-    } else if (source.forge === forge) {
+    } else if (source.forge === forge && source.id !== undefined) {
       const prev = imported.get(source.id);
       if (prev === undefined || compareLogEntries(entry, prev) >= 0) {
         imported.set(source.id, entry);
@@ -180,15 +191,12 @@ export async function planPull(
     // A marker always names the entry the comment is a version of, even one
     // this log has never held (another user's Cabaret pushed it): once logs
     // sync, the versions still fall into one group.
-    const edits = latest?.action.source?.edits ?? hash;
+    const edits = latest?.action.edits ?? hash;
     additions.push({
       timestamp: comment.updatedAt,
       user: comment.author,
-      action: {
-        kind: "comment",
-        text,
-        source: { forge, id: comment.id, ...(edits === undefined ? {} : { edits }) },
-      },
+      source: { forge, id: comment.id },
+      action: { kind: "comment", text, ...(edits === undefined ? {} : { edits }) },
     });
   }
   return additions;
@@ -214,7 +222,7 @@ export async function planPush(
   }
   const pending: { readonly entry: CommentEntry; readonly body: string }[] = [];
   for (const entry of commentEntries(entries)) {
-    if (entry.action.source !== undefined) {
+    if (entry.source !== undefined) {
       continue;
     }
     const hash = await commentHash(entry);
@@ -229,6 +237,77 @@ export async function planPush(
   return pending.map(({ body }) => body);
 }
 
+/** One reviewer entry stamped with the forge as its source: a mirror of the forge's state, and the observation of it. */
+function reviewerObservation(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  reviewer: UserName,
+  member: boolean,
+): LogEntry {
+  return {
+    timestamp: now(),
+    user,
+    source: { forge },
+    action: { kind: member ? "add-reviewer" : "remove-reviewer", reviewer },
+  };
+}
+
+/**
+ * The entries mirroring the forge's reviewer set into the log: one per user
+ * whose forge membership differs from the last observed one. Comparing
+ * against the observation, never against local state, is what keeps a local
+ * add or remove awaiting its push from being overridden — only a forge that
+ * moved since last observed mirrors in, and by timestamp it wins.
+ */
+export function planReviewerPull(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  reviewers: readonly UserName[],
+): readonly LogEntry[] {
+  const observed = observedForgeReviewers(entries, forge);
+  const onForge = new Set(reviewers);
+  return [...new Set([...onForge, ...observed])]
+    .sort()
+    .filter((reviewer) => onForge.has(reviewer) !== observed.has(reviewer))
+    .map((reviewer) => reviewerObservation(now, user, forge, reviewer, onForge.has(reviewer)));
+}
+
+/**
+ * What a push must do to the forge's reviewer set, given a log that has
+ * already absorbed `planReviewerPull`'s mirror: with observation and forge
+ * agreeing, any difference left between the log's reviewers and the forge's
+ * is local intent. `add` and `remove` are the requests to make, sorted by
+ * name; `observations` record the state those requests leave the forge in,
+ * so the next pull does not mirror this push back.
+ */
+export function planReviewerPush(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  reviewers: readonly UserName[],
+): {
+  readonly add: readonly UserName[];
+  readonly remove: readonly UserName[];
+  readonly observations: readonly LogEntry[];
+} {
+  const local = new Set(currentReviewers(entries));
+  const onForge = new Set(reviewers);
+  const add = [...local].filter((reviewer) => !onForge.has(reviewer)).sort();
+  const remove = [...onForge].filter((reviewer) => !local.has(reviewer)).sort();
+  return {
+    add,
+    remove,
+    observations: [
+      ...add.map((reviewer) => reviewerObservation(now, user, forge, reviewer, true)),
+      ...remove.map((reviewer) => reviewerObservation(now, user, forge, reviewer, false)),
+    ],
+  };
+}
+
 /**
  * The land entry a merged `forgeChange` implies, or undefined when `entries`
  * already record one: however the merge is observed, it means the change
@@ -239,6 +318,7 @@ export async function planPush(
 export function observedLand(
   now: () => TimestampMs,
   user: UserName,
+  forge: ForgeLocator,
   forgeChange: ForgeChange,
   entries: readonly LogEntry[],
 ): LogEntry | undefined {
@@ -249,6 +329,7 @@ export function observedLand(
   return {
     timestamp: now(),
     user,
+    source: { forge },
     action: { kind: "land", merge: commit, ...(parents > 1 ? {} : { tip: forgeChange.tip }) },
   };
 }
@@ -268,13 +349,19 @@ function adoptionEntries(
   entries: readonly LogEntry[],
 ): LogEntry[] {
   const adoption: LogEntry[] = [
-    { timestamp: now(), user, action: { kind: "set-forge", forge: locator, id: forgeChange.id } },
+    {
+      timestamp: now(),
+      user,
+      source: { forge: locator },
+      action: { kind: "set-forge", forge: locator, id: forgeChange.id },
+    },
   ];
   if (forgeChange.parent === currentParent(change, entries)) {
     adoption.push({
       timestamp: now(),
       user,
-      action: { kind: "set-parent", parent: forgeChange.parent, source: locator },
+      source: { forge: locator },
+      action: { kind: "set-parent", parent: forgeChange.parent },
     });
   }
   return adoption;
@@ -402,6 +489,8 @@ export type PullEvent =
       readonly id: ForgeChangeId;
       readonly change: RefName;
       readonly comments: number;
+      /** How many reviewer memberships the forge moved since last observed. */
+      readonly reviewers: number;
       readonly landed: boolean;
       /** The parent a forge-side retarget mirrored in, when one did. */
       readonly parent?: RefName | undefined;
@@ -413,9 +502,10 @@ export type PullEvent =
  * lacks — new ones, and new versions of ones edited in place — the land a
  * merged forge change implies, and a forge-side retarget as an observed
  * `set-parent`. Only a forge parent that moved since last observed mirrors
- * in, so a local reparent awaiting a push is never overridden. `comments`
- * spares the `listComments` call when the caller already holds the full
- * discussion.
+ * in, so a local reparent awaiting a push is never overridden — and a
+ * forge-side reviewer change as mirrored add/remove entries, on the same
+ * observation principle. `comments` spares the `listComments` call when the
+ * caller already holds the full discussion.
  */
 export async function pullTrackedChange(
   backend: Backend,
@@ -425,12 +515,17 @@ export async function pullTrackedChange(
   entries: readonly LogEntry[],
   forgeChange: ForgeChange,
   comments?: readonly ForgeComment[],
-): Promise<{ readonly comments: number; readonly landed: boolean; readonly parent?: RefName | undefined }> {
+): Promise<{
+  readonly comments: number;
+  readonly reviewers: number;
+  readonly landed: boolean;
+  readonly parent?: RefName | undefined;
+}> {
   const user = await backend.currentUser();
   const additions = [
     ...(await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)))),
   ];
-  const landing = observedLand(now, user, forgeChange, entries);
+  const landing = observedLand(now, user, forge.locator, forgeChange, entries);
   if (landing !== undefined) {
     additions.push(landing);
   }
@@ -440,37 +535,34 @@ export async function pullTrackedChange(
     additions.push({
       timestamp: now(),
       user,
-      action: { kind: "set-parent", parent: forgeChange.parent, source: forge.locator },
+      source: { forge: forge.locator },
+      action: { kind: "set-parent", parent: forgeChange.parent },
     });
   }
+  // A change no longer open keeps the reviewers it had: obligations only
+  // gate landing, so there is nothing left to mirror for.
+  const mirrored =
+    forgeChange.state === "open" ? planReviewerPull(now, user, forge.locator, entries, forgeChange.reviewers) : [];
+  additions.push(...mirrored);
   if (additions.length > 0) {
     await backend.appendLog(change, additions);
   }
   return {
     comments: additions.filter(({ action }) => action.kind === "comment").length,
+    reviewers: mirrored.length,
     landed: landing !== undefined,
     ...(retargeted ? { parent: forgeChange.parent } : {}),
   };
 }
 
 /**
- * Whether every entry mirrors the forge: the `set-*` entries an import writes
- * (its `set-parent` carries a forge source; a local reparent's does not) and
- * comments imported from the forge, with no review or forget mark, land, or
- * local-origin comment — no sign anyone engaged with the change. A lone owner
- * transfer is indistinguishable from an import's own `set-owner` and reads as
- * unengaged; a closed change with no review activity holds nothing worth
- * keeping either way.
+ * Whether every entry mirrors the forge: imports and observations all carry a
+ * forge source, and anything without one — a review or forget mark, a local
+ * comment, a reparent or owner transfer someone typed — is a sign somebody
+ * engaged with the change.
  */
 function pureImport(entries: readonly LogEntry[]): boolean {
-  return entries.every(
-    ({ action }) =>
-      (action.kind === "set-parent" && action.source !== undefined) ||
-      action.kind === "set-base" ||
-      action.kind === "set-owner" ||
-      action.kind === "set-forge" ||
-      (action.kind === "comment" && action.source !== undefined),
-  );
+  return entries.every(({ source }) => source !== undefined);
 }
 
 /**
@@ -543,15 +635,20 @@ export async function pullForge(
       continue;
     }
     const full = commentsTruncated ? await forge.listComments(forgeChange.id) : comments;
+    // Everything an import writes carries the forge as its source: none of it
+    // is anyone here engaging with the change.
+    const source = { forge: forge.locator };
     const additions: LogEntry[] = [
-      { timestamp: now(), user, action: { kind: "set-parent", parent: forgeChange.parent, source: forge.locator } },
+      { timestamp: now(), user, source, action: { kind: "set-parent", parent: forgeChange.parent } },
       {
         timestamp: now(),
         user,
+        source,
         action: { kind: "set-base", base: await backend.mergeBase(forgeChange.parent, forgeChange.head) },
       },
-      { timestamp: now(), user, action: { kind: "set-owner", owner: forgeChange.author } },
-      { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id } },
+      { timestamp: now(), user, source, action: { kind: "set-owner", owner: forgeChange.author } },
+      { timestamp: now(), user, source, action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id } },
+      ...planReviewerPull(now, user, forge.locator, [], forgeChange.reviewers),
       ...(await planPull(forge.locator, [], full)),
     ];
     await backend.appendLog(forgeChange.head, additions);
@@ -625,15 +722,15 @@ export interface ChangeComment {
 
 /**
  * The comments of a change as displayed, oldest first. Versions of one
- * comment — imports sharing a source id, and a local entry with the
- * forge-side edits that supersede it — collapse to the version with the
- * greatest timestamp.
+ * comment — entries whose `edits` names the entry they supersede, and imports
+ * sharing a source id — collapse to the version with the greatest timestamp.
  */
 export async function currentComments(entries: readonly LogEntry[]): Promise<readonly ChangeComment[]> {
   const groups = new Map<string, { first: TimestampMs; latest: CommentEntry }>();
   for (const entry of commentEntries(entries)) {
-    const source = entry.action.source;
-    const key = source === undefined ? await commentHash(entry) : (source.edits ?? `${source.forge}#${source.id}`);
+    const { source } = entry;
+    const key =
+      entry.action.edits ?? (source?.id === undefined ? await commentHash(entry) : `${source.forge}#${source.id}`);
     const group = groups.get(key);
     if (group === undefined) {
       groups.set(key, { first: entry.timestamp, latest: entry });
