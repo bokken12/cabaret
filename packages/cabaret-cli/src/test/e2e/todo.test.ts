@@ -36,10 +36,19 @@ test("todo shows review work and owned changes as a tree", async () => {
   `);
 });
 
-test("todo with no changes has nothing to do", async () => {
+test("todo with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Nothing to do.
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
 });
@@ -115,7 +124,16 @@ test("a merged forge change is not imported", async () => {
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Nothing to do.
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
 });
@@ -150,7 +168,16 @@ test("someone else's change obliging nothing of the user is not review work", as
   await addChange(repo, "gadget");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Nothing to do.
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
 });
@@ -167,13 +194,28 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     ├─────────┼────────┤
     │ feature │      1 │
     ╰─────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
   await repo.git("config", "user.email", "bob@example.com");
   await repo.cabaret("review", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Nothing to do.
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
 });
@@ -184,7 +226,16 @@ test("a landed change with no children drops out entirely", async () => {
   await repo.cabaret("review", "gadget.txt");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Nothing to do.
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
     "
   `);
 });
