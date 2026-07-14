@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -45,6 +45,159 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
   return stdout;
 }
 
+/** A response to one object query: the resolved object, with contents when asked for. */
+interface ObjectResponse {
+  readonly oid: string;
+  readonly type: string;
+  readonly body?: Buffer;
+}
+
+/**
+ * A lazily spawned, long-lived `git cat-file --batch-command` child. Object
+ * queries — ref resolution, file contents — cost a pipe round trip instead of
+ * a process spawn, which is what keeps per-file reads (policy probes, log
+ * loads) viable at monorepo scale. Requests pipeline: each is written as it
+ * arrives, and responses are consumed strictly in request order. The child is
+ * unref'd whenever no request is in flight, so it never holds the process
+ * open; it exits on stdin EOF when its owner does.
+ */
+class ObjectReader {
+  private child: ReturnType<typeof spawn> | undefined;
+  private buffer = Buffer.alloc(0);
+  private wake: (() => void) | undefined;
+  /** Serializes response consumption in request order. */
+  private tail: Promise<unknown> = Promise.resolve();
+  private inflight = 0;
+  private failure: Error | undefined;
+
+  constructor(private readonly cwd: string) {}
+
+  private spawned(): ReturnType<typeof spawn> & { stdin: NonNullable<ReturnType<typeof spawn>["stdin"]> } {
+    if (this.child === undefined || this.child.exitCode !== null || this.child.killed) {
+      // Consumers still draining the dead child settle against `failure` and
+      // `buffer`; a respawn now would reset both under them. Requests racing
+      // that drain share its failure instead.
+      if (this.inflight > 0) {
+        throw this.failure ?? new Error("git cat-file --batch-command is down");
+      }
+      this.buffer = Buffer.alloc(0);
+      this.failure = undefined;
+      const child = spawn("git", ["cat-file", "--batch-command"], { cwd: this.cwd, stdio: ["pipe", "pipe", "pipe"] });
+      const stderr: Buffer[] = [];
+      child.stdout?.on("data", (chunk: Buffer) => {
+        this.buffer = Buffer.concat([this.buffer, chunk]);
+        this.wake?.();
+      });
+      child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+      // A write after the child dies surfaces through `failure`, not EPIPE.
+      child.stdin?.on("error", () => {});
+      const fail = (cause: string) => {
+        this.failure ??= new Error(
+          `git cat-file --batch-command ${cause}${stderr.length > 0 ? `: ${Buffer.concat(stderr).toString().trim()}` : ""}`,
+        );
+        this.wake?.();
+      };
+      child.on("error", (error) => fail(error.message));
+      child.on("close", (code) => fail(`exited with ${code}`));
+      this.child = child;
+      this.setRef();
+    }
+    if (this.child.stdin == null) {
+      throw new Error("git cat-file spawned without stdin");
+    }
+    return this.child as ReturnType<typeof spawn> & { stdin: NonNullable<ReturnType<typeof spawn>["stdin"]> };
+  }
+
+  /** Hold the event loop open exactly while a response is owed. */
+  private setRef(): void {
+    // The stdio streams are sockets at runtime, whose ref/unref the stream
+    // types do not declare.
+    const handles = [this.child, this.child?.stdin, this.child?.stdout, this.child?.stderr] as readonly (
+      | undefined
+      | null
+      | { ref?: () => void; unref?: () => void }
+    )[];
+    for (const handle of handles) {
+      if (this.inflight > 0) {
+        handle?.ref?.();
+      } else {
+        handle?.unref?.();
+      }
+    }
+  }
+
+  private async pull(needed: () => number): Promise<void> {
+    while (needed() > this.buffer.length) {
+      if (this.failure !== undefined) {
+        throw this.failure;
+      }
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+      this.wake = undefined;
+    }
+  }
+
+  private async readLine(): Promise<string> {
+    let eol = -1;
+    await this.pull(() => {
+      eol = this.buffer.indexOf(0x0a);
+      return eol === -1 ? this.buffer.length + 1 : 0;
+    });
+    const line = this.buffer.subarray(0, eol).toString();
+    this.buffer = this.buffer.subarray(eol + 1);
+    return line;
+  }
+
+  private async readBytes(count: number): Promise<Buffer> {
+    await this.pull(() => count);
+    const bytes = this.buffer.subarray(0, count);
+    this.buffer = this.buffer.subarray(count);
+    return bytes;
+  }
+
+  /**
+   * Resolve `object` (any revision expression), returning undefined when git
+   * reports it missing. `contents` carries the object's bytes back; `info`
+   * only its identity.
+   */
+  request(command: "contents" | "info", object: string): Promise<ObjectResponse | undefined> {
+    if (object.includes("\n")) {
+      throw new Error(`object name cannot span lines: ${JSON.stringify(object)}`);
+    }
+    const child = this.spawned();
+    this.inflight += 1;
+    this.setRef();
+    const result = this.tail.then(async (): Promise<ObjectResponse | undefined> => {
+      const header = await this.readLine();
+      if (header.endsWith(" missing")) {
+        return undefined;
+      }
+      const [oid, type, sizeText] = header.split(" ");
+      const size = Number(sizeText);
+      if (oid === undefined || type === undefined || !Number.isSafeInteger(size)) {
+        throw new Error(`malformed cat-file response: ${JSON.stringify(header)}`);
+      }
+      if (command === "info") {
+        return { oid, type };
+      }
+      // Copied out of the rolling buffer so a long-lived body does not pin
+      // the whole allocation its view would alias.
+      const body = Buffer.from(await this.readBytes(size));
+      await this.readBytes(1); // the newline terminating the contents
+      return { oid, type, body };
+    });
+    child.stdin.write(`${command} ${object}\n`);
+    this.tail = result
+      .catch(() => {})
+      .then(() => {
+        this.inflight -= 1;
+        this.setRef();
+      });
+    return result;
+  }
+}
+
 /** The namespace holding every ref Cabaret writes. */
 const CABARET_REF_PREFIX = "refs/cabaret/";
 
@@ -70,11 +223,16 @@ const LOG_PATH = "log";
 
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
+  /** Serves all scalar object reads without a per-read process spawn. */
+  private readonly reader: ObjectReader;
+
   private constructor(
     readonly root: string,
     /** The repository's common git dir, shared by all its worktrees. */
     private readonly gitDir: string,
-  ) {}
+  ) {
+    this.reader = new ObjectReader(root);
+  }
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
@@ -140,25 +298,13 @@ export class GitBackend implements Backend {
   }
 
   async resolveCommit(revision: string): Promise<CommitHash> {
-    try {
-      // --end-of-options keeps a revision that starts with `-` from being
-      // parsed as a flag.
-      const out = await git(this.root, [
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        "--end-of-options",
-        `${revision}^{commit}`,
-      ]);
-      return parseCommitHash(out.trimEnd());
-    } catch (error) {
-      // With --quiet, exit code 1 means exactly "no such revision"; anything
-      // else (e.g. not a repository) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        throw new UserError(`unknown revision: ${JSON.stringify(revision)}`);
-      }
-      throw error;
+    // In batch-command syntax the whole line names the object, so a revision
+    // starting with `-` cannot be taken for a flag.
+    const response = await this.reader.request("info", `${revision}^{commit}`);
+    if (response === undefined) {
+      throw new UserError(`unknown revision: ${JSON.stringify(revision)}`);
     }
+    return parseCommitHash(response.oid);
   }
 
   async pushBranch(branch: RefName): Promise<void> {
@@ -338,18 +484,16 @@ export class GitBackend implements Backend {
 
   async readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {
     // In `commit:path` syntax the path is literal, so no globbing guard is needed.
-    try {
-      const blob = await git(this.root, ["rev-parse", "--verify", "--quiet", `${commit}:${file}`]);
-      return await git(this.root, ["cat-file", "blob", blob.trimEnd()]);
-    } catch (error) {
-      // With --quiet, rev-parse exits 1 exactly when the path is absent;
-      // anything else (e.g. the path naming a directory, so cat-file rejects
-      // its tree) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        return undefined;
-      }
-      throw error;
+    const response = await this.reader.request("contents", `${commit}:${file}`);
+    if (response === undefined) {
+      return undefined;
     }
+    // A path naming a directory is a caller error, as it was when cat-file
+    // rejected the tree.
+    if (response.type !== "blob") {
+      throw new Error(`not a file: ${JSON.stringify(file)} at ${commit.slice(0, 12)} is a ${response.type}`);
+    }
+    return (response.body ?? Buffer.alloc(0)).toString();
   }
 
   async changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]> {
@@ -531,12 +675,19 @@ export class GitBackend implements Backend {
 
   async readLog(change: RefName): Promise<readonly LogEntry[]> {
     const ref = logRef(change);
-    if ((await this.commitAt(ref)) === undefined) {
+    // Pinning the read at the resolved tip keeps it consistent under a
+    // concurrent append moving the ref.
+    const tip = await this.commitAt(ref);
+    if (tip === undefined) {
       return [];
     }
-    // A log ref whose tree lacks the log file is malformed; let git's error
-    // propagate rather than masking it as an empty log.
-    return parseLog(await git(this.root, ["cat-file", "blob", `${ref}:${LOG_PATH}`]));
+    const log = await this.readFile(tip, parseFilePath(LOG_PATH));
+    // A log ref whose tree lacks the log file is malformed; surface it rather
+    // than masking it as an empty log.
+    if (log === undefined) {
+      throw new Error(`log ref has no ${LOG_PATH} file: ${ref}`);
+    }
+    return parseLog(log);
   }
 
   async appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void> {
@@ -588,16 +739,7 @@ export class GitBackend implements Backend {
 
   /** The commit `ref` points at, or undefined if `ref` does not exist. */
   private async commitAt(ref: RefName): Promise<CommitHash | undefined> {
-    try {
-      const out = await git(this.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
-      return parseCommitHash(out.trimEnd());
-    } catch (error) {
-      // With --quiet, exit code 1 means exactly "no such ref"; anything else
-      // (e.g. not a repository) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        return undefined;
-      }
-      throw error;
-    }
+    const response = await this.reader.request("info", `${ref}^{commit}`);
+    return response === undefined ? undefined : parseCommitHash(response.oid);
   }
 }

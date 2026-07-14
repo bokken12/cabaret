@@ -8,6 +8,7 @@ import {
   type LogAction,
   type LogEntry,
   parseCommitHash,
+  parseFilePath,
   parseRefName,
   timestampMs,
   userName,
@@ -82,7 +83,9 @@ test("fails fast on a log ref whose tree lacks the log file", async () => {
   await git("update-ref", "refs/cabaret/log/malformed", root);
 
   const backend = await GitBackend.open(repo);
-  await expect(backend.readLog(parseRefName("malformed"))).rejects.toThrow(/git cat-file/);
+  await expect(backend.readLog(parseRefName("malformed"))).rejects.toThrow(
+    "log ref has no log file: refs/cabaret/log/malformed",
+  );
 });
 
 test("changeBase is the last revision shared with the change's parent", async () => {
@@ -327,6 +330,85 @@ test("listChanges names every change with a log, sorted by name", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+/** Commit `files` (path → content) on top of the root commit, returning the commit hash. */
+async function plumbTree(files: Record<string, string>): Promise<string> {
+  await git("read-tree", "--empty");
+  for (const [path, content] of Object.entries(files)) {
+    await writeFile(join(repo, "blob-scratch"), content);
+    const blob = await git("hash-object", "-w", "--", join(repo, "blob-scratch"));
+    await git("update-index", "--add", "--cacheinfo", `100644,${blob},${path}`);
+  }
+  const tree = await git("write-tree");
+  return git("commit-tree", tree, "-m", "tree fixture");
+}
+
+test("readFile round-trips exact contents, keyed by byte-counted sizes", async () => {
+  const backend = await GitBackend.open(repo);
+  const files = {
+    "dir with space/ün icode.txt": "naïve — 日本語 🎭 without trailing newline",
+    "empty.txt": "",
+    "sub/deep/one.txt": "one\n",
+    // Big enough to arrive split across several pipe chunks.
+    "big.txt": `${"long line of filler text\n".repeat(12000)}tail`,
+  };
+  const commit = parseCommitHash(await plumbTree(files));
+  for (const [path, content] of Object.entries(files)) {
+    expect(await backend.readFile(commit, parseFilePath(path))).toBe(content);
+  }
+});
+
+test("readFile distinguishes an absent path from a directory", async () => {
+  const backend = await GitBackend.open(repo);
+  const commit = parseCommitHash(await plumbTree({ "sub/file.txt": "content\n" }));
+  expect(await backend.readFile(commit, parseFilePath("sub/missing.txt"))).toBeUndefined();
+  await expect(backend.readFile(commit, parseFilePath("sub"))).rejects.toThrow(
+    `not a file: "sub" at ${commit.slice(0, 12)} is a tree`,
+  );
+});
+
+test("resolveCommit rejects an unknown revision", async () => {
+  const backend = await GitBackend.open(repo);
+  await expect(backend.resolveCommit("no-such-revision")).rejects.toThrow('unknown revision: "no-such-revision"');
+});
+
+test("pipelined reads all frame correctly", async () => {
+  const backend = await GitBackend.open(repo);
+  const files = Object.fromEntries(
+    Array.from({ length: 40 }, (_, i) => [`pipelined/file-${i}.txt`, `content of file ${i}\n`.repeat(i)]),
+  );
+  const commit = parseCommitHash(await plumbTree(files));
+  const reads = await Promise.all([
+    ...Object.keys(files).map((path) => backend.readFile(commit, parseFilePath(path))),
+    ...Array.from({ length: 10 }, () => backend.branchTip(parseRefName("feature"))),
+  ]);
+  const tip = await git("rev-parse", "refs/heads/feature");
+  expect(reads).toEqual([...Object.values(files), ...Array(10).fill(tip)]);
+});
+
+test("reads see refs and objects written after the session started", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.readLog(parseRefName("late-arrival"))).toEqual([]);
+  const entry = logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("feature") });
+  await backend.appendLog(parseRefName("late-arrival"), [entry]);
+  expect(await backend.readLog(parseRefName("late-arrival"))).toEqual([entry]);
+});
+
+test("reads recover after the session's git process dies", async () => {
+  const backend = await GitBackend.open(repo);
+  const tip = await git("rev-parse", "refs/heads/feature");
+  expect(await backend.branchTip(parseRefName("feature"))).toBe(tip);
+  const { reader } = backend as unknown as {
+    reader: { child?: { kill(): void; once(e: string, f: () => void): void } };
+  };
+  if (reader.child === undefined) {
+    throw new Error("session did not spawn");
+  }
+  const closed = new Promise<void>((resolve) => reader.child?.once("close", () => resolve()));
+  reader.child.kill();
+  await closed;
+  expect(await backend.branchTip(parseRefName("feature"))).toBe(tip);
 });
 
 test("fails fast on detached HEAD", async () => {
