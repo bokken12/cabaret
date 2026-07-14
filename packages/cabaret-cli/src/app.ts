@@ -5,7 +5,6 @@ import {
   brain,
   changeBase,
   createChange,
-  currentParent,
   type FilePath,
   formatLogEntry,
   type LogEntry,
@@ -17,11 +16,9 @@ import {
   parseContext,
   parseFilePath,
   parseRefName,
-  planPush,
-  planReviewerPull,
-  planReviewerPush,
   pullForge,
   pullTrackedChange,
+  pushChange,
   type RefName,
   type ReviewSpan,
   readConfig,
@@ -569,62 +566,17 @@ const push = buildCommand({
     const change = flags.change ?? (await backend.currentBranch());
     const entries = await backend.readLog(change);
     assertChangeExists(change, entries);
-    const parent = currentParent(change, entries);
-    await backend.pushBranch(change);
-    // Whenever the push sets the forge's parent — at creation or by a
-    // retarget — the log records the observation, so a later pull can
-    // tell a forge-side retarget from the state this push left behind.
-    const observation = async (): Promise<LogEntry> => ({
-      timestamp: this.now(),
-      user: await backend.currentUser(),
-      source: { forge: forge.locator },
-      action: { kind: "set-parent", parent },
-    });
-    let forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
-    if (forgeChange === undefined) {
-      forgeChange = await forge.createChange(change, parent, change);
-      await backend.appendLog(change, [
-        {
-          timestamp: this.now(),
-          user: await backend.currentUser(),
-          source: { forge: forge.locator },
-          action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
-        },
-        await observation(),
-      ]);
-      this.process.stdout.write(`opened ${forge.locator}#${forgeChange.id}\n`);
-    } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
-      await forge.setParent(forgeChange.id, parent);
-      await backend.appendLog(change, [await observation()]);
+    const pushed = await pushChange(backend, this.now, forge, change, entries);
+    if (pushed.opened) {
+      this.process.stdout.write(`opened ${forge.locator}#${pushed.id}\n`);
     }
-    if (forgeChange.state === "open") {
-      const user = await backend.currentUser();
-      // Absorb forge-side reviewer changes first, so what remains between the
-      // log and the forge is exactly this side's intent.
-      const current = await backend.readLog(change);
-      const mirrored = planReviewerPull(this.now, user, forge.locator, current, forgeChange.reviewers);
-      const plan = planReviewerPush(this.now, user, forge.locator, [...current, ...mirrored], forgeChange.reviewers);
-      const updated = plan.add.length + plan.remove.length;
-      if (updated > 0) {
-        await forge.setReviewers(forgeChange.id, plan.add, plan.remove);
-      }
-      const additions = [...mirrored, ...plan.observations];
-      if (additions.length > 0) {
-        await backend.appendLog(change, additions);
-      }
-      if (updated > 0) {
-        this.process.stdout.write(
-          `updated ${updated} reviewer${updated === 1 ? "" : "s"} on ${forge.locator}#${forgeChange.id}\n`,
-        );
-      }
+    if (pushed.reviewers > 0) {
+      this.process.stdout.write(
+        `updated ${pushed.reviewers} reviewer${pushed.reviewers === 1 ? "" : "s"} on ${forge.locator}#${pushed.id}\n`,
+      );
     }
-    const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
-    for (const body of bodies) {
-      await forge.addComment(forgeChange.id, body);
-    }
-    await backend.syncLog(change);
     this.process.stdout.write(
-      `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${forgeChange.id}\n`,
+      `pushed ${pushed.comments} comment${pushed.comments === 1 ? "" : "s"} to ${forge.locator}#${pushed.id}\n`,
     );
   },
 });
