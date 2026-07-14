@@ -70,10 +70,9 @@ function errorMessage(data: unknown): string {
 
 /**
  * An authenticated gitlab.com API client over the runtime's `fetch`, so the
- * same client serves Node hosts and the browser — which `cabaret-web`
- * requires. A rate limit (429) is waited out once, but a second hit on the
- * same call means something is genuinely wrong, so it fails rather than keep
- * hammering GitLab.
+ * same client serves Node hosts and the browser. A rate limit (429) is
+ * waited out once, but a second hit on the same call means something is
+ * genuinely wrong, so it fails rather than keep hammering GitLab.
  *
  * `throttled: false` is for tests against canned responses, which would
  * otherwise wait out stubbed rate limits in real time.

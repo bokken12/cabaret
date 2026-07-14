@@ -213,12 +213,6 @@ generalizes, no PR descriptions — `createChange` posts `--body ""`,
 which also forfeits the trailer-in-description squash mitigation the doc
 proposes — and no rename retargeting or teammate-side merge handling.
 
-### Docs vs. reality
-
-[architecture.md](architecture.md) presents `cabaret-web` as a peer
-frontend; it doesn't exist. Fine as intent, but the doc reads as
-current-state.
-
 ## Where to start
 
 Three picks, if picking three:
