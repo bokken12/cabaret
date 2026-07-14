@@ -8,12 +8,11 @@ import {
   type ForgeMerge,
   forgeChangeId,
   type LandMethod,
+  type OpenChange,
   parseCommitHash,
-  parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
-  type SnapshotChange,
   timestampMs,
   UserError,
   type UserName,
@@ -27,12 +26,12 @@ function noreplyUser(login: string): UserName {
   return userName(`${login}@users.noreply.github.com`);
 }
 
-// The PR fields every query selects. GraphQL rather than REST because
-// the list queries need `changedFiles`, which REST includes only on a single
-// fetched PR — per-PR follow-ups would make listing N+1.
+// The PR fields every query selects. GraphQL rather than REST because the
+// open-changes sweep pages a hundred PRs with their comments in one query —
+// REST would make it N+1.
 const PR_FIELDS =
   "number headRefName headRefOid baseRefName title author { login } state " +
-  "mergeCommit { oid parents { totalCount } } changedFiles";
+  "mergeCommit { oid parents { totalCount } }";
 
 const PrSchema = z.object({
   number: z.number().transform(forgeChangeId),
@@ -49,7 +48,6 @@ const PrSchema = z.object({
       parents: z.object({ totalCount: z.number() }),
     })
     .nullable(),
-  changedFiles: z.number(),
 });
 
 const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
@@ -58,18 +56,17 @@ const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
   }
 }`;
 
-// A snapshot's nested collections are capped at their first hundred entries
-// rather than paginated per PR, keeping the whole sweep to one query per
-// hundred open PRs. The PR's own `changedFiles` still reports the true
-// count, and an import reads comments in full over REST.
-const SNAPSHOT_FIELDS =
-  `${PR_FIELDS} files(first: 100) { nodes { path } } ` +
-  "comments(first: 100) { nodes { databaseId author { login } body updatedAt } }";
+// Comments are capped at their first hundred rather than paginated per PR,
+// keeping the whole sweep to one query per hundred open PRs; the page info
+// reports the cap so readers needing more fall back to `listComments`.
+const OPEN_CHANGE_FIELDS =
+  `${PR_FIELDS} comments(first: 100) ` +
+  "{ nodes { databaseId author { login } body updatedAt } pageInfo { hasNextPage } }";
 
-const FETCH_SNAPSHOT = `query ($owner: String!, $repo: String!, $cursor: String) {
+const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequests(states: OPEN, first: 100, after: $cursor) {
-      nodes { ${SNAPSHOT_FIELDS} }
+      nodes { ${OPEN_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -85,8 +82,7 @@ const FindPrSchema = z.object({
   repository: z.object({ pullRequests: z.object({ nodes: z.array(PrSchema) }) }),
 });
 
-const SnapshotPrSchema = PrSchema.extend({
-  files: z.object({ nodes: z.array(z.object({ path: z.string().transform(parseFilePath) })) }).nullable(),
+const OpenPrSchema = PrSchema.extend({
   comments: z.object({
     nodes: z.array(
       z.object({
@@ -97,13 +93,14 @@ const SnapshotPrSchema = PrSchema.extend({
         updatedAt: z.string(),
       }),
     ),
+    pageInfo: z.object({ hasNextPage: z.boolean() }),
   }),
 });
 
-const FetchSnapshotSchema = z.object({
+const FetchOpenChangesSchema = z.object({
   repository: z.object({
     pullRequests: z.object({
-      nodes: z.array(SnapshotPrSchema),
+      nodes: z.array(OpenPrSchema),
       pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
     }),
   }),
@@ -162,7 +159,6 @@ export class GitHubForge implements Forge {
       title: pr.title,
       author: await this.identity(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
-      changedFiles: pr.changedFiles,
       ...(pr.mergeCommit === null
         ? {}
         : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
@@ -184,7 +180,7 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toSnapshotChange(pr: z.infer<typeof SnapshotPrSchema>): Promise<SnapshotChange> {
+  private async toOpenChange(pr: z.infer<typeof OpenPrSchema>): Promise<OpenChange> {
     const change = await this.toChange(pr);
     const comments = await Promise.all(
       pr.comments.nodes
@@ -196,16 +192,16 @@ export class GitHubForge implements Forge {
           updatedAt: timestampMs(Date.parse(comment.updatedAt)),
         })),
     );
-    return { change, files: pr.files?.nodes.map(({ path }) => path) ?? [], comments };
+    return { change, comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
-    const changes: Promise<SnapshotChange>[] = [];
+  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
+    const changes: Promise<OpenChange>[] = [];
     let cursor: string | null = null;
     do {
-      const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { ...this.repo, cursor });
-      const { nodes, pageInfo } = FetchSnapshotSchema.parse(out).repository.pullRequests;
-      changes.push(...nodes.map(this.toSnapshotChange, this));
+      const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { ...this.repo, cursor });
+      const { nodes, pageInfo } = FetchOpenChangesSchema.parse(out).repository.pullRequests;
+      changes.push(...nodes.map(this.toOpenChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
     return Promise.all(changes);

@@ -1,13 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
   type CommitHash,
   type FilePath,
-  type ForgeSnapshot,
-  formatForgeSnapshot,
   formatLogEntry,
   LAND_TRAILER,
   type LandMerge,
@@ -15,7 +13,6 @@ import {
   mergeLogs,
   parseCommitHash,
   parseFilePath,
-  parseForgeSnapshot,
   parseLog,
   parseRefName,
   type RefName,
@@ -86,36 +83,6 @@ export class GitBackend implements Backend {
       git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
     ]);
     return new GitBackend(root.trimEnd(), gitDir.trimEnd());
-  }
-
-  /**
-   * The snapshot lives as one JSON file under the common git dir: local like
-   * the cache of the forge it is (origin already holds the truth), and shared
-   * by every worktree, so a sync in any of them refreshes all.
-   */
-  private get snapshotPath(): string {
-    return join(this.gitDir, "cabaret", "forge-snapshot.json");
-  }
-
-  async readForgeSnapshot(): Promise<ForgeSnapshot | undefined> {
-    let text: string;
-    try {
-      text = await readFile(this.snapshotPath, "utf8");
-    } catch (error) {
-      if ((error as { code?: unknown }).code === "ENOENT") {
-        return undefined;
-      }
-      throw error;
-    }
-    return parseForgeSnapshot(text);
-  }
-
-  async writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void> {
-    await mkdir(dirname(this.snapshotPath), { recursive: true });
-    // Write-then-rename so a concurrent read never sees a torn file.
-    const temp = `${this.snapshotPath}.tmp`;
-    await writeFile(temp, formatForgeSnapshot(snapshot));
-    await rename(temp, this.snapshotPath);
   }
 
   async currentBranch(): Promise<RefName> {
@@ -220,6 +187,29 @@ export class GitBackend implements Backend {
     }
   }
 
+  async fetchBranches(branches: readonly RefName[]): Promise<void> {
+    if (branches.length === 0) {
+      return;
+    }
+    // Callers pass only branches absent locally, so the checked-out and
+    // diverged cases `fetchBranch` handles cannot arise. Best-effort: one
+    // branch origin no longer has fails a batched fetch wholesale, so fall
+    // back to fetching one by one and let callers observe what arrived via
+    // `branchTip`.
+    const refspecs = branches.map((branch) => `refs/heads/${branch}:refs/heads/${branch}`);
+    try {
+      await git(this.root, ["fetch", "--quiet", "origin", ...refspecs]);
+    } catch {
+      for (const refspec of refspecs) {
+        try {
+          await git(this.root, ["fetch", "--quiet", "origin", refspec]);
+        } catch {
+          // Observed by the caller as a still-missing branch.
+        }
+      }
+    }
+  }
+
   async syncLog(change: RefName): Promise<void> {
     await this.fetchLogs();
     await this.reconcileLog(change);
@@ -250,8 +240,7 @@ export class GitBackend implements Backend {
       // One transaction, so a failure partway through deletes nothing.
       await git(this.root, ["update-ref", "--stdin"], refs.map((ref) => `delete ${ref}\n`).join(""));
     }
-    // The whole directory, not just the snapshot file: everything under it is
-    // a local cache of the forge.
+    // The directory holds only stale caches from older versions.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
     const names = new Set<RefName>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
@@ -578,6 +567,21 @@ export class GitBackend implements Backend {
         if (attempt >= 2) {
           throw error;
         }
+      }
+    }
+  }
+
+  async deleteLog(change: RefName): Promise<void> {
+    // One transaction for the local refs, so a failure partway deletes
+    // neither; origin's copy goes second, so a push failure leaves the local
+    // refs deleted and a re-run only the push to redo.
+    await git(this.root, ["update-ref", "--stdin"], `delete ${logRef(change)}\ndelete ${remoteLogRef(change)}\n`);
+    try {
+      await git(this.root, ["push", "--quiet", "origin", `:${logRef(change)}`]);
+    } catch (error) {
+      // Another machine deleting the same log concurrently is not a failure.
+      if (!(error instanceof Error && error.message.includes("remote ref does not exist"))) {
+        throw error;
       }
     }
   }

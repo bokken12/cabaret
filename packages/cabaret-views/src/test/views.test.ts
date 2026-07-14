@@ -1,7 +1,6 @@
 import {
   type ChangeSummary,
   type CommitHash,
-  type ForgeChange,
   forgeChangeId,
   parseCommitHash,
   parseFilePath,
@@ -11,7 +10,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { docText, showDoc, type TodoItem, targetAt, todoDoc } from "../index.js";
+import { docText, showDoc, targetAt, todoDoc } from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -39,8 +38,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 
 const files = (...names: string[]) => names.map(parseFilePath);
 
-test("todoDoc lays out the review table and the owned tree, forge changes standing in as changes", () => {
-  const change = (summary: ChangeSummary): TodoItem => ({ kind: "change", summary });
+test("todoDoc lays out the review table and the owned tree", () => {
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
     parent: parseRefName("gadget"),
@@ -49,47 +47,28 @@ test("todoDoc lays out the review table and the owned tree, forge changes standi
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
-  const forgeChange: ForgeChange = {
-    id: forgeChangeId(7),
-    head: parseRefName("their-feature"),
-    tip: fake("7"),
-    parent: parseRefName("main"),
-    title: "Their feature",
-    author: alice,
-    state: "open",
-    changedFiles: 3,
-  };
   const doc = todoDoc({
-    review: [change(gizmo), { kind: "forge-change", change: forgeChange }],
+    review: [gizmo],
     owned: [
-      { item: change(gadget), children: [{ item: change(gizmo), children: [] }] },
-      { item: change(widgets), children: [] },
-      { item: { kind: "forge-change", change: forgeChange }, children: [] },
+      { summary: gadget, children: [{ summary: gizmo, children: [] }] },
+      { summary: widgets, children: [] },
     ],
-    forge: {
-      locator: parseForgeLocator("github.com/test-org/widgets"),
-      takenAt: timestampMs(Date.UTC(2025, 5, 15, 15, 6, 40)),
-    },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "╭───────────────┬────────╮
-    │ change        │ review │
-    ├───────────────┼────────┤
-    │ gizmo         │      2 │
-    │ their-feature │      3 │
-    ╰───────────────┴────────╯
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gizmo  │      2 │
+    ╰────────┴────────╯
 
     Changes you own:
-    ╭───────────────┬────────┬───────────╮
-    │ change        │ review │ next step │
-    ├───────────────┼────────┼───────────┤
-    │ gadget        │        │ landed    │
-    │ └─ gizmo      │      2 │ review    │
-    │ widgets       │        │ land      │
-    │ their-feature │      3 │ import    │
-    ╰───────────────┴────────┴───────────╯
-
-    github.com/test-org/widgets synced 2025-06-15T15:06:40.000Z"
+    ╭──────────┬────────┬───────────╮
+    │ change   │ review │ next step │
+    ├──────────┼────────┼───────────┤
+    │ gadget   │        │ landed    │
+    │ └─ gizmo │      2 │ review    │
+    │ widgets  │        │ land      │
+    ╰──────────┴────────┴───────────╯"
   `);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -100,11 +79,6 @@ test("todoDoc lays out the review table and the owned tree, forge changes standi
   expect(doc.lines[line]?.spans.filter(({ target }) => target !== undefined)).toEqual([
     { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
   ]);
-  // An unimported forge change's row resolves to it.
-  const forgeChangeLine = docText(doc)
-    .split("\n")
-    .findIndex((text) => text.includes("their-feature"));
-  expect(targetAt(doc, forgeChangeLine)).toEqual({ kind: "forge-change", id: 7, change: "their-feature" });
 });
 
 test("todoDoc with nothing to do says so", () => {
@@ -113,7 +87,6 @@ test("todoDoc with nothing to do says so", () => {
 
 test("showDoc renders the attribute table, remaining review, and files left", () => {
   const doc = showDoc({
-    kind: "change",
     summary: summary("widgets", {
       forgeChange: { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) },
       reviewLeft: files("api.ts", "ui.ts"),
@@ -154,7 +127,6 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
 
 test("showDoc notes disagreeing readings on their own rows", () => {
   const doc = showDoc({
-    kind: "change",
     summary: summary("widgets", {
       reviewLeft: files("api.ts"),
       origin: "behind",
@@ -189,7 +161,6 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 test("showDoc words each note by its reading", () => {
   const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
     const doc = showDoc({
-      kind: "change",
       summary: summary("widgets", { parent: parseRefName("gadget"), ...opts }),
       comments: [],
       remaining: [],
@@ -211,65 +182,8 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({}, "base")).toBe("│ base      │ 111111111111      │");
 });
 
-test("showDoc renders an unimported forge change as the change importing it would create", () => {
-  const doc = showDoc({
-    kind: "forge-change",
-    forge: parseForgeLocator("github.com/test-org/widgets"),
-    change: {
-      id: forgeChangeId(7),
-      head: parseRefName("their-feature"),
-      tip: fake("7"),
-      parent: parseRefName("main"),
-      title: "Their feature",
-      author: userName("carol@users.noreply.github.com"),
-      state: "open",
-      changedFiles: 2,
-    },
-    files: files("api.ts", "ui.ts"),
-    comments: [
-      {
-        timestamp: timestampMs(Date.UTC(2025, 5, 15, 15, 6, 40)),
-        user: userName("carol@users.noreply.github.com"),
-        text: "please take a look",
-      },
-    ],
-  });
-  expect(docText(doc)).toMatchInlineSnapshot(`
-    "their-feature
-    =============
-
-    ╭──────────────┬────────────────────────────────╮
-    │ attribute    │ value                          │
-    ├──────────────┼────────────────────────────────┤
-    │ next step    │ import                         │
-    │ owner        │ carol@users.noreply.github.com │
-    │ parent       │ main                           │
-    │ forge change │ github.com/test-org/widgets#7  │
-    │ title        │ Their feature                  │
-    ╰──────────────┴────────────────────────────────╯
-
-    Comments:
-      2025-06-15T15:06:40.000Z carol@users.noreply.github.com
-        please take a look
-
-    Files to review:
-      api.ts
-      ui.ts"
-  `);
-  // The heading resolves to the forge change, so import actions find it from
-  // anywhere on the page — but as a jump, not an advertised link to itself.
-  expect(targetAt(doc, 0)).toEqual({ kind: "forge-change", id: 7, change: "their-feature" });
-  expect(doc.lines[0]?.spans[0]?.tier).toBe("jump");
-  // File rows carry no targets: there are no diffs to open until the import.
-  const line = docText(doc)
-    .split("\n")
-    .findIndex((text) => text.includes("api.ts"));
-  expect(targetAt(doc, line)).toBeUndefined();
-});
-
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
-    kind: "change",
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
     remaining: ["bob@example.com: 1 file"],
     comments: [
@@ -318,7 +232,6 @@ test("showDoc renders comments between the remaining review and the files, multi
 
 test("showDoc renders a landed change without a files section", () => {
   const doc = showDoc({
-    kind: "change",
     summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
     comments: [],
     remaining: [],

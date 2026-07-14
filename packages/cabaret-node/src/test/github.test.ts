@@ -50,7 +50,6 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       author: expect.stringMatching(/@/),
       state: "merged",
       merge: { commit: expect.stringMatching(/^[0-9a-f]{40}$/), parents: expect.any(Number) },
-      changedFiles: expect.any(Number),
     });
   }, 60000);
 
@@ -101,7 +100,6 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
       title: `live test ${branch}`,
       author: expect.stringMatching(/@/),
       state: "open",
-      changedFiles: 1,
     });
     expect(await forge.findChange(branch)).toEqual(created);
     // The exact body must survive the round trip: idempotency rides on the

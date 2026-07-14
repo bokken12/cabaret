@@ -76,7 +76,6 @@ describe("GitHubForge", () => {
                 author: { login: "alice" },
                 state: "OPEN",
                 mergeCommit: null,
-                changedFiles: 3,
               },
             },
           },
@@ -92,7 +91,6 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
-      changedFiles: 3,
     });
   });
 
@@ -111,7 +109,6 @@ describe("GitHubForge", () => {
                 author: { login: "bob" },
                 state: "MERGED",
                 mergeCommit: { oid: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: { totalCount: 2 } },
-                changedFiles: 1,
               },
             },
           },
@@ -128,7 +125,6 @@ describe("GitHubForge", () => {
       author: "bob@users.noreply.github.com",
       state: "merged",
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
-      changedFiles: 1,
     });
   });
 
@@ -147,7 +143,6 @@ describe("GitHubForge", () => {
                 author: null,
                 state: "CLOSED",
                 mergeCommit: null,
-                changedFiles: 5,
               },
             },
           },
@@ -163,7 +158,6 @@ describe("GitHubForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.github.com",
       state: "closed",
-      changedFiles: 5,
     });
   });
 
@@ -184,7 +178,6 @@ describe("GitHubForge", () => {
                     author: { login: "alice" },
                     state: "OPEN",
                     mergeCommit: null,
-                    changedFiles: 3,
                   },
                 ],
               },
@@ -202,7 +195,6 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@users.noreply.github.com",
       state: "open",
-      changedFiles: 3,
     });
     expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", branch: "add-tables" }]);
   });
@@ -214,7 +206,7 @@ describe("GitHubForge", () => {
     expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
   });
 
-  test("fetchSnapshot follows the pagination cursor, carrying files and comments", async () => {
+  test("fetchOpenChanges follows the pagination cursor, carrying comments and their cap", async () => {
     const calls = stubGitHub({
       [GRAPHQL]: [
         {
@@ -232,8 +224,6 @@ describe("GitHubForge", () => {
                       author: { login: "alice" },
                       state: "OPEN",
                       mergeCommit: null,
-                      changedFiles: 2,
-                      files: { nodes: [{ path: "src/app.ts" }, { path: "docs/guide.md" }] },
                       comments: {
                         nodes: [
                           {
@@ -243,6 +233,7 @@ describe("GitHubForge", () => {
                             updatedAt: "2026-05-01T00:00:00Z",
                           },
                         ],
+                        pageInfo: { hasNextPage: false },
                       },
                     },
                     {
@@ -254,9 +245,7 @@ describe("GitHubForge", () => {
                       author: { login: "bob" },
                       state: "OPEN",
                       mergeCommit: null,
-                      changedFiles: 1,
-                      files: { nodes: [{ path: "widgets.sql" }] },
-                      comments: { nodes: [] },
+                      comments: { nodes: [], pageInfo: { hasNextPage: false } },
                     },
                   ],
                   pageInfo: { hasNextPage: true, endCursor: "CUR1" },
@@ -280,9 +269,7 @@ describe("GitHubForge", () => {
                       author: { login: "alice" },
                       state: "OPEN",
                       mergeCommit: null,
-                      changedFiles: 9,
-                      files: null,
-                      comments: { nodes: [] },
+                      comments: { nodes: [], pageInfo: { hasNextPage: true } },
                     },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
@@ -295,7 +282,7 @@ describe("GitHubForge", () => {
       [`GET ${API}/users/alice`]: { json: { email: null } },
       [`GET ${API}/users/bob`]: { json: { email: null } },
     });
-    expect(await forge().fetchSnapshot()).toEqual([
+    expect(await forge().fetchOpenChanges()).toEqual([
       {
         change: {
           id: 4,
@@ -305,9 +292,7 @@ describe("GitHubForge", () => {
           title: "First",
           author: "alice@users.noreply.github.com",
           state: "open",
-          changedFiles: 2,
         },
-        files: ["src/app.ts", "docs/guide.md"],
         comments: [
           {
             id: "101",
@@ -316,6 +301,7 @@ describe("GitHubForge", () => {
             updatedAt: Date.parse("2026-05-01T00:00:00Z"),
           },
         ],
+        commentsTruncated: false,
       },
       {
         change: {
@@ -326,10 +312,9 @@ describe("GitHubForge", () => {
           title: "Second",
           author: "bob@users.noreply.github.com",
           state: "open",
-          changedFiles: 1,
         },
-        files: ["widgets.sql"],
         comments: [],
+        commentsTruncated: false,
       },
       {
         change: {
@@ -340,10 +325,9 @@ describe("GitHubForge", () => {
           title: "Third",
           author: "alice@users.noreply.github.com",
           state: "open",
-          changedFiles: 9,
         },
-        files: [],
         comments: [],
+        commentsTruncated: true,
       },
     ]);
     expect(graphqlVariables(calls)).toEqual([
@@ -382,7 +366,6 @@ describe("GitHubForge", () => {
                 author: { login: "dave" },
                 state: "OPEN",
                 mergeCommit: null,
-                changedFiles: 1,
               },
             },
           },
@@ -399,7 +382,6 @@ describe("GitHubForge", () => {
       title: "New work",
       author: "dave@users.noreply.github.com",
       state: "open",
-      changedFiles: 1,
     });
     expect(calls[0]?.body).toBe(
       JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "" }),

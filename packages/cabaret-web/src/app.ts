@@ -1,13 +1,5 @@
-import {
-  type FilePath,
-  type ForgeChangeId,
-  importChange,
-  type RefName,
-  syncForgeSnapshot,
-  type TimestampMs,
-  timestampMs,
-} from "cabaret-core";
-import { GitHubBackend, GitHubForge, githubClient } from "cabaret-github";
+import { type FilePath, type RefName, type TimestampMs, timestampMs } from "cabaret-core";
+import { GitHubBackend, githubClient } from "cabaret-github";
 import {
   cachedSnapshot,
   type Doc,
@@ -17,7 +9,6 @@ import {
   parsePagePath,
   renderPage,
   type SnapshotCache,
-  targetAt,
 } from "cabaret-views";
 import { type Config, clearConfig, clearRepo, loadContext } from "./config.js";
 import { docHtml } from "./html.js";
@@ -67,7 +58,6 @@ function button(label: string, onClick: () => void): HTMLButtonElement {
 export function startApp(root: HTMLElement, config: Config): void {
   const client = githubClient(config.token);
   const backend = new GitHubBackend(client, config.repo);
-  const forge = new GitHubForge(client, config.repo);
   const repoName = `${config.repo.owner}/${config.repo.repo}`;
 
   root.replaceChildren();
@@ -128,13 +118,11 @@ export function startApp(root: HTMLElement, config: Config): void {
     try {
       const page = pageFromHash(location.hash);
       if (page.kind === "todo") {
-        // The overview must not trust held snapshots, and visiting it is the
-        // natural re-sync point for everything under review — including the
-        // forge mirror, which this backend only holds in memory: the web app
-        // is online by construction, so the todo page pays for a fresh sweep
-        // the way `cabaret gh pull` does elsewhere.
+        // The overview must not trust held snapshots; visiting it is the
+        // natural re-read point for everything under review. This app is a
+        // viewer of the review state published to origin — importing open
+        // forge changes is `cabaret gh pull`'s job, from a checkout.
         snapshots.clear();
-        await syncForgeSnapshot(backend, now, forge);
       }
       const doc = await renderPage(backend, page, { cache: snapshots, context: loadContext() });
       if (mine !== seq) {
@@ -142,7 +130,7 @@ export function startApp(root: HTMLElement, config: Config): void {
       }
       current = { page, doc };
       main.innerHTML = docHtml(doc);
-      updateActions(page, doc);
+      updateActions(page);
       document.title = pageTitle(page);
     } catch (error) {
       if (mine !== seq) {
@@ -167,13 +155,9 @@ export function startApp(root: HTMLElement, config: Config): void {
     }
   }
 
-  function updateActions(page: Page, doc: Doc): void {
+  function updateActions(page: Page): void {
     actions.replaceChildren();
-    // An unimported forge change's show page opens with a heading that resolves to it.
-    const heading = targetAt(doc, 0);
-    if (heading?.kind === "forge-change") {
-      actions.append(button("Import change", () => void runImport(heading.id, heading.change)));
-    } else if (page.kind === "show") {
+    if (page.kind === "show") {
       actions.append(button("Review", () => goto({ kind: "review", change: page.change })));
     } else if (page.kind === "diff") {
       actions.append(button("Mark reviewed", () => void runMarkReviewed(page.change, page.file)));
@@ -186,17 +170,6 @@ export function startApp(root: HTMLElement, config: Config): void {
         void render();
       }),
     );
-  }
-
-  async function runImport(id: ForgeChangeId, change: RefName): Promise<void> {
-    try {
-      await importChange(backend, now, forge, id);
-      // The change's show page shares the forge change's page fragment, so
-      // land there whichever page the import ran from.
-      goto({ kind: "show", change });
-    } catch (error) {
-      notify(message(error));
-    }
   }
 
   async function runMarkReviewed(change: RefName, file: FilePath): Promise<void> {
@@ -245,10 +218,6 @@ export function startApp(root: HTMLElement, config: Config): void {
         break;
       case "file":
         goto({ kind: "diff", change: target.change, file: target.file });
-        break;
-      case "forge-change":
-        // The as-if-imported view; importing is its own action.
-        goto({ kind: "show", change: target.change });
         break;
     }
   });

@@ -93,7 +93,8 @@ export interface CommentSource {
 
 /** An action that can be recorded in a change's log. */
 export type LogAction =
-  | { readonly kind: "set-parent"; readonly parent: RefName }
+  /** `source` marks a mirror of the forge's target branch, telling the last observed forge parent apart from local intent. */
+  | { readonly kind: "set-parent"; readonly parent: RefName; readonly source?: ForgeLocator | undefined }
   | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
@@ -119,7 +120,11 @@ const CommentSourceSchema = z.object({
 }) satisfies z.ZodType<CommentSource>;
 
 const LogActionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
+  z.object({
+    kind: z.literal("set-parent"),
+    parent: z.string().transform(parseRefName),
+    source: z.string().transform(parseForgeLocator).optional(),
+  }),
   z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
   z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
   z.object({
@@ -258,8 +263,6 @@ export interface ForgeChange {
   /** Who opened the change, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
-  /** How many files the change touches. */
-  readonly changedFiles: number;
   /** The commit that merged the change, when `state` is "merged". */
   readonly merge?: ForgeMerge | undefined;
 }
@@ -272,82 +275,6 @@ export interface ForgeComment {
   readonly body: string;
   /** When the comment was last edited in place; its creation time until then. */
   readonly updatedAt: TimestampMs;
-}
-
-/** An open forge change as a snapshot holds it: the change plus what previewing it needs. */
-export interface SnapshotChange {
-  readonly change: ForgeChange;
-  /** The paths the change touches; a change touching very many may carry only the first hundred. */
-  readonly files: readonly FilePath[];
-  /** The change-level comments, oldest first; a long discussion may carry only the first hundred. */
-  readonly comments: readonly ForgeComment[];
-}
-
-/**
- * A local mirror of a forge's open changes, taken whole at one sync.
- * Rendering reads forge state only from here — never from the forge itself —
- * so pages cost no API calls and work offline; only the commands that talk to
- * the forge anyway refresh it.
- */
-export interface ForgeSnapshot {
-  readonly locator: ForgeLocator;
-  /** When the snapshot was taken, so staleness can be shown rather than mistaken for truth. */
-  readonly takenAt: TimestampMs;
-  readonly changes: readonly SnapshotChange[];
-}
-
-const ForgeMergeSchema = z.object({
-  commit: z.string().transform(parseCommitHash),
-  parents: z.number(),
-}) satisfies z.ZodType<ForgeMerge>;
-
-const ForgeChangeSchema = z.object({
-  id: z.number().transform(forgeChangeId),
-  head: z.string().transform(parseRefName),
-  tip: z.string().transform(parseCommitHash),
-  parent: z.string().transform(parseRefName),
-  title: z.string(),
-  author: z.string().min(1).transform(userName),
-  state: z.enum(["open", "closed", "merged"]),
-  changedFiles: z.number(),
-  merge: ForgeMergeSchema.optional(),
-}) satisfies z.ZodType<ForgeChange>;
-
-const ForgeCommentSchema = z.object({
-  id: z.string().min(1),
-  author: z.string().min(1).transform(userName),
-  body: z.string(),
-  updatedAt: z.number().transform(timestampMs),
-}) satisfies z.ZodType<ForgeComment>;
-
-const ForgeSnapshotSchema = z.object({
-  locator: z.string().transform(parseForgeLocator),
-  takenAt: z.number().transform(timestampMs),
-  changes: z.array(
-    z.object({
-      change: ForgeChangeSchema,
-      files: z.array(z.string().transform(parseFilePath)),
-      comments: z.array(ForgeCommentSchema),
-    }),
-  ),
-}) satisfies z.ZodType<ForgeSnapshot>;
-
-/** Render a snapshot as the JSON `parseForgeSnapshot` reads, validating it on the way. */
-export function formatForgeSnapshot(snapshot: ForgeSnapshot): string {
-  return JSON.stringify(ForgeSnapshotSchema.parse(snapshot));
-}
-
-/**
- * Parse a stored snapshot, or undefined when `text` is not one. A snapshot is
- * a cache of the forge, so anything unreadable — including a snapshot written
- * under an older schema — reads as never having synced, never as an error.
- */
-export function parseForgeSnapshot(text: string): ForgeSnapshot | undefined {
-  try {
-    return ForgeSnapshotSchema.parse(JSON.parse(text));
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -439,6 +366,12 @@ export interface Backend {
   fetchBranch(branch: RefName): Promise<void>;
 
   /**
+   * As `fetchBranch` for each of `branches`, in one round trip where the
+   * backend can batch refspecs. Callers pass only branches absent locally.
+   */
+  fetchBranches(branches: readonly RefName[]): Promise<void>;
+
+  /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
    * it with the local log as `mergeLogs` does, and push the result. Either
    * side may be missing; syncing is how a change's review state reaches other
@@ -453,10 +386,10 @@ export interface Backend {
   syncLogs(): Promise<readonly RefName[]>;
 
   /**
-   * Delete the review state this repository holds: every change's log, the
-   * fetched copies of origin's logs, and the forge snapshot. Branches and
-   * commits are untouched, and origin keeps its logs, so syncing restores
-   * them. Returns the names of the changes whose logs were deleted, sorted.
+   * Delete the review state this repository holds: every change's log and the
+   * fetched copies of origin's logs. Branches and commits are untouched, and
+   * origin keeps its logs, so syncing restores them. Returns the names of the
+   * changes whose logs were deleted, sorted.
    */
   wipeReviewState(): Promise<readonly RefName[]>;
 
@@ -485,12 +418,6 @@ export interface Backend {
    */
   listChanges(): Promise<readonly RefName[]>;
 
-  /** The stored forge snapshot, or undefined when none has been taken. */
-  readForgeSnapshot(): Promise<ForgeSnapshot | undefined>;
-
-  /** Store `snapshot` as the forge snapshot, replacing any prior one. */
-  writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void>;
-
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
@@ -505,6 +432,13 @@ export interface Backend {
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
   appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void>;
+
+  /**
+   * Delete `change`'s log everywhere this backend reaches: locally, the
+   * fetched copy of origin's, and origin's own. Gone for every user — callers
+   * decide a log holds nothing worth keeping before deleting it.
+   */
+  deleteLog(change: RefName): Promise<void>;
 }
 
 /**
@@ -527,7 +461,9 @@ function latestAction<K extends LogAction["kind"]>(
 /** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
 export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
-    throw new UserError(`change does not exist: ${JSON.stringify(change)}; run \`cabaret create\` first`);
+    throw new UserError(
+      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret gh pull\` to import open forge changes`,
+    );
   }
 }
 
@@ -568,6 +504,27 @@ export function currentForgeChange(
   const action = latestAction(entries, "set-forge");
   // Rebuilt so the value is what the type says, with no `kind` tagging along.
   return action && { forge: action.forge, id: action.id };
+}
+
+/**
+ * The parent the log last observed on `forge` — the latest `set-parent`
+ * carrying it as `source` — or undefined when the forge's parent was never
+ * observed. What a pull compares the forge's parent against: only a forge
+ * that moved since last observed mirrors in, so a local reparent awaiting a
+ * push is never overridden by re-observing the state it is about to replace.
+ */
+export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLocator): RefName | undefined {
+  let found: LogEntry | undefined;
+  for (const entry of entries) {
+    if (
+      entry.action.kind === "set-parent" &&
+      entry.action.source === forge &&
+      (found === undefined || compareLogEntries(entry, found) >= 0)
+    ) {
+      found = entry;
+    }
+  }
+  return found?.action.kind === "set-parent" ? found.action.parent : undefined;
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */

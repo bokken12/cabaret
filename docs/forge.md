@@ -88,13 +88,25 @@ This is the less certain half. What syncs comfortably:
 - **Creation**: `gh push` pushes the branch (`--force-with-lease`, since changes rebase) and opens the PR.
 - **Reparent**: `gh push` updates the PR base to match the current parent.
 - **Rename**: pushes the new branch and retargets the PR head... which GitHub does not support; in practice this closes and reopens. An oddity to paper over later.
-- **Close/merge state**: `gh pull` and `gh import` record a merged PR as landing the change. `gh push` sees the same state but only sends — the directions stay separate.
+- **Close/merge state**: `gh pull` records a merged PR as landing the change. `gh push` sees the same state but only sends — the directions stay separate.
 
 Landing is where the models genuinely diverge. `cabaret land` produces a merge commit carrying the `Cabaret-Landed` trailer, which is what lets parent reviewers skip already-reviewed diffs. A teammate pressing GitHub's merge button produces a merge (or worse, a squash) without the trailer, so that machinery misses it. `gh pull` can at least append the `land` entry when it sees the PR merged, recording the merge commit and freezing the change correctly — but the trailer-based review skip is lost, and a squash merge diverges history outright.
 
 Tentative: pull records forge-side merges as `land`, and the recommended workflow is that the Cabaret user does the landing (`cabaret land` then `gh push`, which closes the PR as merged). Making teammate-side merges first-class can come later if it earns its keep.
 
 A partial mitigation worth pursuing: have `gh push` end the PR description with the `Cabaret-Landed` trailer. When the repo's squash-message setting is "pull request title and description" (or the merger keeps the prefilled message), the trailer rides into the squash commit — trailers must sit in the message's final paragraph, so it must stay the last line. `landMerges` would then need to accept trailer-bearing ordinary commits, not just merges, treating the squash's diff as the reviewed diff. Best-effort only, since it leans on repo settings and the merger not editing the message.
+
+## Pull imports everything
+
+There is one representation of a forge change: its change log. `gh pull` imports every open forge change that has no log yet as a change to review — owned by its author, parented on its target branch, its discussion pulled — then refreshes every tracked change and syncs logs with origin. There is no separate import command, no local mirror of forge state, and no "unimported" rendering: the todo and show pages read change logs alone, so rendering never calls the forge and works offline between pulls.
+
+The bulk sweep is one GraphQL query per hundred open changes, each carrying its comments capped at the first hundred; when the cap bites (`commentsTruncated`), the importer falls back to `listComments` for the full discussion.
+
+Two machines pulling concurrently import the same change twice, each stamping its `set-*` entries with its own clock and identity. That is fine by construction: union merging keeps both machines' entries and every read takes the latest, so the most recent observation of the forge wins. (Comment imports are stronger — determined by forge data alone, they dedupe byte-identically, per Pull above.)
+
+A change whose forge change closes unmerged is pruned on the next pull when its log is a pure import — nothing but forge-sourced `set-parent`, other `set-*` entries, and forge-sourced comments — since nobody engaged with it and the forge walked away. An engaged change stays, closed forge change or not, exactly like a native change whose branch dies. (Follow-up: a `close` log action, so an engaged change whose forge change closes stops lingering in todo.)
+
+Retargets mirror in both directions. `gh push` retargets the forge change to the local parent; `gh pull` reparents the change when the forge's target branch moved. Telling a forge-side retarget apart from a not-yet-pushed local reparent needs one more bit: `set-parent` entries carry an optional forge `source` (as comments do), written whenever the forge's parent is *observed* — at import, at adoption when the sides already agree, and by every push that sets it. Pull then compares the forge's parent against the last observed one, not against local intent: a forge that moved since last observed mirrors in and wins by timestamp, while a local reparent awaiting its push is left alone.
 
 ## The `Forge` interface
 
@@ -104,8 +116,8 @@ Small, imperative, everything the planner can't compute:
 interface Forge {
   /** The open forge change with head `branch`, if any. */
   findChange(branch: RefName): Promise<ForgeChange | undefined>;
-  /** Every open forge change; on the todo page the ones with no change log stand in as changes awaiting import. */
-  fetchSnapshot(): Promise<readonly SnapshotChange[]>;
+  /** Every open forge change with its comments, in one bulk sweep. */
+  fetchOpenChanges(): Promise<readonly OpenChange[]>;
   getChange(id: ForgeChangeId): Promise<ForgeChange>;
   createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange>;
   setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
@@ -114,7 +126,9 @@ interface Forge {
 }
 ```
 
-with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`, and `ForgeChange` carrying `id`, `head`, `parent`, `title`, `author`, `state`, `merge`, `changedFiles`. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`; `ForgeChange` carrying `id`, `head`, `parent`, `title`, `author`, `state`, `merge`; and `OpenChange` pairing a `ForgeChange` with its (possibly capped) comments. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+
+The web app is a pure viewer: its backend reads logs straight from origin, and a browser has no local tier for a pull to import into, so importing is `gh pull`'s job from a checkout. Open forge changes nobody has pulled are simply not visible there yet.
 
 ## Data model changes
 

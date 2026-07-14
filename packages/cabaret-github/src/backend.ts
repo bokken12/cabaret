@@ -2,7 +2,6 @@ import {
   type Backend,
   type CommitHash,
   type FilePath,
-  type ForgeSnapshot,
   formatLogEntry,
   LAND_TRAILER,
   type LandMerge,
@@ -100,23 +99,11 @@ export class GitHubBackend implements Backend {
   // failures surface through each batch's own `done`.
   private readonly waiting = new Map<RefName, { entries: LogEntry[]; done: Promise<void> }>();
   private readonly running = new Map<RefName, Promise<void>>();
-  // Held in memory only: this backend lives in a browser session with no
-  // filesystem, and its host is online by construction, so it re-syncs the
-  // snapshot rather than persisting one.
-  private snapshot: ForgeSnapshot | undefined;
 
   constructor(
     private readonly client: GitHubClient,
     private readonly repo: GitHubRepo,
   ) {}
-
-  async readForgeSnapshot(): Promise<ForgeSnapshot | undefined> {
-    return this.snapshot;
-  }
-
-  async writeForgeSnapshot(snapshot: ForgeSnapshot): Promise<void> {
-    this.snapshot = snapshot;
-  }
 
   /** The cached promise for `key`, computing and remembering it on the first ask; a rejection is not cached. */
   private cached<K, V>(cache: Map<K, Promise<V>>, key: K, compute: () => Promise<V>): Promise<V> {
@@ -375,6 +362,10 @@ export class GitHubBackend implements Backend {
     // This backend already operates on origin; there is nothing to fetch from.
   }
 
+  async fetchBranches(): Promise<void> {
+    // This backend already operates on origin; there is nothing to fetch from.
+  }
+
   async syncLog(): Promise<void> {
     // This backend already operates on origin: reads see its logs and appends
     // land in them, so local and remote cannot diverge.
@@ -385,21 +376,26 @@ export class GitHubBackend implements Backend {
   }
 
   async wipeReviewState(): Promise<readonly RefName[]> {
-    // The logs live on origin itself, out of this wipe's scope; the snapshot
-    // cache is the only review state held on this side.
-    this.snapshot = undefined;
+    // The logs live on origin itself, out of this wipe's scope, and nothing
+    // is held on this side.
     return [];
   }
 
   async wipeOriginLogs(): Promise<readonly RefName[]> {
     const changes = await this.listChanges();
     for (const change of changes) {
-      await this.client.request("DELETE /repos/{owner}/{repo}/git/refs/{ref}", {
-        ...this.repo,
-        ref: `${LOG_REF_PREFIX.slice("refs/".length)}${change}`,
-      });
+      await this.deleteLog(change);
     }
     return changes;
+  }
+
+  async deleteLog(change: RefName): Promise<void> {
+    // The log lives on origin alone; deleting the ref there deletes it
+    // everywhere this backend sees.
+    await this.client.request("DELETE /repos/{owner}/{repo}/git/refs/{ref}", {
+      ...this.repo,
+      ref: `${LOG_REF_PREFIX.slice("refs/".length)}${change}`,
+    });
   }
 
   readFile(commit: CommitHash, file: FilePath): Promise<string | undefined> {

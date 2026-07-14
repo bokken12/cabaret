@@ -131,12 +131,8 @@
         "title": "Cabaret: Mark Reviewed"
       },
       {
-        "command": "cabaret.import",
-        "title": "Cabaret: Import Change"
-      },
-      {
-        "command": "cabaret.syncForge",
-        "title": "Cabaret: Sync Forge"
+        "command": "cabaret.pull",
+        "title": "Cabaret: Pull from Forge"
       }
     ],
     "menus": {
@@ -194,11 +190,7 @@
           "when": "cabaret.page == 'diff'"
         },
         {
-          "command": "cabaret.import",
-          "when": "cabaret.page == 'todo' || cabaret.page == 'show'"
-        },
-        {
-          "command": "cabaret.syncForge",
+          "command": "cabaret.pull",
           "when": "resourceScheme == cabaret"
         }
       ]
@@ -270,12 +262,7 @@
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.import",
-        "key": "shift+1 i",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
-      },
-      {
-        "command": "cabaret.syncForge",
+        "command": "cabaret.pull",
         "key": "shift+1 s",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }

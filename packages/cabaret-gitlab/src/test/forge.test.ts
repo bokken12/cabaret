@@ -95,7 +95,6 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
-      changedFiles: 3,
     });
   });
 
@@ -138,7 +137,6 @@ describe("GitLabForge", () => {
       author: "12-bob@users.noreply.gitlab.com",
       state: "merged",
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
-      changedFiles: 1,
     });
   });
 
@@ -251,7 +249,6 @@ describe("GitLabForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.gitlab.com",
       state: "closed",
-      changedFiles: 5,
     });
     expect(calls).toHaveLength(1);
   });
@@ -409,7 +406,6 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "31-alice@users.noreply.gitlab.com",
       state: "open",
-      changedFiles: 3,
     });
     expect(graphqlVariables(calls)[0]).toEqual({ path: "test-org/widgets", branch: "add-tables" });
   });
@@ -421,7 +417,7 @@ describe("GitLabForge", () => {
     expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
   });
 
-  test("fetchSnapshot follows the pagination cursor, carrying files and non-system notes", async () => {
+  test("fetchOpenChanges follows the pagination cursor, carrying non-system notes and their cap", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: [
         {
@@ -439,8 +435,6 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       mergeCommitSha: null,
-                      diffStatsSummary: { fileCount: 2 },
-                      diffStats: [{ path: "src/app.ts" }, { path: "docs/guide.md" }],
                       notes: {
                         nodes: [
                           {
@@ -458,6 +452,7 @@ describe("GitLabForge", () => {
                             updatedAt: "2026-05-02T00:00:00Z",
                           },
                         ],
+                        pageInfo: { hasNextPage: false },
                       },
                     },
                     {
@@ -469,9 +464,7 @@ describe("GitLabForge", () => {
                       author: { username: "bob" },
                       state: "opened",
                       mergeCommitSha: null,
-                      diffStatsSummary: { fileCount: 1 },
-                      diffStats: [{ path: "widgets.sql" }],
-                      notes: { nodes: [] },
+                      notes: { nodes: [], pageInfo: { hasNextPage: false } },
                     },
                   ],
                   pageInfo: { hasNextPage: true, endCursor: "CUR1" },
@@ -499,9 +492,7 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       mergeCommitSha: null,
-                      diffStatsSummary: { fileCount: 9 },
-                      diffStats: null,
-                      notes: { nodes: [] },
+                      notes: { nodes: [], pageInfo: { hasNextPage: true } },
                     },
                   ],
                   pageInfo: { hasNextPage: false, endCursor: null },
@@ -512,7 +503,7 @@ describe("GitLabForge", () => {
         },
       ],
     });
-    expect(await forge().fetchSnapshot()).toEqual([
+    expect(await forge().fetchOpenChanges()).toEqual([
       {
         change: {
           id: 4,
@@ -522,9 +513,7 @@ describe("GitLabForge", () => {
           title: "First",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
-          changedFiles: 2,
         },
-        files: ["src/app.ts", "docs/guide.md"],
         comments: [
           {
             id: "101",
@@ -533,6 +522,7 @@ describe("GitLabForge", () => {
             updatedAt: Date.parse("2026-05-01T00:00:00Z"),
           },
         ],
+        commentsTruncated: false,
       },
       {
         change: {
@@ -543,10 +533,9 @@ describe("GitLabForge", () => {
           title: "Second",
           author: "12-bob@users.noreply.gitlab.com",
           state: "open",
-          changedFiles: 1,
         },
-        files: ["widgets.sql"],
         comments: [],
+        commentsTruncated: false,
       },
       {
         change: {
@@ -557,10 +546,9 @@ describe("GitLabForge", () => {
           title: "Third",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
-          changedFiles: 9,
         },
-        files: [],
         comments: [],
+        commentsTruncated: true,
       },
     ]);
     expect(graphqlVariables(calls)).toEqual([
@@ -626,7 +614,6 @@ describe("GitLabForge", () => {
       title: "New work",
       author: "9-dave@users.noreply.gitlab.com",
       state: "open",
-      changedFiles: 1,
     });
     expect(calls[0]?.body).toBe(
       JSON.stringify({ source_branch: "new-work", target_branch: "parent-branch", title: "New work" }),

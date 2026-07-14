@@ -9,7 +9,7 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
   const repo = await makeRepo();
   expect(await repo.cabaret("show")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create` first\n',
+    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret gh pull` to import open forge changes\n',
     exitCode: 1,
   });
 });

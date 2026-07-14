@@ -8,12 +8,11 @@ import {
   type ForgeMerge,
   forgeChangeId,
   type LandMethod,
+  type OpenChange,
   parseCommitHash,
-  parseFilePath,
   parseForgeLocator,
   parseRefName,
   type RefName,
-  type SnapshotChange,
   timestampMs,
   UserError,
   type UserName,
@@ -36,12 +35,10 @@ function noreplyUser(id: string | undefined, username: string): UserName {
 // admits one, and this fixed identity keeps the mapping total.
 const GHOST = noreplyUser(undefined, "ghost");
 
-// The MR fields every query selects. GraphQL rather than REST because
-// the queries need a changed-file count, which REST carries only on a single
-// fetched MR — and there as a string capped at "1000+".
-const MR_FIELDS =
-  "iid sourceBranch diffHeadSha targetBranch title author { username } state " +
-  "mergeCommitSha diffStatsSummary { fileCount }";
+// The MR fields every query selects. GraphQL rather than REST because the
+// open-changes sweep pages a hundred MRs with their notes in one query —
+// REST would make it N+1.
+const MR_FIELDS = "iid sourceBranch diffHeadSha targetBranch title author { username } state mergeCommitSha";
 
 const MrSchema = z.object({
   // GraphQL serializes the iid as a string.
@@ -53,7 +50,6 @@ const MrSchema = z.object({
   author: z.object({ username: z.string() }).nullable(),
   state: z.enum(["opened", "closed", "locked", "merged"]),
   mergeCommitSha: z.string().transform(parseCommitHash).nullable(),
-  diffStatsSummary: z.object({ fileCount: z.number() }),
 });
 
 const FIND_MR = `query ($path: ID!, $branch: String!) {
@@ -62,16 +58,15 @@ const FIND_MR = `query ($path: ID!, $branch: String!) {
   }
 }`;
 
-// A snapshot's comments are capped at the first hundred per MR rather
-// than paginated, keeping the whole sweep to one query per hundred open
-// MRs; an import still reads them in full over REST. `diffStats` lists
-// every touched path with no pagination to cap.
-const SNAPSHOT_FIELDS = `${MR_FIELDS} diffStats { path } notes(first: 100) { nodes { id author { username } body system updatedAt } }`;
+// Notes are capped at the first hundred per MR rather than paginated,
+// keeping the whole sweep to one query per hundred open MRs; the page info
+// reports the cap so readers needing more fall back to `listComments`.
+const OPEN_CHANGE_FIELDS = `${MR_FIELDS} notes(first: 100) { nodes { id author { username } body system updatedAt } pageInfo { hasNextPage } }`;
 
-const FETCH_SNAPSHOT = `query ($path: ID!, $cursor: String) {
+const FETCH_OPEN_CHANGES = `query ($path: ID!, $cursor: String) {
   project(fullPath: $path) {
     mergeRequests(state: opened, first: 100, after: $cursor) {
-      nodes { ${SNAPSHOT_FIELDS} }
+      nodes { ${OPEN_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -97,8 +92,7 @@ const FindMrSchema = z.object({
 // on it) identifies the same note.
 const NOTE_GID = /(\d+)$/;
 
-const SnapshotMrSchema = MrSchema.extend({
-  diffStats: z.array(z.object({ path: z.string().transform(parseFilePath) })).nullable(),
+const OpenMrSchema = MrSchema.extend({
   notes: z.object({
     nodes: z.array(
       z.object({
@@ -109,14 +103,15 @@ const SnapshotMrSchema = MrSchema.extend({
         updatedAt: z.string(),
       }),
     ),
+    pageInfo: z.object({ hasNextPage: z.boolean() }),
   }),
 });
 
-const FetchSnapshotSchema = z.object({
+const FetchOpenChangesSchema = z.object({
   project: z
     .object({
       mergeRequests: z.object({
-        nodes: z.array(SnapshotMrSchema),
+        nodes: z.array(OpenMrSchema),
         pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
       }),
     })
@@ -221,7 +216,6 @@ export class GitLabForge implements Forge {
       // A locked MR is mid-merge on the server; until that lands it has
       // not merged, so it reads as open.
       state: mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open",
-      changedFiles: mr.diffStatsSummary.fileCount,
       ...(mr.state === "merged" ? { merge: await this.mergeOf(mr) } : {}),
     };
   }
@@ -272,15 +266,15 @@ export class GitLabForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toSnapshotChange(mr: z.infer<typeof SnapshotMrSchema>): Promise<SnapshotChange> {
+  private async toOpenChange(mr: z.infer<typeof OpenMrSchema>): Promise<OpenChange> {
     const change = await this.toChange(mr);
     const comments = await Promise.all(
       mr.notes.nodes
         .filter((note) => !note.system)
         .map(async (note) => {
           const id = NOTE_GID.exec(note.id)?.[1];
-          // A gid in any other shape must not silently desynchronize the
-          // snapshot's note identities from REST's.
+          // A gid in any other shape must not silently desynchronize these
+          // note identities from REST's.
           if (id === undefined) {
             throw new Error(`unexpected note id format: ${note.id}`);
           }
@@ -292,16 +286,18 @@ export class GitLabForge implements Forge {
           };
         }),
     );
-    return { change, files: mr.diffStats?.map(({ path }) => path) ?? [], comments };
+    // System notes are filtered after the cap, so a capped page may over-
+    // report truncation; the fallback just re-lists what was already whole.
+    return { change, comments, commentsTruncated: mr.notes.pageInfo.hasNextPage };
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
-    const changes: Promise<SnapshotChange>[] = [];
+  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
+    const changes: Promise<OpenChange>[] = [];
     let cursor: string | null = null;
     do {
-      const out: unknown = await this.client.graphql(FETCH_SNAPSHOT, { path: this.project.path, cursor });
-      const { nodes, pageInfo } = this.requireProject(FetchSnapshotSchema.parse(out).project).mergeRequests;
-      changes.push(...nodes.map(this.toSnapshotChange, this));
+      const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, cursor });
+      const { nodes, pageInfo } = this.requireProject(FetchOpenChangesSchema.parse(out).project).mergeRequests;
+      changes.push(...nodes.map(this.toOpenChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
     return Promise.all(changes);

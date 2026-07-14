@@ -36,20 +36,17 @@ export interface RenderOptions {
 }
 
 /**
- * Query `backend` and render `page` for its current user. Forge state comes
- * from the backend's stored snapshot — rendering never calls the forge. The
- * review and diff pages render from the change's snapshot in `options.cache`
- * when one is held, letting a host reuse one reading across a whole review
- * pass.
+ * Query `backend` and render `page` for its current user. Rendering reads
+ * change logs alone — it never calls the forge. The review and diff pages
+ * render from the change's snapshot in `options.cache` when one is held,
+ * letting a host reuse one reading across a whole review pass.
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
   switch (page.kind) {
     case "todo":
-      return todoDoc(await todoPage(backend, await backend.currentUser(), await backend.readForgeSnapshot()));
+      return todoDoc(await todoPage(backend, await backend.currentUser()));
     case "show":
-      return showDoc(
-        await showPage(backend, await backend.currentUser(), page.change, await backend.readForgeSnapshot()),
-      );
+      return showDoc(await showPage(backend, await backend.currentUser(), page.change));
     case "review":
       return reviewDoc(reviewPage(await cachedSnapshot(backend, page.change, options.cache)));
     case "diff":
