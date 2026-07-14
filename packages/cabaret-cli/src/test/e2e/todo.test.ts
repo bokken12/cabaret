@@ -36,11 +36,11 @@ test("todo with no changes has nothing to do", async () => {
   `);
 });
 
-test("gh pull imports an open PR, and todo lists it as a change to review", async () => {
+test("pull imports an open forge change, and todo lists it as a change to review", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  // A teammate's branch lives on origin and in a PR, but not locally.
+  // A teammate's branch lives on origin and in a forge change, but not locally.
   await repo.git("checkout", "-q", "main");
   await repo.git("checkout", "-qb", "their-feature");
   await repo.write("their.txt", "their work\n");
@@ -50,7 +50,7 @@ test("gh pull imports an open PR, and todo lists it as a change to review", asyn
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
-  await repo.cabaret("gh", "pull");
+  await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭───────────────┬────────╮
     │ change        │ review │
@@ -69,7 +69,7 @@ test("gh pull imports an open PR, and todo lists it as a change to review", asyn
   `);
 });
 
-test("your own PR joins the changes you own when identities align", async () => {
+test("your own forge change joins the changes you own when identities align", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("config", "user.email", "alice@users.noreply.github.com");
@@ -80,7 +80,7 @@ test("your own PR joins the changes you own when identities align", async () => 
   await repo.git("push", "-q", "origin", "solo-feature");
   await repo.git("checkout", "-q", "main");
   forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature");
-  await repo.cabaret("gh", "pull");
+  await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭──────────────┬────────╮
     │ change       │ review │
@@ -98,12 +98,12 @@ test("your own PR joins the changes you own when identities align", async () => 
   `);
 });
 
-test("a merged PR is not imported", async () => {
+test("a merged forge change is not imported", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
-  await repo.cabaret("gh", "pull");
+  await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Nothing to do.
     "

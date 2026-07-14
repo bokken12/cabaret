@@ -68,7 +68,7 @@ test("show renders the comments on a change, oldest first, above the files", asy
   `);
 });
 
-test("show renders a change gh pull imported like any other", async () => {
+test("show renders a change pull imported like any other", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The teammate's branch lives on origin and in a PR, but not locally.
@@ -81,7 +81,7 @@ test("show renders a change gh pull imported like any other", async () => {
   await repo.git("branch", "-qD", "their-feature");
   const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
-  await repo.cabaret("gh", "pull");
+  await repo.cabaret("pull");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
     "their-feature
     =============
