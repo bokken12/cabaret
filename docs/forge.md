@@ -47,7 +47,7 @@ Idempotency needs each comment to have a stable identity on both sides. The caut
 
 The two directions store the cross-reference in opposite places:
 
-**Pull** stamps provenance into the imported entry itself: the `comment` action gains an optional `source` field carrying the forge locator and comment id. An entry with `source` came from the forge; one without originated locally.
+**Pull** stamps provenance into the imported entry itself: every log entry has an optional top-level `source` field — beside `timestamp` and `user`, since provenance is metadata about how the entry got written, not part of the action's meaning — carrying the forge locator and, for objects the forge keeps (comments), the forge-side id. An entry with `source` mirrors the forge; one without originated locally. Every entry a pull imports or a push observes carries it, whatever its action.
 
 **Push** stamps provenance into the GitHub comment body: an invisible HTML comment `<!-- cabaret:<entry-hash> -->` (markdown swallows it in rendering). GitHub itself is then the record of what has been pushed — no local "already posted" state that a second machine would lack.
 
@@ -59,7 +59,8 @@ For each issue comment on the PR, import a log entry:
 
 - `timestamp`: the forge's own clock — `updated_at` (which equals `created_at` when never edited), in ms.
 - `user`: the author's public profile email when their account shows one, else `login@users.noreply.github.com` (GitHub's real noreply convention; `identity.md` already accepts that identity is unverified).
-- `action`: `comment` with the body as `text` and `source` set.
+- `source`: the forge locator and the comment's id.
+- `action`: `comment` with the body as `text`.
 
 Skip any comment whose id already appears as a `source` in the log, and any comment bearing a `cabaret:` marker whose hash matches a local entry (that's our own reflection — importing it would echo).
 
@@ -75,7 +76,7 @@ Comments are posted by whoever's token it is, so when the entry's `user` isn't t
 
 GitHub comments mutate in place; the log never mutates. The bridge is supersession, which is Cabaret's native idiom anyway: when pull sees a comment whose body no longer matches the newest entry with that `source` id, it imports a fresh entry (new `updated_at` timestamp, same `source`). Display-time derivation groups entries by `source` id and shows the latest — precisely the latest-timestamp-wins fold used for `set-parent`, brains, and everything else.
 
-An edit to a comment that *originated* in Cabaret works the same way: the marker links the GitHub id back to the original entry's hash, and the imported superseding entry records that hash in its `source` so derivation can group them (markers are stripped from imported bodies).
+An edit to a comment that *originated* in Cabaret works the same way: the marker links the GitHub id back to the original entry's hash, and the imported superseding entry records that hash in its action's `edits` field so derivation can group them (markers are stripped from imported bodies). Supersession is a property of comments, not of forge provenance — a future local comment edit writes the same `edits` link with no `source` at all.
 
 Cabaret-side comments are immutable, so push never needs to PATCH anything. If Cabaret ever grows comment editing, it should adopt the same supersession shape, and push maps it to a PATCH.
 
@@ -104,9 +105,17 @@ The bulk sweep is one GraphQL query per hundred open changes, each carrying its 
 
 Two machines pulling concurrently import the same change twice, each stamping its `set-*` entries with its own clock and identity. That is fine by construction: union merging keeps both machines' entries and every read takes the latest, so the most recent observation of the forge wins. (Comment imports are stronger — determined by forge data alone, they dedupe byte-identically, per Pull above.)
 
-A change whose forge change closes unmerged is pruned on the next pull when its log is a pure import — nothing but forge-sourced `set-parent`, other `set-*` entries, and forge-sourced comments — since nobody engaged with it and the forge walked away. An engaged change stays, closed forge change or not, exactly like a native change whose branch dies. (Follow-up: a `close` log action, so an engaged change whose forge change closes stops lingering in todo.)
+A change whose forge change closes unmerged is pruned on the next pull when its log is a pure import — every entry carries a forge `source` — since nobody engaged with it and the forge walked away. An engaged change stays, closed forge change or not, exactly like a native change whose branch dies. (Follow-up: a `close` log action, so an engaged change whose forge change closes stops lingering in todo.)
 
-Retargets mirror in both directions. `cabaret push` retargets the forge change to the local parent; `cabaret pull` reparents the change when the forge's target branch moved. Telling a forge-side retarget apart from a not-yet-pushed local reparent needs one more bit: `set-parent` entries carry an optional forge `source` (as comments do), written whenever the forge's parent is *observed* — at import, at adoption when the sides already agree, and by every push that sets it. Pull then compares the forge's parent against the last observed one, not against local intent: a forge that moved since last observed mirrors in and wins by timestamp, while a local reparent awaiting its push is left alone.
+Retargets mirror in both directions. `cabaret push` retargets the forge change to the local parent; `cabaret pull` reparents the change when the forge's target branch moved. Telling a forge-side retarget apart from a not-yet-pushed local reparent needs one more bit: a `set-parent` entry carries the forge `source` whenever the forge's parent is *observed* — at import, at adoption when the sides already agree, and by every push that sets it. Pull then compares the forge's parent against the last observed one, not against local intent: a forge that moved since last observed mirrors in and wins by timestamp, while a local reparent awaiting its push is left alone.
+
+## Reviewers
+
+A change's reviewers sync with the forge's — GitHub's requested reviewers, GitLab's MR reviewers. `ForgeChange` carries `reviewers` (mapped to Cabaret identities), and `Forge.setReviewers` maps identities back to forge accounts: noreply-convention identities invert directly, anything else is looked up by public email, and an identity with no account fails the push.
+
+The sync generalizes the retarget bit to a set, per user. Pull mirrors in every user whose forge membership differs from the last observed one, as a source-stamped `add-reviewer`/`remove-reviewer`. Push first absorbs that same mirror, so what remains between the log and the forge is exactly local intent: it requests the log's reviewers the forge lacks, withdraws the forge's the log dropped, and stamps observations so the next pull mirrors nothing back.
+
+One forge oddity to know about: GitHub drops a reviewer from `requested_reviewers` the moment they submit a review, so its reviewer set is read as requested ∪ reviewed — and a reviewer who has already reviewed cannot be withdrawn there, so a local removal mirrors back in on the next pull.
 
 ## The `Forge` interface
 
@@ -123,20 +132,23 @@ interface Forge {
   setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
   listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]>;
   addComment(id: ForgeChangeId, body: string): Promise<void>;
+  setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void>;
 }
 ```
 
-with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`; `ForgeChange` carrying `id`, `head`, `parent`, `title`, `author`, `state`, `merge`; and `OpenChange` pairing a `ForgeChange` with its (possibly capped) comments. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
+with `ForgeComment` carrying `id`, `author`, `body`, `updatedAt`; `ForgeChange` carrying `id`, `head`, `parent`, `title`, `author`, `state`, `reviewers`, `merge`; and `OpenChange` pairing a `ForgeChange` with its (possibly capped) comments. Branded ids, zod at the API boundary, per house style. GitLab's MR surface maps onto every method here, which is the point of the interface.
 
 The web app is a pure viewer: its backend reads logs straight from origin, and a browser has no local tier for a pull to import into, so importing is `cabaret pull`'s job from a checkout. Open forge changes nobody has pulled are simply not visible there yet.
 
 ## Data model changes
 
-- `comment` action: optional `source: { forge, id }`.
-- New `set-forge` action: `{ forge, id }`, latest wins.
-- New pure derivations: current forge change; comments grouped by identity with latest-version-wins.
+- Log entries: optional top-level `source: { forge, id? }` beside `timestamp` and `user`.
+- `comment` action: optional `edits` naming the entry a version supersedes.
+- `set-forge` action: `{ forge, id }`, latest wins.
+- `add-reviewer`/`remove-reviewer` actions: per user, latest wins.
+- Pure derivations: current forge change; current and forge-observed reviewers; comments grouped by identity with latest-version-wins.
 
-All additive to `LogActionSchema`; no migrations (pre-1.0).
+No migrations (pre-1.0).
 
 ## Follow-ups
 

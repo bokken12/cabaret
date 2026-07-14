@@ -15,34 +15,6 @@ FLAGS
      [--allow-owner]  Allow approving a change you own [default = false]
   -h  --help          Print help information and exit
 
-### cabaret approvers add
-
-USAGE
-  cabaret approvers add <user>
-  cabaret approvers add --help
-
-Add an approver
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  user  user to add
-
-### cabaret approvers remove
-
-USAGE
-  cabaret approvers remove <user>
-  cabaret approvers remove --help
-
-Remove an approver
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  user  user to remove
-
 ## cabaret comment
 
 USAGE
@@ -234,6 +206,36 @@ FLAGS
 
 ARGUMENTS
   file...  files to mark as reviewed
+
+### cabaret reviewers add
+
+USAGE
+  cabaret reviewers add [--change value] <user>
+  cabaret reviewers add --help
+
+Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `pull`/`push` sync them with the forge.
+
+FLAGS
+     [--change]  Change to add the reviewer to (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  user  user to add
+
+### cabaret reviewers remove
+
+USAGE
+  cabaret reviewers remove [--change value] <user>
+  cabaret reviewers remove --help
+
+Remove a reviewer from a change
+
+FLAGS
+     [--change]  Change to remove the reviewer from (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  user  user to remove
 
 ## cabaret set-owner
 

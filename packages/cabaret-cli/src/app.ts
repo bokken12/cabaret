@@ -1,6 +1,7 @@
 import { buildApplication, buildCommand, buildRouteMap, text_en } from "@stricli/core";
 import {
   assertChangeExists,
+  assertNotLanded,
   brain,
   changeBase,
   createChange,
@@ -18,6 +19,8 @@ import {
   parseFilePath,
   parseRefName,
   planPush,
+  planReviewerPull,
+  planReviewerPush,
   pullForge,
   pullTrackedChange,
   type RefName,
@@ -129,31 +132,71 @@ const approve = buildCommand({
   },
 });
 
-const approvers = buildRouteMap({
-  docs: { brief: "Manage a change's approvers" },
+/** Append one reviewer entry to `change`'s log. */
+async function recordReviewer(
+  ctx: LocalContext,
+  change: RefName | undefined,
+  reviewer: UserName,
+  kind: "add-reviewer" | "remove-reviewer",
+): Promise<void> {
+  const backend = await ctx.backend();
+  const target = change ?? (await backend.currentBranch());
+  const entries = await backend.readLog(target);
+  assertChangeExists(target, entries);
+  // A landed change is frozen: its obligations were settled when it landed.
+  assertNotLanded(target, entries);
+  await backend.appendLog(target, [
+    { timestamp: ctx.now(), user: await backend.currentUser(), action: { kind, reviewer } },
+  ]);
+}
+
+const reviewers = buildRouteMap({
+  docs: { brief: "Manage a change's reviewers" },
   routes: {
     add: buildCommand({
-      docs: { brief: "Add an approver" },
+      docs: {
+        brief: "Add a reviewer to a change",
+        fullDescription:
+          "Add a reviewer to a change. A reviewer owes review of the change's " +
+          "whole diff, as the owner does; `show` displays the reviewers, and " +
+          "`pull`/`push` sync them with the forge.",
+      },
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [{ brief: "user to add", placeholder: "user", parse: String }],
+          parameters: [{ brief: "user to add", placeholder: "user", parse: parseUser }],
+        },
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to add the reviewer to (defaults to current)",
+            optional: true,
+          },
         },
       },
-      func(this: LocalContext, _flags: Record<never, never>, user: string) {
-        announce(this, "approvers add", { user });
+      async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
+        await recordReviewer(this, flags.change, reviewer, "add-reviewer");
       },
     }),
     remove: buildCommand({
-      docs: { brief: "Remove an approver" },
+      docs: { brief: "Remove a reviewer from a change" },
       parameters: {
         positional: {
           kind: "tuple",
-          parameters: [{ brief: "user to remove", placeholder: "user", parse: String }],
+          parameters: [{ brief: "user to remove", placeholder: "user", parse: parseUser }],
+        },
+        flags: {
+          change: {
+            kind: "parsed",
+            parse: parseRefName,
+            brief: "Change to remove the reviewer from (defaults to current)",
+            optional: true,
+          },
         },
       },
-      func(this: LocalContext, _flags: Record<never, never>, user: string) {
-        announce(this, "approvers remove", { user });
+      async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
+        await recordReviewer(this, flags.change, reviewer, "remove-reviewer");
       },
     }),
   },
@@ -442,6 +485,11 @@ function reportPullEvent(context: LocalContext, locator: string, event: PullEven
       if (event.parent !== undefined) {
         context.process.stdout.write(`${name} was retargeted; reparented onto ${JSON.stringify(event.parent)}\n`);
       }
+      if (event.reviewers > 0) {
+        context.process.stdout.write(
+          `updated ${event.reviewers} reviewer${event.reviewers === 1 ? "" : "s"} from ${name}\n`,
+        );
+      }
       context.process.stdout.write(`pulled ${event.comments} comment${event.comments === 1 ? "" : "s"} from ${name}\n`);
       return;
     case "pruned":
@@ -525,7 +573,8 @@ const push = buildCommand({
     const observation = async (): Promise<LogEntry> => ({
       timestamp: this.now(),
       user: await backend.currentUser(),
-      action: { kind: "set-parent", parent, source: forge.locator },
+      source: { forge: forge.locator },
+      action: { kind: "set-parent", parent },
     });
     let forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
     if (forgeChange === undefined) {
@@ -534,6 +583,7 @@ const push = buildCommand({
         {
           timestamp: this.now(),
           user: await backend.currentUser(),
+          source: { forge: forge.locator },
           action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
         },
         await observation(),
@@ -542,6 +592,27 @@ const push = buildCommand({
     } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
       await forge.setParent(forgeChange.id, parent);
       await backend.appendLog(change, [await observation()]);
+    }
+    if (forgeChange.state === "open") {
+      const user = await backend.currentUser();
+      // Absorb forge-side reviewer changes first, so what remains between the
+      // log and the forge is exactly this side's intent.
+      const current = await backend.readLog(change);
+      const mirrored = planReviewerPull(this.now, user, forge.locator, current, forgeChange.reviewers);
+      const plan = planReviewerPush(this.now, user, forge.locator, [...current, ...mirrored], forgeChange.reviewers);
+      const updated = plan.add.length + plan.remove.length;
+      if (updated > 0) {
+        await forge.setReviewers(forgeChange.id, plan.add, plan.remove);
+      }
+      const additions = [...mirrored, ...plan.observations];
+      if (additions.length > 0) {
+        await backend.appendLog(change, additions);
+      }
+      if (updated > 0) {
+        this.process.stdout.write(
+          `updated ${updated} reviewer${updated === 1 ? "" : "s"} on ${forge.locator}#${forgeChange.id}\n`,
+        );
+      }
     }
     const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
     for (const body of bodies) {
@@ -914,7 +985,6 @@ const routes = buildRouteMap({
   },
   routes: {
     approve,
-    approvers,
     comment,
     create,
     dev,
@@ -928,6 +998,7 @@ const routes = buildRouteMap({
     rename,
     reparent,
     review,
+    reviewers,
     "set-owner": setOwner,
     show,
     sync,

@@ -248,7 +248,7 @@ test("statuses count the users whose review covers the file", async () => {
   const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
   expect(statuses).toEqual([
     {
-      obligation: { file: "keys.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      obligation: { file: "keys.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
     },
     {
@@ -271,7 +271,7 @@ test("a review that stops short of the tip does not count", async () => {
   const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("2"));
   expect(statuses).toEqual([
     {
-      obligation: { file: "a.rs", source: undefined, require: { atLeast: 1, of: [alice] } },
+      obligation: { file: "a.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
     },
     {
@@ -302,7 +302,7 @@ test("files changed only by a land merge carry no obligations", async () => {
 
 test("reviewerSummary counts each outstanding reviewer's distinct files", () => {
   const status = (file: string, reviewedBy: readonly UserName[], atLeast: number, ...of: readonly UserName[]) => ({
-    obligation: { file: parseFilePath(file), source: undefined, require: { atLeast, of } },
+    obligation: { file: parseFilePath(file), source: "owner" as const, require: { atLeast, of } },
     reviewedBy,
   });
   expect(reviewerSummary([])).toEqual([]);
@@ -338,8 +338,43 @@ test("the owner must review every governed file, rules or none", async () => {
   const entries = [review(alice, "a.txt", "0", "1"), review(bob, "b.txt", "0", "1")];
   const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
   expect(statuses).toEqual([
-    { obligation: { file: "a.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
-    { obligation: { file: "b.txt", source: undefined, require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
+    { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
   ]);
   expect(statuses.map(isSatisfied)).toEqual([true, false]);
+});
+
+function reviewer(user: UserName, kind: "add-reviewer" | "remove-reviewer", at = 1748000000000): LogEntry {
+  return { timestamp: timestampMs(at), user: alice, action: { kind, reviewer: user } };
+}
+
+test("a reviewer owes every governed file, like the owner", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["a.txt", "b.txt"] },
+  });
+  const entries = [reviewer(bob, "add-reviewer"), review(bob, "a.txt", "0", "1")];
+  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  expect(statuses).toEqual([
+    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    { obligation: { file: "a.txt", source: "reviewer", require: { atLeast: 1, of: [bob] } }, reviewedBy: [bob] },
+    { obligation: { file: "b.txt", source: "reviewer", require: { atLeast: 1, of: [bob] } }, reviewedBy: [] },
+  ]);
+  expect(statuses.map(isSatisfied)).toEqual([false, false, true, false]);
+});
+
+test("a removed reviewer owes nothing, and an owning reviewer owes only as owner", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["a.txt"] },
+  });
+  const entries = [
+    reviewer(alice, "add-reviewer"),
+    reviewer(bob, "add-reviewer"),
+    reviewer(bob, "remove-reviewer", 1748000000001),
+  ];
+  expect(await obligationStatuses(backend, entries, alice, fake("0"), fake("1"))).toEqual([
+    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+  ]);
 });

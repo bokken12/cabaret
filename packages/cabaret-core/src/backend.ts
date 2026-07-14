@@ -80,28 +80,31 @@ export function forgeChangeId(raw: number): ForgeChangeId {
 }
 
 /**
- * Which forge comment a `comment` entry is a version of. Versions of one
- * comment share a group — same source `id`, or `edits` naming the
- * `commentHash` of the local entry a forge-side edit supersedes — and the
- * version with the greatest timestamp is the one displayed.
+ * Where a forge-synced entry came from. An entry with a source mirrors the
+ * forge — an import, or an observation a push records — while one without
+ * originated locally; syncing compares the forge against the last
+ * source-bearing entry, never against local intent. `id` names the forge-side
+ * object the entry is a version of, when the forge keeps one (a comment,
+ * say), so imports of the same object recognize each other.
  */
-export interface CommentSource {
+export interface ForgeSource {
   readonly forge: ForgeLocator;
-  readonly id: string;
-  readonly edits?: string | undefined;
+  readonly id?: string | undefined;
 }
 
 /** An action that can be recorded in a change's log. */
 export type LogAction =
-  /** `source` marks a mirror of the forge's target branch, telling the last observed forge parent apart from local intent. */
-  | { readonly kind: "set-parent"; readonly parent: RefName; readonly source?: ForgeLocator | undefined }
+  | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
+  | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
+  | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
   | { readonly kind: "forget"; readonly file: FilePath }
   | { readonly kind: "land"; readonly merge: CommitHash; readonly tip?: CommitHash | undefined }
-  | { readonly kind: "comment"; readonly text: string; readonly source?: CommentSource | undefined };
+  /** `edits` names the `commentHash` of the entry this comment supersedes: versions of one comment group through it, and the greatest timestamp is displayed. */
+  | { readonly kind: "comment"; readonly text: string; readonly edits?: string | undefined };
 
 /** One action recorded in a change's log. */
 export interface LogEntry {
@@ -109,22 +112,19 @@ export interface LogEntry {
   readonly timestamp: TimestampMs;
   /** Who wrote the entry. */
   readonly user: UserName;
+  /** The forge state the entry mirrors, for one that did not originate locally. */
+  readonly source?: ForgeSource | undefined;
   /** The action taken. */
   readonly action: LogAction;
 }
 
-const CommentSourceSchema = z.object({
+const ForgeSourceSchema = z.object({
   forge: z.string().transform(parseForgeLocator),
-  id: z.string().min(1),
-  edits: z.string().min(1).optional(),
-}) satisfies z.ZodType<CommentSource>;
+  id: z.string().min(1).optional(),
+}) satisfies z.ZodType<ForgeSource>;
 
 const LogActionSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("set-parent"),
-    parent: z.string().transform(parseRefName),
-    source: z.string().transform(parseForgeLocator).optional(),
-  }),
+  z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
   z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
   z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
   z.object({
@@ -132,6 +132,8 @@ const LogActionSchema = z.discriminatedUnion("kind", [
     forge: z.string().transform(parseForgeLocator),
     id: z.number().transform(forgeChangeId),
   }),
+  z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
+  z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
   z.object({
     kind: z.literal("review"),
     file: z.string().transform(parseFilePath),
@@ -144,7 +146,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
     merge: z.string().transform(parseCommitHash),
     tip: z.string().transform(parseCommitHash).optional(),
   }),
-  z.object({ kind: z.literal("comment"), text: z.string().min(1), source: CommentSourceSchema.optional() }),
+  z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
 ]) satisfies z.ZodType<LogAction>;
 
 /**
@@ -155,6 +157,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
 const LogEntrySchema = z.object({
   timestamp: z.number().transform(timestampMs),
   user: z.string().min(1).transform(userName),
+  source: ForgeSourceSchema.optional(),
   action: LogActionSchema,
 }) satisfies z.ZodType<LogEntry>;
 
@@ -263,6 +266,8 @@ export interface ForgeChange {
   /** Who opened the change, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
+  /** The users the forge holds as reviewers, mapped to Cabaret identities by the `Forge` implementation. */
+  readonly reviewers: readonly UserName[];
   /** The commit that merged the change, when `state` is "merged". */
   readonly merge?: ForgeMerge | undefined;
 }
@@ -518,13 +523,60 @@ export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLo
   for (const entry of entries) {
     if (
       entry.action.kind === "set-parent" &&
-      entry.action.source === forge &&
+      entry.source?.forge === forge &&
       (found === undefined || compareLogEntries(entry, found) >= 0)
     ) {
       found = entry;
     }
   }
   return found?.action.kind === "set-parent" ? found.action.parent : undefined;
+}
+
+/**
+ * The reviewer memberships a run of add/remove entries settles on: for each
+ * user, the entry greatest by `compareLogEntries` among those `accept`ed
+ * decides whether they are a reviewer.
+ */
+function foldReviewers(entries: readonly LogEntry[], accept: (entry: LogEntry) => boolean): Set<UserName> {
+  const latest = new Map<UserName, { entry: LogEntry; member: boolean }>();
+  for (const entry of entries) {
+    const { action } = entry;
+    if ((action.kind !== "add-reviewer" && action.kind !== "remove-reviewer") || !accept(entry)) {
+      continue;
+    }
+    const prev = latest.get(action.reviewer);
+    if (prev !== undefined && compareLogEntries(prev.entry, entry) > 0) {
+      continue;
+    }
+    latest.set(action.reviewer, { entry, member: action.kind === "add-reviewer" });
+  }
+  const members = new Set<UserName>();
+  for (const [user, { member }] of latest) {
+    if (member) {
+      members.add(user);
+    }
+  }
+  return members;
+}
+
+/**
+ * The change's reviewers: the users whose latest add/remove entry adds them,
+ * sorted by name. Each reviewer implicitly owes review of the change's whole
+ * diff, exactly as the owner does.
+ */
+export function currentReviewers(entries: readonly LogEntry[]): readonly UserName[] {
+  return [...foldReviewers(entries, () => true)].sort();
+}
+
+/**
+ * The reviewer set the log last observed on `forge`: for each user, the
+ * latest add/remove entry carrying it as `source` decides. What a sync
+ * compares the forge's reviewers against: only a forge that moved since last
+ * observed mirrors in, so local edits awaiting a push are never overridden by
+ * re-observing the state they are about to replace.
+ */
+export function observedForgeReviewers(entries: readonly LogEntry[], forge: ForgeLocator): ReadonlySet<UserName> {
+  return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */

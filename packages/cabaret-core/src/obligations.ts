@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   type Backend,
   type CommitHash,
+  currentReviewers,
   type FilePath,
   type LogEntry,
   parseFilePath,
@@ -100,8 +101,8 @@ function patternMatches(pattern: string, path: string): boolean {
 /** One requirement put on one changed file. */
 export interface Obligation {
   readonly file: FilePath;
-  /** The obligations file that put the requirement there, or undefined for the owner's implicit self-review. */
-  readonly source: FilePath | undefined;
+  /** The obligations file that put the requirement there, or the implicit standing that did: the owner's self-review, or a reviewer's whole-diff review. */
+  readonly source: FilePath | "owner" | "reviewer";
   readonly require: Requirement;
 }
 
@@ -173,8 +174,9 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
  * files changed within the change's own review spans are governed: the diff a
  * land merge brings in was reviewed in the landed child, under the child's
  * own obligations. Independent of any rules, every governed file carries the
- * owner's implicit self-review requirement. A user counts toward a
- * requirement exactly when no round of review is left for them on the file.
+ * owner's implicit self-review requirement, and one likewise for each of the
+ * change's reviewers. A user counts toward a requirement exactly when no
+ * round of review is left for them on the file.
  */
 export async function obligationStatuses(
   backend: Backend,
@@ -190,8 +192,18 @@ export async function obligationStatuses(
     }
   }
   const sorted = [...files].sort();
+  // An owning reviewer already owes every file as owner; a second identical
+  // requirement would only double the noise.
+  const standings: readonly (readonly [UserName, "owner" | "reviewer"])[] = [
+    [owner, "owner"],
+    ...currentReviewers(entries)
+      .filter((reviewer) => reviewer !== owner)
+      .map((reviewer) => [reviewer, "reviewer"] as const),
+  ];
   const obligations: Obligation[] = [
-    ...sorted.map((file) => ({ file, source: undefined, require: { atLeast: 1, of: [owner] } })),
+    ...standings.flatMap(([user, source]) =>
+      sorted.map((file) => ({ file, source, require: { atLeast: 1, of: [user] } })),
+    ),
     ...(await changeObligations(backend, base, tip, sorted)),
   ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
@@ -249,7 +261,7 @@ export class UnsatisfiedObligationsError extends UserError {
     const details = unsatisfied.map((status) => {
       const { file, source, require } = status.obligation;
       const missing = require.atLeast - status.reviewedBy.length;
-      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source ?? "owner"})`;
+      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
     });
     super(`review obligations are unsatisfied:\n${details.join("\n")}`);
     this.details = details;

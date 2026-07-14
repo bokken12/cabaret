@@ -1,13 +1,16 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 import {
-  type CommentSource,
   currentComments,
   type ForgeComment,
+  type ForgeSource,
   type LogEntry,
   parseForgeLocator,
   planPull,
   planPush,
+  planReviewerPull,
+  planReviewerPush,
+  type TimestampMs,
   timestampMs,
   type UserName,
   userName,
@@ -18,11 +21,12 @@ const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
 const carol = userName("carol@users.noreply.github.com");
 
-function comment(timestamp: number, user: UserName, text: string, source?: CommentSource): LogEntry {
+function comment(timestamp: number, user: UserName, text: string, source?: ForgeSource, edits?: string): LogEntry {
   return {
     timestamp: timestampMs(timestamp),
     user,
-    action: { kind: "comment", text, ...(source === undefined ? {} : { source }) },
+    ...(source === undefined ? {} : { source }),
+    action: { kind: "comment", text, ...(edits === undefined ? {} : { edits }) },
   };
 }
 
@@ -75,7 +79,7 @@ test("planPull imports a forge-side edit of a pushed comment as superseding its 
   const edited = forgeComment("100", carol, `ship it (edited on the forge)\n\n<!-- cabaret:${hash} -->`, 1750000000009);
   const plan = await planPull(FORGE, entries, [edited]);
   expect(plan).toEqual([
-    comment(1750000000009, carol, "ship it (edited on the forge)", { forge: FORGE, id: "100", edits: hash }),
+    comment(1750000000009, carol, "ship it (edited on the forge)", { forge: FORGE, id: "100" }, hash),
   ]);
   // The versions collapse to one displayed comment, and the pull is settled.
   expect(await currentComments([...entries, ...plan])).toEqual([
@@ -96,6 +100,79 @@ test("planPush skips imported comments and orders posts by timestamp", async () 
     expect.stringMatching(/^\*\*bob@example\.com:\*\*\n\nearlier\n/),
     expect.stringMatching(/^later\n/),
   ]);
+});
+
+/** A `now` ticking one millisecond per read from a fixed epoch. */
+function testClock(): () => TimestampMs {
+  let clock = 1750000000000;
+  return () => timestampMs(clock++);
+}
+
+function reviewerEntry(timestamp: number, kind: "add-reviewer" | "remove-reviewer", who: UserName, observed = false) {
+  return {
+    timestamp: timestampMs(timestamp),
+    user: alice,
+    ...(observed ? { source: { forge: FORGE } } : {}),
+    action: { kind, reviewer: who },
+  };
+}
+
+test("planReviewerPull mirrors what moved on the forge since last observed, and only that", () => {
+  const dave = userName("dave@example.com");
+  const entries = [
+    // bob was observed on the forge and still is: nothing to mirror.
+    reviewerEntry(1750000000000, "add-reviewer", bob, true),
+    // carol was observed, then removed locally: intent, not the forge's move.
+    reviewerEntry(1750000000001, "add-reviewer", carol, true),
+    reviewerEntry(1750000000002, "remove-reviewer", carol),
+  ];
+  // dave appeared on the forge; carol is still there; bob left it.
+  expect(planReviewerPull(testClock(), alice, FORGE, entries, [carol, dave])).toEqual([
+    reviewerEntry(1750000000000, "remove-reviewer", bob, true),
+    reviewerEntry(1750000000001, "add-reviewer", dave, true),
+  ]);
+  // The forge agreeing with every observation mirrors nothing, whatever
+  // local intent is pending.
+  expect(planReviewerPull(testClock(), alice, FORGE, entries, [bob, carol])).toEqual([]);
+});
+
+test("a forge-side add the mirror absorbs is not withdrawn by the push", () => {
+  const mirrored = planReviewerPull(testClock(), alice, FORGE, [], [bob]);
+  expect(mirrored).toEqual([reviewerEntry(1750000000000, "add-reviewer", bob, true)]);
+  expect(planReviewerPush(testClock(), alice, FORGE, mirrored, [bob])).toEqual({
+    add: [],
+    remove: [],
+    observations: [],
+  });
+});
+
+test("planReviewerPush pushes exactly local intent once the mirror has been absorbed", () => {
+  const entries = [
+    reviewerEntry(1750000000000, "add-reviewer", bob, true),
+    reviewerEntry(1750000000001, "remove-reviewer", bob),
+    reviewerEntry(1750000000002, "add-reviewer", carol),
+  ];
+  const forgeReviewers = [bob];
+  const mirrored = planReviewerPull(testClock(), alice, FORGE, entries, forgeReviewers);
+  expect(mirrored).toEqual([]);
+  const plan = planReviewerPush(testClock(), alice, FORGE, [...entries, ...mirrored], forgeReviewers);
+  expect(plan).toEqual({
+    add: [carol],
+    remove: [bob],
+    observations: [
+      reviewerEntry(1750000000000, "add-reviewer", carol, true),
+      reviewerEntry(1750000000001, "remove-reviewer", bob, true),
+    ],
+  });
+  // The observations settle the push: planning again moves nothing, and the
+  // next pull mirrors nothing back.
+  const settled = [...entries, ...mirrored, ...plan.observations];
+  expect(planReviewerPush(testClock(), alice, FORGE, settled, [carol])).toEqual({
+    add: [],
+    remove: [],
+    observations: [],
+  });
+  expect(planReviewerPull(testClock(), alice, FORGE, settled, [carol])).toEqual([]);
 });
 
 const forgeUsers = () =>

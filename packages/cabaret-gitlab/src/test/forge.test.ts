@@ -1,4 +1,4 @@
-import { forgeChangeId, parseCommitHash, parseRefName, UserError } from "cabaret-core";
+import { forgeChangeId, parseCommitHash, parseRefName, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitLabClient, parseGitLabRemote } from "../client.js";
 import { GitLabForge } from "../forge.js";
@@ -62,7 +62,7 @@ describe("GitLabForge", () => {
     expect(calls[0]?.headers.authorization).toBe("Bearer token-123");
   });
 
-  test("getChange maps an open MR, using the author's public email", async () => {
+  test("getChange maps an open MR with its reviewers, sorted by identity", async () => {
     stubGitLab({
       [GRAPHQL]: [
         {
@@ -78,6 +78,7 @@ describe("GitLabForge", () => {
                   author: { username: "alice" },
                   state: "opened",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [{ username: "carol" }, { username: "bob" }] },
                   diffStatsSummary: { fileCount: 3 },
                 },
               },
@@ -85,6 +86,8 @@ describe("GitLabForge", () => {
           },
         },
         { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: "alice@example.com" } } } },
+        { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: "carol@example.com" } } } },
+        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: "bob@example.com" } } } },
       ],
     });
     expect(await forge().getChange(forgeChangeId(7))).toEqual({
@@ -95,6 +98,7 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
+      reviewers: ["bob@example.com", "carol@example.com"],
     });
   });
 
@@ -114,6 +118,7 @@ describe("GitLabForge", () => {
                   author: { username: "bob" },
                   state: "merged",
                   mergeCommitSha: "89e6c98d92887913cadf06b2adb97f26cde4849b",
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
                 },
               },
@@ -136,6 +141,7 @@ describe("GitLabForge", () => {
       title: "Fix crash",
       author: "12-bob@users.noreply.gitlab.com",
       state: "merged",
+      reviewers: [],
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
   });
@@ -158,6 +164,7 @@ describe("GitLabForge", () => {
                   author: { username: "carol" },
                   state: "merged",
                   mergeCommitSha: "2222222222222222222222222222222222222222",
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 4 },
                 },
               },
@@ -194,6 +201,7 @@ describe("GitLabForge", () => {
                   author: { username: "carol" },
                   state: "merged",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 2 },
                 },
               },
@@ -234,6 +242,7 @@ describe("GitLabForge", () => {
                 author: null,
                 state: "closed",
                 mergeCommitSha: null,
+                reviewers: null,
                 diffStatsSummary: { fileCount: 5 },
               },
             },
@@ -249,6 +258,7 @@ describe("GitLabForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.gitlab.com",
       state: "closed",
+      reviewers: [],
     });
     expect(calls).toHaveLength(1);
   });
@@ -269,6 +279,7 @@ describe("GitLabForge", () => {
                   author: { username: "alice" },
                   state: "locked",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
                 },
               },
@@ -297,6 +308,7 @@ describe("GitLabForge", () => {
                   author: { username: "vanished" },
                   state: "opened",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
                 },
               },
@@ -325,6 +337,7 @@ describe("GitLabForge", () => {
                   author: { username: "bob" },
                   state: "merged",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
                 },
               },
@@ -387,6 +400,7 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       mergeCommitSha: null,
+                      reviewers: { nodes: [] },
                       diffStatsSummary: { fileCount: 3 },
                     },
                   ],
@@ -406,6 +420,7 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "31-alice@users.noreply.gitlab.com",
       state: "open",
+      reviewers: [],
     });
     expect(graphqlVariables(calls)[0]).toEqual({ path: "test-org/widgets", branch: "add-tables" });
   });
@@ -435,6 +450,7 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       mergeCommitSha: null,
+                      reviewers: { nodes: [] },
                       notes: {
                         nodes: [
                           {
@@ -464,6 +480,7 @@ describe("GitLabForge", () => {
                       author: { username: "bob" },
                       state: "opened",
                       mergeCommitSha: null,
+                      reviewers: { nodes: [] },
                       notes: { nodes: [], pageInfo: { hasNextPage: false } },
                     },
                   ],
@@ -492,6 +509,7 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       mergeCommitSha: null,
+                      reviewers: { nodes: [] },
                       notes: { nodes: [], pageInfo: { hasNextPage: true } },
                     },
                   ],
@@ -513,6 +531,7 @@ describe("GitLabForge", () => {
           title: "First",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
+          reviewers: [],
         },
         comments: [
           {
@@ -533,6 +552,7 @@ describe("GitLabForge", () => {
           title: "Second",
           author: "12-bob@users.noreply.gitlab.com",
           state: "open",
+          reviewers: [],
         },
         comments: [],
         commentsTruncated: false,
@@ -546,6 +566,7 @@ describe("GitLabForge", () => {
           title: "Third",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
+          reviewers: [],
         },
         comments: [],
         commentsTruncated: true,
@@ -596,6 +617,7 @@ describe("GitLabForge", () => {
                   author: { username: "dave" },
                   state: "opened",
                   mergeCommitSha: null,
+                  reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
                 },
               },
@@ -614,6 +636,7 @@ describe("GitLabForge", () => {
       title: "New work",
       author: "9-dave@users.noreply.gitlab.com",
       state: "open",
+      reviewers: [],
     });
     expect(calls[0]?.body).toBe(
       JSON.stringify({ source_branch: "new-work", target_branch: "parent-branch", title: "New work" }),
@@ -758,6 +781,75 @@ describe("GitLabForge", () => {
     });
     await forge().addComment(forgeChangeId(7), body);
     expect(calls[0]?.body).toBe(JSON.stringify({ body }));
+  });
+
+  test("setReviewers resolves every identity form and puts the edited reviewer list", async () => {
+    const calls = stubGitLab({
+      // Current reviewers: eve (5, removed below) and frank (7, kept).
+      [`GET ${PROJECT}/merge_requests/21`]: { json: { reviewers: [{ id: 5 }, { id: 7 }] } },
+      [`GET ${API}/users?search=alice%40example.com`]: { json: [{ id: 31 }] },
+      [GRAPHQL]: { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: null } } } },
+      [`PUT ${PROJECT}/merge_requests/21`]: { json: {} },
+    });
+    await forge().setReviewers(
+      forgeChangeId(21),
+      [
+        userName("12-bob@users.noreply.gitlab.com"),
+        userName("alice@example.com"),
+        userName("carol@users.noreply.gitlab.com"),
+      ],
+      [userName("5-eve@users.noreply.gitlab.com")],
+    );
+    expect(graphqlVariables(calls)).toEqual([{ username: "carol" }]);
+    expect(calls.at(-1)).toEqual({
+      method: "PUT",
+      url: `${PROJECT}/merge_requests/21`,
+      headers: { authorization: "Bearer token-123", "content-type": "application/json" },
+      body: JSON.stringify({ reviewer_ids: [7, 12, 31, 44] }),
+    });
+  });
+
+  test("setReviewers skips the write when the reviewer set is unchanged", async () => {
+    const calls = stubGitLab({
+      [`GET ${PROJECT}/merge_requests/22`]: { json: { reviewers: [{ id: 12 }] } },
+    });
+    // bob is already a reviewer and alice already is not.
+    await forge().setReviewers(
+      forgeChangeId(22),
+      [userName("12-bob@users.noreply.gitlab.com")],
+      [userName("31-alice@users.noreply.gitlab.com")],
+    );
+    expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([`GET ${PROJECT}/merge_requests/22`]);
+  });
+
+  test("an email with no gitlab.com account fails setReviewers as a UserError", async () => {
+    stubGitLab({
+      [`GET ${PROJECT}/merge_requests/23`]: { json: { reviewers: [] } },
+      [`GET ${API}/users?search=nobody%40example.com`]: { json: [] },
+    });
+    const pending = forge().setReviewers(forgeChangeId(23), [userName("nobody@example.com")], []);
+    await expect(pending).rejects.toThrow(UserError);
+    await expect(pending).rejects.toThrow('no gitlab.com account found for "nobody@example.com"');
+  });
+
+  test("a bare noreply identity whose username vanished fails setReviewers as a UserError", async () => {
+    stubGitLab({
+      [`GET ${PROJECT}/merge_requests/24`]: { json: { reviewers: [] } },
+      [GRAPHQL]: { json: { data: { user: null } } },
+    });
+    await expect(
+      forge().setReviewers(forgeChangeId(24), [], [userName("vanished@users.noreply.gitlab.com")]),
+    ).rejects.toThrow('no gitlab.com account found for "vanished@users.noreply.gitlab.com"');
+  });
+
+  test("an email matching more than one gitlab.com account fails setReviewers as ambiguous", async () => {
+    stubGitLab({
+      [`GET ${PROJECT}/merge_requests/25`]: { json: { reviewers: [] } },
+      [`GET ${API}/users?search=dev%40example.com`]: { json: [{ id: 1 }, { id: 2 }] },
+    });
+    await expect(forge().setReviewers(forgeChangeId(25), [userName("dev@example.com")], [])).rejects.toThrow(
+      '"dev@example.com" is ambiguous on gitlab.com',
+    );
   });
 
   test("a failing request reports the status and GitLab's message", async () => {

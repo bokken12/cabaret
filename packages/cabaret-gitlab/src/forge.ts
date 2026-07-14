@@ -35,10 +35,24 @@ function noreplyUser(id: string | undefined, username: string): UserName {
 // admits one, and this fixed identity keeps the mapping total.
 const GHOST = noreplyUser(undefined, "ghost");
 
+// Inverts `noreplyUser`: the id-prefixed form names its account outright; the
+// bare form still carries a username to look up.
+const NOREPLY = /^(?:(\d+)-)?([^@]+)@users\.noreply\.gitlab\.com$/;
+
+/** The numeric user id in a User gid; a gid in any other shape must not silently pass for an account. */
+function userIdOfGid(gid: string): string {
+  const id = /^gid:\/\/gitlab\/User\/(\d+)$/.exec(gid)?.[1];
+  if (id === undefined) {
+    throw new Error(`unexpected user id format: ${gid}`);
+  }
+  return id;
+}
+
 // The MR fields every query selects. GraphQL rather than REST because the
 // open-changes sweep pages a hundred MRs with their notes in one query —
 // REST would make it N+1.
-const MR_FIELDS = "iid sourceBranch diffHeadSha targetBranch title author { username } state mergeCommitSha";
+const MR_FIELDS =
+  "iid sourceBranch diffHeadSha targetBranch title author { username } state mergeCommitSha reviewers(first: 100) { nodes { username } }";
 
 const MrSchema = z.object({
   // GraphQL serializes the iid as a string.
@@ -50,6 +64,7 @@ const MrSchema = z.object({
   author: z.object({ username: z.string() }).nullable(),
   state: z.enum(["opened", "closed", "locked", "merged"]),
   mergeCommitSha: z.string().transform(parseCommitHash).nullable(),
+  reviewers: z.object({ nodes: z.array(z.object({ username: z.string() })) }).nullable(),
 });
 
 const FIND_MR = `query ($path: ID!, $branch: String!) {
@@ -154,9 +169,16 @@ const NoteSchema = z.object({
   updated_at: z.string(),
 });
 
+// The reviewer accounts of a REST merge-request object: the state
+// `setReviewers` edits, since REST is the only API that writes reviewers.
+const ReviewersSchema = z.object({ reviewers: z.array(z.object({ id: z.number() })) });
+
+const UserSearchSchema = z.array(z.object({ id: z.number() }));
+
 /** A `Forge` for a gitlab.com project, speaking the API directly. */
 export class GitLabForge implements Forge {
   private readonly identities = new Map<string, Promise<UserName>>();
+  private readonly accounts = new Map<UserName, Promise<number>>();
   readonly locator: ForgeLocator;
   /** The REST path prefix naming the project. */
   private readonly api: string;
@@ -188,13 +210,7 @@ export class GitLabForge implements Forge {
           if (user.publicEmail !== null && user.publicEmail !== "") {
             return userName(user.publicEmail);
           }
-          const id = /^gid:\/\/gitlab\/User\/(\d+)$/.exec(user.id)?.[1];
-          // A gid in any other shape must not silently change the identity's
-          // spelling across versions.
-          if (id === undefined) {
-            throw new Error(`unexpected user id format: ${user.id}`);
-          }
-          return noreplyUser(id, username);
+          return noreplyUser(userIdOfGid(user.id), username);
         })
         .catch((error: unknown) => {
           this.identities.delete(username);
@@ -203,6 +219,47 @@ export class GitLabForge implements Forge {
       this.identities.set(username, pending);
     }
     return pending;
+  }
+
+  /**
+   * The numeric user id behind a Cabaret identity — `identity` in reverse. An
+   * id-prefixed noreply name carries its id outright; a bare one still names
+   * a username to look up; anything else is searched as a public email, which
+   * GitLab matches exactly. As with `identity`, only a success is cached.
+   */
+  private accountId(user: UserName): Promise<number> {
+    let pending = this.accounts.get(user);
+    if (pending === undefined) {
+      pending = this.lookupAccountId(user).catch((error: unknown) => {
+        this.accounts.delete(user);
+        throw error;
+      });
+      this.accounts.set(user, pending);
+    }
+    return pending;
+  }
+
+  private async lookupAccountId(user: UserName): Promise<number> {
+    const [, id, username] = NOREPLY.exec(user) ?? [];
+    if (id !== undefined) {
+      return Number(id);
+    }
+    if (username !== undefined) {
+      const found = UserSchema.parse(await this.client.graphql(USER, { username })).user;
+      if (found === null) {
+        throw new UserError(`no gitlab.com account found for "${user}"`);
+      }
+      return Number(userIdOfGid(found.id));
+    }
+    const matches = UserSearchSchema.parse(await this.client.get("/users", { search: user }));
+    const match = matches[0];
+    if (match === undefined) {
+      throw new UserError(`no gitlab.com account found for "${user}"`);
+    }
+    if (matches.length > 1) {
+      throw new UserError(`"${user}" is ambiguous on gitlab.com`);
+    }
+    return match.id;
   }
 
   private async toChange(mr: z.infer<typeof MrSchema>): Promise<ForgeChange> {
@@ -216,6 +273,10 @@ export class GitLabForge implements Forge {
       // A locked MR is mid-merge on the server; until that lands it has
       // not merged, so it reads as open.
       state: mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open",
+      // Sorted by identity: the forge promises no order of its own.
+      reviewers: (
+        await Promise.all((mr.reviewers?.nodes ?? []).map((reviewer) => this.identity(reviewer.username)))
+      ).sort(),
       ...(mr.state === "merged" ? { merge: await this.mergeOf(mr) } : {}),
     };
   }
@@ -380,5 +441,23 @@ export class GitLabForge implements Forge {
 
   async addComment(id: ForgeChangeId, body: string): Promise<void> {
     await this.client.post(`${this.api}/merge_requests/${id}/notes`, { body });
+  }
+
+  async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
+    // GitLab has no add/remove calls: the PUT replaces the whole reviewer
+    // list, so the MR's current one is read first and edited.
+    const { reviewers } = ReviewersSchema.parse(await this.client.get(`${this.api}/merge_requests/${id}`));
+    const current = new Set(reviewers.map((reviewer) => reviewer.id));
+    const wanted = new Set(current);
+    for (const account of await Promise.all(remove.map(this.accountId, this))) {
+      wanted.delete(account);
+    }
+    for (const account of await Promise.all(add.map(this.accountId, this))) {
+      wanted.add(account);
+    }
+    if (wanted.size === current.size && [...wanted].every((account) => current.has(account))) {
+      return;
+    }
+    await this.client.put(`${this.api}/merge_requests/${id}`, { reviewer_ids: [...wanted].sort((a, b) => a - b) });
   }
 }

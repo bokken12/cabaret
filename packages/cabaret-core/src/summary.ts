@@ -7,6 +7,7 @@ import {
   currentForgeChange,
   currentOwner,
   currentParent,
+  currentReviewers,
   type FilePath,
   type ForgeChangeId,
   type ForgeLocator,
@@ -67,6 +68,8 @@ export interface ChangeSummary {
   readonly change: RefName;
   readonly parent: RefName;
   readonly owner: UserName;
+  /** The change's reviewers, sorted by name. */
+  readonly reviewers: readonly UserName[];
   readonly forgeChange: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: CommitHash | undefined;
@@ -129,6 +132,7 @@ export async function summarizeChange(
     change,
     parent,
     owner: currentOwner(change, entries),
+    reviewers: currentReviewers(entries),
     forgeChange: currentForgeChange(entries),
     landed,
     base,

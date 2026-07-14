@@ -32,6 +32,8 @@ Inheritance is additive by design: a subdirectory can strengthen the requirement
 
 Independent of any rules, every governed file carries one implicit requirement: the change's owner must review it. Writing the code is not the same as reading what the change came to say — after rebases, merges, and revisions, the owner lands the diff, not their memory of it.
 
+Each of the change's reviewers — users added with `reviewers add`, or requested on the forge — carries the same implicit requirement: a reviewer owes review of the change's whole diff, exactly as the owner does. Unlike rules in the tree, reviewers are per-change state, recorded in the log by `add-reviewer`/`remove-reviewer` entries with the latest entry per user deciding membership.
+
 Beyond that floor, coverage is not required. A file matched by no rule obliges nobody but the owner, and a repository with no `.obligations` files demands nothing but self-review. Adoption is incremental.
 
 ## Satisfaction

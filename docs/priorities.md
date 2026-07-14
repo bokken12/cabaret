@@ -31,10 +31,10 @@ are cheapest to fix before real multi-machine data exists.
 Cabaret can track review but not enforce it — the gap between a state tracker
 and a review system.
 
-- **`approve` is a stub and `land` gates on nothing.** `approve`/`approvers`
-  print "not yet implemented" (cabaret-cli `app.ts`) while `cli-reference.md`
-  documents them as real; `landChange` (`ops.ts`) consults no approval or
-  review state. The `approve` log action design is sketched in
+- **`approve` is a stub.** It prints "not yet implemented" (cabaret-cli
+  `app.ts`) while `cli-reference.md` documents it as real. `land` gates on
+  review obligations — the owner's, each reviewer's, and `.obligations`
+  rules — but approval as a distinct verdict is only sketched in
   [forge.md](forge.md).
 - **No way to respond to what you're reading.** Comments are flat,
   change-level, and CLI-only; the VS Code diff page registers no comment

@@ -9,6 +9,7 @@ import {
   currentBase,
   currentOwner,
   currentParent,
+  currentReviewers,
   type FilePath,
   forgeChangeId,
   formatLogEntry,
@@ -17,6 +18,7 @@ import {
   type LogEntry,
   landedMerge,
   mergeLogs,
+  observedForgeReviewers,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -149,6 +151,28 @@ test("formatLogEntry renders set-owner actions", () => {
   );
 });
 
+test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys its source before the action", () => {
+  expect(
+    formatLogEntry({
+      timestamp: timestampMs(1748000000007),
+      user: userName("erin@example.com"),
+      action: { kind: "add-reviewer", reviewer: userName("frank@example.com") },
+    }),
+  ).toBe(
+    '{"timestamp":1748000000007,"user":"erin@example.com","action":{"kind":"add-reviewer","reviewer":"frank@example.com"}}\n',
+  );
+  expect(
+    formatLogEntry({
+      timestamp: timestampMs(1748000000008),
+      user: userName("erin@example.com"),
+      source: { forge: parseForgeLocator("github.com/test-org/widgets") },
+      action: { kind: "remove-reviewer", reviewer: userName("frank@example.com") },
+    }),
+  ).toBe(
+    '{"timestamp":1748000000008,"user":"erin@example.com","source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"remove-reviewer","reviewer":"frank@example.com"}}\n',
+  );
+});
+
 test("formatLogEntry renders land actions", () => {
   expect(
     formatLogEntry({
@@ -248,20 +272,14 @@ test("a formatted log parses back to the original entries", () => {
     {
       timestamp: timestampMs(1748000540000),
       user: userName("carol@users.noreply.github.com"),
-      action: {
-        kind: "comment",
-        text: "imported",
-        source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
-      },
+      source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
+      action: { kind: "comment", text: "imported" },
     },
     {
       timestamp: timestampMs(1748000600000),
       user: userName("carol@users.noreply.github.com"),
-      action: {
-        kind: "comment",
-        text: "imported (edited)",
-        source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025", edits: "ab".repeat(32) },
-      },
+      source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
+      action: { kind: "comment", text: "imported (edited)", edits: "ab".repeat(32) },
     },
   ];
   expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
@@ -297,11 +315,10 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "land" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment", text: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "comment", text: "hi", source: { forge: "", id: "1" } } }), "malformed log line"],
-    [
-      line({ ...entry, action: { kind: "comment", text: "hi", source: { forge: "gh.test/a/b" } } }),
-      "malformed log line",
-    ],
+    [line({ ...entry, action: { kind: "comment", text: "hi", edits: "" } }), "malformed log line"],
+    [line({ ...entry, source: { forge: "", id: "1" } }), "malformed log line"],
+    [line({ ...entry, source: { forge: "gh.test/a/b", id: "" } }), "malformed log line"],
+    [line({ ...entry, source: {} }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", id: 0 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-forge", forge: "gh.test/a/b", id: 1.5 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-forge", id: 1 } }), "malformed log line"],
@@ -385,6 +402,34 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
       entry(12, { kind: "set-parent", parent: parseRefName("main") }),
     ]),
   ).toBe("carol@example.com");
+});
+
+test("currentReviewers folds each user's latest add/remove; observedForgeReviewers only source-bearing ones", () => {
+  const entry = (timestamp: number, action: LogAction, source?: LogEntry["source"]): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    ...(source === undefined ? {} : { source }),
+    action,
+  });
+  const bob = userName("bob@example.com");
+  const carol = userName("carol@example.com");
+  const forge = parseForgeLocator("github.com/test-org/widgets");
+  expect(currentReviewers([])).toEqual([]);
+  const entries = [
+    // bob: added, removed later — out.
+    entry(5, { kind: "add-reviewer", reviewer: bob }),
+    entry(9, { kind: "remove-reviewer", reviewer: bob }),
+    // carol: removed on the forge, then re-added locally — in, but the
+    // forge's last observation stays a removal.
+    entry(3, { kind: "add-reviewer", reviewer: carol }, { forge }),
+    entry(6, { kind: "remove-reviewer", reviewer: carol }, { forge }),
+    entry(8, { kind: "add-reviewer", reviewer: carol }),
+  ];
+  expect(currentReviewers(entries)).toEqual([carol]);
+  expect(observedForgeReviewers(entries, forge)).toEqual(new Set());
+  expect(observedForgeReviewers(entries.slice(0, 3), forge)).toEqual(new Set([carol]));
+  // Another forge's observations are not this forge's.
+  expect(observedForgeReviewers(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toEqual(new Set());
 });
 
 test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
@@ -537,19 +582,8 @@ function commitHashes(): fc.Arbitrary<CommitHash> {
 function logActions(): fc.Arbitrary<LogAction> {
   const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
   const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
-  const sources = fc.record(
-    {
-      forge: forges,
-      id: fc.string({ minLength: 1 }),
-      edits: fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 64, maxLength: 64 }),
-    },
-    { requiredKeys: ["forge", "id"] },
-  );
   return fc.oneof(
-    fc.record(
-      { kind: fc.constant("set-parent" as const), parent: refNames(), source: forges },
-      { requiredKeys: ["kind", "parent"] },
-    ),
+    fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
     fc.record({
@@ -557,22 +591,33 @@ function logActions(): fc.Arbitrary<LogAction> {
       forge: forges,
       id: fc.integer({ min: 1 }).map(forgeChangeId),
     }),
+    fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
+    fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
     fc.record({ kind: fc.constant("land" as const), merge: commitHashes() }),
     fc.record(
-      { kind: fc.constant("comment" as const), text: fc.string({ minLength: 1, unit: "grapheme" }), source: sources },
+      {
+        kind: fc.constant("comment" as const),
+        text: fc.string({ minLength: 1, unit: "grapheme" }),
+        edits: fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 64, maxLength: 64 }),
+      },
       { requiredKeys: ["kind", "text"] },
     ),
   );
 }
 
 function logEntries(): fc.Arbitrary<LogEntry> {
-  return fc.record({
-    timestamp: fc.maxSafeNat().map(timestampMs),
-    user: fc.string({ minLength: 1, unit: "grapheme" }).map(userName),
-    action: logActions(),
-  });
+  const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
+  return fc.record(
+    {
+      timestamp: fc.maxSafeNat().map(timestampMs),
+      user: fc.string({ minLength: 1, unit: "grapheme" }).map(userName),
+      source: fc.record({ forge: forges, id: fc.string({ minLength: 1 }) }, { requiredKeys: ["forge"] }),
+      action: logActions(),
+    },
+    { requiredKeys: ["timestamp", "user", "action"] },
+  );
 }
 
 test("format/parse round-trips arbitrary logs", () => {

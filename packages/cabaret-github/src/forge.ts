@@ -26,12 +26,19 @@ function noreplyUser(login: string): UserName {
   return userName(`${login}@users.noreply.github.com`);
 }
 
+// Inverts `noreplyUser`, including the id-prefixed form GitHub also hands out.
+const NOREPLY = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/;
+
 // The PR fields every query selects. GraphQL rather than REST because the
 // open-changes sweep pages a hundred PRs with their comments in one query —
 // REST would make it N+1.
+// A reviewer who has submitted a review drops out of `reviewRequests`, so the
+// reviewer set is that union'd with `latestReviews` authors.
 const PR_FIELDS =
   "number headRefName headRefOid baseRefName title author { login } state " +
-  "mergeCommit { oid parents { totalCount } }";
+  "mergeCommit { oid parents { totalCount } } " +
+  "reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } } " +
+  "latestReviews(first: 100) { nodes { author { login } } }";
 
 const PrSchema = z.object({
   number: z.number().transform(forgeChangeId),
@@ -48,6 +55,15 @@ const PrSchema = z.object({
       parents: z.object({ totalCount: z.number() }),
     })
     .nullable(),
+  reviewRequests: z.object({
+    // The requested reviewer is a union; the User fragment leaves a team's or
+    // bot's node empty, and GraphQL admits null besides.
+    nodes: z.array(z.object({ requestedReviewer: z.object({ login: z.string().optional() }).nullable() })),
+  }),
+  latestReviews: z.object({
+    // A deleted account's review has no author.
+    nodes: z.array(z.object({ author: z.object({ login: z.string() }).nullable() })),
+  }),
 });
 
 const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
@@ -120,6 +136,7 @@ const IssueCommentSchema = z.object({
 /** A `Forge` for a github.com repository, speaking the API directly. */
 export class GitHubForge implements Forge {
   private readonly identities = new Map<string, Promise<UserName>>();
+  private readonly logins = new Map<UserName, Promise<string>>();
   readonly locator: ForgeLocator;
 
   constructor(
@@ -150,7 +167,44 @@ export class GitHubForge implements Forge {
     return pending;
   }
 
+  /**
+   * The login for a Cabaret identity — `identity`'s inverse. A noreply
+   * identity names its login directly; anything else costs an email search,
+   * cached for this forge's lifetime. Search matching is loose, so anything
+   * but exactly one hit fails: a review request must never land on whichever
+   * stranger matched first.
+   */
+  private login(user: UserName): Promise<string> {
+    const noreply = NOREPLY.exec(user)?.[1];
+    if (noreply !== undefined) {
+      return Promise.resolve(noreply);
+    }
+    let pending = this.logins.get(user);
+    if (pending === undefined) {
+      pending = this.client.request("GET /search/users", { q: `${user} in:email` }).then(({ data }) => {
+        const { items } = z.object({ items: z.array(z.object({ login: z.string() })) }).parse(data);
+        const [match] = items;
+        if (match === undefined) {
+          throw new UserError(`no github.com account found for ${JSON.stringify(user)}`);
+        }
+        if (items.length > 1) {
+          throw new UserError(`${JSON.stringify(user)} is ambiguous on github.com`);
+        }
+        return match.login;
+      });
+      this.logins.set(user, pending);
+    }
+    return pending;
+  }
+
   private async toChange(pr: z.infer<typeof PrSchema>): Promise<ForgeChange> {
+    const logins = new Set(
+      [
+        ...pr.reviewRequests.nodes.map(({ requestedReviewer }) => requestedReviewer?.login),
+        ...pr.latestReviews.nodes.map(({ author }) => author?.login),
+      ].filter((login) => login !== undefined),
+    );
+    const reviewers = await Promise.all([...logins].map((login) => this.identity(login)));
     return {
       id: pr.number,
       head: pr.headRefName,
@@ -159,6 +213,7 @@ export class GitHubForge implements Forge {
       title: pr.title,
       author: await this.identity(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
+      reviewers: reviewers.sort(),
       ...(pr.mergeCommit === null
         ? {}
         : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
@@ -289,5 +344,57 @@ export class GitHubForge implements Forge {
       issue_number: id,
       body,
     });
+  }
+
+  async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
+    const [adding, removing] = await Promise.all([
+      Promise.all(add.map((user) => this.login(user))),
+      Promise.all(remove.map((user) => this.login(user))),
+    ]);
+    try {
+      if (adding.length > 0) {
+        await this.client.request("POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
+          ...this.repo,
+          pull_number: id,
+          reviewers: adding,
+        });
+      }
+      // Only a pending request can be withdrawn: GitHub cannot unmake a
+      // submitted review, and naming a login with no pending request fails
+      // the whole call. A reviewer who has reviewed is left as they are (and
+      // mirrors back in on the next pull).
+      if (removing.length > 0) {
+        const { data } = await this.client.request(
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+          {
+            ...this.repo,
+            pull_number: id,
+          },
+        );
+        const pending = new Set(
+          z
+            .object({ users: z.array(z.object({ login: z.string() })) })
+            .parse(data)
+            .users.map(({ login }) => login),
+        );
+        const withdrawable = removing.filter((login) => pending.has(login));
+        if (withdrawable.length > 0) {
+          await this.client.request("DELETE /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
+            ...this.repo,
+            pull_number: id,
+            reviewers: withdrawable,
+          });
+        }
+      }
+    } catch (error) {
+      // 422 is GitHub refusing the reviewer as such — the PR's own author, or
+      // an account that cannot be assigned; its message names the account.
+      if (isStatus(error, 422)) {
+        throw new UserError(
+          `${this.locator}#${id} reviewers not updated: ${(error as { message?: string }).message ?? ""}`,
+        );
+      }
+      throw error;
+    }
   }
 }
