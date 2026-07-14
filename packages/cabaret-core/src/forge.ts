@@ -713,6 +713,83 @@ export async function pullForge(
   return { open: open.length };
 }
 
+/** What a push did, so hosts can narrate in their own voice. */
+export interface PushResult {
+  readonly id: ForgeChangeId;
+  /** Whether the push opened the forge change. */
+  readonly opened: boolean;
+  /** How many reviewer memberships the push updated on the forge. */
+  readonly reviewers: number;
+  /** How many comments the push posted. */
+  readonly comments: number;
+}
+
+/**
+ * Push `change`'s activity to the forge: push its branch, open its forge
+ * change if there is none (merging into the change's parent), retarget it to
+ * the parent, sync reviewers both ways, and post the change's comments the
+ * forge lacks.
+ */
+export async function pushChange(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  change: RefName,
+  entries: readonly LogEntry[],
+): Promise<PushResult> {
+  const parent = currentParent(change, entries);
+  await backend.pushBranch(change);
+  // Whenever the push sets the forge's parent — at creation or by a
+  // retarget — the log records the observation, so a later pull can
+  // tell a forge-side retarget from the state this push left behind.
+  const observation = async (): Promise<LogEntry> => ({
+    timestamp: now(),
+    user: await backend.currentUser(),
+    source: { forge: forge.locator },
+    action: { kind: "set-parent", parent },
+  });
+  let forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
+  const opened = forgeChange === undefined;
+  if (forgeChange === undefined) {
+    forgeChange = await forge.createChange(change, parent, change);
+    await backend.appendLog(change, [
+      {
+        timestamp: now(),
+        user: await backend.currentUser(),
+        source: { forge: forge.locator },
+        action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
+      },
+      await observation(),
+    ]);
+  } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
+    await forge.setParent(forgeChange.id, parent);
+    await backend.appendLog(change, [await observation()]);
+  }
+  let reviewers = 0;
+  if (forgeChange.state === "open") {
+    const user = await backend.currentUser();
+    // Absorb forge-side reviewer changes first, so what remains between the
+    // log and the forge is exactly this side's intent.
+    const current = await backend.readLog(change);
+    const mirrored = planReviewerPull(now, user, forge.locator, current, forgeChange.reviewers);
+    const plan = planReviewerPush(now, user, forge.locator, [...current, ...mirrored], forgeChange.reviewers);
+    reviewers = plan.add.length + plan.remove.length;
+    if (reviewers > 0) {
+      await forge.setReviewers(forgeChange.id, plan.add, plan.remove);
+    }
+    const additions = [...mirrored, ...plan.observations];
+    if (additions.length > 0) {
+      await backend.appendLog(change, additions);
+    }
+  }
+  const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
+  for (const body of bodies) {
+    await forge.addComment(forgeChange.id, body);
+  }
+  await backend.syncLog(change);
+  return { id: forgeChange.id, opened, reviewers, comments: bodies.length };
+}
+
 /** One comment as displayed: the latest version of its group. */
 export interface ChangeComment {
   readonly timestamp: TimestampMs;
