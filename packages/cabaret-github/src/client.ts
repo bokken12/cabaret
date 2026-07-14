@@ -44,10 +44,10 @@ export type GitHubClient = InstanceType<typeof GitHub>;
 
 /**
  * Build a client for `token`. Octokit runs on `fetch`, so the same client
- * serves Node hosts and the browser — which `cabaret-web` requires. The
- * throttling plugin implements GitHub's recommended rate-limit behavior; a
- * limit is waited out once, but a second hit on the same call means something
- * is genuinely wrong, so it fails rather than keep hammering GitHub.
+ * serves Node hosts and the browser. The throttling plugin implements
+ * GitHub's recommended rate-limit behavior; a limit is waited out once, but a
+ * second hit on the same call means something is genuinely wrong, so it fails
+ * rather than keep hammering GitHub.
  *
  * `throttled: false` is for tests against canned responses, which the plugin
  * would otherwise pace at real-time write speed (one per second) — and its

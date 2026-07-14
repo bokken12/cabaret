@@ -4,7 +4,7 @@ How `cabaret pull` and `cabaret push` let one Cabaret user collaborate with team
 
 ## Naming
 
-"Frontend" would be the natural dual to `Backend`, but `architecture.md` already uses "frontend" for the UI layer (`cabaret-cli`, `cabaret-web`, `cabaret-vscode`). GitHub, GitLab, Gitea, and friends are conventionally called forges, and the term has no collision here.
+"Frontend" would be the natural dual to `Backend`, but `architecture.md` already uses "frontend" for the UI layer (`cabaret-cli`, `cabaret-vscode`). GitHub, GitLab, Gitea, and friends are conventionally called forges, and the term has no collision here.
 
 Tentative: the interface is `Forge`, implemented by `GitHubForge` and `GitLabForge`. If this turns out badly, my second choice is `Host`.
 
@@ -18,7 +18,7 @@ The sync logic should be pure planning over data: `planPull(log, forgeState) →
 
 ## Transport and auth
 
-`GitHubForge` speaks the REST API directly through octokit (`@octokit/core` with GitHub's own throttling and retry plugins, so rate limits are handled the way GitHub documents). Octokit runs on `fetch`, which is what lets `cabaret-web` run the same forge in a browser.
+`GitHubForge` speaks the REST API directly through octokit (`@octokit/core` with GitHub's own throttling and retry plugins, so rate limits are handled the way GitHub documents). Octokit runs on `fetch`, so the same forge runs wherever `fetch` exists, including a browser.
 
 Auth is a bearer token the host supplies. On Node, `openGitHubForge` takes it from `$GH_TOKEN`/`$GITHUB_TOKEN` or `gh auth token`, so auth stays delegated to `gh auth login` and Cabaret stores nothing; a browser host is handed a token by its user. Which repo to talk to is likewise host-supplied: on Node it is derived from `remote.origin.url` — consistent with `currentUser()` reading `git config user.email` — while a browser host names the repository directly.
 
