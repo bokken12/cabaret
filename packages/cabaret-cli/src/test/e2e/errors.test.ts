@@ -9,7 +9,7 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
   const repo = await makeRepo();
   expect(await repo.cabaret("show")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret gh pull` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
     exitCode: 1,
   });
 });
@@ -46,7 +46,7 @@ test("a bug keeps its stack trace", async () => {
   await repo.cabaret("create", "feature");
   // The fixture's forge-less context throws a plain Error, standing in for
   // any exception that is not a UserError.
-  const result = await repo.cabaret("gh", "pull", "--change", "feature");
+  const result = await repo.cabaret("pull", "--change", "feature");
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toMatch(/^Command failed, Error: this test repo has no forge\n {4}at /);
 });

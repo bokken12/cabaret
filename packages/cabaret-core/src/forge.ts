@@ -47,7 +47,7 @@ export interface OpenChange {
  * Implementations live in `cabaret-github` and friends.
  *
  * Rendering never calls a forge: it reads change logs, which `pullForge` —
- * behind `gh pull` and its equivalents — populates from the forge.
+ * behind `cabaret pull` — populates from the forge.
  */
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
@@ -327,7 +327,7 @@ export async function landOnForge(
 ): Promise<CommitHash> {
   if (forgeChange.state === "merged") {
     throw new UserError(
-      `${forge.locator}#${forgeChange.id} was already merged; run \`cabaret gh pull\` to record the land`,
+      `${forge.locator}#${forgeChange.id} was already merged; run \`cabaret pull\` to record the land`,
     );
   }
   if (forgeChange.state === "closed") {
@@ -344,14 +344,14 @@ export async function landOnForge(
   if (forgeChange.parent !== parent) {
     throw new UserError(
       `${forge.locator}#${forgeChange.id} merges into ${JSON.stringify(forgeChange.parent)}, ` +
-        `not ${JSON.stringify(parent)}; run \`cabaret gh push\` to retarget it`,
+        `not ${JSON.stringify(parent)}; run \`cabaret push\` to retarget it`,
     );
   }
   await backend.fetchBranch(parent);
   const prepared = await prepareLand(backend, change, entries, overrides);
   if (forgeChange.tip !== prepared.tip) {
     throw new UserError(
-      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret gh push\` first`,
+      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret push\` first`,
     );
   }
   const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
@@ -386,7 +386,7 @@ export async function landAsConfigured(
   const forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
   if (forgeChange === undefined) {
     throw new UserError(
-      `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
+      `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
     );
   }
   await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);

@@ -462,7 +462,7 @@ function latestAction<K extends LogAction["kind"]>(
 export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret gh pull\` to import open forge changes`,
+      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret pull\` to import open forge changes`,
     );
   }
 }

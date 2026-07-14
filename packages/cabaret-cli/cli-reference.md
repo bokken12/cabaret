@@ -118,52 +118,6 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
-### cabaret gh pull
-
-USAGE
-  cabaret gh pull [--change value]
-  cabaret gh pull --help
-
-Pull PR activity from GitHub: import every open PR that is not yet a change — owned by the PR's author, with the PR's base branch as its parent — import PR comments into change logs, and record merged PRs as landing their changes. Pulls every unlanded change with a PR; --change restricts it to one.
-
-FLAGS
-     [--change]  Only change to pull
-  -h  --help     Print help information and exit
-
-### cabaret gh push
-
-USAGE
-  cabaret gh push [--change value]
-  cabaret gh push --help
-
-Push PR activity to GitHub: push the change's branch, open its PR if there is none (based on the change's parent), retarget the PR's base to the parent, and post the change's comments the PR lacks.
-
-FLAGS
-     [--change]  Change to push (defaults to current)
-  -h  --help     Print help information and exit
-
-### cabaret glab pull
-
-USAGE
-  cabaret glab pull
-  cabaret glab pull --help
-
-Pull MR activity from GitLab
-
-FLAGS
-  -h --help  Print help information and exit
-
-### cabaret glab push
-
-USAGE
-  cabaret glab push
-  cabaret glab push --help
-
-Push MR activity to GitLab
-
-FLAGS
-  -h --help  Print help information and exit
-
 ## cabaret land
 
 USAGE
@@ -193,6 +147,30 @@ FLAGS
 
 ARGUMENTS
   [change]  change to inspect (defaults to current)
+
+## cabaret pull
+
+USAGE
+  cabaret pull [--change value]
+  cabaret pull --help
+
+Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one.
+
+FLAGS
+     [--change]  Only change to pull
+  -h  --help     Print help information and exit
+
+## cabaret push
+
+USAGE
+  cabaret push [--change value]
+  cabaret push --help
+
+Push activity to the forge: push the change's branch, open its forge change if there is none (merging into the change's parent), retarget it to the parent, and post the change's comments the forge lacks.
+
+FLAGS
+     [--change]  Change to push (defaults to current)
+  -h  --help     Print help information and exit
 
 ## cabaret rebase
 
@@ -293,7 +271,7 @@ USAGE
   cabaret sync
   cabaret sync --help
 
-Sync review state with origin: fetch every change's log, merge it with the local log, and push the result. Only logs move; branches sync through git or `cabaret gh`.
+Sync review state with origin: fetch every change's log, merge it with the local log, and push the result. Only logs move; branches sync through git or `cabaret pull`/`cabaret push`.
 
 FLAGS
   -h --help  Print help information and exit

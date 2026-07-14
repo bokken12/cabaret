@@ -121,7 +121,7 @@ export function startApp(root: HTMLElement, config: Config): void {
         // The overview must not trust held snapshots; visiting it is the
         // natural re-read point for everything under review. This app is a
         // viewer of the review state published to origin — importing open
-        // forge changes is `cabaret gh pull`'s job, from a checkout.
+        // forge changes is `cabaret pull`'s job, from a checkout.
         snapshots.clear();
       }
       const doc = await renderPage(backend, page, { cache: snapshots, context: loadContext() });

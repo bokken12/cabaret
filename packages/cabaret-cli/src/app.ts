@@ -450,133 +450,107 @@ function reportPullEvent(context: LocalContext, locator: string, event: PullEven
   }
 }
 
-const gh = buildRouteMap({
-  docs: { brief: "GitHub integration" },
-  routes: {
-    pull: buildCommand({
-      docs: {
-        brief: "Pull PR activity from GitHub",
-        fullDescription:
-          "Pull PR activity from GitHub: import every open PR that is not " +
-          "yet a change — owned by the PR's author, with the PR's base " +
-          "branch as its parent — import PR comments into change logs, and " +
-          "record merged PRs as landing their changes. Pulls every unlanded " +
-          "change with a PR; --change restricts it to one.",
+const pull = buildCommand({
+  docs: {
+    brief: "Pull activity from the forge",
+    fullDescription:
+      "Pull activity from the forge: import every open forge change that is " +
+      "not yet a change — owned by its author, parented on the branch it " +
+      "merges into — import forge comments into change logs, and record " +
+      "merged forge changes as landing their changes. Pulls every unlanded " +
+      "change with a forge change; --change restricts it to one.",
+  },
+  parameters: {
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Only change to pull",
+        optional: true,
       },
-      parameters: {
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Only change to pull",
-            optional: true,
-          },
-        },
-      },
-      async func(this: LocalContext, flags: { change?: RefName }) {
-        const backend = await this.backend();
-        const forge = await this.forge();
-        if (flags.change !== undefined) {
-          const change = flags.change;
-          await backend.syncLog(change);
-          const entries = await backend.readLog(change);
-          assertChangeExists(change, entries);
-          const forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
-          if (forgeChange === undefined) {
-            throw new UserError(
-              `no PR for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret gh push\` first`,
-            );
-          }
-          const pulled = await pullTrackedChange(backend, this.now, forge, change, entries, forgeChange);
-          reportPullEvent(this, forge.locator, { kind: "pulled", id: forgeChange.id, change, ...pulled });
-          return;
-        }
-        const { open } = await pullForge(backend, this.now, forge, (event) =>
-          reportPullEvent(this, forge.locator, event),
+    },
+  },
+  async func(this: LocalContext, flags: { change?: RefName }) {
+    const backend = await this.backend();
+    const forge = await this.forge();
+    if (flags.change !== undefined) {
+      const change = flags.change;
+      await backend.syncLog(change);
+      const entries = await backend.readLog(change);
+      assertChangeExists(change, entries);
+      const forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
+      if (forgeChange === undefined) {
+        throw new UserError(
+          `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
         );
-        this.process.stdout.write(`synced ${forge.locator}: ${open} open PR${open === 1 ? "" : "s"}\n`);
-      },
-    }),
-    push: buildCommand({
-      docs: {
-        brief: "Push PR activity to GitHub",
-        fullDescription:
-          "Push PR activity to GitHub: push the change's branch, open its PR " +
-          "if there is none (based on the change's parent), retarget the PR's " +
-          "base to the parent, and post the change's comments the PR lacks.",
-      },
-      parameters: {
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Change to push (defaults to current)",
-            optional: true,
-          },
-        },
-      },
-      async func(this: LocalContext, flags: { change?: RefName }) {
-        const backend = await this.backend();
-        const forge = await this.forge();
-        const change = flags.change ?? (await backend.currentBranch());
-        const entries = await backend.readLog(change);
-        assertChangeExists(change, entries);
-        const parent = currentParent(change, entries);
-        await backend.pushBranch(change);
-        // Whenever the push sets the forge's parent — at creation or by a
-        // retarget — the log records the observation, so a later pull can
-        // tell a forge-side retarget from the state this push left behind.
-        const observation = async (): Promise<LogEntry> => ({
-          timestamp: this.now(),
-          user: await backend.currentUser(),
-          action: { kind: "set-parent", parent, source: forge.locator },
-        });
-        let forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
-        if (forgeChange === undefined) {
-          forgeChange = await forge.createChange(change, parent, change);
-          await backend.appendLog(change, [
-            {
-              timestamp: this.now(),
-              user: await backend.currentUser(),
-              action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
-            },
-            await observation(),
-          ]);
-          this.process.stdout.write(`opened ${forge.locator}#${forgeChange.id}\n`);
-        } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
-          await forge.setParent(forgeChange.id, parent);
-          await backend.appendLog(change, [await observation()]);
-        }
-        const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
-        for (const body of bodies) {
-          await forge.addComment(forgeChange.id, body);
-        }
-        await backend.syncLog(change);
-        this.process.stdout.write(
-          `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${forgeChange.id}\n`,
-        );
-      },
-    }),
+      }
+      const pulled = await pullTrackedChange(backend, this.now, forge, change, entries, forgeChange);
+      reportPullEvent(this, forge.locator, { kind: "pulled", id: forgeChange.id, change, ...pulled });
+      return;
+    }
+    const { open } = await pullForge(backend, this.now, forge, (event) => reportPullEvent(this, forge.locator, event));
+    this.process.stdout.write(`synced ${forge.locator}: ${open} open forge change${open === 1 ? "" : "s"}\n`);
   },
 });
 
-const glab = buildRouteMap({
-  docs: { brief: "GitLab integration" },
-  routes: {
-    pull: buildCommand({
-      docs: { brief: "Pull MR activity from GitLab" },
-      parameters: {},
-      func(this: LocalContext) {
-        announce(this, "glab pull", {});
+const push = buildCommand({
+  docs: {
+    brief: "Push activity to the forge",
+    fullDescription:
+      "Push activity to the forge: push the change's branch, open its forge " +
+      "change if there is none (merging into the change's parent), retarget " +
+      "it to the parent, and post the change's comments the forge lacks.",
+  },
+  parameters: {
+    flags: {
+      change: {
+        kind: "parsed",
+        parse: parseRefName,
+        brief: "Change to push (defaults to current)",
+        optional: true,
       },
-    }),
-    push: buildCommand({
-      docs: { brief: "Push MR activity to GitLab" },
-      parameters: {},
-      func(this: LocalContext) {
-        announce(this, "glab push", {});
-      },
-    }),
+    },
+  },
+  async func(this: LocalContext, flags: { change?: RefName }) {
+    const backend = await this.backend();
+    const forge = await this.forge();
+    const change = flags.change ?? (await backend.currentBranch());
+    const entries = await backend.readLog(change);
+    assertChangeExists(change, entries);
+    const parent = currentParent(change, entries);
+    await backend.pushBranch(change);
+    // Whenever the push sets the forge's parent — at creation or by a
+    // retarget — the log records the observation, so a later pull can
+    // tell a forge-side retarget from the state this push left behind.
+    const observation = async (): Promise<LogEntry> => ({
+      timestamp: this.now(),
+      user: await backend.currentUser(),
+      action: { kind: "set-parent", parent, source: forge.locator },
+    });
+    let forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
+    if (forgeChange === undefined) {
+      forgeChange = await forge.createChange(change, parent, change);
+      await backend.appendLog(change, [
+        {
+          timestamp: this.now(),
+          user: await backend.currentUser(),
+          action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
+        },
+        await observation(),
+      ]);
+      this.process.stdout.write(`opened ${forge.locator}#${forgeChange.id}\n`);
+    } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
+      await forge.setParent(forgeChange.id, parent);
+      await backend.appendLog(change, [await observation()]);
+    }
+    const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
+    for (const body of bodies) {
+      await forge.addComment(forgeChange.id, body);
+    }
+    await backend.syncLog(change);
+    this.process.stdout.write(
+      `pushed ${bodies.length} comment${bodies.length === 1 ? "" : "s"} to ${forge.locator}#${forgeChange.id}\n`,
+    );
   },
 });
 
@@ -914,7 +888,7 @@ const sync = buildCommand({
     fullDescription:
       "Sync review state with origin: fetch every change's log, merge it " +
       "with the local log, and push the result. Only logs move; branches " +
-      "sync through git or `cabaret gh`.",
+      "sync through git or `cabaret pull`/`cabaret push`.",
   },
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
@@ -946,10 +920,10 @@ const routes = buildRouteMap({
     dev,
     diff,
     forget,
-    gh,
-    glab,
     land,
     log,
+    pull,
+    push,
     rebase,
     rename,
     reparent,

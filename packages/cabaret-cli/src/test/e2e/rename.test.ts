@@ -63,8 +63,7 @@ test("rename refuses a name that is not a change", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("rename", "nonesuch", "elsewhere")).toEqual({
     stdout: "",
-    stderr:
-      'change does not exist: "nonesuch"; run `cabaret create`, or `cabaret gh pull` to import open forge changes\n',
+    stderr: 'change does not exist: "nonesuch"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
     exitCode: 1,
   });
 });

@@ -135,7 +135,7 @@ and a review system.
   conflicts likewise surface as raw wrapped git errors (standing TODO in
   `git.ts`). Both deserve `UserError`s naming the way out.
 - **`fetchBranch` is fast-forward-only in a rebase-freely system.** After
-  any teammate rebase, `gh pull`'s fetch fails forever with a raw git error
+  any teammate rebase, `cabaret pull`'s fetch fails forever with a raw git error
   and no recovery path. Safe fix: reset local to remote when local has no
   unpushed work, or at least a `UserError` saying what to do.
 - **No CI.** The suite is green and ~10 s; a workflow running
