@@ -68,13 +68,18 @@ test("show renders the comments on a change, oldest first, above the files", asy
   `);
 });
 
-test("show for an unimported PR renders the as-if-imported view", async () => {
+test("show renders a change gh pull imported like any other", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", [
-    "their.txt",
-    "docs/notes.md",
-  ]);
+  // The teammate's branch lives on origin and in a PR, but not locally.
+  await repo.git("checkout", "-qb", "their-feature");
+  await repo.write("their.txt", "their work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "their work");
+  await repo.git("push", "-q", "origin", "their-feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.git("branch", "-qD", "their-feature");
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
   await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
@@ -84,12 +89,16 @@ test("show for an unimported PR renders the as-if-imported view", async () => {
     ╭──────────────┬────────────────────────────────╮
     │ attribute    │ value                          │
     ├──────────────┼────────────────────────────────┤
-    │ next step    │ import                         │
+    │ next step    │ review                         │
     │ owner        │ carol@users.noreply.github.com │
     │ parent       │ main                           │
     │ forge change │ github.com/test-org/widgets#1  │
-    │ title        │ Their feature                  │
+    │ tip          │ 7993514c52a1                   │
+    │ base         │ 1ac0b33426d0                   │
     ╰──────────────┴────────────────────────────────╯
+
+    Remaining review:
+      carol@users.noreply.github.com: 1 file
 
     Comments:
       2025-06-15T15:06:40.000Z carol@users.noreply.github.com
@@ -97,7 +106,6 @@ test("show for an unimported PR renders the as-if-imported view", async () => {
 
     Files to review:
       their.txt
-      docs/notes.md
     "
   `);
 });

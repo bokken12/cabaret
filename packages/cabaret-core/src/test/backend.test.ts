@@ -10,10 +10,7 @@ import {
   currentOwner,
   currentParent,
   type FilePath,
-  type ForgeChange,
-  type ForgeSnapshot,
   forgeChangeId,
-  formatForgeSnapshot,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -23,7 +20,6 @@ import {
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
-  parseForgeSnapshot,
   parseLog,
   parseRefName,
   type RefName,
@@ -322,7 +318,9 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentParent(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
+  expect(() => currentParent(change, [])).toThrow(
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret gh pull` to import open forge changes',
+  );
   expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
     'change has no parent: "feature"',
   );
@@ -347,7 +345,9 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentBase(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
+  expect(() => currentBase(change, [])).toThrow(
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret gh pull` to import open forge changes',
+  );
   expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
     'change has no base: "feature"',
   );
@@ -372,7 +372,9 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
     action,
   });
   const change = parseRefName("feature");
-  expect(() => currentOwner(change, [])).toThrow('change does not exist: "feature"; run `cabaret create` first');
+  expect(() => currentOwner(change, [])).toThrow(
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret gh pull` to import open forge changes',
+  );
   expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseRefName("main") })])).toThrow(
     'change has no owner: "feature"',
   );
@@ -544,7 +546,10 @@ function logActions(): fc.Arbitrary<LogAction> {
     { requiredKeys: ["forge", "id"] },
   );
   return fc.oneof(
-    fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
+    fc.record(
+      { kind: fc.constant("set-parent" as const), parent: refNames(), source: forges },
+      { requiredKeys: ["kind", "parent"] },
+    ),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
     fc.record({
@@ -576,49 +581,6 @@ test("format/parse round-trips arbitrary logs", () => {
       expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
     }),
   );
-});
-
-function forgeSnapshots(): fc.Arbitrary<ForgeSnapshot> {
-  const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
-  const forgeChanges: fc.Arbitrary<ForgeChange> = fc.record(
-    {
-      id: fc.integer({ min: 1 }).map(forgeChangeId),
-      head: refNames(),
-      tip: commitHashes(),
-      parent: refNames(),
-      title: fc.string({ unit: "grapheme" }),
-      author: users,
-      state: fc.constantFrom("open" as const, "closed" as const, "merged" as const),
-      changedFiles: fc.nat(),
-      merge: fc.record({ commit: commitHashes(), parents: fc.constantFrom(1, 2) }),
-    },
-    { requiredKeys: ["id", "head", "tip", "parent", "title", "author", "state", "changedFiles"] },
-  );
-  const comments = fc.record({
-    id: fc.string({ minLength: 1 }),
-    author: users,
-    body: fc.string({ unit: "grapheme" }),
-    updatedAt: fc.maxSafeNat().map(timestampMs),
-  });
-  return fc.record({
-    locator: fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator),
-    takenAt: fc.maxSafeNat().map(timestampMs),
-    changes: fc.array(fc.record({ change: forgeChanges, files: fc.array(filePaths()), comments: fc.array(comments) })),
-  });
-}
-
-test("format/parse round-trips arbitrary forge snapshots", () => {
-  fc.assert(
-    fc.property(forgeSnapshots(), (snapshot) => {
-      expect(parseForgeSnapshot(formatForgeSnapshot(snapshot))).toEqual(snapshot);
-    }),
-  );
-});
-
-test("parseForgeSnapshot reads anything unrecognizable as no snapshot", () => {
-  expect(parseForgeSnapshot("")).toBeUndefined();
-  expect(parseForgeSnapshot("not json")).toBeUndefined();
-  expect(parseForgeSnapshot('{"locator":"github.com/test-org/widgets"}')).toBeUndefined();
 });
 
 /** Entries with clustered timestamps and a small identity pool, so ties are common. */

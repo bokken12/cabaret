@@ -1,17 +1,13 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   changeBase,
-  type ForgeSnapshot,
-  forgeChangeId,
   type LogAction,
   type LogEntry,
   parseCommitHash,
-  parseFilePath,
-  parseForgeLocator,
   parseRefName,
   timestampMs,
   userName,
@@ -248,58 +244,70 @@ test("renameChange refuses a branch checked out in another worktree", async () =
   await git("worktree", "remove", linked);
 });
 
-test("the forge snapshot persists across backends and is shared by worktrees", async () => {
-  const backend = await GitBackend.open(repo);
-  expect(await backend.readForgeSnapshot()).toBeUndefined();
-  const snapshot: ForgeSnapshot = {
-    locator: parseForgeLocator("github.com/test-org/widgets"),
-    takenAt: timestampMs(1748000000000),
-    changes: [
-      {
-        change: {
-          id: forgeChangeId(7),
-          head: parseRefName("their-feature"),
-          tip: parseCommitHash("1".repeat(40)),
-          parent: parseRefName("main"),
-          title: "Their feature",
-          author: userName("carol@users.noreply.github.com"),
-          state: "open",
-          changedFiles: 2,
-        },
-        files: [parseFilePath("their.txt"), parseFilePath("docs/notes.md")],
-        comments: [
-          {
-            id: "101",
-            author: userName("carol@users.noreply.github.com"),
-            body: "please take a look",
-            updatedAt: timestampMs(1748000000001),
-          },
-        ],
-      },
-    ],
-  };
-  await backend.writeForgeSnapshot(snapshot);
-  expect(await (await GitBackend.open(repo)).readForgeSnapshot()).toEqual(snapshot);
-  // Worktrees share the common git dir, so they see the same snapshot.
-  const linked = join(repo, "snapshot-worktree");
-  await git("worktree", "add", "-q", linked, "--detach");
+/** A bare origin holding branches `main` and `extra`, and an empty repo with it as `origin`. */
+async function makeRemotePair(): Promise<{ dir: string; origin: string }> {
+  const origin = await mkdtemp(join(tmpdir(), "cabaret-node-test-origin-"));
+  await execFileAsync("git", ["init", "-q", "--bare", origin]);
+  const seed = await mkdtemp(join(tmpdir(), "cabaret-node-test-seed-"));
+  await gitIn(seed, "init", "-qb", "main");
+  await gitIn(seed, "commit", "-qm", "root", "--allow-empty");
+  await gitIn(seed, "branch", "extra");
+  await gitIn(seed, "push", "-q", origin, "main", "extra");
+  await rm(seed, { recursive: true, force: true });
+  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+  // Off `main`: git refuses to fetch into the checked-out branch.
+  await gitIn(dir, "init", "-qb", "scratch");
+  await gitIn(dir, "remote", "add", "origin", origin);
+  return { dir, origin };
+}
+
+test("fetchBranches fetches many branches at once", async () => {
+  const { dir, origin } = await makeRemotePair();
   try {
-    expect(await (await GitBackend.open(linked)).readForgeSnapshot()).toEqual(snapshot);
+    const backend = await GitBackend.open(dir);
+    await backend.fetchBranches([parseRefName("main"), parseRefName("extra")]);
+    expect(await backend.branchTip(parseRefName("main"))).toBeDefined();
+    expect(await backend.branchTip(parseRefName("extra"))).toBeDefined();
   } finally {
-    await git("worktree", "remove", linked);
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
   }
 });
 
-test("an unreadable forge snapshot reads as never having synced", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+test("fetchBranches fetches what it can when a branch is missing on origin", async () => {
+  const { dir, origin } = await makeRemotePair();
   try {
-    await gitIn(dir, "init", "-q");
     const backend = await GitBackend.open(dir);
-    await mkdir(join(dir, ".git", "cabaret"), { recursive: true });
-    await writeFile(join(dir, ".git", "cabaret", "forge-snapshot.json"), "not a snapshot");
-    expect(await backend.readForgeSnapshot()).toBeUndefined();
+    await backend.fetchBranches([parseRefName("no-such-branch"), parseRefName("main")]);
+    expect(await backend.branchTip(parseRefName("main"))).toBeDefined();
+    expect(await backend.branchTip(parseRefName("no-such-branch"))).toBeUndefined();
   } finally {
     await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("deleteLog deletes the log locally and on origin, tolerating a repeat", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    await gitIn(dir, "config", "user.email", "alice@example.com");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    await backend.appendLog(parseRefName("widgets"), [
+      logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("main") }),
+    ]);
+    await backend.syncLog(parseRefName("widgets"));
+    expect(await gitIn(origin, "for-each-ref", "refs/cabaret/")).not.toBe("");
+
+    await backend.deleteLog(parseRefName("widgets"));
+    expect(await backend.readLog(parseRefName("widgets"))).toEqual([]);
+    expect(await gitIn(dir, "for-each-ref", "refs/cabaret/")).toBe("");
+    expect(await gitIn(origin, "for-each-ref", "refs/cabaret/")).toBe("");
+    // Origin already lacks the ref, as after a concurrent prune: not a failure.
+    await backend.deleteLog(parseRefName("widgets"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
   }
 });
 

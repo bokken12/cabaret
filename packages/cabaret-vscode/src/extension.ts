@@ -3,14 +3,13 @@ import {
   createChange,
   currentParent,
   type Forge,
-  type ForgeChangeId,
-  importChange,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
   landChain,
   NotOwnerError,
   parseRefName,
+  pullForge,
   type RefName,
   readConfig,
   rebaseChain,
@@ -19,7 +18,6 @@ import {
   reparentChange,
   resolveChain,
   reviewerSummary,
-  syncForgeSnapshot,
   type TimestampMs,
   timestampMs,
   transferChange,
@@ -276,10 +274,6 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
-    case "forge-change":
-      // The as-if-imported view; importing is its own action.
-      await openPage(provider, { kind: "show", change: target.change });
-      break;
     case "location": {
       // Visit the working tree's copy: it is the one worth editing, and while
       // reviewing a checked-out change it is the copy the diff shows. A tree
@@ -300,30 +294,8 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
   }
 }
 
-/**
- * When the active page shows an unimported forge change — its heading
- * resolves to one — prompt to import and return true, telling the caller to
- * stop.
- */
-function promptImportFirst(provider: PageProvider): boolean {
-  const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return false;
-  }
-  const doc = provider.renderedDoc(editor.document.uri);
-  const heading = doc === undefined ? undefined : targetAt(doc, 0);
-  if (heading?.kind !== "forge-change") {
-    return false;
-  }
-  vscode.window.showInformationMessage(`cabaret: import ${heading.change} first (Cabaret: Import Change)`);
-  return true;
-}
-
 /** Enter review of the shown change: open its list of files to review. */
 async function review(provider: PageProvider): Promise<void> {
-  if (promptImportFirst(provider)) {
-    return;
-  }
   const change = shownChange();
   if (change !== undefined) {
     await openPage(provider, { kind: "review", change });
@@ -366,31 +338,13 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Import forge change `id` as a change, surfacing failure as a notification; returns the change's name. */
-async function runImport(id: ForgeChangeId): Promise<RefName | undefined> {
+/** Pull from the forge — import open forge changes and their activity — surfacing failure as a notification. */
+async function runPull(provider: PageProvider): Promise<void> {
   try {
-    const forge = await openForge();
-    if (forge === undefined) {
-      vscode.window.showErrorMessage("cabaret: no reachable forge for this repository");
-      return undefined;
-    }
-    const backend = await openBackend();
-    const { change } = await importChange(backend, now, forge, id);
-    await syncForgeSnapshot(backend, now, forge);
-    return change;
-  } catch (error) {
-    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
-    return undefined;
-  }
-}
-
-/** Refresh the forge snapshot every page renders from, surfacing failure as a notification. */
-async function runSyncForge(provider: PageProvider): Promise<void> {
-  try {
-    const snapshot = await syncForgeSnapshot(await openBackend(), now, await requireForge());
-    const open = snapshot.changes.length;
+    const forge = await requireForge();
+    const { open } = await pullForge(await openBackend(), now, forge, () => {});
     vscode.window.setStatusBarMessage(
-      `cabaret: synced ${snapshot.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
+      `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
     );
   } catch (error) {
@@ -398,27 +352,6 @@ async function runSyncForge(provider: PageProvider): Promise<void> {
   } finally {
     provider.refreshAll();
   }
-}
-
-/** Import the forge change at the cursor, as `cabaret gh import` does. */
-async function importAtCursor(provider: PageProvider): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return;
-  }
-  const doc = provider.renderedDoc(editor.document.uri);
-  // The cursor's forge change, or the one the page itself displays: an
-  // unimported forge change's show page opens with a heading that resolves
-  // to it.
-  const atCursor = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
-  const heading = doc === undefined ? undefined : targetAt(doc, 0);
-  const target = atCursor?.kind === "forge-change" ? atCursor : heading?.kind === "forge-change" ? heading : undefined;
-  if (target === undefined) {
-    vscode.window.showInformationMessage("cabaret: no forge change at the cursor");
-    return;
-  }
-  await runImport(target.id);
-  provider.refreshAll();
 }
 
 const now = (): TimestampMs => timestampMs(Date.now());
@@ -470,22 +403,13 @@ async function actOnSelection(
   provider: PageProvider,
   act: (backend: Backend, editor: vscode.TextEditor, changes: readonly RefName[]) => Promise<void>,
 ): Promise<void> {
-  if (promptImportFirst(provider)) {
-    return;
-  }
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const changes = selectedChanges(provider, editor);
   if (changes.length === 0) {
-    const doc = provider.renderedDoc(editor.document.uri);
-    const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
-    vscode.window.showInformationMessage(
-      target?.kind === "forge-change"
-        ? `cabaret: import ${target.change} first (Cabaret: Import Change)`
-        : "cabaret: no change at the cursor",
-    );
+    vscode.window.showInformationMessage("cabaret: no change at the cursor");
     return;
   }
   try {
@@ -548,11 +472,9 @@ async function rebaseSelection(backend: Backend, changes: readonly RefName[]): P
  */
 async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const config = await readConfig(backend);
-  let anyMerged = false;
   const landAll = async (overrides: LandOverrides) => {
     const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
-      const merged = await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
-      anyMerged = anyMerged || merged !== undefined;
+      await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only !== undefined) {
@@ -562,38 +484,26 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
     }
   };
   let overrides: LandOverrides = { notOwner: false, unreviewed: false };
-  try {
-    for (;;) {
-      try {
-        return await landAll(overrides);
-      } catch (error) {
-        let options: vscode.MessageOptions;
-        let message: string;
-        if (error instanceof NotOwnerError && !overrides.notOwner) {
-          message = `${error.change} is owned by ${error.owner}, not you.`;
-          options = { modal: true };
-          overrides = { ...overrides, notOwner: true };
-        } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
-          message = "Review obligations are unsatisfied.";
-          options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
-          overrides = { ...overrides, unreviewed: true };
-        } else {
-          throw error;
-        }
-        const choice = await vscode.window.showWarningMessage(message, options, "Land Anyway");
-        if (choice === undefined) {
-          return;
-        }
+  for (;;) {
+    try {
+      return await landAll(overrides);
+    } catch (error) {
+      let options: vscode.MessageOptions;
+      let message: string;
+      if (error instanceof NotOwnerError && !overrides.notOwner) {
+        message = `${error.change} is owned by ${error.owner}, not you.`;
+        options = { modal: true };
+        overrides = { ...overrides, notOwner: true };
+      } else if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
+        message = "Review obligations are unsatisfied.";
+        options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
+        overrides = { ...overrides, unreviewed: true };
+      } else {
+        throw error;
       }
-    }
-  } finally {
-    // Whatever merged is no longer open; the mirror must not keep showing
-    // it. Best-effort: the land itself already succeeded.
-    if (anyMerged) {
-      try {
-        await syncForgeSnapshot(backend, now, await requireForge());
-      } catch {
-        // The next sync refreshes the mirror.
+      const choice = await vscode.window.showWarningMessage(message, options, "Land Anyway");
+      if (choice === undefined) {
+        return;
       }
     }
   }
@@ -811,8 +721,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
-    vscode.commands.registerCommand("cabaret.import", () => importAtCursor(provider)),
-    vscode.commands.registerCommand("cabaret.syncForge", () => runSyncForge(provider)),
+    vscode.commands.registerCommand("cabaret.pull", () => runPull(provider)),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {

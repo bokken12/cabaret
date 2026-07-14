@@ -36,7 +36,7 @@ test("todo with no changes has nothing to do", async () => {
   `);
 });
 
-test("an open PR stands in as a change to review until imported", async () => {
+test("gh pull imports an open PR, and todo lists it as a change to review", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -65,27 +65,6 @@ test("an open PR stands in as a change to review until imported", async () => {
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
-
-    github.com/test-org/widgets synced 2025-05-23T11:33:20.003Z
-    "
-  `);
-  await repo.cabaret("gh", "import", "1");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭───────────────┬────────╮
-    │ change        │ review │
-    ├───────────────┼────────┤
-    │ gadget        │      1 │
-    │ their-feature │      1 │
-    ╰───────────────┴────────╯
-
-    Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
-
-    github.com/test-org/widgets synced 2025-05-23T11:33:20.008Z
     "
   `);
 });
@@ -94,31 +73,32 @@ test("your own PR joins the changes you own when identities align", async () => 
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("config", "user.email", "alice@users.noreply.github.com");
-  forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature", [
-    "solo.txt",
-    "docs/solo.md",
-  ]);
+  await repo.git("checkout", "-qb", "solo-feature");
+  await repo.write("solo.txt", "solo work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "solo work");
+  await repo.git("push", "-q", "origin", "solo-feature");
+  await repo.git("checkout", "-q", "main");
+  forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature");
   await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭──────────────┬────────╮
     │ change       │ review │
     ├──────────────┼────────┤
-    │ solo-feature │      2 │
+    │ solo-feature │      1 │
     ╰──────────────┴────────╯
 
     Changes you own:
     ╭──────────────┬────────┬───────────╮
     │ change       │ review │ next step │
     ├──────────────┼────────┼───────────┤
-    │ solo-feature │      2 │ import    │
+    │ solo-feature │      1 │ review    │
     ╰──────────────┴────────┴───────────╯
-
-    github.com/test-org/widgets synced 2025-05-23T11:33:20.000Z
     "
   `);
 });
 
-test("a merged PR is not offered for import", async () => {
+test("a merged PR is not imported", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
@@ -126,8 +106,6 @@ test("a merged PR is not offered for import", async () => {
   await repo.cabaret("gh", "pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Nothing to do.
-
-    github.com/test-org/widgets synced 2025-05-23T11:33:20.000Z
     "
   `);
 });

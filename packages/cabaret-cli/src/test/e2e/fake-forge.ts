@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   type CommitHash,
-  type FilePath,
   type Forge,
   type ForgeChange,
   type ForgeChangeId,
@@ -10,11 +9,10 @@ import {
   type ForgeMerge,
   forgeChangeId,
   type LandMethod,
+  type OpenChange,
   parseCommitHash,
-  parseFilePath,
   parseForgeLocator,
   type RefName,
-  type SnapshotChange,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -37,7 +35,6 @@ interface FakePr {
   merge?: ForgeMerge;
   /** The head that merged; the live branch tip until then. */
   tip?: CommitHash;
-  readonly files: readonly FilePath[];
   readonly comments: FakeComment[];
 }
 
@@ -54,6 +51,8 @@ export class FakeForge implements Forge {
   tokenLogin = "alice";
   /** The bare repository this forge hosts; `makeRepo` sets it. */
   origin: string | undefined;
+  /** When set, `fetchOpenChanges` caps each change's comments at this many, as real forges do. */
+  commentCap: number | undefined;
   private readonly prs = new Map<ForgeChangeId, FakePr>();
   private clock = 1750000000000;
   private nextComment = 100;
@@ -82,26 +81,30 @@ export class FakeForge implements Forge {
   async findChange(branch: RefName): Promise<ForgeChange | undefined> {
     for (const [id, pr] of this.prs) {
       if (pr.head === branch && pr.state === "open") {
-        return this.snapshot(id, pr);
+        return this.toChange(id, pr);
       }
     }
     return undefined;
   }
 
-  async fetchSnapshot(): Promise<readonly SnapshotChange[]> {
+  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
     return Promise.all(
       [...this.prs]
         .filter(([, pr]) => pr.state === "open")
-        .map(async ([id, pr]) => ({
-          change: await this.snapshot(id, pr),
-          files: pr.files,
-          comments: await this.listComments(id),
-        })),
+        .map(async ([id, pr]): Promise<OpenChange> => {
+          const comments = await this.listComments(id);
+          const capped = this.commentCap !== undefined && comments.length > this.commentCap;
+          return {
+            change: await this.toChange(id, pr),
+            comments: capped ? comments.slice(0, this.commentCap) : comments,
+            commentsTruncated: capped,
+          };
+        }),
     );
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
-    return this.snapshot(id, this.pr(id));
+    return this.toChange(id, this.pr(id));
   }
 
   async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
@@ -153,10 +156,15 @@ export class FakeForge implements Forge {
   }
 
   /** A PR opened on the forge by `login`; returns its number. */
-  openPr(login: string, head: RefName, base: RefName, title: string, files = ["work.txt"]): ForgeChangeId {
+  openPr(login: string, head: RefName, base: RefName, title: string): ForgeChangeId {
     const id = forgeChangeId(this.prs.size + 1);
-    this.prs.set(id, { head, base, title, login, state: "open", files: files.map(parseFilePath), comments: [] });
+    this.prs.set(id, { head, base, title, login, state: "open", comments: [] });
     return id;
+  }
+
+  /** The close button: the PR is declined without merging. */
+  close(id: ForgeChangeId): void {
+    this.pr(id).state = "closed";
   }
 
   /** A comment posted on the forge by `login`; returns its id. */
@@ -191,7 +199,7 @@ export class FakeForge implements Forge {
     return pr;
   }
 
-  private async snapshot(id: ForgeChangeId, pr: FakePr): Promise<ForgeChange> {
+  private async toChange(id: ForgeChangeId, pr: FakePr): Promise<ForgeChange> {
     return {
       id,
       head: pr.head,
@@ -200,7 +208,6 @@ export class FakeForge implements Forge {
       title: pr.title,
       author: userName(`${pr.login}@users.noreply.github.com`),
       state: pr.state,
-      changedFiles: pr.files.length,
       ...(pr.merge === undefined ? {} : { merge: pr.merge }),
     };
   }

@@ -1,7 +1,7 @@
-import { forgeChangeId, parseCommitHash, parseRefName } from "cabaret-core";
+import { forgeChangeId, parseCommitHash, parseRefName, type RefName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
-import { addChange, makeRepo, shownComments } from "./fixture.js";
+import { addChange, makeClone, makeRepo, shownComments, type TestRepo } from "./fixture.js";
 
 const PR = forgeChangeId(1);
 
@@ -24,7 +24,6 @@ test("gh push pushes the branch, opens a PR on the parent, and posts comments wi
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
-    changedFiles: 1,
   });
   const posted = await forge.listComments(PR);
   expect(posted.map(({ body }) => body)).toEqual([expect.stringMatching(/^ship it\n\n<!-- cabaret:[0-9a-f]{64} -->$/)]);
@@ -196,22 +195,29 @@ test("gh push does not record forge activity, even an observed merge", async () 
   expect((await repo.cabaret("log")).stdout).not.toContain('"kind":"land"');
 });
 
-test("gh import turns a teammate's PR into a change to review", async () => {
+/** A teammate's branch, committed and pushed to origin but absent locally, as a PR's head would be. */
+async function pushTeammateBranch(repo: TestRepo, branch: RefName): Promise<string> {
+  await repo.git("checkout", "-qb", branch);
+  await repo.write(`${branch}.txt`, `${branch} work\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", `${branch} work`);
+  await repo.git("push", "-q", "origin", branch);
+  const tip = await repo.git("rev-parse", branch);
+  await repo.git("checkout", "-q", "main");
+  await repo.git("branch", "-qD", branch);
+  return tip;
+}
+
+test("gh pull turns a teammate's PR into a change to review", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  // The teammate's branch exists on origin and in a PR, but not locally.
-  await repo.git("checkout", "-qb", "their-feature");
-  await repo.write("their.txt", "their work\n");
-  await repo.git("add", "-A");
-  await repo.git("commit", "-qm", "their work");
-  await repo.git("push", "-q", "origin", "their-feature");
-  const theirTip = await repo.git("rev-parse", "their-feature");
-  await repo.git("checkout", "-q", "main");
-  await repo.git("branch", "-qD", "their-feature");
+  const theirTip = await pushTeammateBranch(repo, parseRefName("their-feature"));
   const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
-  expect(await repo.cabaret("gh", "import", "1")).toEqual({
-    stdout: 'imported github.com/test-org/widgets#1 as "their-feature" with 1 comment\n',
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout:
+      'imported github.com/test-org/widgets#1 as "their-feature" with 1 comment\n' +
+      "synced github.com/test-org/widgets: 1 open PR\n",
     stderr: "",
     exitCode: 0,
   });
@@ -221,18 +227,18 @@ test("gh import turns a teammate's PR into a change to review", async () => {
     "Comments:\n  2025-06-15T15:06:40.000Z carol@users.noreply.github.com\n    please take a look\n",
   );
   const log = (await repo.cabaret("log", "their-feature")).stdout;
-  expect(log).toContain('"action":{"kind":"set-parent","parent":"main"}');
+  expect(log).toContain('"action":{"kind":"set-parent","parent":"main","source":"github.com/test-org/widgets"}');
   expect(log).toContain('"action":{"kind":"set-owner","owner":"carol@users.noreply.github.com"}');
   expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}');
-  // Importing again refuses rather than doubling the change.
-  expect(await repo.cabaret("gh", "import", "1")).toEqual({
-    stdout: "",
-    stderr: 'change already exists: "their-feature"; run `cabaret gh pull` to sync it\n',
-    exitCode: 1,
-  });
+  // The import published: origin holds the log, and pulling again refreshes
+  // the change rather than re-importing it.
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).not.toBe("");
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
+  );
 });
 
-test("gh import adopts the PR of an existing local branch without fetching it", async () => {
+test("gh pull adopts the PR of an existing local branch without fetching it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The PR was opened from this very checkout, so its branch is both local
@@ -244,14 +250,123 @@ test("gh import adopts the PR of an existing local branch without fetching it", 
   await repo.git("commit", "-qm", "my work");
   await repo.git("push", "-q", "origin", "my-feature");
   forge.openPr("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
-  expect(await repo.cabaret("gh", "import", "1")).toEqual({
-    stdout: 'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n',
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout:
+      'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n' +
+      "synced github.com/test-org/widgets: 1 open PR\n",
     stderr: "",
     exitCode: 0,
   });
   expect((await repo.cabaret("log", "my-feature")).stdout).toContain(
     '"action":{"kind":"set-owner","owner":"alice@users.noreply.github.com"}',
   );
+});
+
+test("a second machine's pull adopts the published import instead of re-importing", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await pushTeammateBranch(repo, parseRefName("their-feature"));
+  forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await repo.cabaret("gh", "pull");
+  const clone = await makeClone(repo, "bob@example.com", forge);
+  expect((await clone.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
+  );
+  // Byte-identical logs: the clone adopted the import rather than re-creating it.
+  expect(await clone.cabaret("log", "their-feature")).toEqual(await repo.cabaret("log", "their-feature"));
+});
+
+test("gh pull reads a capped discussion in full before importing", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  forge.commentCap = 1;
+  await pushTeammateBranch(repo, parseRefName("their-feature"));
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  forge.comment(id, "carol", "first thought");
+  forge.comment(id, "carol", "second thought");
+  expect((await repo.cabaret("gh", "pull")).stdout).toContain(
+    'imported github.com/test-org/widgets#1 as "their-feature" with 2 comments\n',
+  );
+});
+
+test("gh pull skips a PR whose branch cannot be fetched", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  // The PR's branch never reached origin, so there is nothing to fetch.
+  forge.openPr("carol", parseRefName("phantom"), parseRefName("main"), "Phantom");
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout: "synced github.com/test-org/widgets: 1 open PR\n",
+    stderr: 'warning: skipping github.com/test-org/widgets#1 ("phantom"): branch "phantom" could not be fetched\n',
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("log", "phantom")).stdout).toBe("");
+});
+
+test("gh pull prunes a closed PR's change when nobody engaged with it", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await pushTeammateBranch(repo, parseRefName("their-feature"));
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await repo.cabaret("gh", "pull");
+  forge.close(id);
+  expect(await repo.cabaret("gh", "pull")).toEqual({
+    stdout:
+      'github.com/test-org/widgets#1 was closed; removed unreviewed change "their-feature"\n' +
+      "synced github.com/test-org/widgets: 0 open PRs\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("log", "their-feature")).stdout).toBe("");
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).toBe("");
+});
+
+test("gh pull keeps a closed PR's change once someone engaged with it", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await pushTeammateBranch(repo, parseRefName("their-feature"));
+  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await repo.cabaret("gh", "pull");
+  await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
+  forge.close(id);
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open PRs\n");
+  expect((await repo.cabaret("log", "their-feature")).stdout).toContain('"kind":"review"');
+});
+
+test("gh pull mirrors a forge-side retarget into the change", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("gh", "push");
+  // A teammate retargets the PR on the forge, as GitHub itself does when a
+  // stacked PR's base branch merges.
+  await forge.setParent(PR, parseRefName("develop"));
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    'github.com/test-org/widgets#1 was retargeted; reparented onto "develop"\n' +
+      "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 1 open PR\n",
+  );
+  expect((await repo.cabaret("log")).stdout).toContain(
+    '"action":{"kind":"set-parent","parent":"develop","source":"github.com/test-org/widgets"}',
+  );
+  // The retarget was observed once; pulling again re-mirrors nothing.
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
+  );
+});
+
+test("gh pull leaves an unpushed local reparent alone", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("gh", "push");
+  await repo.cabaret("reparent", "gadget", "develop");
+  // The forge still shows the parent the push left, which is not a retarget.
+  expect((await repo.cabaret("gh", "pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" + "synced github.com/test-org/widgets: 1 open PR\n",
+  );
+  const log = (await repo.cabaret("log")).stdout.trimEnd().split("\n");
+  expect(log[log.length - 1]).toContain('"action":{"kind":"set-parent","parent":"develop"}');
 });
 
 test("gh push retargets the PR base after a reparent", async () => {

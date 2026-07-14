@@ -80,7 +80,7 @@ USAGE
   cabaret dev wipe [--remote]
   cabaret dev wipe --help
 
-Delete the review state this repository holds: every change's log, the fetched copies of origin's logs, and the forge snapshot. Branches and commits stay, and origin keeps its logs, so `cabaret sync` restores them. --remote deletes origin's logs too, for every user of the repository.
+Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret sync` restores them. --remote deletes origin's logs too, for every user of the repository.
 
 FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
@@ -118,27 +118,13 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
-### cabaret gh import
-
-USAGE
-  cabaret gh import <number>
-  cabaret gh import --help
-
-Import a PR as a change to review: fetch its head branch, create the change owned by the PR's author with the PR's base branch as its parent, and pull the PR's comments.
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  number  PR number to import
-
 ### cabaret gh pull
 
 USAGE
   cabaret gh pull [--change value]
   cabaret gh pull --help
 
-Pull PR activity from GitHub: refresh the mirror of open PRs that the todo and show pages render from, import PR comments — new ones, and new versions of ones edited in place — into change logs, and record merged PRs as landing their changes. Pulls every unlanded change with a PR; --change restricts it to one.
+Pull PR activity from GitHub: import every open PR that is not yet a change — owned by the PR's author, with the PR's base branch as its parent — import PR comments into change logs, and record merged PRs as landing their changes. Pulls every unlanded change with a PR; --change restricts it to one.
 
 FLAGS
      [--change]  Only change to pull

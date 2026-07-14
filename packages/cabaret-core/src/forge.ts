@@ -9,14 +9,13 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
-  type ForgeSnapshot,
   formatLogEntry,
   type LogEntry,
   landedMerge,
   landTitle,
   landTrailer,
+  observedForgeParent,
   type RefName,
-  type SnapshotChange,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
@@ -34,25 +33,33 @@ declare class TextEncoder {
   encode(input: string): Uint8Array;
 }
 
+/** An open forge change with what importing it needs, as one bulk sweep carries it. */
+export interface OpenChange {
+  readonly change: ForgeChange;
+  /** The change-level comments, oldest first; may be capped at the first hundred or so. */
+  readonly comments: readonly ForgeComment[];
+  /** Whether `comments` was capped; full readers fall back to `listComments`. */
+  readonly commentsTruncated: boolean;
+}
+
 /**
  * The operations Cabaret needs from a code forge (GitHub, GitLab, …).
  * Implementations live in `cabaret-github` and friends.
  *
- * Rendering never calls a forge: it reads the backend's `ForgeSnapshot`,
- * which the commands that talk to the forge refresh via `syncForgeSnapshot`.
+ * Rendering never calls a forge: it reads change logs, which `pullForge` —
+ * behind `gh pull` and its equivalents — populates from the forge.
  */
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
   readonly locator: ForgeLocator;
 
   /**
-   * Every open change with the files and comments previewing it needs, in no
-   * particular order. Taken in one sweep so a snapshot costs a handful of API
-   * calls however many changes are open; in return each change's files and
-   * comments may be capped (at the first hundred or so) — an import still
-   * reads comments in full through `listComments`.
+   * Every open change with its comments, in no particular order. Taken in one
+   * sweep so a pull costs a handful of API calls however many changes are
+   * open; in return each change's comments may be capped, which
+   * `commentsTruncated` reports.
    */
-  fetchSnapshot(): Promise<readonly SnapshotChange[]>;
+  fetchOpenChanges(): Promise<readonly OpenChange[]>;
 
   /** The open change with head `branch`, or undefined if there is none. */
   findChange(branch: RefName): Promise<ForgeChange | undefined>;
@@ -88,20 +95,6 @@ export interface Forge {
 
   /** Post a change-level comment. */
   addComment(id: ForgeChangeId, body: string): Promise<void>;
-}
-
-/**
- * Mirror the forge's open changes into the backend's stored snapshot,
- * returning what was written.
- */
-export async function syncForgeSnapshot(
-  backend: Backend,
-  now: () => TimestampMs,
-  forge: Forge,
-): Promise<ForgeSnapshot> {
-  const snapshot: ForgeSnapshot = { locator: forge.locator, takenAt: now(), changes: await forge.fetchSnapshot() };
-  await backend.writeForgeSnapshot(snapshot);
-  return snapshot;
 }
 
 /**
@@ -261,6 +254,33 @@ export function observedLand(
 }
 
 /**
+ * The entries adopting `forgeChange` as `change`'s forge change: the
+ * `set-forge`, plus a baseline parent observation when the two sides already
+ * agree — so a later forge-side retarget is seen as one. Disagreeing parents
+ * record no observation; a push or a later pull settles them.
+ */
+function adoptionEntries(
+  now: () => TimestampMs,
+  user: UserName,
+  locator: ForgeLocator,
+  forgeChange: ForgeChange,
+  change: RefName,
+  entries: readonly LogEntry[],
+): LogEntry[] {
+  const adoption: LogEntry[] = [
+    { timestamp: now(), user, action: { kind: "set-forge", forge: locator, id: forgeChange.id } },
+  ];
+  if (forgeChange.parent === currentParent(change, entries)) {
+    adoption.push({
+      timestamp: now(),
+      user,
+      action: { kind: "set-parent", parent: forgeChange.parent, source: locator },
+    });
+  }
+  return adoption;
+}
+
+/**
  * The forge change `change` syncs with: the log's `set-forge` when it names
  * one on this forge, else the change's branch's open forge change, adopted
  * with a `set-forge` entry. Undefined when the forge has none either.
@@ -278,13 +298,10 @@ export async function syncedForgeChange(
   }
   const found = await forge.findChange(change);
   if (found !== undefined) {
-    await backend.appendLog(change, [
-      {
-        timestamp: now(),
-        user: await backend.currentUser(),
-        action: { kind: "set-forge", forge: forge.locator, id: found.id },
-      },
-    ]);
+    await backend.appendLog(
+      change,
+      adoptionEntries(now, await backend.currentUser(), forge.locator, found, change, entries),
+    );
   }
   return found;
 }
@@ -376,56 +393,227 @@ export async function landAsConfigured(
   return { forge: forge.locator, id: forgeChange.id };
 }
 
-/** What importing a forge change produced: a new change, or the discovery that its log already exists. */
-export type ImportResult =
-  | { readonly kind: "imported"; readonly change: RefName; readonly comments: number }
-  | { readonly kind: "exists"; readonly change: RefName };
+/** One thing a pull did, as it happens, so hosts can narrate in their own voice. */
+export type PullEvent =
+  | { readonly kind: "imported"; readonly id: ForgeChangeId; readonly change: RefName; readonly comments: number }
+  | { readonly kind: "skipped"; readonly id: ForgeChangeId; readonly change: RefName; readonly reason: string }
+  | {
+      readonly kind: "pulled";
+      readonly id: ForgeChangeId;
+      readonly change: RefName;
+      readonly comments: number;
+      readonly landed: boolean;
+      /** The parent a forge-side retarget mirrored in, when one did. */
+      readonly parent?: RefName | undefined;
+    }
+  | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: RefName };
 
 /**
- * Import forge change `id` as a change to review: fetch its head branch,
- * create the change owned by its author with its parent branch as the
- * change's parent, and pull its comments.
+ * Pull one tracked change's forge activity into its log: comments the log
+ * lacks — new ones, and new versions of ones edited in place — the land a
+ * merged forge change implies, and a forge-side retarget as an observed
+ * `set-parent`. Only a forge parent that moved since last observed mirrors
+ * in, so a local reparent awaiting a push is never overridden. `comments`
+ * spares the `listComments` call when the caller already holds the full
+ * discussion.
  */
-export async function importChange(
+export async function pullTrackedChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
-  id: ForgeChangeId,
-): Promise<ImportResult> {
-  const forgeChange = await forge.getChange(id);
-  const change = forgeChange.head;
-  // Sync first so a change already imported on another machine is adopted as
-  // itself rather than re-created.
-  await backend.syncLog(change);
-  if ((await backend.readLog(change)).length > 0) {
-    return { kind: "exists", change };
-  }
-  // Import creates the log; it never moves local branches. Only a missing
-  // branch is fetched — one that exists stays as it is, not least because
-  // git refuses to fetch into a branch some worktree has checked out.
-  if ((await backend.branchTip(change)) === undefined) {
-    await backend.fetchBranch(change);
-  }
+  change: RefName,
+  entries: readonly LogEntry[],
+  forgeChange: ForgeChange,
+  comments?: readonly ForgeComment[],
+): Promise<{ readonly comments: number; readonly landed: boolean; readonly parent?: RefName | undefined }> {
   const user = await backend.currentUser();
-  const additions: LogEntry[] = [
-    { timestamp: now(), user, action: { kind: "set-parent", parent: forgeChange.parent } },
-    {
-      timestamp: now(),
-      user,
-      action: { kind: "set-base", base: await backend.mergeBase(forgeChange.parent, change) },
-    },
-    { timestamp: now(), user, action: { kind: "set-owner", owner: forgeChange.author } },
-    { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, id } },
-    ...(await planPull(forge.locator, [], await forge.listComments(id))),
+  const additions = [
+    ...(await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)))),
   ];
-  // Without the land entry, a merged forge change's merge-base slides to its
-  // own tip and the diff to review vanishes.
-  const landing = observedLand(now, user, forgeChange, []);
+  const landing = observedLand(now, user, forgeChange, entries);
   if (landing !== undefined) {
     additions.push(landing);
   }
-  await backend.appendLog(change, additions);
-  return { kind: "imported", change, comments: additions.filter(({ action }) => action.kind === "comment").length };
+  const observed = observedForgeParent(entries, forge.locator);
+  const retargeted = forgeChange.state === "open" && observed !== undefined && observed !== forgeChange.parent;
+  if (retargeted) {
+    additions.push({
+      timestamp: now(),
+      user,
+      action: { kind: "set-parent", parent: forgeChange.parent, source: forge.locator },
+    });
+  }
+  if (additions.length > 0) {
+    await backend.appendLog(change, additions);
+  }
+  return {
+    comments: additions.filter(({ action }) => action.kind === "comment").length,
+    landed: landing !== undefined,
+    ...(retargeted ? { parent: forgeChange.parent } : {}),
+  };
+}
+
+/**
+ * Whether every entry mirrors the forge: the `set-*` entries an import writes
+ * (its `set-parent` carries a forge source; a local reparent's does not) and
+ * comments imported from the forge, with no review or forget mark, land, or
+ * local-origin comment — no sign anyone engaged with the change. A lone owner
+ * transfer is indistinguishable from an import's own `set-owner` and reads as
+ * unengaged; a closed change with no review activity holds nothing worth
+ * keeping either way.
+ */
+function pureImport(entries: readonly LogEntry[]): boolean {
+  return entries.every(
+    ({ action }) =>
+      (action.kind === "set-parent" && action.source !== undefined) ||
+      action.kind === "set-base" ||
+      action.kind === "set-owner" ||
+      action.kind === "set-forge" ||
+      (action.kind === "comment" && action.source !== undefined),
+  );
+}
+
+/**
+ * Sync with the forge wholesale: import every open forge change that has no
+ * log yet as a change to review — owned by its author, parented on its target
+ * branch, its discussion pulled — refresh every tracked change (as
+ * `pullTrackedChange`), and prune changes whose forge change closed before
+ * anyone engaged with them. Returns how many forge changes are open.
+ *
+ * Everything is reported through `onEvent` as it happens. Two machines
+ * pulling concurrently import the same changes twice; the union merge that
+ * syncing applies keeps both machines' entries, current-stamped so the latest
+ * observation of the forge wins every read.
+ */
+export async function pullForge(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  onEvent: (event: PullEvent) => void,
+): Promise<{ readonly open: number }> {
+  // Adopt before importing: a change another machine already imported and
+  // published arrives as a log here, keeping this pull's import phase to
+  // forge changes nobody holds.
+  await backend.syncLogs();
+  const tracked = await backend.listChanges();
+  const existing = new Set(tracked);
+  const user = await backend.currentUser();
+
+  const open = await forge.fetchOpenChanges();
+  // Heads sharing a branch collapse to the lowest id, so every machine
+  // imports the same change for a branch with several open forge changes.
+  const byHead = new Map<RefName, OpenChange>();
+  for (const candidate of open) {
+    const prev = byHead.get(candidate.change.head);
+    if (prev === undefined || candidate.change.id < prev.change.id) {
+      byHead.set(candidate.change.head, candidate);
+    }
+  }
+  const byId = new Map(open.map((candidate) => [candidate.change.id, candidate]));
+
+  // Import: every open forge change whose head has no log. Import creates
+  // logs; it never moves local branches. Only missing branches are fetched —
+  // one that exists stays as it is, not least because git refuses to fetch
+  // into a branch some worktree has checked out.
+  const imports = [...byHead.values()].filter(({ change }) => !existing.has(change.head));
+  const absent = new Set<RefName>();
+  for (const { change } of imports) {
+    for (const branch of [change.head, change.parent]) {
+      if (!absent.has(branch) && (await backend.branchTip(branch)) === undefined) {
+        absent.add(branch);
+      }
+    }
+  }
+  await backend.fetchBranches([...absent]);
+  for (const { change: forgeChange, comments, commentsTruncated } of imports) {
+    let missing: RefName | undefined;
+    for (const name of [forgeChange.head, forgeChange.parent]) {
+      if ((await backend.branchTip(name)) === undefined) {
+        missing = name;
+        break;
+      }
+    }
+    if (missing !== undefined) {
+      onEvent({
+        kind: "skipped",
+        id: forgeChange.id,
+        change: forgeChange.head,
+        reason: `branch ${JSON.stringify(missing)} could not be fetched`,
+      });
+      continue;
+    }
+    const full = commentsTruncated ? await forge.listComments(forgeChange.id) : comments;
+    const additions: LogEntry[] = [
+      { timestamp: now(), user, action: { kind: "set-parent", parent: forgeChange.parent, source: forge.locator } },
+      {
+        timestamp: now(),
+        user,
+        action: { kind: "set-base", base: await backend.mergeBase(forgeChange.parent, forgeChange.head) },
+      },
+      { timestamp: now(), user, action: { kind: "set-owner", owner: forgeChange.author } },
+      { timestamp: now(), user, action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id } },
+      ...(await planPull(forge.locator, [], full)),
+    ];
+    await backend.appendLog(forgeChange.head, additions);
+    onEvent({
+      kind: "imported",
+      id: forgeChange.id,
+      change: forgeChange.head,
+      comments: additions.filter(({ action }) => action.kind === "comment").length,
+    });
+  }
+
+  // Refresh: every change tracked before the import phase, so a fresh import
+  // is not immediately re-pulled as a no-op.
+  const pruneCandidates: { readonly change: RefName; readonly id: ForgeChangeId }[] = [];
+  for (const change of tracked) {
+    const entries = await backend.readLog(change);
+    if (landedMerge(entries) !== undefined) {
+      continue;
+    }
+    const recorded = currentForgeChange(entries);
+    let bulk: OpenChange | undefined;
+    let forgeChange: ForgeChange;
+    if (recorded !== undefined) {
+      if (recorded.forge !== forge.locator) {
+        continue;
+      }
+      bulk = byId.get(recorded.id);
+      // A tracked change absent from the open sweep merged or closed since;
+      // fetched live so this pull still records its land.
+      forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
+    } else {
+      // An untracked branch's open forge change is adopted without asking
+      // the forge change by change.
+      bulk = byHead.get(change);
+      if (bulk === undefined) {
+        continue;
+      }
+      forgeChange = bulk.change;
+      await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
+    }
+    if (forgeChange.state === "closed") {
+      pruneCandidates.push({ change, id: forgeChange.id });
+      continue;
+    }
+    const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
+    const pulled = await pullTrackedChange(backend, now, forge, change, entries, forgeChange, comments);
+    onEvent({ kind: "pulled", id: forgeChange.id, change, ...pulled });
+  }
+
+  // Publish what this pull imported and appended.
+  await backend.syncLogs();
+
+  // Prune closed changes nobody engaged with, judged after the closing sync
+  // so engagement published from another machine counts.
+  for (const { change, id } of pruneCandidates) {
+    if (pureImport(await backend.readLog(change))) {
+      await backend.deleteLog(change);
+      onEvent({ kind: "pruned", id, change });
+    }
+  }
+
+  return { open: open.length };
 }
 
 /** One comment as displayed: the latest version of its group. */
