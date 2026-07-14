@@ -14,7 +14,7 @@ import {
   landedMerge,
   type RefName,
   type ReviewedDiff,
-  remainingSegments,
+  remainingSpans,
   type UserName,
 } from "./backend.js";
 import { UserError } from "./error.js";
@@ -209,9 +209,9 @@ function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedT
  * reviewed — and marked, at the round's end — before anything after it, so a
  * reviewer never reads code newer than a landing they have not absorbed. A
  * file is due in every round whose span it changes and that the user has not
- * reviewed past; a review the segments cannot place (its base moved, or its
- * tip was rewritten out of the history) puts the file's stale knowledge in
- * its earliest round's view, and later rounds assume the earlier ones get
+ * reviewed past; a review the spans cannot place (its base moved, or its tip
+ * was rewritten out of the history) puts the file's stale knowledge in its
+ * earliest round's view, and later rounds assume the earlier ones get
  * recorded.
  */
 export async function reviewRounds(
@@ -226,31 +226,31 @@ export async function reviewRounds(
     end: CommitHash;
     changed: ReadonlySet<FilePath>;
     files: Map<FilePath, FileView>;
-  }[] = diff.segments.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
+  }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
   const known = brain(entries, user);
   const tipKept = perTip((reviewedTip) => backend.isAncestor(reviewedTip, tip));
-  const remainingSpans = perTip(
+  const spansPast = perTip(
     async (reviewedTip) =>
-      new Map((await remainingSegments(backend, diff.segments, reviewedTip)).map((span) => [span.end, span])),
+      new Map((await remainingSpans(backend, diff.spans, reviewedTip)).map((span) => [span.end, span])),
   );
-  // The files of the one span that resumes mid-segment from the reviewed tip.
+  // The files of the one span that resumes mid-span from the reviewed tip.
   const resumedFiles = perTip(async (reviewedTip) => {
-    for (const { start, end } of (await remainingSpans(reviewedTip)).values()) {
+    for (const { start, end } of (await spansPast(reviewedTip)).values()) {
       if (start === reviewedTip) {
         return new Set(await backend.changedFiles(start, end));
       }
     }
-    // Only consulted for a span whose start differs from its segment's, and
-    // such a span always starts at the reviewed tip.
+    // Only consulted for a remaining span whose start differs from its whole
+    // span's, and such a span always starts at the reviewed tip.
     throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
   });
   const unseenFiles = perTip(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
   for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed]))].sort()) {
     const reviewed = known.get(file);
     if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {
-      // A review the history can place: what remains is the segments past the
-      // reviewed tip, resuming mid-segment when the tip falls inside one.
-      const spans = await remainingSpans(reviewed.tip);
+      // A review the history can place: what remains is the spans past the
+      // reviewed tip, resuming mid-span when the tip falls inside one.
+      const spans = await spansPast(reviewed.tip);
       for (const round of rounds) {
         const span = spans.get(round.end);
         if (span === undefined) {
@@ -264,9 +264,9 @@ export async function reviewRounds(
       continue;
     }
     // A reviewed tip rewritten out of the change's history cannot be placed
-    // among the first-parent segments, but what the user has not seen is
-    // exactly the diff from its contents — nothing at all when the file comes
-    // out unchanged.
+    // among the first-parent spans, but what the user has not seen is exactly
+    // the diff from its contents — nothing at all when the file comes out
+    // unchanged.
     if (reviewed !== undefined && reviewed.base === base && !(await unseenFiles(reviewed.tip)).has(file)) {
       continue;
     }

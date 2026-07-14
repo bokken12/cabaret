@@ -44,7 +44,7 @@ type Target =
 
 - `Style` is semantic (`heading`, `dim`, `added`, ...); each host maps it to its own palette: editor decorations, DOM classes, ANSI.
 - `targetAt(doc, line)` resolves the cursor's line to a target: selecting a line is the granularity a cursor should need, not a column within it. Hosts own their keymaps and dispatch on the target's `kind` — enter on a change's row opens its show page.
-- Views consume plain snapshots assembled from `Backend` queries and core derivations (`brain`, `reviewSegments`, ...); the snapshot type is the view's whole input.
+- Views consume plain snapshots assembled from `Backend` queries and core derivations (`brain`, `reviewSpans`, ...); the snapshot type is the view's whole input.
 - Refresh re-queries and re-renders the whole doc. Docs are small; no diffing.
 - Presentation state (folding, filters), if any, is an explicit argument to the view function, never hidden inside it.
 
