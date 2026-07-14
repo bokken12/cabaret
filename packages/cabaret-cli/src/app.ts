@@ -6,7 +6,6 @@ import {
   changeBase,
   createChange,
   currentParent,
-  type DiffSegment,
   type FilePath,
   formatLogEntry,
   type LogEntry,
@@ -24,13 +23,15 @@ import {
   pullForge,
   pullTrackedChange,
   type RefName,
+  type ReviewSpan,
   readConfig,
   rebaseChain,
   rebaseChange,
+  remainingSpans,
   renameChange,
   reparentChange,
   resolveRange,
-  reviewSegments,
+  reviewSpans,
   syncedForgeChange,
   type Todo,
   transferChange,
@@ -397,26 +398,29 @@ const diff = buildCommand({
       }
       return;
     }
-    let segments: readonly DiffSegment[];
+    let spans: readonly ReviewSpan[];
     if (reviewed !== undefined && !(await backend.isAncestor(reviewed.tip, tip))) {
       // The tip was rewritten out from under the review, so the reviewed tip
-      // cannot be placed among the first-parent segments; diffing from its
+      // cannot be placed among the first-parent spans; diffing from its
       // contents still shows exactly what the reviewer has not seen.
-      segments = [{ start: reviewed.tip, end: tip }];
+      spans = [{ start: reviewed.tip, end: tip }];
     } else {
-      segments = await reviewSegments(backend, base, tip, reviewed?.tip);
+      spans = await reviewSpans(backend, base, tip);
+      if (reviewed !== undefined) {
+        spans = await remainingSpans(backend, spans, reviewed.tip);
+      }
     }
     // Base and tip join the existence check even when review or a land merge
-    // drops them from the segments: a file present anywhere in the change is
+    // drops them from the spans: a file present anywhere in the change is
     // simply done (empty output), while a name found nowhere is an error.
-    const revs = [...new Set([...segments.flatMap(({ start, end }) => [start, end]), base, tip])];
+    const revs = [...new Set([...spans.flatMap(({ start, end }) => [start, end]), base, tip])];
     const contents = new Map(
       await Promise.all(revs.map(async (rev) => [rev, await backend.readFile(rev, file)] as const)),
     );
     if (revs.every((rev) => contents.get(rev) === undefined)) {
       throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
     }
-    const rendered = segments
+    const rendered = spans
       .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, context))
       .filter((diff) => diff !== "");
     // A blank line between spans, since consecutive diffs of one file would

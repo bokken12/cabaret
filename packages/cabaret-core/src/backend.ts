@@ -712,7 +712,7 @@ export async function changeTip(backend: Backend, change: RefName, entries: read
 }
 
 /** One contiguous span of a change's history that a reviewer must review. */
-export interface DiffSegment {
+export interface ReviewSpan {
   readonly start: CommitHash;
   readonly end: CommitHash;
 }
@@ -720,46 +720,80 @@ export interface DiffSegment {
 /**
  * The spans of `base`..`tip` left for a reviewer to review, oldest first.
  *
- * Land merges on the first-parent chain split the history into segments: the
+ * Land merges on the first-parent chain split the history into spans: the
  * diff each merge brings in was already reviewed in the landed child, so what
  * needs review is base → first land's onto, then each land merge → the next
- * land's onto, and finally the last land merge → tip. A segment a land merge
+ * land's onto, and finally the last land merge → tip. A span a land merge
  * jumps over entirely (its start is its end) is dropped.
- *
- * `reviewedTip`, when given, is the tip of the reviewer's brain for a review
- * whose base matches `base` (a moved base invalidates segment endpoints, so
- * callers handle that case separately): segments the reviewer has already
- * reviewed past are dropped, and the segment containing `reviewedTip` resumes
- * from it.
  */
-export async function reviewSegments(
-  backend: Backend,
-  base: CommitHash,
-  tip: CommitHash,
-  reviewedTip?: CommitHash,
-): Promise<readonly DiffSegment[]> {
-  const segments: DiffSegment[] = [];
+export async function reviewSpans(backend: Backend, base: CommitHash, tip: CommitHash): Promise<readonly ReviewSpan[]> {
+  const spans: ReviewSpan[] = [];
   let start = base;
   for (const { commit, onto } of await backend.landMerges(base, tip)) {
     if (start !== onto) {
-      segments.push({ start, end: onto });
+      spans.push({ start, end: onto });
     }
     start = commit;
   }
   if (start !== tip) {
-    segments.push({ start, end: tip });
+    spans.push({ start, end: tip });
   }
-  if (reviewedTip === undefined) {
-    return segments;
-  }
-  const remaining: DiffSegment[] = [];
-  for (const segment of segments) {
-    if (await backend.isAncestor(segment.end, reviewedTip)) {
+  return spans;
+}
+
+/**
+ * The spans of `spans` past `reviewedTip`, the tip of a reviewer's brain for
+ * a review whose base matches the spans' (a moved base invalidates span
+ * endpoints, so callers handle that case separately): spans the reviewer has
+ * already reviewed past are dropped, and the span containing `reviewedTip`
+ * resumes from it.
+ */
+export async function remainingSpans(
+  backend: Backend,
+  spans: readonly ReviewSpan[],
+  reviewedTip: CommitHash,
+): Promise<readonly ReviewSpan[]> {
+  const remaining: ReviewSpan[] = [];
+  for (const span of spans) {
+    if (await backend.isAncestor(span.end, reviewedTip)) {
       continue;
     }
     const inside =
-      (await backend.isAncestor(segment.start, reviewedTip)) && (await backend.isAncestor(reviewedTip, segment.end));
-    remaining.push(inside ? { start: reviewedTip, end: segment.end } : segment);
+      (await backend.isAncestor(span.start, reviewedTip)) && (await backend.isAncestor(reviewedTip, span.end));
+    remaining.push(inside ? { start: reviewedTip, end: span.end } : span);
   }
   return remaining;
+}
+
+/** A review span and the files its diff changes. */
+export interface SpanDiff extends ReviewSpan {
+  readonly changed: ReadonlySet<FilePath>;
+}
+
+/**
+ * A change's diff, read once: its endpoints and review spans, each with the
+ * files its diff changes. Everything derived from the diff — summaries,
+ * review rounds, obligations — takes one of these, so a page that computes
+ * several shares one reading instead of each re-querying the history.
+ */
+export interface ChangeDiff {
+  readonly base: CommitHash;
+  readonly tip: CommitHash;
+  readonly spans: readonly SpanDiff[];
+}
+
+export async function changeDiff(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<ChangeDiff> {
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
+  return diffBetween(backend, base, tip);
+}
+
+/** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
+export async function diffBetween(backend: Backend, base: CommitHash, tip: CommitHash): Promise<ChangeDiff> {
+  const spans = await Promise.all(
+    (await reviewSpans(backend, base, tip)).map(async (span) => ({
+      ...span,
+      changed: new Set(await backend.changedFiles(span.start, span.end)),
+    })),
+  );
+  return { base, tip, spans };
 }

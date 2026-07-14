@@ -51,7 +51,7 @@ and a review system.
 
 - **CLI `diff` has drifted from the views layer.** `app.ts` reimplements
   `diffPage`/`rebasedView` (cabaret-views `review.ts`) — the 2-way-vs-4-way
-  decision is copy-pasted verbatim — but walks `brain` + `reviewSegments`
+  decision is copy-pasted verbatim — but walks `brain` + `reviewSpans`
   while views use `reviewRounds`, so the same state renders differently per
   host, against [ui.md](ui.md)'s one-view-implementation goal.
 - **They also record differently.** VS Code's `markReviewed` records
@@ -72,7 +72,7 @@ and a review system.
 - **The todo page is a serial N+1 over git spawns.** `todoPage`
   (cabaret-views `todo.ts`) awaits `readLog` + `summarizeChange` per change
   in sequence; each summary fans out into `mergeBase`/`isAncestor`/
-  `reviewSegments`/`changedFiles`/`branchTip`, each a separate spawn — call
+  `reviewSpans`/`changedFiles`/`branchTip`, each a separate spawn — call
   it 8–12 per change, so seconds at 100 changes, on the page every host
   renders most (including `refreshAll` after every VS Code action). Cheapest
   wins in order: `Promise.all` across changes; collapse log reads into

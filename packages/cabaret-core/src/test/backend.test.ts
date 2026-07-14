@@ -25,7 +25,8 @@ import {
   parseLog,
   parseRefName,
   type RefName,
-  reviewSegments,
+  remainingSpans,
+  reviewSpans,
   type TimestampMs,
   timestampMs,
   type UserName,
@@ -454,9 +455,9 @@ function fake(digit: string): CommitHash {
 
 /**
  * A backend whose first-parent chain is the fake commits of `digits` (oldest
- * first) and whose land merges are `merges`. Only the members
- * `reviewSegments` touches exist; ancestry is chain order, and anything off
- * the chain is nobody's relative.
+ * first) and whose land merges are `merges`. Only the members `reviewSpans`
+ * touches exist; ancestry is chain order, and anything off the chain is
+ * nobody's relative.
  */
 function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
   const chain = [...digits].map(fake);
@@ -472,45 +473,32 @@ function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
   return stub as Backend;
 }
 
-test("reviewSegments splits at land merges and resumes from the reviewed tip", async () => {
+test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
   // Lands at 2 (onto 1) and 5 (onto 4); 3-4 and 6-7 are ordinary commits.
   const backend = chainBackend("01234567", [
     { commit: fake("2"), onto: fake("1") },
     { commit: fake("5"), onto: fake("4") },
   ]);
-  const segment = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
-  expect(await reviewSegments(backend, fake("0"), fake("7"))).toEqual([
-    segment("0", "1"),
-    segment("2", "4"),
-    segment("5", "7"),
-  ]);
+  const span = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
+  const spans = await reviewSpans(backend, fake("0"), fake("7"));
+  expect(spans).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
   // A land right at the base or the tip leaves no span on that side.
-  expect(await reviewSegments(backend, fake("1"), fake("5"))).toEqual([segment("2", "4")]);
+  expect(await reviewSpans(backend, fake("1"), fake("5"))).toEqual([span("2", "4")]);
   // Reviewing up to a land's onto covers everything the land then jumps over.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("1"))).toEqual([
-    segment("2", "4"),
-    segment("5", "7"),
-  ]);
+  expect(await remainingSpans(backend, spans, fake("1"))).toEqual([span("2", "4"), span("5", "7")]);
   // A reviewed tip inside a span resumes that span from it.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("3"))).toEqual([
-    segment("3", "4"),
-    segment("5", "7"),
-  ]);
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("7"))).toEqual([]);
+  expect(await remainingSpans(backend, spans, fake("3"))).toEqual([span("3", "4"), span("5", "7")]);
+  expect(await remainingSpans(backend, spans, fake("7"))).toEqual([]);
   // A reviewed tip from outside the chain trims nothing.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("f"))).toEqual([
-    segment("0", "1"),
-    segment("2", "4"),
-    segment("5", "7"),
-  ]);
+  expect(await remainingSpans(backend, spans, fake("f"))).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
 });
 
-test("reviewSegments drops the span between back-to-back lands", async () => {
+test("reviewSpans drops the span between back-to-back lands", async () => {
   const backend = chainBackend("0123", [
     { commit: fake("2"), onto: fake("1") },
     { commit: fake("3"), onto: fake("2") },
   ]);
-  expect(await reviewSegments(backend, fake("0"), fake("3"))).toEqual([{ start: fake("0"), end: fake("1") }]);
+  expect(await reviewSpans(backend, fake("0"), fake("3"))).toEqual([{ start: fake("0"), end: fake("1") }]);
 });
 
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {

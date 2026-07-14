@@ -3,6 +3,7 @@ import {
   type ChangeComment,
   type ChangeSummary,
   type CommitHash,
+  changeDiff,
   currentComments,
   type FilePath,
   isSatisfied,
@@ -26,14 +27,13 @@ export interface ShowPage {
 /** Query the show page for `change`. */
 export async function showPage(backend: Backend, user: UserName, change: RefName): Promise<ShowPage> {
   const entries = await backend.readLog(change);
-  const summary = await summarizeChange(backend, change, entries, user);
+  const diff = await changeDiff(backend, change, entries);
+  const summary = await summarizeChange(backend, change, entries, user, diff);
   // A landed change has no review to demand, whatever state it landed in.
   const remaining =
     summary.landed === undefined
       ? reviewerSummary(
-          (await obligationStatuses(backend, entries, summary.owner, summary.base, summary.tip)).filter(
-            (status) => !isSatisfied(status),
-          ),
+          (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
         )
       : [];
   return { summary, comments: await currentComments(entries), remaining };
