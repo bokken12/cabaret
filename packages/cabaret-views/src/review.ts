@@ -1,8 +1,7 @@
 import {
   type Backend,
   type CommitHash,
-  changeBase,
-  changeTip,
+  changeDiff,
   type FilePath,
   type FileView,
   type RefName,
@@ -48,12 +47,14 @@ export interface ChangeSnapshot {
 
 export async function changeSnapshot(backend: Backend, change: RefName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
-  const [base, tip, user] = await Promise.all([
-    changeBase(backend, change, entries),
-    changeTip(backend, change, entries),
-    backend.currentUser(),
-  ]);
-  return { change, user, base, tip, rounds: await reviewRounds(backend, entries, user, base, tip) };
+  const [diff, user] = await Promise.all([changeDiff(backend, change, entries), backend.currentUser()]);
+  return {
+    change,
+    user,
+    base: diff.base,
+    tip: diff.tip,
+    rounds: await reviewRounds(backend, entries, user, diff),
+  };
 }
 
 /** A change's current round of review: what to read before any newer round opens. */

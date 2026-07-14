@@ -1,9 +1,8 @@
 import {
   type Backend,
   brain,
+  type ChangeDiff,
   type CommitHash,
-  changeBase,
-  changeTip,
   currentForgeChange,
   currentOwner,
   currentParent,
@@ -15,7 +14,7 @@ import {
   landedMerge,
   type RefName,
   type ReviewedDiff,
-  reviewSegments,
+  remainingSegments,
   type UserName,
 } from "./backend.js";
 import { UserError } from "./error.js";
@@ -87,20 +86,22 @@ export interface ChangeSummary {
 }
 
 /**
- * Summarize `change` for `user`. `entries` must be `change`'s log; taking it
- * explicitly lets callers batch one read of every log into both the parent
- * links `changeForest` wants and these summaries.
+ * Summarize `change` for `user`. `entries` must be `change`'s log and `diff`
+ * its diff; taking them explicitly lets callers batch one read of every log
+ * into both the parent links `changeForest` wants and these summaries, and
+ * share one diff reading with the obligations computed beside them.
  */
 export async function summarizeChange(
   backend: Backend,
   change: RefName,
   entries: readonly LogEntry[],
   user: UserName,
+  diff: ChangeDiff,
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
-  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
-  const rounds = await reviewRounds(backend, entries, user, base, tip);
+  const { base, tip } = diff;
+  const rounds = await reviewRounds(backend, entries, user, diff);
   const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
   // A landed change is frozen, so nothing about its surroundings bears on it.
   // These are all local readings — origin's tip is whatever was last fetched
@@ -203,37 +204,34 @@ function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedT
 }
 
 /**
- * The rounds of review left for `user` in `base`..`tip`, oldest first. Land
- * merges on the first-parent chain order review: everything before a land
- * merge is reviewed — and marked, at the round's end — before anything after
- * it, so a reviewer never reads code newer than a landing they have not
- * absorbed. A file is due in every round whose span it changes and that the
- * user has not reviewed past; a review the segments cannot place (its base
- * moved, or its tip was rewritten out of the history) puts the file's stale
- * knowledge in its earliest round's view, and later rounds assume the earlier
- * ones get recorded.
+ * The rounds of review left for `user` in `diff`, oldest first. Land merges
+ * on the first-parent chain order review: everything before a land merge is
+ * reviewed — and marked, at the round's end — before anything after it, so a
+ * reviewer never reads code newer than a landing they have not absorbed. A
+ * file is due in every round whose span it changes and that the user has not
+ * reviewed past; a review the segments cannot place (its base moved, or its
+ * tip was rewritten out of the history) puts the file's stale knowledge in
+ * its earliest round's view, and later rounds assume the earlier ones get
+ * recorded.
  */
 export async function reviewRounds(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
-  base: CommitHash,
-  tip: CommitHash,
+  diff: ChangeDiff,
 ): Promise<readonly ReviewRound[]> {
+  const { base, tip } = diff;
   const rounds: {
     start: CommitHash;
     end: CommitHash;
     changed: ReadonlySet<FilePath>;
     files: Map<FilePath, FileView>;
-  }[] = [];
-  for (const { start, end } of await reviewSegments(backend, base, tip)) {
-    rounds.push({ start, end, changed: new Set(await backend.changedFiles(start, end)), files: new Map() });
-  }
+  }[] = diff.segments.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
   const known = brain(entries, user);
   const tipKept = perTip((reviewedTip) => backend.isAncestor(reviewedTip, tip));
   const remainingSpans = perTip(
     async (reviewedTip) =>
-      new Map((await reviewSegments(backend, base, tip, reviewedTip)).map((span) => [span.end, span])),
+      new Map((await remainingSegments(backend, diff.segments, reviewedTip)).map((span) => [span.end, span])),
   );
   // The files of the one span that resumes mid-segment from the reviewed tip.
   const resumedFiles = perTip(async (reviewedTip) => {

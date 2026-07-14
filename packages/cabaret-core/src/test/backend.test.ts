@@ -25,6 +25,7 @@ import {
   parseLog,
   parseRefName,
   type RefName,
+  remainingSegments,
   reviewSegments,
   type TimestampMs,
   timestampMs,
@@ -472,33 +473,24 @@ function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
   return stub as Backend;
 }
 
-test("reviewSegments splits at land merges and resumes from the reviewed tip", async () => {
+test("reviewSegments splits at land merges and remainingSegments resumes from the reviewed tip", async () => {
   // Lands at 2 (onto 1) and 5 (onto 4); 3-4 and 6-7 are ordinary commits.
   const backend = chainBackend("01234567", [
     { commit: fake("2"), onto: fake("1") },
     { commit: fake("5"), onto: fake("4") },
   ]);
   const segment = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
-  expect(await reviewSegments(backend, fake("0"), fake("7"))).toEqual([
-    segment("0", "1"),
-    segment("2", "4"),
-    segment("5", "7"),
-  ]);
+  const segments = await reviewSegments(backend, fake("0"), fake("7"));
+  expect(segments).toEqual([segment("0", "1"), segment("2", "4"), segment("5", "7")]);
   // A land right at the base or the tip leaves no span on that side.
   expect(await reviewSegments(backend, fake("1"), fake("5"))).toEqual([segment("2", "4")]);
   // Reviewing up to a land's onto covers everything the land then jumps over.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("1"))).toEqual([
-    segment("2", "4"),
-    segment("5", "7"),
-  ]);
+  expect(await remainingSegments(backend, segments, fake("1"))).toEqual([segment("2", "4"), segment("5", "7")]);
   // A reviewed tip inside a span resumes that span from it.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("3"))).toEqual([
-    segment("3", "4"),
-    segment("5", "7"),
-  ]);
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("7"))).toEqual([]);
+  expect(await remainingSegments(backend, segments, fake("3"))).toEqual([segment("3", "4"), segment("5", "7")]);
+  expect(await remainingSegments(backend, segments, fake("7"))).toEqual([]);
   // A reviewed tip from outside the chain trims nothing.
-  expect(await reviewSegments(backend, fake("0"), fake("7"), fake("f"))).toEqual([
+  expect(await remainingSegments(backend, segments, fake("f"))).toEqual([
     segment("0", "1"),
     segment("2", "4"),
     segment("5", "7"),

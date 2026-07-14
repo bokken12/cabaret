@@ -2,12 +2,12 @@ import picomatch from "picomatch/posix.js";
 import { z } from "zod";
 import {
   type Backend,
+  type ChangeDiff,
   type CommitHash,
   currentReviewers,
   type FilePath,
   type LogEntry,
   parseFilePath,
-  reviewSegments,
   type UserName,
   userName,
 } from "./backend.js";
@@ -170,8 +170,8 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
- * The status of every obligation on `base`..`tip`, owned by `owner`. Only
- * files changed within the change's own review spans are governed: the diff a
+ * The status of every obligation on `diff`, owned by `owner`. Only files
+ * changed within the change's own review spans are governed: the diff a
  * land merge brings in was reviewed in the landed child, under the child's
  * own obligations. Independent of any rules, every governed file carries the
  * owner's implicit self-review requirement, and one likewise for each of the
@@ -182,12 +182,11 @@ export async function obligationStatuses(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
-  base: CommitHash,
-  tip: CommitHash,
+  diff: ChangeDiff,
 ): Promise<readonly ObligationStatus[]> {
   const files = new Set<FilePath>();
-  for (const { start, end } of await reviewSegments(backend, base, tip)) {
-    for (const file of await backend.changedFiles(start, end)) {
+  for (const { changed } of diff.segments) {
+    for (const file of changed) {
       files.add(file);
     }
   }
@@ -204,11 +203,11 @@ export async function obligationStatuses(
     ...standings.flatMap(([user, source]) =>
       sorted.map((file) => ({ file, source, require: { atLeast: 1, of: [user] } })),
     ),
-    ...(await changeObligations(backend, base, tip, sorted)),
+    ...(await changeObligations(backend, diff.base, diff.tip, sorted)),
   ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
   for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
-    const rounds = await reviewRounds(backend, entries, user, base, tip);
+    const rounds = await reviewRounds(backend, entries, user, diff);
     left.set(user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()])));
   }
   const covered = (user: UserName, file: FilePath): boolean => {
@@ -230,19 +229,18 @@ function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly Use
 }
 
 /**
- * The files of `base`..`tip` with an unsatisfied obligation that `user`'s
- * review can still count toward, sorted by name. Empty exactly when the
- * change needs nothing from the user — however much of it they have not read.
+ * The files of `diff` with an unsatisfied obligation that `user`'s review
+ * can still count toward, sorted by name. Empty exactly when the change
+ * needs nothing from the user — however much of it they have not read.
  */
 export async function reviewOwed(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
   user: UserName,
-  base: CommitHash,
-  tip: CommitHash,
+  diff: ChangeDiff,
 ): Promise<readonly FilePath[]> {
-  const statuses = await obligationStatuses(backend, entries, owner, base, tip);
+  const statuses = await obligationStatuses(backend, entries, owner, diff);
   const owed = statuses.filter((status) => !isSatisfied(status) && outstanding(status).includes(user));
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
 }
@@ -292,15 +290,14 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
     .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
 }
 
-/** Fail with `UnsatisfiedObligationsError` unless every obligation on `base`..`tip` is satisfied. */
+/** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */
 export async function assertObligationsSatisfied(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
-  base: CommitHash,
-  tip: CommitHash,
+  diff: ChangeDiff,
 ): Promise<void> {
-  const statuses = await obligationStatuses(backend, entries, owner, base, tip);
+  const statuses = await obligationStatuses(backend, entries, owner, diff);
   const unsatisfied = statuses.filter((status) => !isSatisfied(status));
   if (unsatisfied.length > 0) {
     throw new UnsatisfiedObligationsError(unsatisfied);

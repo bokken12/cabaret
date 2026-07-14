@@ -2,6 +2,7 @@ import {
   type Backend,
   type ChangeNode,
   type ChangeSummary,
+  changeDiff,
   changeForest,
   currentParent,
   type FilePath,
@@ -46,13 +47,14 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
   const review: ReviewTodo[] = [];
   for (const change of [...(await backend.listChanges())].sort()) {
     const entries = await backend.readLog(change);
-    const candidate = await summarizeChange(backend, change, entries, user);
+    const diff = await changeDiff(backend, change, entries);
+    const candidate = await summarizeChange(backend, change, entries, user, diff);
     summaries.set(change, candidate);
     parents.set(change, currentParent(change, entries));
     // An empty reviewLeft already counts the user toward every obligation, so
     // only a change they have review left on can owe them anything.
     if (candidate.landed === undefined && candidate.reviewLeft.length > 0) {
-      const owed = await reviewOwed(backend, entries, candidate.owner, user, candidate.base, candidate.tip);
+      const owed = await reviewOwed(backend, entries, candidate.owner, user, diff);
       if (owed.length > 0) {
         review.push({ summary: candidate, owed });
       }

@@ -7,6 +7,7 @@ import {
   currentBase,
   currentOwner,
   currentParent,
+  diffBetween,
   type ForgeMerge,
   type LogEntry,
   landedMerge,
@@ -269,7 +270,8 @@ export async function prepareLand(
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
   if (!overrides.unreviewed) {
-    await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), base, tip);
+    const diff = await diffBetween(backend, base, tip);
+    await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
   }
   // Resolve the identity before any ref moves so a missing git identity
   // fails without landing anything.

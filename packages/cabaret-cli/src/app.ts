@@ -27,6 +27,7 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  remainingSegments,
   renameChange,
   reparentChange,
   resolveRange,
@@ -404,7 +405,10 @@ const diff = buildCommand({
       // contents still shows exactly what the reviewer has not seen.
       segments = [{ start: reviewed.tip, end: tip }];
     } else {
-      segments = await reviewSegments(backend, base, tip, reviewed?.tip);
+      segments = await reviewSegments(backend, base, tip);
+      if (reviewed !== undefined) {
+        segments = await remainingSegments(backend, segments, reviewed.tip);
+      }
     }
     // Base and tip join the existence check even when review or a land merge
     // drops them from the segments: a file present anywhere in the change is

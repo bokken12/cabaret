@@ -2,8 +2,10 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import {
   type Backend,
+  type ChangeDiff,
   type CommitHash,
   changeObligations,
+  diffBetween,
   type FilePath,
   isSatisfied,
   type LogEntry,
@@ -147,6 +149,11 @@ function paths(names: readonly string[]): readonly FilePath[] {
   return names.map(parseFilePath);
 }
 
+/** The diff of the fake commits `base`..`tip`, read afresh. */
+function diffOf(backend: Backend, base: string, tip: string): Promise<ChangeDiff> {
+  return diffBetween(backend, fake(base), fake(tip));
+}
+
 test("obligations accumulate from every governing file, nearest first", async () => {
   const backend = repoBackend({
     trees: {
@@ -245,7 +252,7 @@ test("statuses count the users whose review covers the file", async () => {
     trees: { "1": { ".obligations": policyText([rule("*.rs", 2, alice, bob, carol)]) } },
   });
   const entries = [review(alice, "keys.rs", "0", "1"), review(carol, "keys.rs", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
     {
       obligation: { file: "keys.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
@@ -268,7 +275,7 @@ test("a review that stops short of the tip does not count", async () => {
   // alice reviewed to the tip; bob only to the middle commit, and a.rs
   // changed again after it.
   const entries = [review(alice, "a.rs", "0", "2"), review(bob, "a.rs", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("2"));
+  const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "2"));
   expect(statuses).toEqual([
     {
       obligation: { file: "a.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
@@ -295,7 +302,7 @@ test("files changed only by a land merge carry no obligations", async () => {
     changed: { "01": ["a.rs"], "23": [] },
     trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
   });
-  const statuses = await obligationStatuses(backend, [], alice, fake("0"), fake("3"));
+  const statuses = await obligationStatuses(backend, [], alice, await diffOf(backend, "0", "3"));
   expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
   expect(statuses.map(isSatisfied)).toEqual([false, false]);
 });
@@ -322,7 +329,7 @@ test("reviewOwed lists only files whose unsatisfied obligations await the user",
     trees: { "1": { ".obligations": policyText([rule("*.rs", 1, bob, carol)]) } },
   });
   const entries = [review(alice, "a.rs", "0", "1"), review(carol, "a.rs", "0", "1")];
-  const owed = (user: UserName) => reviewOwed(backend, entries, alice, user, fake("0"), fake("1"));
+  const owed = async (user: UserName) => reviewOwed(backend, entries, alice, user, await diffOf(backend, "0", "1"));
   // The rule on a.rs is already satisfied by carol, so it asks nothing more
   // of bob; the owner still owes the files only their self-review governs.
   expect(await owed(bob)).toEqual(["b.rs"]);
@@ -336,7 +343,7 @@ test("the owner must review every governed file, rules or none", async () => {
     changed: { "01": ["b.txt", "a.txt"] },
   });
   const entries = [review(alice, "a.txt", "0", "1"), review(bob, "b.txt", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
     { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
     { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
@@ -354,7 +361,7 @@ test("a reviewer owes every governed file, like the owner", async () => {
     changed: { "01": ["a.txt", "b.txt"] },
   });
   const entries = [reviewer(bob, "add-reviewer"), review(bob, "a.txt", "0", "1")];
-  const statuses = await obligationStatuses(backend, entries, alice, fake("0"), fake("1"));
+  const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
     { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
     { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
@@ -374,7 +381,7 @@ test("a removed reviewer owes nothing, and an owning reviewer owes only as owner
     reviewer(bob, "add-reviewer"),
     reviewer(bob, "remove-reviewer", 1748000000001),
   ];
-  expect(await obligationStatuses(backend, entries, alice, fake("0"), fake("1"))).toEqual([
+  expect(await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"))).toEqual([
     { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
   ]);
 });
