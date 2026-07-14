@@ -48,7 +48,7 @@ test("todoDoc lays out the review table and the owned tree", () => {
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
   const doc = todoDoc({
-    review: [gizmo],
+    review: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts") }],
     owned: [
       { summary: gadget, children: [{ summary: gizmo, children: [] }] },
       { summary: widgets, children: [] },

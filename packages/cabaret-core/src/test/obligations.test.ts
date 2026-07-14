@@ -12,6 +12,7 @@ import {
   parseFilePath,
   parseObligationsFile,
   reviewerSummary,
+  reviewOwed,
   timestampMs,
   type UserName,
   userName,
@@ -312,6 +313,21 @@ test("reviewerSummary counts each outstanding reviewer's distinct files", () => 
       status("src/lib.rs", [], 1, bob, carol),
     ]),
   ).toEqual(["alice@example.com: 1 file", "bob@example.com: 2 files", "carol@example.com: 1 file"]);
+});
+
+test("reviewOwed lists only files whose unsatisfied obligations await the user", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["a.rs", "b.rs", "c.md"] },
+    trees: { "1": { ".obligations": policyText([rule("*.rs", 1, bob, carol)]) } },
+  });
+  const entries = [review(alice, "a.rs", "0", "1"), review(carol, "a.rs", "0", "1")];
+  const owed = (user: UserName) => reviewOwed(backend, entries, alice, user, fake("0"), fake("1"));
+  // The rule on a.rs is already satisfied by carol, so it asks nothing more
+  // of bob; the owner still owes the files only their self-review governs.
+  expect(await owed(bob)).toEqual(["b.rs"]);
+  expect(await owed(carol)).toEqual(["b.rs"]);
+  expect(await owed(alice)).toEqual(["b.rs", "c.md"]);
 });
 
 test("the owner must review every governed file, rules or none", async () => {

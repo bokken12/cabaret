@@ -1,7 +1,15 @@
 import { parseCommitHash, parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
-import { addChange, makeRepo } from "./fixture.js";
+import { addChange, makeRepo, type TestRepo } from "./fixture.js";
+
+/** Commit an `.obligations` file at the repo root requiring one of `users` on every `.txt` file. */
+async function requireReviewers(repo: TestRepo, ...users: string[]): Promise<void> {
+  const policy = { rules: [{ match: "*.txt", require: { atLeast: 1, of: users } }] };
+  await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "policy");
+}
 
 test("todo shows review work and owned changes as a tree", async () => {
   const repo = await makeRepo();
@@ -36,9 +44,11 @@ test("todo with no changes has nothing to do", async () => {
   `);
 });
 
-test("pull imports an open forge change, and todo lists it as a change to review", async () => {
+test("pull imports an open forge change, and todo lists it when review is owed", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
+  // The policy on main is what puts the imported change on this user's plate.
+  await requireReviewers(repo, "alice@example.com");
   await addChange(repo, "gadget");
   // A teammate's branch lives on origin and in a forge change, but not locally.
   await repo.git("checkout", "-q", "main");
@@ -130,6 +140,40 @@ test("a landed change stays only while children hang from it", async () => {
     │ gadget   │        │ landed    │
     │ └─ gizmo │      1 │ reparent  │
     ╰──────────┴────────┴───────────╯
+    "
+  `);
+});
+
+test("someone else's change obliging nothing of the user is not review work", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "user.email", "bob@example.com");
+  await addChange(repo, "gadget");
+  await repo.git("config", "user.email", "alice@example.com");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Nothing to do.
+    "
+  `);
+});
+
+test("review is owed only while an obligation is unsatisfied", async () => {
+  const repo = await makeRepo();
+  await requireReviewers(repo, "alice@example.com", "bob@example.com");
+  await repo.git("config", "user.email", "bob@example.com");
+  await addChange(repo, "feature");
+  await repo.git("config", "user.email", "alice@example.com");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "╭─────────┬────────╮
+    │ change  │ review │
+    ├─────────┼────────┤
+    │ feature │      1 │
+    ╰─────────┴────────╯
+    "
+  `);
+  await repo.git("config", "user.email", "bob@example.com");
+  await repo.cabaret("review", "feature.txt");
+  await repo.git("config", "user.email", "alice@example.com");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Nothing to do.
     "
   `);
 });
