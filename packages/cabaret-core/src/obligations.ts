@@ -218,6 +218,24 @@ function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly Use
 }
 
 /**
+ * The files of `base`..`tip` with an unsatisfied obligation that `user`'s
+ * review can still count toward, sorted by name. Empty exactly when the
+ * change needs nothing from the user — however much of it they have not read.
+ */
+export async function reviewOwed(
+  backend: Backend,
+  entries: readonly LogEntry[],
+  owner: UserName,
+  user: UserName,
+  base: CommitHash,
+  tip: CommitHash,
+): Promise<readonly FilePath[]> {
+  const statuses = await obligationStatuses(backend, entries, owner, base, tip);
+  const owed = statuses.filter((status) => !isSatisfied(status) && outstanding(status).includes(user));
+  return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
+}
+
+/**
  * Review obligations block the land. Each detail line names one unsatisfied
  * requirement: how many reviews are missing and who can still provide them.
  * The message states only the facts; each frontend attaches its own override

@@ -4,7 +4,9 @@ import {
   type ChangeSummary,
   changeForest,
   currentParent,
+  type FilePath,
   type RefName,
+  reviewOwed,
   summarizeChange,
   type UserName,
 } from "cabaret-core";
@@ -17,10 +19,20 @@ export interface TodoNode {
   readonly children: readonly TodoNode[];
 }
 
+/** A change the user owes review, and the files still awaiting them. */
+export interface ReviewTodo {
+  readonly summary: ChangeSummary;
+  readonly owed: readonly FilePath[];
+}
+
 /** What awaits one user's attention. */
 export interface TodoPage {
-  /** Unlanded changes with files left for the user to review, sorted by name. */
-  readonly review: readonly ChangeSummary[];
+  /**
+   * Unlanded changes with an unsatisfied obligation the user's review can
+   * still count toward, sorted by name. A change nobody asked the user to
+   * review stays off the page, however much of it they have not read.
+   */
+  readonly review: readonly ReviewTodo[];
   /**
    * The user's unlanded changes as a forest along parent links. A change that
    * is landed or someone else's stays only while kept children hang from it.
@@ -31,10 +43,20 @@ export interface TodoPage {
 export async function todoPage(backend: Backend, user: UserName): Promise<TodoPage> {
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
-  for (const change of await backend.listChanges()) {
+  const review: ReviewTodo[] = [];
+  for (const change of [...(await backend.listChanges())].sort()) {
     const entries = await backend.readLog(change);
-    summaries.set(change, await summarizeChange(backend, change, entries, user));
+    const candidate = await summarizeChange(backend, change, entries, user);
+    summaries.set(change, candidate);
     parents.set(change, currentParent(change, entries));
+    // An empty reviewLeft already counts the user toward every obligation, so
+    // only a change they have review left on can owe them anything.
+    if (candidate.landed === undefined && candidate.reviewLeft.length > 0) {
+      const owed = await reviewOwed(backend, entries, candidate.owner, user, candidate.base, candidate.tip);
+      if (owed.length > 0) {
+        review.push({ summary: candidate, owed });
+      }
+    }
   }
   const summary = (change: RefName): ChangeSummary => {
     const found = summaries.get(change);
@@ -50,13 +72,7 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
       const mine = candidate.landed === undefined && candidate.owner === user;
       return mine || children.length > 0 ? [{ summary: candidate, children }] : [];
     });
-  return {
-    review: [...summaries.keys()]
-      .sort()
-      .map(summary)
-      .filter((candidate) => candidate.landed === undefined && candidate.reviewLeft.length > 0),
-    owned: prune(changeForest(parents)),
-  };
+  return { review, owned: prune(changeForest(parents)) };
 }
 
 /**
@@ -77,7 +93,7 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "change", align: "left" },
           { header: "review", align: "right" },
         ],
-        page.review.map((summary) => [changeCell(summary), span(String(summary.reviewLeft.length))]),
+        page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
       ),
     );
   }

@@ -52,7 +52,7 @@ type Target =
 
 Iron's surfaces, under Iron's names:
 
-- **todo** — the landing page: what needs your attention. A section of changes awaiting your review and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. Open forge changes (PRs/MRs) become changes when `cabaret pull` imports them, so the page reads change logs alone and never calls the forge.
+- **todo** — the landing page: what needs your attention. A section of changes owing your review — those with an unsatisfied review obligation you can still count toward, not everything you have yet to read — and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. Open forge changes (PRs/MRs) become changes when `cabaret pull` imports them, so the page reads change logs alone and never calls the forge.
 - **show** — one change: an attribute table (next step, owner, tip, base, forge change), files with per-file review state, comments. A name with no log errors with a nudge toward `cabaret create` or `cabaret pull`.
 
 Both render through the same view functions in every host, including the CLI (`cabaret todo`, `cabaret show`), which is the cheapest place to exercise them first.
