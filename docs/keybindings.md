@@ -82,7 +82,8 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 | `! c`   | create child                                    | all          |
 | `! p`   | create parent                                   | all          |
 | `! i`   | import forge change                             | todo, show   |
-| `! s`   | sync forge                                      | all          |
+| `F`     | pull from the forge                             | all          |
+| `P`     | push the change to the forge                    | all          |
 | `! l a` | land                                            | all          |
 | `! o`   | set owner                                       | all but diff |
 | `! r n` | rename                                          | all but diff |
@@ -111,8 +112,12 @@ Where the current table falls short of the principles:
 - **`r` (review) is bare but arguably a sibling of `enter`.** It navigates —
   opens the review page — so bare is right; but it's show-page-only, and the
   same guessability argument as `^` / `$` applies.
-- **Page gates are inconsistent across the `!` family.** Land and sync work
-  everywhere, set-owner excludes diff pages, import is todo/show only — and
+- **`F` and `P` are bare writes.** Pull and push mutate state but sit outside
+  the `!` namespace, borrowed whole from magit — the muscle memory is worth
+  more than the rule. Both keys clear the vim bar: `F` is a column motion and
+  `P` pastes, neither of which buys anything in a read-only buffer.
+- **Page gates are inconsistent across the `!` family.** Land, pull, and push
+  work everywhere, set-owner excludes diff pages, import is todo/show only — and
   only some of these gates trace back to the `! r` collision. Pick one rule —
   probably "mutations that take the current change work anywhere one is
   shown" — and apply it uniformly.
