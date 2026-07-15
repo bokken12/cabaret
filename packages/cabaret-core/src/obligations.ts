@@ -12,6 +12,7 @@ import {
   userName,
 } from "./backend.js";
 import { UserError } from "./error.js";
+import { isSelf, type Self } from "./self.js";
 import { reviewRounds } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
@@ -229,19 +230,22 @@ function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly Use
 }
 
 /**
- * The files of `diff` with an unsatisfied obligation that `user`'s review
- * can still count toward, sorted by name. Empty exactly when the change
- * needs nothing from the user — however much of it they have not read.
+ * The files of `diff` with an unsatisfied obligation that a review from
+ * `self` — any of their identities — can still count toward, sorted by name.
+ * Empty exactly when the change needs nothing from them — however much of it
+ * they have not read.
  */
 export async function reviewOwed(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
-  user: UserName,
+  self: Self,
   diff: ChangeDiff,
 ): Promise<readonly FilePath[]> {
   const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const owed = statuses.filter((status) => !isSatisfied(status) && outstanding(status).includes(user));
+  const owed = statuses.filter(
+    (status) => !isSatisfied(status) && outstanding(status).some((user) => isSelf(self, user)),
+  );
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
 }
 

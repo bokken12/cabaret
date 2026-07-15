@@ -36,6 +36,45 @@ test("todo shows review work and owned changes as a tree", async () => {
   `);
 });
 
+test("todo counts an alias's changes among the user's own", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "user.email", "agent@example.com");
+  await addChange(repo, "gizmo");
+  await repo.git("config", "user.email", "alice@example.com");
+  // Someone else's change: alice neither owns gizmo nor owes it review.
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+    "
+  `);
+  // Declared an alias, the agent's change is alice's own, and its owner
+  // self-review — still the agent's to give — is owed through her.
+  await repo.git("config", "--add", "cabaret.alias", "agent@example.com");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gizmo  │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gizmo  │      1 │ review    │
+    ╰────────┴────────┴───────────╯
+    "
+  `);
+});
+
 test("todo with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`

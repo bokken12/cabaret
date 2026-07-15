@@ -56,6 +56,15 @@ test("reports the current working branch", async () => {
   expect(await backend.currentBranch()).toBe("feature");
 });
 
+test("configAll reads every value of a multi-valued key, in order", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.configAll("cabaret.alias")).toEqual([]);
+  await git("config", "--add", "cabaret.alias", "agent@example.com");
+  await git("config", "--add", "cabaret.alias", "alice@work.example");
+  expect(await backend.configAll("cabaret.alias")).toEqual(["agent@example.com", "alice@work.example"]);
+  await git("config", "--unset-all", "cabaret.alias");
+});
+
 test("a change with no log ref has the empty log", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.readLog(parseRefName("no-log-yet"))).toEqual([]);

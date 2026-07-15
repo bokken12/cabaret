@@ -19,6 +19,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import { assertObligationsSatisfied } from "./obligations.js";
+import { currentSelf, isSelf } from "./self.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -143,9 +144,10 @@ export class NotOwnerError extends UserError {
 }
 
 /**
- * Fail unless the current user owns `change`; `override` skips the check. A
- * log with no owner is malformed and fails regardless of the override: the
- * override excuses not being the owner, not a broken log.
+ * Fail unless the current user owns `change` — as themselves or as one of
+ * their aliases; `override` skips the check. A log with no owner is malformed
+ * and fails regardless of the override: the override excuses not being the
+ * owner, not a broken log.
  */
 export async function requireOwner(
   backend: Backend,
@@ -157,9 +159,9 @@ export async function requireOwner(
   if (override) {
     return;
   }
-  const user = await backend.currentUser();
-  if (user !== owner) {
-    throw new NotOwnerError(change, owner, user);
+  const self = await currentSelf(backend);
+  if (!isSelf(self, owner)) {
+    throw new NotOwnerError(change, owner, self.user);
   }
 }
 

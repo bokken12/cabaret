@@ -61,6 +61,24 @@ test("--even-though-not-owner lets a non-owner transfer ownership", async () => 
   expect((await repo.cabaret("log", "feature")).stdout).toContain('{"kind":"set-owner","owner":"bob@example.com"}');
 });
 
+test("a change owned by an alias is the user's own to operate", async () => {
+  const repo = await makeOwnedChange();
+  await repo.git("config", "user.email", "bob@example.com");
+  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
+  await repo.git("config", "--add", "cabaret.alias", "alice@example.com");
+  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("log", "feature")).stdout).toContain('{"kind":"set-owner","owner":"bob@example.com"}');
+});
+
 test("only the owner may reparent a change", async () => {
   const repo = await makeOwnedChange();
   await repo.git("config", "user.email", "bob@example.com");

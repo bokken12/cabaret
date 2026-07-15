@@ -5,6 +5,7 @@ import {
   brain,
   changeBase,
   createChange,
+  currentSelf,
   defaultContext,
   type FilePath,
   formatLogEntry,
@@ -917,7 +918,7 @@ const todo = buildCommand({
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
-    const page = await todoPage(backend, await backend.currentUser());
+    const page = await todoPage(backend, await currentSelf(backend));
     this.process.stdout.write(`${docText(todoDoc(page))}\n`);
   },
 });
