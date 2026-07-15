@@ -2,16 +2,22 @@ import {
   type Backend,
   type ChangeComment,
   type ChangeSummary,
-  type CommitHash,
   changeDiff,
   currentComments,
   type FilePath,
   isSatisfied,
   obligationStatuses,
   type RefName,
+<<<<<<< 991988fdf4de2afbafb5a3e56f9caf957d45988e
   type ReviewerDue,
   reviewersDue,
   reviewerTally,
+||||||| ae55c955b9d5b5e28bdde449c3723cdf283471f7
+  reviewerSummary,
+=======
+  reviewerSummary,
+  shortHash,
+>>>>>>> a2381c8369fb0a561bca08347d17e5fa2eefe3e7
   summarizeChange,
   type UserName,
 } from "cabaret-core";
@@ -39,11 +45,6 @@ export async function showPage(backend: Backend, user: UserName, change: RefName
         )
       : [];
   return { summary, comments: await currentComments(entries), remaining };
-}
-
-/** Hashes display abbreviated; full hashes travel in targets, never prose. */
-function shortHash(hash: CommitHash): string {
-  return hash.slice(0, 12);
 }
 
 /** `value (note)`, or just `value` without a note. */

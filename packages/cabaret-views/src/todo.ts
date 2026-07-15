@@ -191,8 +191,12 @@ export function todoDoc(page: TodoPage): Doc {
       span(summary.nextStep, { style }),
     ];
   });
+  const title = "Todo";
   return layout(
     [
+      { spans: [span(title, { style: "heading" })] },
+      { spans: [span("=".repeat(title.length))] },
+      { spans: [] },
       forestSection(
         "Changes to review:",
         page.review,
