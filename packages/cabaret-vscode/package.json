@@ -155,6 +155,10 @@
         "title": "Cabaret: Pull from Forge"
       },
       {
+        "command": "cabaret.setup",
+        "title": "Cabaret: Apply Recommended Git Settings"
+      },
+      {
         "command": "cabaret.push",
         "title": "Cabaret: Push to Forge"
       }

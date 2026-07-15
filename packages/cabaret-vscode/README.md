@@ -22,6 +22,12 @@ text buffers, so search, selection, and vim keybindings work untouched.
   reparents, and `!la` lands.
 - Forge sync follows magit: `F` pulls from the forge, `P` pushes the change
   under the cursor (or the shown change) to it.
+- **Cabaret: Apply Recommended Git Settings** — apply the git configuration
+  Cabaret recommends: zdiff3 conflict markers, rerere, and fetching change
+  logs with every `git fetch` (the same set as `cabaret setup apply`). The
+  extension offers these on its own the first time it runs, once per scope:
+  declining records `cabaret.setupDeclined` in the matching git config and
+  keeps the offer quiet from then on.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
   `tab` alone needs a hand; see below.
