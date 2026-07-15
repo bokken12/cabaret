@@ -2,7 +2,7 @@ import { describe, expect, it, test } from "vitest";
 import * as Diamond from "./diamond.js";
 import * as DiffAlgo from "./diff-algo.js";
 import * as Diff4Class from "./diff4-class.js";
-import { diff } from "./patdiff4.js";
+import { diff, diffHunkLines, type HunksArgs } from "./patdiff4.js";
 import * as Segments from "./segments.js";
 import * as Slice from "./slice.js";
 
@@ -258,16 +258,18 @@ describe("diff", () => {
     f2,
   });
 
+  const args = (contents: Diamond.Diamond<string>): HunksArgs => ({
+    revNames: { b1: "rev-b1", b2: "rev-b2", f1: "rev-f1", f2: "rev-f2" },
+    fileNames: Diamond.singleton("file.txt"),
+    headerFileName: "file.txt",
+    context: 1,
+    linesRequiredToSeparateDdiffHunks: 3,
+    contents,
+    output: "Ascii",
+  });
+
   const render = (contents: Diamond.Diamond<string>): string =>
-    diff({
-      revNames: { b1: "rev-b1", b2: "rev-b2", f1: "rev-f1", f2: "rev-f2" },
-      fileNames: Diamond.singleton("file.txt"),
-      headerFileName: "file.txt",
-      context: 1,
-      linesRequiredToSeparateDdiffHunks: 3,
-      contents,
-      output: "Ascii",
-    })
+    diff(args(contents))
       .map((line) => line.text)
       .join("\n");
 
@@ -511,6 +513,33 @@ describe("diff", () => {
       | |_
       |_"
     `);
+  });
+
+  test("diffHunkLines groups the same lines per hunk, locating each hunk's title", () => {
+    const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
+    const a = args({
+      b1: contents("alpha", "omega"),
+      b2: contents("alpha", "OMEGA"),
+      f1: contents("alpha1", "omega!"),
+      f2: contents("alpha2", "omega"),
+    });
+    const groups = diffHunkLines(a);
+    expect(groups.flatMap(({ lines }) => lines)).toEqual(diff(a));
+    expect(groups.map(({ lines, title }) => (title === undefined ? undefined : lines[title]?.text))).toEqual([
+      "| @@@@@@@@ Hunk 1/2 @@@@@@@@",
+      "| @@@@@@@@ Hunk 2/2 @@@@@@@@",
+    ]);
+  });
+
+  test("diffHunkLines keeps a lone hunk's lines in one unlabeled group", () => {
+    const a = args(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nx\nc\n"));
+    const groups = diffHunkLines(a);
+    expect(groups.map(({ title }) => title)).toEqual([undefined]);
+    expect(groups.flatMap(({ lines }) => lines)).toEqual(diff(a));
+  });
+
+  test("diffHunkLines of equal versions is empty", () => {
+    expect(diffHunkLines(args(diamond("a\nb\n", "a\nb\n", "a\nb\n", "a\nb\n")))).toEqual([]);
   });
 
   test("a rebased diff extension degenerates to one plain 2-way hunk", () => {

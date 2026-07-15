@@ -84,27 +84,34 @@ export function renderDiff(
   return diff === "" ? "" : `${diff}\n`;
 }
 
+interface Diff4Args {
+  readonly file: FilePath;
+  readonly revs: Patdiff4.Diamond.Diamond<CommitHash>;
+  readonly contents: Patdiff4.Diamond.Diamond<string | undefined>;
+  readonly color: boolean;
+  readonly context?: number | undefined;
+}
+
 /**
  * Render what remains to review when the base's copy of `file` changed
  * underneath the reviewed diff: Iron's diff4 over the old and new base and
- * tip, each aligned hunk shown under every view its equivalence class earns.
- * Empty when nothing is left to show.
+ * tip, each aligned hunk shown under every view its equivalence class earns,
+ * grouped per hunk. Empty when nothing is left to show.
  */
-export function renderDiff4(args: {
-  file: FilePath;
-  revs: Patdiff4.Diamond.Diamond<CommitHash>;
-  contents: Patdiff4.Diamond.Diamond<string | undefined>;
-  color: boolean;
-  context?: number | undefined;
-}): readonly Patdiff4.Line[] {
+export function renderDiff4Hunks(args: Diff4Args): readonly Patdiff4.Hunk.HunkLines[] {
   // TODO: name absent versions distinctly (Iron renders them as <absent>
   // with a per-version file-name table) instead of diffing an empty file.
   const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
-    return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
+    return [
+      {
+        lines: [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }],
+        title: undefined,
+      },
+    ];
   }
   const context = args.context ?? defaultContext;
-  return Patdiff4.diff({
+  return Patdiff4.diffHunkLines({
     // Hash prefixes keep patdiff4's contract that equal names imply equal
     // contents, where "old"/"new" labels would not (the tips can coincide).
     revNames: Patdiff4.Diamond.map(args.revs, shortHash),
@@ -115,6 +122,11 @@ export function renderDiff4(args: {
     contents,
     output: args.color ? "Ansi" : "Ascii",
   });
+}
+
+/** The lines of `renderDiff4Hunks`, flat — for hosts that print rather than fold. */
+export function renderDiff4(args: Diff4Args): readonly Patdiff4.Line[] {
+  return renderDiff4Hunks(args).flatMap(({ lines }) => lines);
 }
 
 /**

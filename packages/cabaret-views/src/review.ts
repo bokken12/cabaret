@@ -9,7 +9,7 @@ import {
   type RefName,
   type ReviewRound,
   rebasedView,
-  renderDiff4,
+  renderDiff4Hunks,
   reviewRounds,
   shortHash,
   type TimestampMs,
@@ -18,6 +18,7 @@ import {
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
+import type * as Patdiff4 from "patdiff/patdiff4";
 import {
   type Doc,
   type Line,
@@ -389,17 +390,13 @@ function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }
  * point so one view's anchor cannot leak into views that never touch the new
  * tip. Hunk headers anchor without advancing. Unlike two-way lines, these
  * keep their sign marks: a ddiff line's stacked signs say more than one
- * style can express.
- *
- * TODO: fold each 4-way hunk to its header, as the two-way view does. The
- * rendered lines arrive flat — patdiff4 would have to expose per-hunk line
- * groups without disturbing its cross-hunk decoration (rev-name dedup,
- * "Hunk i/n" labels).
+ * style can express. Each hunk that carries a title — hunks label themselves
+ * whenever there are several — is a section folding down to that title line.
  */
-function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Line[] {
-  const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false, context });
+function fourWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Node[] {
+  const hunks = renderDiff4Hunks({ file, revs: view.revs, contents: view.contents, color: false, context });
   let at: number | undefined;
-  return rendered.map(({ text, kind, provenance }) => {
+  const toLine = ({ text, kind, provenance }: Patdiff4.Line): Line => {
     const opts: { style?: Style; target?: Target; tier?: TargetTier } = {};
     if (kind === "prev") {
       opts.style = "removed";
@@ -416,10 +413,21 @@ function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four"
       opts.target = { kind: "location", file, line: at };
     }
     if (opts.target !== undefined) {
-      // Jump tier, as in twoWayDiffLines.
+      // Jump tier, as in twoWayDiffNodes.
       opts.tier = "jump";
     }
     return { spans: [span(text, opts)] };
+  };
+  return hunks.flatMap(({ lines, title }): Node[] => {
+    const mapped = lines.map(toLine);
+    if (title === undefined) {
+      return mapped;
+    }
+    const heading = mapped[title];
+    if (heading === undefined) {
+      throw new Error(`hunk title index ${title} out of range`);
+    }
+    return [...mapped.slice(0, title), section(heading, mapped.slice(title + 1))];
   });
 }
 
@@ -438,7 +446,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   }
   const view = page.round.view;
   const body =
-    view.kind === "two" ? twoWayDiffNodes(page.file, view, context) : fourWayDiffLines(page.file, view, context);
+    view.kind === "two" ? twoWayDiffNodes(page.file, view, context) : fourWayDiffNodes(page.file, view, context);
   if (body.length === 0) {
     // A due file's diff can still render empty — a tree diff lists changes
     // patdiff shows no hunks for, like a mode-only change; marking the file
