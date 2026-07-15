@@ -100,13 +100,20 @@ importers:
         specifier: workspace:*
         version: link:../cabaret-github
 
-  packages/cabaret-util: {}
+  packages/cabaret-util:
+    devDependencies:
+      fast-check:
+        specifier: ^4.8.0
+        version: 4.8.0
 
   packages/cabaret-views:
     dependencies:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
       patdiff:
         specifier: workspace:*
         version: link:../patdiff
