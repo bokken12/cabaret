@@ -343,14 +343,19 @@ export class UnsatisfiedObligationsError extends UserError {
   }
 }
 
+/** One user whose review is still awaited, and the files awaiting it, sorted by name. */
+export interface ReviewerDue {
+  readonly user: UserName;
+  readonly files: readonly FilePath[];
+}
+
 /**
- * One line per user whose review could satisfy some of `unsatisfied`, sorted
- * by name: how many files await them. A per-reviewer digest of the per-file
- * `details`, for surfaces too small to show every obligation. Deliberately
- * vague about who must act: a requirement satisfiable by any of several users
- * tallies the file under each of them.
+ * One entry per user whose review could satisfy some of `unsatisfied`, sorted
+ * by name: the files awaiting them. A per-reviewer reading of the per-file
+ * statuses. Deliberately vague about who must act: a requirement satisfiable
+ * by any of several users lists the file under each of them.
  */
-export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+export function reviewersDue(unsatisfied: readonly ObligationStatus[]): readonly ReviewerDue[] {
   const due = new Map<UserName, Set<FilePath>>();
   for (const status of unsatisfied) {
     for (const user of outstanding(status)) {
@@ -364,7 +369,17 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   }
   return [...due]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
+    .map(([user, files]) => ({ user, files: [...files].sort() }));
+}
+
+/** A reviewer's tally line: how many files await them, not which. */
+export function reviewerTally({ user, files }: ReviewerDue): string {
+  return `${user}: ${files.length} ${files.length === 1 ? "file" : "files"}`;
+}
+
+/** One tally line per reviewer with review due, for surfaces too small to show every obligation. */
+export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return reviewersDue(unsatisfied).map(reviewerTally);
 }
 
 /** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */

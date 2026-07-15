@@ -9,7 +9,9 @@ import {
   isSatisfied,
   obligationStatuses,
   type RefName,
-  reviewerSummary,
+  type ReviewerDue,
+  reviewersDue,
+  reviewerTally,
   summarizeChange,
   type UserName,
 } from "cabaret-core";
@@ -20,8 +22,8 @@ import { table } from "./table.js";
 export interface ShowPage {
   readonly summary: ChangeSummary;
   readonly comments: readonly ChangeComment[];
-  /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
-  readonly remaining: readonly string[];
+  /** Per-reviewer unsatisfied obligations; empty once landed. */
+  readonly remaining: readonly ReviewerDue[];
 }
 
 /** Query the show page for `change`. */
@@ -32,7 +34,7 @@ export async function showPage(backend: Backend, user: UserName, change: RefName
   // A landed change has no review to demand, whatever state it landed in.
   const remaining =
     summary.landed === undefined
-      ? reviewerSummary(
+      ? reviewersDue(
           (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
         )
       : [];
@@ -94,14 +96,22 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
   );
 }
 
-/** The remaining review section: one tally row per reviewer with files left. */
-function remainingReview(remaining: readonly string[]): Section | undefined {
+/** The remaining review section: per reviewer, a tally row folding open to the files awaiting them. */
+function remainingReview(change: RefName, remaining: readonly ReviewerDue[]): Section | undefined {
   if (remaining.length === 0) {
     return undefined;
   }
   return section(
     { spans: [span("Remaining review:", { style: "heading" })] },
-    remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
+    remaining.map((due) =>
+      section(
+        { spans: [span(`  ${reviewerTally(due)}`)] },
+        due.files.map((file) => ({
+          spans: [span("    "), span(file, { target: { kind: "file", change, file } })],
+        })),
+        { folded: true },
+      ),
+    ),
   );
 }
 
@@ -154,7 +164,7 @@ export function showDoc(page: ShowPage): Doc {
   const nodes: Node[] = header(heading, attributes);
   // Each section stands off from what precedes it with a blank line.
   for (const s of [
-    remainingReview(page.remaining),
+    remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
     filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
   ]) {

@@ -10,7 +10,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { type Doc, docText, showDoc, targetAt, todoDoc } from "../index.js";
+import { type Doc, docText, foldedText, showDoc, targetAt, todoDoc } from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -41,10 +41,10 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 
 const files = (...names: string[]) => names.map(parseFilePath);
 
-/** Each fold as the text of the lines it runs from and to. */
-function foldTexts(doc: Doc): (string | undefined)[][] {
+/** Each fold as the text of the lines it runs from and to, and whether it starts folded. */
+function foldTexts(doc: Doc): { from: string | undefined; to: string | undefined; folded: boolean }[] {
   const text = docText(doc).split("\n");
-  return doc.folds.map(({ start, end }) => [text[start], text[end]]);
+  return doc.folds.map(({ start, end, folded }) => ({ from: text[start], to: text[end], folded }));
 }
 
 test("todoDoc lays out both sections as trees, ancestors kept for context", () => {
@@ -87,10 +87,10 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
   // Each section folds down to its heading, and within each table gadget's
   // subtree folds down to gadget's own row.
   expect(foldTexts(doc)).toEqual([
-    ["Changes to review:", "╰──────────┴────────╯"],
-    ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
-    ["Changes you own:", "╰──────────┴────────┴───────────╯"],
-    ["│ gadget   │        │ landed    │", "│ └─ gizmo │      2 │ review    │"],
+    { from: "Changes to review:", to: "╰──────────┴────────╯", folded: false },
+    { from: "│ gadget   │        │", to: "│ └─ gizmo │      2 │", folded: false },
+    { from: "Changes you own:", to: "╰──────────┴────────┴───────────╯", folded: false },
+    { from: "│ gadget   │        │ landed    │", to: "│ └─ gizmo │      2 │ review    │", folded: false },
   ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -170,9 +170,48 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       reviewLeft: files("api.ts", "ui.ts"),
     }),
     comments: [],
-    remaining: ["alice@example.com: 2 files", "bob@example.com: 1 file"],
+    remaining: [
+      { user: alice, files: files("api.ts", "ui.ts") },
+      { user: userName("bob@example.com"), files: files("api.ts") },
+    ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
+    "widgets
+    =======
+
+    ╭──────────────┬────────────────────────────────────╮
+    │ attribute    │ value                              │
+    ├──────────────┼────────────────────────────────────┤
+    │ next step    │ review                             │
+    │ owner        │ alice@example.com                  │
+    │ reviewers    │ bob@example.com, carol@example.com │
+    │ reviewing    │ everyone                           │
+    │ parent       │ main                               │
+    │ forge change │ github.com/test-org/widgets#7      │
+    │ tip          │ 222222222222                       │
+    │ base         │ 111111111111                       │
+    ╰──────────────┴────────────────────────────────────╯
+
+    Remaining review:
+      alice@example.com: 2 files
+        api.ts
+        ui.ts
+      bob@example.com: 1 file
+        api.ts
+
+    Files to review:
+      api.ts
+      ui.ts"
+  `);
+  // Each reviewer's tally folds open to their files, starting folded; hosts
+  // that cannot unfold show the tallies alone.
+  expect(foldTexts(doc)).toEqual([
+    { from: "Remaining review:", to: "    api.ts", folded: false },
+    { from: "  alice@example.com: 2 files", to: "    ui.ts", folded: true },
+    { from: "  bob@example.com: 1 file", to: "    api.ts", folded: true },
+    { from: "Files to review:", to: "  ui.ts", folded: false },
+  ]);
+  expect(foldedText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
 
@@ -197,10 +236,6 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       api.ts
       ui.ts"
   `);
-  expect(foldTexts(doc)).toEqual([
-    ["Remaining review:", "  bob@example.com: 1 file"],
-    ["Files to review:", "  ui.ts"],
-  ]);
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
@@ -218,7 +253,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
       nextStep: "sync",
     }),
     comments: [],
-    remaining: ["alice@example.com: 1 file"],
+    remaining: [{ user: alice, files: files("api.ts") }],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -237,6 +272,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 
     Remaining review:
       alice@example.com: 1 file
+        api.ts
 
     Files to review:
       api.ts"
@@ -270,7 +306,7 @@ test("showDoc words each note by its reading", () => {
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
-    remaining: ["bob@example.com: 1 file"],
+    remaining: [{ user: userName("bob@example.com"), files: files("gadget.ts") }],
     comments: [
       {
         timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
@@ -301,6 +337,7 @@ test("showDoc renders comments between the remaining review and the files, multi
 
     Remaining review:
       bob@example.com: 1 file
+        gadget.ts
 
     Comments:
       2025-05-23T11:33:20.003Z alice@example.com
@@ -317,9 +354,10 @@ test("showDoc renders comments between the remaining review and the files, multi
   // A fold runs to its section's true end: the comments' internal blank
   // lines fold away with them.
   expect(foldTexts(doc)).toEqual([
-    ["Remaining review:", "  bob@example.com: 1 file"],
-    ["Comments:", "    the flag name reads oddly"],
-    ["Files to review:", "  gadget.ts"],
+    { from: "Remaining review:", to: "    gadget.ts", folded: false },
+    { from: "  bob@example.com: 1 file", to: "    gadget.ts", folded: true },
+    { from: "Comments:", to: "    the flag name reads oddly", folded: false },
+    { from: "Files to review:", to: "  gadget.ts", folded: false },
   ]);
 });
 
