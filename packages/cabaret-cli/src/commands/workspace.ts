@@ -4,7 +4,6 @@ import {
   changeWorkspace,
   parseRefName,
   type RefName,
-  readConfig,
   removeChangeWorkspace,
   UserError,
 } from "cabaret-core";
@@ -30,8 +29,7 @@ const add = buildCommand({
     brief: "Create a workspace with a change checked out",
     fullDescription:
       "Create a workspace — a new working tree — with the change checked " +
-      "out, under `workspace-home` when configured and otherwise beside the " +
-      "primary workspace. Prints where it went.",
+      "out, beside the primary workspace. Prints where it went.",
   },
   parameters: {
     positional: changePositional,
@@ -39,14 +37,14 @@ const add = buildCommand({
       at: {
         kind: "parsed",
         parse: String,
-        brief: "Where to create the workspace (defaults to the workspace-home convention)",
+        brief: "Where to create the workspace (defaults beside the primary workspace)",
         optional: true,
       },
     },
   },
   async func(this: LocalContext, flags: { at?: string }, change: RefName) {
     const backend = await this.backend();
-    const path = await addChangeWorkspace(backend, await readConfig(backend), change, flags.at);
+    const path = await addChangeWorkspace(backend, change, flags.at);
     this.process.stdout.write(`${path}\n`);
   },
 });

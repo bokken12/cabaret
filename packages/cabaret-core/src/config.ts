@@ -29,8 +29,6 @@ export interface Config {
   /** Lines of diff context, -1 for whole files; undefined when unset. */
   readonly context: number | undefined;
   readonly workspaceStyle: WorkspaceStyle;
-  /** Directory new workspaces are created in; undefined places them beside the primary workspace. */
-  readonly workspaceHome: string | undefined;
 }
 
 /** Parse a count of diff context lines from `source`: a nonnegative integer, or -1 for whole files. */
@@ -52,29 +50,19 @@ function parseChoice<T extends string>(key: string, raw: string | undefined, fal
   return raw as T;
 }
 
-/** Parse a workspace home from `raw`: kept absolute so it means one place from every workspace. */
-export function parseWorkspaceHome(raw: string): string {
-  if (!raw.startsWith("/")) {
-    throw new UserError(`cabaret.workspaceHome must be an absolute path: ${JSON.stringify(raw)}`);
-  }
-  return raw;
-}
-
 /** Read this repository's Cabaret settings. */
 export async function readConfig(backend: Backend): Promise<Config> {
-  const [method, via, context, style, home] = await Promise.all([
+  const [method, via, context, style] = await Promise.all([
     backend.config("cabaret.landMethod"),
     backend.config("cabaret.landVia"),
     backend.config("cabaret.context"),
     backend.config("cabaret.workspaceStyle"),
-    backend.config("cabaret.workspaceHome"),
   ]);
   return {
     landMethod: parseChoice("cabaret.landMethod", method, "merge", landMethods),
     landVia: parseChoice("cabaret.landVia", via, "auto", landVias),
     context: context === undefined ? undefined : parseContext(context, "git config cabaret.context"),
     workspaceStyle: parseChoice("cabaret.workspaceStyle", style, "shared", workspaceStyles),
-    workspaceHome: home === undefined ? undefined : parseWorkspaceHome(home),
   };
 }
 
@@ -141,15 +129,6 @@ export const settings: readonly Setting[] = [
     brief: "Where a land executes: local, forge, or auto",
     fallback: "auto",
     parse: (raw) => parseChoice("cabaret.landVia", raw, "auto", landVias),
-  },
-  {
-    name: "workspace-home",
-    key: "cabaret.workspaceHome",
-    scope: "global",
-    multi: false,
-    brief: "Directory new workspaces are created in",
-    fallback: undefined,
-    parse: parseWorkspaceHome,
   },
   {
     name: "workspace-style",

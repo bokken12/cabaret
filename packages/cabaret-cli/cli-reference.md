@@ -139,23 +139,6 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-### cabaret config workspace-home
-
-USAGE
-  cabaret config workspace-home [--global] [--local] [--unset] [<value>]
-  cabaret config workspace-home --help
-
-Directory new workspaces are created in
-
-FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
-     [--unset]   Unset the setting, restoring its default [default = false]
-  -h  --help     Print help information and exit
-
-ARGUMENTS
-  [value]  value to set (shows the current value when omitted)
-
 ### cabaret config workspace-style
 
 USAGE
@@ -527,10 +510,10 @@ USAGE
   cabaret workspace add [--at value] <change>
   cabaret workspace add --help
 
-Create a workspace — a new working tree — with the change checked out, under `workspace-home` when configured and otherwise beside the primary workspace. Prints where it went.
+Create a workspace — a new working tree — with the change checked out, beside the primary workspace. Prints where it went.
 
 FLAGS
-     [--at]   Where to create the workspace (defaults to the workspace-home convention)
+     [--at]   Where to create the workspace (defaults beside the primary workspace)
   -h  --help  Print help information and exit
 
 ARGUMENTS

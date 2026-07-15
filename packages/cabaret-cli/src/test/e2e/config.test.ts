@@ -18,7 +18,6 @@ test("list shows defaults on a fresh repo", async () => {
     context          3 (default)
     land-method      merge (default)
     land-via         auto (default)
-    workspace-home   (none)
     workspace-style  shared (default)
     ",
     }
@@ -172,7 +171,6 @@ test("a bare setting and list read one scope with --global or --local", async ()
     context          (unset)
     land-method      (unset)
     land-via         (unset)
-    workspace-home   (unset)
     workspace-style  (unset)
     "
   `);
@@ -181,7 +179,6 @@ test("a bare setting and list read one scope with --global or --local", async ()
     context          (unset)
     land-method      squash
     land-via         (unset)
-    workspace-home   (unset)
     workspace-style  (unset)
     "
   `);

@@ -29,16 +29,14 @@ export interface WorkspaceNote {
   /** The path as read from the current workspace, for display. */
   readonly display: string;
   readonly dirty: boolean;
-  /** Whether this is the primary working tree, which cannot be removed. */
-  readonly primary: boolean;
 }
 
 /** Each checked-out branch's workspace note, from the current workspace's point of view. */
 export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<RefName, WorkspaceNote>> {
   const notes = new Map<RefName, WorkspaceNote>();
-  for (const { path, branch, dirty, primary } of await backend.workspaces()) {
+  for (const { path, branch, dirty } of await backend.workspaces()) {
     if (branch !== undefined) {
-      notes.set(branch, { path, display: displayPath(backend.root, path), dirty, primary });
+      notes.set(branch, { path, display: displayPath(backend.root, path), dirty });
     }
   }
   return notes;

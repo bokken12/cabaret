@@ -549,7 +549,6 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
       landVia: "auto",
       context: undefined,
       workspaceStyle,
-      workspaceHome: undefined,
     });
     const root = await gitIn(dir, "rev-parse", "--show-toplevel");
 

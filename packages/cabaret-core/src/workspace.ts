@@ -32,13 +32,12 @@ function primaryWorkspace(workspaces: readonly Workspace[]): Workspace {
 }
 
 /**
- * Where a new workspace for `change` goes: under `home` when configured, and
- * otherwise beside the primary workspace, named after it — `widgets-gadget`
- * beside `widgets`. A change name with `/` in it nests directories either
- * way, as it does under `refs/heads/`.
+ * Where a new workspace for `change` goes: beside the primary workspace,
+ * named after it — `widgets-gadget` beside `widgets`. A change name with
+ * `/` in it nests directories, as it does under `refs/heads/`.
  */
-export function workspacePath(home: string | undefined, primary: string, change: RefName): string {
-  return home === undefined ? `${primary}-${change}` : `${home}/${change}`;
+export function workspacePath(primary: string, change: RefName): string {
+  return `${primary}-${change}`;
 }
 
 /** Fail unless `change` is a change whose branch exists — what a workspace can check out. */
@@ -56,19 +55,14 @@ async function assertCheckoutable(backend: Backend, change: RefName): Promise<vo
  * `workspacePath` default, and return where it went. The change must be a
  * real, unlanded change without a workspace already.
  */
-export async function addChangeWorkspace(
-  backend: Backend,
-  config: Config,
-  change: RefName,
-  path?: string,
-): Promise<string> {
+export async function addChangeWorkspace(backend: Backend, change: RefName, path?: string): Promise<string> {
   await assertCheckoutable(backend, change);
   const workspaces = await backend.workspaces();
   const holding = workspaces.find((workspace) => workspace.branch === change);
   if (holding !== undefined) {
     throw new UserError(`change already has a workspace: ${holding.path}`);
   }
-  const target = path ?? workspacePath(config.workspaceHome, primaryWorkspace(workspaces).path, change);
+  const target = path ?? workspacePath(primaryWorkspace(workspaces).path, change);
   await backend.addWorkspace(target, change);
   return target;
 }
@@ -125,7 +119,7 @@ export async function gotoChange(
   }
   await assertCheckoutable(backend, change);
   if (config.workspaceStyle === "dedicated") {
-    const path = workspacePath(config.workspaceHome, primaryWorkspace(workspaces).path, change);
+    const path = workspacePath(primaryWorkspace(workspaces).path, change);
     await backend.addWorkspace(path, change);
     return { kind: "added", path };
   }

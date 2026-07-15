@@ -65,7 +65,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
       { summary: widgets, context: false, children: [] },
     ],
     broken: [],
-    workspaces: new Map(),
+    workspaces: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
@@ -121,7 +121,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 });
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
-  expect(docText(todoDoc({ review: [], owned: [], broken: [], workspaces: new Map() }))).toMatchInlineSnapshot(`
+  expect(docText(todoDoc({ review: [], owned: [], broken: [], workspaces: [] }))).toMatchInlineSnapshot(`
     "Todo
     ====
 
@@ -139,53 +139,61 @@ test("todoDoc with nothing to do keeps both sections, empty", () => {
   `);
 });
 
-test("todoDoc notes a change's workspace on its row, dimmed and resolving to the directory", () => {
+test("todoDoc lists the changes checked out on this device in their own section", () => {
   const gadget = summary("gadget", { reviewLeft: files("gadget.ts") });
   const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const doc = todoDoc({
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
-    owned: [
-      { summary: gadget, context: false, children: [] },
-      { summary: relic, context: true, children: [] },
-    ],
+    owned: [{ summary: gadget, context: false, children: [] }],
     broken: [],
-    workspaces: new Map([
-      [gadget.change, { path: "/src/widgets-gadget", display: "../widgets-gadget", dirty: true, primary: false }],
-      [relic.change, { path: "/src/widgets-relic", display: "../widgets-relic", dirty: false, primary: false }],
-    ]),
+    workspaces: [
+      { change: gadget.change, workspace: { path: "/src/widgets", display: ".", dirty: false }, landed: false },
+      {
+        change: relic.change,
+        workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
+        landed: true,
+      },
+    ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
     ====
 
     Changes to review:
-    ╭──────────────────────────────────────┬────────╮
-    │ change                               │ review │
-    ├──────────────────────────────────────┼────────┤
-    │ gadget (at ../widgets-gadget, dirty) │      1 │
-    ╰──────────────────────────────────────┴────────╯
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
 
     Changes you own:
-    ╭──────────────────────────────────────┬────────┬───────────╮
-    │ change                               │ review │ next step │
-    ├──────────────────────────────────────┼────────┼───────────┤
-    │ gadget (at ../widgets-gadget, dirty) │      1 │ review    │
-    │ relic (at ../widgets-relic)          │        │ landed    │
-    ╰──────────────────────────────────────┴────────┴───────────╯"
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gadget │      1 │ review    │
+    ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────────────────┬───────────────╮
+    │ change │ workspace        │ note          │
+    ├────────┼──────────────────┼───────────────┤
+    │ gadget │ .                │               │
+    │ relic  │ ../widgets-relic │ dirty, landed │
+    ╰────────┴──────────────────┴───────────────╯"
   `);
-  // The name still links to the change; the note is dimmed and resolves to
-  // the workspace's directory.
+  // The section folds like the others.
+  expect(foldTexts(doc).at(-1)).toEqual({
+    from: "Workspaces on this device:",
+    to: "╰────────┴──────────────────┴───────────────╯",
+    folded: false,
+  });
+  // The change links to its page and the path to the workspace's directory.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("relic"));
-  expect(doc.lines[line]?.spans.filter(({ target }) => target !== undefined)).toEqual([
-    { text: "relic", style: "context", target: { kind: "change", change: "relic" }, tier: "link" },
-    {
-      text: " (at ../widgets-relic)",
-      style: "context",
-      target: { kind: "workspace", path: "/src/widgets-relic" },
-      tier: "link",
-    },
+  expect(doc.lines[line]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
+    { kind: "change", change: "relic" },
+    { kind: "workspace", path: "/src/widgets-relic" },
   ]);
 });
 
@@ -197,7 +205,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
       { change: parseRefName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
       { change: parseRefName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
     ],
-    workspaces: new Map(),
+    workspaces: [],
   });
   expect(doc.errors).toEqual([
     'gizmo: unknown revision: "refs/heads/gizmo"',
@@ -431,7 +439,7 @@ test("showDoc rows the change's workspace, noting dirtiness", () => {
     const doc = showDoc({
       summary: summary("widgets", {}),
       comments: [],
-      workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty, primary: false },
+      workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
       remaining: [],
     });
     return docText(doc)

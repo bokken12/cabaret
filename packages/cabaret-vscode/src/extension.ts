@@ -734,9 +734,9 @@ async function gotoSelection(backend: Backend, change: RefName): Promise<void> {
   }
 }
 
-/** Create a workspace for `change` at the configured spot and open it in its own window. */
+/** Create a workspace for `change` and open it in its own window. */
 async function addWorkspaceSelection(backend: Backend, change: RefName): Promise<void> {
-  const path = await addChangeWorkspace(backend, await readConfig(backend), change);
+  const path = await addChangeWorkspace(backend, change);
   await openWorkspaceWindow(path);
 }
 

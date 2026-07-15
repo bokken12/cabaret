@@ -47,11 +47,18 @@ test("workspace add creates a sibling working tree that dir, list, and todo repo
     ╰────────┴────────╯
 
     Changes you own:
-    ╭──────────────────────────┬────────┬─────────────────╮
-    │ change                   │ review │ next step       │
-    ├──────────────────────────┼────────┼─────────────────┤
-    │ gizmo (at ../repo-gizmo) │      1 │ widen reviewing │
-    ╰──────────────────────────┴────────┴─────────────────╯
+    ╭────────┬────────┬─────────────────╮
+    │ change │ review │ next step       │
+    ├────────┼────────┼─────────────────┤
+    │ gizmo  │      1 │ widen reviewing │
+    ╰────────┴────────┴─────────────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────────┬──────╮
+    │ change │ workspace     │ note │
+    ├────────┼───────────────┼──────┤
+    │ gizmo  │ ../repo-gizmo │      │
+    ╰────────┴───────────────┴──────╯
     "
   `);
 });
@@ -73,23 +80,6 @@ test("workspace add refuses a second workspace, a missing change, and a landed o
   await repo.cabaret("review", "--change", "relic", "relic.txt");
   await repo.cabaret("land", "relic");
   expect((await repo.cabaret("workspace", "add", "relic")).stderr).toContain("change has landed");
-});
-
-test("workspace add creates under workspace-home when configured", async () => {
-  const repo = await makeRepo(undefined, "repo");
-  await addChange(repo, "gizmo");
-  await repo.git("checkout", "-q", "main");
-  const root = await rootOf(repo);
-
-  expect((await repo.cabaret("config", "workspace-home", "--local", `${root}-homes`)).exitCode).toBe(0);
-  expect(await repo.cabaret("workspace", "add", "gizmo")).toEqual({
-    stdout: `${root}-homes/gizmo\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect((await repo.cabaret("config", "workspace-home", "relative/home")).stderr).toContain(
-    "must be an absolute path",
-  );
 });
 
 test("workspace remove refuses a dirty workspace until --even-though-dirty, and needs one to remove", async () => {
@@ -119,7 +109,7 @@ test("workspace remove refuses a dirty workspace until --even-though-dirty, and 
   });
 });
 
-test("a landed change stays on todo as context while a removable workspace holds it", async () => {
+test("a landed change stays in the todo workspaces section until its workspace is removed", async () => {
   const repo = await makeRepo(undefined, "repo");
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "main");
@@ -138,11 +128,17 @@ test("a landed change stays on todo as context while a removable workspace holds
     ╰────────┴────────╯
 
     Changes you own:
-    ╭──────────────────────────┬────────┬───────────╮
-    │ change                   │ review │ next step │
-    ├──────────────────────────┼────────┼───────────┤
-    │ gizmo (at ../repo-gizmo) │        │ landed    │
-    ╰──────────────────────────┴────────┴───────────╯
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────────┬────────╮
+    │ change │ workspace     │ note   │
+    ├────────┼───────────────┼────────┤
+    │ gizmo  │ ../repo-gizmo │ landed │
+    ╰────────┴───────────────┴────────╯
     "
   `);
   await repo.cabaret("workspace", "remove", "gizmo");

@@ -15,7 +15,7 @@ import {
   UserError,
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
-import { type Cell, type Column, tableParts } from "./table.js";
+import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
@@ -61,11 +61,19 @@ export interface TodoPage {
    */
   readonly broken: readonly BrokenChange[];
   /**
-   * Each checked-out change's workspace on this device. Rows note theirs,
-   * and a change that would otherwise stay off the page — landed, someone
-   * else's — is kept as context while a removable workspace still holds it.
+   * The changes checked out in workspaces on this device, in workspace
+   * order (the primary working tree first). This is where a workspace
+   * whose change has landed gets noticed — and reclaimed.
    */
-  readonly workspaces: ReadonlyMap<RefName, WorkspaceNote>;
+  readonly workspaces: readonly WorkspaceEntry[];
+}
+
+/** A change and the workspace holding it on this device. */
+export interface WorkspaceEntry {
+  readonly change: RefName;
+  readonly workspace: WorkspaceNote;
+  /** Whether the change has landed, leaving the workspace ready to remove. */
+  readonly landed: boolean;
 }
 
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
@@ -116,13 +124,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       const candidate = summary(node.change);
       const children = pruneOwned(node.children);
       const mine = candidate.landed === undefined && isSelf(self, candidate.owner);
-      // A removable workspace makes any change this device's business: its
-      // row is where the workspace gets noticed — and, once landed,
-      // reclaimed. The primary workspace is not removable, so whatever it
-      // has checked out earns no row of its own.
-      const workspace = workspaces.get(node.change);
-      const kept = mine || children.length > 0 || (workspace !== undefined && !workspace.primary);
-      return kept ? [{ summary: candidate, context: !mine, children }] : [];
+      return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
     nodes.flatMap((node) => {
@@ -131,7 +133,13 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces };
+  const entries = [...workspaces].flatMap(([change, workspace]): WorkspaceEntry[] => {
+    const found = summaries.get(change);
+    // A workspace on a branch that is no change, or whose change is broken,
+    // is not this page's business; broken changes already surface as errors.
+    return found === undefined ? [] : [{ change, workspace, landed: found.landed !== undefined }];
+  });
+  return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -152,21 +160,11 @@ function treeRows<N extends { readonly children: readonly N[] }>(
 
 /**
  * A cell naming `summary`'s change. The tree guide rides alongside untargeted,
- * keeping the link on exactly the name; a workspace note rides behind it,
- * dimmed, resolving to the workspace's directory.
+ * keeping the link on exactly the name.
  */
-function changeCell(summary: ChangeSummary, guide: string, style?: "context", workspace?: WorkspaceNote): Cell {
+function changeCell(summary: ChangeSummary, guide: string, style?: "context"): Cell {
   const name = span(summary.change, { style, target: { kind: "change", change: summary.change } });
-  const cell = guide === "" ? [name] : [span(guide, { style }), name];
-  if (workspace !== undefined) {
-    cell.push(
-      span(` (at ${workspace.display}${workspace.dirty ? ", dirty" : ""})`, {
-        style: "context",
-        target: { kind: "workspace", path: workspace.path },
-      }),
-    );
-  }
-  return cell;
+  return guide === "" ? name : [span(guide, { style }), name];
 }
 
 /**
@@ -202,18 +200,35 @@ function forestSection<N extends { readonly children: readonly N[] }>(
   return section({ spans: [span(title, { style: "heading" })] }, [...head, ...treeNodes(forest, rows), foot]);
 }
 
+/** The workspaces section: one row per change checked out on this device. */
+function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
+  const rows = entries.map(({ change, workspace, landed }): readonly Cell[] => [
+    span(change, { target: { kind: "change", change } }),
+    span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
+    span([...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : [])].join(", ")),
+  ]);
+  return section(
+    { spans: [span("Workspaces on this device:", { style: "heading" })] },
+    table(
+      [
+        { header: "change", align: "left" },
+        { header: "workspace", align: "left" },
+        { header: "note", align: "left" },
+      ],
+      rows,
+    ),
+  );
+}
+
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
-    return [
-      changeCell(summary, guide, style, page.workspaces.get(summary.change)),
-      span(owed.length === 0 ? "" : String(owed.length)),
-    ];
+    return [changeCell(summary, guide, style), span(owed.length === 0 ? "" : String(owed.length))];
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
     return [
-      changeCell(summary, guide, style, page.workspaces.get(summary.change)),
+      changeCell(summary, guide, style),
       span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
       span(summary.nextStep, { style }),
     ];
@@ -244,6 +259,9 @@ export function todoDoc(page: TodoPage): Doc {
         ],
         ownedRows,
       ),
+      // Unlike the sections above, absence needs no showing: no row is not a
+      // gap to fill but simply no change checked out on this device.
+      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces)]),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );
