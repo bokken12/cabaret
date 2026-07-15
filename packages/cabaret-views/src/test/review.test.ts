@@ -154,6 +154,11 @@ test("diffDoc trims each hunk to the requested context", () => {
     EIGHT
     nine"
   `);
+  // Each hunk folds down to its header; the blank separator stays outside.
+  expect(doc.folds).toEqual([
+    { start: 2, end: 6 },
+    { start: 8, end: 12 },
+  ]);
 });
 
 test("diffDoc shows the whole file in one hunk at context -1", () => {
