@@ -8,16 +8,10 @@ import {
   isSatisfied,
   obligationStatuses,
   type RefName,
-<<<<<<< 991988fdf4de2afbafb5a3e56f9caf957d45988e
   type ReviewerDue,
   reviewersDue,
   reviewerTally,
-||||||| ae55c955b9d5b5e28bdde449c3723cdf283471f7
-  reviewerSummary,
-=======
-  reviewerSummary,
   shortHash,
->>>>>>> a2381c8369fb0a561bca08347d17e5fa2eefe3e7
   summarizeChange,
   type UserName,
 } from "cabaret-core";
