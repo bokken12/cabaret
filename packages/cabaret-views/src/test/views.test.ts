@@ -31,6 +31,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: [],
     nextStep: "review",
     ...opts,

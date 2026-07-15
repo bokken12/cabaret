@@ -223,6 +223,7 @@ test("a change with no commits of its own must add code", async () => {
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: [],
     nextStep: "add code",
   });
@@ -247,6 +248,7 @@ test("files outside the user's brain are left to review", async () => {
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["b.ts"],
     nextStep: "review",
   });
@@ -263,6 +265,7 @@ test("files outside the user's brain are left to review", async () => {
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["a.ts", "b.ts"],
     nextStep: "review",
   });
@@ -288,6 +291,7 @@ test("a reviewed change not based on its parent's tip must rebase", async () => 
     origin: undefined,
     deadParent: undefined,
     staleBase: "behind",
+    conflicts: [],
     reviewLeft: [],
     nextStep: "rebase",
   });
@@ -312,6 +316,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: [],
     nextStep: "land",
   });
@@ -350,6 +355,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["a.ts", "b.ts"],
     nextStep: "landed",
   });
@@ -538,6 +544,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     origin: undefined,
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["b.ts", "c.ts"],
     nextStep: "review",
   });
@@ -563,6 +570,7 @@ test("a change behind origin's copy must sync, before anything else", async () =
     origin: "behind",
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: [],
     nextStep: "sync",
   });
@@ -589,6 +597,7 @@ test("a change diverged from origin's copy must sync, review left or not", async
     origin: "diverged",
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "sync",
   });
@@ -614,6 +623,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     origin: "ahead",
     deadParent: undefined,
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
   });
@@ -639,6 +649,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     origin: undefined,
     deadParent: "landed",
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["ui.ts"],
     nextStep: "reparent",
   });
@@ -671,6 +682,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     origin: undefined,
     deadParent: "missing",
     staleBase: undefined,
+    conflicts: [],
     reviewLeft: ["notes.md"],
     nextStep: "reparent",
   });
@@ -695,6 +707,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     origin: undefined,
     deadParent: undefined,
     staleBase: "diverged",
+    conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
   });

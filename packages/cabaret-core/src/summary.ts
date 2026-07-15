@@ -3,6 +3,7 @@ import {
   brain,
   type ChangeDiff,
   type CommitHash,
+  conflictedFiles,
   currentForgeChange,
   currentOwner,
   currentParent,
@@ -61,7 +62,7 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
 }
 
 /** What must happen next to move a change toward landing. */
-export type NextStep = "sync" | "reparent" | "add code" | "review" | "rebase" | "land" | "landed";
+export type NextStep = "sync" | "reparent" | "fix conflicts" | "add code" | "review" | "rebase" | "land" | "landed";
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
@@ -81,6 +82,8 @@ export interface ChangeSummary {
   readonly deadParent: "landed" | "missing" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
   readonly staleBase: "behind" | "diverged" | undefined;
+  /** Files whose contents at the tip still carry conflict markers, sorted by name. */
+  readonly conflicts: readonly FilePath[];
   /** Files with review left for the user, sorted by name. */
   readonly reviewLeft: readonly FilePath[];
   readonly nextStep: NextStep;
@@ -142,6 +145,11 @@ export async function summarizeChange(
     origin,
     deadParent,
     staleBase,
+    // A landed change is frozen; only live code is worth scanning for markers.
+    conflicts:
+      landed === undefined
+        ? await conflictedFiles(backend, tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort())
+        : [],
     reviewLeft,
   };
   return { ...readings, nextStep: nextStep(readings) };
@@ -151,9 +159,10 @@ export async function summarizeChange(
  * What must happen next, from the summary's other readings. An origin that
  * disagrees outranks everything: each reading below is a question about
  * revisions this clone may lack. A dead parent comes next: nothing can land
- * until the change hangs somewhere real. A stale base waits for review to
- * finish — the parent moving on is routine, and rebasing mid-review churns
- * reviewers — becoming the step only where `land` would refuse it.
+ * until the change hangs somewhere real. Unresolved conflicts outrank
+ * review: markers are not code worth reading. A stale base waits for review
+ * to finish — the parent moving on is routine, and rebasing mid-review
+ * churns reviewers — becoming the step only where `land` would refuse it.
  */
 function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
   if (readings.landed !== undefined) {
@@ -164,6 +173,9 @@ function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
   }
   if (readings.deadParent !== undefined) {
     return "reparent";
+  }
+  if (readings.conflicts.length > 0) {
+    return "fix conflicts";
   }
   if (readings.tip === readings.base) {
     return "add code";

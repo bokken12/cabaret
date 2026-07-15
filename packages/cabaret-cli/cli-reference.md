@@ -139,22 +139,19 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-### cabaret config rebase-method
+## cabaret conflicts
 
 USAGE
-  cabaret config rebase-method [--global] [--local] [--unset] [<value>]
-  cabaret config rebase-method --help
+  cabaret conflicts [<change>]
+  cabaret conflicts --help
 
-How a rebase moves a change onto its parent's tip: merge or rebase
+Show each conflict marker left in a change's files, as file:line: text. A rebase that conflicts commits the markers in place; this lists what remains to fix.
 
 FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
-     [--unset]   Unset the setting, restoring its default [default = false]
-  -h  --help     Print help information and exit
+  -h --help  Print help information and exit
 
 ARGUMENTS
-  [value]  value to set (shows the current value when omitted)
+  [change]  change to inspect (defaults to current)
 
 ## cabaret create
 
@@ -276,7 +273,7 @@ USAGE
   cabaret rebase [--even-though-not-owner] [<change>]
   cabaret rebase --help
 
-Move a change onto its parent's tip, then record the new base in the log. The parent's tip is merged into the change; with git config cabaret.rebaseMethod rebase, the change's own commits are instead replayed onto it (`git rebase --onto`). Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; when one fails, the rebases before it stand, and rerunning the range resumes.
+Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]

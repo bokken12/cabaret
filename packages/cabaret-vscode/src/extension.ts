@@ -487,12 +487,11 @@ async function confirmNotOwner(button: string, op: (override: boolean) => Promis
  */
 async function rebaseSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
-  const { rebaseMethod } = await readConfig(backend);
   await confirmNotOwner("Rebase Anyway", async (override) => {
     if (only !== undefined) {
-      await rebaseChange(backend, now, only, await backend.readLog(only), rebaseMethod, override);
+      await rebaseChange(backend, now, only, await backend.readLog(only), override);
     } else {
-      await rebaseChain(backend, now, await resolveChain(backend, changes), rebaseMethod, override);
+      await rebaseChain(backend, now, await resolveChain(backend, changes), override);
     }
   });
 }

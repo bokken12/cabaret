@@ -4,7 +4,6 @@ import { UserError } from "./error.js";
 
 const landMethods = ["merge", "squash"] as const;
 const landVias = ["local", "forge", "auto"] as const;
-const rebaseMethods = ["merge", "rebase"] as const;
 
 /** How a land writes a change onto its parent: a land merge, or one squash commit. */
 export type LandMethod = (typeof landMethods)[number];
@@ -16,17 +15,10 @@ export type LandMethod = (typeof landMethods)[number];
  */
 export type LandVia = (typeof landVias)[number];
 
-/**
- * How a rebase moves a change onto its parent's tip: by merging the tip into
- * the change, or by replaying the change's commits onto it.
- */
-export type RebaseMethod = (typeof rebaseMethods)[number];
-
 /** Settings read from `cabaret.*` git config keys. */
 export interface Config {
   readonly landMethod: LandMethod;
   readonly landVia: LandVia;
-  readonly rebaseMethod: RebaseMethod;
   /** Lines of diff context, -1 for whole files; undefined when unset. */
   readonly context: number | undefined;
 }
@@ -52,16 +44,14 @@ function parseChoice<T extends string>(key: string, raw: string | undefined, fal
 
 /** Read this repository's Cabaret settings. */
 export async function readConfig(backend: Backend): Promise<Config> {
-  const [method, via, rebase, context] = await Promise.all([
+  const [method, via, context] = await Promise.all([
     backend.config("cabaret.landMethod"),
     backend.config("cabaret.landVia"),
-    backend.config("cabaret.rebaseMethod"),
     backend.config("cabaret.context"),
   ]);
   return {
     landMethod: parseChoice("cabaret.landMethod", method, "merge", landMethods),
     landVia: parseChoice("cabaret.landVia", via, "auto", landVias),
-    rebaseMethod: parseChoice("cabaret.rebaseMethod", rebase, "merge", rebaseMethods),
     context: context === undefined ? undefined : parseContext(context, "git config cabaret.context"),
   };
 }
@@ -129,14 +119,5 @@ export const settings: readonly Setting[] = [
     brief: "Where a land executes: local, forge, or auto",
     fallback: "auto",
     parse: (raw) => parseChoice("cabaret.landVia", raw, "auto", landVias),
-  },
-  {
-    name: "rebase-method",
-    key: "cabaret.rebaseMethod",
-    scope: "local",
-    multi: false,
-    brief: "How a rebase moves a change onto its parent's tip: merge or rebase",
-    fallback: "merge",
-    parse: (raw) => parseChoice("cabaret.rebaseMethod", raw, "merge", rebaseMethods),
   },
 ];

@@ -636,15 +636,6 @@ export class GitBackend implements Backend {
     }
   }
 
-  async rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void> {
-    // --end-of-options keeps a change name that starts with `-` from being
-    // parsed as a flag; `onto` and `from` are hashes, so they need no guard.
-    // TODO: a conflict surfaces as this call's raw rejection — a stack trace
-    // wrapping git's output — even though it is a normal user flow; pass
-    // git's own conflict report through cleanly instead.
-    await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
-  }
-
   merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
     return this.commitLand(into, onto, tip, message, ["-p", onto, "-p", tip]);
   }
@@ -682,29 +673,40 @@ export class GitBackend implements Backend {
     }
   }
 
-  async mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<void> {
+  async mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<readonly FilePath[]> {
     const tip = await this.resolveCommit(`refs/heads/${change}`);
     if (await this.isAncestor(tip, onto)) {
       await this.advanceBranch(change, onto, tip);
-      return;
+      return [];
     }
     let out: string;
     try {
-      out = await git(this.root, ["merge-tree", "--write-tree", `--merge-base=${base}`, "--end-of-options", tip, onto]);
+      out = await git(this.root, [
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        "--no-messages",
+        `--merge-base=${base}`,
+        "--end-of-options",
+        tip,
+        onto,
+      ]);
     } catch (error) {
-      // Exit code 1 means exactly "the contents conflict"; anything else is a
-      // real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        throw new UserError(
-          `merging ${onto} into ${JSON.stringify(change)} conflicts; ` +
-            `run \`git merge\` on the change and resolve by hand`,
-        );
+      // Exit code 1 means exactly "the contents conflict"; the tree is still
+      // written — markers in place — with the conflicted paths listed after
+      // it. Anything else is a real failure.
+      if ((error as { code?: unknown }).code !== 1) {
+        throw error;
       }
-      throw error;
+      out = (error as { stdout: string }).stdout;
     }
-    const tree = out.trimEnd();
+    const [tree, ...conflicted] = out.trimEnd().split("\n");
+    if (tree === undefined || tree === "") {
+      throw new Error(`merge-tree wrote no tree merging ${onto} into ${JSON.stringify(change)}`);
+    }
     const commit = await git(this.root, ["commit-tree", tree, "-m", message, "-p", tip, "-p", onto]);
     await this.advanceBranch(change, parseCommitHash(commit.trimEnd()), tip);
+    return conflicted.map(parseFilePath);
   }
 
   async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
