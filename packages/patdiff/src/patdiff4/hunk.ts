@@ -13,7 +13,7 @@ type Index = { readonly current: number; readonly total: number };
 const indexToString = (t: Index): string => `${t.current + 1}/${t.total}`;
 
 /** Nested blocks of lines, rendered with box-drawing pipes so a reader can
- *  see where each view of a hunk begins and ends. */
+ *  see where each block of a hunk begins and ends. */
 type Nesting =
   | { readonly kind: "Lines"; readonly lines: readonly DiffAlgo.Line[] }
   | { readonly kind: "Group"; readonly group: readonly Nesting[] };
@@ -26,7 +26,7 @@ const block = (l: readonly DiffAlgo.Line[]): Nesting => ({ kind: "Group", group:
 const group = (g: readonly Nesting[]): Nesting => ({ kind: "Group", group: g });
 
 /** Use the grouping syntax only where at least two elements group together,
- *  so single-view hunks render without any decoration. */
+ *  so single-block hunks render without any decoration. */
 const simplifyInDepth = (t: Nesting): Nesting => {
   if (t.kind === "Lines") return t;
   const g = t.group;
@@ -113,9 +113,9 @@ const fileAndRevNamesInformation = (args: {
   return out;
 };
 
-/** One hunk's two top-level blocks: its file/rev-name header lines and its
- *  grouped views, labeled `name` when several hunks tell themselves apart. */
-type HunkBlocks = { readonly header: Nesting; readonly views: Nesting; readonly name: string | undefined };
+/** One hunk's two top-level pieces: its file/rev-name header lines and its
+ *  grouped blocks, labeled when several hunks tell themselves apart. */
+type HunkBlocks = { readonly header: Nesting; readonly blocks: Nesting };
 
 const hunkBlocksList = (hunks: readonly Hunk[], output: Header.Output4): readonly HunkBlocks[] => {
   const useFileSeparator = new Set(hunks.map((hunk) => hunk.headerFileName)).size > 1;
@@ -123,46 +123,13 @@ const hunkBlocksList = (hunks: readonly Hunk[], output: Header.Output4): readonl
   let inScope: Hunk | undefined;
   return hunks.map((t, current) => {
     const hunkName = total > 1 ? `Hunk ${indexToString({ current, total })}` : undefined;
-    const views: Nesting[] = nestedBlocks(t, output).slice();
-    if (hunkName !== undefined) views.unshift(lines([plain(Header.title(output, hunkName))]));
+    const blocks: Nesting[] = nestedBlocks(t, output).slice();
+    if (hunkName !== undefined) blocks.unshift(lines([plain(Header.title(output, hunkName))]));
     const header = lines(fileAndRevNamesInformation({ t, output, useFileSeparator, inScope }).map(plain));
     inScope = t;
-    return { header, views: group(views), name: hunkName };
+    return { header, blocks: group(blocks) };
   });
 };
 
 export const listToLines = (hunks: readonly Hunk[], output: Header.Output4): readonly DiffAlgo.Line[] =>
-  nestingToLines(group(hunkBlocksList(hunks, output).flatMap(({ header, views }) => [header, views])), output);
-
-/** One hunk's rendered display lines; `title` indexes its own title line —
- *  what a host may fold the hunk down to — present exactly when hunks label
- *  themselves, which a lone hunk never does. */
-export type HunkLines = {
-  readonly lines: readonly DiffAlgo.Line[];
-  readonly title: number | undefined;
-};
-
-/** The lines of `listToLines` grouped per hunk. */
-export const listToLineGroups = (hunks: readonly Hunk[], output: Header.Output4): readonly HunkLines[] => {
-  const blocks = hunkBlocksList(hunks, output);
-  if (blocks.length <= 1) {
-    const all = listToLines(hunks, output);
-    return all.length === 0 ? [] : [{ lines: all, title: undefined }];
-  }
-  // With several hunks the top-level simplify visits each block on its own
-  // (its block-merging special case needs exactly two blocks), so rendering
-  // block by block reproduces listToLines' lines exactly.
-  return blocks.map(({ header, views, name }) => {
-    const headerLines = renderBlock(simplifyInDepth(header), output);
-    const viewLines = renderBlock(simplifyInDepth(views), output);
-    // The label makes the views group at least two children, so it survives
-    // simplification as a box whose first inner line is the title.
-    const title = headerLines.length + 1;
-    const all = [...headerLines, ...viewLines];
-    const titled = all[title];
-    if (name === undefined || titled === undefined || !titled.text.includes(name)) {
-      throw new Error(`hunk title not at its expected line: ${JSON.stringify(titled?.text)}`);
-    }
-    return { lines: all, title };
-  });
-};
+  nestingToLines(group(hunkBlocksList(hunks, output).flatMap(({ header, blocks }) => [header, blocks])), output);

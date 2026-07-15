@@ -2,7 +2,7 @@ import { describe, expect, it, test } from "vitest";
 import * as Diamond from "./diamond.js";
 import * as DiffAlgo from "./diff-algo.js";
 import * as Diff4Class from "./diff4-class.js";
-import { diff, diffHunkLines, type HunksArgs } from "./patdiff4.js";
+import { diff, type HunksArgs, type StructuredArgs, structuredHunks } from "./patdiff4.js";
 import * as Segments from "./segments.js";
 import * as Slice from "./slice.js";
 
@@ -388,31 +388,52 @@ describe("diff", () => {
     `);
   });
 
-  test("diffHunkLines groups the same lines per hunk, locating each hunk's title", () => {
+  const structuredArgs = (contents: Diamond.Diamond<string>): StructuredArgs => ({
+    revNames: { b1: "rev-b1", b2: "rev-b2", f1: "rev-f1", f2: "rev-f2" },
+    context: 1,
+    linesRequiredToSeparateDdiffHunks: 3,
+    contents,
+  });
+
+  test("structuredHunks describes each class's blocks without rendering", () => {
     const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
-    const a = args({
-      b1: contents("alpha", "omega"),
-      b2: contents("alpha", "OMEGA"),
-      f1: contents("alpha1", "omega!"),
-      f2: contents("alpha2", "omega"),
-    });
-    const groups = diffHunkLines(a);
-    expect(groups.flatMap(({ lines }) => lines)).toEqual(diff(a));
-    expect(groups.map(({ lines, title }) => (title === undefined ? undefined : lines[title]?.text))).toEqual([
-      "| @@@@@@@@ Hunk 1/2 @@@@@@@@",
-      "| @@@@@@@@ Hunk 2/2 @@@@@@@@",
+    const hunks = structuredHunks(
+      structuredArgs({
+        b1: contents("alpha", "omega"),
+        b2: contents("alpha", "OMEGA"),
+        f1: contents("alpha1", "omega!"),
+        f2: contents("alpha2", "omega"),
+      }),
+    );
+    expect(
+      hunks.map(({ diff4Class, blocks }) => [
+        diff4Class,
+        blocks.map((block) => (block.kind === "diff2" ? `${block.from}->${block.to}` : "ddiff")),
+      ]),
+    ).toEqual([
+      ["b1_b2", ["f1->f2"]],
+      ["b1_f2", ["f1->f2", "b2->f2"]],
     ]);
   });
 
-  test("diffHunkLines keeps a lone hunk's lines in one unlabeled group", () => {
-    const a = args(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nx\nc\n"));
-    const groups = diffHunkLines(a);
-    expect(groups.map(({ title }) => title)).toEqual([undefined]);
-    expect(groups.flatMap(({ lines }) => lines)).toEqual(diff(a));
+  test("structuredHunks renders a conflict's feature ddiff as two-channel lines", () => {
+    const hunks = structuredHunks(structuredArgs(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\ny\nc\n")));
+    expect(hunks).toHaveLength(1);
+    const block = hunks[0]?.blocks[0];
+    if (block?.kind !== "ddiff") throw new Error("expected a ddiff block");
+    expect(block.hints).toEqual(["Conflicting changes: the reviewed diff compared to the current diff"]);
+    expect(block.lines).toEqual([
+      { content: "a", diff: "both", kind: "same", provenance: { b1: 1, b2: 1, f1: 1, f2: 1 } },
+      { content: "b", diff: "old", kind: "prev", provenance: { b1: 2 } },
+      { content: "x", diff: "old", kind: "next", provenance: { f1: 2 } },
+      { content: "B", diff: "new", kind: "prev", provenance: { b2: 2 } },
+      { content: "y", diff: "new", kind: "next", provenance: { f2: 2 } },
+      { content: "c", diff: "both", kind: "same", provenance: { b1: 3, b2: 3, f1: 3, f2: 3 } },
+    ]);
   });
 
-  test("diffHunkLines of equal versions is empty", () => {
-    expect(diffHunkLines(args(diamond("a\nb\n", "a\nb\n", "a\nb\n", "a\nb\n")))).toEqual([]);
+  test("structuredHunks of equal versions is empty", () => {
+    expect(structuredHunks(structuredArgs(diamond("a\nb\n", "a\nb\n", "a\nb\n", "a\nb\n")))).toEqual([]);
   });
 
   test("a rebased diff extension degenerates to one plain 2-way hunk", () => {

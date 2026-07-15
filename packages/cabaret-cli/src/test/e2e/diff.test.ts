@@ -291,12 +291,12 @@ test("editing the base's change after a rebase shows the new base to new tip dif
   `);
 });
 
-test("interacting base and tip changes get the full 4-way views", async () => {
+test("interacting base and tip changes get the conflict's ddiff", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "shared.txt");
   await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
   // Rewriting the base's amendment right next to the reviewed edit entangles
-  // the two changes into one conflict-class hunk with every view.
+  // the two changes into one conflict-class hunk.
   await repo.write("shared.txt", "ONE!\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
   await repo.git("commit", "-qam", "rewrite the amendment");
   expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`

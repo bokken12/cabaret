@@ -397,44 +397,133 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
       },
     }),
   );
+  // The buffer holds bare code under the conflict's hint; the two diff
+  // channels ride entirely on styles.
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 444444444444)
 
-    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 111111111111 | old tip 333333333333 | new base 222222222222 | new tip 444444444444
-    @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
-    @@@@@@@@ -- old base 1,3 old tip 1,4 @@@@@@@@
-    @@@@@@@@ ++ new base 1,3 new tip 1,4 @@@@@@@@
-    --  one
-    ++-|ONE
-    +++|ONE!
-      +|child"
+    Conflicting changes: the reviewed diff compared to the current diff
+    one
+    ONE
+    ONE!
+    child"
   `);
+  expect(doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]))).toEqual([
+    [["api.ts in widgets (up to 444444444444)", "heading"]],
+    [],
+    [["Conflicting changes: the reviewed diff compared to the current diff", "heading"]],
+    [["one", "old-diff-context"]], // the reviewed diff's context, gone from the current one
+    [["ONE", "new-diff-removed"]], // a removal only the current diff makes
+    [["ONE!", "new-diff-added"]], // an addition only the current diff makes
+    [["child", "added"]], // both diffs agree: plain two-way styling
+  ]);
   // Lines anchor to their home in the new tip where they have one: added and
-  // context lines directly, removed lines at the site their replacement now
-  // holds, and lines with no new-tip content not at all.
+  // context lines directly, and lines with no new-tip content not at all.
   const location = (line: number) => ({ kind: "location", file: "api.ts", line });
   const rendered = docText(doc).split("\n");
   const targetOf = (text: string) => targetAt(doc, rendered.indexOf(text));
-  expect(targetOf("+++|ONE!")).toEqual(location(1)); // ddiff lines know their inner homes
-  expect(targetOf("  +|child")).toEqual(location(2));
-  expect(targetOf("++-|ONE")).toBeUndefined(); // removed before its hunk's first anchor
-  expect(targetOf("--  one")).toBeUndefined(); // the old diff only: no new-tip content
-  // The stacked signs still read through to added/removed styling.
-  const styleOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.style;
-  expect(styleOf("++-|ONE")).toBe("removed");
-  expect(styleOf("  +|child")).toBe("added");
-  expect(styleOf("--  one")).toBeUndefined();
+  expect(targetOf("ONE!")).toEqual(location(1));
+  expect(targetOf("child")).toEqual(location(2));
+  expect(targetOf("ONE")).toBeUndefined(); // removed before its hunk's first anchor
+  expect(targetOf("one")).toBeUndefined(); // the old diff only: no new-tip content
   // Anchored lines sit on the jump tier, never advertised as links.
   const tierOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.tier;
-  expect(tierOf("+++|ONE!")).toBe("jump");
-  expect(tierOf("--  one")).toBeUndefined();
-  // A lone hunk never labels itself, so there is no title to fold it to.
-  expect(doc.folds).toEqual([]);
+  expect(tierOf("ONE!")).toBe("jump");
+  expect(tierOf("one")).toBeUndefined();
+  // The conflict folds down to its hint.
+  expect(doc.folds).toEqual([{ start: 2, end: 6 }]);
 });
 
-test("diffDoc folds each labeled four-way hunk to its title line", () => {
-  // Two well-separated changes, so the diff aligns into two labeled hunks.
+test("diffDoc anchors a story block through its to-side's equivalence with the new tip", () => {
+  // b2 equals f2, so the kept-base-change block (b1 -> b2) anchors its lines
+  // in the new tip by sharing the to-side's positions; the dropped block
+  // (b1 -> f1) never touches the new tip and carries no targets.
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("4"),
+      later: 0,
+      view: {
+        kind: "four",
+        revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+        contents: { b1: "a\nb\nc\n", b2: "a\nB\nc\n", f1: "a\nx\nc\n", f2: "a\nB\nc\n" },
+      },
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 444444444444)
+
+    This feature change was dropped... :
+    -1,3 +1,3 old base → old tip
+    a
+    b
+    x
+    c
+
+    ... in favor of this base change:
+    -1,3 +1,3 old base → new base, new tip
+    a
+    b
+    B
+    c"
+  `);
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    { kind: "change", change: "widgets" },
+    undefined, // blank
+    undefined, // "This feature change was dropped... :"
+    undefined, // -1,3 +1,3 old base -> old tip
+    undefined, // a
+    undefined, // b
+    undefined, // x
+    undefined, // c
+    undefined, // blank
+    undefined, // "... in favor of this base change:"
+    location(1), // -1,3 +1,3 old base -> new base, new tip
+    location(1), // a
+    location(2), // b: the removal site in the new tip
+    location(2), // B
+    location(3), // c
+  ]);
+});
+
+test("diffDoc anchors a conflict's agreed removal at the running insertion point", () => {
+  // Both diffs drop X, so the line rides the ddiff unmarked; it follows the
+  // anchored context line "a" and anchors where its replacement would sit.
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("4"),
+      later: 0,
+      view: {
+        kind: "four",
+        revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+        contents: { b1: "a\nX\nc\n", b2: "a\nX\nC\n", f1: "a\nc\n", f2: "a\nC\n" },
+      },
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 444444444444)
+
+    Conflicting changes: the reviewed diff compared to the current diff
+    a
+    X
+    c
+    C"
+  `);
+  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  expect(doc.lines.map((_, i) => [targetAt(doc, i), doc.lines[i]?.spans[0]?.style])).toEqual([
+    [{ kind: "change", change: "widgets" }, "heading"],
+    [undefined, undefined], // blank
+    [undefined, "heading"], // the conflict hint
+    [location(1), undefined], // a: context both diffs share
+    [location(2), "removed"], // X: both diffs remove it, anchored at the site
+    [location(2), "old-diff-context"], // c: the old diff's context
+    [location(2), "new-diff-context"], // C: the new diff's context
+  ]);
+});
+
+test("diffDoc folds each four-way block's hunks to their headers", () => {
+  // Two well-separated changes, so the diff aligns into two hunks: a plain
+  // diff extension, then a both-changes-dropped region shown as two blocks.
   const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
   const doc = diffDoc(
     diffPageWith({
@@ -453,10 +542,34 @@ test("diffDoc folds each labeled four-way hunk to its title line", () => {
     }),
     1,
   );
+  // The whole page reads as plain diffs: hint sentences over the hunks of
+  // the pairs each hunk's class chose, headers naming the pair.
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 444444444444)
+
+    -1,3 +1,3 old tip → new tip
+    top
+    alpha1
+    alpha2
+    m1
+
+    Diverging changes in the old-tip and the new-base were both dropped
+    -7,3 +7,3 old tip → old base, new tip
+    m5
+    omega!
+    bot
+
+    -7,3 +7,3 new base → old base, new tip
+    m5
+    OMEGA
+    omega
+    bot"
+  `);
   const text = docText(doc).split("\n");
   expect(doc.folds.map(({ start, end }) => [text[start], text[end]])).toEqual([
-    ["| @@@@@@@@ Hunk 1/2 @@@@@@@@", "|_"],
-    ["| @@@@@@@@ Hunk 2/2 @@@@@@@@", "|_"],
+    ["-1,3 +1,3 old tip → new tip", "m1"],
+    ["-7,3 +7,3 old tip → old base, new tip", "bot"],
+    ["-7,3 +7,3 new base → old base, new tip", "bot"],
   ]);
 });
 

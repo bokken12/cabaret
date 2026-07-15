@@ -205,6 +205,144 @@ const provenance = (at: readonly (readonly [Node, number | undefined])[]): Prove
   return result;
 };
 
+/** One line of the feature ddiff as structure, for hosts that paint styles
+ *  themselves: clean content with no markers, which diff carries the line —
+ *  the reviewed diff (b1→f1), the current diff (b2→f2), or both — the inner
+ *  diff's own sign, and the line's provenance in the four versions. */
+export type DdiffLine = {
+  readonly content: string;
+  readonly diff: "old" | "new" | "both";
+  readonly kind: "same" | "prev" | "next";
+  readonly provenance: Provenance;
+};
+
+type InnerLine = {
+  readonly content: string;
+  readonly kind: "same" | "prev" | "next";
+  readonly provenance: Provenance;
+};
+
+/** One inner diff of the ddiff at full context, so the outer diff aligns
+ *  whole inner diffs, as the rendered path does. */
+const innerStructured = (slices: DiamondT<Slice.Slice>, nodes: readonly [Node, Node]): readonly InnerLine[] => {
+  const from = Diamond.get(slices, nodes[0]);
+  const to = Diamond.get(slices, nodes[1]);
+  const hunks = withoutUnix.diff({
+    context: -1,
+    lineBigEnough: defaultLineBigEnough,
+    keepWs: false,
+    findMoves: false,
+    prev: from.lines,
+    next: to.lines,
+  });
+  const out: InnerLine[] = [];
+  for (const hunk of hunks) {
+    let f = from.range.lineStart + hunk.prevStart;
+    let t = to.range.lineStart + hunk.nextStart;
+    for (const range of hunk.ranges) {
+      switch (range.kind) {
+        case "same":
+          for (const [, next] of range.contents) {
+            out.push({
+              content: next,
+              kind: "same",
+              provenance: provenance([
+                [nodes[0], f++],
+                [nodes[1], t++],
+              ]),
+            });
+          }
+          break;
+        case "prev":
+          for (const content of range.contents) {
+            out.push({ content, kind: "prev", provenance: provenance([[nodes[0], f++]]) });
+          }
+          break;
+        case "next":
+          for (const content of range.contents) {
+            out.push({ content, kind: "next", provenance: provenance([[nodes[1], t++]]) });
+          }
+          break;
+        case "replace":
+          for (const content of range.prev) {
+            out.push({ content, kind: "prev", provenance: provenance([[nodes[0], f++]]) });
+          }
+          for (const content of range.next) {
+            out.push({ content, kind: "next", provenance: provenance([[nodes[1], t++]]) });
+          }
+          break;
+        case "unified":
+          throw new Error("unified range in an unrefined diff");
+      }
+    }
+  }
+  return out;
+};
+
+/** The feature ddiff as structure. The outer diff compares (sign, content)
+ *  pairs, so a line whose sign changed between the diffs reads as leaving
+ *  one and entering the other, as it does in the rendered path. */
+export const featureDdiffLines = (slices: DiamondT<Slice.Slice>): readonly DdiffLine[] => {
+  const a = innerStructured(slices, ["b1", "f1"]);
+  const b = innerStructured(slices, ["b2", "f2"]);
+  const key = ({ kind, content }: InnerLine): string => `${kind} ${content}`;
+  const at = (lines: readonly InnerLine[], i: number): InnerLine => {
+    const line = lines[i];
+    if (line === undefined) throw new Error(`ddiff outer position ${i} out of ${lines.length}`);
+    return line;
+  };
+  const outer = withoutUnix.diff({
+    context: -1,
+    lineBigEnough: defaultLineBigEnough,
+    keepWs: false,
+    findMoves: false,
+    prev: a.map(key),
+    next: b.map(key),
+  });
+  const out: DdiffLine[] = [];
+  for (const hunk of outer) {
+    let i = hunk.prevStart - 1;
+    let j = hunk.nextStart - 1;
+    const old = (): void => {
+      const la = at(a, i++);
+      out.push({ content: la.content, diff: "old", kind: la.kind, provenance: la.provenance });
+    };
+    const nw = (): void => {
+      const lb = at(b, j++);
+      out.push({ content: lb.content, diff: "new", kind: lb.kind, provenance: lb.provenance });
+    };
+    for (const range of hunk.ranges) {
+      switch (range.kind) {
+        case "same":
+          for (const _ of range.contents) {
+            const la = at(a, i++);
+            const lb = at(b, j++);
+            out.push({
+              content: lb.content,
+              diff: "both",
+              kind: lb.kind,
+              provenance: { ...la.provenance, ...lb.provenance },
+            });
+          }
+          break;
+        case "prev":
+          for (const _ of range.contents) old();
+          break;
+        case "next":
+          for (const _ of range.contents) nw();
+          break;
+        case "replace":
+          for (const _ of range.prev) old();
+          for (const _ of range.next) nw();
+          break;
+        case "unified":
+          throw new Error("unified range in an unrefined diff");
+      }
+    }
+  }
+  return out;
+};
+
 /** The feature ddiff: the reviewed diff (b1→f1) diffed against the current
  *  diff (b2→f2), the one view in which all four versions appear at once. */
 const featureDdiff = (
