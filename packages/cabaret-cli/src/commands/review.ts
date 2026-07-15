@@ -1,5 +1,12 @@
 import { buildCommand } from "@stricli/core";
-import { assertReviewing, changeBase, parseRefName, type RefName } from "cabaret-core";
+import {
+  assertNoConflict,
+  assertReviewing,
+  changeBase,
+  conflictedFiles,
+  parseRefName,
+  type RefName,
+} from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const review = buildCommand({
@@ -52,6 +59,10 @@ export const review = buildCommand({
     // shadow the change's tip.
     const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
     const base = await changeBase(backend, change, entries);
+    // Judged at the change's own tip whatever --tip says: while markers sit
+    // in the code, fixing them — not review — is the change's next step.
+    const branchTip = await backend.resolveCommit(`refs/heads/${change}`);
+    assertNoConflict(change, await conflictedFiles(backend, branchTip, await backend.changedFiles(base, branchTip)));
     const user = await backend.currentUser();
     await backend.appendLog(
       change,

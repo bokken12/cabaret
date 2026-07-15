@@ -39,6 +39,29 @@ test("todo shows review work and owned changes as a tree", async () => {
   `);
 });
 
+test("a change with conflict markers asks no review, only its fix", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
+  await repo.write("gadget.txt", "<<<<<<< ours\ngadget work\n=======\nother\n>>>>>>> parent\n");
+  await repo.git("commit", "-qam", "conflicted");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────────╮
+    │ change │ review │ next step     │
+    ├────────┼────────┼───────────────┤
+    │ gadget │      1 │ fix conflicts │
+    ╰────────┴────────┴───────────────╯
+    "
+  `);
+});
+
 test("todo counts an alias's changes among the user's own", async () => {
   const repo = await makeRepo();
   await repo.git("config", "user.email", "agent@example.com");
