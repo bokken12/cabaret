@@ -11,7 +11,7 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, type Line, span } from "./doc.js";
+import { type Doc, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
 /** A change to act on and the changes stacked on it. */
@@ -87,9 +87,21 @@ function changeCell(summary: ChangeSummary, guide = ""): Cell {
 }
 
 export function todoDoc(page: TodoPage): Doc {
-  const lines: Line[] = [];
-  if (page.review.length > 0) {
-    lines.push(
+  const rows: (readonly Cell[])[] = [];
+  const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
+    nodes.forEach(({ summary, children }, i) => {
+      const last = i === nodes.length - 1;
+      rows.push([
+        changeCell(summary, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
+        span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length)),
+        span(summary.nextStep),
+      ]);
+      walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
+    });
+  };
+  walk(page.owned, "", true);
+  return {
+    lines: [
       ...table(
         [
           { header: "change", align: "left" },
@@ -97,27 +109,8 @@ export function todoDoc(page: TodoPage): Doc {
         ],
         page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
       ),
-    );
-  }
-  if (page.owned.length > 0) {
-    if (lines.length > 0) {
-      lines.push({ spans: [] });
-    }
-    lines.push({ spans: [span("Changes you own:", { style: "heading" })] });
-    const rows: (readonly Cell[])[] = [];
-    const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
-      nodes.forEach(({ summary, children }, i) => {
-        const last = i === nodes.length - 1;
-        rows.push([
-          changeCell(summary, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
-          span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length)),
-          span(summary.nextStep),
-        ]);
-        walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
-      });
-    };
-    walk(page.owned, "", true);
-    lines.push(
+      { spans: [] },
+      { spans: [span("Changes you own:", { style: "heading" })] },
       ...table(
         [
           { header: "change", align: "left" },
@@ -126,10 +119,6 @@ export function todoDoc(page: TodoPage): Doc {
         ],
         rows,
       ),
-    );
-  }
-  if (lines.length === 0) {
-    lines.push({ spans: [span("Nothing to do.")] });
-  }
-  return { lines };
+    ],
+  };
 }
