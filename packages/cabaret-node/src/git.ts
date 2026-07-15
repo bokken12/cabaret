@@ -663,16 +663,48 @@ export class GitBackend implements Backend {
     const tree = await git(this.root, ["rev-parse", `${tip}^{tree}`]);
     const out = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", message, ...parents]);
     const commit = parseCommitHash(out.trimEnd());
-    // A checked-out `into` takes a real fast-forward so the index and working
-    // tree follow; otherwise compare-and-swap the ref. Either way a
-    // concurrent move of `into` fails fast instead of landing commits the
-    // caller never validated.
-    if ((await this.checkedOutBranch()) === into) {
+    await this.advanceBranch(into, commit, onto);
+    return commit;
+  }
+
+  /**
+   * Advance `branch` from `expected` to descendant `commit`. A checked-out
+   * `branch` takes a real fast-forward so the index and working tree follow;
+   * otherwise compare-and-swap the ref. Either way a concurrent move of
+   * `branch` fails fast instead of publishing commits the caller never
+   * validated.
+   */
+  private async advanceBranch(branch: RefName, commit: CommitHash, expected: CommitHash): Promise<void> {
+    if ((await this.checkedOutBranch()) === branch) {
       await git(this.root, ["merge", "--ff-only", commit]);
     } else {
-      await git(this.root, ["update-ref", `refs/heads/${into}`, commit, onto]);
+      await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, expected]);
     }
-    return commit;
+  }
+
+  async mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<void> {
+    const tip = await this.resolveCommit(`refs/heads/${change}`);
+    if (await this.isAncestor(tip, onto)) {
+      await this.advanceBranch(change, onto, tip);
+      return;
+    }
+    let out: string;
+    try {
+      out = await git(this.root, ["merge-tree", "--write-tree", `--merge-base=${base}`, "--end-of-options", tip, onto]);
+    } catch (error) {
+      // Exit code 1 means exactly "the contents conflict"; anything else is a
+      // real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        throw new UserError(
+          `merging ${onto} into ${JSON.stringify(change)} conflicts; ` +
+            `run \`git merge\` on the change and resolve by hand`,
+        );
+      }
+      throw error;
+    }
+    const tree = out.trimEnd();
+    const commit = await git(this.root, ["commit-tree", tree, "-m", message, "-p", tip, "-p", onto]);
+    await this.advanceBranch(change, parseCommitHash(commit.trimEnd()), tip);
   }
 
   async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {

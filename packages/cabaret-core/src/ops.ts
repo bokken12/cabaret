@@ -16,7 +16,7 @@ import {
   type TimestampMs,
   type UserName,
 } from "./backend.js";
-import type { LandMethod } from "./config.js";
+import type { LandMethod, RebaseMethod } from "./config.js";
 import { UserError } from "./error.js";
 import { assertObligationsSatisfied } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
@@ -165,12 +165,18 @@ export async function requireOwner(
   }
 }
 
-/** Rebase `target` onto its parent's tip, then record the new base in the log. */
+/**
+ * Move `target` onto its parent's tip, then record the new base in the log.
+ * `method` picks how the code moves: merging the tip into the change, or
+ * replaying the change's own commits onto it. Either way the change's diff
+ * against its new base is the same; they differ only in the history written.
+ */
 export async function rebaseChange(
   backend: Backend,
   now: () => TimestampMs,
   target: RefName,
   entries: readonly LogEntry[],
+  method: RebaseMethod,
   override: boolean,
 ): Promise<void> {
   assertNotLanded(target, entries);
@@ -181,14 +187,18 @@ export async function rebaseChange(
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  // Replay the change's own commits onto the parent's tip. When the change
-  // already sits there (base === onto), whether because it was just rebased
-  // or an out-of-band `git rebase` put it there, there is nothing to replay.
+  // When the change already sits on the parent's tip (base === onto), whether
+  // because it was just rebased or an out-of-band `git rebase` put it there,
+  // there is no code to move.
   if (base !== onto) {
-    // Record the base only after a clean rebase: if the rebase stops on
-    // conflicts and the user finishes it with git, this line never runs and
-    // the stale stored base loses to the merge-base with the parent.
-    await backend.rebaseOnto(target, base, onto);
+    // Record the base only after a clean move: if it stops on conflicts and
+    // the user finishes it with git, this line never runs and the stale
+    // stored base loses to the merge-base with the parent.
+    if (method === "merge") {
+      await backend.mergeOnto(target, base, onto, `Merge branch '${parent}' into ${target}`);
+    } else {
+      await backend.rebaseOnto(target, base, onto);
+    }
   }
   // Pin the base to the parent's tip so a later parent rewrite cannot slide
   // it back to an ancestor and pull the parent's commits into the diff.
@@ -210,13 +220,14 @@ export async function rebaseChain(
   backend: Backend,
   now: () => TimestampMs,
   chain: readonly ChainLink[],
+  method: RebaseMethod,
   override: boolean,
 ): Promise<void> {
   for (const { change, entries } of chain) {
     if (landedMerge(entries) !== undefined) {
       continue;
     }
-    await rebaseChange(backend, now, change, entries, override);
+    await rebaseChange(backend, now, change, entries, method, override);
   }
 }
 
