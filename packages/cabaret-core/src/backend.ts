@@ -362,19 +362,28 @@ export interface Backend {
   mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<readonly FilePath[]>;
 
   /**
-   * Create the merge commit recording `tip` merging into branch `into`:
-   * parents `onto` then `tip`, carrying `message`, with `tip`'s tree — sound
-   * only because `onto` must be an ancestor of `tip`. Advances `into` from
-   * `onto` to the new commit, failing if `into` no longer points at `onto`,
-   * and carries a checked-out `into`'s working tree along.
+   * The paths that would conflict merging `tip` and `onto`, resolving
+   * against `base` as `mergeOnto` does, without writing anything. Empty
+   * means the merge is clean.
    */
-  merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+  mergeConflicts(base: CommitHash, tip: CommitHash, onto: CommitHash): Promise<readonly FilePath[]>;
 
   /**
-   * As `merge`, but the new commit's sole parent is `onto`: `tip`'s tree
-   * lands as one commit that does not carry `tip`'s history.
+   * Create the merge commit recording `tip` merging into branch `into`:
+   * parents `onto` then `tip`, carrying `message`. The tree is `tip`'s when
+   * `onto` is `base` itself, and otherwise the content merge of `tip` and
+   * `onto` resolved against `base` — which must be clean (`mergeConflicts`
+   * empty), a conflict here being an error. Advances `into` from `onto` to
+   * the new commit, failing if `into` no longer points at `onto`, and
+   * carries a checked-out `into`'s working tree along.
    */
-  squash(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+  merge(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+
+  /**
+   * As `merge`, but the new commit's sole parent is `onto`: the tree lands
+   * as one commit that does not carry `tip`'s history.
+   */
+  squash(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
 
   /**
    * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain

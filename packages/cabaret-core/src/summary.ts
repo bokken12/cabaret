@@ -80,8 +80,12 @@ export interface ChangeSummary {
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
   readonly deadParent: "landed" | "missing" | undefined;
-  /** How the base stands relative to a live parent's tip, when they differ. */
-  readonly staleBase: "behind" | "diverged" | undefined;
+  /**
+   * How the base stands relative to a live parent's tip, when they differ,
+   * and whether the tip still merges cleanly onto it — cleanly enough to
+   * land as it stands.
+   */
+  readonly staleBase: { readonly kind: "behind" | "diverged"; readonly mergesCleanly: boolean } | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
   readonly conflicts: readonly FilePath[];
   /** Files with review left for the user, sorted by name. */
@@ -129,7 +133,10 @@ export async function summarizeChange(
       if (parentTip === undefined) {
         deadParent = "missing";
       } else if (parentTip !== base) {
-        staleBase = (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged";
+        staleBase = {
+          kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged",
+          mergesCleanly: (await backend.mergeConflicts(base, tip, parentTip)).length === 0,
+        };
       }
     }
   }
@@ -162,7 +169,8 @@ export async function summarizeChange(
  * until the change hangs somewhere real. Unresolved conflicts outrank
  * review: markers are not code worth reading. A stale base waits for review
  * to finish — the parent moving on is routine, and rebasing mid-review
- * churns reviewers — becoming the step only where `land` would refuse it.
+ * churns reviewers — and calls for a rebase only where `land` would refuse
+ * it: when the tip no longer merges cleanly onto the parent.
  */
 function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
   if (readings.landed !== undefined) {
@@ -183,7 +191,7 @@ function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
   if (readings.reviewLeft.length > 0) {
     return "review";
   }
-  return readings.staleBase === undefined ? "land" : "rebase";
+  return readings.staleBase === undefined || readings.staleBase.mergesCleanly ? "land" : "rebase";
 }
 
 /** What a reviewer looks at to review a file in a round. */

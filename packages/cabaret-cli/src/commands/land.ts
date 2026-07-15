@@ -20,8 +20,9 @@ export const land = buildCommand({
       "and record the landing in the change's log. A change tracked on a " +
       "forge lands by merging there and fetching the result; git config " +
       "cabaret.landVia local (or forge) picks one side " +
-      "unconditionally. The change must sit on its parent's tip; `cabaret " +
-      "rebase` first if it does not. A landed change can no longer be " +
+      "unconditionally. A change whose parent moved on lands as it stands " +
+      "when it merges cleanly onto the new tip; `cabaret rebase` first when " +
+      "it conflicts. A landed change can no longer be " +
       "rebased, renamed, reparented, or transferred, though reviewing it is " +
       "still recorded. A range `ancestor..descendant` lands every change " +
       "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +

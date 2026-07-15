@@ -204,7 +204,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     summary: summary("widgets", {
       reviewLeft: files("api.ts"),
       origin: "behind",
-      staleBase: "behind",
+      staleBase: { kind: "behind", mergesCleanly: false },
       nextStep: "sync",
     }),
     comments: [],
@@ -248,8 +248,12 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ origin: "diverged" }, "tip")).toBe("│ tip       │ 222222222222 (diverged from origin) │");
   expect(attributeRow({ deadParent: "landed" }, "parent")).toBe("│ parent    │ gadget (landed)   │");
   expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
-  expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
-  expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
+  expect(attributeRow({ staleBase: { kind: "behind", mergesCleanly: true } }, "base")).toBe(
+    "│ base      │ 111111111111 (behind parent) │",
+  );
+  expect(attributeRow({ staleBase: { kind: "diverged", mergesCleanly: false } }, "base")).toBe(
+    "│ base      │ 111111111111 (diverged from parent) │",
+  );
   // Readings that agree with what they track go unannotated.
   expect(attributeRow({}, "tip")).toBe("│ tip       │ 222222222222      │");
   expect(attributeRow({}, "parent")).toBe("│ parent    │ gadget            │");
