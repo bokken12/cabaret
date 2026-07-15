@@ -4,15 +4,20 @@ import {
   type Backend,
   type ChangeDiff,
   type CommitHash,
+  currentOwner,
   currentReviewers,
+  currentReviewing,
   type FilePath,
   type LogEntry,
+  landedMerge,
   parseFilePath,
+  type RefName,
+  type Reviewing,
   type UserName,
   userName,
 } from "./backend.js";
 import { UserError } from "./error.js";
-import { isSelf, type Self } from "./self.js";
+import { currentSelf, isSelf, type Self } from "./self.js";
 import { reviewRounds } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
@@ -156,6 +161,74 @@ export async function changeObligations(
     }
   }
   return obligations;
+}
+
+/**
+ * Whether any of `self`'s identities is currently asked to review `change`.
+ * The reviewing set gates what todos ask of people and nudges review recorded
+ * ahead of its turn, never what landing requires: an obligation only someone
+ * outside the set can satisfy still blocks the land, which is what forces
+ * widening.
+ */
+export function isReviewing(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+  switch (currentReviewing(entries)) {
+    case "none":
+      return false;
+    case "owner":
+      return isSelf(self, currentOwner(change, entries));
+    case "reviewers":
+      return (
+        isSelf(self, currentOwner(change, entries)) ||
+        currentReviewers(entries).some((reviewer) => isSelf(self, reviewer))
+      );
+    case "everyone":
+      return true;
+  }
+}
+
+/**
+ * The reviewing check failed: `change`'s reviewing set does not include the
+ * user. The message states only the fact; each frontend attaches its own
+ * override remedy — a flag, a confirmation dialog — before showing it.
+ */
+export class NotReviewingError extends UserError {
+  constructor(
+    readonly change: RefName,
+    readonly reviewing: Reviewing,
+    readonly user: UserName,
+  ) {
+    super(`${JSON.stringify(change)} is reviewing ${reviewing}, not ${JSON.stringify(user)}`);
+  }
+}
+
+/**
+ * Whether `self` may record review of `change` without a nudge: the
+ * reviewing set includes them, they own the change — self-review is welcome
+ * at any stage, including a draft's, and widening skips an owner who already
+ * read the whole diff — or the change has landed, where review is
+ * bookkeeping, open to anyone as ever.
+ */
+export function mayRecordReview(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+  return (
+    landedMerge(entries) !== undefined ||
+    isReviewing(self, change, entries) ||
+    isSelf(self, currentOwner(change, entries))
+  );
+}
+
+/**
+ * Fail with `NotReviewingError` unless the current user may record review of
+ * `change` (as `mayRecordReview`). Recording ahead of one's turn is usually
+ * a mistake (the diff is still being rewritten), but a review is a true
+ * statement however early, so the check nudges rather than forbids:
+ * frontends offer an override, and an overridden review counts toward
+ * obligations like any other.
+ */
+export async function assertReviewing(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<void> {
+  const self = await currentSelf(backend);
+  if (!mayRecordReview(self, change, entries)) {
+    throw new NotReviewingError(change, currentReviewing(entries), self.user);
+  }
 }
 
 /** An obligation and the reviews counting toward it. */

@@ -35,11 +35,12 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -66,10 +67,11 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -310,11 +312,12 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("log", "child")).toEqual({
     stdout:
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
-      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -387,25 +390,28 @@ test("a range lands the whole chain, deepest first", async () => {
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "b")).toEqual({
     stdout:
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
   expect(await repo.cabaret("log", "c")).toEqual({
     stdout:
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
+      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
+      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
     stderr: "",
     exitCode: 0,
   });

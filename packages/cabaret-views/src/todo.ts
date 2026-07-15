@@ -6,6 +6,7 @@ import {
   changeForest,
   currentParent,
   type FilePath,
+  isReviewing,
   isSelf,
   type RefName,
   reviewOwed,
@@ -72,10 +73,16 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       const candidate = await summarizeChange(backend, change, entries, self.user, diff);
       summaries.set(change, candidate);
       parents.set(change, currentParent(change, entries));
-      // An empty reviewLeft already counts the user toward every obligation —
-      // though it says nothing about their aliases, whose obligations each
-      // count that identity's own reviews.
-      if (candidate.landed === undefined && (candidate.reviewLeft.length > 0 || self.aliases.size > 0)) {
+      // Obligations ask nothing of a user outside the reviewing set — a
+      // membership the log alone decides, sparing the obligations files of
+      // most changes. An empty reviewLeft already counts the user toward
+      // every obligation — though it says nothing about their aliases, whose
+      // obligations each count that identity's own reviews.
+      if (
+        candidate.landed === undefined &&
+        (candidate.reviewLeft.length > 0 || self.aliases.size > 0) &&
+        isReviewing(self, change, entries)
+      ) {
         const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
         if (owed.length > 0) {
           owedFiles.set(change, owed);

@@ -7,12 +7,14 @@ import {
   changeObligations,
   diffBetween,
   type FilePath,
+  isReviewing,
   isSatisfied,
   type LogEntry,
   obligationStatuses,
   parseCommitHash,
   parseFilePath,
   parseObligationsFile,
+  parseRefName,
   reviewerSummary,
   reviewOwed,
   type Self,
@@ -389,4 +391,30 @@ test("a removed reviewer owes nothing, and an owning reviewer owes only as owner
   expect(await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"))).toEqual([
     { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
   ]);
+});
+
+test("isReviewing widens from nobody through the owner and reviewers to everyone", () => {
+  const change = parseRefName("feature");
+  const at = (reviewing: "none" | "owner" | "reviewers" | "everyone", at: number): LogEntry => ({
+    timestamp: timestampMs(at),
+    user: alice,
+    action: { kind: "set-reviewing", reviewing },
+  });
+  const base: LogEntry[] = [
+    { timestamp: timestampMs(1748000000000), user: alice, action: { kind: "set-owner", owner: alice } },
+    reviewer(bob, "add-reviewer"),
+  ];
+  const dan = userName("dan@example.com");
+  const membership = (entries: readonly LogEntry[]) =>
+    [alice, bob, carol].map((user) => isReviewing(soleUser(user), change, entries));
+  // A log that never set a reviewing set reads as everyone.
+  expect(membership(base)).toEqual([true, true, true]);
+  expect(membership([...base, at("none", 1748000000001)])).toEqual([false, false, false]);
+  expect(membership([...base, at("owner", 1748000000001)])).toEqual([true, false, false]);
+  expect(membership([...base, at("reviewers", 1748000000001)])).toEqual([true, true, false]);
+  expect(membership([...base, at("everyone", 1748000000001)])).toEqual([true, true, true]);
+  // The latest entry wins, and an alias of a member is a member.
+  const narrowed = [...base, at("everyone", 1748000000001), at("owner", 1748000000002)];
+  expect(membership(narrowed)).toEqual([true, false, false]);
+  expect(isReviewing({ user: dan, aliases: new Set([alice]) }, change, narrowed)).toBe(true);
 });

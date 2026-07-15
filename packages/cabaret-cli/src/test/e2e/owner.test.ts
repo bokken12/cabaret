@@ -22,7 +22,8 @@ test("set-owner replaces the owner", async () => {
       "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
     {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
     {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"bob@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-owner","owner":"bob@example.com"}}
     ",
     }
   `);

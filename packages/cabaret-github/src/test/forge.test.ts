@@ -72,6 +72,8 @@ describe("GitHubForge", () => {
             repository: {
               pullRequest: {
                 number: 7,
+                id: "PR_node7",
+                isDraft: false,
                 headRefName: "add-tables",
                 headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                 baseRefName: "main",
@@ -95,6 +97,7 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
+      draft: false,
       reviewers: [],
     });
   });
@@ -107,6 +110,8 @@ describe("GitHubForge", () => {
             repository: {
               pullRequest: {
                 number: 8,
+                id: "PR_node8",
+                isDraft: false,
                 headRefName: "fix-crash",
                 headRefOid: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
                 baseRefName: "release",
@@ -130,6 +135,7 @@ describe("GitHubForge", () => {
       title: "Fix crash",
       author: "bob@users.noreply.github.com",
       state: "merged",
+      draft: false,
       reviewers: [],
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
@@ -143,6 +149,8 @@ describe("GitHubForge", () => {
             repository: {
               pullRequest: {
                 number: 9,
+                id: "PR_node9",
+                isDraft: false,
                 headRefName: "abandoned",
                 headRefOid: "44556677889900aabbccddeeff112233445566aa",
                 baseRefName: "main",
@@ -166,6 +174,7 @@ describe("GitHubForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.github.com",
       state: "closed",
+      draft: false,
       reviewers: [],
     });
   });
@@ -178,6 +187,8 @@ describe("GitHubForge", () => {
             repository: {
               pullRequest: {
                 number: 10,
+                id: "PR_node10",
+                isDraft: false,
                 headRefName: "reviewed",
                 headRefOid: "5566778899aabbccddeeff00112233445566aabb",
                 baseRefName: "main",
@@ -216,6 +227,7 @@ describe("GitHubForge", () => {
       title: "Reviewed",
       author: "alice@users.noreply.github.com",
       state: "open",
+      draft: false,
       reviewers: ["bob@users.noreply.github.com", "carol@example.com"],
     });
   });
@@ -230,6 +242,8 @@ describe("GitHubForge", () => {
                 nodes: [
                   {
                     number: 7,
+                    id: "PR_node7",
+                    isDraft: false,
                     headRefName: "add-tables",
                     headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
                     baseRefName: "main",
@@ -255,6 +269,7 @@ describe("GitHubForge", () => {
       title: "Add tables",
       author: "alice@users.noreply.github.com",
       state: "open",
+      draft: false,
       reviewers: [],
     });
     expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", branch: "add-tables" }]);
@@ -278,6 +293,8 @@ describe("GitHubForge", () => {
                   nodes: [
                     {
                       number: 4,
+                      id: "PR_node4",
+                      isDraft: false,
                       headRefName: "first",
                       headRefOid: "123456789abcdef0123456789abcdef012345678",
                       baseRefName: "main",
@@ -301,6 +318,8 @@ describe("GitHubForge", () => {
                     },
                     {
                       number: 5,
+                      id: "PR_node5",
+                      isDraft: false,
                       headRefName: "second",
                       headRefOid: "23456789abcdef0123456789abcdef0123456789",
                       baseRefName: "first",
@@ -326,6 +345,8 @@ describe("GitHubForge", () => {
                   nodes: [
                     {
                       number: 6,
+                      id: "PR_node6",
+                      isDraft: false,
                       headRefName: "third",
                       headRefOid: "3456789abcdef0123456789abcdef0123456789a",
                       baseRefName: "main",
@@ -357,6 +378,7 @@ describe("GitHubForge", () => {
           title: "First",
           author: "alice@users.noreply.github.com",
           state: "open",
+          draft: false,
           reviewers: ["bob@users.noreply.github.com"],
         },
         comments: [
@@ -378,6 +400,7 @@ describe("GitHubForge", () => {
           title: "Second",
           author: "bob@users.noreply.github.com",
           state: "open",
+          draft: false,
           reviewers: [],
         },
         comments: [],
@@ -392,6 +415,7 @@ describe("GitHubForge", () => {
           title: "Third",
           author: "alice@users.noreply.github.com",
           state: "open",
+          draft: false,
           reviewers: [],
         },
         comments: [],
@@ -427,6 +451,8 @@ describe("GitHubForge", () => {
             repository: {
               pullRequest: {
                 number: 12,
+                id: "PR_node12",
+                isDraft: false,
                 headRefName: "new-work",
                 headRefOid: "456789abcdef0123456789abcdef0123456789ab",
                 baseRefName: "parent-branch",
@@ -442,7 +468,12 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/dave`]: { json: { email: null } },
     });
-    const created = await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
+    const created = await forge().createChange(
+      parseRefName("new-work"),
+      parseRefName("parent-branch"),
+      "New work",
+      false,
+    );
     expect(created).toEqual({
       id: 12,
       head: "new-work",
@@ -451,10 +482,11 @@ describe("GitHubForge", () => {
       title: "New work",
       author: "dave@users.noreply.github.com",
       state: "open",
+      draft: false,
       reviewers: [],
     });
     expect(calls[0]?.body).toBe(
-      JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "" }),
+      JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "", draft: false }),
     );
   });
 
@@ -575,6 +607,52 @@ describe("GitHubForge", () => {
     const failure = forge().setReviewers(forgeChangeId(12), [userName("erin@users.noreply.github.com")], []);
     await expect(failure).rejects.toThrow(UserError);
     await expect(failure).rejects.toThrow(/^github\.com\/test-org\/widgets#12 reviewers not updated: .*collaborators/);
+  });
+
+  test("setDraft looks up the node id and converts through the matching mutation", async () => {
+    const pr = {
+      number: 7,
+      id: "PR_node7",
+      isDraft: false,
+      headRefName: "add-tables",
+      headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      baseRefName: "main",
+      title: "Add tables",
+      author: { login: "alice" },
+      state: "OPEN",
+      mergeCommit: null,
+      ...NO_REVIEWERS,
+    };
+    const calls = stubGitHub({
+      [GRAPHQL]: [
+        { json: { data: { repository: { pullRequest: pr } } } },
+        { json: { data: { convertPullRequestToDraft: { clientMutationId: null } } } },
+      ],
+    });
+    await forge().setDraft(forgeChangeId(7), true);
+    expect(graphqlVariables(calls)).toEqual([{ owner: "test-org", repo: "widgets", number: 7 }, { id: "PR_node7" }]);
+    expect(calls[1]?.body).toContain("convertPullRequestToDraft");
+  });
+
+  test("setDraft is a no-op when the forge already agrees", async () => {
+    const pr = {
+      number: 7,
+      id: "PR_node7",
+      isDraft: true,
+      headRefName: "add-tables",
+      headRefOid: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      baseRefName: "main",
+      title: "Add tables",
+      author: { login: "alice" },
+      state: "OPEN",
+      mergeCommit: null,
+      ...NO_REVIEWERS,
+    };
+    const calls = stubGitHub({
+      [GRAPHQL]: { json: { data: { repository: { pullRequest: pr } } } },
+    });
+    await forge().setDraft(forgeChangeId(7), true);
+    expect(calls).toHaveLength(1);
   });
 
   test("a failing request reports the status and GitHub's message", async () => {

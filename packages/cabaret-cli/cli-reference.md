@@ -317,15 +317,16 @@ ARGUMENTS
 ## cabaret review
 
 USAGE
-  cabaret review [--change value] [--tip value] <file>...
+  cabaret review [--change value] [--tip value] [--even-though-not-reviewing] <file>...
   cabaret review --help
 
 Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
 
 FLAGS
-     [--change]  Change to review (defaults to current)
-     [--tip]     Mark as reviewed at this tip revision (defaults to the change's tip)
-  -h  --help     Print help information and exit
+     [--change]                     Change to review (defaults to current)
+     [--tip]                        Mark as reviewed at this tip revision (defaults to the change's tip)
+     [--even-though-not-reviewing]  Record review even though the reviewing set does not include you     [default = false]
+  -h  --help                        Print help information and exit
 
 ARGUMENTS
   file...  files to mark as reviewed
@@ -359,6 +360,21 @@ FLAGS
 
 ARGUMENTS
   user  user to remove
+
+## cabaret reviewing
+
+USAGE
+  cabaret reviewing [--change value] [<reviewing>]
+  cabaret reviewing --help
+
+Show or set who is asked to review a change: none, the owner, the reviewers, or everyone. The set gates what todos ask of people; landing still requires every obligation. A change whose reviewing is none shows on its forge as a draft.
+
+FLAGS
+     [--change]  Change to act on (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [reviewing]  reviewing set to record (prints the current one when omitted)
 
 ## cabaret set-owner
 
@@ -447,3 +463,15 @@ FLAGS
 
 ARGUMENTS
   [change]  change to inspect (defaults to current)
+
+## cabaret widen
+
+USAGE
+  cabaret widen [--change value]
+  cabaret widen --help
+
+Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
+
+FLAGS
+     [--change]  Change to act on (defaults to current)
+  -h  --help     Print help information and exit

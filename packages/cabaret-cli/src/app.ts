@@ -1,5 +1,5 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
-import { NotOwnerError, UnsatisfiedObligationsError, UserError, VERSION } from "cabaret-core";
+import { NotOwnerError, NotReviewingError, UnsatisfiedObligationsError, UserError, VERSION } from "cabaret-core";
 import { approve } from "./commands/approve.js";
 import { comment } from "./commands/comment.js";
 import { config } from "./commands/config.js";
@@ -17,6 +17,7 @@ import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
 import { reviewers } from "./commands/reviewers.js";
+import { reviewing, widen } from "./commands/reviewing.js";
 import { setOwner } from "./commands/set-owner.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
@@ -28,6 +29,9 @@ import { todos } from "./commands/todos.js";
 function userMessage(error: UserError): string {
   if (error instanceof NotOwnerError) {
     return `${error.message}; pass --even-though-not-owner to override`;
+  }
+  if (error instanceof NotReviewingError) {
+    return `${error.message}; pass --even-though-not-reviewing to override`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
@@ -57,12 +61,14 @@ const routes = buildRouteMap({
     reparent,
     review,
     reviewers,
+    reviewing,
     "set-owner": setOwner,
     setup,
     show,
     sync,
     todo,
     todos,
+    widen,
   },
 });
 

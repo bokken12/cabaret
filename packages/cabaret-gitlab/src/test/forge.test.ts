@@ -77,6 +77,7 @@ describe("GitLabForge", () => {
                   title: "Add tables",
                   author: { username: "alice" },
                   state: "opened",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [{ username: "carol" }, { username: "bob" }] },
                   diffStatsSummary: { fileCount: 3 },
@@ -98,6 +99,7 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "alice@example.com",
       state: "open",
+      draft: false,
       reviewers: ["bob@example.com", "carol@example.com"],
     });
   });
@@ -117,6 +119,7 @@ describe("GitLabForge", () => {
                   title: "Fix crash",
                   author: { username: "bob" },
                   state: "merged",
+                  draft: false,
                   mergeCommitSha: "89e6c98d92887913cadf06b2adb97f26cde4849b",
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
@@ -141,6 +144,7 @@ describe("GitLabForge", () => {
       title: "Fix crash",
       author: "12-bob@users.noreply.gitlab.com",
       state: "merged",
+      draft: false,
       reviewers: [],
       merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
@@ -163,6 +167,7 @@ describe("GitLabForge", () => {
                   title: "Polish",
                   author: { username: "carol" },
                   state: "merged",
+                  draft: false,
                   mergeCommitSha: "2222222222222222222222222222222222222222",
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 4 },
@@ -200,6 +205,7 @@ describe("GitLabForge", () => {
                   title: "Tidy",
                   author: { username: "carol" },
                   state: "merged",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 2 },
@@ -241,6 +247,7 @@ describe("GitLabForge", () => {
                 title: "Abandoned",
                 author: null,
                 state: "closed",
+                draft: false,
                 mergeCommitSha: null,
                 reviewers: null,
                 diffStatsSummary: { fileCount: 5 },
@@ -258,6 +265,7 @@ describe("GitLabForge", () => {
       title: "Abandoned",
       author: "ghost@users.noreply.gitlab.com",
       state: "closed",
+      draft: false,
       reviewers: [],
     });
     expect(calls).toHaveLength(1);
@@ -278,6 +286,7 @@ describe("GitLabForge", () => {
                   title: "Landing",
                   author: { username: "alice" },
                   state: "locked",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
@@ -307,6 +316,7 @@ describe("GitLabForge", () => {
                   title: "Old work",
                   author: { username: "vanished" },
                   state: "opened",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
@@ -336,6 +346,7 @@ describe("GitLabForge", () => {
                   title: "Hotfix",
                   author: { username: "bob" },
                   state: "merged",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
@@ -399,6 +410,7 @@ describe("GitLabForge", () => {
                       title: "Add tables",
                       author: { username: "alice" },
                       state: "opened",
+                      draft: false,
                       mergeCommitSha: null,
                       reviewers: { nodes: [] },
                       diffStatsSummary: { fileCount: 3 },
@@ -420,6 +432,7 @@ describe("GitLabForge", () => {
       title: "Add tables",
       author: "31-alice@users.noreply.gitlab.com",
       state: "open",
+      draft: false,
       reviewers: [],
     });
     expect(graphqlVariables(calls)[0]).toEqual({ path: "test-org/widgets", branch: "add-tables" });
@@ -449,6 +462,7 @@ describe("GitLabForge", () => {
                       title: "First",
                       author: { username: "alice" },
                       state: "opened",
+                      draft: false,
                       mergeCommitSha: null,
                       reviewers: { nodes: [] },
                       notes: {
@@ -479,6 +493,7 @@ describe("GitLabForge", () => {
                       title: "Second",
                       author: { username: "bob" },
                       state: "opened",
+                      draft: false,
                       mergeCommitSha: null,
                       reviewers: { nodes: [] },
                       notes: { nodes: [], pageInfo: { hasNextPage: false } },
@@ -508,6 +523,7 @@ describe("GitLabForge", () => {
                       title: "Third",
                       author: { username: "alice" },
                       state: "opened",
+                      draft: false,
                       mergeCommitSha: null,
                       reviewers: { nodes: [] },
                       notes: { nodes: [], pageInfo: { hasNextPage: true } },
@@ -531,6 +547,7 @@ describe("GitLabForge", () => {
           title: "First",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
+          draft: false,
           reviewers: [],
         },
         comments: [
@@ -552,6 +569,7 @@ describe("GitLabForge", () => {
           title: "Second",
           author: "12-bob@users.noreply.gitlab.com",
           state: "open",
+          draft: false,
           reviewers: [],
         },
         comments: [],
@@ -566,6 +584,7 @@ describe("GitLabForge", () => {
           title: "Third",
           author: "31-alice@users.noreply.gitlab.com",
           state: "open",
+          draft: false,
           reviewers: [],
         },
         comments: [],
@@ -616,6 +635,7 @@ describe("GitLabForge", () => {
                   title: "New work",
                   author: { username: "dave" },
                   state: "opened",
+                  draft: false,
                   mergeCommitSha: null,
                   reviewers: { nodes: [] },
                   diffStatsSummary: { fileCount: 1 },
@@ -627,7 +647,12 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/9", publicEmail: null } } } },
       ],
     });
-    const created = await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work");
+    const created = await forge().createChange(
+      parseRefName("new-work"),
+      parseRefName("parent-branch"),
+      "New work",
+      false,
+    );
     expect(created).toEqual({
       id: 12,
       head: "new-work",
@@ -636,6 +661,7 @@ describe("GitLabForge", () => {
       title: "New work",
       author: "9-dave@users.noreply.gitlab.com",
       state: "open",
+      draft: false,
       reviewers: [],
     });
     expect(calls[0]?.body).toBe(
@@ -849,6 +875,24 @@ describe("GitLabForge", () => {
     });
     await expect(forge().setReviewers(forgeChangeId(25), [userName("dev@example.com")], [])).rejects.toThrow(
       '"dev@example.com" is ambiguous on gitlab.com',
+    );
+  });
+
+  test("setDraft toggles through the mergeRequestSetDraft mutation", async () => {
+    const calls = stubGitLab({
+      [GRAPHQL]: { json: { data: { mergeRequestSetDraft: { errors: [] } } } },
+    });
+    await forge().setDraft(forgeChangeId(12), true);
+    expect(graphqlVariables(calls)).toEqual([{ path: "test-org/widgets", iid: "12", draft: true }]);
+    expect(calls[0]?.body).toContain("mergeRequestSetDraft");
+  });
+
+  test("setDraft surfaces the mutation's errors", async () => {
+    stubGitLab({
+      [GRAPHQL]: { json: { data: { mergeRequestSetDraft: { errors: ["insufficient permissions"] } } } },
+    });
+    await expect(forge().setDraft(forgeChangeId(12), false)).rejects.toThrow(
+      "gitlab.com/test-org/widgets!12 draft not updated: insufficient permissions",
     );
   });
 

@@ -24,6 +24,8 @@ test("push pushes the branch, opens a forge change on the parent, and posts comm
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
+    // A fresh change is a draft until widened, and opens as one.
+    draft: true,
     reviewers: [],
   });
   const posted = await forge.listComments(PR);
@@ -117,8 +119,8 @@ test("pull does not echo comments push posted", async () => {
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-05-23T11:33:20.003Z bob@example.com\n    one nit\n\n" +
-      "  2025-05-23T11:33:20.004Z alice@example.com\n    ship it\n",
+    "Comments:\n  2025-05-23T11:33:20.004Z bob@example.com\n    one nit\n\n" +
+      "  2025-05-23T11:33:20.005Z alice@example.com\n    ship it\n",
   );
 });
 
@@ -160,7 +162,7 @@ test("pull adopts the branch's open forge change when the log names none", async
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await forge.createChange(parseRefName("gadget"), parseRefName("main"), "gadget");
+  await forge.createChange(parseRefName("gadget"), parseRefName("main"), "gadget", false);
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("pull")).stdout).toBe(
     "pulled 1 comment from github.com/test-org/widgets#1\n" +

@@ -24,6 +24,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     parent: parseRefName("main"),
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -173,6 +174,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     │ next step    │ review                             │
     │ owner        │ alice@example.com                  │
     │ reviewers    │ bob@example.com, carol@example.com │
+    │ reviewing    │ everyone                           │
     │ parent       │ main                               │
     │ forge change │ github.com/test-org/widgets#7      │
     │ tip          │ 222222222222                       │
@@ -219,6 +221,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     ├───────────┼──────────────────────────────┤
     │ next step │ sync                         │
     │ owner     │ alice@example.com            │
+    │ reviewing │ everyone                     │
     │ parent    │ main                         │
     │ tip       │ 222222222222 (behind origin) │
     │ base      │ 111111111111 (behind parent) │
@@ -282,6 +285,7 @@ test("showDoc renders comments between the remaining review and the files, multi
     ├───────────┼───────────────────┤
     │ next step │ review            │
     │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ 222222222222      │
     │ base      │ 111111111111      │

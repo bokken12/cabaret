@@ -92,12 +92,30 @@ export interface ForgeSource {
   readonly id?: string | undefined;
 }
 
+/**
+ * Who is asked to review a change right now, from narrowest to widest. The
+ * set is symbolic — "reviewers" tracks the reviewer list as it changes — and
+ * gates only what todos ask of people; obligations must be satisfied to land
+ * whoever is currently reviewing. "none" means the change is not ready for
+ * review (a forge shows it as a draft), and review normally widens one step
+ * at a time: the owner reads their own diff, then the reviewers, then anyone
+ * with an obligation.
+ */
+export const REVIEWING = ["none", "owner", "reviewers", "everyone"] as const;
+export type Reviewing = (typeof REVIEWING)[number];
+
+/** The next wider reviewing set, or undefined when everyone already is. */
+export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
+  return REVIEWING[REVIEWING.indexOf(reviewing) + 1];
+}
+
 /** An action that can be recorded in a change's log. */
 export type LogAction =
   | { readonly kind: "set-parent"; readonly parent: RefName }
   | { readonly kind: "set-base"; readonly base: CommitHash }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
+  | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
@@ -132,6 +150,7 @@ const LogActionSchema = z.discriminatedUnion("kind", [
     forge: z.string().transform(parseForgeLocator),
     id: z.number().transform(forgeChangeId),
   }),
+  z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
   z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
   z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
   z.object({
@@ -266,6 +285,8 @@ export interface ForgeChange {
   /** Who opened the change, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
   readonly state: "open" | "closed" | "merged";
+  /** Whether the forge shows the change as a draft: not ready for review, `reviewing: none`'s counterpart. */
+  readonly draft: boolean;
   /** The users the forge holds as reviewers, mapped to Cabaret identities by the `Forge` implementation. */
   readonly reviewers: readonly UserName[];
   /** The commit that merged the change, when `state` is "merged". */
@@ -545,6 +566,38 @@ export function currentForgeChange(
   const action = latestAction(entries, "set-forge");
   // Rebuilt so the value is what the type says, with no `kind` tagging along.
   return action && { forge: action.forge, id: action.id };
+}
+
+/**
+ * The reviewing set from the log's latest `set-reviewing`. A log that never
+ * set one reads as "everyone": nobody ever restricted who is asked, so
+ * obligations alone decide — which is also why importing a forge change that
+ * is ready for review needs no entry.
+ */
+export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
+  return latestAction(entries, "set-reviewing")?.reviewing ?? "everyone";
+}
+
+/**
+ * The reviewing set the log last observed on `forge` — the latest
+ * `set-reviewing` carrying it as `source` — or undefined when never observed.
+ * A forge expresses only the none/wider boundary (draft or ready), so syncing
+ * compares boundaries: only a forge that crossed it since last observed
+ * mirrors in, and a local `set-reviewing` awaiting a push is never overridden
+ * by re-observing the state it is about to replace.
+ */
+export function observedForgeReviewing(entries: readonly LogEntry[], forge: ForgeLocator): Reviewing | undefined {
+  let found: LogEntry | undefined;
+  for (const entry of entries) {
+    if (
+      entry.action.kind === "set-reviewing" &&
+      entry.source?.forge === forge &&
+      (found === undefined || compareLogEntries(entry, found) >= 0)
+    ) {
+      found = entry;
+    }
+  }
+  return found?.action.kind === "set-reviewing" ? found.action.reviewing : undefined;
 }
 
 /**

@@ -4,10 +4,13 @@ import {
   type Backend,
   type CommitHash,
   changeBase,
+  changeDiff,
   conflictedFiles,
   currentBase,
   currentOwner,
   currentParent,
+  currentReviewers,
+  currentReviewing,
   diffBetween,
   type FilePath,
   type ForgeMerge,
@@ -15,20 +18,24 @@ import {
   landedMerge,
   landMessage,
   type RefName,
+  type Reviewing,
   type TimestampMs,
   type UserName,
+  widerReviewing,
 } from "./backend.js";
 import type { LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import { assertObligationsSatisfied } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
+import { reviewRounds } from "./summary.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
  * with the last revision shared with the parent as its base. The change must
- * not already exist.
+ * not already exist. Review starts with nobody asked — the change is a draft
+ * until widened — though the owner may record self-review at any stage.
  */
 export async function createChange(
   backend: Backend,
@@ -64,7 +71,71 @@ export async function createChange(
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
     { timestamp: now(), user, action: { kind: "set-base", base } },
     { timestamp: now(), user, action: { kind: "set-owner", owner: owner ?? user } },
+    { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "none" } },
   ]);
+}
+
+/** Record who is asked to review `change`. A landed change is frozen. */
+export async function setReviewing(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: RefName,
+  entries: readonly LogEntry[],
+  reviewing: Reviewing,
+): Promise<void> {
+  assertChangeExists(change, entries);
+  assertNotLanded(change, entries);
+  await backend.appendLog(change, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-reviewing", reviewing } },
+  ]);
+}
+
+/**
+ * Widen `change`'s reviewing set: one step, and past any step that would ask
+ * nothing of anyone. A level asks something when a user it newly adds still
+ * has review left — the owner at "owner", the reviewers at "reviewers" — so
+ * an owner who already read the whole diff is skipped, as are reviewers who
+ * have (or a change with none), landing on the first level with real review
+ * to do, or on "everyone", where the obligations files decide. Returns the
+ * step taken.
+ */
+export async function widenReviewing(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: RefName,
+  entries: readonly LogEntry[],
+): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
+  assertChangeExists(change, entries);
+  assertNotLanded(change, entries);
+  const from = currentReviewing(entries);
+  let to = widerReviewing(from);
+  if (to === undefined) {
+    throw new UserError(`everyone is already reviewing ${JSON.stringify(change)}`);
+  }
+  const diff = await changeDiff(backend, change, entries);
+  const owes = async (user: UserName): Promise<boolean> =>
+    (await reviewRounds(backend, entries, user, diff)).length > 0;
+  const owner = currentOwner(change, entries);
+  while (to !== "everyone") {
+    const added = to === "owner" ? [owner] : currentReviewers(entries).filter((reviewer) => reviewer !== owner);
+    let asks = false;
+    for (const user of added) {
+      if (await owes(user)) {
+        asks = true;
+        break;
+      }
+    }
+    if (asks) {
+      break;
+    }
+    const wider = widerReviewing(to);
+    if (wider === undefined) {
+      throw new Error("widening past everyone");
+    }
+    to = wider;
+  }
+  await setReviewing(backend, now, change, entries, to);
+  return { from, to };
 }
 
 /** One change of a resolved chain, with the log that placed it there. */

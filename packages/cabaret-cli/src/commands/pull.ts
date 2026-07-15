@@ -36,6 +36,11 @@ function reportPullEvent(context: LocalContext, locator: string, event: PullEven
           `updated ${event.reviewers} reviewer${event.reviewers === 1 ? "" : "s"} from ${name}\n`,
         );
       }
+      if (event.reviewing !== undefined) {
+        context.process.stdout.write(
+          `${name} was marked ${event.reviewing === "none" ? "draft" : "ready"}; reviewing ${event.reviewing}\n`,
+        );
+      }
       context.process.stdout.write(`pulled ${event.comments} comment${event.comments === 1 ? "" : "s"} from ${name}\n`);
       return;
     case "pruned":

@@ -226,6 +226,7 @@ test("a change with no commits of its own must add code", async () => {
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -251,6 +252,7 @@ test("files outside the user's brain are left to review", async () => {
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -268,6 +270,7 @@ test("files outside the user's brain are left to review", async () => {
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -296,6 +299,7 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -322,6 +326,7 @@ test("a reviewed change behind a parent it merges cleanly onto may land", async 
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -347,6 +352,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -386,6 +392,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: { forge: "github.com/test-org/widgets", id: 7 },
     landed: fake("5"),
     base: fake("1"),
@@ -575,6 +582,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("0"),
@@ -601,6 +609,7 @@ test("a change behind origin's copy must sync, before anything else", async () =
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -628,6 +637,7 @@ test("a change diverged from origin's copy must sync, review left or not", async
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -654,6 +664,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -680,6 +691,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     parent: "gadget",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -713,6 +725,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     parent: "gone",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -740,6 +753,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     parent: "main",
     owner: alice,
     reviewers: [],
+    reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
     base: fake("1"),
@@ -751,4 +765,28 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     reviewLeft: ["a.ts"],
     nextStep: "review",
   });
+});
+
+test("nextStep walks the staged reviewing flow", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  const reviewing = (value: "none" | "owner" | "reviewers" | "everyone"): LogEntry =>
+    entry({ kind: "set-reviewing", reviewing: value });
+  const base = created("main", "1");
+  const reviewed = entry(review("a.ts", "1", "2"));
+  const step = async (entries: readonly LogEntry[]) => (await summarize(backend, feature, entries, alice)).nextStep;
+  // A draft moves by widening, not by anyone reading it.
+  expect(await step([...base, reviewing("none")])).toBe("widen reviewing");
+  // The owner reviews first; done, they add reviewers when none exist to
+  // widen to, and widen when some do.
+  expect(await step([...base, reviewing("owner")])).toBe("review");
+  expect(await step([...base, reviewing("owner"), reviewed])).toBe("add reviewers");
+  expect(await step([...base, reviewing("owner"), reviewed, entry({ kind: "add-reviewer", reviewer: bob })])).toBe(
+    "widen reviewing",
+  );
+  expect(await step([...base, reviewing("reviewers"), reviewed])).toBe("widen reviewing");
+  expect(await step([...base, reviewing("everyone"), reviewed])).toBe("land");
 });

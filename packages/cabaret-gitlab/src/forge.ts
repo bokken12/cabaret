@@ -52,7 +52,7 @@ function userIdOfGid(gid: string): string {
 // open-changes sweep pages a hundred MRs with their notes in one query —
 // REST would make it N+1.
 const MR_FIELDS =
-  "iid sourceBranch diffHeadSha targetBranch title author { username } state mergeCommitSha reviewers(first: 100) { nodes { username } }";
+  "iid sourceBranch diffHeadSha targetBranch title author { username } state draft mergeCommitSha reviewers(first: 100) { nodes { username } }";
 
 const MrSchema = z.object({
   // GraphQL serializes the iid as a string.
@@ -63,6 +63,7 @@ const MrSchema = z.object({
   title: z.string(),
   author: z.object({ username: z.string() }).nullable(),
   state: z.enum(["opened", "closed", "locked", "merged"]),
+  draft: z.boolean(),
   mergeCommitSha: z.string().transform(parseCommitHash).nullable(),
   reviewers: z.object({ nodes: z.array(z.object({ username: z.string() })) }).nullable(),
 });
@@ -273,6 +274,7 @@ export class GitLabForge implements Forge {
       // A locked MR is mid-merge on the server; until that lands it has
       // not merged, so it reads as open.
       state: mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open",
+      draft: mr.draft,
       // Sorted by identity: the forge promises no order of its own.
       reviewers: (
         await Promise.all((mr.reviewers?.nodes ?? []).map((reviewer) => this.identity(reviewer.username)))
@@ -373,20 +375,36 @@ export class GitLabForge implements Forge {
     return this.toChange(found);
   }
 
-  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
+  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new MR; fetching by its iid —
     // never by head, which could race another MR on the same branch —
-    // reuses the one query that maps an MR.
+    // reuses the one query that maps an MR. GitLab stores draft state in the
+    // title's prefix, so a draft is created as one.
     const data = await this.client.post(`${this.api}/merge_requests`, {
       source_branch: head,
       target_branch: parent,
-      title,
+      title: draft ? `Draft: ${title}` : title,
     });
     return this.getChange(forgeChangeId(z.object({ iid: z.number() }).parse(data).iid));
   }
 
   async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
     await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
+  }
+
+  async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
+    // The mutation edits the title's draft prefix in place, so the title
+    // itself never needs rewriting here.
+    const out = await this.client.graphql(
+      "mutation ($path: ID!, $iid: String!, $draft: Boolean!) { mergeRequestSetDraft(input: { projectPath: $path, iid: $iid, draft: $draft }) { errors } }",
+      { path: this.project.path, iid: String(id), draft },
+    );
+    const { errors } = z
+      .object({ mergeRequestSetDraft: z.object({ errors: z.array(z.string()) }).nullable() })
+      .parse(out).mergeRequestSetDraft ?? { errors: [`no merge request !${id} on ${this.locator}`] };
+    if (errors.length > 0) {
+      throw new UserError(`${this.locator}!${id} draft not updated: ${errors.join("; ")}`);
+    }
   }
 
   async landChange(

@@ -28,9 +28,10 @@ test("reviewers add and remove append entries, latest per user winning", async (
       "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
     {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
     {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"bob@example.com"}}
-    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"carol@example.com"}}
-    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"remove-reviewer","reviewer":"bob@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"bob@example.com"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"carol@example.com"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"remove-reviewer","reviewer":"bob@example.com"}}
     ",
     }
   `);
@@ -58,6 +59,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   const repo = await makeRepo();
   await addChange(repo, "feature");
   await repo.cabaret("reviewers", "add", "bob@example.com");
+  await repo.cabaret("reviewing", "reviewers");
   await repo.cabaret("review", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",

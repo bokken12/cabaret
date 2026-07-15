@@ -8,6 +8,7 @@ import {
   currentOwner,
   currentParent,
   currentReviewers,
+  currentReviewing,
   type FilePath,
   type ForgeChangeId,
   type ForgeLocator,
@@ -15,6 +16,7 @@ import {
   landedMerge,
   type RefName,
   type ReviewedDiff,
+  type Reviewing,
   remainingSpans,
   type UserName,
 } from "./backend.js";
@@ -62,7 +64,17 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
 }
 
 /** What must happen next to move a change toward landing. */
-export type NextStep = "sync" | "reparent" | "fix conflicts" | "add code" | "review" | "rebase" | "land" | "landed";
+export type NextStep =
+  | "sync"
+  | "reparent"
+  | "fix conflicts"
+  | "add code"
+  | "review"
+  | "add reviewers"
+  | "widen reviewing"
+  | "rebase"
+  | "land"
+  | "landed";
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
@@ -71,6 +83,8 @@ export interface ChangeSummary {
   readonly owner: UserName;
   /** The change's reviewers, sorted by name. */
   readonly reviewers: readonly UserName[];
+  /** Who is asked to review right now. */
+  readonly reviewing: Reviewing;
   readonly forgeChange: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: CommitHash | undefined;
@@ -138,6 +152,7 @@ export async function summarizeChange(
     parent,
     owner: currentOwner(change, entries),
     reviewers: currentReviewers(entries),
+    reviewing: currentReviewing(entries),
     forgeChange: currentForgeChange(entries),
     landed,
     base,
@@ -160,13 +175,15 @@ export async function summarizeChange(
  * disagrees outranks everything: each reading below is a question about
  * revisions this clone may lack. A dead parent comes next: nothing can land
  * until the change hangs somewhere real. Unresolved conflicts outrank
- * review: markers are not code worth reading. A stale base waits for review
- * to finish — the parent moving on is routine, and rebasing mid-review
- * churns reviewers — and calls for a rebase only where `land` would refuse
- * it: when the tip no longer merges cleanly onto `stale`'s parent tip. That
- * merge is dry-run only when every earlier step is settled; a land that
- * skips a step anyway (`--even-though-unreviewed`) is still safe, since
- * `prepareLand` makes its own check.
+ * review: markers are not code worth reading. A change nobody is reviewing
+ * yet moves by widening; once the user's own review is done, a reviewing set
+ * short of everyone widens next — after reviewers exist to widen to. A stale
+ * base waits for review to finish — the parent moving on is routine, and
+ * rebasing mid-review churns reviewers — and calls for a rebase only where
+ * `land` would refuse it: when the tip no longer merges cleanly onto
+ * `stale`'s parent tip. That merge is dry-run only when every earlier step
+ * is settled; a land that skips a step anyway (`--even-though-unreviewed`)
+ * is still safe, since `prepareLand` makes its own check.
  */
 async function nextStep(
   backend: Backend,
@@ -188,8 +205,17 @@ async function nextStep(
   if (readings.tip === readings.base) {
     return "add code";
   }
+  if (readings.reviewing === "none") {
+    return "widen reviewing";
+  }
   if (readings.reviewLeft.length > 0) {
     return "review";
+  }
+  if (readings.reviewing === "owner" && readings.reviewers.length === 0) {
+    return "add reviewers";
+  }
+  if (readings.reviewing !== "everyone") {
+    return "widen reviewing";
   }
   if (stale === undefined) {
     return "land";

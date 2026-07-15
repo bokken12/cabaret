@@ -8,6 +8,7 @@ import {
   landAsConfigured,
   landChain,
   NotOwnerError,
+  NotReviewingError,
   parseRefName,
   pullForge,
   pushChange,
@@ -19,12 +20,14 @@ import {
   reparentChange,
   resolveChain,
   reviewerSummary,
+  setReviewing,
   type TimestampMs,
   timestampMs,
   transferChange,
   UnsatisfiedObligationsError,
   UserError,
   userName,
+  widenReviewing,
 } from "cabaret-core";
 import {
   applySetup,
@@ -40,6 +43,7 @@ import {
   changeSnapshot,
   type Doc,
   docText,
+  type MarkReviewedResult,
   markReviewed,
   type Page,
   pagePath,
@@ -367,7 +371,24 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   try {
     const backend = await openBackend();
-    const result = markReviewed(backend, now, await changeSnapshot(backend, page.change), page.file);
+    const snapshot = await changeSnapshot(backend, page.change);
+    let result: MarkReviewedResult;
+    try {
+      result = markReviewed(backend, now, snapshot, page.file);
+    } catch (error) {
+      if (!(error instanceof NotReviewingError)) {
+        throw error;
+      }
+      const choice = await vscode.window.showWarningMessage(
+        `${page.change} is reviewing ${error.reviewing}, which does not include you.`,
+        { modal: true },
+        "Mark Reviewed Anyway",
+      );
+      if (choice === undefined) {
+        return;
+      }
+      result = markReviewed(backend, now, snapshot, page.file, true);
+    }
     if (result.kind === "nothing-left") {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
       return;
@@ -961,6 +982,25 @@ export function activate(context: vscode.ExtensionContext): void {
             transferChange(backend, now, change, userName(raw), override),
           );
         }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.widenReviewing", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "widen reviewing of");
+        if (change === undefined) {
+          return;
+        }
+        const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+        vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.disableReviewing", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "disable reviewing of");
+        if (change === undefined) {
+          return;
+        }
+        await setReviewing(backend, now, change, await backend.readLog(change), "none");
       }),
     ),
     vscode.commands.registerCommand("cabaret.createChild", () =>
