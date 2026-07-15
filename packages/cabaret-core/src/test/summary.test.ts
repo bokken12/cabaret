@@ -72,6 +72,8 @@ function repoBackend(opts: {
   branches: Record<string, string>;
   merges?: readonly { commit: string; onto: string }[];
   changed?: Record<string, readonly string[]>;
+  /** Conflicting paths by `<base><tip><onto>` digit triple, for `mergeConflicts`; an unanticipated triple is an error. */
+  conflicting?: Record<string, readonly string[]>;
   /** File texts by commit digit, for `readFile`; an unlisted file reads as absent. */
   contents?: Record<string, Record<string, string>>;
   /** Second parents of merge commits, for `<merge>^2` resolution. */
@@ -104,6 +106,7 @@ function repoBackend(opts: {
     | "isAncestor"
     | "landMerges"
     | "changedFiles"
+    | "mergeConflicts"
     | "readFile"
     | "readLog"
   > = {
@@ -161,6 +164,13 @@ function repoBackend(opts: {
     },
     async readFile(commit, file) {
       return opts.contents?.[commit[0] as string]?.[file as string];
+    },
+    async mergeConflicts(base, tip, onto) {
+      const paths = opts.conflicting?.[`${base[0]}${tip[0]}${onto[0]}`];
+      if (paths === undefined) {
+        throw new Error(`unexpected mergeConflicts query: ${base[0]} ${tip[0]} ${onto[0]}`);
+      }
+      return paths.map(parseFilePath);
     },
   };
   return stub as Backend;
@@ -271,12 +281,14 @@ test("files outside the user's brain are left to review", async () => {
   });
 });
 
-test("a reviewed change not based on its parent's tip must rebase", async () => {
-  // main advanced to 2 while feature (3-4) still forks from 1.
+test("a reviewed change conflicting with its parent's tip must rebase", async () => {
+  // main advanced to 2 while feature (3-4) still forks from 1, and both
+  // sides touched a.ts.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3" },
     branches: { main: "2", feature: "4" },
     changed: { "14": ["a.ts"] },
+    conflicting: { "142": ["a.ts"] },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
@@ -294,6 +306,32 @@ test("a reviewed change not based on its parent's tip must rebase", async () => 
     conflicts: [],
     reviewLeft: [],
     nextStep: "rebase",
+  });
+});
+
+test("a reviewed change behind a parent it merges cleanly onto may land", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "1", "4": "3" },
+    branches: { main: "2", feature: "4" },
+    changed: { "14": ["b.ts"] },
+    conflicting: { "142": [] },
+  });
+  const entries = [...created("main", "1"), entry(review("b.ts", "1", "4"))];
+  expect(await summarize(backend, feature, entries, alice)).toEqual({
+    change: "feature",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    forgeChange: undefined,
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("4"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: "behind",
+    conflicts: [],
+    reviewLeft: [],
+    nextStep: "land",
   });
 });
 
@@ -690,6 +728,8 @@ test("a change whose parent branch is gone must reparent", async () => {
 
 test("a base under a rewritten parent reads as diverged, review still the step", async () => {
   // main was rewritten to 3 (forking from 0) while feature still builds on 1.
+  // No `conflicting` entry: with review left as the step, querying the
+  // merge would be an unanticipated call the stub rejects.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "0" },
     branches: { main: "3", feature: "2" },

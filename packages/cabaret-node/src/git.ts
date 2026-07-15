@@ -655,23 +655,33 @@ export class GitBackend implements Backend {
     }
   }
 
-  merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
-    return this.commitLand(into, onto, tip, message, ["-p", onto, "-p", tip]);
+  merge(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, base, onto, tip, message, ["-p", onto, "-p", tip]);
   }
 
-  squash(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
-    return this.commitLand(into, onto, tip, message, ["-p", onto]);
+  squash(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+    return this.commitLand(into, base, onto, tip, message, ["-p", onto]);
   }
 
   private async commitLand(
     into: RefName,
+    base: CommitHash,
     onto: CommitHash,
     tip: CommitHash,
     message: string,
     parents: readonly string[],
   ): Promise<CommitHash> {
-    const tree = await git(this.root, ["rev-parse", `${tip}^{tree}`]);
-    const out = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", message, ...parents]);
+    let tree: string;
+    if (onto === base) {
+      tree = (await git(this.root, ["rev-parse", `${tip}^{tree}`])).trimEnd();
+    } else {
+      const merged = await this.mergeTrees(base, tip, onto);
+      if (merged.conflicts.length > 0) {
+        throw new Error(`landing ${tip} onto ${onto} conflicts in ${merged.conflicts.join(", ")}`);
+      }
+      tree = merged.tree;
+    }
+    const out = await git(this.root, ["commit-tree", tree, "-m", message, ...parents]);
     const commit = parseCommitHash(out.trimEnd());
     await this.advanceBranch(into, commit, onto);
     return commit;
@@ -698,6 +708,22 @@ export class GitBackend implements Backend {
       await this.advanceBranch(change, onto, tip);
       return [];
     }
+    const { tree, conflicts } = await this.mergeTrees(base, tip, onto);
+    const commit = await git(this.root, ["commit-tree", tree, "-m", message, "-p", tip, "-p", onto]);
+    await this.advanceBranch(change, parseCommitHash(commit.trimEnd()), tip);
+    return conflicts;
+  }
+
+  async mergeConflicts(base: CommitHash, tip: CommitHash, onto: CommitHash): Promise<readonly FilePath[]> {
+    return (await this.mergeTrees(base, tip, onto)).conflicts;
+  }
+
+  /** Content-merge `tip` and `onto` against `base`: the merged tree — markers in place on a conflict — and the conflicted paths. */
+  private async mergeTrees(
+    base: CommitHash,
+    tip: CommitHash,
+    onto: CommitHash,
+  ): Promise<{ tree: string; conflicts: readonly FilePath[] }> {
     let out: string;
     try {
       out = await git(this.root, [
@@ -721,11 +747,9 @@ export class GitBackend implements Backend {
     }
     const [tree, ...conflicted] = out.trimEnd().split("\n");
     if (tree === undefined || tree === "") {
-      throw new Error(`merge-tree wrote no tree merging ${onto} into ${JSON.stringify(change)}`);
+      throw new Error(`merge-tree wrote no tree merging ${tip} and ${onto}`);
     }
-    const commit = await git(this.root, ["commit-tree", tree, "-m", message, "-p", tip, "-p", onto]);
-    await this.advanceBranch(change, parseCommitHash(commit.trimEnd()), tip);
-    return conflicted.map(parseFilePath);
+    return { tree, conflicts: conflicted.map(parseFilePath) };
   }
 
   async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {

@@ -252,6 +252,8 @@ export async function rebaseChain(
 export interface PreparedLand {
   readonly parent: RefName;
   readonly base: CommitHash;
+  /** The parent's tip the land merges onto: `base` itself unless the parent moved on. */
+  readonly onto: CommitHash;
   readonly tip: CommitHash;
   readonly user: UserName;
 }
@@ -266,10 +268,10 @@ export interface LandOverrides {
 
 /**
  * Check that `target` may land now — unlanded, owned by the current user,
- * with an unlanded parent, sitting on the parent's tip, with commits of its
- * own, free of unresolved conflicts, and with its review obligations
- * satisfied — and resolve the endpoints the landing writes. `overrides`
- * skips the checks it names.
+ * with an unlanded parent, with commits of its own, free of unresolved
+ * conflicts, merging cleanly onto the parent's tip when the parent moved on,
+ * and with its review obligations satisfied — and resolve the endpoints the
+ * landing writes. `overrides` skips the checks it names.
  */
 export async function prepareLand(
   backend: Backend,
@@ -284,16 +286,11 @@ export async function prepareLand(
   // would grow the code its own land froze. A parent that is not a change
   // (an empty log) cannot have landed.
   assertNotLanded(parent, await backend.readLog(parent));
-  const parentTip = await backend.branchTip(parent);
-  if (parentTip === undefined) {
+  const onto = await backend.branchTip(parent);
+  if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  if (base !== parentTip) {
-    throw new UserError(
-      `${JSON.stringify(target)} is not based on the tip of ${JSON.stringify(parent)}; run \`cabaret rebase\` first`,
-    );
-  }
   // Pin to the branch namespace so a same-named tag cannot shadow the
   // change's tip.
   const tip = await backend.resolveCommit(`refs/heads/${target}`);
@@ -301,6 +298,15 @@ export async function prepareLand(
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  if (base !== onto) {
+    const conflicts = await backend.mergeConflicts(base, tip, onto);
+    if (conflicts.length > 0) {
+      throw new UserError(
+        `${JSON.stringify(target)} conflicts with the tip of ${JSON.stringify(parent)} ` +
+          `in ${conflicts.join(", ")}; run \`cabaret rebase\` first`,
+      );
+    }
+  }
   if (!overrides.unreviewed) {
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
@@ -308,7 +314,7 @@ export async function prepareLand(
   // Resolve the identity before any ref moves so a missing git identity
   // fails without landing anything.
   const user = await backend.currentUser();
-  return { parent, base, tip, user };
+  return { parent, base, onto, tip, user };
 }
 
 /**
@@ -338,8 +344,9 @@ export async function recordLand(
 /**
  * Land `target` into its parent: write it onto the parent branch as a commit
  * marked as landing — a land merge, or one squash commit — and record the
- * landing in the log. The change must sit on its parent's tip; rebase first
- * if it does not.
+ * landing in the log. A change no longer sitting on its parent's tip lands
+ * all the same when it merges cleanly onto it; rebase first when it
+ * conflicts.
  */
 export async function landChange(
   backend: Backend,
@@ -350,11 +357,11 @@ export async function landChange(
   overrides: LandOverrides,
 ): Promise<void> {
   const prepared = await prepareLand(backend, target, entries, overrides);
-  const { parent, base, tip } = prepared;
+  const { parent, base, onto, tip } = prepared;
   const merge =
     method === "merge"
-      ? await backend.merge(parent, base, tip, landMessage(target))
-      : await backend.squash(parent, base, tip, landMessage(target));
+      ? await backend.merge(parent, base, onto, tip, landMessage(target))
+      : await backend.squash(parent, base, onto, tip, landMessage(target));
   await recordLand(backend, now, target, entries, prepared, {
     commit: merge,
     parents: method === "merge" ? 2 : 1,

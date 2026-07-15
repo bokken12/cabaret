@@ -45,16 +45,68 @@ test("land merges the child into its parent with a marked merge commit", async (
   });
 });
 
-test("land refuses a change that is not based on its parent's tip", async () => {
+test("land takes a change behind its parent when it merges cleanly", async () => {
   const repo = await makeStack();
+  const childTip = await repo.git("rev-parse", "child");
+  const createdBase = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
+  const advanced = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The land merge sits on the parent's new tip and carries both sides' work.
+  expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${advanced}\n${childTip}`);
+  expect(await repo.git("show", "parent:parent.txt")).toBe("parent v2");
+  expect(await repo.git("show", "parent:child.txt")).toBe("child work");
+  // The base stays where the reviewed diff was computed, not the tip landed onto.
+  const merge = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("log", "child")).toEqual({
+    stdout:
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("land squashes a change behind its parent to the merged tree", async () => {
+  const repo = await makeStack();
+  await repo.git("config", "cabaret.landMethod", "squash");
+  await repo.git("checkout", "-q", "parent");
+  await repo.write("parent.txt", "parent v2\n");
+  await repo.git("commit", "-qam", "more parent work");
+  const advanced = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The squash's sole parent is the advanced tip, and its tree keeps the
+  // parent's own work rather than rewinding it to the child's stale copy.
+  expect(await repo.git("show", "--no-patch", "--format=%P", "parent")).toBe(advanced);
+  expect(await repo.git("show", "parent:parent.txt")).toBe("parent v2");
+  expect(await repo.git("show", "parent:child.txt")).toBe("child work");
+});
+
+test("land refuses a change that conflicts with its parent's tip", async () => {
+  const repo = await makeStack();
+  await repo.git("checkout", "-q", "parent");
+  await repo.write("child.txt", "parent's own child.txt\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qam", "parent claims child.txt");
+  const parentTip = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
-    stderr: '"child" is not based on the tip of "parent"; run `cabaret rebase` first\n',
+    stderr: '"child" conflicts with the tip of "parent" in child.txt; run `cabaret rebase` first\n',
     exitCode: 1,
   });
+  expect(await repo.git("rev-parse", "parent")).toBe(parentTip);
 });
 
 test("land refuses a change with no commits of its own", async () => {
