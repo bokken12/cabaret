@@ -74,6 +74,7 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 | Keys    | Action                                          | Pages        |
 | ------- | ----------------------------------------------- | ------------ |
 | `enter` | open the target under the cursor                | all          |
+| `tab`   | toggle folding of the section at the cursor     | all          |
 | `R`     | refresh                                         | all          |
 | `r`     | review: open the change's review page           | show         |
 | `^`     | show parent                                     | show         |
@@ -94,11 +95,12 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 
 Where the current table falls short of the principles:
 
-- **`esc` and `tab` are unbound.** Step-outside doesn't exist yet; nor does
-  any folding for `tab` to toggle. `esc` needs care: VS Code uses it to
-  dismiss find widgets, extra cursors, and peek views, and vim users hit it
-  reflexively to cancel pending input — a step-outside binding must not
-  swallow those.
+- **`esc` is unbound.** Step-outside doesn't exist yet. `esc` needs care: VS
+  Code uses it to dismiss find widgets, extra cursors, and peek views, and
+  vim users hit it reflexively to cancel pending input — a step-outside
+  binding must not swallow those.
+- **`tab` only folds headed sections.** Diff hunks don't fold yet, though
+  they are the other natural thing under the cursor for `tab` to toggle.
 - **`! r` is both a chord and a prefix.** On diff pages it marks the file
   reviewed; elsewhere it prefixes rebase / rename / reparent. The page gating
   disambiguates for the machine but not for the user's model — the letter `r`

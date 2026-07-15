@@ -12,6 +12,7 @@ const doc: Doc = {
     { spans: [span("plain text")] },
     { spans: [span("const x = 1;", { target: location, tier: "jump" })] },
   ],
+  folds: [],
 };
 
 test("targetAt resolves a line to its target of either tier, and a plain line to nothing", () => {

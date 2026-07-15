@@ -34,9 +34,19 @@ export interface Line {
   readonly spans: readonly Span[];
 }
 
+/** A run of lines a host may fold down to its first — a section's heading. */
+export interface Fold {
+  /** Zero-based line that stays visible when folded. */
+  readonly start: number;
+  /** Zero-based last line the fold hides. */
+  readonly end: number;
+}
+
 /** A rendered page: plain text in which every meaningful span knows what it denotes. */
 export interface Doc {
   readonly lines: readonly Line[];
+  /** Regions a host may offer to fold, in document order. */
+  readonly folds: readonly Fold[];
 }
 
 /** Make a span; multi-line text would break line-to-target mapping, so it is refused. */

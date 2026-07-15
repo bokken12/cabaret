@@ -93,7 +93,7 @@ export function reviewDoc(page: ReviewPage): Doc {
   ];
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
-    return { lines };
+    return { lines, folds: [] };
   }
   lines.push(
     { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
@@ -102,7 +102,7 @@ export function reviewDoc(page: ReviewPage): Doc {
   for (const file of page.round.files) {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
   }
-  return { lines };
+  return { lines, folds: [] };
 }
 
 /** What marking a file reviewed did, and where review continues. */
@@ -416,7 +416,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   ];
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
-    return { lines };
+    return { lines, folds: [] };
   }
   const view = page.round.view;
   const body =
@@ -426,8 +426,8 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     // patdiff shows no hunks for, like a mode-only change; marking the file
     // reviewed is how the reviewer clears it.
     lines.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
-    return { lines };
+    return { lines, folds: [] };
   }
   lines.push(...body);
-  return { lines };
+  return { lines, folds: [] };
 }

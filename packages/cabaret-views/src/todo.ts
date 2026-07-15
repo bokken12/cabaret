@@ -11,7 +11,7 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, span } from "./doc.js";
+import { type Doc, type Line, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
 /** A change to act on and the changes stacked on it. */
@@ -100,25 +100,29 @@ export function todoDoc(page: TodoPage): Doc {
     });
   };
   walk(page.owned, "", true);
+  const lines: Line[] = [
+    ...table(
+      [
+        { header: "change", align: "left" },
+        { header: "review", align: "right" },
+      ],
+      page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
+    ),
+    { spans: [] },
+  ];
+  const owned: Line[] = [
+    { spans: [span("Changes you own:", { style: "heading" })] },
+    ...table(
+      [
+        { header: "change", align: "left" },
+        { header: "review", align: "right" },
+        { header: "next step", align: "left" },
+      ],
+      rows,
+    ),
+  ];
   return {
-    lines: [
-      ...table(
-        [
-          { header: "change", align: "left" },
-          { header: "review", align: "right" },
-        ],
-        page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
-      ),
-      { spans: [] },
-      { spans: [span("Changes you own:", { style: "heading" })] },
-      ...table(
-        [
-          { header: "change", align: "left" },
-          { header: "review", align: "right" },
-          { header: "next step", align: "left" },
-        ],
-        rows,
-      ),
-    ],
+    lines: [...lines, ...owned],
+    folds: [{ start: lines.length, end: lines.length + owned.length - 1 }],
   };
 }

@@ -13,7 +13,7 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, type Line, type Span, span, type Target } from "./doc.js";
+import { type Doc, type Fold, type Line, type Span, span, type Target } from "./doc.js";
 import { table } from "./table.js";
 
 /** What the show page displays. */
@@ -87,7 +87,6 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
     return [];
   }
   return [
-    { spans: [] },
     { spans: [span("Files to review:", { style: "heading" })] },
     ...files.map((file) => ({
       spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
@@ -101,7 +100,6 @@ function remainingReview(remaining: readonly string[]): Line[] {
     return [];
   }
   return [
-    { spans: [] },
     { spans: [span("Remaining review:", { style: "heading" })] },
     ...remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
   ];
@@ -112,7 +110,7 @@ function commentsSection(comments: readonly ChangeComment[]): Line[] {
   if (comments.length === 0) {
     return [];
   }
-  const lines: Line[] = [{ spans: [] }, { spans: [span("Comments:", { style: "heading" })] }];
+  const lines: Line[] = [{ spans: [span("Comments:", { style: "heading" })] }];
   comments.forEach(({ timestamp, user, text }, index) => {
     // A blank line between comments, since consecutive comments would
     // otherwise run together.
@@ -150,12 +148,20 @@ export function showDoc(page: ShowPage): Doc {
   );
   // No target: the heading names the page itself.
   const heading = span(summary.change, { style: "heading" });
-  return {
-    lines: [
-      ...header(heading, attributes),
-      ...remainingReview(page.remaining),
-      ...commentsSection(page.comments),
-      ...filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
-    ],
-  };
+  const lines = header(heading, attributes);
+  const folds: Fold[] = [];
+  // Each section stands off from what precedes it with a blank line and
+  // folds down to its heading.
+  for (const section of [
+    remainingReview(page.remaining),
+    commentsSection(page.comments),
+    filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
+  ]) {
+    if (section.length > 0) {
+      lines.push({ spans: [] });
+      folds.push({ start: lines.length, end: lines.length + section.length - 1 });
+      lines.push(...section);
+    }
+  }
+  return { lines, folds };
 }

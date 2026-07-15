@@ -10,7 +10,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { docText, showDoc, targetAt, todoDoc } from "../index.js";
+import { type Doc, docText, showDoc, targetAt, todoDoc } from "../index.js";
 
 function fake(digit: string): CommitHash {
   return parseCommitHash(digit.repeat(40));
@@ -38,6 +38,12 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 }
 
 const files = (...names: string[]) => names.map(parseFilePath);
+
+/** Each fold as the text of the lines it runs from and to. */
+function foldTexts(doc: Doc): (string | undefined)[][] {
+  const text = docText(doc).split("\n");
+  return doc.folds.map(({ start, end }) => [text[start], text[end]]);
+}
 
 test("todoDoc lays out the review table and the owned tree", () => {
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
@@ -71,6 +77,9 @@ test("todoDoc lays out the review table and the owned tree", () => {
     │ widgets  │        │ land      │
     ╰──────────┴────────┴───────────╯"
   `);
+  // The owned section folds down to its heading; the review table on top has
+  // no heading to fold to.
+  expect(foldTexts(doc)).toEqual([["Changes you own:", "╰──────────┴────────┴───────────╯"]]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
   const line = docText(doc)
@@ -131,6 +140,10 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       api.ts
       ui.ts"
   `);
+  expect(foldTexts(doc)).toEqual([
+    ["Remaining review:", "  bob@example.com: 1 file"],
+    ["Files to review:", "  ui.ts"],
+  ]);
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
@@ -242,6 +255,13 @@ test("showDoc renders comments between the remaining review and the files, multi
     Files to review:
       gadget.ts"
   `);
+  // A fold runs to its section's true end: the comments' internal blank
+  // lines fold away with them.
+  expect(foldTexts(doc)).toEqual([
+    ["Remaining review:", "  bob@example.com: 1 file"],
+    ["Comments:", "    the flag name reads oddly"],
+    ["Files to review:", "  gadget.ts"],
+  ]);
 });
 
 test("showDoc renders a landed change without a files section", () => {
@@ -265,4 +285,5 @@ test("showDoc renders a landed change without a files section", () => {
     │ base      │ 111111111111      │
     ╰───────────┴───────────────────╯"
   `);
+  expect(doc.folds).toEqual([]);
 });
