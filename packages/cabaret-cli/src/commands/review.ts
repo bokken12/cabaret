@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { assertReviewing, changeBase, type FilePath, parseFilePath, parseRefName, type RefName } from "cabaret-core";
+import { assertReviewing, changeBase, parseRefName, type RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const review = buildCommand({
@@ -13,7 +13,7 @@ export const review = buildCommand({
   parameters: {
     positional: {
       kind: "array",
-      parameter: { brief: "files to mark as reviewed", placeholder: "file", parse: parseFilePath },
+      parameter: { brief: "files to mark as reviewed", placeholder: "file", parse: String },
       minimum: 1,
     },
     flags: {
@@ -36,14 +36,13 @@ export const review = buildCommand({
       },
     },
   },
-  // TODO: normalize file arguments to repo-relative paths so entries written
-  // from a subdirectory name the same files a diff would.
   async func(
     this: LocalContext,
     flags: { change?: RefName; tip?: string; evenThoughNotReviewing: boolean },
-    ...files: FilePath[]
+    ...rawFiles: string[]
   ) {
     const backend = await this.backend();
+    const files = rawFiles.map((raw) => backend.resolveFile(raw));
     const change = flags.change ?? (await backend.currentBranch());
     const entries = await backend.readLog(change);
     if (!flags.evenThoughNotReviewing) {

@@ -25,6 +25,19 @@ test("an unreviewed file diffs from base to tip", async () => {
   `);
 });
 
+test("diff from a subdirectory names the file as the log does", async () => {
+  const repo = await makeChange("src/greeting.txt", "hello\n");
+  expect(await repo.cabaretIn("src", "diff", "greeting.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "-1,0 +1,1
+    +|hello
+    ",
+    }
+  `);
+});
+
 test("a reviewed file diffs from the reviewed tip to the current tip", async () => {
   const repo = await makeChange("greeting.txt", "hello\n");
   await repo.cabaret("review", "greeting.txt");

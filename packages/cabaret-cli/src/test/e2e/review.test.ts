@@ -25,6 +25,43 @@ test("review marks files at the current change's tip", async () => {
   });
 });
 
+test("review from a subdirectory records repo-relative paths", async () => {
+  const repo = await makeRepo();
+  const head = await repo.git("rev-parse", "main");
+  await repo.git("branch", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  await repo.write("src/a.ts", "a\n");
+  expect(await repo.cabaretIn("src", "review", "a.ts", "../top.ts")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log")).toEqual({
+    stdout:
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${head}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${head}","tip":"${head}"}}\n` +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"top.ts","base":"${head}","tip":"${head}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("review rejects a path outside the repository, leaving the log untouched", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "trunk");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  const before = await repo.cabaret("log");
+  expect(await repo.cabaret("review", "../outside.ts")).toEqual({
+    stdout: "",
+    stderr: 'path is outside the repository: "../outside.ts"\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("log")).toEqual(before);
+});
+
 test("review records the base where the change forked from its parent", async () => {
   const repo = await makeRepo();
   const root = await repo.git("rev-parse", "main");

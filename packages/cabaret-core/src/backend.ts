@@ -317,6 +317,13 @@ export interface Backend {
   /** The identity attributed to log entries this user writes. */
   currentUser(): Promise<UserName>;
 
+  /**
+   * The repo-relative path for a user-typed one, taken relative to the
+   * directory the backend was opened from, so it names the same file diffs
+   * and logs do. Fails when the path escapes the repository.
+   */
+  resolveFile(raw: string): FilePath;
+
   /** The value of git config `key`, or undefined when unset. */
   config(key: string): Promise<string | undefined>;
 

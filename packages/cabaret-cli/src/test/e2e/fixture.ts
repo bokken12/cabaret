@@ -35,6 +35,8 @@ export interface TestRepo {
   write(path: string, content: string): Promise<void>;
   /** Run `cabaret <argv>` against this repo in-process, capturing all output. */
   cabaret(...argv: string[]): Promise<Invocation>;
+  /** Like `cabaret`, but invoked from `subdir` of the working tree. */
+  cabaretIn(subdir: string, ...argv: string[]): Promise<Invocation>;
 }
 
 /** The Comments section of a change's show page, or "" when it has none. */
@@ -72,7 +74,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
   };
 
   let clock = clockStart;
-  const cabaret = async (...argv: string[]) => {
+  const cabaretIn = async (subdir: string, ...argv: string[]) => {
     const captured = { stdout: "", stderr: "" };
     const capture = (stream: "stdout" | "stderr") => ({
       write(chunk: string): boolean {
@@ -83,7 +85,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
     const proc: LocalContext["process"] = { stdout: capture("stdout"), stderr: capture("stderr") };
     const context: LocalContext = {
       process: proc,
-      backend: () => GitBackend.open(dir),
+      backend: () => GitBackend.open(join(dir, subdir)),
       forge: async () => {
         if (forge === undefined) {
           throw new Error("this test repo has no forge");
@@ -95,6 +97,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
     await run(app, argv, context);
     return { ...captured, exitCode: proc.exitCode ?? 0 };
   };
+  const cabaret = (...argv: string[]) => cabaretIn("", ...argv);
 
   const write = async (path: string, content: string) => {
     const full = join(dir, path);
@@ -102,7 +105,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
     await writeFile(full, content);
   };
 
-  return { git, write, cabaret };
+  return { git, write, cabaret, cabaretIn };
 }
 
 /**
