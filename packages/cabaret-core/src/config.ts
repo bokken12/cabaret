@@ -107,7 +107,7 @@ export const settings: readonly Setting[] = [
     key: "cabaret.landMethod",
     scope: "local",
     multi: false,
-    brief: "How a land writes a change onto its parent",
+    brief: "How a land writes a change onto its parent: merge or squash",
     fallback: "merge",
     parse: (raw) => parseChoice("cabaret.landMethod", raw, "merge", landMethods),
   },
@@ -116,18 +116,8 @@ export const settings: readonly Setting[] = [
     key: "cabaret.landVia",
     scope: "local",
     multi: false,
-    brief: "Where a land executes",
+    brief: "Where a land executes: local, forge, or auto",
     fallback: "auto",
     parse: (raw) => parseChoice("cabaret.landVia", raw, "auto", landVias),
   },
 ];
-
-/** The setting named `name` on the command line. */
-export function settingNamed(name: string): Setting {
-  const setting = settings.find((s) => s.name === name);
-  if (setting === undefined) {
-    const names = settings.map((s) => s.name).join(", ");
-    throw new UserError(`unknown setting: ${JSON.stringify(name)} (expected one of ${names})`);
-  }
-  return setting;
-}

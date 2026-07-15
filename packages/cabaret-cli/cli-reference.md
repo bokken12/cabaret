@@ -43,13 +43,13 @@ FLAGS
      [--local]   Use this repository's git config   [default = false]
   -h  --help     Print help information and exit
 
-### cabaret config set
+#### cabaret config alias add
 
 USAGE
-  cabaret config set [--global] [--local] <setting> <value>
-  cabaret config set --help
+  cabaret config alias add [--global] [--local] <value>
+  cabaret config alias add --help
 
-Set a setting
+Add a value
 
 FLAGS
      [--global]  Use the person's global git config [default = false]
@@ -57,16 +57,15 @@ FLAGS
   -h  --help     Print help information and exit
 
 ARGUMENTS
-  setting  setting to change
-  value    the value
+  value  value to add
 
-### cabaret config unset
+#### cabaret config alias remove
 
 USAGE
-  cabaret config unset [--global] [--local] <setting>
-  cabaret config unset --help
+  cabaret config alias remove [--global] [--local] <value>
+  cabaret config alias remove --help
 
-Unset a setting, restoring its default
+Remove a value
 
 FLAGS
      [--global]  Use the person's global git config [default = false]
@@ -74,41 +73,71 @@ FLAGS
   -h  --help     Print help information and exit
 
 ARGUMENTS
-  setting  setting to unset
+  value  value to remove
 
-### cabaret config add
+#### cabaret config alias clear
 
 USAGE
-  cabaret config add [--global] [--local] <setting> <value>
-  cabaret config add --help
+  cabaret config alias clear [--global] [--local]
+  cabaret config alias clear --help
 
-Add a value to a multi-valued setting
+Remove every value
 
 FLAGS
      [--global]  Use the person's global git config [default = false]
      [--local]   Use this repository's git config   [default = false]
   -h  --help     Print help information and exit
 
-ARGUMENTS
-  setting  setting to change
-  value    the value
-
-### cabaret config remove
+### cabaret config context
 
 USAGE
-  cabaret config remove [--global] [--local] <setting> <value>
-  cabaret config remove --help
+  cabaret config context [--global] [--local] [--unset] [<value>]
+  cabaret config context --help
 
-Remove a value from a multi-valued setting
+Lines of diff context, -1 for whole files
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
-  setting  setting to change
-  value    the value
+  [value]  value to set (shows the current value when omitted)
+
+### cabaret config land-method
+
+USAGE
+  cabaret config land-method [--global] [--local] [--unset] [<value>]
+  cabaret config land-method --help
+
+How a land writes a change onto its parent: merge or squash
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
+### cabaret config land-via
+
+USAGE
+  cabaret config land-via [--global] [--local] [--unset] [<value>]
+  cabaret config land-via --help
+
+Where a land executes: local, forge, or auto
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
 
 ## cabaret create
 
