@@ -590,6 +590,10 @@ export async function pullForge(
   const tracked = await backend.listChanges();
   const existing = new Set(tracked);
   const user = await backend.currentUser();
+  const logs = new Map<RefName, readonly LogEntry[]>();
+  for (const change of tracked) {
+    logs.set(change, await backend.readLog(change));
+  }
 
   const open = await forge.fetchOpenChanges();
   // Heads sharing a branch collapse to the lowest id, so every machine
@@ -609,11 +613,24 @@ export async function pullForge(
   // into a branch some worktree has checked out.
   const imports = [...byHead.values()].filter(({ change }) => !existing.has(change.head));
   const absent = new Set<RefName>();
+  const collectAbsent = async (branch: RefName): Promise<void> => {
+    if (!absent.has(branch) && (await backend.branchTip(branch)) === undefined) {
+      absent.add(branch);
+    }
+  };
   for (const { change } of imports) {
     for (const branch of [change.head, change.parent]) {
-      if (!absent.has(branch) && (await backend.branchTip(branch)) === undefined) {
-        absent.add(branch);
-      }
+      await collectAbsent(branch);
+    }
+  }
+  // Adoption brings logs whose branches may never have been fetched here —
+  // pushed from another machine — and a live change without its branches
+  // cannot render; fetch those alongside the imports'. Landed changes stay
+  // as they are: their branches are routinely deleted from origin.
+  for (const [change, entries] of logs) {
+    if (landedMerge(entries) === undefined) {
+      await collectAbsent(change);
+      await collectAbsent(currentParent(change, entries));
     }
   }
   await backend.fetchBranches([...absent]);
@@ -663,8 +680,7 @@ export async function pullForge(
   // Refresh: every change tracked before the import phase, so a fresh import
   // is not immediately re-pulled as a no-op.
   const pruneCandidates: { readonly change: RefName; readonly id: ForgeChangeId }[] = [];
-  for (const change of tracked) {
-    const entries = await backend.readLog(change);
+  for (const [change, entries] of logs) {
     if (landedMerge(entries) !== undefined) {
       continue;
     }

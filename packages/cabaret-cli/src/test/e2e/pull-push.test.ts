@@ -276,7 +276,7 @@ test("a second machine's pull adopts the published import instead of re-importin
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("push", "-q", "origin", "main");
-  await pushTeammateBranch(repo, parseRefName("their-feature"));
+  const theirTip = await pushTeammateBranch(repo, parseRefName("their-feature"));
   forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   await repo.cabaret("pull");
   const clone = await makeClone(repo, "bob@example.com", forge);
@@ -286,6 +286,29 @@ test("a second machine's pull adopts the published import instead of re-importin
   );
   // Byte-identical logs: the clone adopted the import rather than re-creating it.
   expect(await clone.cabaret("log", "their-feature")).toEqual(await repo.cabaret("log", "their-feature"));
+  // The adoption fetched the change's branch, so pages can render it.
+  expect(await clone.git("rev-parse", "--verify", "their-feature")).toBe(theirTip);
+});
+
+test("pull fetches the branch of a change adopted from another machine", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await repo.git("checkout", "-qb", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
+  await repo.cabaret("create", "--parent", "main", "gadget");
+  await repo.git("push", "-q", "origin", "gadget", "refs/cabaret/log/gadget");
+  const tip = await repo.git("rev-parse", "gadget");
+  const clone = await makeClone(repo, "bob@example.com", forge);
+  expect(await clone.cabaret("pull")).toEqual({
+    stdout: "synced github.com/test-org/widgets: 0 open forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await clone.git("rev-parse", "--verify", "gadget")).toBe(tip);
+  expect((await clone.cabaret("todo")).exitCode).toBe(0);
 });
 
 test("pull reads a capped discussion in full before importing", async () => {
