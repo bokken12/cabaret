@@ -1,6 +1,40 @@
-import { parseRefName, type RefName, UserError, type UserName, userName } from "cabaret-core";
+import {
+  assertChangeExists,
+  type Backend,
+  type LogEntry,
+  parseRefName,
+  type RefName,
+  UserError,
+  type UserName,
+  userName,
+} from "cabaret-core";
 import { type Doc, docText } from "cabaret-views";
 import type { LocalContext } from "../context.js";
+
+/** The `--change` flag of a command that acts on one change: "Change to <act> (defaults to current)". */
+export function changeFlag(act: string) {
+  return {
+    kind: "parsed",
+    parse: parseRefName,
+    brief: `Change to ${act} (defaults to current)`,
+    optional: true,
+  } as const;
+}
+
+/**
+ * The change a command acts on — `flagged`, or the current branch — with its
+ * log. The change must exist: logs are only ever started by `create`, so
+ * acting on a missing one would conjure a change out of thin air.
+ */
+export async function resolveChange(
+  backend: Backend,
+  flagged: RefName | undefined,
+): Promise<{ change: RefName; entries: readonly LogEntry[] }> {
+  const change = flagged ?? (await backend.currentBranch());
+  const entries = await backend.readLog(change);
+  assertChangeExists(change, entries);
+  return { change, entries };
+}
 
 /** Parse a user argument, rejecting the empty string. */
 export function parseUser(raw: string): UserName {

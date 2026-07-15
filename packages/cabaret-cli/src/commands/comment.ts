@@ -1,6 +1,7 @@
 import { buildCommand } from "@stricli/core";
-import { assertChangeExists, parseRefName, type RefName, UserError } from "cabaret-core";
+import { type RefName, UserError } from "cabaret-core";
 import type { LocalContext } from "../context.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 /** Parse a comment-text argument, rejecting the empty string. */
 function parseCommentText(raw: string): string {
@@ -21,21 +22,11 @@ export const comment = buildCommand({
       kind: "tuple",
       parameters: [{ brief: "the comment text", placeholder: "text", parse: parseCommentText }],
     },
-    flags: {
-      change: {
-        kind: "parsed",
-        parse: parseRefName,
-        brief: "Change to comment on (defaults to current)",
-        optional: true,
-      },
-    },
+    flags: { change: changeFlag("comment on") },
   },
   async func(this: LocalContext, flags: { change?: RefName }, text: string) {
     const backend = await this.backend();
-    const change = flags.change ?? (await backend.currentBranch());
-    // Logs are only ever started by `create`; appending to a missing one
-    // would conjure a change out of thin air.
-    assertChangeExists(change, await backend.readLog(change));
+    const { change } = await resolveChange(backend, flags.change);
     await backend.appendLog(change, [
       { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
     ]);

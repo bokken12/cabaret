@@ -473,5 +473,5 @@ USAGE
 Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
 
 FLAGS
-     [--change]  Change to act on (defaults to current)
+     [--change]  Change to widen (defaults to current)
   -h  --help     Print help information and exit

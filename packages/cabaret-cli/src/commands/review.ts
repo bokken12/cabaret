@@ -1,13 +1,7 @@
 import { buildCommand } from "@stricli/core";
-import {
-  assertNoConflict,
-  assertReviewing,
-  changeBase,
-  conflictedFiles,
-  parseRefName,
-  type RefName,
-} from "cabaret-core";
+import { assertNoConflict, assertReviewing, changeBase, conflictedFiles, type RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 export const review = buildCommand({
   docs: {
@@ -24,12 +18,7 @@ export const review = buildCommand({
       minimum: 1,
     },
     flags: {
-      change: {
-        kind: "parsed",
-        parse: parseRefName,
-        brief: "Change to review (defaults to current)",
-        optional: true,
-      },
+      change: changeFlag("review"),
       tip: {
         kind: "parsed",
         parse: String,
@@ -50,8 +39,7 @@ export const review = buildCommand({
   ) {
     const backend = await this.backend();
     const files = rawFiles.map((raw) => backend.resolveFile(raw));
-    const change = flags.change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(change);
+    const { change, entries } = await resolveChange(backend, flags.change);
     if (!flags.evenThoughNotReviewing) {
       await assertReviewing(backend, change, entries);
     }

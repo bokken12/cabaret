@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
-import { parseRefName, type RefName, transferChange, type UserName } from "cabaret-core";
+import { type RefName, transferChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { evenThoughNotOwner, parseUser } from "./shared.js";
+import { changeFlag, evenThoughNotOwner, parseUser } from "./shared.js";
 
 export const setOwner = buildCommand({
   docs: {
@@ -16,12 +16,7 @@ export const setOwner = buildCommand({
       parameters: [{ brief: "the new owner", placeholder: "user", parse: parseUser }],
     },
     flags: {
-      change: {
-        kind: "parsed",
-        parse: parseRefName,
-        brief: "Change to transfer (defaults to current)",
-        optional: true,
-      },
+      change: changeFlag("transfer"),
       evenThoughNotOwner,
     },
   },

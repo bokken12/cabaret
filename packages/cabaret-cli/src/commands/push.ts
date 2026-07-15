@@ -1,6 +1,7 @@
 import { buildCommand } from "@stricli/core";
-import { assertChangeExists, parseRefName, pushChange, type RefName } from "cabaret-core";
+import { pushChange, type RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 export const push = buildCommand({
   docs: {
@@ -11,21 +12,12 @@ export const push = buildCommand({
       "it to the parent, and post the change's comments the forge lacks.",
   },
   parameters: {
-    flags: {
-      change: {
-        kind: "parsed",
-        parse: parseRefName,
-        brief: "Change to push (defaults to current)",
-        optional: true,
-      },
-    },
+    flags: { change: changeFlag("push") },
   },
   async func(this: LocalContext, flags: { change?: RefName }) {
     const backend = await this.backend();
     const forge = await this.forge();
-    const change = flags.change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(change);
-    assertChangeExists(change, entries);
+    const { change, entries } = await resolveChange(backend, flags.change);
     const pushed = await pushChange(backend, this.now, forge, change, entries);
     if (pushed.opened) {
       this.process.stdout.write(`opened ${forge.locator}#${pushed.id}\n`);

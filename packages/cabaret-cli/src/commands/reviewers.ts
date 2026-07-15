@@ -1,7 +1,7 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { assertChangeExists, assertNotLanded, parseRefName, type RefName, type UserName } from "cabaret-core";
+import { assertNotLanded, type RefName, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { parseUser } from "./shared.js";
+import { changeFlag, parseUser, resolveChange } from "./shared.js";
 
 /** Append one reviewer entry to `change`'s log. */
 async function recordReviewer(
@@ -11,9 +11,7 @@ async function recordReviewer(
   kind: "add-reviewer" | "remove-reviewer",
 ): Promise<void> {
   const backend = await ctx.backend();
-  const target = change ?? (await backend.currentBranch());
-  const entries = await backend.readLog(target);
-  assertChangeExists(target, entries);
+  const { change: target, entries } = await resolveChange(backend, change);
   // A landed change is frozen: its obligations were settled when it landed.
   assertNotLanded(target, entries);
   await backend.appendLog(target, [
@@ -37,14 +35,7 @@ export const reviewers = buildRouteMap({
           kind: "tuple",
           parameters: [{ brief: "user to add", placeholder: "user", parse: parseUser }],
         },
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Change to add the reviewer to (defaults to current)",
-            optional: true,
-          },
-        },
+        flags: { change: changeFlag("add the reviewer to") },
       },
       async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
         await recordReviewer(this, flags.change, reviewer, "add-reviewer");
@@ -57,14 +48,7 @@ export const reviewers = buildRouteMap({
           kind: "tuple",
           parameters: [{ brief: "user to remove", placeholder: "user", parse: parseUser }],
         },
-        flags: {
-          change: {
-            kind: "parsed",
-            parse: parseRefName,
-            brief: "Change to remove the reviewer from (defaults to current)",
-            optional: true,
-          },
-        },
+        flags: { change: changeFlag("remove the reviewer from") },
       },
       async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
         await recordReviewer(this, flags.change, reviewer, "remove-reviewer");
