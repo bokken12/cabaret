@@ -133,8 +133,8 @@ function repoBackend(opts: {
       return opts.logs?.[change as string] ?? [];
     },
     async mergeBase(a, b) {
-      const shared = new Set(ancestry(tipOf(b)));
-      const found = ancestry(tipOf(a)).find((commit) => shared.has(commit));
+      const shared = new Set(ancestry(b));
+      const found = ancestry(a).find((commit) => shared.has(commit));
       if (found === undefined) {
         throw new Error(`no merge base of ${a} and ${b}`);
       }

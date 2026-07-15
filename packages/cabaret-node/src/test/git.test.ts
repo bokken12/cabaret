@@ -196,6 +196,40 @@ test("changeBase prefers the merge-base when the change advanced past the stored
   expect(await changeBaseOf("child-advanced")).toBe(newParent);
 });
 
+test("changeBase prefers origin's fresher reading of a stale local parent", async () => {
+  const fork = await plumbCommit("shared history");
+  const landed = await plumbCommit("landed feature", fork);
+  const child = await plumbCommit("child work atop the landed feature", landed);
+  await git("update-ref", "refs/heads/parent-lagging", fork);
+  await git("update-ref", "refs/remotes/origin/parent-lagging", landed);
+  // The stored base was rebased away, so only the parent readings compete.
+  const abandoned = await plumbCommit("abandoned line");
+  await plumbChange("child-fresh-origin", child, "parent-lagging", abandoned);
+  expect(await changeBaseOf("child-fresh-origin")).toBe(landed);
+});
+
+test("changeBase arbitrates diverged parent readings by the change's own ancestry", async () => {
+  const fork = await plumbCommit("fork point");
+  const originSide = await plumbCommit("landed on origin", fork);
+  const localSide = await plumbCommit("stray local commit", fork);
+  await git("update-ref", "refs/heads/parent-diverged", localSide);
+  await git("update-ref", "refs/remotes/origin/parent-diverged", originSide);
+  const onOrigin = await plumbCommit("child on origin's line", originSide);
+  await plumbChange("child-on-origin-line", onOrigin, "parent-diverged", fork);
+  expect(await changeBaseOf("child-on-origin-line")).toBe(originSide);
+  const onLocal = await plumbCommit("child on the local line", localSide);
+  await plumbChange("child-on-local-line", onLocal, "parent-diverged", fork);
+  expect(await changeBaseOf("child-on-local-line")).toBe(localSide);
+});
+
+test("changeBase reads a parent that exists only on origin", async () => {
+  const parent = await plumbCommit("origin-only parent work");
+  const child = await plumbCommit("child of origin-only parent", parent);
+  await git("update-ref", "refs/remotes/origin/parent-origin-only", parent);
+  await plumbChange("child-origin-only", child, "parent-origin-only", parent);
+  expect(await changeBaseOf("child-origin-only")).toBe(parent);
+});
+
 test("changeBase fails when the stored base and merge-base are unrelated", async () => {
   const side = await plumbCommit("side work");
   const parent = await plumbCommit("parent-side work");

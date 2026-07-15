@@ -342,8 +342,8 @@ export interface Backend {
    */
   renameChange(from: RefName, to: RefName): Promise<void>;
 
-  /** The last revision shared between branches `a` and `b`, as `git merge-base`. */
-  mergeBase(a: RefName, b: RefName): Promise<CommitHash>;
+  /** The last revision shared by the histories of `a` and `b`, as `git merge-base`. */
+  mergeBase(a: CommitHash, b: CommitHash): Promise<CommitHash>;
 
   /** Whether `ancestor` is reachable from `descendant`, as `git merge-base --is-ancestor`. */
   isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean>;
@@ -676,17 +676,23 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  * brain from one snapshot of the log.
  *
  * A change is its base plus its own commits, so the base is always an
- * ancestor of the change's tip. Two candidates satisfy that invariant and
- * each covers the other's blind spot, so we take whichever reaches further
- * into the change's history:
+ * ancestor of the change's tip. Several candidates satisfy that invariant,
+ * each covering the others' blind spots, so we take whichever reaches
+ * furthest into the change's history:
  *
  * - The stored base (the log's latest `set-base`) goes stale when the change
  *   is rewritten outside Cabaret: its commits leave the change's history, so
  *   it stops being an ancestor of the tip and is discarded.
- * - The derived base (`merge-base` with the parent) goes stale when the
- *   parent is rewritten while the change is not: it slides back to where the
- *   old and new parent histories diverge, and the stored base — recording
- *   what the change was actually built on — wins as the deeper candidate.
+ * - The merge-base with a reading of the parent — its local branch, and
+ *   origin's last-fetched copy — goes stale when that reading trails what
+ *   the change was built on: it slides back to where the histories diverge,
+ *   absorbing into the diff whatever landed in between. A reading that is
+ *   too new is harmless, since a merge-base cannot reach past the change's
+ *   own history, so the freshest reading wins by being deepest, and the
+ *   change's own ancestry arbitrates between diverged readings.
+ *
+ * A candidate set with no deepest member means the change merged unrelated
+ * lines; no winner is principled, so the user declares one by rebasing.
  */
 export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
   // Once the change lands, its parent's history contains the change itself,
@@ -698,37 +704,42 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
   }
   const parent = currentParent(change, entries);
   const stored = currentBase(change, entries);
-  // With no parent branch there is no merge-base; the stored base is the only
-  // candidate, still valid while it remains an ancestor of the tip.
-  if ((await backend.branchTip(parent)) === undefined) {
-    if (await backend.isAncestor(stored, await backend.resolveCommit(`refs/heads/${change}`))) {
+  const tip = await backend.resolveCommit(`refs/heads/${change}`);
+  const readings = [...new Set([await backend.branchTip(parent), await backend.originTip(parent)])].filter(
+    (reading): reading is CommitHash => reading !== undefined,
+  );
+  // With no reading of the parent there is no merge-base; the stored base is
+  // the only candidate, still valid while it remains an ancestor of the tip.
+  if (readings.length === 0) {
+    if (await backend.isAncestor(stored, tip)) {
       return stored;
     }
     throw new UserError(
       `parent branch of ${JSON.stringify(change)} does not exist: ${JSON.stringify(parent)}; run \`cabaret reparent\``,
     );
   }
-  const derived = await backend.mergeBase(parent, change);
-  if (stored === derived) {
-    return derived;
+  const candidates = new Set(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
+  if (!candidates.has(stored) && (await backend.isAncestor(stored, tip))) {
+    candidates.add(stored);
   }
-  const tip = await backend.resolveCommit(`refs/heads/${change}`);
-  if (!(await backend.isAncestor(stored, tip))) {
-    return derived;
+  let base: CommitHash | undefined;
+  for (const candidate of candidates) {
+    if (base === undefined || (await backend.isAncestor(base, candidate))) {
+      base = candidate;
+    }
   }
-  if (await backend.isAncestor(derived, stored)) {
-    return stored;
+  if (base === undefined) {
+    throw new Error(`no base candidates for ${JSON.stringify(change)}`);
   }
-  if (await backend.isAncestor(stored, derived)) {
-    return derived;
+  for (const candidate of candidates) {
+    if (!(await backend.isAncestor(candidate, base))) {
+      throw new UserError(
+        `base of ${JSON.stringify(change)} is ambiguous: candidates ` +
+          `${[...candidates].join(", ")} are on unrelated lines; rebase to resolve`,
+      );
+    }
   }
-  // Both are ancestors of the tip but on unrelated lines (the change merged
-  // history the stored base cannot see). No principled winner; make the user
-  // declare one by rebasing.
-  throw new UserError(
-    `base of ${JSON.stringify(change)} is ambiguous: stored base ${stored} and ` +
-      `merge-base ${derived} with parent ${JSON.stringify(parent)} are unrelated; rebase to resolve`,
-  );
+  return base;
 }
 
 /**

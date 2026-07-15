@@ -58,7 +58,7 @@ export async function createChange(
     await backend.createBranch(change, parentTip);
     base = parentTip;
   } else {
-    base = await backend.mergeBase(parent, change);
+    base = await backend.mergeBase(parentTip, existing);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user, action: { kind: "set-parent", parent } },

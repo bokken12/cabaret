@@ -618,14 +618,10 @@ export async function pullForge(
   }
   await backend.fetchBranches([...absent]);
   for (const { change: forgeChange, comments, commentsTruncated } of imports) {
-    let missing: RefName | undefined;
-    for (const name of [forgeChange.head, forgeChange.parent]) {
-      if ((await backend.branchTip(name)) === undefined) {
-        missing = name;
-        break;
-      }
-    }
-    if (missing !== undefined) {
+    const headTip = await backend.branchTip(forgeChange.head);
+    const parentTip = await backend.branchTip(forgeChange.parent);
+    if (headTip === undefined || parentTip === undefined) {
+      const missing = headTip === undefined ? forgeChange.head : forgeChange.parent;
       onEvent({
         kind: "skipped",
         id: forgeChange.id,
@@ -644,7 +640,7 @@ export async function pullForge(
         timestamp: now(),
         user,
         source,
-        action: { kind: "set-base", base: await backend.mergeBase(forgeChange.parent, forgeChange.head) },
+        action: { kind: "set-base", base: await backend.mergeBase(parentTip, headTip) },
       },
       { timestamp: now(), user, source, action: { kind: "set-owner", owner: forgeChange.author } },
       { timestamp: now(), user, source, action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id } },
