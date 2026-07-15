@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -18,6 +18,16 @@ import { GitBackend } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 
+// The backend shells out to git with this process's environment, so isolation
+// from the host's git config must live there too, not in per-call overrides —
+// as must the identity commits need, reaching every repo these tests create.
+process.env.GIT_CONFIG_GLOBAL = devNull;
+process.env.GIT_CONFIG_SYSTEM = devNull;
+process.env.GIT_AUTHOR_NAME = "test";
+process.env.GIT_AUTHOR_EMAIL = "test@example.com";
+process.env.GIT_COMMITTER_NAME = "test";
+process.env.GIT_COMMITTER_EMAIL = "test@example.com";
+
 let repo: string;
 
 async function git(...args: string[]): Promise<string> {
@@ -25,18 +35,7 @@ async function git(...args: string[]): Promise<string> {
 }
 
 async function gitIn(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, {
-    cwd,
-    env: {
-      ...process.env,
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_AUTHOR_NAME: "test",
-      GIT_AUTHOR_EMAIL: "test@example.com",
-      GIT_COMMITTER_NAME: "test",
-      GIT_COMMITTER_EMAIL: "test@example.com",
-    },
-  });
+  const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trimEnd();
 }
 
@@ -354,7 +353,6 @@ test("deleteLog deletes the log locally and on origin, tolerating a repeat", asy
   const { dir, origin } = await makeRemotePair();
   try {
     const backend = await GitBackend.open(dir);
-    await gitIn(dir, "config", "user.email", "alice@example.com");
     await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
     await backend.appendLog(parseRefName("widgets"), [
       logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("main") }),
