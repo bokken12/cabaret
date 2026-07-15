@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cabaret-util": "workspace:*",
+    "patdiff": "workspace:*",
     "picomatch": "^4.0.5",
     "zod": "^4.4.3"
   },

@@ -17,6 +17,7 @@ import {
   remainingSpans,
   type UserName,
 } from "./backend.js";
+import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
 
 /** A change and the changes parented on it. */
@@ -212,7 +213,8 @@ function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedT
  * reviewed past; a review the spans cannot place (its base moved, or its tip
  * was rewritten out of the history) puts the file's stale knowledge in its
  * earliest round's view, and later rounds assume the earlier ones get
- * recorded.
+ * recorded. When that view renders empty — the rebase carried the reviewed
+ * change cleanly — the file is not due in the round at all.
  */
 export async function reviewRounds(
   backend: Backend,
@@ -281,9 +283,35 @@ export async function reviewRounds(
           : reviewed.base !== base
             ? { kind: "rebased", reviewed }
             : { kind: "rewritten", from: reviewed.tip };
-      round.files.set(file, view);
       first = false;
+      if (view.kind !== "span" && (await carriedCleanly(backend, file, view, base, round.end))) {
+        continue;
+      }
+      round.files.set(file, view);
     }
   }
   return rounds.filter(({ files }) => files.size > 0).map(({ end, files }) => ({ end, files }));
+}
+
+/**
+ * Whether an unplaceable review leaves nothing to read up to `end`: the
+ * rebase or rewrite carried the reviewed change cleanly, so `file`'s view
+ * would render empty and the reviewer's recorded knowledge already covers
+ * the round.
+ */
+async function carriedCleanly(
+  backend: Backend,
+  file: FilePath,
+  view: Extract<FileView, { kind: "rebased" | "rewritten" }>,
+  base: CommitHash,
+  end: CommitHash,
+): Promise<boolean> {
+  let resolved: DiffView;
+  if (view.kind === "rebased") {
+    resolved = await rebasedView(backend, file, view.reviewed, base, end);
+  } else {
+    const [prev, next] = await Promise.all([backend.readFile(view.from, file), backend.readFile(end, file)]);
+    resolved = { kind: "two", prev, next };
+  }
+  return diffViewEmpty(file, resolved);
 }
