@@ -349,13 +349,6 @@ export interface Backend {
   isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean>;
 
   /**
-   * Rebase branch `change` onto `onto`, replaying only the commits after
-   * `from`, as `git rebase --onto`. Checks out `change` as a side effect. On
-   * conflict the rebase is left in progress for the user to resolve with git.
-   */
-  rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void>;
-
-  /**
    * Merge `onto` into branch `change`: a content merge of the change's tip
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge

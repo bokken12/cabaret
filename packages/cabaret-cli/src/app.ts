@@ -852,12 +852,10 @@ const rebase = buildCommand({
   docs: {
     brief: "Move a change onto its parent's tip",
     fullDescription:
-      "Move a change onto its parent's tip, then record the new base in the " +
-      "log. The parent's tip is merged into the change; with git config " +
-      "cabaret.rebaseMethod rebase, the change's own commits are instead " +
-      "replayed onto it (`git rebase --onto`). Only the change's owner may " +
-      "rebase it. A range `ancestor..descendant` rebases every change after " +
-      "`ancestor` on `descendant`'s parent chain, ancestormost first, " +
+      "Move a change onto its parent's tip by merging the tip into the " +
+      "change, then record the new base in the log. Only the change's owner " +
+      "may rebase it. A range `ancestor..descendant` rebases every change " +
+      "after `ancestor` on `descendant`'s parent chain, ancestormost first, " +
       "skipping changes that have landed; when one fails, the rebases before " +
       "it stand, and rerunning the range resumes.",
   },
@@ -877,21 +875,13 @@ const rebase = buildCommand({
   },
   async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
     const backend = await this.backend();
-    const { rebaseMethod } = await readConfig(backend);
     if (spec === undefined || spec.kind === "one") {
       const target = spec?.change ?? (await backend.currentBranch());
-      await rebaseChange(
-        backend,
-        this.now,
-        target,
-        await backend.readLog(target),
-        rebaseMethod,
-        flags.evenThoughNotOwner,
-      );
+      await rebaseChange(backend, this.now, target, await backend.readLog(target), flags.evenThoughNotOwner);
       return;
     }
     const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
-    await rebaseChain(backend, this.now, chain, rebaseMethod, flags.evenThoughNotOwner);
+    await rebaseChain(backend, this.now, chain, flags.evenThoughNotOwner);
   },
 });
 

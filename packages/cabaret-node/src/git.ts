@@ -636,15 +636,6 @@ export class GitBackend implements Backend {
     }
   }
 
-  async rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void> {
-    // --end-of-options keeps a change name that starts with `-` from being
-    // parsed as a flag; `onto` and `from` are hashes, so they need no guard.
-    // TODO: a conflict surfaces as this call's raw rejection — a stack trace
-    // wrapping git's output — even though it is a normal user flow; pass
-    // git's own conflict report through cleanly instead.
-    await git(this.root, ["rebase", "--onto", onto, from, "--end-of-options", change]);
-  }
-
   merge(into: RefName, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
     return this.commitLand(into, onto, tip, message, ["-p", onto, "-p", tip]);
   }

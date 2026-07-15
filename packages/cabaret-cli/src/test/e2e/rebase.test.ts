@@ -49,7 +49,7 @@ test("a parent rewrite stays out of the child's diff until it rebases", async ()
   `);
 });
 
-test("rebase merges the parent's tip in by default and records the new base", async () => {
+test("rebase merges the parent's tip in and records the new base", async () => {
   const repo = await makeStack();
   await amendParent(repo);
   const newBase = await repo.git("rev-parse", "parent");
@@ -79,7 +79,7 @@ test("rebase merges the parent's tip in by default and records the new base", as
   `);
 });
 
-test("a merge rebase conflict fails without moving the branch or the log", async () => {
+test("a rebase conflict fails without moving the branch or the log", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");
   await repo.git("checkout", "-q", "parent");
@@ -102,7 +102,7 @@ test("a merge rebase conflict fails without moving the branch or the log", async
   expect(await repo.cabaret("log", "child")).toEqual(logBefore);
 });
 
-test("a merge rebase fast-forwards a change with no commits of its own", async () => {
+test("rebase fast-forwards a change with no commits of its own", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature");
   await repo.git("checkout", "-q", "main");
@@ -114,7 +114,7 @@ test("a merge rebase fast-forwards a change with no commits of its own", async (
   expect(await repo.git("log", "--format=%s", "feature")).toBe("trunk work\nroot");
 });
 
-test("a change lands cleanly after a merge rebase", async () => {
+test("a change lands cleanly after a rebase", async () => {
   const repo = await makeRepo();
   await addChange(repo, "feature");
   await repo.git("checkout", "-q", "main");
@@ -126,32 +126,6 @@ test("a change lands cleanly after a merge rebase", async () => {
   expect(await repo.cabaret("land", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "main:feature.txt")).toBe("feature work");
   expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
-});
-
-test("rebase replays only the child's commits with rebase-method rebase", async () => {
-  const repo = await makeStack();
-  await repo.cabaret("config", "rebase-method", "rebase");
-  const oldBase = await repo.git("rev-parse", "parent");
-  await amendParent(repo);
-  const newBase = await repo.git("rev-parse", "parent");
-  await repo.git("checkout", "-q", "child");
-  expect(await repo.cabaret("rebase")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.git("log", "--format=%s", "child")).toBe("child work\nparent work, amended\nroot");
-  expect(await repo.git("show", "child:parent.txt")).toBe("parent v2");
-  expect(await repo.cabaret("log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"${newBase}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("diff", "--change", "child", "parent.txt")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
 });
 
 test("rebase is a no-op when the change already sits on the parent's tip", async () => {
@@ -196,28 +170,6 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   });
 });
 
-test("a replay rebase stops on conflict without recording a base", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("config", "rebase-method", "rebase");
-  await repo.cabaret("create", "parent");
-  await repo.git("checkout", "-q", "parent");
-  await repo.write("shared.txt", "from parent\n");
-  await repo.git("add", "-A");
-  await repo.git("commit", "-qm", "parent work");
-  await repo.cabaret("create", "child");
-  await repo.git("checkout", "-q", "child");
-  await repo.write("shared.txt", "from child\n");
-  await repo.git("commit", "-qam", "child work");
-  const before = await repo.cabaret("log", "child");
-  await repo.git("checkout", "-q", "parent");
-  await repo.write("shared.txt", "from parent, amended\n");
-  await repo.git("commit", "-qa", "--amend", "-m", "parent work, amended");
-  const result = await repo.cabaret("rebase", "child");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git rebase");
-  expect(await repo.cabaret("log", "child")).toEqual(before);
-});
-
 test("rebase fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "orphan");
@@ -230,7 +182,6 @@ test("rebase fails on a change that does not exist", async () => {
 
 test("a range rebases each change onto its parent, ancestormost first", async () => {
   const repo = await makeRepo();
-  await repo.cabaret("config", "rebase-method", "rebase");
   const root = await repo.git("rev-parse", "main");
   await addChange(repo, "a");
   const aOld = await repo.git("rev-parse", "a");
@@ -243,9 +194,16 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   await repo.git("commit", "-qm", "trunk work");
   const mainNew = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\ntrunk work\nroot");
-  // Each change's recorded base is its parent's rebased tip.
+  expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
+    "Merge branch 'b' into c\nc work\nb work\na work\nroot",
+  );
+  // Each change merged its parent's merged tip, so the trunk's work reaches
+  // the top of the stack and nothing of the parent line is left in a diff.
   const [aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
+  expect(await repo.git("rev-parse", "c^2")).toBe(bNew);
+  expect(await repo.git("show", "c:trunk.txt")).toBe("trunk work");
+  expect(await repo.cabaret("diff", "--change", "c", "b.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("diff", "--change", "c", "trunk.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("log", "a")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
@@ -275,47 +233,34 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   });
 });
 
-test("a range of merge rebases chains each change onto its parent's merge", async () => {
-  const repo = await makeRepo();
-  await addChange(repo, "a");
-  await addChange(repo, "b");
-  await repo.git("checkout", "-q", "main");
-  await repo.write("trunk.txt", "trunk work\n");
-  await repo.git("add", "-A");
-  await repo.git("commit", "-qm", "trunk work");
-  expect(await repo.cabaret("rebase", "main..b")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  // Each change's recorded base is its parent's merged tip, so nothing of the
-  // parent line is left in its diff.
-  expect(await repo.git("rev-parse", "b^2")).toBe(await repo.git("rev-parse", "a"));
-  expect(await repo.git("show", "b:trunk.txt")).toBe("trunk work");
-  expect(await repo.cabaret("diff", "--change", "b", "a.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("diff", "--change", "b", "trunk.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-});
-
 test("a range stops at a conflict and a rerun resumes past it", async () => {
   const repo = await makeRepo();
-  await repo.cabaret("config", "rebase-method", "rebase");
   await addChange(repo, "a");
   await addChange(repo, "b");
   await addChange(repo, "c");
-  // The trunk claims b.txt too, so replaying b conflicts.
+  // The trunk claims b.txt too, so merging the trunk's work into b conflicts.
   await repo.git("checkout", "-q", "main");
   await repo.write("b.txt", "trunk version\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk claims b.txt");
   const result = await repo.cabaret("rebase", "main..c");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git rebase");
+  expect(result.stderr).toContain("git merge");
   // a made it onto the new trunk before the stop; c never moved.
-  expect(await repo.git("log", "--format=%s", "a")).toBe("a work\ntrunk claims b.txt\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Merge branch 'main' into a\na work\nroot");
   expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\nroot");
-  // Finish b's rebase with git, then rerun the range: a is already in place,
-  // b needs only its base pinned, and c replays.
+  // Finish b's merge with git, then rerun the range: a is already in place,
+  // b needs only its base pinned, and c merges.
+  await repo.git("checkout", "-q", "b");
+  await expect(repo.git("merge", "a")).rejects.toThrow();
   await repo.write("b.txt", "b work\n");
   await repo.git("add", "b.txt");
-  await repo.git("-c", "core.editor=true", "rebase", "--continue");
+  await repo.git("commit", "-qm", "Merge branch 'a' into b");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\ntrunk claims b.txt\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
+    "Merge branch 'b' into c\nc work\nb work\na work\nroot",
+  );
+  expect(await repo.git("show", "c:b.txt")).toBe("b work");
 });
 
 test("a range skips a landed change instead of failing", async () => {
