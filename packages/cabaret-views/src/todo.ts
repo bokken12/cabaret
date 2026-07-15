@@ -12,7 +12,7 @@ import {
   type Self,
   summarizeChange,
 } from "cabaret-core";
-import { type Doc, span } from "./doc.js";
+import { type Doc, layout, section, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
 /** A change to act on and the changes stacked on it. */
@@ -102,18 +102,18 @@ export function todoDoc(page: TodoPage): Doc {
     });
   };
   walk(page.owned, "", true);
-  return {
-    lines: [
-      ...table(
-        [
-          { header: "change", align: "left" },
-          { header: "review", align: "right" },
-        ],
-        page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
-      ),
-      { spans: [] },
+  return layout([
+    ...table(
+      [
+        { header: "change", align: "left" },
+        { header: "review", align: "right" },
+      ],
+      page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
+    ),
+    { spans: [] },
+    section(
       { spans: [span("Changes you own:", { style: "heading" })] },
-      ...table(
+      table(
         [
           { header: "change", align: "left" },
           { header: "review", align: "right" },
@@ -121,6 +121,6 @@ export function todoDoc(page: TodoPage): Doc {
         ],
         rows,
       ),
-    ],
-  };
+    ),
+  ]);
 }

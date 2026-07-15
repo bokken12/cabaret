@@ -1,6 +1,6 @@
 import { parseFilePath, parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
-import { type Doc, docText, span, targetAt } from "../index.js";
+import { type Doc, docText, type Line, layout, section, span, targetAt } from "../index.js";
 
 const change = { kind: "change", change: parseRefName("widgets") } as const;
 const location = { kind: "location", file: parseFilePath("api.ts"), line: 7 } as const;
@@ -12,6 +12,7 @@ const doc: Doc = {
     { spans: [span("plain text")] },
     { spans: [span("const x = 1;", { target: location, tier: "jump" })] },
   ],
+  folds: [],
 };
 
 test("targetAt resolves a line to its target of either tier, and a plain line to nothing", () => {
@@ -42,4 +43,29 @@ test("span refuses multi-line text", () => {
 
 test("span refuses a tier without a target", () => {
   expect(() => span("plain", { tier: "jump" })).toThrow("a span's tier qualifies its target; it cannot stand alone");
+});
+
+const line = (text: string): Line => ({ spans: [span(text)] });
+
+test("layout flattens nested sections and derives their folds", () => {
+  const laid = layout([
+    line("title"),
+    section(line("outer:"), [line("  a"), section(line("  inner:"), [line("    b")]), line("  c")]),
+    line("tail"),
+  ]);
+  expect(docText(laid)).toBe("title\nouter:\n  a\n  inner:\n    b\n  c\ntail");
+  // Each fold spans its whole section, the heading through the last line of
+  // the deepest descendant, ordered by start line.
+  expect(laid.folds).toEqual([
+    { start: 1, end: 5 },
+    { start: 3, end: 4 },
+  ]);
+});
+
+test("layout of bare lines has nothing to fold", () => {
+  expect(layout([line("a"), line("b")])).toEqual({ lines: [line("a"), line("b")], folds: [] });
+});
+
+test("section refuses an empty body", () => {
+  expect(() => section(line("bare:"), [])).toThrow("a section's body cannot be empty");
 });

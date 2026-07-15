@@ -34,7 +34,9 @@ What this gives up, knowingly:
 ## The model
 
 ```ts
-type Doc = { lines: Line[] };
+type Doc = { lines: Line[]; folds: Fold[] };     // the laid-out grid hosts consume
+type Node = Line | Section;                      // what views author; layout() derives the grid
+type Section = { heading: Line; body: Node[] };  // foldable down to its heading
 type Line = { spans: Span[] };
 type Span = { text: string; style?: Style; target?: Target };
 type Target =
@@ -46,7 +48,8 @@ type Target =
 - `targetAt(doc, line)` resolves the cursor's line to a target: selecting a line is the granularity a cursor should need, not a column within it. Hosts own their keymaps and dispatch on the target's `kind` — enter on a change's row opens its show page.
 - Views consume plain snapshots assembled from `Backend` queries and core derivations (`brain`, `reviewSpans`, ...); the snapshot type is the view's whole input.
 - Refresh re-queries and re-renders the whole doc. Docs are small; no diffing.
-- Presentation state (folding, filters), if any, is an explicit argument to the view function, never hidden inside it.
+- Folding is structure, not presentation state: sections declare it and `layout` derives each fold's line range, so folds cannot disagree with the structure they annotate. Unlike the retained component tree, the node tree is plain data laid out purely — no mutable ranges, no instance identity — and *which* folds are collapsed lives in the host's editor (VS Code's native folding), never in the view.
+- Other presentation state (filters, diff context), if any, is an explicit argument to the view function, never hidden inside it.
 
 ## Views
 

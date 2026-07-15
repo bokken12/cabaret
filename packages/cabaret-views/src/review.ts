@@ -18,7 +18,18 @@ import {
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
-import { type Doc, type Line, type Span, type Style, span, type Target, type TargetTier } from "./doc.js";
+import {
+  type Doc,
+  type Line,
+  layout,
+  type Node,
+  type Span,
+  type Style,
+  section,
+  span,
+  type Target,
+  type TargetTier,
+} from "./doc.js";
 
 /** The trailing note that `later` more rounds follow, or "" for the last round. */
 function moreRounds(later: number): string {
@@ -93,7 +104,7 @@ export function reviewDoc(page: ReviewPage): Doc {
   ];
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
-    return { lines };
+    return layout(lines);
   }
   lines.push(
     { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
@@ -102,7 +113,7 @@ export function reviewDoc(page: ReviewPage): Doc {
   for (const file of page.round.files) {
     lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
   }
-  return { lines };
+  return layout(lines);
 }
 
 /** What marking a file reviewed did, and where review continues. */
@@ -293,10 +304,10 @@ function unifiedLineSpans(
  * remains for lines whose both sides changed words, which need both versions
  * shown. Long-line splitting stays off — it would break the
  * line-per-source-line mapping structured hosts rely on. Consecutive hunks
- * would read as one run of code, so a styled header and a blank line mark
- * where each begins.
+ * would read as one run of code, so a blank line separates them and each is
+ * a section folding down to its styled header.
  */
-function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Line[] {
+function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Node[] {
   if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
     return view.prev === view.next ? [] : [{ spans: [span(`Binary versions of ${file} differ`)] }];
   }
@@ -309,10 +320,10 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
     prev: { name: file, text: view.prev ?? "" },
     next: { name: file, text: view.next ?? "" },
   });
-  const lines: Line[] = [];
+  const nodes: Node[] = [];
   for (const hunk of hunks) {
-    if (lines.length > 0) {
-      lines.push({ spans: [] });
+    if (nodes.length > 0) {
+      nodes.push({ spans: [] });
     }
     let at = hunk.nextStart;
     // Jump tier: a wall of clickable diff lines would drown the page's real
@@ -322,7 +333,8 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
       tier: "jump",
     });
     const header = `-${hunk.prevStart},${hunk.prevSize} +${hunk.nextStart},${hunk.nextSize}`;
-    lines.push({ spans: [span(header, { style: "hunk", ...jump() })] });
+    const heading: Line = { spans: [span(header, { style: "hunk", ...jump() })] };
+    const lines: Line[] = [];
     for (const range of hunk.ranges) {
       switch (range.kind) {
         case "same":
@@ -364,8 +376,9 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
           break;
       }
     }
+    nodes.push(section(heading, lines));
   }
-  return lines;
+  return nodes;
 }
 
 /**
@@ -377,6 +390,11 @@ function twoWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "two" }
  * tip. Hunk headers anchor without advancing. Unlike two-way lines, these
  * keep their sign marks: a ddiff line's stacked signs say more than one
  * style can express.
+ *
+ * TODO: fold each 4-way hunk to its header, as the two-way view does. The
+ * rendered lines arrive flat — patdiff4 would have to expose per-hunk line
+ * groups without disturbing its cross-hunk decoration (rev-name dedup,
+ * "Hunk i/n" labels).
  */
 function fourWayDiffLines(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Line[] {
   const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color: false, context });
@@ -410,24 +428,24 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   // read, so the page spends no more chrome on it than that.
   const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
   const title = `${page.file} in ${page.change}${round}`;
-  const lines: Line[] = [
+  const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },
   ];
   if (page.round === undefined) {
-    lines.push({ spans: [span("Nothing left to review.")] });
-    return { lines };
+    nodes.push({ spans: [span("Nothing left to review.")] });
+    return layout(nodes);
   }
   const view = page.round.view;
   const body =
-    view.kind === "two" ? twoWayDiffLines(page.file, view, context) : fourWayDiffLines(page.file, view, context);
+    view.kind === "two" ? twoWayDiffNodes(page.file, view, context) : fourWayDiffLines(page.file, view, context);
   if (body.length === 0) {
     // A due file's diff can still render empty — a tree diff lists changes
     // patdiff shows no hunks for, like a mode-only change; marking the file
     // reviewed is how the reviewer clears it.
-    lines.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
-    return { lines };
+    nodes.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
+    return layout(nodes);
   }
-  lines.push(...body);
-  return { lines };
+  nodes.push(...body);
+  return layout(nodes);
 }

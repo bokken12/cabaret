@@ -67,13 +67,17 @@ async function openForge(): Promise<Forge | undefined> {
  * Serves `cabaret:` documents, remembering each page's doc so cursor
  * positions hit-test against exactly what is on screen.
  */
-class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
+class PageProvider
+  implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
+{
   private readonly docs = new Map<string, Doc>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
   private readonly rendered = new vscode.EventEmitter<void>();
   /** Fires after a render lands in the cache, so editors repaint their decorations. */
   readonly onDidRender = this.rendered.event;
+  /** A render can reshape the sections, so folding re-queries follow it, as links do. */
+  readonly onDidChangeFoldingRanges = this.rendered.event;
 
   /**
    * Advertised links over exactly the spans that carry them. Each opens
@@ -99,6 +103,16 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
                 : `Open ${target.change}`;
           return link;
         });
+  }
+
+  /**
+   * The doc's sections as folding ranges, letting tab collapse the one at
+   * the cursor. A cache miss returns none and requests the render, as with
+   * links.
+   */
+  provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] | undefined {
+    const doc = this.renderedDoc(document.uri);
+    return doc?.folds.map(({ start, end }) => new vscode.FoldingRange(start, end, vscode.FoldingRangeKind.Region));
   }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -708,6 +722,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
+    vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, target)),
     // Rendering, the buffer taking a render's new text, and an editor coming
     // on screen each leave paint stale; all three repaint. The first often

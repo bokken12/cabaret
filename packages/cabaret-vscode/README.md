@@ -10,8 +10,9 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - **Cabaret: Todo** — open the todo page: what awaits your attention.
 - **Cabaret: Show Change** — open the current change's show page, picking
   one when no change is current.
-- In a cabaret buffer, `enter` opens the target under the cursor and `R`
-  re-renders the page. On a show page, `r` opens the change's review page,
+- In a cabaret buffer, `enter` opens the target under the cursor, `tab`
+  folds or unfolds the section at the cursor, and `R` re-renders the page.
+  On a show page, `r` opens the change's review page,
   `^` climbs to the parent's show page — or to the todo page from a change
   rooted on a trunk — and `$` descends to a child's, picking one when there
   are several. On the review page, `enter` opens the first file left to
@@ -23,8 +24,33 @@ text buffers, so search, selection, and vim keybindings work untouched.
   under the cursor (or the shown change) to it.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
+  `tab` alone needs a hand; see below.
 - With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f
   t` opens the todo page and `SPC a f s` shows the current change.
+
+## VSCodeVim and tab
+
+VSCodeVim also binds `tab` at the extension level, and when two extensions
+claim a key, which one wins is a load-ordering accident. The deterministic
+arrangement — the same one edamagit's setup uses — is to take the binding
+over in your own keybindings.json, since user bindings outrank every
+extension, and carve out the buffers that want `tab` for themselves:
+
+```jsonc
+{
+  "key": "tab",
+  "command": "-extension.vim_tab"
+},
+{
+  "key": "tab",
+  "command": "extension.vim_tab",
+  "when": "editorTextFocus && vim.active && !inDebugRepl && vim.mode != 'Insert' && resourceScheme != 'cabaret'"
+}
+```
+
+If you already carry this pair from edamagit's instructions, keep its
+`editorLangId != 'magit'` exclusion alongside and just add
+`&& resourceScheme != 'cabaret'` to the `when`.
 
 ## Installing
 

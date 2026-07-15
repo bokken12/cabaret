@@ -13,7 +13,7 @@ import {
   summarizeChange,
   type UserName,
 } from "cabaret-core";
-import { type Doc, type Line, type Span, span, type Target } from "./doc.js";
+import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
 import { table } from "./table.js";
 
 /** What the show page displays. */
@@ -82,49 +82,47 @@ function header(heading: Span, attributes: readonly (readonly [string, string])[
 }
 
 /** The files section, each row resolving to `target(file)` when one is given. */
-function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => Target): Line[] {
+function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => Target): Section | undefined {
   if (files.length === 0) {
-    return [];
+    return undefined;
   }
-  return [
-    { spans: [] },
+  return section(
     { spans: [span("Files to review:", { style: "heading" })] },
-    ...files.map((file) => ({
+    files.map((file) => ({
       spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
     })),
-  ];
+  );
 }
 
 /** The remaining review section: one tally row per reviewer with files left. */
-function remainingReview(remaining: readonly string[]): Line[] {
+function remainingReview(remaining: readonly string[]): Section | undefined {
   if (remaining.length === 0) {
-    return [];
+    return undefined;
   }
-  return [
-    { spans: [] },
+  return section(
     { spans: [span("Remaining review:", { style: "heading" })] },
-    ...remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
-  ];
+    remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
+  );
 }
 
 /** The comments section: each comment's time and author, then its indented text. */
-function commentsSection(comments: readonly ChangeComment[]): Line[] {
+function commentsSection(comments: readonly ChangeComment[]): Section | undefined {
   if (comments.length === 0) {
-    return [];
+    return undefined;
   }
-  const lines: Line[] = [{ spans: [] }, { spans: [span("Comments:", { style: "heading" })] }];
+  const body: Line[] = [];
   comments.forEach(({ timestamp, user, text }, index) => {
     // A blank line between comments, since consecutive comments would
     // otherwise run together.
     if (index > 0) {
-      lines.push({ spans: [] });
+      body.push({ spans: [] });
     }
-    lines.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`)] });
+    body.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`)] });
     for (const line of text.split("\n")) {
-      lines.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
+      body.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
     }
   });
-  return lines;
+  return section({ spans: [span("Comments:", { style: "heading" })] }, body);
 }
 
 export function showDoc(page: ShowPage): Doc {
@@ -150,12 +148,16 @@ export function showDoc(page: ShowPage): Doc {
   );
   // No target: the heading names the page itself.
   const heading = span(summary.change, { style: "heading" });
-  return {
-    lines: [
-      ...header(heading, attributes),
-      ...remainingReview(page.remaining),
-      ...commentsSection(page.comments),
-      ...filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
-    ],
-  };
+  const nodes: Node[] = header(heading, attributes);
+  // Each section stands off from what precedes it with a blank line.
+  for (const s of [
+    remainingReview(page.remaining),
+    commentsSection(page.comments),
+    filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
+  ]) {
+    if (s !== undefined) {
+      nodes.push({ spans: [] }, s);
+    }
+  }
+  return layout(nodes);
 }

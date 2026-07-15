@@ -210,6 +210,11 @@
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
+        "command": "editor.toggleFold",
+        "key": "tab",
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
         "command": "cabaret.refresh",
         "key": "shift+r",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"

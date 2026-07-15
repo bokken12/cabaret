@@ -10,6 +10,7 @@ test("styledRanges locates styled spans on the grid, keeping empty ones for whol
       { spans: [] },
       { spans: [span("", { style: "added" }), span("| "), span("gizmo", { style: "heading" }), span(" |")] },
     ],
+    folds: [],
   };
   expect(styledRanges(doc)).toEqual([
     { line: 0, start: 6, length: 16, style: "heading" },
@@ -19,7 +20,7 @@ test("styledRanges locates styled spans on the grid, keeping empty ones for whol
 });
 
 test("styledRanges of an unstyled doc is empty", () => {
-  expect(styledRanges({ lines: [{ spans: [span("plain")] }] })).toEqual([]);
+  expect(styledRanges({ lines: [{ spans: [span("plain")] }], folds: [] })).toEqual([]);
 });
 
 test("linkRanges locates advertised links, skipping jump targets and empty spans", () => {
@@ -32,6 +33,7 @@ test("linkRanges locates advertised links, skipping jump targets and empty spans
       { spans: [span("const x = 1;", { target: location, tier: "jump" })] },
       { spans: [span("| "), span("api.ts", { target: file }), span(" | 2 |"), span("", { target: change })] },
     ],
+    folds: [],
   };
   expect(linkRanges(doc)).toEqual([
     { line: 0, start: 3, length: 5, target: change },

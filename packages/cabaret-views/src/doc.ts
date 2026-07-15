@@ -34,9 +34,63 @@ export interface Line {
   readonly spans: readonly Span[];
 }
 
+/** A foldable region of a page: `heading` stays visible when folded, `body` folds away. */
+export interface Section {
+  readonly heading: Line;
+  readonly body: readonly Node[];
+}
+
+/** What pages are built from: plain lines, and sections, which may nest. */
+export type Node = Line | Section;
+
+function isSection(node: Node): node is Section {
+  return "heading" in node;
+}
+
+/** A run of lines a host may fold down to its first — a section's heading. */
+export interface Fold {
+  /** Zero-based line that stays visible when folded. */
+  readonly start: number;
+  /** Zero-based last line the fold hides. */
+  readonly end: number;
+}
+
 /** A rendered page: plain text in which every meaningful span knows what it denotes. */
 export interface Doc {
   readonly lines: readonly Line[];
+  /** Regions a host may offer to fold, ordered by start line. */
+  readonly folds: readonly Fold[];
+}
+
+/** Make a section; an empty body would give folding nothing to hide, so it is refused. */
+export function section(heading: Line, body: readonly Node[]): Section {
+  if (body.length === 0) {
+    throw new Error("a section's body cannot be empty");
+  }
+  return { heading, body };
+}
+
+/** Lay nodes out on the line grid, deriving each section's fold from its extent. */
+export function layout(nodes: readonly Node[]): Doc {
+  const lines: Line[] = [];
+  const folds: Fold[] = [];
+  const walk = (node: Node): void => {
+    if (!isSection(node)) {
+      lines.push(node);
+      return;
+    }
+    const start = lines.length;
+    lines.push(node.heading);
+    for (const child of node.body) {
+      walk(child);
+    }
+    folds.push({ start, end: lines.length - 1 });
+  };
+  for (const node of nodes) {
+    walk(node);
+  }
+  folds.sort((a, b) => a.start - b.start);
+  return { lines, folds };
 }
 
 /** Make a span; multi-line text would break line-to-target mapping, so it is refused. */
