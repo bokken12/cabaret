@@ -2,7 +2,6 @@ import {
   type Backend,
   type ChangeComment,
   type ChangeSummary,
-  type CommitHash,
   changeDiff,
   currentComments,
   type FilePath,
@@ -10,6 +9,7 @@ import {
   obligationStatuses,
   type RefName,
   reviewerSummary,
+  shortHash,
   summarizeChange,
   type UserName,
 } from "cabaret-core";
@@ -37,11 +37,6 @@ export async function showPage(backend: Backend, user: UserName, change: RefName
         )
       : [];
   return { summary, comments: await currentComments(entries), remaining };
-}
-
-/** Hashes display abbreviated; full hashes travel in targets, never prose. */
-function shortHash(hash: CommitHash): string {
-  return hash.slice(0, 12);
 }
 
 /** `value (note)`, or just `value` without a note. */
