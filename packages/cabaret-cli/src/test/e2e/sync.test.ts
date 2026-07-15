@@ -25,7 +25,8 @@ test("sync carries a change's log to a fresh machine verbatim", async () => {
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      `{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt","base":"${root}","tip":"${tip}"}}\n`,
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"owner"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt","base":"${root}","tip":"${tip}"}}\n`,
     stderr: "",
     exitCode: 0,
   };
@@ -51,7 +52,7 @@ test("concurrent work on two machines merges into one identical log", async () =
   const aliceLog = await alice.cabaret("log", "widgets");
   expect(await bob.cabaret("log", "widgets")).toEqual(aliceLog);
   expect(await shownComments(alice, "widgets")).toBe(
-    "Comments:\n  2025-05-23T11:33:20.003Z alice@example.com\n    does this handle empty diffs?\n\n" +
+    "Comments:\n  2025-05-23T11:33:20.004Z alice@example.com\n    does this handle empty diffs?\n\n" +
       "  2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",
   );
 });

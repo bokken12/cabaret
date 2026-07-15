@@ -5,6 +5,7 @@ import {
   currentForgeChange,
   currentParent,
   currentReviewers,
+  currentReviewing,
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
@@ -17,7 +18,9 @@ import {
   landTrailer,
   observedForgeParent,
   observedForgeReviewers,
+  observedForgeReviewing,
   type RefName,
+  type Reviewing,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
@@ -68,11 +71,14 @@ export interface Forge {
 
   getChange(id: ForgeChangeId): Promise<ForgeChange>;
 
-  /** Open a change merging `head` into `parent`. `head` must already be pushed. */
-  createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange>;
+  /** Open a change merging `head` into `parent`, as a draft when `draft`. `head` must already be pushed. */
+  createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange>;
 
   /** Retarget an open change's parent branch. */
   setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
+
+  /** Mark an open change as a draft, or as ready for review. */
+  setDraft(id: ForgeChangeId, draft: boolean): Promise<void>;
 
   /**
    * Land an open change by merging it into its parent branch, the new commit's
@@ -308,6 +314,68 @@ export function planReviewerPush(
   };
 }
 
+/** One reviewing entry stamped with the forge as its source: a mirror of the forge's draft boundary, and the observation of it. */
+function reviewingObservation(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  reviewing: Reviewing,
+): LogEntry {
+  return {
+    timestamp: now(),
+    user,
+    source: { forge },
+    action: { kind: "set-reviewing", reviewing },
+  };
+}
+
+/**
+ * The entry mirroring the forge's draft state into the log, when the forge
+ * crossed the draft boundary since last observed. A forge expresses reviewing
+ * only as that boolean, so a draft mirrors in as "none" and a change marked
+ * ready as "everyone" — the forge-faithful reading, under which obligations
+ * alone decide who is asked. Comparing against the observation, never local
+ * state, is what keeps a local `set-reviewing` awaiting its push from being
+ * overridden; a forge never observed mirrors nothing, and a push settles the
+ * sides.
+ */
+export function planReviewingPull(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  draft: boolean,
+): readonly LogEntry[] {
+  const observed = observedForgeReviewing(entries, forge);
+  if (observed === undefined || (observed === "none") === draft) {
+    return [];
+  }
+  return [reviewingObservation(now, user, forge, draft ? "none" : "everyone")];
+}
+
+/**
+ * What a push must do to the forge's draft state, given a log that has
+ * already absorbed `planReviewingPull`'s mirror: with observation and forge
+ * agreeing, any draft-boundary difference left between the log's reviewing
+ * set and the forge is local intent. `draft` is the state to set, when one
+ * must be; `observations` record the state that request leaves the forge in —
+ * the local reviewing set, whose boundary the forge now agrees with — so the
+ * next pull does not mirror this push back.
+ */
+export function planReviewingPush(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  draft: boolean,
+): { readonly draft?: boolean | undefined; readonly observations: readonly LogEntry[] } {
+  const local = currentReviewing(entries);
+  if ((local === "none") === draft) {
+    return { observations: [] };
+  }
+  return { draft: local === "none", observations: [reviewingObservation(now, user, forge, local)] };
+}
+
 /**
  * The land entry a merged `forgeChange` implies, or undefined when `entries`
  * already record one: however the merge is observed, it means the change
@@ -336,9 +404,10 @@ export function observedLand(
 
 /**
  * The entries adopting `forgeChange` as `change`'s forge change: the
- * `set-forge`, plus a baseline parent observation when the two sides already
- * agree — so a later forge-side retarget is seen as one. Disagreeing parents
- * record no observation; a push or a later pull settles them.
+ * `set-forge`, plus a baseline observation of each attribute on which the two
+ * sides already agree — the parent, and the reviewing set's draft boundary —
+ * so a later forge-side move is seen as one. Disagreeing attributes record no
+ * observation; a push or a later pull settles them.
  */
 function adoptionEntries(
   now: () => TimestampMs,
@@ -363,6 +432,10 @@ function adoptionEntries(
       source: { forge: locator },
       action: { kind: "set-parent", parent: forgeChange.parent },
     });
+  }
+  const reviewing = currentReviewing(entries);
+  if ((reviewing === "none") === forgeChange.draft) {
+    adoption.push(reviewingObservation(now, user, locator, reviewing));
   }
   return adoption;
 }
@@ -494,6 +567,8 @@ export type PullEvent =
       readonly landed: boolean;
       /** The parent a forge-side retarget mirrored in, when one did. */
       readonly parent?: RefName | undefined;
+      /** The reviewing set a forge-side draft toggle mirrored in, when one did. */
+      readonly reviewing?: Reviewing | undefined;
     }
   | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: RefName };
 
@@ -503,9 +578,10 @@ export type PullEvent =
  * merged forge change implies, and a forge-side retarget as an observed
  * `set-parent`. Only a forge parent that moved since last observed mirrors
  * in, so a local reparent awaiting a push is never overridden — and a
- * forge-side reviewer change as mirrored add/remove entries, on the same
- * observation principle. `comments` spares the `listComments` call when the
- * caller already holds the full discussion.
+ * forge-side reviewer change as mirrored add/remove entries, and a forge-side
+ * draft toggle as a mirrored `set-reviewing`, on the same observation
+ * principle. `comments` spares the `listComments` call when the caller
+ * already holds the full discussion.
  */
 export async function pullTrackedChange(
   backend: Backend,
@@ -520,6 +596,7 @@ export async function pullTrackedChange(
   readonly reviewers: number;
   readonly landed: boolean;
   readonly parent?: RefName | undefined;
+  readonly reviewing?: Reviewing | undefined;
 }> {
   const user = await backend.currentUser();
   const additions = [
@@ -544,14 +621,19 @@ export async function pullTrackedChange(
   const mirrored =
     forgeChange.state === "open" ? planReviewerPull(now, user, forge.locator, entries, forgeChange.reviewers) : [];
   additions.push(...mirrored);
+  const reviewing =
+    forgeChange.state === "open" ? planReviewingPull(now, user, forge.locator, entries, forgeChange.draft) : [];
+  additions.push(...reviewing);
   if (additions.length > 0) {
     await backend.appendLog(change, additions);
   }
+  const mirroredReviewing = reviewing[0]?.action;
   return {
     comments: additions.filter(({ action }) => action.kind === "comment").length,
     reviewers: mirrored.length,
     landed: landing !== undefined,
     ...(retargeted ? { parent: forgeChange.parent } : {}),
+    ...(mirroredReviewing?.kind === "set-reviewing" ? { reviewing: mirroredReviewing.reviewing } : {}),
   };
 }
 
@@ -644,6 +726,10 @@ export async function pullForge(
       },
       { timestamp: now(), user, source, action: { kind: "set-owner", owner: forgeChange.author } },
       { timestamp: now(), user, source, action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id } },
+      // The forge's draft boundary, read the forge-faithful way — a draft is
+      // not ready for anyone, a ready change is open to everyone — and the
+      // baseline later pulls compare the forge against.
+      reviewingObservation(now, user, forge.locator, forgeChange.draft ? "none" : "everyone"),
       ...planReviewerPull(now, user, forge.locator, [], forgeChange.reviewers),
       ...(await planPull(forge.locator, [], full)),
     ];
@@ -718,13 +804,15 @@ export interface PushResult {
   readonly reviewers: number;
   /** How many comments the push posted. */
   readonly comments: number;
+  /** The draft state the push set on the forge, when it set one. */
+  readonly draft?: boolean | undefined;
 }
 
 /**
  * Push `change`'s activity to the forge: push its branch, open its forge
- * change if there is none (merging into the change's parent), retarget it to
- * the parent, sync reviewers both ways, and post the change's comments the
- * forge lacks.
+ * change if there is none (merging into the change's parent, a draft when
+ * nobody is reviewing), retarget it to the parent, sync reviewers and the
+ * draft boundary both ways, and post the change's comments the forge lacks.
  */
 export async function pushChange(
   backend: Backend,
@@ -747,7 +835,7 @@ export async function pushChange(
   let forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
-    forgeChange = await forge.createChange(change, parent, change);
+    forgeChange = await forge.createChange(change, parent, change, currentReviewing(entries) === "none");
     await backend.appendLog(change, [
       {
         timestamp: now(),
@@ -756,16 +844,21 @@ export async function pushChange(
         action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
       },
       await observation(),
+      // The creation set the forge's draft boundary to the local reviewing
+      // set's; recorded so a later pull can tell a forge-side toggle from
+      // the state this push left behind.
+      reviewingObservation(now, await backend.currentUser(), forge.locator, currentReviewing(entries)),
     ]);
   } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
     await forge.setParent(forgeChange.id, parent);
     await backend.appendLog(change, [await observation()]);
   }
   let reviewers = 0;
+  let draft: boolean | undefined;
   if (forgeChange.state === "open") {
     const user = await backend.currentUser();
-    // Absorb forge-side reviewer changes first, so what remains between the
-    // log and the forge is exactly this side's intent.
+    // Absorb forge-side reviewer and draft changes first, so what remains
+    // between the log and the forge is exactly this side's intent.
     const current = await backend.readLog(change);
     const mirrored = planReviewerPull(now, user, forge.locator, current, forgeChange.reviewers);
     const plan = planReviewerPush(now, user, forge.locator, [...current, ...mirrored], forgeChange.reviewers);
@@ -773,7 +866,19 @@ export async function pushChange(
     if (reviewers > 0) {
       await forge.setReviewers(forgeChange.id, plan.add, plan.remove);
     }
-    const additions = [...mirrored, ...plan.observations];
+    const reviewingMirror = planReviewingPull(now, user, forge.locator, current, forgeChange.draft);
+    const reviewingPlan = planReviewingPush(
+      now,
+      user,
+      forge.locator,
+      [...current, ...reviewingMirror],
+      forgeChange.draft,
+    );
+    draft = reviewingPlan.draft;
+    if (draft !== undefined) {
+      await forge.setDraft(forgeChange.id, draft);
+    }
+    const additions = [...mirrored, ...plan.observations, ...reviewingMirror, ...reviewingPlan.observations];
     if (additions.length > 0) {
       await backend.appendLog(change, additions);
     }
@@ -783,7 +888,7 @@ export async function pushChange(
     await forge.addComment(forgeChange.id, body);
   }
   await backend.syncLog(change);
-  return { id: forgeChange.id, opened, reviewers, comments: bodies.length };
+  return { id: forgeChange.id, opened, reviewers, comments: bodies.length, ...(draft === undefined ? {} : { draft }) };
 }
 
 /** One comment as displayed: the latest version of its group. */

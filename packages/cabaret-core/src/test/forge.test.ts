@@ -10,6 +10,9 @@ import {
   planPush,
   planReviewerPull,
   planReviewerPush,
+  planReviewingPull,
+  planReviewingPush,
+  type Reviewing,
   type TimestampMs,
   timestampMs,
   type UserName,
@@ -173,6 +176,49 @@ test("planReviewerPush pushes exactly local intent once the mirror has been abso
     observations: [],
   });
   expect(planReviewerPull(testClock(), alice, FORGE, settled, [carol])).toEqual([]);
+});
+
+function reviewingEntry(timestamp: number, reviewing: Reviewing, observed = false) {
+  return {
+    timestamp: timestampMs(timestamp),
+    user: alice,
+    ...(observed ? { source: { forge: FORGE } } : {}),
+    action: { kind: "set-reviewing" as const, reviewing },
+  };
+}
+
+test("planReviewingPull mirrors a forge draft toggle, and only a toggle since last observed", () => {
+  // Observed ready; the forge was converted to a draft since.
+  const observed = [reviewingEntry(1750000000000, "everyone", true)];
+  expect(planReviewingPull(testClock(), alice, FORGE, observed, true)).toEqual([
+    reviewingEntry(1750000000000, "none", true),
+  ]);
+  // The forge still agreeing with the observation mirrors nothing, whatever
+  // local narrowing is pending.
+  const narrowed = [...observed, reviewingEntry(1750000000001, "owner")];
+  expect(planReviewingPull(testClock(), alice, FORGE, narrowed, false)).toEqual([]);
+  // A draft marked ready mirrors in as everyone: the forge-faithful reading.
+  const draft = [reviewingEntry(1750000000000, "none", true)];
+  expect(planReviewingPull(testClock(), alice, FORGE, draft, false)).toEqual([
+    reviewingEntry(1750000000000, "everyone", true),
+  ]);
+  // A forge never observed mirrors nothing; a push settles the sides.
+  expect(planReviewingPull(testClock(), alice, FORGE, [], true)).toEqual([]);
+});
+
+test("planReviewingPush pushes the local draft boundary and records the observation", () => {
+  // Local narrowed to none; the forge still shows ready.
+  const entries = [reviewingEntry(1750000000000, "everyone", true), reviewingEntry(1750000000001, "none")];
+  const plan = planReviewingPush(testClock(), alice, FORGE, entries, false);
+  expect(plan).toEqual({ draft: true, observations: [reviewingEntry(1750000000000, "none", true)] });
+  // The observation settles the push: planning again moves nothing, and the
+  // next pull mirrors nothing back.
+  const settled = [...entries, ...plan.observations];
+  expect(planReviewingPush(testClock(), alice, FORGE, settled, true)).toEqual({ observations: [] });
+  expect(planReviewingPull(testClock(), alice, FORGE, settled, true)).toEqual([]);
+  // Widening within ready never touches the forge: the boundary agrees.
+  const widened = [reviewingEntry(1750000000000, "owner")];
+  expect(planReviewingPush(testClock(), alice, FORGE, widened, false)).toEqual({ observations: [] });
 });
 
 const forgeUsers = () =>

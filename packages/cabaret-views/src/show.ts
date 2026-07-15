@@ -135,6 +135,9 @@ export function showDoc(page: ShowPage): Doc {
   if (summary.reviewers.length > 0) {
     attributes.push(["reviewers", summary.reviewers.join(", ")]);
   }
+  if (summary.landed === undefined) {
+    attributes.push(["reviewing", summary.reviewing]);
+  }
   attributes.push(["parent", noted(summary.parent, summary.deadParent && PARENT_NOTES[summary.deadParent])]);
   if (summary.forgeChange !== undefined) {
     attributes.push(["forge change", `${summary.forgeChange.forge}#${summary.forgeChange.id}`]);

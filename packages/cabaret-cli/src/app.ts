@@ -17,6 +17,7 @@ import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
 import { reviewers } from "./commands/reviewers.js";
+import { reviewing, widen } from "./commands/reviewing.js";
 import { setOwner } from "./commands/set-owner.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
@@ -57,12 +58,14 @@ const routes = buildRouteMap({
     reparent,
     review,
     reviewers,
+    reviewing,
     "set-owner": setOwner,
     setup,
     show,
     sync,
     todo,
     todos,
+    widen,
   },
 });
 

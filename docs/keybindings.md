@@ -87,6 +87,8 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 | `P`     | push the change to the forge                    | all          |
 | `! l a` | land                                            | all          |
 | `! o`   | set owner                                       | all but diff |
+| `! v`   | widen reviewing                                 | all but diff |
+| `! d`   | disable reviewing (set it to none)              | all but diff |
 | `! r n` | rename                                          | all but diff |
 | `! r p` | reparent                                        | all but diff |
 | `! r b` | rebase                                          | all but diff |

@@ -19,12 +19,14 @@ import {
   reparentChange,
   resolveChain,
   reviewerSummary,
+  setReviewing,
   type TimestampMs,
   timestampMs,
   transferChange,
   UnsatisfiedObligationsError,
   UserError,
   userName,
+  widenReviewing,
 } from "cabaret-core";
 import {
   applySetup,
@@ -961,6 +963,25 @@ export function activate(context: vscode.ExtensionContext): void {
             transferChange(backend, now, change, userName(raw), override),
           );
         }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.widenReviewing", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "widen reviewing of");
+        if (change === undefined) {
+          return;
+        }
+        const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+        vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.disableReviewing", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "disable reviewing of");
+        if (change === undefined) {
+          return;
+        }
+        await setReviewing(backend, now, change, await backend.readLog(change), "none");
       }),
     ),
     vscode.commands.registerCommand("cabaret.createChild", () =>

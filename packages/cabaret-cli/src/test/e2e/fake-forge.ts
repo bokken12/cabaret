@@ -33,6 +33,7 @@ interface FakePr {
   readonly title: string;
   readonly login: string;
   state: "open" | "closed" | "merged";
+  draft: boolean;
   merge?: ForgeMerge;
   /** The head that merged; the live branch tip until then. */
   tip?: CommitHash;
@@ -126,12 +127,16 @@ export class FakeForge implements Forge {
     return this.toChange(id, this.pr(id));
   }
 
-  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
-    return this.getChange(this.openPr(this.tokenLogin, head, parent, title));
+  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
+    return this.getChange(this.openPr(this.tokenLogin, head, parent, title, draft));
   }
 
   async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
     this.pr(id).base = parent;
+  }
+
+  async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
+    this.pr(id).draft = draft;
   }
 
   async landChange(
@@ -187,7 +192,7 @@ export class FakeForge implements Forge {
   }
 
   /** A PR opened on the forge by `login`; returns its number. */
-  openPr(login: string, head: RefName, base: RefName, title: string): ForgeChangeId {
+  openPr(login: string, head: RefName, base: RefName, title: string, draft = false): ForgeChangeId {
     const id = forgeChangeId(this.prs.size + 1);
     this.prs.set(id, {
       head,
@@ -195,11 +200,17 @@ export class FakeForge implements Forge {
       title,
       login,
       state: "open",
+      draft,
       comments: [],
       requested: new Set(),
       reviewed: new Set(),
     });
     return id;
+  }
+
+  /** The draft toggle, clicked on the forge by a teammate. */
+  toggleDraft(id: ForgeChangeId, draft: boolean): void {
+    this.pr(id).draft = draft;
   }
 
   /** Review requested from `login` on the forge, as by a teammate. */
@@ -265,6 +276,7 @@ export class FakeForge implements Forge {
       title: pr.title,
       author: loginIdentity(pr.login),
       state: pr.state,
+      draft: pr.draft,
       reviewers: [...new Set([...pr.requested, ...pr.reviewed])].sort().map(loginIdentity),
       ...(pr.merge === undefined ? {} : { merge: pr.merge }),
     };

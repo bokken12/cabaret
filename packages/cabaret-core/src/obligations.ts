@@ -4,10 +4,13 @@ import {
   type Backend,
   type ChangeDiff,
   type CommitHash,
+  currentOwner,
   currentReviewers,
+  currentReviewing,
   type FilePath,
   type LogEntry,
   parseFilePath,
+  type RefName,
   type UserName,
   userName,
 } from "./backend.js";
@@ -156,6 +159,28 @@ export async function changeObligations(
     }
   }
   return obligations;
+}
+
+/**
+ * Whether any of `self`'s identities is currently asked to review `change`.
+ * The reviewing set gates what todos ask of people, never what landing
+ * requires: an obligation only someone outside the set can satisfy still
+ * blocks the land, which is what forces widening.
+ */
+export function isReviewing(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+  switch (currentReviewing(entries)) {
+    case "none":
+      return false;
+    case "owner":
+      return isSelf(self, currentOwner(change, entries));
+    case "reviewers":
+      return (
+        isSelf(self, currentOwner(change, entries)) ||
+        currentReviewers(entries).some((reviewer) => isSelf(self, reviewer))
+      );
+    case "everyone":
+      return true;
+  }
 }
 
 /** An obligation and the reviews counting toward it. */

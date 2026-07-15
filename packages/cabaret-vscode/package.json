@@ -127,6 +127,14 @@
         "title": "Cabaret: Set Owner"
       },
       {
+        "command": "cabaret.widenReviewing",
+        "title": "Cabaret: Widen Reviewing"
+      },
+      {
+        "command": "cabaret.disableReviewing",
+        "title": "Cabaret: Disable Reviewing"
+      },
+      {
         "command": "cabaret.createChild",
         "title": "Cabaret: Create Child"
       },
@@ -191,6 +199,14 @@
         },
         {
           "command": "cabaret.setOwner",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.widenReviewing",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.disableReviewing",
           "when": "resourceScheme == cabaret"
         },
         {
@@ -286,6 +302,16 @@
       {
         "command": "cabaret.setOwner",
         "key": "shift+1 o",
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.widenReviewing",
+        "key": "shift+1 v",
+        "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.disableReviewing",
+        "key": "shift+1 d",
         "when": "editorTextFocus && resourceScheme == cabaret && cabaret.page != 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {

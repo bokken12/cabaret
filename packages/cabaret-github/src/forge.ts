@@ -35,12 +35,14 @@ const NOREPLY = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/;
 // A reviewer who has submitted a review drops out of `reviewRequests`, so the
 // reviewer set is that union'd with `latestReviews` authors.
 const PR_FIELDS =
-  "number headRefName headRefOid baseRefName title author { login } state " +
+  "id number headRefName headRefOid baseRefName title author { login } state isDraft " +
   "mergeCommit { oid parents { totalCount } } " +
   "reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } } " +
   "latestReviews(first: 100) { nodes { author { login } } }";
 
 const PrSchema = z.object({
+  // The GraphQL node id, which the draft mutations address PRs by.
+  id: z.string(),
   number: z.number().transform(forgeChangeId),
   headRefName: z.string().transform(parseRefName),
   headRefOid: z.string().transform(parseCommitHash),
@@ -49,6 +51,7 @@ const PrSchema = z.object({
   // A deleted account's PR has no author; REST's "ghost" stands in.
   author: z.object({ login: z.string() }).nullable(),
   state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+  isDraft: z.boolean(),
   mergeCommit: z
     .object({
       oid: z.string().transform(parseCommitHash),
@@ -213,6 +216,7 @@ export class GitHubForge implements Forge {
       title: pr.title,
       author: await this.identity(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
+      draft: pr.isDraft,
       reviewers: reviewers.sort(),
       ...(pr.mergeCommit === null
         ? {}
@@ -267,7 +271,7 @@ export class GitHubForge implements Forge {
     return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createChange(head: RefName, parent: RefName, title: string): Promise<ForgeChange> {
+  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch —
     // reuses the one query that maps a PR.
@@ -277,6 +281,7 @@ export class GitHubForge implements Forge {
       head,
       base: parent,
       body: "",
+      draft,
     });
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }
@@ -287,6 +292,22 @@ export class GitHubForge implements Forge {
       pull_number: id,
       base: parent,
     });
+  }
+
+  async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
+    // REST cannot toggle draft state; only the GraphQL mutations can, and
+    // they address the PR by node id, so it is looked up first.
+    const out = await this.client.graphql(GET_PR, { ...this.repo, number: id });
+    const pr = GetPrSchema.parse(out).repository.pullRequest;
+    if (pr.isDraft === draft) {
+      return;
+    }
+    await this.client.graphql(
+      draft
+        ? "mutation ($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { clientMutationId } }"
+        : "mutation ($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }",
+      { id: pr.id },
+    );
   }
 
   async landChange(

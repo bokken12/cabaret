@@ -35,6 +35,11 @@ export const push = buildCommand({
         `updated ${pushed.reviewers} reviewer${pushed.reviewers === 1 ? "" : "s"} on ${forge.locator}#${pushed.id}\n`,
       );
     }
+    if (pushed.draft !== undefined) {
+      this.process.stdout.write(
+        `marked ${forge.locator}#${pushed.id} ${pushed.draft ? "draft" : "ready for review"}\n`,
+      );
+    }
     this.process.stdout.write(
       `pushed ${pushed.comments} comment${pushed.comments === 1 ? "" : "s"} to ${forge.locator}#${pushed.id}\n`,
     );

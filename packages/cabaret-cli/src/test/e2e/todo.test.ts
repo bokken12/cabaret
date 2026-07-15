@@ -256,6 +256,8 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await requireReviewers(repo, "alice@example.com", "bob@example.com");
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
+  // Obligations only reach todos once the reviewing set includes their users.
+  await repo.cabaret("reviewing", "everyone");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "╭─────────┬────────╮
