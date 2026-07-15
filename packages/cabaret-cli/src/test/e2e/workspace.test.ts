@@ -75,6 +75,23 @@ test("workspace add refuses a second workspace, a missing change, and a landed o
   expect((await repo.cabaret("workspace", "add", "relic")).stderr).toContain("change has landed");
 });
 
+test("workspace add creates under workspace-home when configured", async () => {
+  const repo = await makeRepo(undefined, "repo");
+  await addChange(repo, "gizmo");
+  await repo.git("checkout", "-q", "main");
+  const root = await rootOf(repo);
+
+  expect((await repo.cabaret("config", "workspace-home", "--local", `${root}-homes`)).exitCode).toBe(0);
+  expect(await repo.cabaret("workspace", "add", "gizmo")).toEqual({
+    stdout: `${root}-homes/gizmo\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("config", "workspace-home", "relative/home")).stderr).toContain(
+    "must be an absolute path",
+  );
+});
+
 test("workspace remove refuses a dirty workspace until --even-though-dirty, and needs one to remove", async () => {
   const repo = await makeRepo(undefined, "repo");
   await addChange(repo, "gizmo");
@@ -100,70 +117,6 @@ test("workspace remove refuses a dirty workspace until --even-though-dirty, and 
     stderr: 'change has no workspace: "gizmo"\n',
     exitCode: 1,
   });
-});
-
-test("goto prints the workspace a change already has", async () => {
-  const repo = await makeRepo(undefined, "repo");
-  await addChange(repo, "gizmo");
-  await repo.git("checkout", "-q", "main");
-  const root = await rootOf(repo);
-
-  await repo.cabaret("workspace", "add", "gizmo");
-  expect(await repo.cabaret("goto", "gizmo")).toEqual({ stdout: `${root}-gizmo\n`, stderr: "", exitCode: 0 });
-});
-
-test("goto checks a workspaceless change out here, refusing a dirty tree until --even-though-dirty", async () => {
-  const repo = await makeRepo(undefined, "repo");
-  await addChange(repo, "gizmo");
-  await addChange(repo, "widget");
-  await repo.git("checkout", "-q", "main");
-  const root = await rootOf(repo);
-
-  expect(await repo.cabaret("goto", "gizmo")).toEqual({ stdout: `${root}\n`, stderr: "", exitCode: 0 });
-  expect(await repo.git("branch", "--show-current")).toBe("gizmo");
-
-  await repo.write("junk.txt", "junk\n");
-  expect(await repo.cabaret("goto", "widget")).toEqual({
-    stdout: "",
-    stderr: `workspace has uncommitted changes: ${root}; pass --even-though-dirty to override\n`,
-    exitCode: 1,
-  });
-  expect(await repo.cabaret("goto", "--even-though-dirty", "widget")).toEqual({
-    stdout: `${root}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.git("branch", "--show-current")).toBe("widget");
-});
-
-test("goto adds a dedicated workspace under workspace-style dedicated, honoring workspace-home", async () => {
-  const repo = await makeRepo(undefined, "repo");
-  await addChange(repo, "gizmo");
-  await addChange(repo, "widget");
-  await repo.git("checkout", "-q", "main");
-  const root = await rootOf(repo);
-
-  await repo.cabaret("config", "workspace-style", "dedicated");
-  expect(await repo.cabaret("goto", "gizmo")).toEqual({ stdout: `${root}-gizmo\n`, stderr: "", exitCode: 0 });
-  expect(await repo.git("branch", "--show-current")).toBe("main");
-
-  expect((await repo.cabaret("config", "workspace-home", "--local", `${root}-homes`)).exitCode).toBe(0);
-  expect(await repo.cabaret("goto", "widget")).toEqual({
-    stdout: `${root}-homes/widget\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-});
-
-test("goto rejects a change that cannot be checked out", async () => {
-  const repo = await makeRepo(undefined, "repo");
-  await addChange(repo, "relic");
-  await repo.cabaret("review", "relic.txt");
-  await repo.cabaret("land", "relic");
-  await repo.git("checkout", "-q", "main");
-
-  expect((await repo.cabaret("goto", "phantom")).stderr).toContain("change does not exist");
-  expect((await repo.cabaret("goto", "relic")).stderr).toContain("change has landed");
 });
 
 test("a landed change stays on todo as context while a removable workspace holds it", async () => {

@@ -162,7 +162,7 @@ USAGE
   cabaret config workspace-style [--global] [--local] [--unset] [<value>]
   cabaret config workspace-style --help
 
-How goto materializes a change with no workspace: shared or dedicated
+Where going to a change with no workspace checks it out: shared or dedicated
 
 FLAGS
      [--global]  Use the person's global git config       [default = false]
@@ -246,21 +246,6 @@ FLAGS
 
 ARGUMENTS
   file...  files to forget
-
-## cabaret goto
-
-USAGE
-  cabaret goto [--even-though-dirty] <change>
-  cabaret goto --help
-
-Print the directory of the workspace holding the change. A change with no workspace first gets one per the `workspace-style` setting: checked out in the current workspace (shared), or in a fresh dedicated workspace (dedicated). Compose with cd to move there: cd "$(cabaret goto some-change)".
-
-FLAGS
-     [--even-though-dirty]  Check out the change here even though this workspace has uncommitted changes [default = false]
-  -h  --help                Print help information and exit
-
-ARGUMENTS
-  change  change to go to
 
 ## cabaret land
 

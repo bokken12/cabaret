@@ -15,7 +15,6 @@ import { create } from "./commands/create.js";
 import { dev } from "./commands/dev.js";
 import { diff } from "./commands/diff.js";
 import { forget } from "./commands/forget.js";
-import { goto } from "./commands/goto.js";
 import { land } from "./commands/land.js";
 import { log } from "./commands/log.js";
 import { pull } from "./commands/pull.js";
@@ -64,7 +63,6 @@ const routes = buildRouteMap({
     dev,
     diff,
     forget,
-    goto,
     land,
     log,
     pull,

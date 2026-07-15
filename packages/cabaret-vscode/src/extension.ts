@@ -704,8 +704,7 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
 /**
  * Bring `change` into a workspace: open the one it has, or materialize one
  * per the workspace-style setting — confirming before a checkout lands in a
- * dirty workspace, this surface's counterpart to the CLI's
- * --even-though-dirty flag.
+ * dirty workspace.
  */
 async function gotoSelection(backend: Backend, change: RefName): Promise<void> {
   const config = await readConfig(backend);

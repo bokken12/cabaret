@@ -17,8 +17,8 @@ export type LandMethod = (typeof landMethods)[number];
 export type LandVia = (typeof landVias)[number];
 
 /**
- * How `goto` materializes a change that has no workspace: check it out in
- * the current workspace, or create a dedicated workspace for it.
+ * How going to a change that has no workspace materializes one: check it
+ * out in the current workspace, or create a dedicated workspace for it.
  */
 export type WorkspaceStyle = (typeof workspaceStyles)[number];
 
@@ -156,7 +156,7 @@ export const settings: readonly Setting[] = [
     key: "cabaret.workspaceStyle",
     scope: "local",
     multi: false,
-    brief: "How goto materializes a change with no workspace: shared or dedicated",
+    brief: "Where going to a change with no workspace checks it out: shared or dedicated",
     fallback: "shared",
     parse: (raw) => parseChoice("cabaret.workspaceStyle", raw, "shared", workspaceStyles),
   },
