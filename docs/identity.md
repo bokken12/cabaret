@@ -28,7 +28,7 @@ My leaning is towards basing identity on `user.email`. Although it would require
 
 An identity is one `user.email`, but a user may have several: an agent working on their behalf under its own email, another machine, a forge's noreply address. The multi-valued git config key `cabaret.alias` names the other identities that count as you:
 
-    git config --global --add cabaret.alias agent@example.com
+    cabaret config alias add agent@example.com
 
 Aliases are a property of the person, not of any repository — global config is their natural home — and they act only when reading: a change owned by an alias is yours to operate, and its work shows on your todo. Log entries are always written under your own `user.email`, and obligations count each identity's own reviews, so an alias's review never satisfies a demand naming you (nor the reverse).
 

@@ -30,6 +30,115 @@ FLAGS
 ARGUMENTS
   text  the comment text
 
+### cabaret config list
+
+USAGE
+  cabaret config list [--global] [--local]
+  cabaret config list --help
+
+Show every setting
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+#### cabaret config alias add
+
+USAGE
+  cabaret config alias add [--global] [--local] <value>
+  cabaret config alias add --help
+
+Add a value
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  value  value to add
+
+#### cabaret config alias remove
+
+USAGE
+  cabaret config alias remove [--global] [--local] <value>
+  cabaret config alias remove --help
+
+Remove a value
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  value  value to remove
+
+#### cabaret config alias clear
+
+USAGE
+  cabaret config alias clear [--global] [--local]
+  cabaret config alias clear --help
+
+Remove every value
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+### cabaret config context
+
+USAGE
+  cabaret config context [--global] [--local] [--unset] [<value>]
+  cabaret config context --help
+
+Lines of diff context, -1 for whole files
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
+### cabaret config land-method
+
+USAGE
+  cabaret config land-method [--global] [--local] [--unset] [<value>]
+  cabaret config land-method --help
+
+How a land writes a change onto its parent: merge or squash
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
+### cabaret config land-via
+
+USAGE
+  cabaret config land-via [--global] [--local] [--unset] [<value>]
+  cabaret config land-via --help
+
+Where a land executes: local, forge, or auto
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
 ## cabaret create
 
 USAGE

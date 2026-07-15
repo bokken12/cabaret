@@ -65,6 +65,23 @@ test("configAll reads every value of a multi-valued key, in order", async () => 
   await git("config", "--unset-all", "cabaret.alias");
 });
 
+test("config writes: set replaces, add appends, unset removes and reports", async () => {
+  const backend = await GitBackend.open(repo);
+  await backend.configSet("cabaret.landMethod", "squash", "local");
+  await backend.configSet("cabaret.landMethod", "merge", "local");
+  expect(await backend.config("cabaret.landMethod")).toBe("merge");
+  expect(await backend.configUnset("cabaret.landMethod", "local")).toBe(true);
+  expect(await backend.config("cabaret.landMethod")).toBe(undefined);
+  expect(await backend.configUnset("cabaret.landMethod", "local")).toBe(false);
+  await backend.configAdd("cabaret.alias", "agent@example.com", "local");
+  await backend.configAdd("cabaret.alias", "alice@work.example", "local");
+  expect(await backend.configAll("cabaret.alias")).toEqual(["agent@example.com", "alice@work.example"]);
+  expect(await backend.configUnset("cabaret.alias", "local", "agent@example.com")).toBe(true);
+  expect(await backend.configAll("cabaret.alias")).toEqual(["alice@work.example"]);
+  expect(await backend.configUnset("cabaret.alias", "local", "agent@example.com")).toBe(false);
+  expect(await backend.configUnset("cabaret.alias", "local")).toBe(true);
+});
+
 test("a change with no log ref has the empty log", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.readLog(parseRefName("no-log-yet"))).toEqual([]);
