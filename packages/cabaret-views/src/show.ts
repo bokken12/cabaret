@@ -60,7 +60,7 @@ const PARENT_NOTES: Record<NonNullable<ChangeSummary["deadParent"]>, string> = {
   missing: "does not exist",
 };
 
-const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>["kind"], string> = {
+const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>, string> = {
   behind: "behind parent",
   diverged: "diverged from parent",
 };
@@ -144,7 +144,7 @@ export function showDoc(page: ShowPage): Doc {
   }
   attributes.push(
     ["tip", noted(shortHash(summary.tip), summary.origin && ORIGIN_NOTES[summary.origin])],
-    ["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase.kind])],
+    ["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])],
   );
   // No target: the heading names the page itself.
   const heading = span(summary.change, { style: "heading" });

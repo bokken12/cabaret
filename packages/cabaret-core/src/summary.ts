@@ -80,12 +80,8 @@ export interface ChangeSummary {
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
   readonly deadParent: "landed" | "missing" | undefined;
-  /**
-   * How the base stands relative to a live parent's tip, when they differ,
-   * and whether the tip still merges cleanly onto it — cleanly enough to
-   * land as it stands.
-   */
-  readonly staleBase: { readonly kind: "behind" | "diverged"; readonly mergesCleanly: boolean } | undefined;
+  /** How the base stands relative to a live parent's tip, when they differ. */
+  readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
   readonly conflicts: readonly FilePath[];
   /** Files with review left for the user, sorted by name. */
@@ -116,7 +112,7 @@ export async function summarizeChange(
   // — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
   let deadParent: ChangeSummary["deadParent"];
-  let staleBase: ChangeSummary["staleBase"];
+  let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: CommitHash } | undefined;
   if (landed === undefined) {
     const originTip = await backend.originTip(change);
     if (originTip !== undefined && originTip !== tip) {
@@ -133,10 +129,7 @@ export async function summarizeChange(
       if (parentTip === undefined) {
         deadParent = "missing";
       } else if (parentTip !== base) {
-        staleBase = {
-          kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged",
-          mergesCleanly: (await backend.mergeConflicts(base, tip, parentTip)).length === 0,
-        };
+        stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
       }
     }
   }
@@ -151,7 +144,7 @@ export async function summarizeChange(
     tip,
     origin,
     deadParent,
-    staleBase,
+    staleBase: stale?.kind,
     // A landed change is frozen; only live code is worth scanning for markers.
     conflicts:
       landed === undefined
@@ -159,7 +152,7 @@ export async function summarizeChange(
         : [],
     reviewLeft,
   };
-  return { ...readings, nextStep: nextStep(readings) };
+  return { ...readings, nextStep: await nextStep(backend, readings, stale) };
 }
 
 /**
@@ -170,9 +163,16 @@ export async function summarizeChange(
  * review: markers are not code worth reading. A stale base waits for review
  * to finish — the parent moving on is routine, and rebasing mid-review
  * churns reviewers — and calls for a rebase only where `land` would refuse
- * it: when the tip no longer merges cleanly onto the parent.
+ * it: when the tip no longer merges cleanly onto `stale`'s parent tip. That
+ * merge is dry-run only when every earlier step is settled; a land that
+ * skips a step anyway (`--even-though-unreviewed`) is still safe, since
+ * `prepareLand` makes its own check.
  */
-function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
+async function nextStep(
+  backend: Backend,
+  readings: Omit<ChangeSummary, "nextStep">,
+  stale: { readonly parentTip: CommitHash } | undefined,
+): Promise<NextStep> {
   if (readings.landed !== undefined) {
     return "landed";
   }
@@ -191,7 +191,10 @@ function nextStep(readings: Omit<ChangeSummary, "nextStep">): NextStep {
   if (readings.reviewLeft.length > 0) {
     return "review";
   }
-  return readings.staleBase === undefined || readings.staleBase.mergesCleanly ? "land" : "rebase";
+  if (stale === undefined) {
+    return "land";
+  }
+  return (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length === 0 ? "land" : "rebase";
 }
 
 /** What a reviewer looks at to review a file in a round. */

@@ -302,7 +302,7 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    staleBase: { kind: "behind", mergesCleanly: false },
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
     nextStep: "rebase",
@@ -328,7 +328,7 @@ test("a reviewed change behind a parent it merges cleanly onto may land", async 
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    staleBase: { kind: "behind", mergesCleanly: true },
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
     nextStep: "land",
@@ -728,11 +728,12 @@ test("a change whose parent branch is gone must reparent", async () => {
 
 test("a base under a rewritten parent reads as diverged, review still the step", async () => {
   // main was rewritten to 3 (forking from 0) while feature still builds on 1.
+  // No `conflicting` entry: with review left as the step, querying the
+  // merge would be an unanticipated call the stub rejects.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "0" },
     branches: { main: "3", feature: "2" },
     changed: { "12": ["a.ts"] },
-    conflicting: { "123": [] },
   });
   expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
     change: "feature",
@@ -745,7 +746,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     tip: fake("2"),
     origin: undefined,
     deadParent: undefined,
-    staleBase: { kind: "diverged", mergesCleanly: true },
+    staleBase: "diverged",
     conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
