@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -16,6 +16,11 @@ import { expect, onTestFinished, test } from "vitest";
 import { GitBackend } from "../index.js";
 
 const execFileAsync = promisify(execFile);
+
+// The backend shells out to git with this process's environment, so isolation
+// from the host's git config must live there too, not in per-call overrides.
+process.env.GIT_CONFIG_GLOBAL = devNull;
+process.env.GIT_CONFIG_SYSTEM = devNull;
 
 /** One "machine": a repo with `bare` as its origin, plus a backend on it. */
 interface Machine {
