@@ -67,7 +67,8 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     broken: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "╭──────────┬────────╮
+    "Changes to review:
+    ╭──────────┬────────╮
     │ change   │ review │
     ├──────────┼────────┤
     │ gadget   │        │
@@ -83,9 +84,14 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     │ widgets  │        │ land      │
     ╰──────────┴────────┴───────────╯"
   `);
-  // The owned section folds down to its heading; the review table on top has
-  // no heading to fold to.
-  expect(foldTexts(doc)).toEqual([["Changes you own:", "╰──────────┴────────┴───────────╯"]]);
+  // Each section folds down to its heading, and within each table gadget's
+  // subtree folds down to gadget's own row.
+  expect(foldTexts(doc)).toEqual([
+    ["Changes to review:", "╰──────────┴────────╯"],
+    ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
+    ["Changes you own:", "╰──────────┴────────┴───────────╯"],
+    ["│ gadget   │        │ landed    │", "│ └─ gizmo │      2 │ review    │"],
+  ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
   const line = docText(doc)
@@ -112,7 +118,8 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
   expect(docText(todoDoc({ review: [], owned: [], broken: [] }))).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -140,7 +147,8 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
   ]);
   // The tables show only what could be read; broken changes stay off them.
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯

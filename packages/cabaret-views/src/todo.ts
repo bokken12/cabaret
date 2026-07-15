@@ -14,8 +14,8 @@ import {
   summarizeChange,
   UserError,
 } from "cabaret-core";
-import { type Doc, layout, section, span } from "./doc.js";
-import { type Cell, table } from "./table.js";
+import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
+import { type Cell, type Column, tableParts } from "./table.js";
 
 /** A change to act on and the changes stacked on it. */
 export interface TodoNode {
@@ -145,6 +145,39 @@ function changeCell(summary: ChangeSummary, guide: string, style?: "context"): C
   return guide === "" ? name : [span(guide, { style }), name];
 }
 
+/**
+ * Regroup a forest's depth-first row lines into a node per tree, each subtree
+ * a section folding its descendants under the root's own row.
+ */
+function treeNodes<N extends { readonly children: readonly N[] }>(forest: readonly N[], rows: readonly Line[]): Node[] {
+  let next = 0;
+  const walk = (nodes: readonly N[]): Node[] =>
+    nodes.map((node) => {
+      const row = rows[next];
+      if (row === undefined) {
+        throw new Error("fewer rows than forest nodes");
+      }
+      next += 1;
+      return node.children.length === 0 ? row : section(row, walk(node.children));
+    });
+  const built = walk(forest);
+  if (next !== rows.length) {
+    throw new Error("more rows than forest nodes");
+  }
+  return built;
+}
+
+/** The forest laid out as a titled, foldable table with a section per subtree. */
+function forestSection<N extends { readonly children: readonly N[] }>(
+  title: string,
+  forest: readonly N[],
+  columns: readonly Column[],
+  cells: readonly (readonly Cell[])[],
+): Node {
+  const { head, rows, foot } = tableParts(columns, cells);
+  return section({ spans: [span(title, { style: "heading" })] }, [...head, ...treeNodes(forest, rows), foot]);
+}
+
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
@@ -160,7 +193,9 @@ export function todoDoc(page: TodoPage): Doc {
   });
   return layout(
     [
-      ...table(
+      forestSection(
+        "Changes to review:",
+        page.review,
         [
           { header: "change", align: "left" },
           { header: "review", align: "right" },
@@ -168,16 +203,15 @@ export function todoDoc(page: TodoPage): Doc {
         reviewRows,
       ),
       { spans: [] },
-      section(
-        { spans: [span("Changes you own:", { style: "heading" })] },
-        table(
-          [
-            { header: "change", align: "left" },
-            { header: "review", align: "right" },
-            { header: "next step", align: "left" },
-          ],
-          ownedRows,
-        ),
+      forestSection(
+        "Changes you own:",
+        page.owned,
+        [
+          { header: "change", align: "left" },
+          { header: "review", align: "right" },
+          { header: "next step", align: "left" },
+        ],
+        ownedRows,
       ),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),

@@ -71,7 +71,8 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   // The change lands in bob's todo, not just their obligations.
   await repo.git("config", "user.email", "bob@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭─────────┬────────╮
+    "Changes to review:
+    ╭─────────┬────────╮
     │ change  │ review │
     ├─────────┼────────┤
     │ feature │      1 │
