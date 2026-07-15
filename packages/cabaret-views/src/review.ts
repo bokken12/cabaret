@@ -2,25 +2,23 @@ import {
   type Backend,
   type CommitHash,
   changeDiff,
+  type DiffView,
+  defaultContext,
   type FilePath,
   type FileView,
   type RefName,
-  type ReviewedDiff,
   type ReviewRound,
+  rebasedView,
+  renderDiff4,
   reviewRounds,
+  shortHash,
   type TimestampMs,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
-import * as Patdiff4 from "patdiff/patdiff4";
 import { type Doc, type Line, type Span, type Style, span, type Target, type TargetTier } from "./doc.js";
-
-/** Hashes display abbreviated; full hashes travel in targets, never prose. */
-function shortHash(hash: CommitHash): string {
-  return hash.slice(0, 12);
-}
 
 /** The trailing note that `later` more rounds follow, or "" for the last round. */
 function moreRounds(later: number): string {
@@ -166,17 +164,6 @@ export function markReviewed(
   };
 }
 
-/** The versions a file's round of review compares. */
-export type DiffView =
-  /** A plain two-way diff; an absent version diffs against the empty file. */
-  | { readonly kind: "two"; readonly prev: string | undefined; readonly next: string | undefined }
-  /** The base's copy changed under the review: a 4-way diff of the reviewed and current diffs. */
-  | {
-      readonly kind: "four";
-      readonly revs: Patdiff4.Diamond.Diamond<CommitHash>;
-      readonly contents: Patdiff4.Diamond.Diamond<string | undefined>;
-    };
-
 /** One file's diff left to review in its earliest pending round. */
 export interface DiffPage {
   readonly change: RefName;
@@ -225,103 +212,6 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
     case "rebased":
       return { change, file, round: { end, later, view: await rebasedView(backend, file, view.reviewed, base, end) } };
   }
-}
-
-/**
- * The view of a file whose base moved under its review. The two-way diff from
- * the reviewed tip stays sound when the base's copy is unchanged (the
- * reviewed diff's start is intact) or the new base took the reviewed tip's
- * copy (the whole new diff starts at contents the reviewer knows); otherwise
- * the base's copy changed underneath the review, which takes a 4-way diff.
- */
-async function rebasedView(
-  backend: Backend,
-  file: FilePath,
-  reviewed: ReviewedDiff,
-  base: CommitHash,
-  end: CommitHash,
-): Promise<DiffView> {
-  const [prevBase, nextBase, prevTip, nextTip] = await Promise.all([
-    backend.readFile(reviewed.base, file),
-    backend.readFile(base, file),
-    backend.readFile(reviewed.tip, file),
-    backend.readFile(end, file),
-  ]);
-  return prevBase === nextBase || nextBase === prevTip
-    ? { kind: "two", prev: prevTip, next: nextTip }
-    : {
-        kind: "four",
-        revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: end },
-        contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
-      };
-}
-
-/** Lines of context around diff hunks when the host does not choose, as git. */
-export const defaultContext = 3;
-
-/**
- * Render the diff between two versions of `file` with patdiff: ANSI-colored
- * with word-level refinement on a terminal, plain ASCII otherwise. An absent
- * version diffs against the empty file. Hunks keep `context` lines of
- * surrounding context; -1 shows files whole.
- */
-export function renderDiff(
-  file: FilePath,
-  prev: string | undefined,
-  next: string | undefined,
-  color: boolean,
-  context?: number,
-): string {
-  if (IsBinary.string(prev ?? "") || IsBinary.string(next ?? "")) {
-    return prev === next ? "" : `Binary versions of ${file} differ\n`;
-  }
-  const diff = PatdiffCore.withoutUnix.patdiff({
-    output: color ? "Ansi" : "Ascii",
-    context: context ?? defaultContext,
-    // Unified lines are unsupported in Ascii output.
-    produceUnifiedLines: color,
-    // Splitting a long modified line into partial context and changed pieces
-    // would break the line-per-source-line mapping structured hosts rely on.
-    splitLongLines: color,
-    // Names are never printed, but patdiff's language-specific whitespace
-    // heuristics read them.
-    prev: { name: file, text: prev ?? "" },
-    next: { name: file, text: next ?? "" },
-  });
-  return diff === "" ? "" : `${diff}\n`;
-}
-
-/**
- * Render what remains to review when the base's copy of `file` changed
- * underneath the reviewed diff: Iron's diff4 over the old and new base and
- * tip, each aligned hunk shown under every view its equivalence class earns.
- * Empty when nothing is left to show.
- */
-export function renderDiff4(args: {
-  file: FilePath;
-  revs: Patdiff4.Diamond.Diamond<CommitHash>;
-  contents: Patdiff4.Diamond.Diamond<string | undefined>;
-  color: boolean;
-  context?: number | undefined;
-}): readonly Patdiff4.Line[] {
-  // TODO: name absent versions distinctly (Iron renders them as <absent>
-  // with a per-version file-name table) instead of diffing an empty file.
-  const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
-  if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
-    return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
-  }
-  const context = args.context ?? defaultContext;
-  return Patdiff4.diff({
-    // Hash prefixes keep patdiff4's contract that equal names imply equal
-    // contents, where "old"/"new" labels would not (the tips can coincide).
-    revNames: Patdiff4.Diamond.map(args.revs, shortHash),
-    fileNames: Patdiff4.Diamond.singleton(args.file),
-    headerFileName: args.file,
-    context: context < 0 ? Patdiff4.DiffAlgo.infiniteContext : context,
-    linesRequiredToSeparateDdiffHunks: 0,
-    contents,
-    output: args.color ? "Ansi" : "Ascii",
-  });
 }
 
 /** The line and changed-word styles of one side of a two-way diff. */
@@ -532,9 +422,9 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   const body =
     view.kind === "two" ? twoWayDiffLines(page.file, view, context) : fourWayDiffLines(page.file, view, context);
   if (body.length === 0) {
-    // A moved base can leave nothing visible to read (the rebase carried the
-    // change cleanly) while the stale review still counts the file as left;
-    // marking it reviewed is how the reviewer clears it.
+    // A due file's diff can still render empty — a tree diff lists changes
+    // patdiff shows no hunks for, like a mode-only change; marking the file
+    // reviewed is how the reviewer clears it.
     lines.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
     return { lines };
   }

@@ -5,6 +5,7 @@ import {
   brain,
   changeBase,
   createChange,
+  defaultContext,
   type FilePath,
   formatLogEntry,
   type LogEntry,
@@ -24,8 +25,11 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  rebasedView,
   remainingSpans,
   renameChange,
+  renderDiff,
+  renderDiff4,
   reparentChange,
   resolveRange,
   reviewSpans,
@@ -38,7 +42,7 @@ import {
   userName,
   VERSION,
 } from "cabaret-core";
-import { defaultContext, docText, renderDiff, renderDiff4, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
+import { docText, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -369,28 +373,11 @@ const diff = buildCommand({
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
     if (reviewed !== undefined && reviewed.base !== base) {
-      const [prevBase, nextBase, prevTip, nextTip] = await Promise.all([
-        backend.readFile(reviewed.base, file),
-        backend.readFile(base, file),
-        backend.readFile(reviewed.tip, file),
-        backend.readFile(tip, file),
-      ]);
-      // A moved base still leaves the 2-way diff from the reviewed tip sound
-      // in two cases: the base's copy of the file is unchanged (the reviewed
-      // diff's start is intact), or the new base's copy equals the reviewed
-      // tip's (the whole new diff starts at contents the reviewer knows).
-      // Otherwise the base's copy changed underneath the review, which takes
-      // a 4-way diff.
-      if (prevBase === nextBase || nextBase === prevTip) {
-        this.process.stdout.write(renderDiff(file, prevTip, nextTip, color, context));
+      const view = await rebasedView(backend, file, reviewed, base, tip);
+      if (view.kind === "two") {
+        this.process.stdout.write(renderDiff(file, view.prev, view.next, color, context));
       } else {
-        const rendered = renderDiff4({
-          file,
-          revs: { b1: reviewed.base, b2: base, f1: reviewed.tip, f2: tip },
-          contents: { b1: prevBase, b2: nextBase, f1: prevTip, f2: nextTip },
-          color,
-          context,
-        });
+        const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color, context });
         this.process.stdout.write(rendered.length === 0 ? "" : `${rendered.map((line) => line.text).join("\n")}\n`);
       }
       return;
