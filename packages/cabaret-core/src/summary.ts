@@ -3,7 +3,7 @@ import {
   brain,
   type ChangeDiff,
   type CommitHash,
-  conflictedFiles,
+  changeConflicts,
   currentForgeChange,
   currentOwner,
   currentParent,
@@ -161,10 +161,7 @@ export async function summarizeChange(
     deadParent,
     staleBase: stale?.kind,
     // A landed change is frozen; only live code is worth scanning for markers.
-    conflicts:
-      landed === undefined
-        ? await conflictedFiles(backend, tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort())
-        : [],
+    conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
     reviewLeft,
   };
   return { ...readings, nextStep: await nextStep(backend, readings, stale) };

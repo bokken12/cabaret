@@ -29,6 +29,7 @@ const widgets = parseRefName("widgets");
 test("reviewDoc lists the round's files and what follows", () => {
   const doc = reviewDoc({
     change: widgets,
+    conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 2 },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
@@ -45,6 +46,7 @@ test("reviewDoc lists the round's files and what follows", () => {
 test("reviewDoc targets the round's first file from every line but a file's own", () => {
   const doc = reviewDoc({
     change: widgets,
+    conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
   });
   const api = { kind: "file", change: "widgets", file: "api.ts" };
@@ -70,7 +72,11 @@ test("reviewDoc targets the round's first file from every line but a file's own"
 });
 
 test("reviewDoc of the last round drops the indicator", () => {
-  const doc = reviewDoc({ change: widgets, round: { end: fake("3"), files: [parseFilePath("api.ts")], later: 0 } });
+  const doc = reviewDoc({
+    change: widgets,
+    conflicts: [],
+    round: { end: fake("3"), files: [parseFilePath("api.ts")], later: 0 },
+  });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
@@ -81,8 +87,23 @@ test("reviewDoc of the last round drops the indicator", () => {
   `);
 });
 
+test("reviewDoc with conflicts asks for the fix instead of offering files", () => {
+  const doc = reviewDoc({
+    change: widgets,
+    conflicts: [parseFilePath("api.ts"), parseFilePath("ui.ts")],
+    round: undefined,
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets
+    ==============
+
+    Unresolved conflicts in api.ts, ui.ts; fix the markers and amend."
+  `);
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([undefined, undefined, undefined, undefined]);
+});
+
 test("reviewDoc with nothing left says so, targeting nothing", () => {
-  const doc = reviewDoc({ change: widgets, round: undefined });
+  const doc = reviewDoc({ change: widgets, conflicts: [], round: undefined });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
@@ -603,7 +624,11 @@ test("diffDoc with no review left says so", () => {
   `);
 });
 
-function snapshotWith(files: readonly string[], secondRound: readonly string[] = []): ChangeSnapshot {
+function snapshotWith(
+  files: readonly string[],
+  secondRound: readonly string[] = [],
+  conflicts: readonly string[] = [],
+): ChangeSnapshot {
   const round = (end: CommitHash, names: readonly string[]) => ({
     end,
     files: new Map(names.map((name) => [parseFilePath(name), { kind: "span", start: fake("1") } as const])),
@@ -615,6 +640,7 @@ function snapshotWith(files: readonly string[], secondRound: readonly string[] =
     asked: true,
     base: fake("1"),
     tip: fake("3"),
+    conflicts: conflicts.map(parseFilePath),
     rounds: [round(fake("2"), files), ...(secondRound.length === 0 ? [] : [round(fake("3"), secondRound)])],
   };
 }
@@ -650,6 +676,7 @@ test("markReviewed records the snapshot's round end and marks the file off", () 
   ]);
   expect(reviewPage(result.snapshot)).toEqual({
     change: widgets,
+    conflicts: [],
     round: { end: fake("2"), files: [parseFilePath("a.ts"), parseFilePath("c.ts")], later: 0 },
   });
 });
@@ -670,9 +697,20 @@ test("marking past the last file wraps to the earliest unmarked, then ends the r
   expect(second.next).toBeUndefined();
   expect(reviewPage(second.snapshot)).toEqual({
     change: widgets,
+    conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("z.ts")], later: 0 },
   });
   expect(appended).toHaveLength(2);
+});
+
+test("a conflicted snapshot drops its round and refuses to mark, even asked", () => {
+  const snapshot = snapshotWith(["a.ts", "b.ts"], [], ["a.ts"]);
+  expect(reviewPage(snapshot)).toEqual({ change: widgets, conflicts: [parseFilePath("a.ts")], round: undefined });
+  const appended: LogEntry[][] = [];
+  expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"), true)).toThrow(
+    '"widgets" has unresolved conflicts in a.ts; fix the markers and amend',
+  );
+  expect(appended).toEqual([]);
 });
 
 test("markReviewed of a file with no review pending records nothing", () => {

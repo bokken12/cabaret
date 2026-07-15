@@ -77,9 +77,12 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       // membership the log alone decides, sparing the obligations files of
       // most changes. An empty reviewLeft already counts the user toward
       // every obligation — though it says nothing about their aliases, whose
-      // obligations each count that identity's own reviews.
+      // obligations each count that identity's own reviews. A change with
+      // conflict markers asks review of nobody: fixing them rewrites the
+      // tip, so reading it now is wasted.
       if (
         candidate.landed === undefined &&
+        candidate.conflicts.length === 0 &&
         (candidate.reviewLeft.length > 0 || self.aliases.size > 0) &&
         isReviewing(self, change, entries)
       ) {
