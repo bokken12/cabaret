@@ -45,7 +45,7 @@ function foldTexts(doc: Doc): (string | undefined)[][] {
   return doc.folds.map(({ start, end }) => [text[start], text[end]]);
 }
 
-test("todoDoc lays out the review table and the owned tree", () => {
+test("todoDoc lays out both sections as trees, ancestors kept for context", () => {
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
     parent: parseRefName("gadget"),
@@ -55,18 +55,21 @@ test("todoDoc lays out the review table and the owned tree", () => {
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
   const doc = todoDoc({
-    review: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts") }],
+    review: [
+      { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
+    ],
     owned: [
-      { summary: gadget, children: [{ summary: gizmo, children: [] }] },
-      { summary: widgets, children: [] },
+      { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
+      { summary: widgets, context: false, children: [] },
     ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    │ gizmo  │      2 │
-    ╰────────┴────────╯
+    "╭──────────┬────────╮
+    │ change   │ review │
+    ├──────────┼────────┤
+    │ gadget   │        │
+    │ └─ gizmo │      2 │
+    ╰──────────┴────────╯
 
     Changes you own:
     ╭──────────┬────────┬───────────╮
@@ -88,6 +91,19 @@ test("todoDoc lays out the review table and the owned tree", () => {
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gizmo" });
   expect(doc.lines[line]?.spans.filter(({ target }) => target !== undefined)).toEqual([
     { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
+  ]);
+  // An ancestor kept only for context dims — its whole row, link included —
+  // while the change actually owed keeps plain paint.
+  const styled = (row: string) =>
+    doc.lines[docText(doc).split("\n").indexOf(row)]?.spans.filter(({ style }) => style !== undefined);
+  expect(styled("│ gadget   │        │")).toEqual([
+    { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
+  ]);
+  expect(styled("│ └─ gizmo │      2 │")).toEqual([]);
+  expect(styled("│ gadget   │        │ landed    │")).toEqual([
+    { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
+    { text: "", style: "context", target: undefined, tier: undefined },
+    { text: "landed", style: "context", target: undefined, tier: undefined },
   ]);
 });
 

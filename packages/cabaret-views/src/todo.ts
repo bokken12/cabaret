@@ -18,26 +18,31 @@ import { type Cell, table } from "./table.js";
 /** A change to act on and the changes stacked on it. */
 export interface TodoNode {
   readonly summary: ChangeSummary;
+  /** Kept only so its descendants hang somewhere; hosts dim it. */
+  readonly context: boolean;
   readonly children: readonly TodoNode[];
 }
 
-/** A change the user owes review, and the files still awaiting them. */
-export interface ReviewTodo {
+/** A change in the review forest and the changes stacked on it. */
+export interface ReviewNode {
   readonly summary: ChangeSummary;
+  /** Files still awaiting the user; empty on an ancestor kept only for context. */
   readonly owed: readonly FilePath[];
+  readonly children: readonly ReviewNode[];
 }
 
-/** What awaits one user's attention. */
+/** What awaits one user's attention, each section a forest along parent links. */
 export interface TodoPage {
   /**
    * Unlanded changes with an unsatisfied obligation the user's review can
-   * still count toward, sorted by name. A change nobody asked the user to
-   * review stays off the page, however much of it they have not read.
+   * still count toward. A change nobody asked the user to review stays off
+   * the page, however much of it they have not read, except as an ancestor
+   * kept so an owed descendant reads in place.
    */
-  readonly review: readonly ReviewTodo[];
+  readonly review: readonly ReviewNode[];
   /**
-   * The user's unlanded changes as a forest along parent links. A change that
-   * is landed or someone else's stays only while kept children hang from it.
+   * The user's unlanded changes. A change that is landed or someone else's
+   * stays only while kept children hang from it.
    */
   readonly owned: readonly TodoNode[];
 }
@@ -45,7 +50,7 @@ export interface TodoPage {
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
-  const review: ReviewTodo[] = [];
+  const owedFiles = new Map<RefName, readonly FilePath[]>();
   for (const change of [...(await backend.listChanges())].sort()) {
     const entries = await backend.readLog(change);
     const diff = await changeDiff(backend, change, entries);
@@ -58,7 +63,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
     if (candidate.landed === undefined && (candidate.reviewLeft.length > 0 || self.aliases.size > 0)) {
       const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
       if (owed.length > 0) {
-        review.push({ summary: candidate, owed });
+        owedFiles.set(change, owed);
       }
     }
   }
@@ -69,46 +74,68 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
     }
     return found;
   };
-  const prune = (nodes: readonly ChangeNode[]): TodoNode[] =>
+  const pruneOwned = (nodes: readonly ChangeNode[]): TodoNode[] =>
     nodes.flatMap((node) => {
       const candidate = summary(node.change);
-      const children = prune(node.children);
+      const children = pruneOwned(node.children);
       const mine = candidate.landed === undefined && isSelf(self, candidate.owner);
-      return mine || children.length > 0 ? [{ summary: candidate, children }] : [];
+      return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
     });
-  return { review, owned: prune(changeForest(parents)) };
+  const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
+    nodes.flatMap((node) => {
+      const children = pruneReview(node.children);
+      const owed = owedFiles.get(node.change) ?? [];
+      return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
+    });
+  const forest = changeForest(parents);
+  return { review: pruneReview(forest), owned: pruneOwned(forest) };
+}
+
+/** Flatten a forest depth-first, pairing each node with its tree guide. */
+function treeRows<N extends { readonly children: readonly N[] }>(
+  forest: readonly N[],
+): readonly { readonly node: N; readonly guide: string }[] {
+  const rows: { node: N; guide: string }[] = [];
+  const walk = (nodes: readonly N[], prefix: string, top: boolean): void => {
+    nodes.forEach((node, i) => {
+      const last = i === nodes.length - 1;
+      rows.push({ node, guide: top ? "" : `${prefix}${last ? "└─ " : "├─ "}` });
+      walk(node.children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
+    });
+  };
+  walk(forest, "", true);
+  return rows;
 }
 
 /**
- * A cell naming `summary`'s change. The tree guide rides alongside as plain
- * text, keeping the link on exactly the name.
+ * A cell naming `summary`'s change. The tree guide rides alongside untargeted,
+ * keeping the link on exactly the name.
  */
-function changeCell(summary: ChangeSummary, guide = ""): Cell {
-  const name = span(summary.change, { target: { kind: "change", change: summary.change } });
-  return guide === "" ? name : [span(guide), name];
+function changeCell(summary: ChangeSummary, guide: string, style?: "context"): Cell {
+  const name = span(summary.change, { style, target: { kind: "change", change: summary.change } });
+  return guide === "" ? name : [span(guide, { style }), name];
 }
 
 export function todoDoc(page: TodoPage): Doc {
-  const rows: (readonly Cell[])[] = [];
-  const walk = (nodes: readonly TodoNode[], prefix: string, top: boolean): void => {
-    nodes.forEach(({ summary, children }, i) => {
-      const last = i === nodes.length - 1;
-      rows.push([
-        changeCell(summary, top ? "" : `${prefix}${last ? "└─ " : "├─ "}`),
-        span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length)),
-        span(summary.nextStep),
-      ]);
-      walk(children, top ? "" : `${prefix}${last ? "   " : "│  "}`, false);
-    });
-  };
-  walk(page.owned, "", true);
+  const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
+    const style = owed.length === 0 ? "context" : undefined;
+    return [changeCell(summary, guide, style), span(owed.length === 0 ? "" : String(owed.length))];
+  });
+  const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
+    const style = context ? "context" : undefined;
+    return [
+      changeCell(summary, guide, style),
+      span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
+      span(summary.nextStep, { style }),
+    ];
+  });
   return layout([
     ...table(
       [
         { header: "change", align: "left" },
         { header: "review", align: "right" },
       ],
-      page.review.map(({ summary, owed }) => [changeCell(summary), span(String(owed.length))]),
+      reviewRows,
     ),
     { spans: [] },
     section(
@@ -119,7 +146,7 @@ export function todoDoc(page: TodoPage): Doc {
           { header: "review", align: "right" },
           { header: "next step", align: "left" },
         ],
-        rows,
+        ownedRows,
       ),
     ),
   ]);

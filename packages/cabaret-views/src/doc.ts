@@ -4,9 +4,10 @@ import type { FilePath, RefName } from "cabaret-core";
  * Semantic paint for a span; each host maps styles to its own palette. The
  * word styles mark the words that actually changed within a line — over the
  * line's own style on an added or removed line, and alone on a unified line
- * whose kept text is plain.
+ * whose kept text is plain. Context marks material shown only to situate its
+ * neighbors, for hosts to dim.
  */
-export type Style = "heading" | "added" | "removed" | "added-word" | "removed-word" | "hunk";
+export type Style = "heading" | "added" | "removed" | "added-word" | "removed-word" | "hunk" | "context";
 
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =
@@ -94,7 +95,10 @@ export function layout(nodes: readonly Node[]): Doc {
 }
 
 /** Make a span; multi-line text would break line-to-target mapping, so it is refused. */
-export function span(text: string, opts?: { style?: Style; target?: Target; tier?: TargetTier }): Span {
+export function span(
+  text: string,
+  opts?: { style?: Style | undefined; target?: Target | undefined; tier?: TargetTier | undefined },
+): Span {
   if (text.includes("\n")) {
     throw new Error(`span text must be a single line: ${JSON.stringify(text)}`);
   }
