@@ -1,5 +1,5 @@
 import { parseRefName, type RefName, UserError, type UserName, userName } from "cabaret-core";
-import { type Doc, docText } from "cabaret-views";
+import { type Doc, foldedText } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -40,9 +40,9 @@ export const evenThoughNotOwner = {
   default: false,
 } as const;
 
-/** Print a rendered page: its text to stdout, its errors to stderr. */
+/** Print a rendered page: its text to stdout, folded sections down to their headings, its errors to stderr. */
 export function writeDoc(context: LocalContext, doc: Doc): void {
-  context.process.stdout.write(`${docText(doc)}\n`);
+  context.process.stdout.write(`${foldedText(doc)}\n`);
   for (const error of doc.errors) {
     context.process.stderr.write(`${error}\n`);
   }
