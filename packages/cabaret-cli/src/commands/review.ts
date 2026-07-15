@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, type FilePath, parseFilePath, parseRefName, type RefName } from "cabaret-core";
+import { assertReviewing, changeBase, type FilePath, parseFilePath, parseRefName, type RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const review = buildCommand({
@@ -29,17 +29,30 @@ export const review = buildCommand({
         brief: "Mark as reviewed at this tip revision (defaults to the change's tip)",
         optional: true,
       },
+      evenThoughNotReviewing: {
+        kind: "boolean",
+        brief: "Record review even though the reviewing set does not include you",
+        default: false,
+      },
     },
   },
   // TODO: normalize file arguments to repo-relative paths so entries written
   // from a subdirectory name the same files a diff would.
-  async func(this: LocalContext, flags: { change?: RefName; tip?: string }, ...files: FilePath[]) {
+  async func(
+    this: LocalContext,
+    flags: { change?: RefName; tip?: string; evenThoughNotReviewing: boolean },
+    ...files: FilePath[]
+  ) {
     const backend = await this.backend();
     const change = flags.change ?? (await backend.currentBranch());
+    const entries = await backend.readLog(change);
+    if (!flags.evenThoughNotReviewing) {
+      await assertReviewing(backend, change, entries);
+    }
     // Pin the default to the branch namespace so a same-named tag cannot
     // shadow the change's tip.
     const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
-    const base = await changeBase(backend, change, await backend.readLog(change));
+    const base = await changeBase(backend, change, entries);
     const user = await backend.currentUser();
     await backend.appendLog(
       change,

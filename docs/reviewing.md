@@ -33,10 +33,18 @@ includes, which the log alone decides — so building a todo page reads the
 obligations files of just the changes whose set reaches the user, most of
 which it does not.
 
-Nothing else. Obligation satisfaction is a pure function of the tree and the
-review entries, and `land` requires every obligation satisfied whoever is
-currently reviewing — an obligation only someone outside the set can satisfy
-is exactly what forces widening.
+Recording review, as a nudge. Reviewing ahead of your turn usually means
+reading a diff that is still being rewritten, so marking a file reviewed
+fails with the change's reviewing set — short of an explicit override, which
+each frontend offers the way it offers the ownership override. A review is a
+true statement however early, so the override is always available, and an
+overridden review counts toward obligations like any other. A landed change
+nudges nobody: review there is bookkeeping, open as ever.
+
+Not satisfaction. It is a pure function of the tree and the review entries,
+and `land` requires every obligation satisfied whoever is currently
+reviewing — an obligation only someone outside the set can satisfy is
+exactly what forces widening.
 
 ## Forges
 

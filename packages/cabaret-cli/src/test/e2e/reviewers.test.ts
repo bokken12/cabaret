@@ -59,6 +59,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   const repo = await makeRepo();
   await addChange(repo, "feature");
   await repo.cabaret("reviewers", "add", "bob@example.com");
+  await repo.cabaret("reviewing", "reviewers");
   await repo.cabaret("review", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
@@ -70,10 +71,11 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   // The change lands in bob's todo, not just their obligations.
   await repo.git("config", "user.email", "bob@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    ╰────────┴────────╯
+    "╭─────────┬────────╮
+    │ change  │ review │
+    ├─────────┼────────┤
+    │ feature │      1 │
+    ╰─────────┴────────╯
 
     Changes you own:
     ╭────────┬────────┬───────────╮

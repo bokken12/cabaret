@@ -2,11 +2,17 @@ import {
   type Backend,
   type CommitHash,
   changeDiff,
+  currentReviewing,
+  currentSelf,
   type DiffView,
   defaultContext,
   type FilePath,
   type FileView,
+  isReviewing,
+  landedMerge,
+  NotReviewingError,
   type RefName,
+  type Reviewing,
   type ReviewRound,
   rebasedView,
   reviewRounds,
@@ -50,6 +56,10 @@ export interface ChangeSnapshot {
   readonly change: RefName;
   /** Whose review state this is: the backend's current user. */
   readonly user: UserName;
+  /** Who the change asks to review right now. */
+  readonly reviewing: Reviewing;
+  /** Whether the user may record review: the set includes them, or the change landed, where review is bookkeeping. */
+  readonly asked: boolean;
   readonly base: CommitHash;
   readonly tip: CommitHash;
   readonly rounds: readonly ReviewRound[];
@@ -57,13 +67,15 @@ export interface ChangeSnapshot {
 
 export async function changeSnapshot(backend: Backend, change: RefName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
-  const [diff, user] = await Promise.all([changeDiff(backend, change, entries), backend.currentUser()]);
+  const [diff, self] = await Promise.all([changeDiff(backend, change, entries), currentSelf(backend)]);
   return {
     change,
-    user,
+    user: self.user,
+    reviewing: currentReviewing(entries),
+    asked: landedMerge(entries) !== undefined || isReviewing(self, change, entries),
     base: diff.base,
     tip: diff.tip,
-    rounds: await reviewRounds(backend, entries, user, diff),
+    rounds: await reviewRounds(backend, entries, self.user, diff),
   };
 }
 
@@ -137,7 +149,9 @@ export type MarkReviewedResult =
 
 /**
  * Mark `file` reviewed at the end of its earliest pending round in
- * `snapshot` — exactly the round the caller's page displayed.
+ * `snapshot` — exactly the round the caller's page displayed. A snapshot
+ * whose reviewing set does not ask the user fails with `NotReviewingError`
+ * unless `evenThoughNotReviewing`; hosts attach their own override remedy.
  *
  * The plan costs no queries, and the append rides behind `recorded`: a host
  * may open `next`'s diff immediately, because a review entry only changes
@@ -151,7 +165,11 @@ export function markReviewed(
   now: () => TimestampMs,
   snapshot: ChangeSnapshot,
   file: FilePath,
+  evenThoughNotReviewing = false,
 ): MarkReviewedResult {
+  if (!snapshot.asked && !evenThoughNotReviewing) {
+    throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);
+  }
   const round = snapshot.rounds.find(({ files }) => files.has(file));
   if (round === undefined) {
     return { kind: "nothing-left" };

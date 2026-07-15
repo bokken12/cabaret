@@ -611,6 +611,8 @@ function snapshotWith(files: readonly string[], secondRound: readonly string[] =
   return {
     change: widgets,
     user: userName("alice@example.com"),
+    reviewing: "everyone",
+    asked: true,
     base: fake("1"),
     tip: fake("3"),
     rounds: [round(fake("2"), files), ...(secondRound.length === 0 ? [] : [round(fake("3"), secondRound)])],

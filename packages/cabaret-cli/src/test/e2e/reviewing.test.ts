@@ -128,3 +128,39 @@ test("an imported draft starts with nobody reviewing", async () => {
     exitCode: 0,
   });
 });
+
+test("review ahead of the reviewing set nudges, and the flag overrides", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "user.email", "bob@example.com");
+  await addChange(repo, "feature");
+  await repo.git("config", "user.email", "alice@example.com");
+  // Only bob, the owner, is reviewing; alice recording review jumps the set.
+  expect(await repo.cabaret("review", "feature.txt", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr: '"feature" is reviewing owner, not "alice@example.com"; pass --even-though-not-reviewing to override\n',
+    exitCode: 1,
+  });
+  const forced = await repo.cabaret("review", "feature.txt", "--change", "feature", "--even-though-not-reviewing");
+  expect(forced).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The overridden review is a review: it counts toward obligations.
+  expect((await repo.cabaret("log", "feature")).stdout).toContain('"kind":"review","file":"feature.txt"');
+});
+
+test("a draft nudges even the owner; a landed change asks nobody and nudges nobody", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "none");
+  expect((await repo.cabaret("review", "feature.txt")).stderr).toBe(
+    '"feature" is reviewing none, not "alice@example.com"; pass --even-though-not-reviewing to override\n',
+  );
+  await repo.cabaret("widen");
+  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("land");
+  // Post-land review is bookkeeping, open as ever — whatever the set was.
+  await repo.git("config", "user.email", "bob@example.com");
+  expect(await repo.cabaret("review", "feature.txt", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+});

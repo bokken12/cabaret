@@ -1,5 +1,5 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
-import { NotOwnerError, UnsatisfiedObligationsError, UserError, VERSION } from "cabaret-core";
+import { NotOwnerError, NotReviewingError, UnsatisfiedObligationsError, UserError, VERSION } from "cabaret-core";
 import { approve } from "./commands/approve.js";
 import { comment } from "./commands/comment.js";
 import { config } from "./commands/config.js";
@@ -29,6 +29,9 @@ import { todos } from "./commands/todos.js";
 function userMessage(error: UserError): string {
   if (error instanceof NotOwnerError) {
     return `${error.message}; pass --even-though-not-owner to override`;
+  }
+  if (error instanceof NotReviewingError) {
+    return `${error.message}; pass --even-though-not-reviewing to override`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;

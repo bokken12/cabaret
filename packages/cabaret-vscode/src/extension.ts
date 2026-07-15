@@ -8,6 +8,7 @@ import {
   landAsConfigured,
   landChain,
   NotOwnerError,
+  NotReviewingError,
   parseRefName,
   pullForge,
   pushChange,
@@ -42,6 +43,7 @@ import {
   changeSnapshot,
   type Doc,
   docText,
+  type MarkReviewedResult,
   markReviewed,
   type Page,
   pagePath,
@@ -369,7 +371,24 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   try {
     const backend = await openBackend();
-    const result = markReviewed(backend, now, await changeSnapshot(backend, page.change), page.file);
+    const snapshot = await changeSnapshot(backend, page.change);
+    let result: MarkReviewedResult;
+    try {
+      result = markReviewed(backend, now, snapshot, page.file);
+    } catch (error) {
+      if (!(error instanceof NotReviewingError)) {
+        throw error;
+      }
+      const choice = await vscode.window.showWarningMessage(
+        `${page.change} is reviewing ${error.reviewing}, which does not include you.`,
+        { modal: true },
+        "Mark Reviewed Anyway",
+      );
+      if (choice === undefined) {
+        return;
+      }
+      result = markReviewed(backend, now, snapshot, page.file, true);
+    }
     if (result.kind === "nothing-left") {
       vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
       return;

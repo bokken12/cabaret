@@ -51,6 +51,8 @@ test("a requirement on two users needs both reviews", async () => {
     rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }],
   });
   await addChange(repo, "feature");
+  // Widened so bob's review below is his turn, not an override.
+  await repo.cabaret("reviewing", "everyone");
   await repo.cabaret("review", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
@@ -71,6 +73,8 @@ test("weakening an obligations file needs sign-off under the policy it replaces"
   });
   await repo.cabaret("create", "loosen");
   await repo.git("checkout", "-q", "loosen");
+  // Widened so bob's review below is his turn, not an override.
+  await repo.cabaret("reviewing", "everyone");
   await repo.write(".obligations", `${JSON.stringify({ rules: [] })}\n`);
   await repo.git("commit", "-qam", "drop review requirements");
   // The new policy demands nothing, but the replaced version's requirement
