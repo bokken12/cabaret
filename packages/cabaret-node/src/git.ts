@@ -635,9 +635,8 @@ export class GitBackend implements Backend {
     }
   }
 
-  async mergeBase(a: RefName, b: RefName): Promise<CommitHash> {
-    // Pin to the branch namespace so a same-named tag cannot shadow either side.
-    const out = await git(this.root, ["merge-base", `refs/heads/${a}`, `refs/heads/${b}`]);
+  async mergeBase(a: CommitHash, b: CommitHash): Promise<CommitHash> {
+    const out = await git(this.root, ["merge-base", a, b]);
     return parseCommitHash(out.trimEnd());
   }
 
