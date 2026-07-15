@@ -128,14 +128,9 @@ export const hint = {
   b1_f1_f2: "A change present only in the new-base was dropped",
   b1_f2__b2_f1: "The same change from the old-tip and the new-base was dropped",
   b1_f2: "Diverging changes in the old-tip and the new-base were both dropped",
-  b2_f2: "A feature change was dropped in favor of a base change",
-  b2_f2_dropped: "The following feature change was dropped:",
-  b2_f2_kept: "The following base change was kept:",
   b2_f2_story: ["This feature change was dropped... :", "... in favor of this base change:"],
-  f1_f2: "A base change was dropped in favor of a feature change",
-  f1_f2_dropped: "The following base change was dropped:",
-  f1_f2_kept: "The following feature change was kept:",
   f1_f2_story: ["This base change was dropped... :", "... in favor of this feature change:"],
+  conflict: "Conflicting changes: the reviewed diff compared to the current diff",
 } as const;
 
 export const renderHint = makeHint;

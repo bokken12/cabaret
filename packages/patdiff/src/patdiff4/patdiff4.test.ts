@@ -81,15 +81,13 @@ describe("Segments.ofFiles", () => {
     for (const segment of segments) {
       for (const shownClass of Diff4Class.all.map(Diff4Class.shownClassOf)) {
         if (shownClass === undefined) continue;
-        for (const algo of DiffAlgo.selectAlgosForReview(shownClass)) {
-          algo.apply({
-            includeHunkBreaks: true,
-            diff4Class: segment.diff4Class,
-            context: 0,
-            output: "Ascii",
-            slices: segment.slice,
-          });
-        }
+        DiffAlgo.applyClassView(DiffAlgo.classView(shownClass), {
+          includeHunkBreaks: true,
+          diff4Class: segment.diff4Class,
+          context: 0,
+          output: "Ascii",
+          slices: segment.slice,
+        });
       }
     }
     expect(segments.map((segment) => segment.slice)).toEqual(args.expected);
@@ -274,69 +272,25 @@ describe("diff", () => {
       .join("\n");
 
   test("f1_f2: a base change dropped in favor of a feature change", () => {
-    // The story views and the grouped rev names in ddiff headers, modeled on
-    // Iron's [test-drop-from-file-review.t].
+    // The story blocks and the grouped rev names in their headers, modeled
+    // on Iron's [test-drop-from-file-review.t].
     expect(render(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nx\nc\n"))).toMatchInlineSnapshot(`
       "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
       old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
       _
-      | @@@@@@@@ View 1/5 : feature-ddiff @@@@@@@@
-      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      | @@@@@@@@ -- old base 1,4 new tip, old tip 1,4 @@@@@@@@
-      | @@@@@@@@ ++ new base 1,4 old tip, new tip 1,4 @@@@@@@@
-      |     a
-      | ---|b
-      | ++-|B
-      |   +|x
-      |_
-      _
-      | @@@@@@@@ View 2/5 : new-base-to-new-tip @@@@@@@@
-      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      | @@@@@@@@ The following feature change was kept: @@@@@@@@
-      | @@@@@@@@ new base 1,4 old tip, new tip 1,4 @@@@@@@@
-      |   a
-      | -|B
-      | +|x
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 3/5 : story @@@@@@@@
-      | _
-      | | @@@@@@@@ This base change was dropped... : @@@@@@@@
-      | | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      | |   a
-      | | -|b
-      | | +|B
-      | |   c
-      | |_
-      | _
-      | | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
-      | | @@@@@@@@ old base 1,4 old tip, new tip 1,4 @@@@@@@@
-      | |   a
-      | | -|b
-      | | +|x
-      | |   c
-      | |_
-      |_
-      _
-      | @@@@@@@@ View 4/5 : base-ddiff @@@@@@@@
-      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      | @@@@@@@@ -- old base 1,6 new base 1,1 @@@@@@@@
-      | @@@@@@@@ ++ new tip, old tip 1,6 old tip, new tip 1,1 @@@@@@@@
-      | --@@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      | --  a
-      | ---|b
-      | --+|B
-      | --  c
-      |_
-      _
-      | @@@@@@@@ View 5/5 : old-base-to-new-base @@@@@@@@
-      | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      | @@@@@@@@ The following base change was dropped: @@@@@@@@
+      | @@@@@@@@ This base change was dropped... : @@@@@@@@
       | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
       |   a
       | -|b
       | +|B
+      |   c
+      |_
+      _
+      | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
+      | @@@@@@@@ old base 1,4 old tip, new tip 1,4 @@@@@@@@
+      |   a
+      | -|b
+      | +|x
       |   c
       |_"
     `);
@@ -347,72 +301,19 @@ describe("diff", () => {
       "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
       old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
       _
-      | @@@@@@@@ View 1/6 : feature-ddiff @@@@@@@@
-      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
-      | @@@@@@@@ -- old base 1,6 old tip 1,1 @@@@@@@@
-      | @@@@@@@@ ++ new tip, new base 1,6 new base, new tip 1,1 @@@@@@@@
-      | --@@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
-      | --  a
-      | ---|b
-      | --+|x
-      | --  c
-      |_
-      _
-      | @@@@@@@@ View 2/6 : old-base-to-new-base @@@@@@@@
-      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
-      | @@@@@@@@ The following base change was kept: @@@@@@@@
-      | @@@@@@@@ old base 1,4 new tip, new base 1,4 @@@@@@@@
-      |   a
-      | -|b
-      | +|B
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 3/6 : story @@@@@@@@
-      | _
-      | | @@@@@@@@ This feature change was dropped... : @@@@@@@@
-      | | @@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
-      | |   a
-      | | -|b
-      | | +|x
-      | |   c
-      | |_
-      | _
-      | | @@@@@@@@ ... in favor of this base change: @@@@@@@@
-      | | @@@@@@@@ old base 1,4 new tip, new base 1,4 @@@@@@@@
-      | |   a
-      | | -|b
-      | | +|B
-      | |   c
-      | |_
-      |_
-      _
-      | @@@@@@@@ View 4/6 : old-tip-to-new-tip @@@@@@@@
-      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
-      | @@@@@@@@ old tip 1,4 new base, new tip 1,4 @@@@@@@@
-      |   a
-      | -|x
-      | +|B
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 5/6 : base-ddiff @@@@@@@@
-      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
-      | @@@@@@@@ -- old base 1,4 new tip, new base 1,4 @@@@@@@@
-      | @@@@@@@@ ++ old tip 1,4 new base, new tip 1,4 @@@@@@@@
-      |     a
-      | ---|b
-      | ++-|x
-      |   +|B
-      |_
-      _
-      | @@@@@@@@ View 6/6 : old-base-to-old-tip @@@@@@@@
-      | @@@@@@@@ A feature change was dropped in favor of a base change @@@@@@@@
-      | @@@@@@@@ The following feature change was dropped: @@@@@@@@
+      | @@@@@@@@ This feature change was dropped... : @@@@@@@@
       | @@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
       |   a
       | -|b
       | +|x
+      |   c
+      |_
+      _
+      | @@@@@@@@ ... in favor of this base change: @@@@@@@@
+      | @@@@@@@@ old base 1,4 new tip, new base 1,4 @@@@@@@@
+      |   a
+      | -|b
+      | +|B
       |   c
       |_"
     `);
@@ -446,8 +347,7 @@ describe("diff", () => {
 
   test("hunks of different classes are labeled and rendered independently", () => {
     // One file, two well-separated changes: a plain diff extension and a
-    // both-changes-dropped region, so the second hunk repeats its label
-    // before each of its views.
+    // both-changes-dropped region, whose two blocks nest under its label.
     const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
     expect(
       render({
@@ -470,31 +370,6 @@ describe("diff", () => {
       _
       | @@@@@@@@ Hunk 2/2 @@@@@@@@
       | _
-      | | @@@@@@@@ Hunk 2/2 View 1/4 : feature-ddiff @@@@@@@@
-      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
-      | | @@@@@@@@ -- new tip, old base 7,11 old tip 7,11 @@@@@@@@
-      | | @@@@@@@@ ++ new base 7,11 old base, new tip 7,11 @@@@@@@@
-      | |     m5
-      | | ---|omega
-      | | --+|omega!
-      | | ++-|OMEGA
-      | | +++|omega
-      | |     bot
-      | |_
-      | _
-      | | @@@@@@@@ Hunk 2/2 View 2/4 : base-ddiff @@@@@@@@
-      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
-      | | @@@@@@@@ -- new tip, old base 7,11 new base 7,11 @@@@@@@@
-      | | @@@@@@@@ ++ old tip 7,11 old base, new tip 7,11 @@@@@@@@
-      | |     m5
-      | | ---|omega
-      | | --+|OMEGA
-      | | ++-|omega!
-      | | +++|omega
-      | |     bot
-      | |_
-      | _
-      | | @@@@@@@@ Hunk 2/2 View 3/4 : old-tip-to-new-tip @@@@@@@@
       | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
       | | @@@@@@@@ old tip 7,10 old base, new tip 7,10 @@@@@@@@
       | |   m5
@@ -503,8 +378,6 @@ describe("diff", () => {
       | |   bot
       | |_
       | _
-      | | @@@@@@@@ Hunk 2/2 View 4/4 : new-base-to-new-tip @@@@@@@@
-      | | @@@@@@@@ Diverging changes in the old-tip and the new-base were both dropped @@@@@@@@
       | | @@@@@@@@ new base 7,10 old base, new tip 7,10 @@@@@@@@
       | |   m5
       | | -|OMEGA
@@ -569,7 +442,7 @@ describe("diff", () => {
     `);
   });
 
-  test("a conflict renders every standard view", () => {
+  test("a conflict renders the feature ddiff", () => {
     const lines = diff({
       revNames: { b1: "rev-b1", b2: "rev-b2", f1: "rev-f1", f2: "rev-f2" },
       fileNames: Diamond.singleton("greeting.txt"),
@@ -582,86 +455,15 @@ describe("diff", () => {
     expect(lines.map((line) => line.text).join("\n")).toMatchInlineSnapshot(`
       "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ greeting.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
       old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
-      _
-      | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
-      | @@@@@@@@ -- old base 1,5 old tip 1,5 @@@@@@@@
-      | @@@@@@@@ ++ new base 1,5 new tip 1,5 @@@@@@@@
-      |     a
-      | ---|b
-      | --+|x
-      | ++-|B
-      | +++|y
-      |     c
-      |_
-      _
-      | @@@@@@@@ View 2/8 : base-ddiff @@@@@@@@
-      | @@@@@@@@ -- old base 1,5 new base 1,5 @@@@@@@@
-      | @@@@@@@@ ++ old tip 1,5 new tip 1,5 @@@@@@@@
-      |     a
-      | ---|b
-      | --+|B
-      | ++-|x
-      | +++|y
-      |     c
-      |_
-      _
-      | @@@@@@@@ View 3/8 : old-tip-to-new-tip @@@@@@@@
-      | @@@@@@@@ old tip 1,4 new tip 1,4 @@@@@@@@
-      |   a
-      | -|x
-      | +|y
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 4/8 : new-base-to-new-tip @@@@@@@@
-      | @@@@@@@@ new base 1,4 new tip 1,4 @@@@@@@@
-      |   a
-      | -|B
-      | +|y
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 5/8 : old-base-to-old-tip @@@@@@@@
-      | @@@@@@@@ old base 1,4 old tip 1,4 @@@@@@@@
-      |   a
-      | -|b
-      | +|x
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 6/8 : old-base-to-new-base @@@@@@@@
-      | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      |   a
-      | -|b
-      | +|B
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 7/8 : old-base-to-new-tip @@@@@@@@
-      | @@@@@@@@ old base 1,4 new tip 1,4 @@@@@@@@
-      |   a
-      | -|b
-      | +|y
-      |   c
-      |_
-      _
-      | @@@@@@@@ View 8/8 : conflict-resolution @@@@@@@@
-      | @@@@@@@@ conflict 1,14 new tip 1,4 @@@@@@@@
-      | -|<<<<<<< old tip
-      |   a
-      | -|x
-      | +|y
-      |   c
-      | -|||||||| old base
-      | -|a
-      | -|b
-      | -|c
-      | -|=======
-      | -|a
-      | -|B
-      | -|c
-      | -|>>>>>>> new base
-      |_"
+      @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+      @@@@@@@@ -- old base 1,5 old tip 1,5 @@@@@@@@
+      @@@@@@@@ ++ new base 1,5 new tip 1,5 @@@@@@@@
+          a
+      ---|b
+      --+|x
+      ++-|B
+      +++|y
+          c"
     `);
   });
 
@@ -693,9 +495,9 @@ describe("diff", () => {
   });
 
   test("ddiff lines merge the provenance of the inner diffs they display", () => {
-    // The f1_f2 drop from the first rendering test, annotated: outer-same
-    // lines place their content in all the versions both inner diffs cover,
-    // and outer-only lines keep just their own side's.
+    // A conflict's feature ddiff, annotated: outer-same lines place their
+    // content in all the versions both inner diffs cover, and outer-only
+    // lines keep just their own side's.
     const annotate = (line: DiffAlgo.Line): string => {
       const at = Diamond.nodes
         .filter((node) => line.provenance[node] !== undefined)
@@ -703,70 +505,19 @@ describe("diff", () => {
         .join(" ");
       return `${`${line.kind ?? ""} ${at}`.trim().padEnd(26)}|${line.text}`;
     };
-    const lines = structured(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\nx\nc\n"));
+    const lines = structured(diamond("a\nb\nc\n", "a\nB\nc\n", "a\nx\nc\n", "a\ny\nc\n"));
     expect(lines.map(annotate).join("\n")).toMatchInlineSnapshot(`
       "                          |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ file.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                                 |old base rev-b1 | old tip rev-f1 | new base rev-b2 | new tip rev-f2
-                                |_
-                                || @@@@@@@@ View 1/5 : feature-ddiff @@@@@@@@
-                                || @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      b1:1 b2:1 f1:1 f2:1       || @@@@@@@@ -- old base 1,4 new tip, old tip 1,4 @@@@@@@@
-      b1:1 b2:1 f1:1 f2:1       || @@@@@@@@ ++ new base 1,4 old tip, new tip 1,4 @@@@@@@@
-      same b1:1 b2:1 f1:1 f2:1  ||     a
-      prev b1:2                 || ---|b
-      prev b2:2                 || ++-|B
-      next f1:2 f2:2            ||   +|x
-                                ||_
-                                |_
-                                || @@@@@@@@ View 2/5 : new-base-to-new-tip @@@@@@@@
-                                || @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-                                || @@@@@@@@ The following feature change was kept: @@@@@@@@
-      b2:1 f2:1                 || @@@@@@@@ new base 1,4 old tip, new tip 1,4 @@@@@@@@
-      same b2:1 f2:1            ||   a
-      prev b2:2                 || -|B
-      next f2:2                 || +|x
-      same b2:3 f2:3            ||   c
-                                ||_
-                                |_
-                                || @@@@@@@@ View 3/5 : story @@@@@@@@
-                                || _
-                                || | @@@@@@@@ This base change was dropped... : @@@@@@@@
-      b1:1 b2:1                 || | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      same b1:1 b2:1            || |   a
-      prev b1:2                 || | -|b
-      next b2:2                 || | +|B
-      same b1:3 b2:3            || |   c
-                                || |_
-                                || _
-                                || | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
-      b1:1 f2:1                 || | @@@@@@@@ old base 1,4 old tip, new tip 1,4 @@@@@@@@
-      same b1:1 f2:1            || |   a
-      prev b1:2                 || | -|b
-      next f2:2                 || | +|x
-      same b1:3 f2:3            || |   c
-                                || |_
-                                ||_
-                                |_
-                                || @@@@@@@@ View 4/5 : base-ddiff @@@@@@@@
-                                || @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-      b1:1 b2:1                 || @@@@@@@@ -- old base 1,6 new base 1,1 @@@@@@@@
-      b1:1 b2:1                 || @@@@@@@@ ++ new tip, old tip 1,6 old tip, new tip 1,1 @@@@@@@@
-      b1:1 b2:1                 || --@@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      same b1:1 b2:1            || --  a
-      prev b1:2                 || ---|b
-      next b2:2                 || --+|B
-      same b1:3 b2:3            || --  c
-                                ||_
-                                |_
-                                || @@@@@@@@ View 5/5 : old-base-to-new-base @@@@@@@@
-                                || @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-                                || @@@@@@@@ The following base change was dropped: @@@@@@@@
-      b1:1 b2:1                 || @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-      same b1:1 b2:1            ||   a
-      prev b1:2                 || -|b
-      next b2:2                 || +|B
-      same b1:3 b2:3            ||   c
-                                ||_"
+                                |@@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+      b1:1 b2:1 f1:1 f2:1       |@@@@@@@@ -- old base 1,5 old tip 1,5 @@@@@@@@
+      b1:1 b2:1 f1:1 f2:1       |@@@@@@@@ ++ new base 1,5 new tip 1,5 @@@@@@@@
+      same b1:1 b2:1 f1:1 f2:1  |    a
+      prev b1:2                 |---|b
+      next f1:2                 |--+|x
+      prev b2:2                 |++-|B
+      next f2:2                 |+++|y
+      same b1:3 b2:3 f1:3 f2:3  |    c"
     `);
   });
 });

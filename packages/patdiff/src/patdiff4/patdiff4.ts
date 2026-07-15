@@ -20,7 +20,6 @@ import * as Segments from "./segments.js";
 export * as Diamond from "./diamond.js";
 export type { Line, LineKind, Provenance } from "./diff-algo.js";
 export * as DiffAlgo from "./diff-algo.js";
-export * as DiffAlgoId from "./diff-algo-id.js";
 export * as Diff4Class from "./diff4-class.js";
 export type { Output4 } from "./header.js";
 export * as Header from "./header.js";
@@ -48,23 +47,20 @@ export const hunks = (args: HunksArgs): readonly Hunk.Hunk[] =>
   }).flatMap((segment) => {
     const shownClass = Diff4Class.shownClassOf(segment.diff4Class);
     if (shownClass === undefined) return [];
-    const views = DiffAlgo.selectAlgosForReview(shownClass).map((algo) =>
-      algo.apply({
-        includeHunkBreaks: true,
-        diff4Class: segment.diff4Class,
-        context: args.context,
-        output: args.output,
-        slices: segment.slice,
-      }),
-    );
-    if (views.length === 0) return [];
+    const blocks = DiffAlgo.applyClassView(DiffAlgo.classView(shownClass), {
+      includeHunkBreaks: true,
+      diff4Class: segment.diff4Class,
+      context: args.context,
+      output: args.output,
+      slices: segment.slice,
+    });
     return [
       {
         headerFileName: args.headerFileName,
         revNames: args.revNames,
         fileNames: args.fileNames,
         diff4Class: segment.diff4Class,
-        views,
+        blocks,
       },
     ];
   });
@@ -80,8 +76,7 @@ export const diffHunkLines = (args: HunksArgs): readonly Hunk.HunkLines[] =>
   Hunk.listToLineGroups(hunks(args), args.output);
 
 // TODO: when cabaret grows a review-obligation model, port Iron's
-// [num_lines_to_review]: the line count of each hunk's default view (just
-// feature_ddiff for the multi-view classes) at context 0 with no hunk breaks
-// and hints excluded. Iron stores it per diff4 to size outstanding review and
-// to mark zero-line diffs implicitly reviewed, which is what clears benign
-// rebases from every reviewer's queue without a session.
+// [num_lines_to_review]: the line count of each hunk's view at context 0 with
+// no hunk breaks and hints excluded. Iron stores it per diff4 to size
+// outstanding review and to mark zero-line diffs implicitly reviewed, which
+// is what clears benign rebases from every reviewer's queue without a session.

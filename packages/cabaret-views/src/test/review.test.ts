@@ -402,96 +402,33 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
 
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base 111111111111 | old tip 333333333333 | new base 222222222222 | new tip 444444444444
-    _
-    | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
-    | @@@@@@@@ -- old base 1,3 old tip 1,4 @@@@@@@@
-    | @@@@@@@@ ++ new base 1,3 new tip 1,4 @@@@@@@@
-    | --  one
-    | ++-|ONE
-    | +++|ONE!
-    |   +|child
-    |_
-    _
-    | @@@@@@@@ View 2/8 : base-ddiff @@@@@@@@
-    | @@@@@@@@ -- old base 1,3 new base 1,4 @@@@@@@@
-    | @@@@@@@@ ++ old tip 1,3 new tip 1,4 @@@@@@@@
-    |   -|one
-    | --+|ONE
-    | +++|ONE!
-    | ++  child
-    |_
-    _
-    | @@@@@@@@ View 3/8 : old-tip-to-new-tip @@@@@@@@
-    | @@@@@@@@ old tip 1,3 new tip 1,3 @@@@@@@@
-    | -|one
-    | +|ONE!
-    |   child
-    |_
-    _
-    | @@@@@@@@ View 4/8 : new-base-to-new-tip @@@@@@@@
-    | @@@@@@@@ new base 1,2 new tip 1,3 @@@@@@@@
-    | -|ONE
-    | +|ONE!
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 5/8 : old-base-to-old-tip @@@@@@@@
-    | @@@@@@@@ old base 1,2 old tip 1,3 @@@@@@@@
-    |   one
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 6/8 : old-base-to-new-base @@@@@@@@
-    | @@@@@@@@ old base 1,2 new base 1,2 @@@@@@@@
-    | -|one
-    | +|ONE
-    |_
-    _
-    | @@@@@@@@ View 7/8 : old-base-to-new-tip @@@@@@@@
-    | @@@@@@@@ old base 1,2 new tip 1,3 @@@@@@@@
-    | -|one
-    | +|ONE!
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 8/8 : conflict-resolution @@@@@@@@
-    | @@@@@@@@ conflict 1,9 new tip 1,3 @@@@@@@@
-    | -|<<<<<<< old tip
-    | -|one
-    | +|ONE!
-    |   child
-    | -|||||||| old base
-    | -|one
-    | -|=======
-    | -|ONE
-    | -|>>>>>>> new base
-    |_"
+    @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+    @@@@@@@@ -- old base 1,3 old tip 1,4 @@@@@@@@
+    @@@@@@@@ ++ new base 1,3 new tip 1,4 @@@@@@@@
+    --  one
+    ++-|ONE
+    +++|ONE!
+      +|child"
   `);
   // Lines anchor to their home in the new tip where they have one: added and
   // context lines directly, removed lines at the site their replacement now
-  // holds, and lines of views that never touch the new tip not at all.
+  // holds, and lines with no new-tip content not at all.
   const location = (line: number) => ({ kind: "location", file: "api.ts", line });
   const rendered = docText(doc).split("\n");
   const targetOf = (text: string) => targetAt(doc, rendered.indexOf(text));
-  expect(targetOf("| @@@@@@@@ new base 1,2 new tip 1,3 @@@@@@@@")).toEqual(location(1));
-  expect(targetOf("| -|ONE")).toEqual(location(1)); // the removal site in the new tip
-  expect(targetOf("| +|ONE!")).toEqual(location(1));
-  expect(targetOf("| +|child")).toEqual(location(2));
-  expect(targetOf("| +++|ONE!")).toEqual(location(1)); // ddiff lines know their inner homes
-  expect(targetOf("|   +|child")).toEqual(location(2));
-  expect(targetOf("| ++-|ONE")).toBeUndefined(); // removed before its view's first anchor
-  expect(targetOf("|   one")).toBeUndefined(); // old-base-to-old-tip: no new-tip content
-  expect(targetOf("| +|ONE")).toBeUndefined(); // old-base-to-new-base: no new-tip content
-  expect(targetOf("| -|<<<<<<< old tip")).toBeUndefined(); // conflict text lives in no file
+  expect(targetOf("+++|ONE!")).toEqual(location(1)); // ddiff lines know their inner homes
+  expect(targetOf("  +|child")).toEqual(location(2));
+  expect(targetOf("++-|ONE")).toBeUndefined(); // removed before its hunk's first anchor
+  expect(targetOf("--  one")).toBeUndefined(); // the old diff only: no new-tip content
   // The stacked signs still read through to added/removed styling.
   const styleOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.style;
-  expect(styleOf("| ++-|ONE")).toBe("removed");
-  expect(styleOf("|   +|child")).toBe("added");
-  expect(styleOf("| --  one")).toBeUndefined();
+  expect(styleOf("++-|ONE")).toBe("removed");
+  expect(styleOf("  +|child")).toBe("added");
+  expect(styleOf("--  one")).toBeUndefined();
   // Anchored lines sit on the jump tier, never advertised as links.
   const tierOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.tier;
-  expect(tierOf("| +|ONE!")).toBe("jump");
-  expect(tierOf("|   one")).toBeUndefined();
+  expect(tierOf("+++|ONE!")).toBe("jump");
+  expect(tierOf("--  one")).toBeUndefined();
   // A lone hunk never labels itself, so there is no title to fold it to.
   expect(doc.folds).toEqual([]);
 });
