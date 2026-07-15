@@ -374,6 +374,7 @@ test("pull leaves an unpushed local reparent alone", async () => {
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("push");
+  await repo.git("branch", "develop", "main");
   await repo.cabaret("reparent", "gadget", "develop");
   // The forge still shows the parent the push left, which is not a retarget.
   expect((await repo.cabaret("pull")).stdout).toBe(
