@@ -298,10 +298,11 @@ export class GitBackend implements Backend {
     }
   }
 
-  async configAll(key: string): Promise<readonly string[]> {
+  async configAll(key: string, scope?: ConfigScope): Promise<readonly string[]> {
     try {
       // NUL termination keeps a value containing a newline one value.
-      const out = await git(this.root, ["config", "-z", "--get-all", key]);
+      const scoped = scope === undefined ? [] : [`--${scope}`];
+      const out = await git(this.root, ["config", "-z", ...scoped, "--get-all", key]);
       return out.split("\0").slice(0, -1);
     } catch (error) {
       // Exit code 1 means exactly "unset"; anything else is a real failure.

@@ -113,7 +113,7 @@ test("add rejects a duplicate, an empty alias, and unset rejects when no aliases
   await repo.cabaret("config", "add", "alias", "agent@example.com");
   expect(await repo.cabaret("config", "add", "alias", "agent@example.com")).toEqual({
     stdout: "",
-    stderr: 'git config cabaret.alias already contains "agent@example.com"\n',
+    stderr: 'git config cabaret.alias already contains "agent@example.com" in global config\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("config", "add", "alias", "")).toEqual({
@@ -143,6 +143,57 @@ test("set, unset, add, and remove insist on the right arity of setting", async (
   expect(await repo.cabaret("config", "remove", "land-method", "squash")).toEqual({
     stdout: "",
     stderr: "land-method holds one value; use `cabaret config unset land-method`\n",
+    exitCode: 1,
+  });
+});
+
+test("--global and --local override a setting's home scope", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("config", "set", "land-method", "squash", "--global");
+  expect(await repo.git("config", "--global", "cabaret.landMethod")).toBe("squash");
+  await repo.cabaret("config", "add", "alias", "agent@example.com", "--local");
+  expect(await repo.git("config", "--local", "--get-all", "cabaret.alias")).toBe("agent@example.com");
+  // The same value may live in both scopes: each is checked and removed alone.
+  await repo.cabaret("config", "add", "alias", "agent@example.com");
+  expect(await repo.cabaret("config", "remove", "alias", "agent@example.com", "--local")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("config", "--global", "--get-all", "cabaret.alias")).toBe("agent@example.com");
+  // Unsetting where nothing is set reports the scope it looked in.
+  expect(await repo.cabaret("config", "unset", "land-method", "--local")).toEqual({
+    stdout: "",
+    stderr: "git config cabaret.landMethod has no local value\n",
+    exitCode: 1,
+  });
+});
+
+test("list reads one scope with --global or --local", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("config", "set", "land-method", "squash");
+  await repo.cabaret("config", "add", "alias", "agent@example.com");
+  expect((await repo.cabaret("config", "list", "--global")).stdout).toMatchInlineSnapshot(`
+    "alias        agent@example.com
+    context      (unset)
+    land-method  (unset)
+    land-via     (unset)
+    "
+  `);
+  expect((await repo.cabaret("config", "list", "--local")).stdout).toMatchInlineSnapshot(`
+    "alias        (unset)
+    context      (unset)
+    land-method  squash
+    land-via     (unset)
+    "
+  `);
+});
+
+test("--global and --local exclude each other", async () => {
+  const repo = await makeRepo();
+  expect(await repo.cabaret("config", "set", "context", "8", "--global", "--local")).toEqual({
+    stdout: "",
+    stderr: "pass at most one of --global and --local\n",
     exitCode: 1,
   });
 });

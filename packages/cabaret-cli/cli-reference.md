@@ -33,24 +33,28 @@ ARGUMENTS
 ### cabaret config list
 
 USAGE
-  cabaret config list
+  cabaret config list [--global] [--local]
   cabaret config list --help
 
 Show every setting
 
 FLAGS
-  -h --help  Print help information and exit
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
 
 ### cabaret config set
 
 USAGE
-  cabaret config set <setting> <value>
+  cabaret config set [--global] [--local] <setting> <value>
   cabaret config set --help
 
 Set a setting
 
 FLAGS
-  -h --help  Print help information and exit
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
 
 ARGUMENTS
   setting  setting to change
@@ -59,13 +63,15 @@ ARGUMENTS
 ### cabaret config unset
 
 USAGE
-  cabaret config unset <setting>
+  cabaret config unset [--global] [--local] <setting>
   cabaret config unset --help
 
 Unset a setting, restoring its default
 
 FLAGS
-  -h --help  Print help information and exit
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
 
 ARGUMENTS
   setting  setting to unset
@@ -73,13 +79,15 @@ ARGUMENTS
 ### cabaret config add
 
 USAGE
-  cabaret config add <setting> <value>
+  cabaret config add [--global] [--local] <setting> <value>
   cabaret config add --help
 
 Add a value to a multi-valued setting
 
 FLAGS
-  -h --help  Print help information and exit
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
 
 ARGUMENTS
   setting  setting to change
@@ -88,13 +96,15 @@ ARGUMENTS
 ### cabaret config remove
 
 USAGE
-  cabaret config remove <setting> <value>
+  cabaret config remove [--global] [--local] <setting> <value>
   cabaret config remove --help
 
 Remove a value from a multi-valued setting
 
 FLAGS
-  -h --help  Print help information and exit
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
 
 ARGUMENTS
   setting  setting to change

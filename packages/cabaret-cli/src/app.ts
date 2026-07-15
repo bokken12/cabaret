@@ -3,6 +3,7 @@ import {
   assertChangeExists,
   assertNotLanded,
   brain,
+  type ConfigScope,
   changeBase,
   createChange,
   currentSelf,
@@ -260,42 +261,71 @@ const settingAndValue = {
   ],
 } as const;
 
+/** The git-style scope flags every config subcommand takes. */
+const scopeFlags = {
+  global: { kind: "boolean", brief: "Use the person's global git config", default: false },
+  local: { kind: "boolean", brief: "Use this repository's git config", default: false },
+} as const;
+
+interface ScopeFlags {
+  readonly global: boolean;
+  readonly local: boolean;
+}
+
+/** The scope `flags` pick, or undefined when they pick none. */
+function flaggedScope(flags: ScopeFlags): ConfigScope | undefined {
+  if (flags.global && flags.local) {
+    throw new UserError("pass at most one of --global and --local");
+  }
+  return flags.global ? "global" : flags.local ? "local" : undefined;
+}
+
+/** The scope a write to `setting` targets: the flagged one, or the setting's home. */
+function writeScope(setting: Setting, flags: ScopeFlags): ConfigScope {
+  return flaggedScope(flags) ?? setting.scope;
+}
+
 const config = buildRouteMap({
   docs: {
     brief: "Manage Cabaret's settings",
     fullDescription:
       "Manage Cabaret's settings, stored as `cabaret.*` git config keys. " +
-      "Settings of the person (alias, context) live in global config; " +
-      "settings of the repository (land-method, land-via) live in local " +
-      "config.\n\nSettings:\n" +
+      "Without --global or --local, settings of the person (alias, context) " +
+      "go to global config, and settings of the repository (land-method, " +
+      "land-via) to local config.\n\nSettings:\n" +
       settings.map((s) => `  ${s.name.padEnd(settingNameWidth)}  ${s.brief}`).join("\n"),
   },
   routes: {
     list: buildCommand({
       docs: { brief: "Show every setting" },
-      parameters: {},
-      async func(this: LocalContext, _flags: Record<never, never>) {
+      parameters: { flags: scopeFlags },
+      async func(this: LocalContext, flags: ScopeFlags) {
+        const scope = flaggedScope(flags);
         const backend = await this.backend();
         for (const setting of settings) {
-          const values = await backend.configAll(setting.key);
+          const values = await backend.configAll(setting.key, scope);
+          // What a setting defaults to only holds for the merged view; one
+          // scope's gap may be filled by the other, so it is just unset.
           const shown =
             values.length > 0
               ? values.join(", ")
-              : setting.fallback !== undefined
-                ? `${setting.fallback} (default)`
-                : "(none)";
+              : scope !== undefined
+                ? "(unset)"
+                : setting.fallback !== undefined
+                  ? `${setting.fallback} (default)`
+                  : "(none)";
           this.process.stdout.write(`${setting.name.padEnd(settingNameWidth)}  ${shown}\n`);
         }
       },
     }),
     set: buildCommand({
       docs: { brief: "Set a setting" },
-      parameters: { positional: settingAndValue },
-      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, raw: string) {
+      parameters: { positional: settingAndValue, flags: scopeFlags },
+      async func(this: LocalContext, flags: ScopeFlags, setting: Setting, raw: string) {
         if (setting.multi) {
           throw new UserError(`${setting.name} holds multiple values; use \`cabaret config add ${setting.name}\``);
         }
-        await (await this.backend()).configSet(setting.key, setting.parse(raw), setting.scope);
+        await (await this.backend()).configSet(setting.key, setting.parse(raw), writeScope(setting, flags));
       },
     }),
     unset: buildCommand({
@@ -305,39 +335,43 @@ const config = buildRouteMap({
           kind: "tuple",
           parameters: [{ brief: "setting to unset", placeholder: "setting", parse: settingNamed }],
         },
+        flags: scopeFlags,
       },
-      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting) {
+      async func(this: LocalContext, flags: ScopeFlags, setting: Setting) {
+        const scope = writeScope(setting, flags);
         const backend = await this.backend();
-        if (!(await backend.configUnset(setting.key, setting.scope))) {
-          throw new UserError(`git config ${setting.key} has no ${setting.scope} value`);
+        if (!(await backend.configUnset(setting.key, scope))) {
+          throw new UserError(`git config ${setting.key} has no ${scope} value`);
         }
       },
     }),
     add: buildCommand({
       docs: { brief: "Add a value to a multi-valued setting" },
-      parameters: { positional: settingAndValue },
-      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, raw: string) {
+      parameters: { positional: settingAndValue, flags: scopeFlags },
+      async func(this: LocalContext, flags: ScopeFlags, setting: Setting, raw: string) {
         if (!setting.multi) {
           throw new UserError(`${setting.name} holds one value; use \`cabaret config set ${setting.name}\``);
         }
+        const scope = writeScope(setting, flags);
         const value = setting.parse(raw);
         const backend = await this.backend();
-        if ((await backend.configAll(setting.key)).includes(value)) {
-          throw new UserError(`git config ${setting.key} already contains ${JSON.stringify(value)}`);
+        if ((await backend.configAll(setting.key, scope)).includes(value)) {
+          throw new UserError(`git config ${setting.key} already contains ${JSON.stringify(value)} in ${scope} config`);
         }
-        await backend.configAdd(setting.key, value, setting.scope);
+        await backend.configAdd(setting.key, value, scope);
       },
     }),
     remove: buildCommand({
       docs: { brief: "Remove a value from a multi-valued setting" },
-      parameters: { positional: settingAndValue },
-      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, value: string) {
+      parameters: { positional: settingAndValue, flags: scopeFlags },
+      async func(this: LocalContext, flags: ScopeFlags, setting: Setting, value: string) {
         if (!setting.multi) {
           throw new UserError(`${setting.name} holds one value; use \`cabaret config unset ${setting.name}\``);
         }
+        const scope = writeScope(setting, flags);
         const backend = await this.backend();
-        if (!(await backend.configUnset(setting.key, setting.scope, value))) {
-          throw new UserError(`git config ${setting.key} has no ${setting.scope} value ${JSON.stringify(value)}`);
+        if (!(await backend.configUnset(setting.key, scope, value))) {
+          throw new UserError(`git config ${setting.key} has no ${scope} value ${JSON.stringify(value)}`);
         }
       },
     }),

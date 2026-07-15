@@ -299,8 +299,11 @@ export interface Backend {
   /** The value of git config `key`, or undefined when unset. */
   config(key: string): Promise<string | undefined>;
 
-  /** Every value of multi-valued git config `key`, in definition order; empty when unset. */
-  configAll(key: string): Promise<readonly string[]>;
+  /**
+   * Every value of multi-valued git config `key`, in definition order; empty
+   * when unset. Reads only `scope` when given, all scopes merged otherwise.
+   */
+  configAll(key: string, scope?: ConfigScope): Promise<readonly string[]>;
 
   /** Set single-valued git config `key` to `value` in `scope`. */
   configSet(key: string, value: string, scope: ConfigScope): Promise<void>;

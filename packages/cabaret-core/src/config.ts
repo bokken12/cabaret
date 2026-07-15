@@ -59,13 +59,14 @@ export async function readConfig(backend: Backend): Promise<Config> {
 /**
  * One Cabaret setting: a `cabaret.*` git config key and how to write it.
  * Settings that describe the person (their aliases, how they read diffs)
- * write to global config; repository policy writes to local config.
+ * default to global config; repository policy defaults to local config.
  */
 export interface Setting {
   /** The name the `config` command uses. */
   readonly name: string;
   /** The git config key holding the value. */
   readonly key: string;
+  /** Where writes land when no flag picks a scope. */
   readonly scope: ConfigScope;
   /** Whether the key accumulates values rather than holding one. */
   readonly multi: boolean;
