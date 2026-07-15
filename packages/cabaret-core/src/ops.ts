@@ -34,8 +34,8 @@ import { reviewRounds } from "./summary.js";
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
  * with the last revision shared with the parent as its base. The change must
- * not already exist. Review starts with the owner alone and widens from
- * there.
+ * not already exist. Review starts with nobody asked — the change is a draft
+ * until widened — though the owner may record self-review at any stage.
  */
 export async function createChange(
   backend: Backend,
@@ -71,7 +71,7 @@ export async function createChange(
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
     { timestamp: now(), user, action: { kind: "set-base", base } },
     { timestamp: now(), user, action: { kind: "set-owner", owner: owner ?? user } },
-    { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "owner" } },
+    { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "none" } },
   ]);
 }
 

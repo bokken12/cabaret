@@ -25,7 +25,7 @@ test("sync carries a change's log to a fresh machine verbatim", async () => {
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"owner"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
       `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt","base":"${root}","tip":"${tip}"}}\n`,
     stderr: "",
     exitCode: 0,

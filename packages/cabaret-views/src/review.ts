@@ -8,8 +8,7 @@ import {
   defaultContext,
   type FilePath,
   type FileView,
-  isReviewing,
-  landedMerge,
+  mayRecordReview,
   NotReviewingError,
   type RefName,
   type Reviewing,
@@ -58,7 +57,7 @@ export interface ChangeSnapshot {
   readonly user: UserName;
   /** Who the change asks to review right now. */
   readonly reviewing: Reviewing;
-  /** Whether the user may record review: the set includes them, or the change landed, where review is bookkeeping. */
+  /** Whether the user may record review without a nudge, as `mayRecordReview`. */
   readonly asked: boolean;
   readonly base: CommitHash;
   readonly tip: CommitHash;
@@ -72,7 +71,7 @@ export async function changeSnapshot(backend: Backend, change: RefName): Promise
     change,
     user: self.user,
     reviewing: currentReviewing(entries),
-    asked: landedMerge(entries) !== undefined || isReviewing(self, change, entries),
+    asked: mayRecordReview(self, change, entries),
     base: diff.base,
     tip: diff.tip,
     rounds: await reviewRounds(backend, entries, self.user, diff),

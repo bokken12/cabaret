@@ -14,7 +14,9 @@ async function requireReviewers(repo: TestRepo, ...users: string[]): Promise<voi
 test("todo shows review work and owned changes as a tree", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
   await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
   const { stdout, stderr, exitCode } = await repo.cabaret("todo");
   expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
   expect(stdout).toMatchInlineSnapshot(`
@@ -40,6 +42,7 @@ test("todo counts an alias's changes among the user's own", async () => {
   const repo = await makeRepo();
   await repo.git("config", "user.email", "agent@example.com");
   await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
   await repo.git("config", "user.email", "alice@example.com");
   // Someone else's change: alice neither owns gizmo nor owes it review.
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
@@ -79,6 +82,7 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
   // Deleting the branch orphans gadget's log: the change can no longer be
   // read, while gizmo — parented on the missing branch — still can.
   await repo.git("branch", "-qD", "gadget");
@@ -127,6 +131,7 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   // The policy on main is what puts the imported change on this user's plate.
   await requireReviewers(repo, "alice@example.com");
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
   // A teammate's branch lives on origin and in a forge change, but not locally.
   await repo.git("checkout", "-q", "main");
   await repo.git("checkout", "-qb", "their-feature");
@@ -210,6 +215,7 @@ test("a landed change stays only while children hang from it", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
   await repo.cabaret("review", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`

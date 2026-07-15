@@ -202,20 +202,31 @@ export class NotReviewingError extends UserError {
 }
 
 /**
+ * Whether `self` may record review of `change` without a nudge: the
+ * reviewing set includes them, they own the change — self-review is welcome
+ * at any stage, including a draft's, and widening skips an owner who already
+ * read the whole diff — or the change has landed, where review is
+ * bookkeeping, open to anyone as ever.
+ */
+export function mayRecordReview(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+  return (
+    landedMerge(entries) !== undefined ||
+    isReviewing(self, change, entries) ||
+    isSelf(self, currentOwner(change, entries))
+  );
+}
+
+/**
  * Fail with `NotReviewingError` unless the current user may record review of
- * `change`: the reviewing set includes them, or the change has landed —
- * review there is bookkeeping, open to anyone as ever. Recording ahead of
- * one's turn is usually a mistake (the diff is still being rewritten), but a
- * review is a true statement however early, so the check nudges rather than
- * forbids: frontends offer an override, and an overridden review counts
- * toward obligations like any other.
+ * `change` (as `mayRecordReview`). Recording ahead of one's turn is usually
+ * a mistake (the diff is still being rewritten), but a review is a true
+ * statement however early, so the check nudges rather than forbids:
+ * frontends offer an override, and an overridden review counts toward
+ * obligations like any other.
  */
 export async function assertReviewing(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<void> {
-  if (landedMerge(entries) !== undefined) {
-    return;
-  }
   const self = await currentSelf(backend);
-  if (!isReviewing(self, change, entries)) {
+  if (!mayRecordReview(self, change, entries)) {
     throw new NotReviewingError(change, currentReviewing(entries), self.user);
   }
 }

@@ -4,9 +4,9 @@ Who is asked to review a change right now. Obligations say who must review
 before a change lands; the reviewing set says whose turn it is. It is one
 ordered value per change, recorded by `set-reviewing` entries in the log:
 
-- `none` — the change is not ready for review. Nobody is asked, not even the
-  owner; a forge shows the change as a draft.
-- `owner` — the owner reads their own diff. Where `create` starts a change.
+- `none` — the change is not ready for review. Nobody is asked; a forge
+  shows the change as a draft. Where `create` starts a change.
+- `owner` — the owner reads their own diff.
 - `reviewers` — the owner and the change's reviewers.
 - `everyone` — anyone; the obligations files alone decide who is asked. Where
   a log that never set a reviewing set reads, so imported forge changes need
@@ -38,7 +38,9 @@ reading a diff that is still being rewritten, so marking a file reviewed
 fails with the change's reviewing set — short of an explicit override, which
 each frontend offers the way it offers the ownership override. A review is a
 true statement however early, so the override is always available, and an
-overridden review counts toward obligations like any other. A landed change
+overridden review counts toward obligations like any other. The owner is
+never nudged: self-review is welcome at any stage, including a draft's, and
+widening skips an owner who already read the whole diff. A landed change
 nudges nobody: review there is bookkeeping, open as ever.
 
 Not satisfaction. It is a pure function of the tree and the review entries,

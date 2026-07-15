@@ -24,7 +24,8 @@ test("push pushes the branch, opens a forge change on the parent, and posts comm
     title: "gadget",
     author: "alice@users.noreply.github.com",
     state: "open",
-    draft: false,
+    // A fresh change is a draft until widened, and opens as one.
+    draft: true,
     reviewers: [],
   });
   const posted = await forge.listComments(PR);

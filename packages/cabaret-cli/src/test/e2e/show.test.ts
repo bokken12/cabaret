@@ -15,9 +15,9 @@ test("show renders the current change's status page", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ review            │
+    │ next step │ widen reviewing   │
     │ owner     │ alice@example.com │
-    │ reviewing │ owner             │
+    │ reviewing │ none              │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -44,9 +44,9 @@ test("show renders the comments on a change, oldest first, above the files", asy
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ review            │
+    │ next step │ widen reviewing   │
     │ owner     │ alice@example.com │
-    │ reviewing │ owner             │
+    │ reviewing │ none              │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -120,6 +120,7 @@ test("show tallies the remaining review per user", async () => {
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "policy");
   await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "owner");
   await repo.cabaret("review", "feature.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "feature
@@ -145,6 +146,7 @@ test("show tallies the remaining review per user", async () => {
 test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
   await repo.cabaret("review", "gadget.txt");
   const { stdout } = await repo.cabaret("show", "gadget");
   expect(stdout).toMatchInlineSnapshot(`
@@ -181,7 +183,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     ├───────────┼──────────────────────────────┤
     │ next step │ sync                         │
     │ owner     │ alice@example.com            │
-    │ reviewing │ owner                        │
+    │ reviewing │ none                         │
     │ parent    │ main                         │
     │ tip       │ f37230616d25 (behind origin) │
     │ base      │ 1ac0b33426d0                 │
@@ -199,6 +201,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
 test("show notes a stale base on its row while review stays the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
   await repo.git("checkout", "-q", "main");
   await repo.write("trunk.txt", "trunk work\n");
   await repo.git("add", "-A");
@@ -244,7 +247,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     ├───────────┼───────────────────┤
     │ next step │ reparent          │
     │ owner     │ alice@example.com │
-    │ reviewing │ owner             │
+    │ reviewing │ none              │
     │ parent    │ gadget (landed)   │
     │ tip       │ 03c72c897f10      │
     │ base      │ f37230616d25      │
@@ -277,7 +280,7 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
     ├───────────┼────────────────────────┤
     │ next step │ reparent               │
     │ owner     │ alice@example.com      │
-    │ reviewing │ owner                  │
+    │ reviewing │ none                   │
     │ parent    │ topic (does not exist) │
     │ tip       │ db5a7532d33d           │
     │ base      │ 1ac0b33426d0           │
@@ -306,7 +309,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     ├───────────┼─────────────────────────────────────┤
     │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
-    │ reviewing │ owner                               │
+    │ reviewing │ none                                │
     │ parent    │ main                                │
     │ tip       │ 7eccbe63002f (diverged from origin) │
     │ base      │ 1ac0b33426d0                        │
@@ -324,6 +327,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
 test("show notes a tip ahead of origin's copy without changing the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
   await repo.git("push", "-q", "origin", "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
@@ -368,9 +372,9 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ review            │
+    │ next step │ widen reviewing   │
     │ owner     │ alice@example.com │
-    │ reviewing │ owner             │
+    │ reviewing │ none              │
     │ parent    │ main              │
     │ tip       │ 7eccbe63002f      │
     │ base      │ 1ac0b33426d0      │
