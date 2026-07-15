@@ -67,7 +67,10 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     broken: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Changes to review:
+    "Todo
+    ====
+
+    Changes to review:
     ╭──────────┬────────╮
     │ change   │ review │
     ├──────────┼────────┤
@@ -118,7 +121,10 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
   expect(docText(todoDoc({ review: [], owned: [], broken: [] }))).toMatchInlineSnapshot(`
-    "Changes to review:
+    "Todo
+    ====
+
+    Changes to review:
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
@@ -147,7 +153,10 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
   ]);
   // The tables show only what could be read; broken changes stay off them.
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Changes to review:
+    "Todo
+    ====
+
+    Changes to review:
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
