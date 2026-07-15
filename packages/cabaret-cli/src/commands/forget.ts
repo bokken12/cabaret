@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { assertChangeExists, type FilePath, parseFilePath, parseRefName, type RefName } from "cabaret-core";
+import { assertChangeExists, parseRefName, type RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const forget = buildCommand({
@@ -12,7 +12,7 @@ export const forget = buildCommand({
   parameters: {
     positional: {
       kind: "array",
-      parameter: { brief: "files to forget", placeholder: "file", parse: parseFilePath },
+      parameter: { brief: "files to forget", placeholder: "file", parse: String },
       minimum: 1,
     },
     flags: {
@@ -24,8 +24,9 @@ export const forget = buildCommand({
       },
     },
   },
-  async func(this: LocalContext, flags: { change?: RefName }, ...files: FilePath[]) {
+  async func(this: LocalContext, flags: { change?: RefName }, ...rawFiles: string[]) {
     const backend = await this.backend();
+    const files = rawFiles.map((raw) => backend.resolveFile(raw));
     const change = flags.change ?? (await backend.currentBranch());
     // Logs are only ever started by `create`; appending to a missing one
     // would conjure a change out of thin air.

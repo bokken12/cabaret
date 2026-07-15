@@ -3,9 +3,7 @@ import {
   brain,
   changeBase,
   defaultContext,
-  type FilePath,
   parseContext,
-  parseFilePath,
   parseRefName,
   type RefName,
   type ReviewSpan,
@@ -37,7 +35,7 @@ export const diff = buildCommand({
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [{ brief: "file to diff", placeholder: "file", parse: parseFilePath }],
+      parameters: [{ brief: "file to diff", placeholder: "file", parse: String }],
     },
     flags: {
       change: {
@@ -60,10 +58,9 @@ export const diff = buildCommand({
       },
     },
   },
-  // TODO: normalize the file argument to a repo-relative path so lookups made
-  // from a subdirectory name the same file the log does.
-  async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, file: FilePath) {
+  async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, rawFile: string) {
     const backend = await this.backend();
+    const file = backend.resolveFile(rawFile);
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;

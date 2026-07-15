@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
@@ -252,17 +252,35 @@ export class GitBackend implements Backend {
     readonly root: string,
     /** The repository's common git dir, shared by all its worktrees. */
     private readonly gitDir: string,
+    /**
+     * Repo-relative path of the directory the backend was opened from: "" at
+     * the root, "src/" below it. Asked of git rather than computed from the
+     * two absolute paths, whose spellings can disagree over symlinks.
+     */
+    private readonly prefix: string,
   ) {
     this.reader = new ObjectReader(root);
   }
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const [root, gitDir] = await Promise.all([
+    const [root, gitDir, prefix] = await Promise.all([
       git(dir, ["rev-parse", "--show-toplevel"]),
       git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      git(dir, ["rev-parse", "--show-prefix"]),
     ]);
-    return new GitBackend(root.trimEnd(), gitDir.trimEnd());
+    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), prefix.trimEnd());
+  }
+
+  resolveFile(raw: string): FilePath {
+    // Check the raw spelling too: "" would otherwise normalize into a
+    // plausible-looking directory path instead of failing.
+    parseFilePath(raw);
+    const path = normalize(isAbsolute(raw) ? relative(this.root, raw) : join(this.prefix, raw));
+    if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) {
+      throw new UserError(`path is outside the repository: ${JSON.stringify(raw)}`);
+    }
+    return parseFilePath(path);
   }
 
   async currentBranch(): Promise<RefName> {

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -53,6 +53,20 @@ afterAll(async () => {
 test("reports the current working branch", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.currentBranch()).toBe("feature");
+});
+
+test("resolveFile maps user paths to repo-relative ones", async () => {
+  await mkdir(join(repo, "sub"), { recursive: true });
+  const root = await GitBackend.open(repo);
+  expect(root.resolveFile("src/a.ts")).toBe("src/a.ts");
+  expect(root.resolveFile(join(root.root, "src/a.ts"))).toBe("src/a.ts");
+  expect(() => root.resolveFile("../escape.ts")).toThrow('path is outside the repository: "../escape.ts"');
+  expect(() => root.resolveFile("")).toThrow('not a valid file path: ""');
+  const sub = await GitBackend.open(join(repo, "sub"));
+  expect(sub.resolveFile("a.ts")).toBe("sub/a.ts");
+  expect(sub.resolveFile("../src/a.ts")).toBe("src/a.ts");
+  expect(sub.resolveFile(join(sub.root, "src/a.ts"))).toBe("src/a.ts");
+  expect(() => sub.resolveFile("../../escape.ts")).toThrow('path is outside the repository: "../../escape.ts"');
 });
 
 test("configAll reads every value of a multi-valued key, in order", async () => {
