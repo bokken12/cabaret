@@ -30,6 +30,76 @@ FLAGS
 ARGUMENTS
   text  the comment text
 
+### cabaret config list
+
+USAGE
+  cabaret config list
+  cabaret config list --help
+
+Show every setting
+
+FLAGS
+  -h --help  Print help information and exit
+
+### cabaret config set
+
+USAGE
+  cabaret config set <setting> <value>
+  cabaret config set --help
+
+Set a setting
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  setting  setting to change
+  value    the value
+
+### cabaret config unset
+
+USAGE
+  cabaret config unset <setting>
+  cabaret config unset --help
+
+Unset a setting, restoring its default
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  setting  setting to unset
+
+### cabaret config add
+
+USAGE
+  cabaret config add <setting> <value>
+  cabaret config add --help
+
+Add a value to a multi-valued setting
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  setting  setting to change
+  value    the value
+
+### cabaret config remove
+
+USAGE
+  cabaret config remove <setting> <value>
+  cabaret config remove --help
+
+Remove a value from a multi-valued setting
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  setting  setting to change
+  value    the value
+
 ## cabaret create
 
 USAGE

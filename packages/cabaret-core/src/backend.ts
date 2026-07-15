@@ -282,6 +282,9 @@ export interface ForgeComment {
   readonly updatedAt: TimestampMs;
 }
 
+/** Where a config write lands: this repository, or the person's global config. */
+export type ConfigScope = "local" | "global";
+
 /**
  * The operations Cabaret needs from a version-control backend.
  * The primary implementation (`cabaret-node`) shells out to a local git.
@@ -298,6 +301,18 @@ export interface Backend {
 
   /** Every value of multi-valued git config `key`, in definition order; empty when unset. */
   configAll(key: string): Promise<readonly string[]>;
+
+  /** Set single-valued git config `key` to `value` in `scope`. */
+  configSet(key: string, value: string, scope: ConfigScope): Promise<void>;
+
+  /** Append `value` to multi-valued git config `key` in `scope`. */
+  configAdd(key: string, value: string, scope: ConfigScope): Promise<void>;
+
+  /**
+   * Remove `key`'s values in `scope` — those equal to `value`, or all of
+   * them. Returns whether anything was removed.
+   */
+  configUnset(key: string, scope: ConfigScope, value?: string): Promise<boolean>;
 
   /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
   resolveCommit(revision: string): Promise<CommitHash>;

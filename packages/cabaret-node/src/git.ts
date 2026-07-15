@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import {
   type Backend,
   type CommitHash,
+  type ConfigScope,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
@@ -306,6 +307,31 @@ export class GitBackend implements Backend {
       // Exit code 1 means exactly "unset"; anything else is a real failure.
       if ((error as { code?: unknown }).code === 1) {
         return [];
+      }
+      throw error;
+    }
+  }
+
+  async configSet(key: string, value: string, scope: ConfigScope): Promise<void> {
+    await git(this.root, ["config", `--${scope}`, key, value]);
+  }
+
+  async configAdd(key: string, value: string, scope: ConfigScope): Promise<void> {
+    await git(this.root, ["config", `--${scope}`, "--add", key, value]);
+  }
+
+  async configUnset(key: string, scope: ConfigScope, value?: string): Promise<boolean> {
+    const args =
+      value === undefined
+        ? ["config", `--${scope}`, "--unset-all", key]
+        : ["config", `--${scope}`, "--unset-all", "--fixed-value", key, value];
+    try {
+      await git(this.root, args);
+      return true;
+    } catch (error) {
+      // Exit code 5 means exactly "nothing matched"; anything else is a real failure.
+      if ((error as { code?: unknown }).code === 5) {
+        return false;
       }
       throw error;
     }

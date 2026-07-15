@@ -34,6 +34,9 @@ import {
   reparentChange,
   resolveRange,
   reviewSpans,
+  type Setting,
+  settingNamed,
+  settings,
   syncedForgeChange,
   type Todo,
   transferChange,
@@ -242,6 +245,102 @@ const comment = buildCommand({
     await backend.appendLog(change, [
       { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
     ]);
+  },
+});
+
+/** Column width that aligns values after the longest setting name. */
+const settingNameWidth = Math.max(...settings.map((s) => s.name.length));
+
+/** The positional pair every config write takes: a setting and a value. */
+const settingAndValue = {
+  kind: "tuple",
+  parameters: [
+    { brief: "setting to change", placeholder: "setting", parse: settingNamed },
+    { brief: "the value", placeholder: "value", parse: String },
+  ],
+} as const;
+
+const config = buildRouteMap({
+  docs: {
+    brief: "Manage Cabaret's settings",
+    fullDescription:
+      "Manage Cabaret's settings, stored as `cabaret.*` git config keys. " +
+      "Settings of the person (alias, context) live in global config; " +
+      "settings of the repository (land-method, land-via) live in local " +
+      "config.\n\nSettings:\n" +
+      settings.map((s) => `  ${s.name.padEnd(settingNameWidth)}  ${s.brief}`).join("\n"),
+  },
+  routes: {
+    list: buildCommand({
+      docs: { brief: "Show every setting" },
+      parameters: {},
+      async func(this: LocalContext, _flags: Record<never, never>) {
+        const backend = await this.backend();
+        for (const setting of settings) {
+          const values = await backend.configAll(setting.key);
+          const shown =
+            values.length > 0
+              ? values.join(", ")
+              : setting.fallback !== undefined
+                ? `${setting.fallback} (default)`
+                : "(none)";
+          this.process.stdout.write(`${setting.name.padEnd(settingNameWidth)}  ${shown}\n`);
+        }
+      },
+    }),
+    set: buildCommand({
+      docs: { brief: "Set a setting" },
+      parameters: { positional: settingAndValue },
+      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, raw: string) {
+        if (setting.multi) {
+          throw new UserError(`${setting.name} holds multiple values; use \`cabaret config add ${setting.name}\``);
+        }
+        await (await this.backend()).configSet(setting.key, setting.parse(raw), setting.scope);
+      },
+    }),
+    unset: buildCommand({
+      docs: { brief: "Unset a setting, restoring its default" },
+      parameters: {
+        positional: {
+          kind: "tuple",
+          parameters: [{ brief: "setting to unset", placeholder: "setting", parse: settingNamed }],
+        },
+      },
+      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting) {
+        const backend = await this.backend();
+        if (!(await backend.configUnset(setting.key, setting.scope))) {
+          throw new UserError(`git config ${setting.key} has no ${setting.scope} value`);
+        }
+      },
+    }),
+    add: buildCommand({
+      docs: { brief: "Add a value to a multi-valued setting" },
+      parameters: { positional: settingAndValue },
+      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, raw: string) {
+        if (!setting.multi) {
+          throw new UserError(`${setting.name} holds one value; use \`cabaret config set ${setting.name}\``);
+        }
+        const value = setting.parse(raw);
+        const backend = await this.backend();
+        if ((await backend.configAll(setting.key)).includes(value)) {
+          throw new UserError(`git config ${setting.key} already contains ${JSON.stringify(value)}`);
+        }
+        await backend.configAdd(setting.key, value, setting.scope);
+      },
+    }),
+    remove: buildCommand({
+      docs: { brief: "Remove a value from a multi-valued setting" },
+      parameters: { positional: settingAndValue },
+      async func(this: LocalContext, _flags: Record<never, never>, setting: Setting, value: string) {
+        if (!setting.multi) {
+          throw new UserError(`${setting.name} holds one value; use \`cabaret config unset ${setting.name}\``);
+        }
+        const backend = await this.backend();
+        if (!(await backend.configUnset(setting.key, setting.scope, value))) {
+          throw new UserError(`git config ${setting.key} has no ${setting.scope} value ${JSON.stringify(value)}`);
+        }
+      },
+    }),
   },
 });
 
@@ -930,6 +1029,7 @@ const routes = buildRouteMap({
   routes: {
     approve,
     comment,
+    config,
     create,
     dev,
     diff,
