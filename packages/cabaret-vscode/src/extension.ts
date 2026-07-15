@@ -203,20 +203,11 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
   const uri = vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
   // Reopening an already-open page serves the buffer as it stands, so ask for
   // a fresh render alongside.
-  const open = provider.doc(uri) !== undefined;
-  if (open) {
+  if (provider.doc(uri) !== undefined) {
     provider.refresh(uri);
   }
   const document = await vscode.workspace.openTextDocument(uri);
   await vscode.window.showTextDocument(document, { preview: false });
-  // A freshly opened page starts its folded sections folded; a page already
-  // on screen keeps whatever the user has unfolded.
-  if (!open) {
-    const lines = provider.doc(uri)?.folds.flatMap(({ start, folded }) => (folded ? [start] : [])) ?? [];
-    if (lines.length > 0) {
-      await vscode.commands.executeCommand("editor.fold", { selectionLines: lines });
-    }
-  }
 }
 
 /**
