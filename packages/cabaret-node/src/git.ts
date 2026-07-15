@@ -24,6 +24,13 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+/** There is no `git` to run: nothing on PATH answers to the name. */
+export class GitUnavailableError extends UserError {
+  constructor() {
+    super("git not found on PATH; install it from https://git-scm.com/downloads (on macOS: xcode-select --install)");
+  }
+}
+
 /**
  * Run git in `cwd`, feed it `stdin` if given, and return its stdout. On
  * nonzero exit the rejection already names the command and carries stderr in
@@ -42,8 +49,15 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
     sink.on("error", () => {});
     sink.end(stdin);
   }
-  const { stdout } = await pending;
-  return stdout;
+  try {
+    const { stdout } = await pending;
+    return stdout;
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") {
+      throw new GitUnavailableError();
+    }
+    throw error;
+  }
 }
 
 /** A response to one object query: the resolved object, with contents when asked for. */
@@ -210,6 +224,13 @@ const LOG_REF_PREFIX = `${CABARET_REF_PREFIX}log/`;
 
 /** Where `origin`'s logs land when fetched, mirroring `LOG_REF_PREFIX`. */
 const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
+
+/**
+ * The refspec fetching every log on `origin` into the remote-log namespace.
+ * Forced: log merging is by content, not ancestry, so any movement of the
+ * remote's logs — even a rebuilt one — is acceptable to observe.
+ */
+export const LOG_FETCH_REFSPEC = `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`;
 
 function logRef(change: RefName): RefName {
   return parseRefName(`${LOG_REF_PREFIX}${change}`);
@@ -463,9 +484,7 @@ export class GitBackend implements Backend {
 
   /** Fetch every log on `origin` into the remote-log namespace. */
   private async fetchLogs(): Promise<void> {
-    // Forced: log merging is by content, not ancestry, so any movement of the
-    // remote's logs — even a rebuilt one — is acceptable to observe.
-    await git(this.root, ["fetch", "--quiet", "origin", `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`]);
+    await git(this.root, ["fetch", "--quiet", "origin", LOG_FETCH_REFSPEC]);
   }
 
   /**

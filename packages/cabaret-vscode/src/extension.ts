@@ -26,7 +26,16 @@ import {
   UserError,
   userName,
 } from "cabaret-core";
-import { GitBackend, openGitHubForge } from "cabaret-node";
+import {
+  applySetup,
+  auditSetup,
+  declinedScopes,
+  declineSetup,
+  GitBackend,
+  GitUnavailableError,
+  openGitHubForge,
+  type SetupAudit,
+} from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -366,6 +375,84 @@ async function runPull(provider: PageProvider): Promise<void> {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   } finally {
     provider.refreshAll();
+  }
+}
+
+/** Surface a setup failure, attaching the way out when the failure is git itself. */
+function showSetupError(error: unknown): void {
+  if (error instanceof GitUnavailableError) {
+    void vscode.window.showErrorMessage(`cabaret: ${error.message}`, "Open Download Page").then((choice) => {
+      if (choice !== undefined) {
+        void vscode.env.openExternal(vscode.Uri.parse("https://git-scm.com/downloads"));
+      }
+    });
+    return;
+  }
+  vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+}
+
+/** Apply the unset recommendations in `audits`, reporting the outcome. */
+async function applyRecommendations(backend: Backend, audits: readonly SetupAudit[]): Promise<void> {
+  await applySetup(backend, audits);
+  const applied = audits.filter(({ standing }) => standing.kind === "unset").length;
+  if (applied > 0) {
+    vscode.window.setStatusBarMessage(
+      `cabaret: applied ${applied} recommended git setting${applied === 1 ? "" : "s"}`,
+      5000,
+    );
+  }
+  const kept = audits.flatMap(({ rec, standing }) =>
+    standing.kind === "differs" ? [`${rec.key} = ${standing.current}`] : [],
+  );
+  if (kept.length > 0) {
+    vscode.window.showInformationMessage(`cabaret: kept ${kept.join(", ")}`);
+  }
+}
+
+/**
+ * Offer the recommended git settings still unset, once per scope: a no is
+ * recorded where it was given — global config for the person's settings,
+ * local for the repository's — and that scope is never offered again.
+ */
+async function offerSetup(): Promise<void> {
+  try {
+    const backend = await openBackend();
+    const declined = await declinedScopes(backend);
+    const pending = (await auditSetup(backend)).filter(
+      ({ rec, standing }) => standing.kind === "unset" && !declined.has(rec.scope),
+    );
+    if (pending.length === 0) {
+      return;
+    }
+    const briefs = pending.map(({ rec }) => rec.brief).join(", ");
+    const choice = await vscode.window.showInformationMessage(
+      `cabaret recommends git settings: ${briefs}`,
+      "Apply",
+      "No",
+    );
+    if (choice === "Apply") {
+      await applyRecommendations(backend, pending);
+    } else if (choice === "No") {
+      await declineSetup(backend, [...new Set(pending.map(({ rec }) => rec.scope))]);
+    }
+    // Dismissing the notification decides nothing; the offer returns.
+  } catch (error) {
+    showSetupError(error);
+  }
+}
+
+/** Apply the recommended git settings on demand, past any recorded no. */
+async function runSetup(): Promise<void> {
+  try {
+    const backend = await openBackend();
+    const audits = await auditSetup(backend);
+    if (audits.every(({ standing }) => standing.kind === "applied")) {
+      vscode.window.showInformationMessage("cabaret: recommended git settings are already applied");
+      return;
+    }
+    await applyRecommendations(backend, audits);
+  } catch (error) {
+    showSetupError(error);
   }
 }
 
@@ -797,6 +884,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.pull", () => runPull(provider)),
+    vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
     vscode.commands.registerCommand("cabaret.push", () =>
       actOnSelection(provider, (backend, _editor, changes) => pushSelection(backend, changes)),
     ),
@@ -884,6 +972,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // An extension-host restart re-syncs open cabaret editors without a render;
   // painting them misses the cache and so asks for one.
   repaint();
+  // Lazy activation makes this fire on the first real use of cabaret in a
+  // repository, which is when its recommendations are worth having.
+  void offerSetup();
   // Leaderkey scans `leaderkey.overrides.*` contributions when it activates,
   // which can precede this extension registering its own; a rescan picks the
   // bindings up either way.

@@ -379,6 +379,28 @@ FLAGS
 ARGUMENTS
   user  the new owner
 
+### cabaret setup list
+
+USAGE
+  cabaret setup list
+  cabaret setup list --help
+
+Show each recommendation and its status
+
+FLAGS
+  -h --help  Print help information and exit
+
+### cabaret setup apply
+
+USAGE
+  cabaret setup apply
+  cabaret setup apply --help
+
+Apply the recommendations not yet set
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cabaret show
 
 USAGE
