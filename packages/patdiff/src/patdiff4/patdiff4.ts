@@ -74,6 +74,11 @@ export const hunks = (args: HunksArgs): readonly Hunk.Hunk[] =>
  *  the four versions. */
 export const diff = (args: HunksArgs): readonly DiffAlgo.Line[] => Hunk.listToLines(hunks(args), args.output);
 
+/** The same lines as `diff`, grouped per aligned hunk with each hunk's title
+ *  line located — for hosts that fold hunks down to their titles. */
+export const diffHunkLines = (args: HunksArgs): readonly Hunk.HunkLines[] =>
+  Hunk.listToLineGroups(hunks(args), args.output);
+
 // TODO: when cabaret grows a review-obligation model, port Iron's
 // [num_lines_to_review]: the line count of each hunk's default view (just
 // feature_ddiff for the multi-view classes) at context 0 with no hunk breaks

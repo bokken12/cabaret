@@ -492,6 +492,35 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
   const tierOf = (text: string) => doc.lines[rendered.indexOf(text)]?.spans[0]?.tier;
   expect(tierOf("| +|ONE!")).toBe("jump");
   expect(tierOf("|   one")).toBeUndefined();
+  // A lone hunk never labels itself, so there is no title to fold it to.
+  expect(doc.folds).toEqual([]);
+});
+
+test("diffDoc folds each labeled four-way hunk to its title line", () => {
+  // Two well-separated changes, so the diff aligns into two labeled hunks.
+  const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
+  const doc = diffDoc(
+    diffPageWith({
+      end: fake("4"),
+      later: 0,
+      view: {
+        kind: "four",
+        revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
+        contents: {
+          b1: contents("alpha", "omega"),
+          b2: contents("alpha", "OMEGA"),
+          f1: contents("alpha1", "omega!"),
+          f2: contents("alpha2", "omega"),
+        },
+      },
+    }),
+    1,
+  );
+  const text = docText(doc).split("\n");
+  expect(doc.folds.map(({ start, end }) => [text[start], text[end]])).toEqual([
+    ["| @@@@@@@@ Hunk 1/2 @@@@@@@@", "|_"],
+    ["| @@@@@@@@ Hunk 2/2 @@@@@@@@", "|_"],
+  ]);
 });
 
 test("diffDoc with an empty diff points at marking the file reviewed", () => {
