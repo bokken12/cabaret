@@ -16,6 +16,16 @@ function cellWidth(cell: Cell): number {
   return cellSpans(cell).reduce((width, { text }) => width + text.length, 0);
 }
 
+/** A table's lines split around its data rows, for callers nesting rows into sections. */
+export interface Table {
+  /** Top border, header row, and the rule under it. */
+  readonly head: readonly Line[];
+  /** One line per data row, in the order given. */
+  readonly rows: readonly Line[];
+  /** Bottom border. */
+  readonly foot: Line;
+}
+
 /**
  * Lay rows out as a bordered table, keeping each cell's spans intact so a
  * cell's targets map to exactly their own span's text:
@@ -26,7 +36,7 @@ function cellWidth(cell: Cell): number {
  *     │ root   │      1 │
  *     ╰────────┴────────╯
  */
-export function table(columns: readonly Column[], rows: readonly (readonly Cell[])[]): readonly Line[] {
+export function tableParts(columns: readonly Column[], rows: readonly (readonly Cell[])[]): Table {
   for (const cells of rows) {
     if (cells.length !== columns.length) {
       throw new Error(`row has ${cells.length} cells for ${columns.length} columns`);
@@ -57,11 +67,15 @@ export function table(columns: readonly Column[], rows: readonly (readonly Cell[
   const rule = (left: string, joint: string, right: string): Line => ({
     spans: [span(`${left}${widths.map((width) => "─".repeat(width + 2)).join(joint)}${right}`)],
   });
-  return [
-    rule("╭", "┬", "╮"),
-    row(columns.map(({ header }) => span(header))),
-    rule("├", "┼", "┤"),
-    ...rows.map(row),
-    rule("╰", "┴", "╯"),
-  ];
+  return {
+    head: [rule("╭", "┬", "╮"), row(columns.map(({ header }) => span(header))), rule("├", "┼", "┤")],
+    rows: rows.map(row),
+    foot: rule("╰", "┴", "╯"),
+  };
+}
+
+/** The table flat on the line grid. */
+export function table(columns: readonly Column[], rows: readonly (readonly Cell[])[]): readonly Line[] {
+  const { head, rows: body, foot } = tableParts(columns, rows);
+  return [...head, ...body, foot];
 }

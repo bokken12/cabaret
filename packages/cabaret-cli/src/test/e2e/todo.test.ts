@@ -18,7 +18,8 @@ test("todo shows review work and owned changes as a tree", async () => {
   const { stdout, stderr, exitCode } = await repo.cabaret("todo");
   expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
   expect(stdout).toMatchInlineSnapshot(`
-    "╭──────────┬────────╮
+    "Changes to review:
+    ╭──────────┬────────╮
     │ change   │ review │
     ├──────────┼────────┤
     │ gadget   │      1 │
@@ -43,7 +44,8 @@ test("todo counts an alias's changes among the user's own", async () => {
   await repo.git("config", "user.email", "alice@example.com");
   // Someone else's change: alice neither owns gizmo nor owes it review.
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -59,7 +61,8 @@ test("todo counts an alias's changes among the user's own", async () => {
   // self-review — still the agent's to give — is owed through her.
   await repo.git("config", "--add", "cabaret.alias", "agent@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     │ gizmo  │      1 │
@@ -88,7 +91,8 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
     exitCode: 0,
   });
   expect(stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     │ gizmo  │      1 │
@@ -107,7 +111,8 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
 test("todo with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -139,7 +144,8 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭───────────────┬────────╮
+    "Changes to review:
+    ╭───────────────┬────────╮
     │ change        │ review │
     ├───────────────┼────────┤
     │ gadget        │      1 │
@@ -169,7 +175,8 @@ test("your own forge change joins the changes you own when identities align", as
   forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature");
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭──────────────┬────────╮
+    "Changes to review:
+    ╭──────────────┬────────╮
     │ change       │ review │
     ├──────────────┼────────┤
     │ solo-feature │      1 │
@@ -192,7 +199,8 @@ test("a merged forge change is not imported", async () => {
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -213,7 +221,8 @@ test("a landed change stays only while children hang from it", async () => {
   await repo.cabaret("review", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭──────────┬────────╮
+    "Changes to review:
+    ╭──────────┬────────╮
     │ change   │ review │
     ├──────────┼────────┤
     │ gadget   │        │
@@ -237,7 +246,8 @@ test("someone else's change obliging nothing of the user is not review work", as
   await addChange(repo, "gadget");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -258,7 +268,8 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await addChange(repo, "feature");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭─────────┬────────╮
+    "Changes to review:
+    ╭─────────┬────────╮
     │ change  │ review │
     ├─────────┼────────┤
     │ feature │      1 │
@@ -275,7 +286,8 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await repo.cabaret("review", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
@@ -295,7 +307,8 @@ test("a landed change with no children drops out entirely", async () => {
   await repo.cabaret("review", "gadget.txt");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "╭────────┬────────╮
+    "Changes to review:
+    ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
     ╰────────┴────────╯
