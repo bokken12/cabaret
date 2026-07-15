@@ -297,6 +297,20 @@ export class GitBackend implements Backend {
     }
   }
 
+  async configAll(key: string): Promise<readonly string[]> {
+    try {
+      // NUL termination keeps a value containing a newline one value.
+      const out = await git(this.root, ["config", "-z", "--get-all", key]);
+      return out.split("\0").slice(0, -1);
+    } catch (error) {
+      // Exit code 1 means exactly "unset"; anything else is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
   async resolveCommit(revision: string): Promise<CommitHash> {
     // In batch-command syntax the whole line names the object, so a revision
     // starting with `-` cannot be taken for a flag.

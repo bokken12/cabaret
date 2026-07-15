@@ -6,10 +6,11 @@ import {
   changeForest,
   currentParent,
   type FilePath,
+  isSelf,
   type RefName,
   reviewOwed,
+  type Self,
   summarizeChange,
-  type UserName,
 } from "cabaret-core";
 import { type Doc, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
@@ -41,20 +42,21 @@ export interface TodoPage {
   readonly owned: readonly TodoNode[];
 }
 
-export async function todoPage(backend: Backend, user: UserName): Promise<TodoPage> {
+export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
   const review: ReviewTodo[] = [];
   for (const change of [...(await backend.listChanges())].sort()) {
     const entries = await backend.readLog(change);
     const diff = await changeDiff(backend, change, entries);
-    const candidate = await summarizeChange(backend, change, entries, user, diff);
+    const candidate = await summarizeChange(backend, change, entries, self.user, diff);
     summaries.set(change, candidate);
     parents.set(change, currentParent(change, entries));
-    // An empty reviewLeft already counts the user toward every obligation, so
-    // only a change they have review left on can owe them anything.
-    if (candidate.landed === undefined && candidate.reviewLeft.length > 0) {
-      const owed = await reviewOwed(backend, entries, candidate.owner, user, diff);
+    // An empty reviewLeft already counts the user toward every obligation —
+    // though it says nothing about their aliases, whose obligations each
+    // count that identity's own reviews.
+    if (candidate.landed === undefined && (candidate.reviewLeft.length > 0 || self.aliases.size > 0)) {
+      const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
       if (owed.length > 0) {
         review.push({ summary: candidate, owed });
       }
@@ -71,7 +73,7 @@ export async function todoPage(backend: Backend, user: UserName): Promise<TodoPa
     nodes.flatMap((node) => {
       const candidate = summary(node.change);
       const children = prune(node.children);
-      const mine = candidate.landed === undefined && candidate.owner === user;
+      const mine = candidate.landed === undefined && isSelf(self, candidate.owner);
       return mine || children.length > 0 ? [{ summary: candidate, children }] : [];
     });
   return { review, owned: prune(changeForest(parents)) };

@@ -296,6 +296,9 @@ export interface Backend {
   /** The value of git config `key`, or undefined when unset. */
   config(key: string): Promise<string | undefined>;
 
+  /** Every value of multi-valued git config `key`, in definition order; empty when unset. */
+  configAll(key: string): Promise<readonly string[]>;
+
   /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
   resolveCommit(revision: string): Promise<CommitHash>;
 

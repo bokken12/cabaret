@@ -1,4 +1,4 @@
-import type { Backend, RefName } from "cabaret-core";
+import { type Backend, currentSelf, type RefName } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
 import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
@@ -44,7 +44,7 @@ export interface RenderOptions {
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
   switch (page.kind) {
     case "todo":
-      return todoDoc(await todoPage(backend, await backend.currentUser()));
+      return todoDoc(await todoPage(backend, await currentSelf(backend)));
     case "show":
       return showDoc(await showPage(backend, await backend.currentUser(), page.change));
     case "review":
