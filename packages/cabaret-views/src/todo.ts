@@ -16,6 +16,7 @@ import {
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { type Cell, type Column, tableParts } from "./table.js";
+import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
 export interface TodoNode {
@@ -59,9 +60,16 @@ export interface TodoPage {
    * the page, since this page is where every other change gets triaged.
    */
   readonly broken: readonly BrokenChange[];
+  /**
+   * Each checked-out change's workspace on this device. Rows note theirs,
+   * and a change that would otherwise stay off the page — landed, someone
+   * else's — is kept as context while a removable workspace still holds it.
+   */
+  readonly workspaces: ReadonlyMap<RefName, WorkspaceNote>;
 }
 
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
+  const workspaces = await workspaceNotes(backend);
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
   const owedFiles = new Map<RefName, readonly FilePath[]>();
@@ -108,7 +116,13 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       const candidate = summary(node.change);
       const children = pruneOwned(node.children);
       const mine = candidate.landed === undefined && isSelf(self, candidate.owner);
-      return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
+      // A removable workspace makes any change this device's business: its
+      // row is where the workspace gets noticed — and, once landed,
+      // reclaimed. The primary workspace is not removable, so whatever it
+      // has checked out earns no row of its own.
+      const workspace = workspaces.get(node.change);
+      const kept = mine || children.length > 0 || (workspace !== undefined && !workspace.primary);
+      return kept ? [{ summary: candidate, context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
     nodes.flatMap((node) => {
@@ -117,7 +131,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  return { review: pruneReview(forest), owned: pruneOwned(forest), broken };
+  return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -138,11 +152,21 @@ function treeRows<N extends { readonly children: readonly N[] }>(
 
 /**
  * A cell naming `summary`'s change. The tree guide rides alongside untargeted,
- * keeping the link on exactly the name.
+ * keeping the link on exactly the name; a workspace note rides behind it,
+ * dimmed, resolving to the workspace's directory.
  */
-function changeCell(summary: ChangeSummary, guide: string, style?: "context"): Cell {
+function changeCell(summary: ChangeSummary, guide: string, style?: "context", workspace?: WorkspaceNote): Cell {
   const name = span(summary.change, { style, target: { kind: "change", change: summary.change } });
-  return guide === "" ? name : [span(guide, { style }), name];
+  const cell = guide === "" ? [name] : [span(guide, { style }), name];
+  if (workspace !== undefined) {
+    cell.push(
+      span(` (at ${workspace.display}${workspace.dirty ? ", dirty" : ""})`, {
+        style: "context",
+        target: { kind: "workspace", path: workspace.path },
+      }),
+    );
+  }
+  return cell;
 }
 
 /**
@@ -181,12 +205,15 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
-    return [changeCell(summary, guide, style), span(owed.length === 0 ? "" : String(owed.length))];
+    return [
+      changeCell(summary, guide, style, page.workspaces.get(summary.change)),
+      span(owed.length === 0 ? "" : String(owed.length)),
+    ];
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
     return [
-      changeCell(summary, guide, style),
+      changeCell(summary, guide, style, page.workspaces.get(summary.change)),
       span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
       span(summary.nextStep, { style }),
     ];

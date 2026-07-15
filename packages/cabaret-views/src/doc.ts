@@ -31,8 +31,10 @@ export type Style =
 export type Target =
   | { readonly kind: "change"; readonly change: RefName }
   | { readonly kind: "file"; readonly change: RefName; readonly file: FilePath }
-  /** A position in a file's current copy: `line` is 1-based. */
-  | { readonly kind: "location"; readonly file: FilePath; readonly line: number };
+  /** A position in a file's current copy within `change`: `line` is 1-based. */
+  | { readonly kind: "location"; readonly change: RefName; readonly file: FilePath; readonly line: number }
+  /** A workspace's directory: `path` is absolute. */
+  | { readonly kind: "workspace"; readonly path: string };
 
 /**
  * How hosts offer a span's target: a link is advertised as clickable, while a

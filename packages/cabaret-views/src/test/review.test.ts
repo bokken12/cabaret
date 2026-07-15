@@ -121,7 +121,7 @@ test("diffDoc anchors each hunk line to its place in the new copy, on the jump t
   const doc = diffDoc(
     diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } }),
   );
-  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  const location = (line: number) => ({ kind: "location", change: "widgets", file: "api.ts", line });
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
     { kind: "change", change: "widgets" },
     undefined, // blank
@@ -223,7 +223,7 @@ test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   const added = doc.lines.findIndex(({ spans }) =>
     spans.some(({ text, style }) => text === "tail" && style === "added"),
   );
-  expect(targetAt(doc, added)).toEqual({ kind: "location", file: "api.ts", line: 41 });
+  expect(targetAt(doc, added)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 41 });
 });
 
 test("diffDoc keeps a long modified line whole instead of splitting it", () => {
@@ -245,7 +245,7 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
       [tail, "added"],
     ],
   ]);
-  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 1 });
 });
 
 test("diffDoc emphasizes the changed words within a modified line", () => {
@@ -272,7 +272,7 @@ test("diffDoc emphasizes the changed words within a modified line", () => {
   ]);
   // The line's target and tier ride its first span alone.
   expect(doc.lines[3]?.spans.map(({ target, tier }) => [target, tier])).toEqual([
-    [{ kind: "location", file: "api.ts", line: 1 }, "jump"],
+    [{ kind: "location", change: "widgets", file: "api.ts", line: 1 }, "jump"],
     [undefined, undefined],
     [undefined, undefined],
   ]);
@@ -297,8 +297,8 @@ test("diffDoc unifies a line that only gained words, styling just those words", 
     [["tail", undefined]],
   ]);
   // The unified line lives in both copies; lines after it stay anchored.
-  expect(targetAt(doc, 3)).toEqual({ kind: "location", file: "api.ts", line: 1 });
-  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 2 });
+  expect(targetAt(doc, 3)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 2 });
 });
 
 test("diffDoc unifies a line that only lost words, keeping the old line as the marked superset", () => {
@@ -343,9 +343,9 @@ test("diffDoc keeps line anchors across a unified join, whose boundary the new c
     [["last", undefined]],
   ]);
   // Both halves of the joined line anchor at the join; "last" is unmoved past it.
-  expect(targetAt(doc, 3)).toEqual({ kind: "location", file: "api.ts", line: 1 });
-  expect(targetAt(doc, 4)).toEqual({ kind: "location", file: "api.ts", line: 1 });
-  expect(targetAt(doc, 5)).toEqual({ kind: "location", file: "api.ts", line: 2 });
+  expect(targetAt(doc, 3)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 4)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 1 });
+  expect(targetAt(doc, 5)).toEqual({ kind: "location", change: "widgets", file: "api.ts", line: 2 });
 });
 
 test("diffDoc leaves a line replaced wholesale as one plain span", () => {
@@ -419,7 +419,7 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
   ]);
   // Lines anchor to their home in the new tip where they have one: added and
   // context lines directly, and lines with no new-tip content not at all.
-  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  const location = (line: number) => ({ kind: "location", change: "widgets", file: "api.ts", line });
   const rendered = docText(doc).split("\n");
   const targetOf = (text: string) => targetAt(doc, rendered.indexOf(text));
   expect(targetOf("ONE!")).toEqual(location(1));
@@ -466,7 +466,7 @@ test("diffDoc anchors a story block through its to-side's equivalence with the n
     B
     c"
   `);
-  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  const location = (line: number) => ({ kind: "location", change: "widgets", file: "api.ts", line });
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
     { kind: "change", change: "widgets" },
     undefined, // blank
@@ -509,7 +509,7 @@ test("diffDoc anchors a conflict's agreed removal at the running insertion point
     c
     C"
   `);
-  const location = (line: number) => ({ kind: "location", file: "api.ts", line });
+  const location = (line: number) => ({ kind: "location", change: "widgets", file: "api.ts", line });
   expect(doc.lines.map((_, i) => [targetAt(doc, i), doc.lines[i]?.spans[0]?.style])).toEqual([
     [{ kind: "change", change: "widgets" }, "heading"],
     [undefined, undefined], // blank

@@ -139,6 +139,40 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
+### cabaret config workspace-home
+
+USAGE
+  cabaret config workspace-home [--global] [--local] [--unset] [<value>]
+  cabaret config workspace-home --help
+
+Directory new workspaces are created in
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
+### cabaret config workspace-style
+
+USAGE
+  cabaret config workspace-style [--global] [--local] [--unset] [<value>]
+  cabaret config workspace-style --help
+
+How goto materializes a change with no workspace: shared or dedicated
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
 ## cabaret conflicts
 
 USAGE
@@ -212,6 +246,21 @@ FLAGS
 
 ARGUMENTS
   file...  files to forget
+
+## cabaret goto
+
+USAGE
+  cabaret goto [--even-though-dirty] <change>
+  cabaret goto --help
+
+Print the directory of the workspace holding the change. A change with no workspace first gets one per the `workspace-style` setting: checked out in the current workspace (shared), or in a fresh dedicated workspace (dedicated). Compose with cd to move there: cd "$(cabaret goto some-change)".
+
+FLAGS
+     [--even-though-dirty]  Check out the change here even though this workspace has uncommitted changes [default = false]
+  -h  --help                Print help information and exit
+
+ARGUMENTS
+  change  change to go to
 
 ## cabaret land
 
@@ -475,3 +524,58 @@ Widen a change's reviewing set to the next level with review to do — owner, re
 FLAGS
      [--change]  Change to act on (defaults to current)
   -h  --help     Print help information and exit
+
+### cabaret workspace list
+
+USAGE
+  cabaret workspace list
+  cabaret workspace list --help
+
+List this repository's workspaces
+
+FLAGS
+  -h --help  Print help information and exit
+
+### cabaret workspace add
+
+USAGE
+  cabaret workspace add [--at value] <change>
+  cabaret workspace add --help
+
+Create a workspace — a new working tree — with the change checked out, under `workspace-home` when configured and otherwise beside the primary workspace. Prints where it went.
+
+FLAGS
+     [--at]   Where to create the workspace (defaults to the workspace-home convention)
+  -h  --help  Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds
+
+### cabaret workspace remove
+
+USAGE
+  cabaret workspace remove [--even-though-dirty] <change>
+  cabaret workspace remove --help
+
+Remove the workspace holding the change. The change itself — its branch and its log — is untouched.
+
+FLAGS
+     [--even-though-dirty]  Remove the workspace even though it has uncommitted changes, discarding them [default = false]
+  -h  --help                Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds
+
+### cabaret workspace dir
+
+USAGE
+  cabaret workspace dir <change>
+  cabaret workspace dir --help
+
+Print the directory of the workspace holding a change
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds

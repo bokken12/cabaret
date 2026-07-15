@@ -9,3 +9,4 @@ export * from "./self.js";
 export * from "./summary.js";
 export * from "./todo.js";
 export * from "./version.js";
+export * from "./workspace.js";

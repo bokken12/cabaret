@@ -306,11 +306,26 @@ export interface ForgeComment {
 /** Where a config write lands: this repository, or the person's global config. */
 export type ConfigScope = "local" | "global";
 
+/** One workspace of the repository: a working tree (git worktree) and what it has checked out. */
+export interface Workspace {
+  /** Absolute path of the workspace's root directory. */
+  readonly path: string;
+  /** The branch checked out there, or undefined when its HEAD is detached. */
+  readonly branch: RefName | undefined;
+  /** Whether the working tree or index differs from the checkout, untracked files included. */
+  readonly dirty: boolean;
+  /** Whether this is the repository's primary working tree, which cannot be removed. */
+  readonly primary: boolean;
+}
+
 /**
  * The operations Cabaret needs from a version-control backend.
  * The primary implementation (`cabaret-node`) shells out to a local git.
  */
 export interface Backend {
+  /** Absolute path of the working tree the backend was opened in. */
+  readonly root: string;
+
   /** The name of the branch checked out in the working tree. */
   currentBranch(): Promise<RefName>;
 
@@ -361,6 +376,29 @@ export interface Backend {
 
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   createBranch(name: RefName, commit: CommitHash): Promise<void>;
+
+  /**
+   * Every workspace of the repository, the primary working tree first. A
+   * workspace whose directory is gone (git calls it prunable) is not a
+   * working tree anymore and is dropped.
+   */
+  workspaces(): Promise<readonly Workspace[]>;
+
+  /**
+   * Create a workspace at `path` with `branch` checked out. Fails when
+   * `path` already exists or the branch is checked out in another workspace
+   * — a branch is checked out in at most one.
+   */
+  addWorkspace(path: string, branch: RefName): Promise<void>;
+
+  /** Remove the workspace at `path`; `force` discards its uncommitted changes. */
+  removeWorkspace(path: string, force: boolean): Promise<void>;
+
+  /**
+   * Check out `branch` in this workspace, carrying local edits along as git
+   * does — and failing as git does when an edit would be overwritten.
+   */
+  checkout(branch: RefName): Promise<void>;
 
   /**
    * Rename change `from` to `to`: move its branch and its log to the new name

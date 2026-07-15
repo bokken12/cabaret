@@ -4,3 +4,4 @@ export * from "./render.js";
 export * from "./review.js";
 export * from "./show.js";
 export * from "./todo.js";
+export * from "./workspaces.js";

@@ -491,3 +491,35 @@ test("fails fast on detached HEAD", async () => {
     "HEAD is detached; check out a branch or name the change explicitly",
   );
 });
+
+test("workspaces lists each working tree with its branch and dirtiness, dropping pruned ones", async () => {
+  // Nested so the linked working trees live beside the repo, not inside it.
+  const base = await mkdtemp(join(tmpdir(), "cabaret-workspaces-test-"));
+  try {
+    const dir = join(base, "repo");
+    await mkdir(dir);
+    await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    await gitIn(dir, "branch", "gadget");
+    await gitIn(dir, "branch", "doomed");
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "gadget-tree"), "gadget");
+    await gitIn(dir, "worktree", "add", "--quiet", "--detach", join(base, "adrift-tree"));
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "doomed-tree"), "doomed");
+    await writeFile(join(base, "gadget-tree", "junk.txt"), "junk\n");
+    await rm(join(base, "doomed-tree"), { recursive: true, force: true });
+    const backend = await GitBackend.open(dir);
+    // Paths as git reports them, symlinks (macOS /tmp) resolved.
+    const roots = await Promise.all(
+      [dir, join(base, "adrift-tree"), join(base, "gadget-tree")].map((tree) =>
+        gitIn(tree, "rev-parse", "--show-toplevel"),
+      ),
+    );
+    expect(await backend.workspaces()).toEqual([
+      { path: roots[0], branch: "main", dirty: false, primary: true },
+      { path: roots[1], branch: undefined, dirty: false, primary: false },
+      { path: roots[2], branch: "gadget", dirty: true, primary: false },
+    ]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

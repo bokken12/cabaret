@@ -75,11 +75,11 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
     ====
 
     Changes to review:
-    ╭─────────┬────────╮
-    │ change  │ review │
-    ├─────────┼────────┤
-    │ feature │      1 │
-    ╰─────────┴────────╯
+    ╭────────────────┬────────╮
+    │ change         │ review │
+    ├────────────────┼────────┤
+    │ feature (at .) │      1 │
+    ╰────────────────┴────────╯
 
     Changes you own:
     ╭────────┬────────┬───────────╮

@@ -319,11 +319,17 @@ function unifiedLineSpans(segments: readonly PatdiffCore.StructuredLine[], jump:
  * words styled; the pair form remains for lines whose both sides changed
  * words, which need both versions shown.
  */
-function hunkBodyLines(hunk: PatdiffCore.StructuredHunks[number], file: FilePath, anchor: number | undefined): Line[] {
+function hunkBodyLines(
+  hunk: PatdiffCore.StructuredHunks[number],
+  change: RefName,
+  file: FilePath,
+  anchor: number | undefined,
+): Line[] {
   let at = anchor;
   // Jump tier: a wall of clickable diff lines would drown the page's real
   // links, and the cursor is already on the line a reviewer wants to visit.
-  const jump = (): Jump => (at === undefined ? {} : { target: { kind: "location", file, line: at }, tier: "jump" });
+  const jump = (): Jump =>
+    at === undefined ? {} : { target: { kind: "location", change, file, line: at }, tier: "jump" };
   const bump = (): void => {
     if (at !== undefined) at++;
   };
@@ -379,7 +385,12 @@ function hunkBodyLines(hunk: PatdiffCore.StructuredHunks[number], file: FilePath
  * hunks would read as one run of code, so a blank line separates them and
  * each is a section folding down to its styled header.
  */
-function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Node[] {
+function twoWayDiffNodes(
+  change: RefName,
+  file: FilePath,
+  view: Extract<DiffView, { kind: "two" }>,
+  context?: number,
+): Node[] {
   if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
     return view.prev === view.next ? [] : [{ spans: [span(`Binary versions of ${file} differ`)] }];
   }
@@ -398,9 +409,9 @@ function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }
       nodes.push({ spans: [] });
     }
     const header = `-${hunk.prevStart},${hunk.prevSize} +${hunk.nextStart},${hunk.nextSize}`;
-    const jump: Jump = { target: { kind: "location", file, line: hunk.nextStart }, tier: "jump" };
+    const jump: Jump = { target: { kind: "location", change, file, line: hunk.nextStart }, tier: "jump" };
     const heading: Line = { spans: [span(header, { style: "hunk", ...jump })] };
-    nodes.push(section(heading, hunkBodyLines(hunk, file, hunk.nextStart)));
+    nodes.push(section(heading, hunkBodyLines(hunk, change, file, hunk.nextStart)));
   }
   return nodes;
 }
@@ -432,7 +443,12 @@ function ddiffStyle(line: Patdiff4.DiffAlgo.DdiffLine): Style | undefined {
  * context lines directly, removed lines at the running insertion point, and
  * blocks that never touch the new tip not at all.
  */
-function fourWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Node[] {
+function fourWayDiffNodes(
+  change: RefName,
+  file: FilePath,
+  view: Extract<DiffView, { kind: "four" }>,
+  context?: number,
+): Node[] {
   if (!Patdiff4.Diamond.forAll(view.contents, (text) => !IsBinary.string(text ?? ""))) {
     return [{ spans: [span(`Binary versions of ${file} differ`)] }];
   }
@@ -484,9 +500,9 @@ function fourWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "four"
             ` +${to.range.lineStart + ih.nextStart},${ih.nextSize}` +
             ` ${nameOf(block.from)} → ${nameOf(block.to)}`;
           const jump: Jump =
-            anchor === undefined ? {} : { target: { kind: "location", file, line: anchor }, tier: "jump" };
+            anchor === undefined ? {} : { target: { kind: "location", change, file, line: anchor }, tier: "jump" };
           const heading: Line = { spans: [span(header, { style: "hunk", ...jump })] };
-          nodes.push(section(heading, hunkBodyLines(ih, file, anchor)));
+          nodes.push(section(heading, hunkBodyLines(ih, change, file, anchor)));
         });
       } else {
         if (block.lines.length === 0) continue;
@@ -497,10 +513,10 @@ function fourWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "four"
           const f2 = line.provenance.f2;
           let jump: Jump = {};
           if (f2 !== undefined) {
-            jump = { target: { kind: "location", file, line: f2 }, tier: "jump" };
+            jump = { target: { kind: "location", change, file, line: f2 }, tier: "jump" };
             at = f2 + 1;
           } else if (at !== undefined) {
-            jump = { target: { kind: "location", file, line: at }, tier: "jump" };
+            jump = { target: { kind: "location", change, file, line: at }, tier: "jump" };
           }
           return { spans: [span(line.content, { style, ...jump })] };
         });
@@ -527,7 +543,9 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   }
   const view = page.round.view;
   const body =
-    view.kind === "two" ? twoWayDiffNodes(page.file, view, context) : fourWayDiffNodes(page.file, view, context);
+    view.kind === "two"
+      ? twoWayDiffNodes(page.change, page.file, view, context)
+      : fourWayDiffNodes(page.change, page.file, view, context);
   if (body.length === 0) {
     // A due file's diff can still render empty — a tree diff lists changes
     // patdiff shows no hunks for, like a mode-only change; marking the file

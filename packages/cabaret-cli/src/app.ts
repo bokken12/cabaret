@@ -1,5 +1,12 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
-import { NotOwnerError, NotReviewingError, UnsatisfiedObligationsError, UserError, VERSION } from "cabaret-core";
+import {
+  DirtyWorkspaceError,
+  NotOwnerError,
+  NotReviewingError,
+  UnsatisfiedObligationsError,
+  UserError,
+  VERSION,
+} from "cabaret-core";
 import { approve } from "./commands/approve.js";
 import { comment } from "./commands/comment.js";
 import { config } from "./commands/config.js";
@@ -8,6 +15,7 @@ import { create } from "./commands/create.js";
 import { dev } from "./commands/dev.js";
 import { diff } from "./commands/diff.js";
 import { forget } from "./commands/forget.js";
+import { goto } from "./commands/goto.js";
 import { land } from "./commands/land.js";
 import { log } from "./commands/log.js";
 import { pull } from "./commands/pull.js";
@@ -24,6 +32,7 @@ import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
 import { todo } from "./commands/todo.js";
 import { todos } from "./commands/todos.js";
+import { workspace } from "./commands/workspace.js";
 
 /** A `UserError`'s message, with this frontend's remedy attached to the overridable checks. */
 function userMessage(error: UserError): string {
@@ -35,6 +44,9 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
+  }
+  if (error instanceof DirtyWorkspaceError) {
+    return `${error.message}; pass --even-though-dirty to override`;
   }
   return error.message;
 }
@@ -52,6 +64,7 @@ const routes = buildRouteMap({
     dev,
     diff,
     forget,
+    goto,
     land,
     log,
     pull,
@@ -69,6 +82,7 @@ const routes = buildRouteMap({
     todo,
     todos,
     widen,
+    workspace,
   },
 });
 

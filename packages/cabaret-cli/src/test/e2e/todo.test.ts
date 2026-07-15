@@ -24,20 +24,20 @@ test("todo shows review work and owned changes as a tree", async () => {
     ====
 
     Changes to review:
-    ╭──────────┬────────╮
-    │ change   │ review │
-    ├──────────┼────────┤
-    │ gadget   │      1 │
-    │ └─ gizmo │      1 │
-    ╰──────────┴────────╯
+    ╭─────────────────┬────────╮
+    │ change          │ review │
+    ├─────────────────┼────────┤
+    │ gadget          │      1 │
+    │ └─ gizmo (at .) │      1 │
+    ╰─────────────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │      1 │ review    │
-    │ └─ gizmo │      1 │ review    │
-    ╰──────────┴────────┴───────────╯
+    ╭─────────────────┬────────┬───────────╮
+    │ change          │ review │ next step │
+    ├─────────────────┼────────┼───────────┤
+    │ gadget          │      1 │ review    │
+    │ └─ gizmo (at .) │      1 │ review    │
+    ╰─────────────────┴────────┴───────────╯
     "
   `);
 });
@@ -74,18 +74,18 @@ test("todo counts an alias's changes among the user's own", async () => {
     ====
 
     Changes to review:
-    ╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    │ gizmo  │      1 │
-    ╰────────┴────────╯
+    ╭──────────────┬────────╮
+    │ change       │ review │
+    ├──────────────┼────────┤
+    │ gizmo (at .) │      1 │
+    ╰──────────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gizmo  │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭──────────────┬────────┬───────────╮
+    │ change       │ review │ next step │
+    ├──────────────┼────────┼───────────┤
+    │ gizmo (at .) │      1 │ review    │
+    ╰──────────────┴────────┴───────────╯
     "
   `);
 });
@@ -108,18 +108,18 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
     ====
 
     Changes to review:
-    ╭────────┬────────╮
-    │ change │ review │
-    ├────────┼────────┤
-    │ gizmo  │      1 │
-    ╰────────┴────────╯
+    ╭──────────────┬────────╮
+    │ change       │ review │
+    ├──────────────┼────────┤
+    │ gizmo (at .) │      1 │
+    ╰──────────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gizmo  │      1 │ reparent  │
-    ╰────────┴────────┴───────────╯
+    ╭──────────────┬────────┬───────────╮
+    │ change       │ review │ next step │
+    ├──────────────┼────────┼───────────┤
+    │ gizmo (at .) │      1 │ reparent  │
+    ╰──────────────┴────────┴───────────╯
     "
   `);
 });
@@ -171,16 +171,16 @@ test("pull imports an open forge change, and todo lists it when review is owed",
     ╭───────────────┬────────╮
     │ change        │ review │
     ├───────────────┼────────┤
-    │ gadget        │      1 │
+    │ gadget (at .) │      1 │
     │ their-feature │      1 │
     ╰───────────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭───────────────┬────────┬───────────╮
+    │ change        │ review │ next step │
+    ├───────────────┼────────┼───────────┤
+    │ gadget (at .) │      1 │ review    │
+    ╰───────────────┴────────┴───────────╯
     "
   `);
 });
@@ -255,20 +255,20 @@ test("a landed change stays only while children hang from it", async () => {
     ====
 
     Changes to review:
-    ╭──────────┬────────╮
-    │ change   │ review │
-    ├──────────┼────────┤
-    │ gadget   │        │
-    │ └─ gizmo │      1 │
-    ╰──────────┴────────╯
+    ╭─────────────────┬────────╮
+    │ change          │ review │
+    ├─────────────────┼────────┤
+    │ gadget          │        │
+    │ └─ gizmo (at .) │      1 │
+    ╰─────────────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      1 │ reparent  │
-    ╰──────────┴────────┴───────────╯
+    ╭─────────────────┬────────┬───────────╮
+    │ change          │ review │ next step │
+    ├─────────────────┼────────┼───────────┤
+    │ gadget          │        │ landed    │
+    │ └─ gizmo (at .) │      1 │ reparent  │
+    ╰─────────────────┴────────┴───────────╯
     "
   `);
 });
@@ -310,11 +310,11 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     ====
 
     Changes to review:
-    ╭─────────┬────────╮
-    │ change  │ review │
-    ├─────────┼────────┤
-    │ feature │      1 │
-    ╰─────────┴────────╯
+    ╭────────────────┬────────╮
+    │ change         │ review │
+    ├────────────────┼────────┤
+    │ feature (at .) │      1 │
+    ╰────────────────┴────────╯
 
     Changes you own:
     ╭────────┬────────┬───────────╮

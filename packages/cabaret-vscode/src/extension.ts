@@ -1,8 +1,13 @@
 import {
+  addChangeWorkspace,
   type Backend,
+  changeWorkspace,
   createChange,
   currentParent,
+  DirtyWorkspaceError,
   type Forge,
+  type GotoResult,
+  gotoChange,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -16,6 +21,7 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  removeChangeWorkspace,
   renameChange,
   reparentChange,
   resolveChain,
@@ -115,7 +121,9 @@ class PageProvider
               ? `Open ${target.file}`
               : target.kind === "location"
                 ? `Open ${target.file}:${target.line}`
-                : `Open ${target.change}`;
+                : target.kind === "workspace"
+                  ? `Open ${target.path}`
+                  : `Open ${target.change}`;
           return link;
         });
   }
@@ -337,10 +345,13 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
     case "location": {
-      // Visit the working tree's copy: it is the one worth editing, and while
-      // reviewing a checked-out change it is the copy the diff shows. A tree
-      // on some other branch can drift from the diff's line numbers.
-      const uri = vscode.Uri.joinPath(vscode.Uri.file((await openBackend()).root), target.file);
+      // Visit the copy in the workspace holding the change — the one the
+      // diff shows and the one worth editing — falling back to this working
+      // tree, which can drift from the diff's line numbers when it is on
+      // some other branch.
+      const backend = await openBackend();
+      const workspace = await changeWorkspace(backend, target.change);
+      const uri = vscode.Uri.joinPath(vscode.Uri.file(workspace?.path ?? backend.root), target.file);
       try {
         const document = await vscode.workspace.openTextDocument(uri);
         const position = new vscode.Position(target.line - 1, 0);
@@ -353,7 +364,15 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
       }
       break;
     }
+    case "workspace":
+      await openWorkspaceWindow(target.path);
+      break;
   }
+}
+
+/** Open the workspace at `path` in its own window; a window already on that folder takes focus instead. */
+async function openWorkspaceWindow(path: string): Promise<void> {
+  await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
 }
 
 /** Enter review of the shown change: open its list of files to review. */
@@ -680,6 +699,68 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
       }
     }
   }
+}
+
+/**
+ * Bring `change` into a workspace: open the one it has, or materialize one
+ * per the workspace-style setting — confirming before a checkout lands in a
+ * dirty workspace, this surface's counterpart to the CLI's
+ * --even-though-dirty flag.
+ */
+async function gotoSelection(backend: Backend, change: RefName): Promise<void> {
+  const config = await readConfig(backend);
+  let result: GotoResult;
+  try {
+    result = await gotoChange(backend, config, change, false);
+  } catch (error) {
+    if (!(error instanceof DirtyWorkspaceError)) {
+      throw error;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      "This workspace has uncommitted changes.",
+      { modal: true },
+      "Check Out Anyway",
+    );
+    if (choice === undefined) {
+      return;
+    }
+    result = await gotoChange(backend, config, change, true);
+  }
+  if (result.kind === "checked-out") {
+    vscode.window.setStatusBarMessage(`cabaret: checked out ${change}`, 5000);
+  } else if (result.path === backend.root) {
+    vscode.window.showInformationMessage(`cabaret: ${change} is checked out in this workspace`);
+  } else {
+    await openWorkspaceWindow(result.path);
+  }
+}
+
+/** Create a workspace for `change` at the configured spot and open it in its own window. */
+async function addWorkspaceSelection(backend: Backend, change: RefName): Promise<void> {
+  const path = await addChangeWorkspace(backend, await readConfig(backend), change);
+  await openWorkspaceWindow(path);
+}
+
+/** Remove `change`'s workspace, confirming before uncommitted changes are discarded. */
+async function removeWorkspaceSelection(backend: Backend, change: RefName): Promise<void> {
+  let path: string;
+  try {
+    path = await removeChangeWorkspace(backend, change, false);
+  } catch (error) {
+    if (!(error instanceof DirtyWorkspaceError)) {
+      throw error;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `The workspace at ${error.path} has uncommitted changes.`,
+      { modal: true },
+      "Discard and Remove",
+    );
+    if (choice === undefined) {
+      return;
+    }
+    path = await removeChangeWorkspace(backend, change, true);
+  }
+  vscode.window.setStatusBarMessage(`cabaret: removed ${path}`, 5000);
 }
 
 /** The forge, for an operation that cannot proceed without one. */
@@ -1010,6 +1091,30 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         await setReviewing(backend, now, change, await backend.readLog(change), "none");
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.gotoWorkspace", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "go to");
+        if (change !== undefined) {
+          await gotoSelection(backend, change);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.addWorkspace", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "add a workspace for");
+        if (change !== undefined) {
+          await addWorkspaceSelection(backend, change);
+        }
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.removeWorkspace", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "remove the workspace of");
+        if (change !== undefined) {
+          await removeWorkspaceSelection(backend, change);
+        }
       }),
     ),
     vscode.commands.registerCommand("cabaret.createChild", () =>

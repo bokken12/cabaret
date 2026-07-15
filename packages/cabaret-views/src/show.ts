@@ -17,6 +17,7 @@ import {
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
 import { table } from "./table.js";
+import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** What the show page displays. */
 export interface ShowPage {
@@ -24,6 +25,8 @@ export interface ShowPage {
   readonly comments: readonly ChangeComment[];
   /** Per-reviewer unsatisfied obligations; empty once landed. */
   readonly remaining: readonly ReviewerDue[];
+  /** The change's workspace on this device, when it has one. */
+  readonly workspace: WorkspaceNote | undefined;
 }
 
 /** Query the show page for `change`. */
@@ -38,7 +41,12 @@ export async function showPage(backend: Backend, user: UserName, change: RefName
           (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
         )
       : [];
-  return { summary, comments: await currentComments(entries), remaining };
+  return {
+    summary,
+    comments: await currentComments(entries),
+    remaining,
+    workspace: (await workspaceNotes(backend)).get(change),
+  };
 }
 
 /** `value (note)`, or just `value` without a note. */
@@ -154,6 +162,9 @@ export function showDoc(page: ShowPage): Doc {
     ["tip", noted(shortHash(summary.tip), summary.origin && ORIGIN_NOTES[summary.origin])],
     ["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])],
   );
+  if (page.workspace !== undefined) {
+    attributes.push(["workspace", noted(page.workspace.display, page.workspace.dirty ? "dirty" : undefined)]);
+  }
   // No target: the heading names the page itself.
   const heading = span(summary.change, { style: "heading" });
   const nodes: Node[] = header(heading, attributes);
