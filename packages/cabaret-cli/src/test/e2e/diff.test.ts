@@ -229,10 +229,10 @@ test("after a commit and an unrelated rebase, only the commit is left to review"
 test("review survives a rebase whose base absorbed the reviewed change", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "shared.txt");
-  // The parent takes the child's copy verbatim, so the rebase drops the
-  // child's now-empty commit and the tips coincide.
+  // The parent takes the child's copy verbatim, so the rebase merge brings
+  // nothing of its own and the trees coincide.
   await amendParentAndRebase(repo, "shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
-  expect(await repo.git("rev-parse", "child")).toBe(await repo.git("rev-parse", "parent"));
+  expect(await repo.git("rev-parse", "child^{tree}")).toBe(await repo.git("rev-parse", "parent^{tree}"));
   expect(await repo.cabaret("diff", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
@@ -256,7 +256,7 @@ test("after a rebase that changed the file, only the new commit is left to revie
       "exitCode": 0,
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip 901008c1e279
+    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip faa22b2ca864
     @@@@@@@@ old tip 38,42 new tip 38,42 @@@@@@@@
       line 38
       line 39
@@ -279,7 +279,7 @@ test("editing the base's change after a rebase shows the new base to new tip dif
       "exitCode": 0,
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip aba1eb75681b
+    old base 1e21306344b0 | old tip 655f8d5d9a6e | new base 59b53979aa63 | new tip 896995ccb052
     @@@@@@@@ new base 1,5 new tip 1,5 @@@@@@@@
     -|line 1 amended
     +|line 1 rewritten
@@ -304,7 +304,7 @@ test("interacting base and tip changes get the full 4-way views", async () => {
       "exitCode": 0,
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 34a96a50f88f | old tip 531b9ce6fca4 | new base 7cce234df272 | new tip b328ce393e81
+    old base 34a96a50f88f | old tip 531b9ce6fca4 | new base 7cce234df272 | new tip 2185f0780da5
     _
     | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
     | @@@@@@@@ -- old base 1,5 old tip 1,6 @@@@@@@@

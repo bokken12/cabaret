@@ -139,6 +139,23 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
+### cabaret config rebase-method
+
+USAGE
+  cabaret config rebase-method [--global] [--local] [--unset] [<value>]
+  cabaret config rebase-method --help
+
+How a rebase moves a change onto its parent's tip: merge or rebase
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
 ## cabaret create
 
 USAGE
@@ -259,7 +276,7 @@ USAGE
   cabaret rebase [--even-though-not-owner] [<change>]
   cabaret rebase --help
 
-Rebase a change onto its parent's tip, then record the new base in the log. Replays only the commits after the change's base (`git rebase --onto`), so commits the change shares with an old version of the parent are never reapplied. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; when one fails, the rebases before it stand, and rerunning the range resumes.
+Move a change onto its parent's tip, then record the new base in the log. The parent's tip is merged into the change; with git config cabaret.rebaseMethod rebase, the change's own commits are instead replayed onto it (`git rebase --onto`). Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; when one fails, the rebases before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]

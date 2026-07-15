@@ -14,10 +14,11 @@ test("list shows defaults on a fresh repo", async () => {
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "alias        (none)
-    context      3 (default)
-    land-method  merge (default)
-    land-via     auto (default)
+      "stdout": "alias          (none)
+    context        3 (default)
+    land-method    merge (default)
+    land-via       auto (default)
+    rebase-method  merge (default)
     ",
     }
   `);
@@ -92,7 +93,7 @@ test("aliases are added to and removed from global config", async () => {
     "agent@example.com\nalice@work.example",
   );
   expect((await repo.cabaret("config", "list")).stdout).toContain(
-    "alias        agent@example.com, alice@work.example\n",
+    "alias          agent@example.com, alice@work.example\n",
   );
   expect(await repo.cabaret("config", "alias", "remove", "agent@example.com")).toEqual({
     stdout: "",
@@ -135,7 +136,7 @@ test("clear removes every alias", async () => {
   await repo.cabaret("config", "alias", "add", "agent@example.com");
   await repo.cabaret("config", "alias", "add", "alice@work.example");
   expect(await repo.cabaret("config", "alias", "clear")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect((await repo.cabaret("config", "list")).stdout).toContain("alias        (none)\n");
+  expect((await repo.cabaret("config", "list")).stdout).toContain("alias          (none)\n");
 });
 
 test("--global and --local override a setting's home scope", async () => {
@@ -166,17 +167,19 @@ test("a bare setting and list read one scope with --global or --local", async ()
   await repo.cabaret("config", "alias", "add", "agent@example.com");
   expect((await repo.cabaret("config", "land-method", "--global")).stdout).toBe("(unset)\n");
   expect((await repo.cabaret("config", "list", "--global")).stdout).toMatchInlineSnapshot(`
-    "alias        agent@example.com
-    context      (unset)
-    land-method  (unset)
-    land-via     (unset)
+    "alias          agent@example.com
+    context        (unset)
+    land-method    (unset)
+    land-via       (unset)
+    rebase-method  (unset)
     "
   `);
   expect((await repo.cabaret("config", "list", "--local")).stdout).toMatchInlineSnapshot(`
-    "alias        (unset)
-    context      (unset)
-    land-method  squash
-    land-via     (unset)
+    "alias          (unset)
+    context        (unset)
+    land-method    squash
+    land-via       (unset)
+    rebase-method  (unset)
     "
   `);
 });

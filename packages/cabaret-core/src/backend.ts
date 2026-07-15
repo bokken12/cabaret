@@ -356,6 +356,18 @@ export interface Backend {
   rebaseOnto(change: RefName, from: CommitHash, onto: CommitHash): Promise<void>;
 
   /**
+   * Merge `onto` into branch `change`: a content merge of the change's tip
+   * and `onto` committed with parents tip then `onto`, carrying `message` —
+   * or a plain fast-forward when the tip has nothing of its own. The merge
+   * resolves against `base`, the change's own base, not the git merge-base:
+   * what the change did since its base applies onto `onto`, so a parent
+   * whose history was rewritten merges as cleanly as one that advanced.
+   * Carries a checked-out `change`'s working tree along. Fails without
+   * touching anything when the contents conflict.
+   */
+  mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<void>;
+
+  /**
    * Create the merge commit recording `tip` merging into branch `into`:
    * parents `onto` then `tip`, carrying `message`, with `tip`'s tree — sound
    * only because `onto` must be an ancestor of `tip`. Advances `into` from
