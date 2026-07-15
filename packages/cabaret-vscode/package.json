@@ -67,6 +67,26 @@
           "highContrast": "#6e768133",
           "highContrastLight": "#6e768126"
         }
+      },
+      {
+        "id": "cabaret.oldDiffBorder",
+        "description": "Left border of a conflict line carried only by the reviewed diff",
+        "defaults": {
+          "dark": "#d2a8ffcc",
+          "light": "#8250dfcc",
+          "highContrast": "#d2a8ff",
+          "highContrastLight": "#8250df"
+        }
+      },
+      {
+        "id": "cabaret.newDiffBorder",
+        "description": "Left border of a conflict line carried only by the current diff",
+        "defaults": {
+          "dark": "#76e3eacc",
+          "light": "#1b7c83cc",
+          "highContrast": "#76e3ea",
+          "highContrastLight": "#1b7c83"
+        }
       }
     ],
     "commands": [

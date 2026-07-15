@@ -9,16 +9,16 @@ import {
   type RefName,
   type ReviewRound,
   rebasedView,
-  renderDiff4Hunks,
   reviewRounds,
   shortHash,
+  structuredDiff4,
   type TimestampMs,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
-import type * as Patdiff4 from "patdiff/patdiff4";
+import * as Patdiff4 from "patdiff/patdiff4";
 import {
   type Doc,
   type Line,
@@ -251,6 +251,9 @@ function mergedParts(segments: readonly PatdiffCore.StructuredLine[]): { text: s
   return parts;
 }
 
+/** How a line offers its place in the reviewed file, when it has one. */
+type Jump = { target?: Target; tier?: TargetTier };
+
 /**
  * Spans for one side of a replaced line, from patdiff's refinement of it
  * into kept and changed words. Changed words carry the side's word style
@@ -259,11 +262,7 @@ function mergedParts(segments: readonly PatdiffCore.StructuredLine[]): { text: s
  * so the line stays one plain span. The target rides the first span alone; a
  * line resolves to its first target.
  */
-function changedLineSpans(
-  segments: readonly PatdiffCore.StructuredLine[],
-  side: DiffSide,
-  jump: { target: Target; tier: TargetTier },
-): Span[] {
+function changedLineSpans(segments: readonly PatdiffCore.StructuredLine[], side: DiffSide, jump: Jump): Span[] {
   const parts = mergedParts(segments);
   if (!parts.some(({ tag }) => tag !== "Same") || !parts.some(({ tag }) => tag === "Same")) {
     return [span(parts.map(({ text }) => text).join(""), { style: side.line, ...jump })];
@@ -278,10 +277,7 @@ function changedLineSpans(
  * side of it changed words: kept text stays plain while deleted and inserted
  * words carry the word styles, as the ANSI renderer paints it.
  */
-function unifiedLineSpans(
-  segments: readonly PatdiffCore.StructuredLine[],
-  jump: { target: Target; tier: TargetTier },
-): Span[] {
+function unifiedLineSpans(segments: readonly PatdiffCore.StructuredLine[], jump: Jump): Span[] {
   const parts = mergedParts(segments);
   if (parts.length === 0) {
     return [span("", jump)];
@@ -295,18 +291,76 @@ function unifiedLineSpans(
 }
 
 /**
- * Walk a two-way diff tracking where each hunk line sits in the file's new
- * copy, so the cursor can jump from the diff to the file itself. A hunk
- * header carries the new side's start; context and added lines advance it,
- * and a removed line anchors at the removal site without advancing. Lines
- * carry bare code a host can syntax-highlight and a reviewer can copy; the
- * added/removed styles say which side. A line only one side of which changed
- * words shows once, unified, with just those words styled; the pair form
- * remains for lines whose both sides changed words, which need both versions
- * shown. Long-line splitting stays off — it would break the
- * line-per-source-line mapping structured hosts rely on. Consecutive hunks
- * would read as one run of code, so a blank line separates them and each is
- * a section folding down to its styled header.
+ * Walk one structured hunk's ranges into lines, tracking where each line
+ * sits in the copy of the file the cursor visits. `anchor` is the 1-based
+ * line of the hunk's start there — or undefined when the diff never touches
+ * that copy, where lines carry no targets. Context and added lines advance
+ * the anchor, and a removed line anchors at the removal site without
+ * advancing. Lines carry bare code a host can syntax-highlight and a
+ * reviewer can copy; the added/removed styles say which side. A line only
+ * one side of which changed words shows once, unified, with just those
+ * words styled; the pair form remains for lines whose both sides changed
+ * words, which need both versions shown.
+ */
+function hunkBodyLines(hunk: PatdiffCore.StructuredHunks[number], file: FilePath, anchor: number | undefined): Line[] {
+  let at = anchor;
+  // Jump tier: a wall of clickable diff lines would drown the page's real
+  // links, and the cursor is already on the line a reviewer wants to visit.
+  const jump = (): Jump => (at === undefined ? {} : { target: { kind: "location", file, line: at }, tier: "jump" });
+  const bump = (): void => {
+    if (at !== undefined) at++;
+  };
+  const lines: Line[] = [];
+  for (const range of hunk.ranges) {
+    switch (range.kind) {
+      case "same":
+        for (const [, next] of range.contents) {
+          lines.push({ spans: [span(next.map(([, text]) => text).join(""), jump())] });
+          bump();
+        }
+        break;
+      case "prev":
+        for (const segments of range.contents) {
+          lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
+        }
+        break;
+      case "next":
+        for (const segments of range.contents) {
+          lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
+          bump();
+        }
+        break;
+      case "replace":
+        for (const segments of range.prev) {
+          lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
+        }
+        for (const segments of range.next) {
+          lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
+          bump();
+        }
+        break;
+      case "unified":
+        for (const segments of range.contents) {
+          lines.push({ spans: unifiedLineSpans(segments, jump()) });
+          // A line's final segment holds the tag of the newline that ended
+          // it. A boundary only the old copy had — deleting words joined
+          // two lines — leaves the cursor on the same line of the new copy.
+          if (segments.at(-1)?.[0] !== "Prev") {
+            bump();
+          }
+        }
+        break;
+    }
+  }
+  return lines;
+}
+
+/**
+ * A two-way diff's lines anchor in the file's new copy, from each hunk
+ * header's new-side start. Long-line splitting stays off — it would break
+ * the line-per-source-line mapping structured hosts rely on. Consecutive
+ * hunks would read as one run of code, so a blank line separates them and
+ * each is a section folding down to its styled header.
  */
 function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }>, context?: number): Node[] {
   if (IsBinary.string(view.prev ?? "") || IsBinary.string(view.next ?? "")) {
@@ -326,109 +380,119 @@ function twoWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "two" }
     if (nodes.length > 0) {
       nodes.push({ spans: [] });
     }
-    let at = hunk.nextStart;
-    // Jump tier: a wall of clickable diff lines would drown the page's real
-    // links, and the cursor is already on the line a reviewer wants to visit.
-    const jump = (): { target: Target; tier: TargetTier } => ({
-      target: { kind: "location", file, line: at },
-      tier: "jump",
-    });
     const header = `-${hunk.prevStart},${hunk.prevSize} +${hunk.nextStart},${hunk.nextSize}`;
-    const heading: Line = { spans: [span(header, { style: "hunk", ...jump() })] };
-    const lines: Line[] = [];
-    for (const range of hunk.ranges) {
-      switch (range.kind) {
-        case "same":
-          for (const [, next] of range.contents) {
-            lines.push({ spans: [span(next.map(([, text]) => text).join(""), jump())] });
-            at++;
-          }
-          break;
-        case "prev":
-          for (const segments of range.contents) {
-            lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
-          }
-          break;
-        case "next":
-          for (const segments of range.contents) {
-            lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
-            at++;
-          }
-          break;
-        case "replace":
-          for (const segments of range.prev) {
-            lines.push({ spans: changedLineSpans(segments, removedSide, jump()) });
-          }
-          for (const segments of range.next) {
-            lines.push({ spans: changedLineSpans(segments, addedSide, jump()) });
-            at++;
-          }
-          break;
-        case "unified":
-          for (const segments of range.contents) {
-            lines.push({ spans: unifiedLineSpans(segments, jump()) });
-            // A line's final segment holds the tag of the newline that ended
-            // it. A boundary only the old copy had — deleting words joined
-            // two lines — leaves the cursor on the same line of the new copy.
-            if (segments.at(-1)?.[0] !== "Prev") {
-              at++;
-            }
-          }
-          break;
-      }
-    }
-    nodes.push(section(heading, lines));
+    const jump: Jump = { target: { kind: "location", file, line: hunk.nextStart }, tier: "jump" };
+    const heading: Line = { spans: [span(header, { style: "hunk", ...jump })] };
+    nodes.push(section(heading, hunkBodyLines(hunk, file, hunk.nextStart)));
   }
   return nodes;
 }
 
+const roleNames = Patdiff4.Diamond.prettyShortRevNamesConst;
+/** The diamond's versions in reading order: bases before tips, old before new. */
+const roleOrder: readonly Patdiff4.Diamond.Node[] = ["b1", "f1", "b2", "f2"];
+
+const sliceText = (slice: Patdiff4.Slice.Slice): string =>
+  slice.lines.length === 0 ? "" : `${slice.lines.join("\n")}\n`;
+
+/** The second-channel style of a conflict's ddiff line: which diff carries
+ *  it crossed with the inner diff's own sign. Lines both diffs agree on wear
+ *  the plain two-way styles. */
+function ddiffStyle(line: Patdiff4.DiffAlgo.DdiffLine): Style | undefined {
+  if (line.diff === "both") {
+    return line.kind === "prev" ? "removed" : line.kind === "next" ? "added" : undefined;
+  }
+  const sign = line.kind === "prev" ? "removed" : line.kind === "next" ? "added" : "context";
+  return `${line.diff}-diff-${sign}`;
+}
+
 /**
- * A 4-way render already knows each line's home in the four versions; the
- * new tip is the copy a reviewer visits, so lines carrying one jump straight
- * to it. Lines absent from the new tip anchor at the running insertion point,
- * like a two-way removal; decoration (view titles, grouping pipes) resets the
- * point so one view's anchor cannot leak into views that never touch the new
- * tip. Hunk headers anchor without advancing. Unlike two-way lines, these
- * keep their sign marks: a ddiff line's stacked signs say more than one
- * style can express. Each hunk that carries a title — hunks label themselves
- * whenever there are several — is a section folding down to that title line.
+ * A 4-way diff renders each aligned hunk under its class's view: hint
+ * sentences as headings, then plain 2-way diffs of the class-chosen version
+ * pairs — each hunk a foldable section under a header naming the pair — or,
+ * for a true conflict, the feature ddiff's lines styled on two channels.
+ * Lines anchor to their home in the new tip where they have one: added and
+ * context lines directly, removed lines at the running insertion point, and
+ * blocks that never touch the new tip not at all.
  */
 function fourWayDiffNodes(file: FilePath, view: Extract<DiffView, { kind: "four" }>, context?: number): Node[] {
-  const hunks = renderDiff4Hunks({ file, revs: view.revs, contents: view.contents, color: false, context });
-  let at: number | undefined;
-  const toLine = ({ text, kind, provenance }: Patdiff4.Line): Line => {
-    const opts: { style?: Style; target?: Target; tier?: TargetTier } = {};
-    if (kind === "prev") {
-      opts.style = "removed";
-    } else if (kind === "next") {
-      opts.style = "added";
-    }
-    if (provenance.f2 !== undefined) {
-      const line = Math.max(1, provenance.f2);
-      opts.target = { kind: "location", file, line };
-      at = kind === undefined ? line : line + 1;
-    } else if (Object.keys(provenance).length === 0) {
-      at = undefined;
-    } else if (at !== undefined) {
-      opts.target = { kind: "location", file, line: at };
-    }
-    if (opts.target !== undefined) {
-      // Jump tier, as in twoWayDiffNodes.
-      opts.tier = "jump";
-    }
-    return { spans: [span(text, opts)] };
+  if (!Patdiff4.Diamond.forAll(view.contents, (text) => !IsBinary.string(text ?? ""))) {
+    return [{ spans: [span(`Binary versions of ${file} differ`)] }];
+  }
+  const hunks = structuredDiff4({ revs: view.revs, contents: view.contents, context });
+  const nodes: Node[] = [];
+  const blank = (): void => {
+    if (nodes.length > 0) nodes.push({ spans: [] });
   };
-  return hunks.flatMap(({ lines, title }): Node[] => {
-    const mapped = lines.map(toLine);
-    if (title === undefined) {
-      return mapped;
+  const hintLine = (hint: string): Line => ({ spans: [span(hint, { style: "heading" })] });
+  for (const hunk of hunks) {
+    const groups = Patdiff4.Diamond.group(
+      Patdiff4.Diamond.init((node) => node),
+      hunk.diff4Class,
+    );
+    const nameOf = (node: Patdiff4.Diamond.Node): string => {
+      const grouped = Patdiff4.Diamond.get(groups, node);
+      return roleOrder
+        .filter((other) => grouped.includes(other))
+        .map((other) => Patdiff4.Diamond.get(roleNames, other))
+        .join(", ");
+    };
+    for (const block of hunk.blocks) {
+      if (block.kind === "diff2") {
+        const from = Patdiff4.Diamond.get(hunk.slices, block.from);
+        const to = Patdiff4.Diamond.get(hunk.slices, block.to);
+        const inner = PatdiffCore.withoutUnix.patdiffStructured({
+          context: context ?? defaultContext,
+          produceUnifiedLines: true,
+          splitLongLines: false,
+          prev: { name: file, text: sliceText(from) },
+          next: { name: file, text: sliceText(to) },
+        });
+        // Classification found the slices unequal under the same whitespace-
+        // insensitive diff, so the block's own diff cannot come back empty.
+        if (inner.length === 0) {
+          throw new Error(`empty ${block.from}->${block.to} diff for a ${hunk.diff4Class} hunk of ${file}`);
+        }
+        blank();
+        nodes.push(...block.hints.map(hintLine));
+        // The new tip is the copy a reviewer visits; a block whose to-side
+        // coincides with it anchors there, sharing the to-side's positions.
+        const anchored = Patdiff4.Diamond.get(groups, block.to).includes("f2");
+        const f2Start = hunk.slices.f2.range.lineStart;
+        inner.forEach((ih, i) => {
+          if (i > 0) nodes.push({ spans: [] });
+          const anchor = anchored ? f2Start + ih.nextStart : undefined;
+          const header =
+            `-${from.range.lineStart + ih.prevStart},${ih.prevSize}` +
+            ` +${to.range.lineStart + ih.nextStart},${ih.nextSize}` +
+            ` ${nameOf(block.from)} → ${nameOf(block.to)}`;
+          const jump: Jump =
+            anchor === undefined ? {} : { target: { kind: "location", file, line: anchor }, tier: "jump" };
+          const heading: Line = { spans: [span(header, { style: "hunk", ...jump })] };
+          nodes.push(section(heading, hunkBodyLines(ih, file, anchor)));
+        });
+      } else {
+        if (block.lines.length === 0) continue;
+        blank();
+        let at: number | undefined;
+        const body: Line[] = block.lines.map((line) => {
+          const style = ddiffStyle(line);
+          const f2 = line.provenance.f2;
+          let jump: Jump = {};
+          if (f2 !== undefined) {
+            jump = { target: { kind: "location", file, line: f2 }, tier: "jump" };
+            at = f2 + 1;
+          } else if (at !== undefined) {
+            jump = { target: { kind: "location", file, line: at }, tier: "jump" };
+          }
+          return { spans: [span(line.content, { style, ...jump })] };
+        });
+        const [first, ...rest] = block.hints;
+        nodes.push(...(first === undefined ? body : [section(hintLine(first), [...rest.map(hintLine), ...body])]));
+      }
     }
-    const heading = mapped[title];
-    if (heading === undefined) {
-      throw new Error(`hunk title index ${title} out of range`);
-    }
-    return [...mapped.slice(0, title), section(heading, mapped.slice(title + 1))];
-  });
+  }
+  return nodes;
 }
 
 export function diffDoc(page: DiffPage, context?: number): Doc {

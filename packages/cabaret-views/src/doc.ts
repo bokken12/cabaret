@@ -6,8 +6,26 @@ import type { FilePath, RefName } from "cabaret-core";
  * line's own style on an added or removed line, and alone on a unified line
  * whose kept text is plain. Context marks material shown only to situate its
  * neighbors, for hosts to dim.
+ *
+ * The diff-of-diffs styles carry a 4-way conflict's second channel: a line
+ * present in only the reviewed diff (old) or only the current diff (new),
+ * with the inner diff's own sign — removed, added, or that diff's context.
+ * Lines both diffs agree on wear the plain added/removed styles.
  */
-export type Style = "heading" | "added" | "removed" | "added-word" | "removed-word" | "hunk" | "context";
+export type Style =
+  | "heading"
+  | "added"
+  | "removed"
+  | "added-word"
+  | "removed-word"
+  | "hunk"
+  | "context"
+  | "old-diff-removed"
+  | "old-diff-added"
+  | "old-diff-context"
+  | "new-diff-removed"
+  | "new-diff-added"
+  | "new-diff-context";
 
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =

@@ -95,23 +95,18 @@ interface Diff4Args {
 /**
  * Render what remains to review when the base's copy of `file` changed
  * underneath the reviewed diff: Iron's diff4 over the old and new base and
- * tip, each aligned hunk shown under every view its equivalence class earns,
- * grouped per hunk. Empty when nothing is left to show.
+ * tip, each aligned hunk shown under its equivalence class's view. Empty
+ * when nothing is left to show.
  */
-export function renderDiff4Hunks(args: Diff4Args): readonly Patdiff4.Hunk.HunkLines[] {
+export function renderDiff4(args: Diff4Args): readonly Patdiff4.Line[] {
   // TODO: name absent versions distinctly (Iron renders them as <absent>
   // with a per-version file-name table) instead of diffing an empty file.
   const contents = Patdiff4.Diamond.map(args.contents, (text) => text ?? "");
   if (!Patdiff4.Diamond.forAll(contents, (text) => !IsBinary.string(text))) {
-    return [
-      {
-        lines: [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }],
-        title: undefined,
-      },
-    ];
+    return [{ text: `Binary versions of ${args.file} differ`, kind: undefined, provenance: {} }];
   }
   const context = args.context ?? defaultContext;
-  return Patdiff4.diffHunkLines({
+  return Patdiff4.diff({
     // Hash prefixes keep patdiff4's contract that equal names imply equal
     // contents, where "old"/"new" labels would not (the tips can coincide).
     revNames: Patdiff4.Diamond.map(args.revs, shortHash),
@@ -124,9 +119,19 @@ export function renderDiff4Hunks(args: Diff4Args): readonly Patdiff4.Hunk.HunkLi
   });
 }
 
-/** The lines of `renderDiff4Hunks`, flat — for hosts that print rather than fold. */
-export function renderDiff4(args: Diff4Args): readonly Patdiff4.Line[] {
-  return renderDiff4Hunks(args).flatMap(({ lines }) => lines);
+/**
+ * The same diff4 as structure, for hosts that render and fold themselves.
+ * Binary versions are the caller's to detect, as with 2-way structured
+ * diffs; absent versions diff as empty files.
+ */
+export function structuredDiff4(args: Omit<Diff4Args, "color" | "file">): readonly Patdiff4.StructuredHunk[] {
+  const context = args.context ?? defaultContext;
+  return Patdiff4.structuredHunks({
+    revNames: Patdiff4.Diamond.map(args.revs, shortHash),
+    context: context < 0 ? Patdiff4.DiffAlgo.infiniteContext : context,
+    linesRequiredToSeparateDdiffHunks: 0,
+    contents: Patdiff4.Diamond.map(args.contents, (text) => text ?? ""),
+  });
 }
 
 /**

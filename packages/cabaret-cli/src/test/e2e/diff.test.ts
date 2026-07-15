@@ -291,12 +291,12 @@ test("editing the base's change after a rebase shows the new base to new tip dif
   `);
 });
 
-test("interacting base and tip changes get the full 4-way views", async () => {
+test("interacting base and tip changes get the conflict's ddiff", async () => {
   const repo = await makeStack();
   await repo.cabaret("review", "shared.txt");
   await amendParentAndRebase(repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\nseven\n");
   // Rewriting the base's amendment right next to the reviewed edit entangles
-  // the two changes into one conflict-class hunk with every view.
+  // the two changes into one conflict-class hunk.
   await repo.write("shared.txt", "ONE!\ntwo\nthree\nfour\nfive\nsix\nseven\nchild\n");
   await repo.git("commit", "-qam", "rewrite the amendment");
   expect(await repo.cabaret("diff", "shared.txt")).toMatchInlineSnapshot(`
@@ -305,115 +305,15 @@ test("interacting base and tip changes get the full 4-way views", async () => {
       "stderr": "",
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base 34a96a50f88f | old tip 531b9ce6fca4 | new base 7cce234df272 | new tip 2185f0780da5
-    _
-    | @@@@@@@@ View 1/8 : feature-ddiff @@@@@@@@
-    | @@@@@@@@ -- old base 1,5 old tip 1,6 @@@@@@@@
-    | @@@@@@@@ ++ new base 1,5 new tip 1,6 @@@@@@@@
-    | --  one
-    | ++-|ONE
-    | +++|ONE!
-    |     two
-    |     three
-    |     four
-    |_
-    _
-    | @@@@@@@@ View 2/8 : base-ddiff @@@@@@@@
-    | @@@@@@@@ -- old base 1,9 new base 1,10 @@@@@@@@
-    | @@@@@@@@ ++ old tip 1,9 new tip 1,10 @@@@@@@@
-    |   -|one
-    | --+|ONE
-    | +++|ONE!
-    |     two
-    |     three
-    |     four
-    |     five
-    |     six
-    |     seven
-    | ++  child
-    |_
-    _
-    | @@@@@@@@ View 3/8 : old-tip-to-new-tip @@@@@@@@
-    | @@@@@@@@ old tip 1,5 new tip 1,5 @@@@@@@@
-    | -|one
-    | +|ONE!
-    |   two
-    |   three
-    |   four
-    |_
-    _
-    | @@@@@@@@ View 4/8 : new-base-to-new-tip @@@@@@@@
-    | @@@@@@@@ new base 1,8 new tip 1,9 @@@@@@@@
-    | -|ONE
-    | +|ONE!
-    |   two
-    |   three
-    |   four
-    |   five
-    |   six
-    |   seven
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 5/8 : old-base-to-old-tip @@@@@@@@
-    | @@@@@@@@ old base 5,8 old tip 5,9 @@@@@@@@
-    |   five
-    |   six
-    |   seven
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 6/8 : old-base-to-new-base @@@@@@@@
-    | @@@@@@@@ old base 1,5 new base 1,5 @@@@@@@@
-    | -|one
-    | +|ONE
-    |   two
-    |   three
-    |   four
-    |_
-    _
-    | @@@@@@@@ View 7/8 : old-base-to-new-tip @@@@@@@@
-    | @@@@@@@@ old base 1,8 new tip 1,9 @@@@@@@@
-    | -|one
-    | +|ONE!
-    |   two
-    |   three
-    |   four
-    |   five
-    |   six
-    |   seven
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 8/8 : conflict-resolution @@@@@@@@
-    | @@@@@@@@ conflict 1,6 new tip 1,5 @@@@@@@@
-    | -|<<<<<<< old tip
-    | -|one
-    | +|ONE!
-    |   two
-    |   three
-    |   four
-    | @@@@@@@@ conflict 7,27 new tip 6,9 @@@@@@@@
-    |   six
-    |   seven
-    |   child
-    | -|||||||| old base
-    | -|one
-    | -|two
-    | -|three
-    | -|four
-    | -|five
-    | -|six
-    | -|seven
-    | -|=======
-    | -|ONE
-    | -|two
-    | -|three
-    | -|four
-    | -|five
-    | -|six
-    | -|seven
-    | -|>>>>>>> new base
-    |_
+    @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+    @@@@@@@@ -- old base 1,5 old tip 1,6 @@@@@@@@
+    @@@@@@@@ ++ new base 1,5 new tip 1,6 @@@@@@@@
+    --  one
+    ++-|ONE
+    +++|ONE!
+        two
+        three
+        four
     ",
     }
   `);
@@ -442,50 +342,15 @@ test("a base that deleted the reviewed file is a dropped base change", async () 
       "stdout": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     old base f4b3ff030cf6 | new base 50884fd79027 | old & new tip 475e44044208
     _
-    | @@@@@@@@ View 1/5 : feature-ddiff @@@@@@@@
-    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-    | @@@@@@@@ -- old base 1,3 tip 1,3 @@@@@@@@
-    | @@@@@@@@ ++ new base 1,3 tip 1,3 @@@@@@@@
-    | --  keep
-    | +++|keep
-    |   +|child
-    |_
-    _
-    | @@@@@@@@ View 2/5 : new-base-to-new-tip @@@@@@@@
-    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-    | @@@@@@@@ The following feature change was kept: @@@@@@@@
-    | @@@@@@@@ new base 1,1 tip 1,3 @@@@@@@@
-    | +|keep
-    | +|child
-    |_
-    _
-    | @@@@@@@@ View 3/5 : story @@@@@@@@
-    | _
-    | | @@@@@@@@ This base change was dropped... : @@@@@@@@
-    | | @@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
-    | | -|keep
-    | |_
-    | _
-    | | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
-    | | @@@@@@@@ old base 1,2 tip 1,3 @@@@@@@@
-    | |   keep
-    | | +|child
-    | |_
-    |_
-    _
-    | @@@@@@@@ View 4/5 : base-ddiff @@@@@@@@
-    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-    | @@@@@@@@ -- old base 1,3 new base 1,1 @@@@@@@@
-    | @@@@@@@@ ++ tip 1,3 tip 1,1 @@@@@@@@
-    | --@@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
-    | ---|keep
-    |_
-    _
-    | @@@@@@@@ View 5/5 : old-base-to-new-base @@@@@@@@
-    | @@@@@@@@ A base change was dropped in favor of a feature change @@@@@@@@
-    | @@@@@@@@ The following base change was dropped: @@@@@@@@
+    | @@@@@@@@ This base change was dropped... : @@@@@@@@
     | @@@@@@@@ old base 1,2 new base 1,1 @@@@@@@@
     | -|keep
+    |_
+    _
+    | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
+    | @@@@@@@@ old base 1,2 tip 1,3 @@@@@@@@
+    |   keep
+    | +|child
     |_
     ",
     }

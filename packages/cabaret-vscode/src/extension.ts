@@ -631,11 +631,14 @@ async function rename(
 /** One editor decoration per `Style`; the mapped type keeps the palette exhaustive. */
 type StyleDecorations = { readonly [S in Style]: vscode.TextEditorDecorationType };
 
-/** A diff sign as a gutter icon; mid-gray reads on light and dark themes alike. */
+/** A diff sign as a gutter icon; mid-gray reads on light and dark themes
+ *  alike. Two-character signs (a ddiff's outer and inner channel) shrink to
+ *  fit the gutter box. */
 function signIcon(glyph: string): vscode.Uri {
+  const size = glyph.length > 1 ? 9 : 13;
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
-    `<text x="8" y="12" text-anchor="middle" font-family="monospace" font-size="13" fill="#888">${glyph}</text></svg>`;
+    `<text x="8" y="12" text-anchor="middle" font-family="monospace" font-size="${size}" fill="#888">${glyph}</text></svg>`;
   return vscode.Uri.parse(`data:image/svg+xml,${encodeURIComponent(svg)}`);
 }
 
@@ -654,6 +657,29 @@ function createDecorations(): StyleDecorations {
       gutterIconSize: "contain",
       overviewRulerColor: new vscode.ThemeColor(ruler),
       overviewRulerLane: vscode.OverviewRulerLane.Left,
+    });
+  // A conflict's ddiff line: the inner sign's wash and ruler mark when it
+  // has one, a colored left border saying which diff carries the line, and a
+  // two-character gutter sign — outer channel first, inner second. One
+  // diff's context lines stay undimmed: they are that diff's own content,
+  // not page furniture.
+  const ddiff = (inner: "added" | "removed" | undefined, side: "old" | "new", glyph: string) =>
+    vscode.window.createTextEditorDecorationType({
+      ...(inner === undefined
+        ? {}
+        : {
+            backgroundColor: new vscode.ThemeColor(`cabaret.${inner}LineBackground`),
+            overviewRulerColor: new vscode.ThemeColor(
+              inner === "added" ? "editorOverviewRuler.addedForeground" : "editorOverviewRuler.deletedForeground",
+            ),
+            overviewRulerLane: vscode.OverviewRulerLane.Left,
+          }),
+      isWholeLine: true,
+      gutterIconPath: signIcon(glyph),
+      gutterIconSize: "contain",
+      borderStyle: "solid",
+      borderWidth: "0 0 0 2px",
+      borderColor: new vscode.ThemeColor(side === "old" ? "cabaret.oldDiffBorder" : "cabaret.newDiffBorder"),
     });
   return {
     heading: vscode.window.createTextEditorDecorationType({ fontWeight: "bold" }),
@@ -675,6 +701,14 @@ function createDecorations(): StyleDecorations {
       isWholeLine: true,
     }),
     context: vscode.window.createTextEditorDecorationType({ opacity: "0.6" }),
+    // Non-breaking spaces keep the outer sign in its column when the inner
+    // position is blank (a context line of just one diff).
+    "old-diff-removed": ddiff("removed", "old", "--"),
+    "old-diff-added": ddiff("added", "old", "-+"),
+    "old-diff-context": ddiff(undefined, "old", "- "),
+    "new-diff-removed": ddiff("removed", "new", "+-"),
+    "new-diff-added": ddiff("added", "new", "++"),
+    "new-diff-context": ddiff(undefined, "new", "+ "),
   };
 }
 
@@ -701,6 +735,12 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
       "removed-word": [],
       hunk: [],
       context: [],
+      "old-diff-removed": [],
+      "old-diff-added": [],
+      "old-diff-context": [],
+      "new-diff-removed": [],
+      "new-diff-added": [],
+      "new-diff-context": [],
     };
     for (const { line, start, length, style } of styledRanges(doc)) {
       const bucket = ranges[style];
