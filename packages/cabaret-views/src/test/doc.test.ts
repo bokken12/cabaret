@@ -13,6 +13,7 @@ const doc: Doc = {
     { spans: [span("const x = 1;", { target: location, tier: "jump" })] },
   ],
   folds: [],
+  errors: [],
 };
 
 test("targetAt resolves a line to its target of either tier, and a plain line to nothing", () => {
@@ -63,7 +64,7 @@ test("layout flattens nested sections and derives their folds", () => {
 });
 
 test("layout of bare lines has nothing to fold", () => {
-  expect(layout([line("a"), line("b")])).toEqual({ lines: [line("a"), line("b")], folds: [] });
+  expect(layout([line("a"), line("b")])).toEqual({ lines: [line("a"), line("b")], folds: [], errors: [] });
 });
 
 test("section refuses an empty body", () => {

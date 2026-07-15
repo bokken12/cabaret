@@ -11,6 +11,7 @@ import {
   reviewOwed,
   type Self,
   summarizeChange,
+  UserError,
 } from "cabaret-core";
 import { type Doc, layout, section, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
@@ -31,6 +32,12 @@ export interface ReviewNode {
   readonly children: readonly ReviewNode[];
 }
 
+/** A change the page could not read, and what went wrong. */
+export interface BrokenChange {
+  readonly change: RefName;
+  readonly message: string;
+}
+
 /** What awaits one user's attention, each section a forest along parent links. */
 export interface TodoPage {
   /**
@@ -45,26 +52,41 @@ export interface TodoPage {
    * stays only while kept children hang from it.
    */
   readonly owned: readonly TodoNode[];
+  /**
+   * Changes whose state could not be read (say, a log whose branch is gone),
+   * sorted by name. They are left out of the sections rather than blocking
+   * the page, since this page is where every other change gets triaged.
+   */
+  readonly broken: readonly BrokenChange[];
 }
 
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
   const summaries = new Map<RefName, ChangeSummary>();
   const parents = new Map<RefName, RefName>();
   const owedFiles = new Map<RefName, readonly FilePath[]>();
+  const broken: BrokenChange[] = [];
   for (const change of [...(await backend.listChanges())].sort()) {
-    const entries = await backend.readLog(change);
-    const diff = await changeDiff(backend, change, entries);
-    const candidate = await summarizeChange(backend, change, entries, self.user, diff);
-    summaries.set(change, candidate);
-    parents.set(change, currentParent(change, entries));
-    // An empty reviewLeft already counts the user toward every obligation —
-    // though it says nothing about their aliases, whose obligations each
-    // count that identity's own reviews.
-    if (candidate.landed === undefined && (candidate.reviewLeft.length > 0 || self.aliases.size > 0)) {
-      const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
-      if (owed.length > 0) {
-        owedFiles.set(change, owed);
+    try {
+      const entries = await backend.readLog(change);
+      const diff = await changeDiff(backend, change, entries);
+      const candidate = await summarizeChange(backend, change, entries, self.user, diff);
+      summaries.set(change, candidate);
+      parents.set(change, currentParent(change, entries));
+      // An empty reviewLeft already counts the user toward every obligation —
+      // though it says nothing about their aliases, whose obligations each
+      // count that identity's own reviews.
+      if (candidate.landed === undefined && (candidate.reviewLeft.length > 0 || self.aliases.size > 0)) {
+        const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
+        if (owed.length > 0) {
+          owedFiles.set(change, owed);
+        }
       }
+    } catch (error) {
+      // Only state problems isolate to their change; a bug still throws.
+      if (!(error instanceof UserError)) {
+        throw error;
+      }
+      broken.push({ change, message: error.message });
     }
   }
   const summary = (change: RefName): ChangeSummary => {
@@ -88,7 +110,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  return { review: pruneReview(forest), owned: pruneOwned(forest) };
+  return { review: pruneReview(forest), owned: pruneOwned(forest), broken };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -129,25 +151,28 @@ export function todoDoc(page: TodoPage): Doc {
       span(summary.nextStep, { style }),
     ];
   });
-  return layout([
-    ...table(
-      [
-        { header: "change", align: "left" },
-        { header: "review", align: "right" },
-      ],
-      reviewRows,
-    ),
-    { spans: [] },
-    section(
-      { spans: [span("Changes you own:", { style: "heading" })] },
-      table(
+  return layout(
+    [
+      ...table(
         [
           { header: "change", align: "left" },
           { header: "review", align: "right" },
-          { header: "next step", align: "left" },
         ],
-        ownedRows,
+        reviewRows,
       ),
-    ),
-  ]);
+      { spans: [] },
+      section(
+        { spans: [span("Changes you own:", { style: "heading" })] },
+        table(
+          [
+            { header: "change", align: "left" },
+            { header: "review", align: "right" },
+            { header: "next step", align: "left" },
+          ],
+          ownedRows,
+        ),
+      ),
+    ],
+    page.broken.map(({ change, message }) => `${change}: ${message}`),
+  );
 }

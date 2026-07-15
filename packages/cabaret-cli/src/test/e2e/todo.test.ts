@@ -75,6 +75,35 @@ test("todo counts an alias's changes among the user's own", async () => {
   `);
 });
 
+test("a change whose branch is gone goes to stderr without blocking the page", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await addChange(repo, "gizmo");
+  // Deleting the branch orphans gadget's log: the change can no longer be
+  // read, while gizmo — parented on the missing branch — still can.
+  await repo.git("branch", "-qD", "gadget");
+  const { stdout, stderr, exitCode } = await repo.cabaret("todo");
+  expect({ stderr, exitCode }).toEqual({
+    stderr: 'gadget: unknown revision: "refs/heads/gadget"\n',
+    exitCode: 0,
+  });
+  expect(stdout).toMatchInlineSnapshot(`
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gizmo  │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gizmo  │      1 │ reparent  │
+    ╰────────┴────────┴───────────╯
+    "
+  `);
+});
+
 test("todo with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
