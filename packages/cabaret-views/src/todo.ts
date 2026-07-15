@@ -8,6 +8,7 @@ import {
   type FilePath,
   isReviewing,
   isSelf,
+  type LogEntry,
   type RefName,
   reviewOwed,
   type Self,
@@ -99,7 +100,28 @@ async function readChange(backend: Backend, self: Self, change: RefName): Promis
   };
 }
 
-export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
+/**
+ * `backend` with `readLog` memoized, every other method delegated untouched.
+ * Summarizing a change reads its parent's log, so one page over a forest
+ * reads the same logs repeatedly; one render is one snapshot, so sharing the
+ * reads is sound. Never write logs through this — a memoized read would not
+ * see the write.
+ */
+function withMemoizedLogs(backend: Backend): Backend {
+  const logs = new Map<RefName, Promise<readonly LogEntry[]>>();
+  const readLog: Backend["readLog"] = (change) => {
+    let log = logs.get(change);
+    if (log === undefined) {
+      log = backend.readLog(change);
+      logs.set(change, log);
+    }
+    return log;
+  };
+  return Object.assign(Object.create(backend) as Backend, { readLog });
+}
+
+export async function todoPage(reading: Backend, self: Self): Promise<TodoPage> {
+  const backend = withMemoizedLogs(reading);
   const changes = [...(await backend.listChanges())].sort();
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.

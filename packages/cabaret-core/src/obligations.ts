@@ -279,11 +279,14 @@ export async function obligationStatuses(
     ),
     ...(await changeObligations(backend, diff.base, diff.tip, sorted)),
   ];
-  const left = new Map<UserName, ReadonlySet<FilePath>>();
-  for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
-    const rounds = await reviewRounds(backend, entries, user, diff);
-    left.set(user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()])));
-  }
+  const left = new Map(
+    await Promise.all(
+      [...new Set(obligations.flatMap(({ require }) => require.of))].map(async (user) => {
+        const rounds = await reviewRounds(backend, entries, user, diff);
+        return [user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()]))] as const;
+      }),
+    ),
+  );
   const covered = (user: UserName, file: FilePath): boolean => {
     const due = left.get(user);
     if (due === undefined) {
