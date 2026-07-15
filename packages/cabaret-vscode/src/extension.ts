@@ -673,6 +673,7 @@ function createDecorations(): StyleDecorations {
       backgroundColor: new vscode.ThemeColor("cabaret.hunkLineBackground"),
       isWholeLine: true,
     }),
+    context: vscode.window.createTextEditorDecorationType({ opacity: "0.6" }),
   };
 }
 
@@ -698,6 +699,7 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
       "added-word": [],
       "removed-word": [],
       hunk: [],
+      context: [],
     };
     for (const { line, start, length, style } of styledRanges(doc)) {
       const bucket = ranges[style];
