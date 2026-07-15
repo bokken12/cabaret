@@ -177,8 +177,8 @@ test("diffDoc trims each hunk to the requested context", () => {
   `);
   // Each hunk folds down to its header; the blank separator stays outside.
   expect(doc.folds).toEqual([
-    { start: 2, end: 6, folded: false },
-    { start: 8, end: 12, folded: false },
+    { start: 2, end: 6 },
+    { start: 8, end: 12 },
   ]);
 });
 
@@ -452,7 +452,7 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
   expect(tierOf("ONE!")).toBe("jump");
   expect(tierOf("one")).toBeUndefined();
   // The conflict folds down to its hint.
-  expect(doc.folds).toEqual([{ start: 2, end: 6, folded: false }]);
+  expect(doc.folds).toEqual([{ start: 2, end: 6 }]);
 });
 
 test("diffDoc anchors a story block through its to-side's equivalence with the new tip", () => {
