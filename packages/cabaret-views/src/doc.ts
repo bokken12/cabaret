@@ -79,6 +79,12 @@ export interface Doc {
   readonly lines: readonly Line[];
   /** Regions a host may offer to fold, ordered by start line. */
   readonly folds: readonly Fold[];
+  /**
+   * What the page could not show — state it failed to read rather than
+   * content. Hosts surface these beside the page (stderr, a notification),
+   * where they cannot be mistaken for what the page says.
+   */
+  readonly errors: readonly string[];
 }
 
 /** Make a section; an empty body would give folding nothing to hide, so it is refused. */
@@ -90,7 +96,7 @@ export function section(heading: Line, body: readonly Node[]): Section {
 }
 
 /** Lay nodes out on the line grid, deriving each section's fold from its extent. */
-export function layout(nodes: readonly Node[]): Doc {
+export function layout(nodes: readonly Node[], errors: readonly string[] = []): Doc {
   const lines: Line[] = [];
   const folds: Fold[] = [];
   const walk = (node: Node): void => {
@@ -109,7 +115,7 @@ export function layout(nodes: readonly Node[]): Doc {
     walk(node);
   }
   folds.sort((a, b) => a.start - b.start);
-  return { lines, folds };
+  return { lines, folds, errors };
 }
 
 /** Make a span; multi-line text would break line-to-target mapping, so it is refused. */

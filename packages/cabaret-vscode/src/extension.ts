@@ -80,6 +80,8 @@ class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
   private readonly docs = new Map<string, Doc>();
+  /** What each page last reported, so the re-render after every action does not re-toast it. */
+  private readonly reported = new Map<string, string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
   private readonly rendered = new vscode.EventEmitter<void>();
@@ -127,14 +129,35 @@ class PageProvider
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
-    const doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
-      context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
-    });
+    let doc: Doc;
+    try {
+      doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
+        context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+      });
+    } catch (error) {
+      // A rejected render leaves the buffer as it was, with no other sign
+      // anything went wrong; the notification is that sign.
+      this.reportErrors(uri, [message(error)]);
+      throw error;
+    }
     this.docs.set(uri.toString(), doc);
+    this.reportErrors(uri, doc.errors);
     // A render whose text matches the buffer emits no document change, so
     // repainting only on document changes would leave pre-render paint stale.
     this.rendered.fire();
     return docText(doc);
+  }
+
+  private reportErrors(uri: vscode.Uri, errors: readonly string[]): void {
+    const key = uri.toString();
+    const joined = errors.join("\n");
+    if (joined === (this.reported.get(key) ?? "")) {
+      return;
+    }
+    this.reported.set(key, joined);
+    for (const error of errors) {
+      vscode.window.showErrorMessage(`cabaret: ${error}`);
+    }
   }
 
   doc(uri: vscode.Uri): Doc | undefined {
@@ -167,6 +190,8 @@ class PageProvider
 
   forget(uri: vscode.Uri): void {
     this.docs.delete(uri.toString());
+    // A reopened page's problems are news again.
+    this.reported.delete(uri.toString());
   }
 }
 

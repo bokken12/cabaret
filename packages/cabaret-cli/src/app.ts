@@ -50,7 +50,7 @@ import {
   VERSION,
 } from "cabaret-core";
 import { applySetup, auditSetup, declinedScopes, type SetupAudit } from "cabaret-node";
-import { docText, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
+import { type Doc, docText, showDoc, showPage, todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "./context.js";
 
 /** Parse a user argument, rejecting the empty string. */
@@ -1165,9 +1165,17 @@ const show = buildCommand({
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
     const page = await showPage(backend, await backend.currentUser(), target);
-    this.process.stdout.write(`${docText(showDoc(page))}\n`);
+    writeDoc(this, showDoc(page));
   },
 });
+
+/** Print a rendered page: its text to stdout, its errors to stderr. */
+function writeDoc(context: LocalContext, doc: Doc): void {
+  context.process.stdout.write(`${docText(doc)}\n`);
+  for (const error of doc.errors) {
+    context.process.stderr.write(`${error}\n`);
+  }
+}
 
 const sync = buildCommand({
   docs: {
@@ -1191,7 +1199,7 @@ const todo = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
     const page = await todoPage(backend, await currentSelf(backend));
-    this.process.stdout.write(`${docText(todoDoc(page))}\n`);
+    writeDoc(this, todoDoc(page));
   },
 });
 

@@ -63,6 +63,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
       { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
       { summary: widgets, context: false, children: [] },
     ],
+    broken: [],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "╭──────────┬────────╮
@@ -109,7 +110,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 });
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
-  expect(docText(todoDoc({ review: [], owned: [] }))).toMatchInlineSnapshot(`
+  expect(docText(todoDoc({ review: [], owned: [], broken: [] }))).toMatchInlineSnapshot(`
     "╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
@@ -120,6 +121,35 @@ test("todoDoc with nothing to do keeps both sections, empty", () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯"
+  `);
+});
+
+test("todoDoc carries broken changes as doc errors, named for their change", () => {
+  const doc = todoDoc({
+    review: [],
+    owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
+    broken: [
+      { change: parseRefName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
+      { change: parseRefName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
+    ],
+  });
+  expect(doc.errors).toEqual([
+    'gizmo: unknown revision: "refs/heads/gizmo"',
+    'relic: parent branch of "relic" does not exist: "gone"',
+  ]);
+  // The tables show only what could be read; broken changes stay off them.
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭─────────┬────────┬───────────╮
+    │ change  │ review │ next step │
+    ├─────────┼────────┼───────────┤
+    │ widgets │        │ review    │
+    ╰─────────┴────────┴───────────╯"
   `);
 });
 
