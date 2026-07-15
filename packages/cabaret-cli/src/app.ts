@@ -6,6 +6,8 @@ import {
   brain,
   type ConfigScope,
   changeBase,
+  changeTip,
+  conflictMarkers,
   createChange,
   currentSelf,
   defaultContext,
@@ -797,6 +799,45 @@ const land = buildCommand({
   },
 });
 
+const conflicts = buildCommand({
+  docs: {
+    brief: "Show a change's unresolved conflict markers",
+    fullDescription:
+      "Show each conflict marker left in a change's files, as file:line: " +
+      "text. A rebase that conflicts commits the markers in place; this " +
+      "lists what remains to fix.",
+  },
+  parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          brief: "change to inspect (defaults to current)",
+          placeholder: "change",
+          parse: parseRefName,
+          optional: true,
+        },
+      ],
+    },
+  },
+  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+    const backend = await this.backend();
+    const target = change ?? (await backend.currentBranch());
+    const entries = await backend.readLog(target);
+    const base = await changeBase(backend, target, entries);
+    const tip = await changeTip(backend, target, entries);
+    for (const file of await backend.changedFiles(base, tip)) {
+      const content = await backend.readFile(tip, file);
+      if (content === undefined) {
+        continue;
+      }
+      for (const { line, text } of conflictMarkers(content)) {
+        this.process.stdout.write(`${file}:${line}: ${text}\n`);
+      }
+    }
+  },
+});
+
 const log = buildCommand({
   docs: { brief: "Show a log of actions on a change" },
   parameters: {
@@ -853,11 +894,13 @@ const rebase = buildCommand({
     brief: "Move a change onto its parent's tip",
     fullDescription:
       "Move a change onto its parent's tip by merging the tip into the " +
-      "change, then record the new base in the log. Only the change's owner " +
-      "may rebase it. A range `ancestor..descendant` rebases every change " +
-      "after `ancestor` on `descendant`'s parent chain, ancestormost first, " +
-      "skipping changes that have landed; when one fails, the rebases before " +
-      "it stand, and rerunning the range resumes.",
+      "change, then record the new base in the log. A conflicting merge is " +
+      "committed with its markers in place; fix them and amend, then " +
+      "continue. Only the change's owner may rebase it. A range " +
+      "`ancestor..descendant` rebases every change after `ancestor` on " +
+      "`descendant`'s parent chain, ancestormost first, skipping changes " +
+      "that have landed; a conflict stops the range there, and rerunning it " +
+      "resumes once the conflict is fixed.",
   },
   parameters: {
     positional: {
@@ -1099,6 +1142,7 @@ const routes = buildRouteMap({
     approve,
     comment,
     config,
+    conflicts,
     create,
     dev,
     diff,

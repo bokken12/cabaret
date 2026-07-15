@@ -4,10 +4,12 @@ import {
   type Backend,
   type CommitHash,
   changeBase,
+  conflictedFiles,
   currentBase,
   currentOwner,
   currentParent,
   diffBetween,
+  type FilePath,
   type ForgeMerge,
   type LogEntry,
   landedMerge,
@@ -165,9 +167,22 @@ export async function requireOwner(
   }
 }
 
+/** Fail if `target` still carries conflict markers in `conflicts`. */
+function assertNoConflict(target: RefName, conflicts: readonly FilePath[]): void {
+  if (conflicts.length > 0) {
+    throw new UserError(
+      `${JSON.stringify(target)} has unresolved conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+    );
+  }
+}
+
 /**
  * Move `target` onto its parent's tip by merging the tip into the change,
- * then record the new base in the log.
+ * then record the new base in the log. A conflicting merge still commits,
+ * markers in place, for the owner to fix in their own time; the move is
+ * complete, so the base is pinned all the same. A change whose files already
+ * carry markers must be fixed before it moves again — merging onto them
+ * would bake them in as resolved content.
  *
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
@@ -187,14 +202,14 @@ export async function rebaseChange(
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
+  const tip = await backend.resolveCommit(`refs/heads/${target}`);
+  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   // When the change already sits on the parent's tip (base === onto), whether
   // because it was just rebased or an out-of-band `git rebase` put it there,
   // there is no code to move.
+  let conflicts: readonly FilePath[] = [];
   if (base !== onto) {
-    // Record the base only after a clean move: if the merge conflicts and
-    // the user finishes it with git, this line never runs and the stale
-    // stored base loses to the merge-base with the parent.
-    await backend.mergeOnto(target, base, onto, `Merge branch '${parent}' into ${target}`);
+    conflicts = await backend.mergeOnto(target, base, onto, `Merge branch '${parent}' into ${target}`);
   }
   // Pin the base to the parent's tip so a later parent rewrite cannot slide
   // it back to an ancestor and pull the parent's commits into the diff.
@@ -203,14 +218,21 @@ export async function rebaseChange(
       { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
     ]);
   }
+  if (conflicts.length > 0) {
+    throw new UserError(
+      `merging ${JSON.stringify(parent)} into ${JSON.stringify(target)} ` +
+        `left conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+    );
+  }
 }
 
 /**
  * Rebase every change of `chain` onto its parent's tip, ancestormost first so
  * each change's rebase finds its parent already at rest. A landed change is
  * frozen where it landed and is skipped; its descendants still rebase onto
- * its tip. When one change fails, the rebases before it stand, and rerunning
- * the chain resumes.
+ * its tip. When one change fails — a conflicting merge commits its markers
+ * and counts — the rebases before it stand, and rerunning the chain resumes
+ * once it is fixed.
  */
 export async function rebaseChain(
   backend: Backend,
@@ -245,8 +267,9 @@ export interface LandOverrides {
 /**
  * Check that `target` may land now — unlanded, owned by the current user,
  * with an unlanded parent, sitting on the parent's tip, with commits of its
- * own, and with its review obligations satisfied — and resolve the endpoints
- * the landing writes. `overrides` skips the checks it names.
+ * own, free of unresolved conflicts, and with its review obligations
+ * satisfied — and resolve the endpoints the landing writes. `overrides`
+ * skips the checks it names.
  */
 export async function prepareLand(
   backend: Backend,
@@ -277,6 +300,7 @@ export async function prepareLand(
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
+  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   if (!overrides.unreviewed) {
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);

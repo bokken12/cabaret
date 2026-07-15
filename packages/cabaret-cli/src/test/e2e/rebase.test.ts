@@ -79,27 +79,70 @@ test("rebase merges the parent's tip in and records the new base", async () => {
   `);
 });
 
-test("a rebase conflict fails without moving the branch or the log", async () => {
+test("a rebase conflict commits the markers and waits for a fix", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("shared.txt", "from parent\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "parent work");
+  const oldBase = await repo.git("rev-parse", "parent");
   await repo.cabaret("create", "child");
   await repo.git("checkout", "-q", "child");
   await repo.write("shared.txt", "from child\n");
   await repo.git("commit", "-qam", "child work");
   const tipBefore = await repo.git("rev-parse", "child");
-  const logBefore = await repo.cabaret("log", "child");
   await repo.git("checkout", "-q", "parent");
   await repo.write("shared.txt", "from parent, amended\n");
   await repo.git("commit", "-qa", "--amend", "-m", "parent work, amended");
-  const result = await repo.cabaret("rebase", "child");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git merge");
-  expect(await repo.git("rev-parse", "child")).toBe(tipBefore);
-  expect(await repo.cabaret("log", "child")).toEqual(logBefore);
+  const onto = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("rebase", "child")).toEqual({
+    stdout: "",
+    stderr: 'merging "parent" into "child" left conflicts in shared.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  // The merge is committed all the same, markers in place and base pinned.
+  expect(await repo.git("log", "--format=%s", "--first-parent", "child")).toBe(
+    "Merge branch 'parent' into child\nchild work\nparent work\nroot",
+  );
+  expect(await repo.git("show", "child:shared.txt")).toBe(
+    `<<<<<<< ${tipBefore}\nfrom child\n=======\nfrom parent, amended\n>>>>>>> ${onto}`,
+  );
+  expect(await repo.cabaret("log", "child")).toEqual({
+    stdout:
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"${onto}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("conflicts", "child")).toEqual({
+    stdout: `shared.txt:1: <<<<<<< ${tipBefore}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  // Until the markers are fixed the change is stuck: no rebase, no land.
+  expect(await repo.cabaret("rebase", "child")).toEqual({
+    stdout: "",
+    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  expect((await repo.cabaret("show", "child")).stdout).toContain("fix conflicts");
+  // Fixing the markers and amending resolves it; the change lands normally.
+  await repo.git("checkout", "-q", "child");
+  await repo.write("shared.txt", "from both\n");
+  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'parent' into child");
+  expect(await repo.cabaret("conflicts", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  await repo.cabaret("review", "shared.txt", "--change", "child");
+  expect(await repo.cabaret("land", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("show", "parent:shared.txt")).toBe("from both");
 });
 
 test("rebase fast-forwards a change with no commits of its own", async () => {
@@ -233,7 +276,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   });
 });
 
-test("a range stops at a conflict and a rerun resumes past it", async () => {
+test("a range stops at a conflicted change and a rerun resumes once fixed", async () => {
   const repo = await makeRepo();
   await addChange(repo, "a");
   await addChange(repo, "b");
@@ -243,19 +286,27 @@ test("a range stops at a conflict and a rerun resumes past it", async () => {
   await repo.write("b.txt", "trunk version\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk claims b.txt");
-  const result = await repo.cabaret("rebase", "main..c");
-  expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("git merge");
-  // a made it onto the new trunk before the stop; c never moved.
+  expect(await repo.cabaret("rebase", "main..c")).toEqual({
+    stdout: "",
+    stderr: 'merging "a" into "b" left conflicts in b.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  // a made it onto the new trunk; b committed the conflict; c never moved.
   expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Merge branch 'main' into a\na work\nroot");
+  expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe(
+    "Merge branch 'a' into b\nb work\na work\nroot",
+  );
   expect(await repo.git("log", "--format=%s", "c")).toBe("c work\nb work\na work\nroot");
-  // Finish b's merge with git, then rerun the range: a is already in place,
-  // b needs only its base pinned, and c merges.
+  // Rerunning while unresolved stops at b again.
+  expect(await repo.cabaret("rebase", "main..c")).toEqual({
+    stdout: "",
+    stderr: '"b" has unresolved conflicts in b.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  // Fix the markers and amend; the rerun then finishes the chain.
   await repo.git("checkout", "-q", "b");
-  await expect(repo.git("merge", "a")).rejects.toThrow();
   await repo.write("b.txt", "b work\n");
-  await repo.git("add", "b.txt");
-  await repo.git("commit", "-qm", "Merge branch 'a' into b");
+  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'a' into b");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
     "Merge branch 'b' into c\nc work\nb work\na work\nroot",

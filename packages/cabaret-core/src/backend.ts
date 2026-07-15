@@ -355,10 +355,11 @@ export interface Backend {
    * resolves against `base`, the change's own base, not the git merge-base:
    * what the change did since its base applies onto `onto`, so a parent
    * whose history was rewritten merges as cleanly as one that advanced.
-   * Carries a checked-out `change`'s working tree along. Fails without
-   * touching anything when the contents conflict.
+   * Carries a checked-out `change`'s working tree along. Conflicts still
+   * commit, markers left in the files, and come back as the conflicted
+   * paths.
    */
-  mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<void>;
+  mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<readonly FilePath[]>;
 
   /**
    * Create the merge commit recording `tip` merging into branch `into`:
@@ -735,6 +736,37 @@ export async function changeTip(backend: Backend, change: RefName, entries: read
     return backend.resolveCommit(`refs/heads/${change}`);
   }
   return landed.tip ?? backend.resolveCommit(`${landed.merge}^2`);
+}
+
+/**
+ * The lines of `content` that open a conflict marker, each with its 1-based
+ * number. Conflicts are a fact of the code, not of any record kept beside
+ * it: a change is conflicted exactly while marker lines survive in its
+ * files, and fixing them — however that happens — is what resolves it.
+ */
+export function conflictMarkers(content: string): readonly { readonly line: number; readonly text: string }[] {
+  const hits: { line: number; text: string }[] = [];
+  content.split("\n").forEach((text, index) => {
+    if (text.startsWith("<<<<<<<")) {
+      hits.push({ line: index + 1, text });
+    }
+  });
+  return hits;
+}
+
+/** The files among `files` whose contents at `commit` carry conflict markers, in `files` order. */
+export async function conflictedFiles(
+  backend: Backend,
+  commit: CommitHash,
+  files: readonly FilePath[],
+): Promise<readonly FilePath[]> {
+  const marked = await Promise.all(
+    files.map(async (file) => {
+      const content = await backend.readFile(commit, file);
+      return content !== undefined && conflictMarkers(content).length > 0;
+    }),
+  );
+  return files.filter((_, index) => marked[index]);
 }
 
 /** One contiguous span of a change's history that a reviewer must review. */
