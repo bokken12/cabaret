@@ -139,6 +139,59 @@ test("clear removes every alias", async () => {
   expect((await repo.cabaret("config", "list")).stdout).toContain("alias            (none)\n");
 });
 
+test("a forge's alias subcommands take bare account names and store them under its scheme", async () => {
+  const repo = await makeRepo();
+  expect(await repo.cabaret("config", "alias", "github", "add", "alice")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  await repo.cabaret("config", "alias", "gitlab", "add", "alice");
+  await repo.cabaret("config", "alias", "codeberg", "add", "wanderer");
+  expect(await repo.git("config", "--global", "--get-all", "cabaret.alias")).toBe(
+    "github:alice\ngitlab:alice\ncodeberg:wanderer",
+  );
+  expect(await repo.cabaret("config", "alias", "github", "remove", "alice")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("config", "--global", "--get-all", "cabaret.alias")).toBe("gitlab:alice\ncodeberg:wanderer");
+});
+
+test("a forge alias rejects an email, a schemed identity, and a duplicate", async () => {
+  const repo = await makeRepo();
+  expect(await repo.cabaret("config", "alias", "github", "add", "alice@example.com")).toEqual({
+    stdout: "",
+    stderr: "pass the bare account name, e.g. `cabaret config alias github add alice`\n",
+    exitCode: 1,
+  });
+  expect((await repo.cabaret("config", "alias", "gitlab", "add", "gitlab:alice")).stderr).toBe(
+    "pass the bare account name, e.g. `cabaret config alias gitlab add alice`\n",
+  );
+  await repo.cabaret("config", "alias", "github", "add", "alice");
+  expect(await repo.cabaret("config", "alias", "github", "add", "alice")).toEqual({
+    stdout: "",
+    stderr: 'git config cabaret.alias already contains "github:alice" in global config\n',
+    exitCode: 1,
+  });
+});
+
+test("a forge's clear removes only that forge's accounts", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("config", "alias", "add", "agent@example.com");
+  await repo.cabaret("config", "alias", "github", "add", "alice");
+  await repo.cabaret("config", "alias", "github", "add", "alice-work");
+  await repo.cabaret("config", "alias", "codeberg", "add", "alice");
+  expect(await repo.cabaret("config", "alias", "github", "clear")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("config", "--global", "--get-all", "cabaret.alias")).toBe("agent@example.com\ncodeberg:alice");
+  expect(await repo.cabaret("config", "alias", "github", "clear")).toEqual({
+    stdout: "",
+    stderr: "git config cabaret.alias has no global github accounts\n",
+    exitCode: 1,
+  });
+});
+
 test("--global and --local override a setting's home scope", async () => {
   const repo = await makeRepo();
   await repo.cabaret("config", "land-method", "squash", "--global");

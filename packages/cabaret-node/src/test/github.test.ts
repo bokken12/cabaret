@@ -46,8 +46,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       tip: expect.stringMatching(/^[0-9a-f]{40}$/),
       parent: "main",
       title: "seeded",
-      // The account's public profile email when set, else the noreply convention.
-      author: expect.stringMatching(/@/),
+      author: expect.stringMatching(/^github:/),
       state: "merged",
       merge: { commit: expect.stringMatching(/^[0-9a-f]{40}$/), parents: expect.any(Number) },
     });
@@ -60,7 +59,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       Array.from({ length: 105 }, (_, index) => `seed comment ${index + 1}`),
     );
     for (const comment of comments) {
-      expect(comment.author).toMatch(/@/);
+      expect(comment.author).toMatch(/^github:/);
       expect(comment.updatedAt).toBeGreaterThan(0);
     }
   }, 60000);

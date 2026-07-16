@@ -6,6 +6,7 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
+  forgeAccount,
   forgeChangeId,
   type LandMethod,
   type OpenChange,
@@ -13,6 +14,7 @@ import {
   parseCommitHash,
   parseForgeLocator,
   type Revision,
+  type Self,
   timestampMs,
   UserError,
   type UserName,
@@ -21,13 +23,32 @@ import {
 import { z } from "zod";
 import { type ForgejoClient, type ForgejoRepo, isStatus } from "./client.js";
 
-/** The identity for a login whose account shows no email: Codeberg's own noreply convention, the same form the API serves for a hidden email. */
-function noreplyUser(login: string): UserName {
-  return userName(`${login.toLowerCase()}@noreply.codeberg.org`);
+/** The identity for a Codeberg account: its login under the `codeberg:` scheme. */
+function accountUser(login: string): UserName {
+  return forgeAccount("codeberg", login);
 }
 
-// Inverts `noreplyUser`.
+// Inverts `accountUser`.
+const ACCOUNT = /^codeberg:(.+)$/;
+
+// Codeberg's hidden-email placeholder names its account just as well, so a
+// pasted noreply address is taken as the account it belongs to.
 const NOREPLY = /^([^@]+)@noreply\.codeberg\.org$/;
+
+/**
+ * The login a Cabaret identity names — `accountUser`'s inverse, also taking
+ * Codeberg's noreply placeholder form. Fails for an identity that names no
+ * account: emails are not searched, since search matches names as loosely as
+ * emails and a review request must never land on whichever stranger matched
+ * first.
+ */
+function accountLogin(user: UserName): string {
+  const login = ACCOUNT.exec(user)?.[1] ?? NOREPLY.exec(user)?.[1];
+  if (login === undefined) {
+    throw new UserError(`${JSON.stringify(user)} names no codeberg.org account; use codeberg:<login>`);
+  }
+  return login;
+}
 
 const UserSchema = z.object({ login: z.string() });
 
@@ -74,16 +95,12 @@ const MergedPrSchema = z.object({
 
 const TitleSchema = z.object({ title: z.string(), draft: z.boolean() });
 
-const UserSearchSchema = z.object({ data: z.array(z.object({ login: z.string(), email: z.string() })) });
-
 // Forgejo's default work-in-progress title prefixes, matched case-insensitively
 // as the server matches them; codeberg.org runs the defaults.
 const WIP = /^(?:wip:|\[wip\])\s*/i;
 
 /** A `Forge` for a codeberg.org repository, speaking the API directly. */
 export class ForgejoForge implements Forge {
-  private readonly identities = new Map<string, Promise<UserName>>();
-  private readonly logins = new Map<UserName, Promise<string>>();
   readonly locator: ForgeLocator;
   /** The API path prefix naming the repository. */
   private readonly api: string;
@@ -96,70 +113,13 @@ export class ForgejoForge implements Forge {
     this.api = `/repos/${repo.owner}/${repo.repo}`;
   }
 
-  /**
-   * The Cabaret identity for `login`: the account's email as the profile
-   * lookup serves it — the real one when public, the noreply placeholder when
-   * hidden — so the mapping is total without special cases. Looked up per
-   * login rather than read off embedded user objects, which carry the
-   * placeholder for every user on some surfaces (comments, requested
-   * reviewers) and the real email on others. One API call per login; only a
-   * success is cached, so a transient failure cannot pin a wrong identity for
-   * the forge's lifetime.
-   */
-  private identity(login: string): Promise<UserName> {
-    let pending = this.identities.get(login);
-    if (pending === undefined) {
-      pending = this.client
-        .get(`/users/${encodeURIComponent(login)}`)
-        .then((data) => {
-          const { email } = z.object({ email: z.string() }).parse(data);
-          return email === "" ? noreplyUser(login) : userName(email);
-        })
-        .catch((error: unknown) => {
-          // Deleted accounts 404; their PRs and comments still need an identity.
-          if (isStatus(error, 404)) {
-            return noreplyUser(login);
-          }
-          this.identities.delete(login);
-          throw error;
-        });
-      this.identities.set(login, pending);
+  async currentSelf(): Promise<Self> {
+    const { login, email } = z.object({ login: z.string(), email: z.string() }).parse(await this.client.get("/user"));
+    const aliases = new Set<UserName>();
+    if (email !== "") {
+      aliases.add(userName(email));
     }
-    return pending;
-  }
-
-  /**
-   * The login for a Cabaret identity — `identity`'s inverse. A noreply
-   * identity names its login directly; anything else costs a user search,
-   * cached for this forge's lifetime. Only a success is cached, so a transient
-   * failure cannot pin a wrong login for the forge's lifetime. Search matches
-   * names as loosely as emails, so only an exact email match may stand in for
-   * the identity — a review request must never land on whichever stranger
-   * matched first.
-   */
-  private login(user: UserName): Promise<string> {
-    const noreply = NOREPLY.exec(user)?.[1];
-    if (noreply !== undefined) {
-      return Promise.resolve(noreply);
-    }
-    let pending = this.logins.get(user);
-    if (pending === undefined) {
-      pending = this.client
-        .get("/users/search", { q: user })
-        .then((data) => {
-          const match = UserSearchSchema.parse(data).data.find(({ email }) => email === user);
-          if (match === undefined) {
-            throw new UserError(`no codeberg.org account found for ${JSON.stringify(user)}`);
-          }
-          return match.login;
-        })
-        .catch((error: unknown) => {
-          this.logins.delete(user);
-          throw error;
-        });
-      this.logins.set(user, pending);
-    }
-    return pending;
+    return { user: accountUser(login), aliases };
   }
 
   private async toChange(pr: Pr): Promise<ForgeChange> {
@@ -175,17 +135,16 @@ export class ForgejoForge implements Forge {
         ...reviews.filter(({ state }) => SUBMITTED.has(state)).map(({ user }) => user?.login),
       ].filter((login) => login !== undefined),
     );
-    const reviewers = await Promise.all([...logins].map((login) => this.identity(login)));
     return {
       id: pr.number,
       head: pr.head.ref,
       tip: pr.head.sha,
       parent: pr.base.ref,
       title: pr.title,
-      author: pr.user === null ? noreplyUser("ghost") : await this.identity(pr.user.login),
+      author: accountUser(pr.user?.login ?? "ghost"),
       state: pr.merged ? "merged" : pr.state,
       // Sorted by identity: the forge promises no order of its own.
-      reviewers: reviewers.sort(),
+      reviewers: [...logins].map(accountUser).sort(),
       draft: pr.draft,
       ...(pr.merged ? { merge: await this.mergeOf(pr) } : {}),
     };
@@ -214,10 +173,10 @@ export class ForgejoForge implements Forge {
     return { commit, parents: parents.length === 2 && parents[1]?.sha === tip ? 2 : 1 };
   }
 
-  private async toComment(comment: z.infer<typeof CommentSchema>): Promise<ForgeComment> {
+  private toComment(comment: z.infer<typeof CommentSchema>): ForgeComment {
     return {
       id: String(comment.id),
-      author: comment.user === null ? noreplyUser("ghost") : await this.identity(comment.user.login),
+      author: accountUser(comment.user?.login ?? "ghost"),
       body: comment.body,
       updatedAt: timestampMs(Date.parse(comment.updated_at)),
     };
@@ -332,7 +291,7 @@ export class ForgejoForge implements Forge {
     // in creation order, oldest first, as the interface promises — and only
     // discussion comments, never Forgejo's own narration of the PR.
     const data = await this.client.get(`${this.api}/issues/${id}/comments`);
-    return Promise.all(z.array(CommentSchema).parse(data).map(this.toComment, this));
+    return z.array(CommentSchema).parse(data).map(this.toComment, this);
   }
 
   async addComment(id: ForgeChangeId, body: string): Promise<void> {
@@ -340,10 +299,8 @@ export class ForgejoForge implements Forge {
   }
 
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
-    const [adding, removing] = await Promise.all([
-      Promise.all(add.map((user) => this.login(user))),
-      Promise.all(remove.map((user) => this.login(user))),
-    ]);
+    const adding = add.map(accountLogin);
+    const removing = remove.map(accountLogin);
     try {
       if (adding.length > 0) {
         await this.client.post(`${this.api}/pulls/${id}/requested_reviewers`, { reviewers: adding });

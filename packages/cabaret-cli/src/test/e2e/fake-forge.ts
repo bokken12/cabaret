@@ -13,6 +13,7 @@ import {
   parseCommitHash,
   parseForgeLocator,
   type Revision,
+  type Self,
   timestampMs,
   type UserName,
   userName,
@@ -44,14 +45,14 @@ interface FakePr {
   readonly reviewed: Set<string>;
 }
 
-/** The identity every fake login maps to, mirroring `makeRepo`'s user setup. */
+/** The identity every fake login maps to, as the real GitHub forge mints them. */
 function loginIdentity(login: string): UserName {
-  return userName(`${login}@users.noreply.github.com`);
+  return userName(`github:${login}`);
 }
 
 /** Invert `loginIdentity`, as a real forge maps an identity back to an account. */
 function identityLogin(user: string): string {
-  const login = /^([^@]+)@users\.noreply\.github\.com$/.exec(user)?.[1];
+  const login = /^github:(.+)$/.exec(user)?.[1];
   if (login === undefined) {
     throw new Error(`no github.com account for ${JSON.stringify(user)}`);
   }
@@ -69,6 +70,8 @@ export class FakeForge implements Forge {
   readonly locator = parseForgeLocator("github.com/test-org/widgets");
   /** The login the CLI's own posts arrive under, as the token's owner. */
   tokenLogin = "alice";
+  /** The public email the token's account shows, when it shows one. */
+  tokenEmail: string | undefined;
   /** The bare repository this forge hosts; `makeRepo` sets it. */
   origin: string | undefined;
   /** When set, `fetchOpenChanges` caps each change's comments at this many, as real forges do. */
@@ -96,6 +99,14 @@ export class FakeForge implements Forge {
     } catch {
       return parseCommitHash("0".repeat(40));
     }
+  }
+
+  async currentSelf(): Promise<Self> {
+    const aliases = new Set<UserName>();
+    if (this.tokenEmail !== undefined) {
+      aliases.add(userName(this.tokenEmail));
+    }
+    return { user: loginIdentity(this.tokenLogin), aliases };
   }
 
   async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {

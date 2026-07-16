@@ -12,6 +12,10 @@ import type { LocalContext } from "../context.js";
 
 /** Report one thing a pull did, in the CLI's voice. */
 function reportPullEvent(context: LocalContext, locator: string, event: PullEvent): void {
+  if (event.kind === "aliased") {
+    context.process.stdout.write(`recorded ${event.alias} as an alias\n`);
+    return;
+  }
   const name = `${locator}#${event.id}`;
   switch (event.kind) {
     case "imported":
@@ -56,7 +60,9 @@ export const pull = buildCommand({
       "not yet a change — owned by its author, parented on the branch it " +
       "merges into — import forge comments into change logs, and record " +
       "merged forge changes as landing their changes. Pulls every unlanded " +
-      "change with a forge change; --change restricts it to one.",
+      "change with a forge change; --change restricts it to one. The " +
+      "account the forge credentials authenticate, and its profile emails, " +
+      "are recorded as aliases of you, so their changes read as yours.",
   },
   parameters: {
     flags: {
