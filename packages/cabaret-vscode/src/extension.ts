@@ -62,6 +62,7 @@ import {
   targetAt,
 } from "cabaret-views";
 import * as vscode from "vscode";
+import { type Manifest, pageHelp } from "./help.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
@@ -415,6 +416,22 @@ async function visitLocation(provider: PageProvider, target: Extract<Target, { k
     if (option.kind !== "open") {
       provider.refreshAll();
     }
+  }
+}
+
+/** List the active page's keybindings, read from the manifest; picking one runs it. */
+async function showHelp(manifest: Manifest): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path).kind;
+  const picked = await vscode.window.showQuickPick(
+    pageHelp(manifest, page).map(({ keys, label, command }) => ({ label: keys, description: label, command })),
+    { placeHolder: `Keybindings on the ${page} page`, matchOnDescription: true },
+  );
+  if (picked !== undefined) {
+    await vscode.commands.executeCommand(picked.command);
   }
 }
 
@@ -1058,6 +1075,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.pull", () => runPull(provider)),
