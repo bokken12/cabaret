@@ -27,14 +27,17 @@ export function parseCommitHash(raw: string): CommitHash {
 /** A branch or change name (e.g. "main"). Obtain via `parseRefName`. */
 export type RefName = Branded<string, "RefName">;
 
-// Cabaret's name grammar is the forbidden-character subset of `git
-// check-ref-format`, the strictest backend: control chars and space, the
+// Cabaret's name grammar is the intersection of every backend's rules, so a
+// name valid here is valid everywhere and a change never needs renaming to
+// cross backends. From git's `check-ref-format`: control chars and space, the
 // glob/revision metacharacters, `..`, `@{`, a bare `@`, a component starting
 // with `.`, a component ending in `.lock`, leading/trailing/doubled slashes,
-// and a trailing `.` on the whole name. Names within it are valid in every
-// backend, so a change never needs renaming to cross backends.
+// and a trailing `.` on the whole name. From hg's label rules: the reserved
+// names `tip` and `null`, and whole names of digits alone, which hg reads as
+// revision numbers.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: git ref names forbid control characters, so we must match them.
-const REF_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$/;
+const REF_NAME_FORBIDDEN =
+  /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$|^(?:tip|null|[0-9]+)$/;
 
 export function parseRefName(raw: string): RefName {
   if (raw === "" || REF_NAME_FORBIDDEN.test(raw)) {

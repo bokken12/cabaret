@@ -61,7 +61,7 @@ test("rejects empty and NUL-containing file paths", () => {
 });
 
 test("parses ordinary branch and ref names", () => {
-  for (const ok of ["main", "feature/foo", "release-1.2", "refs/heads/main"]) {
+  for (const ok of ["main", "feature/foo", "release-1.2", "refs/heads/main", "tip-of-tree", "123-fix", "0x1f"]) {
     expect(parseRefName(ok)).toBe(ok);
   }
 });
@@ -89,6 +89,11 @@ test("rejects malformed ref names", () => {
     ".leading-dot",
     "feature/.hidden",
     "feature.lock/child",
+    // Reserved by hg, so no backend's names may collide with them.
+    "tip",
+    "null",
+    "123",
+    "007",
   ]) {
     expect(() => parseRefName(bad)).toThrow("not a valid ref name");
   }

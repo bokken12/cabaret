@@ -200,6 +200,13 @@ test("pushBranch and fetchBranch move code branches, and originTip tracks what w
   await b.backend.fetchBranch(main);
   expect(await b.backend.branchTip(main)).toBe(second);
   expect(await b.hg("log", "-r", ".", "-T", "{node}")).toBe(second);
+
+  // With remotenames enabled in config — Cabaret's own setup recommends it —
+  // records of origin's bookmarks must not read as local branches.
+  await b.backend.configSet("extensions.remotenames", "", "local");
+  expect(await b.backend.branchTip(parseRefName("default/main"))).toBe(undefined);
+  expect(await b.backend.listChanges()).toEqual([]);
+  expect(await b.backend.branchTip(main)).toBe(second);
 });
 
 test("pushBranch replaces a rewritten branch under lease, but never unseen work", { timeout: 60000 }, async () => {

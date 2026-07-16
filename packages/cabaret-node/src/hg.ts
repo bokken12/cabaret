@@ -391,7 +391,17 @@ export class HgBackend implements Backend<HgNode> {
 
   /** Every bookmark and the node it points at. */
   private async bookmarks(): Promise<ReadonlyMap<string, HgNode>> {
-    const out = await hg(this.root, ["bookmarks", "-T", "{bookmark}\\0{node}\\0"]);
+    // remotenames, when enabled (Cabaret's own setup recommends it), folds
+    // records of origin's bookmarks into template listings under
+    // default/-prefixed names; only real bookmarks belong here, so the
+    // extension is forced off for the read.
+    const out = await hg(this.root, [
+      "bookmarks",
+      "--config",
+      "extensions.remotenames=!",
+      "-T",
+      "{bookmark}\\0{node}\\0",
+    ]);
     const fields = out.split("\0").slice(0, -1);
     const marks = new Map<string, HgNode>();
     for (let i = 0; i + 1 < fields.length; i += 2) {
