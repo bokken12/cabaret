@@ -143,7 +143,13 @@ export function showDoc(page: ShowPage): Doc {
   }
   attributes.push(["parent", noted(summary.parent, summary.deadParent && PARENT_NOTES[summary.deadParent])]);
   if (summary.forgeChange !== undefined) {
-    attributes.push(["forge change", `${summary.forgeChange.forge}#${summary.forgeChange.id}`]);
+    attributes.push([
+      "forge change",
+      noted(
+        `${summary.forgeChange.forge}#${summary.forgeChange.id}`,
+        summary.forgeChange.staleParent && `merges into ${summary.forgeChange.staleParent}`,
+      ),
+    ]);
   }
   if (summary.landed !== undefined) {
     attributes.push(["landed", shortHash(summary.landed)]);

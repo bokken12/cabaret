@@ -369,7 +369,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
 test("a landed change reports its merge, and a moved-base review counts as left", async () => {
   // The branch is gone, as after post-land cleanup: the tip comes from the
   // land merge's second parent. Origin having moved on does not matter; the
-  // change is frozen, so landed outranks sync.
+  // change is frozen, so landed outranks every origin step.
   const backend = repoBackend({
     history: { "1": "0", "3": "1", "4": "3" },
     branches: { main: "5" },
@@ -393,7 +393,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     owner: alice,
     reviewers: [],
     reviewing: "everyone",
-    forgeChange: { forge: "github.com/test-org/widgets", id: 7 },
+    forgeChange: { forge: "github.com/test-org/widgets", id: 7, staleParent: undefined },
     landed: fake("5"),
     base: fake("1"),
     tip: fake("4"),
@@ -596,7 +596,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
   });
 });
 
-test("a change behind origin's copy must sync, before anything else", async () => {
+test("a change behind origin's copy must pull, before anything else", async () => {
   // Origin's widgets moved to 2 while the local branch still sits at 1.
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
@@ -619,11 +619,11 @@ test("a change behind origin's copy must sync, before anything else", async () =
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "sync",
+    nextStep: "pull",
   });
 });
 
-test("a change diverged from origin's copy must sync, review left or not", async () => {
+test("a change diverged from origin's copy must resolve divergence, review left or not", async () => {
   // The local branch was rewritten to 3 while origin still holds the old 2.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1" },
@@ -647,7 +647,7 @@ test("a change diverged from origin's copy must sync, review left or not", async
     staleBase: undefined,
     conflicts: [],
     reviewLeft: ["a.ts"],
-    nextStep: "sync",
+    nextStep: "resolve divergence",
   });
 });
 
@@ -675,6 +675,119 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
+  });
+});
+
+test("a reviewed forge-tracked change ahead of origin pushes before landing", async () => {
+  // The tip moved to 3 locally while origin still holds 2: the forge cannot
+  // land a tip it has not seen.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1", gadget: "3" },
+    origin: { gadget: "2" },
+    changed: { "13": ["gadget.ts"] },
+  });
+  const gadget = parseRefName("gadget");
+  const entries = [
+    ...created("main", "1"),
+    entry({ kind: "set-forge", forge: parseForgeLocator("gitlab.com/test-org/gadgets"), id: forgeChangeId(12) }),
+    entry(review("gadget.ts", "1", "3")),
+  ];
+  expect(await summarize(backend, gadget, entries, alice)).toEqual({
+    change: "gadget",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    reviewing: "everyone",
+    forgeChange: { forge: "gitlab.com/test-org/gadgets", id: 12, staleParent: undefined },
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("3"),
+    origin: "ahead",
+    deadParent: undefined,
+    staleBase: undefined,
+    conflicts: [],
+    reviewLeft: [],
+    nextStep: "push",
+  });
+});
+
+test("a reviewed change ahead of origin with no forge change may land", async () => {
+  // A local land reads nothing from origin, so unpushed commits block nothing.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", docs: "2" },
+    origin: { docs: "1" },
+    changed: { "12": ["notes.md"] },
+  });
+  const docs = parseRefName("docs");
+  const entries = [...created("main", "1"), entry(review("notes.md", "1", "2"))];
+  const summary = await summarize(backend, docs, entries, alice);
+  expect({ origin: summary.origin, forgeChange: summary.forgeChange, nextStep: summary.nextStep }).toEqual({
+    origin: "ahead",
+    forgeChange: undefined,
+    nextStep: "land",
+  });
+});
+
+test("a forge-tracked change ahead of origin rebases before pushing when its parent conflicts", async () => {
+  // main moved under the change and the merge conflicts: rewriting the tip
+  // comes before publishing it.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "5": "1", "6": "5" },
+    branches: { main: "2", widgets: "6" },
+    origin: { widgets: "5" },
+    changed: { "16": ["w.ts"] },
+    conflicting: { "162": ["w.ts"] },
+  });
+  const widgets = parseRefName("widgets");
+  const entries = [
+    ...created("main", "1"),
+    entry({ kind: "set-forge", forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(4) }),
+    entry(review("w.ts", "1", "6")),
+  ];
+  const summary = await summarize(backend, widgets, entries, alice);
+  expect({ origin: summary.origin, staleBase: summary.staleBase, nextStep: summary.nextStep }).toEqual({
+    origin: "ahead",
+    staleBase: "behind",
+    nextStep: "rebase",
+  });
+});
+
+test("a reviewed change whose forge change targets its old parent pushes to retarget", async () => {
+  // Reparented from relic to main locally; the forge was last seen merging
+  // into relic, and only a push moves its target.
+  const forge = parseForgeLocator("github.com/test-org/gizmos");
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", relic: "1", gizmo: "2" },
+    origin: { gizmo: "2" },
+    changed: { "12": ["gizmo.ts"] },
+  });
+  const gizmo = parseRefName("gizmo");
+  const entries = [
+    ...created("relic", "1"),
+    entry({ kind: "set-forge", forge, id: forgeChangeId(103) }),
+    { ...entry({ kind: "set-parent", parent: parseRefName("relic") }), source: { forge } },
+    { ...entry({ kind: "set-parent", parent: parseRefName("main") }), timestamp: timestampMs(1748000000001) },
+    entry(review("gizmo.ts", "1", "2")),
+  ];
+  expect(await summarize(backend, gizmo, entries, alice)).toEqual({
+    change: "gizmo",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    reviewing: "everyone",
+    forgeChange: { forge, id: 103, staleParent: "relic" },
+    landed: undefined,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
+    conflicts: [],
+    reviewLeft: [],
+    nextStep: "push",
   });
 });
 
@@ -709,7 +822,7 @@ test("a change whose parent has landed must reparent, review left or not", async
   expect({ origin: summary.origin, deadParent: summary.deadParent, nextStep: summary.nextStep }).toEqual({
     origin: "behind",
     deadParent: "landed",
-    nextStep: "sync",
+    nextStep: "pull",
   });
 });
 
