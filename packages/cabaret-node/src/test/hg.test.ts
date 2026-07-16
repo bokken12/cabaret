@@ -11,6 +11,7 @@ import {
   landChange,
   landMessage,
   parseFilePath,
+  type Revision,
   rebaseChange,
   reviewSpans,
   type TimestampMs,
@@ -18,7 +19,7 @@ import {
   userName,
 } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { GitBackend, HgBackend, type HgName, type HgNode, openBackend, parseHgName, parseHgNode } from "../index.js";
+import { GitBackend, HgBackend, openBackend, parseHgName, parseHgNode } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -35,7 +36,7 @@ async function hg(...args: string[]): Promise<string> {
 }
 
 /** Commit `files` in `cwd` and return the new changeset id. */
-async function commit(cwd: string, message: string, files: Record<string, string>): Promise<HgNode> {
+async function commit(cwd: string, message: string, files: Record<string, string>): Promise<Revision> {
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(cwd, path, ".."), { recursive: true });
     await writeFile(join(cwd, path), content);
@@ -172,7 +173,7 @@ test("a change with no log has the empty log, and appends round-trip", async () 
   const change = parseHgName("log-roundtrip");
   expect(await backend.readLog(change)).toEqual([]);
   const tip = await backend.resolveCommit(".");
-  const entries: LogEntry<HgNode, HgName>[] = [
+  const entries: LogEntry[] = [
     {
       timestamp: timestampMs(1748000000000),
       user: alice,
@@ -201,7 +202,7 @@ test("log commits stay secret, invisible to the user's own push", async () => {
 
 test("listChanges names every change with a log, sorted by name", async () => {
   const backend = await HgBackend.open(repo);
-  const entry: LogEntry<HgNode, HgName> = {
+  const entry: LogEntry = {
     timestamp: timestampMs(1748000000000),
     user: alice,
     action: { kind: "set-parent", parent: parseHgName("main") },

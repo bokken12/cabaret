@@ -3,7 +3,6 @@ import {
   type Backend,
   type ChangeName,
   type ChangeSummary,
-  type CommitHash,
   changeDiff,
   changeForest,
   diffBetween,
@@ -17,6 +16,7 @@ import {
   parseFilePath,
   parseForgeLocator,
   type ReviewRound,
+  type Revision,
   reviewRounds,
   summarizeChange,
   timestampMs,
@@ -56,7 +56,7 @@ test("changeForest rejects a parent cycle", () => {
 });
 
 /** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
@@ -81,9 +81,9 @@ function repoBackend(opts: {
   /** Origin's last-fetched branch tips, for `originTip`. */
   origin?: Record<string, string>;
   /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
-  logs?: Record<string, readonly LogEntry<CommitHash>[]>;
-}): Backend<CommitHash> {
-  const ancestry = (tip: CommitHash): CommitHash[] => {
+  logs?: Record<string, readonly LogEntry[]>;
+}): Backend {
+  const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
     for (let up = opts.history[tip[0] as string]; up !== undefined; up = opts.history[up]) {
       chain.push(fake(up));
@@ -91,7 +91,7 @@ function repoBackend(opts: {
     return chain;
   };
   const stub: Pick<
-    Backend<CommitHash>,
+    Backend,
     | "mergedTip"
     | "tip"
     | "originTip"
@@ -162,18 +162,18 @@ function repoBackend(opts: {
       return paths.map(parseFilePath);
     },
   };
-  return stub as Backend<CommitHash>;
+  return stub as Backend;
 }
 
 const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
 
-function entry(action: LogAction<CommitHash>): LogEntry<CommitHash> {
+function entry(action: LogAction): LogEntry {
   return { timestamp: timestampMs(1748000000000), user: alice, action };
 }
 
 /** The entries `create` seeds a log with: parented on `parent`, based at `base`, owned by alice. */
-function created(parent: string, base: string): LogEntry<CommitHash>[] {
+function created(parent: string, base: string): LogEntry[] {
   return [
     entry({ kind: "set-parent", parent: parseBranchName(parent) }),
     entry({ kind: "set-base", base: fake(base) }),
@@ -181,7 +181,7 @@ function created(parent: string, base: string): LogEntry<CommitHash>[] {
   ];
 }
 
-function review(file: string, base: string, tip: string): LogAction<CommitHash> {
+function review(file: string, base: string, tip: string): LogAction {
   return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
 }
 
@@ -202,8 +202,8 @@ async function rounds(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
-  base: CommitHash,
-  tip: CommitHash,
+  base: Revision,
+  tip: Revision,
 ): Promise<readonly ReviewRound[]> {
   return reviewRounds(backend, entries, user, await diffBetween(backend, base, tip));
 }

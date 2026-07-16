@@ -4,38 +4,30 @@ import { UserError } from "./error.js";
 import type { Recommendation } from "./setup.js";
 
 /**
- * A revision identifier in some backend's native format. Each backend brands
- * its own refinement — `CommitHash` for git — and its `parseRevision` is the
- * only way to obtain one, so a revision can never cross from one backend into
- * another. Core code handles revisions opaquely: it compares them, stores
- * them in logs, and passes them back to the backend they came from.
+ * A revision identifier in some backend's native format, obtained only
+ * through a backend's `parseRevision`, which enforces its grammar. Core code
+ * handles revisions opaquely: it compares them, stores them in logs, and
+ * passes them back to the backend they came from.
  */
 export type Revision = Branded<string, "Revision">;
 
-/** A full (non-abbreviated) git commit hash: the git backend's `Revision`, also what forges record. Obtain via `parseCommitHash`. */
-export type CommitHash = Branded<Revision, "CommitHash">;
-
 const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
-export function parseCommitHash(raw: string): CommitHash {
+/** Parse a full (non-abbreviated) git commit hash: the git backend's `parseRevision`, also what forges record. */
+export function parseCommitHash(raw: string): Revision {
   if (!COMMIT_HASH.test(raw)) {
     throw new Error(`not a commit hash: ${JSON.stringify(raw)}`);
   }
-  return raw as CommitHash;
+  return raw as Revision;
 }
 
 /**
- * The name of a change (or of a parent it builds on, trunk included), in some
- * backend's native grammar. Each backend brands its own refinement —
- * `BranchName` for git — and its `parseName` is the only way to obtain one,
- * so a name can never cross from one backend into another. Backends map the
- * name onto whatever they natively point at code with: a git branch, an hg
- * bookmark.
+ * The name of a change (or of a parent it builds on, trunk included),
+ * obtained only through a backend's `parseName`, which enforces its native
+ * grammar. Backends map the name onto whatever they natively point at code
+ * with: a git branch, an hg bookmark.
  */
 export type ChangeName = Branded<string, "ChangeName">;
-
-/** The git backend's `ChangeName`: a branch name, also what forges target. Obtain via `parseBranchName`. */
-export type BranchName = Branded<ChangeName, "BranchName">;
 
 // The forbidden-character subset of `git check-ref-format`: control chars and
 // space, the glob/revision metacharacters, `..`, `@{`, a bare `@`, a
@@ -44,11 +36,12 @@ export type BranchName = Branded<ChangeName, "BranchName">;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: git ref names forbid control characters, so we must match them.
 const BRANCH_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$/;
 
-export function parseBranchName(raw: string): BranchName {
+/** Parse a git branch name: the git backend's `parseName`, also what forges target. */
+export function parseBranchName(raw: string): ChangeName {
   if (raw === "" || BRANCH_NAME_FORBIDDEN.test(raw)) {
     throw new UserError(`not a valid branch name: ${JSON.stringify(raw)}`);
   }
-  return raw as BranchName;
+  return raw as ChangeName;
 }
 
 /** A repository-relative file path, as named in diffs. Obtain via `parseFilePath`. */
@@ -130,22 +123,22 @@ export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
 }
 
 /** An action that can be recorded in a change's log. Revisions and names it records are in the owning backend's formats. */
-export type LogAction<R extends Revision = Revision, C extends ChangeName = ChangeName> =
-  | { readonly kind: "set-parent"; readonly parent: C }
-  | { readonly kind: "set-base"; readonly base: R }
+export type LogAction =
+  | { readonly kind: "set-parent"; readonly parent: ChangeName }
+  | { readonly kind: "set-base"; readonly base: Revision }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
-  | { readonly kind: "review"; readonly file: FilePath; readonly base: R; readonly tip: R }
+  | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
   | { readonly kind: "forget"; readonly file: FilePath }
-  | { readonly kind: "land"; readonly merge: R; readonly tip?: R | undefined }
+  | { readonly kind: "land"; readonly merge: Revision; readonly tip?: Revision | undefined }
   /** `edits` names the `commentHash` of the entry this comment supersedes: versions of one comment group through it, and the greatest timestamp is displayed. */
   | { readonly kind: "comment"; readonly text: string; readonly edits?: string | undefined };
 
 /** One action recorded in a change's log. */
-export interface LogEntry<R extends Revision = Revision, C extends ChangeName = ChangeName> {
+export interface LogEntry {
   /** When the entry was created. */
   readonly timestamp: TimestampMs;
   /** Who wrote the entry. */
@@ -153,7 +146,7 @@ export interface LogEntry<R extends Revision = Revision, C extends ChangeName = 
   /** The forge state the entry mirrors, for one that did not originate locally. */
   readonly source?: ForgeSource | undefined;
   /** The action taken. */
-  readonly action: LogAction<R, C>;
+  readonly action: LogAction;
 }
 
 const ForgeSourceSchema = z.object({
@@ -168,10 +161,10 @@ const ForgeSourceSchema = z.object({
  * and `parseName`; `satisfies` has the compiler verify that the schema parses
  * to exactly `LogEntry`.
  */
-function logEntrySchema<R extends Revision, C extends ChangeName>(
-  parseRevision: (raw: string) => R,
-  parseName: (raw: string) => C,
-): z.ZodType<LogEntry<R, C>> {
+function logEntrySchema(
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): z.ZodType<LogEntry> {
   const revision = z.string().transform(parseRevision);
   const action = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseName) }),
@@ -194,13 +187,13 @@ function logEntrySchema<R extends Revision, C extends ChangeName>(
     z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
     z.object({ kind: z.literal("land"), merge: revision, tip: revision.optional() }),
     z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
-  ]) satisfies z.ZodType<LogAction<R, C>>;
+  ]) satisfies z.ZodType<LogAction>;
   return z.object({
     timestamp: z.number().transform(timestampMs),
     user: z.string().min(1).transform(userName),
     source: ForgeSourceSchema.optional(),
     action,
-  }) satisfies z.ZodType<LogEntry<R, C>>;
+  }) satisfies z.ZodType<LogEntry>;
 }
 
 // Serialization does not re-parse revisions or names — the brands certify a
@@ -221,23 +214,20 @@ const WireLogEntrySchema = logEntrySchema(nonempty<Revision>("revision"), nonemp
  * the entry and canonicalizes key order; `JSON.stringify` escapes any
  * newlines, so the result is always a single line.
  */
-export function formatLogEntry<R extends Revision, C extends ChangeName>(entry: LogEntry<R, C>): string {
+export function formatLogEntry(entry: LogEntry): string {
   return `${JSON.stringify(WireLogEntrySchema.parse(entry))}\n`;
 }
 
 /** Parse one log line (without its trailing newline), inverting `formatLogEntry`. */
-export function parseLogEntry<R extends Revision, C extends ChangeName>(
+export function parseLogEntry(
   line: string,
-  parseRevision: (raw: string) => R,
-  parseName: (raw: string) => C,
-): LogEntry<R, C> {
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): LogEntry {
   return parseLogLine(line, logEntrySchema(parseRevision, parseName));
 }
 
-function parseLogLine<R extends Revision, C extends ChangeName>(
-  line: string,
-  schema: z.ZodType<LogEntry<R, C>>,
-): LogEntry<R, C> {
+function parseLogLine(line: string, schema: z.ZodType<LogEntry>): LogEntry {
   try {
     return schema.parse(JSON.parse(line));
   } catch (cause) {
@@ -246,11 +236,11 @@ function parseLogLine<R extends Revision, C extends ChangeName>(
 }
 
 /** Parse a whole log: a sequence of newline-terminated `formatLogEntry` lines. */
-export function parseLog<R extends Revision, C extends ChangeName>(
+export function parseLog(
   text: string,
-  parseRevision: (raw: string) => R,
-  parseName: (raw: string) => C,
-): readonly LogEntry<R, C>[] {
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): readonly LogEntry[] {
   if (text === "") {
     return [];
   }
@@ -270,7 +260,7 @@ export function parseLog<R extends Revision, C extends ChangeName>(
  * "latest" entry must break timestamp ties on content, never on log position,
  * for all machines to agree; only byte-identical entries compare equal.
  */
-export function compareLogEntries<R extends Revision>(a: LogEntry<R>, b: LogEntry<R>): number {
+export function compareLogEntries(a: LogEntry, b: LogEntry): number {
   if (a.timestamp !== b.timestamp) {
     return a.timestamp - b.timestamp;
   }
@@ -285,11 +275,8 @@ export function compareLogEntries<R extends Revision>(a: LogEntry<R>, b: LogEntr
  * sets alone, so machines merging in any order or grouping converge on
  * byte-identical logs.
  */
-export function mergeLogs<R extends Revision>(
-  a: readonly LogEntry<R>[],
-  b: readonly LogEntry<R>[],
-): readonly LogEntry<R>[] {
-  const byLine = new Map<string, LogEntry<R>>();
+export function mergeLogs(a: readonly LogEntry[], b: readonly LogEntry[]): readonly LogEntry[] {
+  const byLine = new Map<string, LogEntry>();
   for (const entry of [...a, ...b]) {
     byLine.set(formatLogEntry(entry), entry);
   }
@@ -319,27 +306,27 @@ export function landMessage(change: ChangeName): string {
 }
 
 /** A commit that landed a change, and the parent tip it landed onto. */
-export interface LandMerge<R extends Revision = Revision> {
-  readonly commit: R;
-  readonly onto: R;
+export interface LandMerge {
+  readonly commit: Revision;
+  readonly onto: Revision;
 }
 
 /** The commit that landed a change on its parent branch, however it was written. */
-export interface LandedMerge<R extends Revision = Revision> {
-  readonly commit: R;
+export interface LandedMerge {
+  readonly commit: Revision;
   /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
   readonly parents: number;
 }
 
 /** The commit that landed a merged forge change on its parent branch. */
-export type ForgeMerge = LandedMerge<CommitHash>;
+export type ForgeMerge = LandedMerge;
 
 /** A change as a forge holds it: a pull request (GitHub) or merge request (GitLab). */
 export interface ForgeChange {
   readonly id: ForgeChangeId;
   readonly head: ChangeName;
   /** The commit the head branch points at — for a merged change, what merged. */
-  readonly tip: CommitHash;
+  readonly tip: Revision;
   /** The branch the change merges into. */
   readonly parent: ChangeName;
   readonly title: string;
@@ -368,11 +355,11 @@ export interface ForgeComment {
 export type ConfigScope = "local" | "global";
 
 /** One workspace of the repository: a working tree and what it has checked out. */
-export interface Workspace<C extends ChangeName = ChangeName> {
+export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
   /** The branch checked out there, or undefined when none is (git: detached HEAD; hg: no active bookmark). */
-  readonly change: C | undefined;
+  readonly change: ChangeName | undefined;
   /** Whether the working tree or index differs from the checkout, untracked files included. */
   readonly dirty: boolean;
   /** Whether this is the repository's primary working tree, which cannot be removed. */
@@ -383,15 +370,14 @@ export interface Workspace<C extends ChangeName = ChangeName> {
 export type Vcs = "git" | "hg";
 
 /**
- * The operations Cabaret needs from a version-control backend, generic over
- * `R`, the backend's revision format. The implementations (`cabaret-node`)
- * shell out to a local git or hg.
+ * The operations Cabaret needs from a version-control backend. The
+ * implementations (`cabaret-node`) shell out to a local git or hg.
  *
  * Vocabulary maps onto whatever the backend natively has: a "branch" is a git
  * branch or an hg bookmark, and "origin" is the pinned remote every remote
  * operation uses — git's `origin` remote, hg's `default` path.
  */
-export interface Backend<R extends Revision = Revision, C extends ChangeName = ChangeName> {
+export interface Backend {
   /** Which version-control system this backend speaks. */
   readonly vcs: Vcs;
 
@@ -400,21 +386,18 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
 
   /**
    * Parse a raw string as one of this backend's revisions, failing when it is
-   * not in the backend's format. Declared as a property so `Backend<R>` is
-   * assignable to `Backend<Revision>` but never to a differently-branded
-   * backend, methods being bivariant.
+   * not in the backend's format.
    */
-  readonly parseRevision: (raw: string) => R;
+  readonly parseRevision: (raw: string) => Revision;
 
   /**
    * Parse a raw string as one of this backend's change names, failing when
-   * the backend's name grammar rejects it. As `parseRevision`, a property so
-   * the brand never crosses backends.
+   * the backend's name grammar rejects it.
    */
-  readonly parseName: (raw: string) => C;
+  readonly parseName: (raw: string) => ChangeName;
 
   /** The name of the branch checked out in the working tree. */
-  currentChange(): Promise<C>;
+  currentChange(): Promise<ChangeName>;
 
   /** The identity attributed to log entries this user writes. */
   currentUser(): Promise<UserName>;
@@ -451,14 +434,14 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
   setupRecommendations(): readonly Recommendation[];
 
   /** Resolve `expression`, in the backend's native revision syntax, to a full revision. */
-  resolveCommit(expression: string): Promise<R>;
+  resolveCommit(expression: string): Promise<Revision>;
 
   /**
    * The commit branch `branch` points at, or undefined if it does not exist.
    * Resolved within the branch namespace itself, so nothing of another kind
    * (a same-named git tag, say) can shadow it.
    */
-  tip(change: C): Promise<R | undefined>;
+  tip(change: ChangeName): Promise<Revision | undefined>;
 
   /**
    * The commit `origin`'s copy of `branch` pointed at when last fetched, or
@@ -466,24 +449,24 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * operation, whatever upstream the branch is configured with. A local
    * reading, so it may trail the remote itself.
    */
-  originTip(change: C): Promise<R | undefined>;
+  originTip(change: ChangeName): Promise<Revision | undefined>;
 
   /** Create branch `name` at `commit`, failing if the branch already exists. */
-  create(change: C, at: R): Promise<void>;
+  create(change: ChangeName, at: Revision): Promise<void>;
 
   /**
    * Every workspace of the repository, the primary working tree first. A
    * workspace whose directory is gone is not a working tree anymore and is
    * dropped.
    */
-  workspaces(): Promise<readonly Workspace<C>[]>;
+  workspaces(): Promise<readonly Workspace[]>;
 
   /**
    * Create a workspace at `path` with `branch` checked out. Fails when
    * `path` already exists or the branch is checked out in another workspace
    * — a branch is checked out in at most one.
    */
-  addWorkspace(path: string, change: C): Promise<void>;
+  addWorkspace(path: string, change: ChangeName): Promise<void>;
 
   /** Remove the workspace at `path`; `force` discards its uncommitted changes. */
   removeWorkspace(path: string, force: boolean): Promise<void>;
@@ -492,7 +475,7 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * Check out `branch` in this workspace, carrying local edits along — and
    * failing when an edit would be overwritten.
    */
-  checkout(change: C): Promise<void>;
+  checkout(change: ChangeName): Promise<void>;
 
   /**
    * Rename change `from` to `to`: move its branch and its log to the new name
@@ -500,20 +483,20 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * out. Fails if `to`'s branch or log already exists, or if either of
    * `from`'s refs moves concurrently.
    */
-  rename(from: C, to: C): Promise<void>;
+  rename(from: ChangeName, to: ChangeName): Promise<void>;
 
   /** The last revision shared by the histories of `a` and `b`, failing when they share none. */
-  mergeBase(a: R, b: R): Promise<R>;
+  mergeBase(a: Revision, b: Revision): Promise<Revision>;
 
   /** Whether `ancestor` is reachable from `descendant`'s history (a revision is its own ancestor). */
-  isAncestor(ancestor: R, descendant: R): Promise<boolean>;
+  isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean>;
 
   /**
    * The tip a merge commit carries as its second parent — for a land merge,
    * the reviewed head it merged in. Fails when `merge` has fewer than two
    * parents.
    */
-  mergedTip(merge: R): Promise<R>;
+  mergedTip(merge: Revision): Promise<Revision>;
 
   /**
    * Merge `onto` into branch `change`: a content merge of the change's tip
@@ -528,14 +511,14 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * Conflicts still commit, markers left in the files, and come back as the
    * conflicted paths.
    */
-  mergeOnto(change: C, base: R, onto: R, message: string): Promise<readonly FilePath[]>;
+  mergeOnto(change: ChangeName, base: Revision, onto: Revision, message: string): Promise<readonly FilePath[]>;
 
   /**
    * The paths that would conflict merging `tip` and `onto`, resolving
    * against `base` as `mergeOnto` does, without writing anything. Empty
    * means the merge is clean.
    */
-  mergeConflicts(base: R, tip: R, onto: R): Promise<readonly FilePath[]>;
+  mergeConflicts(base: Revision, tip: Revision, onto: Revision): Promise<readonly FilePath[]>;
 
   /**
    * Create the merge commit recording `tip` merging into branch `into`:
@@ -546,40 +529,40 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * the new commit, failing if `into` no longer points at `onto`, and
    * carries a checked-out `into`'s working tree along.
    */
-  merge(into: C, base: R, onto: R, tip: R, message: string): Promise<R>;
+  merge(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
    * As `merge`, but the new commit's sole parent is `onto`: the tree lands
    * as one commit that does not carry `tip`'s history.
    */
-  squash(into: C, base: R, onto: R, tip: R, message: string): Promise<R>;
+  squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
    * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain
    * from `base` to `tip`, oldest first — land merges, whose `onto` is their
    * first parent, and squash lands, whose `onto` is their sole parent.
    */
-  landMerges(base: R, tip: R): Promise<readonly LandMerge<R>[]>;
+  landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
    * (changes rebase freely) but refusing to overwrite work this repository
    * has never fetched.
    */
-  push(change: C): Promise<void>;
+  push(change: ChangeName): Promise<void>;
 
   /**
    * Fetch branch `branch` from the `origin` remote into the local branch of
    * the same name, creating it if absent. Fast-forward only: a local branch
    * that has diverged from the remote fails rather than being overwritten.
    */
-  fetch(change: C): Promise<void>;
+  fetch(change: ChangeName): Promise<void>;
 
   /**
    * As `fetch` for each of `branches`, in one round trip where the
    * backend can batch refspecs. Callers pass only branches absent locally.
    */
-  fetchAll(changes: readonly C[]): Promise<void>;
+  fetchAll(changes: readonly ChangeName[]): Promise<void>;
 
   /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
@@ -587,13 +570,13 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * side may be missing; syncing is how a change's review state reaches other
    * machines.
    */
-  syncLog(change: C): Promise<void>;
+  syncLog(change: ChangeName): Promise<void>;
 
   /**
    * Sync every log with the `origin` remote — every change with a log here,
    * there, or both — and return their names, sorted.
    */
-  syncLogs(): Promise<readonly C[]>;
+  syncLogs(): Promise<readonly ChangeName[]>;
 
   /**
    * Delete the review state this repository holds: every change's log and the
@@ -601,31 +584,31 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * origin keeps its logs, so syncing restores them. Returns the names of the
    * changes whose logs were deleted, sorted.
    */
-  wipeReviewState(): Promise<readonly C[]>;
+  wipeReviewState(): Promise<readonly ChangeName[]>;
 
   /**
    * Delete every change's log on the `origin` remote — for every user of the
    * repository, with no way to recover them. Returns the names of the changes
    * whose logs were deleted, sorted.
    */
-  wipeOriginLogs(): Promise<readonly C[]>;
+  wipeOriginLogs(): Promise<readonly ChangeName[]>;
 
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
-  readFile(commit: R, file: FilePath): Promise<string | undefined>;
+  readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
 
   /**
    * The file paths that differ between `base` and `tip`. A moved file counts
    * as a delete plus an add, so each path names the same file on both sides;
    * nested repositories (git submodules) are not files and are never listed.
    */
-  changedFiles(base: R, tip: R): Promise<readonly FilePath[]>;
+  changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]>;
 
   /**
    * The name of every change, sorted by name: one per log ref. Only
    * `appendLog` creates logs and every log starts nonempty, so each named
    * change exists — though a landed change's branch may be gone.
    */
-  listChanges(): Promise<readonly C[]>;
+  listChanges(): Promise<readonly ChangeName[]>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
@@ -637,24 +620,21 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * changes, add a batched or cached parent index to the backend rather than
    * memoizing in each caller.
    */
-  readLog(change: C): Promise<readonly LogEntry<R, C>[]>;
+  readLog(change: ChangeName): Promise<readonly LogEntry[]>;
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
-  appendLog(change: C, entries: readonly LogEntry<R, C>[]): Promise<void>;
+  appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void>;
 
   /**
    * Delete `change`'s log everywhere this backend reaches: locally, the
    * fetched copy of origin's, and origin's own. Gone for every user — callers
    * decide a log holds nothing worth keeping before deleting it.
    */
-  deleteLog(change: C): Promise<void>;
+  deleteLog(change: ChangeName): Promise<void>;
 }
 
 /** The tip of `branch` via `tip`, failing when the branch does not exist. */
-export async function requireTip<R extends Revision, C extends ChangeName>(
-  backend: Backend<R, C>,
-  change: C,
-): Promise<R> {
+export async function requireTip(backend: Backend, change: ChangeName): Promise<Revision> {
   const tip = await backend.tip(change);
   if (tip === undefined) {
     throw new UserError(`${JSON.stringify(change)} does not exist`);
@@ -666,21 +646,21 @@ export async function requireTip<R extends Revision, C extends ChangeName>(
  * The `kind`-actioned entry greatest by `compareLogEntries`, if any: the
  * timestamp, not log position, decides which entry is current.
  */
-function latestAction<R extends Revision, C extends ChangeName, K extends LogAction["kind"]>(
-  entries: readonly LogEntry<R, C>[],
+function latestAction<K extends LogAction["kind"]>(
+  entries: readonly LogEntry[],
   kind: K,
-): Extract<LogAction<R, C>, { kind: K }> | undefined {
-  let found: LogEntry<R, C> | undefined;
+): Extract<LogAction, { kind: K }> | undefined {
+  let found: LogEntry | undefined;
   for (const entry of entries) {
     if (entry.action.kind === kind && (found === undefined || compareLogEntries(entry, found) >= 0)) {
       found = entry;
     }
   }
-  return found?.action as Extract<LogAction<R, C>, { kind: K }> | undefined;
+  return found?.action as Extract<LogAction, { kind: K }> | undefined;
 }
 
 /** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
-export function assertChangeExists(change: ChangeName, entries: readonly LogEntry<Revision>[]): void {
+export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
       `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret pull\` to import open forge changes`,
@@ -689,7 +669,7 @@ export function assertChangeExists(change: ChangeName, entries: readonly LogEntr
 }
 
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
-export function currentParent<C extends ChangeName>(change: ChangeName, entries: readonly LogEntry<Revision, C>[]): C {
+export function currentParent(change: ChangeName, entries: readonly LogEntry[]): ChangeName {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-parent");
   if (action === undefined) {
@@ -699,7 +679,7 @@ export function currentParent<C extends ChangeName>(change: ChangeName, entries:
 }
 
 /** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
-export function currentBase<R extends Revision>(change: ChangeName, entries: readonly LogEntry<R>[]): R {
+export function currentBase(change: ChangeName, entries: readonly LogEntry[]): Revision {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-base");
   if (action === undefined) {
@@ -709,7 +689,7 @@ export function currentBase<R extends Revision>(change: ChangeName, entries: rea
 }
 
 /** The owner from the log's latest `set-owner`; `create` starts every log with one, so a missing owner is an error. */
-export function currentOwner(change: ChangeName, entries: readonly LogEntry<Revision>[]): UserName {
+export function currentOwner(change: ChangeName, entries: readonly LogEntry[]): UserName {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-owner");
   if (action === undefined) {
@@ -720,7 +700,7 @@ export function currentOwner(change: ChangeName, entries: readonly LogEntry<Revi
 
 /** The forge change from the log's latest `set-forge`, or undefined if none is recorded. */
 export function currentForgeChange(
-  entries: readonly LogEntry<Revision>[],
+  entries: readonly LogEntry[],
 ): { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined {
   const action = latestAction(entries, "set-forge");
   // Rebuilt so the value is what the type says, with no `kind` tagging along.
@@ -733,7 +713,7 @@ export function currentForgeChange(
  * obligations alone decide — which is also why importing a forge change that
  * is ready for review needs no entry.
  */
-export function currentReviewing(entries: readonly LogEntry<Revision>[]): Reviewing {
+export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
   return latestAction(entries, "set-reviewing")?.reviewing ?? "everyone";
 }
 
@@ -745,10 +725,7 @@ export function currentReviewing(entries: readonly LogEntry<Revision>[]): Review
  * mirrors in, and a local `set-reviewing` awaiting a push is never overridden
  * by re-observing the state it is about to replace.
  */
-export function observedForgeReviewing(
-  entries: readonly LogEntry<Revision>[],
-  forge: ForgeLocator,
-): Reviewing | undefined {
+export function observedForgeReviewing(entries: readonly LogEntry[], forge: ForgeLocator): Reviewing | undefined {
   let found: LogEntry | undefined;
   for (const entry of entries) {
     if (
@@ -769,11 +746,8 @@ export function observedForgeReviewing(
  * that moved since last observed mirrors in, so a local reparent awaiting a
  * push is never overridden by re-observing the state it is about to replace.
  */
-export function observedForgeParent<C extends ChangeName>(
-  entries: readonly LogEntry<Revision, C>[],
-  forge: ForgeLocator,
-): C | undefined {
-  let found: LogEntry<Revision, C> | undefined;
+export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLocator): ChangeName | undefined {
+  let found: LogEntry | undefined;
   for (const entry of entries) {
     if (
       entry.action.kind === "set-parent" &&
@@ -791,10 +765,7 @@ export function observedForgeParent<C extends ChangeName>(
  * user, the entry greatest by `compareLogEntries` among those `accept`ed
  * decides whether they are a reviewer.
  */
-function foldReviewers(
-  entries: readonly LogEntry<Revision>[],
-  accept: (entry: LogEntry<Revision>) => boolean,
-): Set<UserName> {
+function foldReviewers(entries: readonly LogEntry[], accept: (entry: LogEntry) => boolean): Set<UserName> {
   const latest = new Map<UserName, { entry: LogEntry; member: boolean }>();
   for (const entry of entries) {
     const { action } = entry;
@@ -821,7 +792,7 @@ function foldReviewers(
  * sorted by name. Each reviewer implicitly owes review of the change's whole
  * diff, exactly as the owner does.
  */
-export function currentReviewers(entries: readonly LogEntry<Revision>[]): readonly UserName[] {
+export function currentReviewers(entries: readonly LogEntry[]): readonly UserName[] {
   return [...foldReviewers(entries, () => true)].sort();
 }
 
@@ -832,15 +803,12 @@ export function currentReviewers(entries: readonly LogEntry<Revision>[]): readon
  * observed mirrors in, so local edits awaiting a push are never overridden by
  * re-observing the state they are about to replace.
  */
-export function observedForgeReviewers(
-  entries: readonly LogEntry<Revision>[],
-  forge: ForgeLocator,
-): ReadonlySet<UserName> {
+export function observedForgeReviewers(entries: readonly LogEntry[], forge: ForgeLocator): ReadonlySet<UserName> {
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */
-export function landedMerge<R extends Revision>(entries: readonly LogEntry<R>[]): R | undefined {
+export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
   return latestAction(entries, "land")?.merge;
 }
 
@@ -850,7 +818,7 @@ export function landedMerge<R extends Revision>(entries: readonly LogEntry<R>[])
  * longer be written. Review state is not code, so `review` and `forget` stay
  * allowed and do not call this.
  */
-export function assertNotLanded(change: ChangeName, entries: readonly LogEntry<Revision>[]): void {
+export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
   const merge = landedMerge(entries);
   if (merge !== undefined) {
     throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
@@ -858,9 +826,9 @@ export function assertNotLanded(change: ChangeName, entries: readonly LogEntry<R
 }
 
 /** The endpoints of a diff a reviewer has reviewed. */
-export interface ReviewedDiff<R extends Revision = Revision> {
-  readonly base: R;
-  readonly tip: R;
+export interface ReviewedDiff {
+  readonly base: Revision;
+  readonly tip: Revision;
 }
 
 /**
@@ -869,11 +837,8 @@ export interface ReviewedDiff<R extends Revision = Revision> {
  * `compareLogEntries` wins, and a winning `forget` erases the file's
  * knowledge.
  */
-export function brain<R extends Revision>(
-  entries: readonly LogEntry<R>[],
-  user: UserName,
-): ReadonlyMap<FilePath, ReviewedDiff<R>> {
-  const latest = new Map<FilePath, { entry: LogEntry<R>; reviewed?: ReviewedDiff<R> }>();
+export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff> {
+  const latest = new Map<FilePath, { entry: LogEntry; reviewed?: ReviewedDiff }>();
   for (const entry of entries) {
     const { action } = entry;
     if (entry.user !== user || (action.kind !== "review" && action.kind !== "forget")) {
@@ -888,7 +853,7 @@ export function brain<R extends Revision>(
       action.kind === "review" ? { entry, reviewed: { base: action.base, tip: action.tip } } : { entry },
     );
   }
-  const known = new Map<FilePath, ReviewedDiff<R>>();
+  const known = new Map<FilePath, ReviewedDiff>();
   for (const [file, { reviewed }] of latest) {
     if (reviewed !== undefined) {
       known.set(file, reviewed);
@@ -921,11 +886,11 @@ export function brain<R extends Revision>(
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
  */
-export async function changeBase<R extends Revision>(
-  backend: Backend<R>,
+export async function changeBase(
+  backend: Backend,
   change: ChangeName,
-  entries: readonly LogEntry<R>[],
-): Promise<R> {
+  entries: readonly LogEntry[],
+): Promise<Revision> {
   // Once the change lands, its parent's history contains the change itself,
   // so the merge-base slides to the change's own tip and would erase its
   // diff. `land` pins the base, and a landed change is frozen, so the stored
@@ -937,7 +902,7 @@ export async function changeBase<R extends Revision>(
   const stored = currentBase(change, entries);
   const tip = await requireTip(backend, change);
   const readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
-    (reading): reading is R => reading !== undefined,
+    (reading): reading is Revision => reading !== undefined,
   );
   // With no reading of the parent there is no merge-base; the stored base is
   // the only candidate, still valid while it remains an ancestor of the tip.
@@ -949,11 +914,11 @@ export async function changeBase<R extends Revision>(
       `parent branch of ${JSON.stringify(change)} does not exist: ${JSON.stringify(parent)}; run \`cabaret reparent\``,
     );
   }
-  const candidates = new Set<R>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
+  const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
   if (!candidates.has(stored) && (await backend.isAncestor(stored, tip))) {
     candidates.add(stored);
   }
-  let base: R | undefined;
+  let base: Revision | undefined;
   for (const candidate of candidates) {
     if (base === undefined || (await backend.isAncestor(base, candidate))) {
       base = candidate;
@@ -981,11 +946,7 @@ export async function changeBase<R extends Revision>(
  * on. An unlanded change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
-export async function changeTip<R extends Revision>(
-  backend: Backend<R>,
-  change: ChangeName,
-  entries: readonly LogEntry<R>[],
-): Promise<R> {
+export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
   const landed = latestAction(entries, "land");
   if (landed === undefined) {
     return requireTip(backend, change);
@@ -1010,9 +971,9 @@ export function conflictMarkers(content: string): readonly { readonly line: numb
 }
 
 /** The files among `files` whose contents at `commit` carry conflict markers, in `files` order. */
-export async function conflictedFiles<R extends Revision>(
-  backend: Backend<R>,
-  commit: R,
+export async function conflictedFiles(
+  backend: Backend,
+  commit: Revision,
   files: readonly FilePath[],
 ): Promise<readonly FilePath[]> {
   const marked = await Promise.all(
@@ -1025,9 +986,9 @@ export async function conflictedFiles<R extends Revision>(
 }
 
 /** One contiguous span of a change's history that a reviewer must review. */
-export interface ReviewSpan<R extends Revision = Revision> {
-  readonly start: R;
-  readonly end: R;
+export interface ReviewSpan {
+  readonly start: Revision;
+  readonly end: Revision;
 }
 
 /**
@@ -1039,12 +1000,8 @@ export interface ReviewSpan<R extends Revision = Revision> {
  * land's onto, and finally the last land merge → tip. A span a land merge
  * jumps over entirely (its start is its end) is dropped.
  */
-export async function reviewSpans<R extends Revision>(
-  backend: Backend<R>,
-  base: R,
-  tip: R,
-): Promise<readonly ReviewSpan<R>[]> {
-  const spans: ReviewSpan<R>[] = [];
+export async function reviewSpans(backend: Backend, base: Revision, tip: Revision): Promise<readonly ReviewSpan[]> {
+  const spans: ReviewSpan[] = [];
   let start = base;
   for (const { commit, onto } of await backend.landMerges(base, tip)) {
     if (start !== onto) {
@@ -1065,12 +1022,12 @@ export async function reviewSpans<R extends Revision>(
  * already reviewed past are dropped, and the span containing `reviewedTip`
  * resumes from it.
  */
-export async function remainingSpans<R extends Revision>(
-  backend: Backend<R>,
-  spans: readonly ReviewSpan<R>[],
-  reviewedTip: R,
-): Promise<readonly ReviewSpan<R>[]> {
-  const remaining: ReviewSpan<R>[] = [];
+export async function remainingSpans(
+  backend: Backend,
+  spans: readonly ReviewSpan[],
+  reviewedTip: Revision,
+): Promise<readonly ReviewSpan[]> {
+  const remaining: ReviewSpan[] = [];
   for (const span of spans) {
     if (await backend.isAncestor(span.end, reviewedTip)) {
       continue;
@@ -1083,7 +1040,7 @@ export async function remainingSpans<R extends Revision>(
 }
 
 /** A review span and the files its diff changes. */
-export interface SpanDiff<R extends Revision = Revision> extends ReviewSpan<R> {
+export interface SpanDiff extends ReviewSpan {
   readonly changed: ReadonlySet<FilePath>;
 }
 
@@ -1093,23 +1050,23 @@ export interface SpanDiff<R extends Revision = Revision> extends ReviewSpan<R> {
  * review rounds, obligations — takes one of these, so a page that computes
  * several shares one reading instead of each re-querying the history.
  */
-export interface ChangeDiff<R extends Revision = Revision> {
-  readonly base: R;
-  readonly tip: R;
-  readonly spans: readonly SpanDiff<R>[];
+export interface ChangeDiff {
+  readonly base: Revision;
+  readonly tip: Revision;
+  readonly spans: readonly SpanDiff[];
 }
 
-export async function changeDiff<R extends Revision>(
-  backend: Backend<R>,
+export async function changeDiff(
+  backend: Backend,
   change: ChangeName,
-  entries: readonly LogEntry<R>[],
-): Promise<ChangeDiff<R>> {
+  entries: readonly LogEntry[],
+): Promise<ChangeDiff> {
   const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   return diffBetween(backend, base, tip);
 }
 
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
-export async function diffBetween<R extends Revision>(backend: Backend<R>, base: R, tip: R): Promise<ChangeDiff<R>> {
+export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
   const spans = await Promise.all(
     (await reviewSpans(backend, base, tip)).map(async (span) => ({
       ...span,
@@ -1120,9 +1077,6 @@ export async function diffBetween<R extends Revision>(backend: Backend<R>, base:
 }
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
-export async function changeConflicts<R extends Revision>(
-  backend: Backend<R>,
-  diff: ChangeDiff<R>,
-): Promise<readonly FilePath[]> {
+export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
   return conflictedFiles(backend, diff.tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort());
 }

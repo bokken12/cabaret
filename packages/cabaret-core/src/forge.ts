@@ -1,7 +1,6 @@
 import {
   type Backend,
   type ChangeName,
-  type CommitHash,
   compareLogEntries,
   currentForgeChange,
   currentParent,
@@ -91,13 +90,7 @@ export interface Forge {
    * a concurrent push cannot land unreviewed commits. Fails when the head
    * moved or the change cannot merge cleanly.
    */
-  landChange(
-    id: ForgeChangeId,
-    method: LandMethod,
-    tip: CommitHash,
-    title: string,
-    message: string,
-  ): Promise<ForgeMerge>;
+  landChange(id: ForgeChangeId, method: LandMethod, tip: Revision, title: string, message: string): Promise<ForgeMerge>;
 
   /** The change-level comments, oldest first. */
   listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]>;
@@ -116,16 +109,15 @@ export interface Forge {
 }
 
 /**
- * Narrow `backend` to the git backend a forge can sync with. Forges hold git
- * commits — `ForgeChange.tip`, the merges they write — so only a repository
- * whose revisions are git's can mirror one.
+ * The backend a forge can sync with: git only. Forges hold git commits —
+ * `ForgeChange.tip`, the merges they write — so only a repository whose
+ * revisions are git's can mirror one.
  */
-export function forgeBackend(backend: Backend): Backend<CommitHash> {
+export function forgeBackend(backend: Backend): Backend {
   if (backend.vcs !== "git") {
     throw new UserError("forge sync needs a git repository; this repository's forge support ends here");
   }
-  // The git backend's revisions are commit hashes by construction.
-  return backend as Backend<CommitHash>;
+  return backend;
 }
 
 /**
@@ -174,7 +166,7 @@ export async function planPull(
   forge: ForgeLocator,
   entries: readonly LogEntry[],
   comments: readonly ForgeComment[],
-): Promise<readonly LogEntry<CommitHash>[]> {
+): Promise<readonly LogEntry[]> {
   // Comments that originated here, by hash: what a marker can point back to.
   const local = new Map<string, CommentEntry>();
   // The latest imported version of each forge comment already in the log.
@@ -190,7 +182,7 @@ export async function planPull(
       }
     }
   }
-  const additions: LogEntry<CommitHash>[] = [];
+  const additions: LogEntry[] = [];
   for (const comment of comments) {
     const hash = MARKER.exec(comment.body)?.[1];
     const text = comment.body.replace(MARKER, "");
@@ -264,7 +256,7 @@ function reviewerObservation(
   forge: ForgeLocator,
   reviewer: UserName,
   member: boolean,
-): LogEntry<CommitHash> {
+): LogEntry {
   return {
     timestamp: now(),
     user,
@@ -286,7 +278,7 @@ export function planReviewerPull(
   forge: ForgeLocator,
   entries: readonly LogEntry[],
   reviewers: readonly UserName[],
-): readonly LogEntry<CommitHash>[] {
+): readonly LogEntry[] {
   const observed = observedForgeReviewers(entries, forge);
   const onForge = new Set(reviewers);
   return [...new Set([...onForge, ...observed])]
@@ -312,7 +304,7 @@ export function planReviewerPush(
 ): {
   readonly add: readonly UserName[];
   readonly remove: readonly UserName[];
-  readonly observations: readonly LogEntry<CommitHash>[];
+  readonly observations: readonly LogEntry[];
 } {
   const local = new Set(currentReviewers(entries));
   const onForge = new Set(reviewers);
@@ -334,7 +326,7 @@ function reviewingObservation(
   user: UserName,
   forge: ForgeLocator,
   reviewing: Reviewing,
-): LogEntry<CommitHash> {
+): LogEntry {
   return {
     timestamp: now(),
     user,
@@ -359,7 +351,7 @@ export function planReviewingPull(
   forge: ForgeLocator,
   entries: readonly LogEntry[],
   draft: boolean,
-): readonly LogEntry<CommitHash>[] {
+): readonly LogEntry[] {
   const observed = observedForgeReviewing(entries, forge);
   if (observed === undefined || (observed === "none") === draft) {
     return [];
@@ -382,7 +374,7 @@ export function planReviewingPush(
   forge: ForgeLocator,
   entries: readonly LogEntry[],
   draft: boolean,
-): { readonly draft?: boolean | undefined; readonly observations: readonly LogEntry<CommitHash>[] } {
+): { readonly draft?: boolean | undefined; readonly observations: readonly LogEntry[] } {
   const local = currentReviewing(entries);
   if ((local === "none") === draft) {
     return { observations: [] };
@@ -403,7 +395,7 @@ export function observedLand(
   forge: ForgeLocator,
   forgeChange: ForgeChange,
   entries: readonly LogEntry[],
-): LogEntry<CommitHash> | undefined {
+): LogEntry | undefined {
   if (forgeChange.state !== "merged" || forgeChange.merge === undefined || landedMerge(entries) !== undefined) {
     return undefined;
   }
@@ -430,8 +422,8 @@ function adoptionEntries(
   forgeChange: ForgeChange,
   change: ChangeName,
   entries: readonly LogEntry[],
-): LogEntry<CommitHash>[] {
-  const adoption: LogEntry<CommitHash>[] = [
+): LogEntry[] {
+  const adoption: LogEntry[] = [
     {
       timestamp: now(),
       user,
@@ -460,11 +452,11 @@ function adoptionEntries(
  * with a `set-forge` entry. Undefined when the forge has none either.
  */
 export async function syncedForgeChange(
-  backend: Backend<CommitHash>,
+  backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: ChangeName,
-  entries: readonly LogEntry<CommitHash>[],
+  entries: readonly LogEntry[],
 ): Promise<ForgeChange | undefined> {
   const recorded = currentForgeChange(entries);
   if (recorded !== undefined && recorded.forge === forge.locator) {
@@ -490,15 +482,15 @@ export async function syncedForgeChange(
  * it brings in.
  */
 export async function landOnForge(
-  backend: Backend<CommitHash>,
+  backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: ChangeName,
-  entries: readonly LogEntry<CommitHash>[],
+  entries: readonly LogEntry[],
   forgeChange: ForgeChange,
   method: LandMethod,
   overrides: LandOverrides,
-): Promise<CommitHash> {
+): Promise<Revision> {
   if (forgeChange.state === "merged") {
     throw new UserError(
       `${forge.locator}#${forgeChange.id} was already merged; run \`cabaret pull\` to record the land`,
@@ -549,13 +541,13 @@ export interface LandOutcome {
  * local lands need no forge at all. Either way the landed change's children
  * are then reparented onto its parent, where their code now lives.
  */
-export async function landAsConfigured<R extends Revision>(
-  backend: Backend<R>,
+export async function landAsConfigured(
+  backend: Backend,
   now: () => TimestampMs,
   openForge: () => Promise<Forge>,
   config: Config,
   change: ChangeName,
-  entries: readonly LogEntry<R>[],
+  entries: readonly LogEntry[],
   overrides: LandOverrides,
 ): Promise<LandOutcome> {
   const viaForge =
@@ -566,7 +558,7 @@ export async function landAsConfigured<R extends Revision>(
   } else {
     // The narrowing that proves the backend git's covers the entries it read.
     const git = forgeBackend(backend);
-    const gitEntries = entries as readonly LogEntry<Revision>[] as readonly LogEntry<CommitHash>[];
+    const gitEntries = entries as readonly LogEntry[] as readonly LogEntry[];
     const forge = await openForge();
     const forgeChange = await syncedForgeChange(git, now, forge, change, gitEntries);
     if (forgeChange === undefined) {
@@ -613,11 +605,11 @@ export type PullEvent =
  * already holds the full discussion.
  */
 export async function pullTrackedChange(
-  backend: Backend<CommitHash>,
+  backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: ChangeName,
-  entries: readonly LogEntry<CommitHash>[],
+  entries: readonly LogEntry[],
   forgeChange: ForgeChange,
   comments?: readonly ForgeComment[],
 ): Promise<{
@@ -689,7 +681,7 @@ function pureImport(entries: readonly LogEntry[]): boolean {
  * observation of the forge wins every read.
  */
 export async function pullForge(
-  backend: Backend<CommitHash>,
+  backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   onEvent: (event: PullEvent) => void,
@@ -745,7 +737,7 @@ export async function pullForge(
     // Everything an import writes carries the forge as its source: none of it
     // is anyone here engaging with the change.
     const source = { forge: forge.locator };
-    const additions: LogEntry<CommitHash>[] = [
+    const additions: LogEntry[] = [
       { timestamp: now(), user, source, action: { kind: "set-parent", parent: forgeChange.parent } },
       {
         timestamp: now(),
@@ -844,18 +836,18 @@ export interface PushResult {
  * draft boundary both ways, and post the change's comments the forge lacks.
  */
 export async function pushChange(
-  backend: Backend<CommitHash>,
+  backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
   change: ChangeName,
-  entries: readonly LogEntry<CommitHash>[],
+  entries: readonly LogEntry[],
 ): Promise<PushResult> {
   const parent = currentParent(change, entries);
   await backend.push(change);
   // Whenever the push sets the forge's parent — at creation or by a
   // retarget — the log records the observation, so a later pull can
   // tell a forge-side retarget from the state this push left behind.
-  const observation = async (): Promise<LogEntry<CommitHash>> => ({
+  const observation = async (): Promise<LogEntry> => ({
     timestamp: now(),
     user: await backend.currentUser(),
     source: { forge: forge.locator },

@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   type ChangeName,
-  type CommitHash,
   type Forge,
   type ForgeChange,
   type ForgeChangeId,
@@ -13,6 +12,7 @@ import {
   type OpenChange,
   parseCommitHash,
   parseForgeLocator,
+  type Revision,
   timestampMs,
   type UserName,
   userName,
@@ -36,7 +36,7 @@ interface FakePr {
   draft: boolean;
   merge?: ForgeMerge;
   /** The head that merged; the live branch tip until then. */
-  tip?: CommitHash;
+  tip?: Revision;
   readonly comments: FakeComment[];
   /** Logins with a pending review request. */
   readonly requested: Set<string>;
@@ -90,7 +90,7 @@ export class FakeForge implements Forge {
    * cannot host a PR for a branch it does not have, but tests fabricate
    * them; the zero hash stands in, and never matches a real local tip.
    */
-  private async tip(branch: ChangeName): Promise<CommitHash> {
+  private async tip(branch: ChangeName): Promise<Revision> {
     try {
       return parseCommitHash(await this.git("rev-parse", "--verify", `refs/heads/${branch}`));
     } catch {
@@ -142,7 +142,7 @@ export class FakeForge implements Forge {
   async landChange(
     id: ForgeChangeId,
     method: LandMethod,
-    expectedTip: CommitHash,
+    expectedTip: Revision,
     title: string,
     message: string,
   ): Promise<ForgeMerge> {
@@ -253,7 +253,7 @@ export class FakeForge implements Forge {
   }
 
   /** The merge button, pressed after `mergeCommit` reached the base branch out of band. */
-  merge(id: ForgeChangeId, mergeCommit: CommitHash, parents = 2): void {
+  merge(id: ForgeChangeId, mergeCommit: Revision, parents = 2): void {
     const pr = this.pr(id);
     pr.state = "merged";
     pr.merge = { commit: mergeCommit, parents };

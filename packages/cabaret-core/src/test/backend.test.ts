@@ -6,7 +6,6 @@ import {
   type Backend,
   brain,
   type ChangeName,
-  type CommitHash,
   currentBase,
   currentOwner,
   currentParent,
@@ -25,6 +24,7 @@ import {
   parseFilePath,
   parseForgeLocator,
   parseLog,
+  type Revision,
   remainingSpans,
   reviewSpans,
   type TimestampMs,
@@ -449,7 +449,7 @@ test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
 });
 
 /** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
@@ -459,10 +459,10 @@ function fake(digit: string): CommitHash {
  * touches exist; ancestry is chain order, and anything off the chain is
  * nobody's relative.
  */
-function chainBackend(digits: string, merges: readonly LandMerge<CommitHash>[]): Backend<CommitHash> {
+function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
   const chain = [...digits].map(fake);
-  const at = (hash: CommitHash) => chain.indexOf(hash);
-  const stub: Pick<Backend<CommitHash>, "landMerges" | "isAncestor"> = {
+  const at = (hash: Revision) => chain.indexOf(hash);
+  const stub: Pick<Backend, "landMerges" | "isAncestor"> = {
     async landMerges(base, tip) {
       return merges.filter(({ commit }) => at(commit) > at(base) && at(commit) <= at(tip));
     },
@@ -470,7 +470,7 @@ function chainBackend(digits: string, merges: readonly LandMerge<CommitHash>[]):
       return ancestor === descendant || (at(ancestor) !== -1 && at(descendant) !== -1 && at(ancestor) < at(descendant));
     },
   };
-  return stub as Backend<CommitHash>;
+  return stub as Backend;
 }
 
 test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
@@ -563,7 +563,7 @@ function filePaths(): fc.Arbitrary<FilePath> {
     .map(parseFilePath);
 }
 
-function commitHashes(): fc.Arbitrary<CommitHash> {
+function commitHashes(): fc.Arbitrary<Revision> {
   return fc.string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 40, maxLength: 40 }).map(parseCommitHash);
 }
 

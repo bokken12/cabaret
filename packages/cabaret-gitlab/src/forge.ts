@@ -1,6 +1,5 @@
 import {
-  type BranchName,
-  type CommitHash,
+  type ChangeName,
   type Forge,
   type ForgeChange,
   type ForgeChangeId,
@@ -13,6 +12,7 @@ import {
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
+  type Revision,
   timestampMs,
   UserError,
   type UserName,
@@ -152,7 +152,7 @@ const MergedMrSchema = z.object({
 });
 
 /** The commit a merged REST merge-request object landed on the target branch. */
-function landedCommit(mr: z.infer<typeof MergedMrSchema>): CommitHash {
+function landedCommit(mr: z.infer<typeof MergedMrSchema>): Revision {
   // The merge commit when one was made; else the squash commit; else the
   // head itself, which a fast-forward merge put on the target directly.
   return mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha;
@@ -301,7 +301,7 @@ export class GitLabForge implements Forge {
    * put a single-parent commit on the target. Only the true merge preserves
    * review ancestry, so only it reports 2.
    */
-  private async landingShape(commit: CommitHash, tip: CommitHash): Promise<ForgeMerge> {
+  private async landingShape(commit: Revision, tip: Revision): Promise<ForgeMerge> {
     const { parent_ids } = CommitSchema.parse(await this.client.get(`${this.api}/repository/commits/${commit}`));
     return { commit, parents: parent_ids.length === 2 && parent_ids[1] === tip ? 2 : 1 };
   }
@@ -323,7 +323,7 @@ export class GitLabForge implements Forge {
     return project;
   }
 
-  async findChange(branch: BranchName): Promise<ForgeChange | undefined> {
+  async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {
     const out = await this.client.graphql(FIND_MR, { path: this.project.path, branch });
     const found = this.requireProject(FindMrSchema.parse(out).project).mergeRequests.nodes[0];
     return found === undefined ? undefined : this.toChange(found);
@@ -375,7 +375,7 @@ export class GitLabForge implements Forge {
     return this.toChange(found);
   }
 
-  async createChange(head: BranchName, parent: BranchName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new MR; fetching by its iid —
     // never by head, which could race another MR on the same branch —
     // reuses the one query that maps an MR. GitLab stores draft state in the
@@ -388,7 +388,7 @@ export class GitLabForge implements Forge {
     return this.getChange(forgeChangeId(z.object({ iid: z.number() }).parse(data).iid));
   }
 
-  async setParent(id: ForgeChangeId, parent: BranchName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {
     await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
   }
 
@@ -410,7 +410,7 @@ export class GitLabForge implements Forge {
   async landChange(
     id: ForgeChangeId,
     method: LandMethod,
-    tip: CommitHash,
+    tip: Revision,
     title: string,
     message: string,
   ): Promise<ForgeMerge> {

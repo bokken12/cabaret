@@ -1,11 +1,4 @@
-import {
-  assertChangeExists,
-  assertNotLanded,
-  type Backend,
-  type ChangeName,
-  type Revision,
-  type Workspace,
-} from "./backend.js";
+import { assertChangeExists, assertNotLanded, type Backend, type ChangeName, type Workspace } from "./backend.js";
 import type { Config } from "./config.js";
 import { UserError } from "./error.js";
 
@@ -25,10 +18,7 @@ export class DirtyWorkspaceError extends UserError {
  * undefined. A change is checked out in at most one workspace, so this is
  * its only home.
  */
-export async function changeWorkspace<C extends ChangeName>(
-  backend: Backend<Revision, C>,
-  change: C,
-): Promise<Workspace<C> | undefined> {
+export async function changeWorkspace(backend: Backend, change: ChangeName): Promise<Workspace | undefined> {
   return (await backend.workspaces()).find((workspace) => workspace.change === change);
 }
 
@@ -60,7 +50,7 @@ export function workspacePath(primary: string, change: ChangeName): string {
 }
 
 /** Fail unless `change` is a change whose code exists — what a workspace can check out. */
-async function assertCheckoutable<C extends ChangeName>(backend: Backend<Revision, C>, change: C): Promise<void> {
+async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
@@ -74,11 +64,7 @@ async function assertCheckoutable<C extends ChangeName>(backend: Backend<Revisio
  * `workspacePath` default, and return where it went. The change must be a
  * real, unlanded change without a workspace already.
  */
-export async function addChangeWorkspace<C extends ChangeName>(
-  backend: Backend<Revision, C>,
-  change: C,
-  path?: string,
-): Promise<string> {
+export async function addChangeWorkspace(backend: Backend, change: ChangeName, path?: string): Promise<string> {
   await assertCheckoutable(backend, change);
   const workspaces = await backend.workspaces();
   const holding = workspaces.find((workspace) => workspace.change === change);
@@ -95,9 +81,9 @@ export async function addChangeWorkspace<C extends ChangeName>(
  * workspace is refused unless `evenThoughDirty`, which discards its
  * uncommitted changes; the change itself is untouched either way.
  */
-export async function removeChangeWorkspace<C extends ChangeName>(
-  backend: Backend<Revision, C>,
-  change: C,
+export async function removeChangeWorkspace(
+  backend: Backend,
+  change: ChangeName,
   evenThoughDirty: boolean,
 ): Promise<string> {
   const workspace = await changeWorkspace(backend, change);
@@ -120,11 +106,7 @@ export async function removeChangeWorkspace<C extends ChangeName>(
  * change held by another workspace cannot be checked out — the backend
  * refuses it — while hg tolerates sharing one.
  */
-export async function checkoutChange<C extends ChangeName>(
-  backend: Backend<Revision, C>,
-  change: C,
-  evenThoughDirty: boolean,
-): Promise<string> {
+export async function checkoutChange(backend: Backend, change: ChangeName, evenThoughDirty: boolean): Promise<string> {
   await assertCheckoutable(backend, change);
   const current = currentWorkspace(backend, await backend.workspaces());
   if (current.dirty && !evenThoughDirty) {
@@ -155,11 +137,7 @@ export type GotoOffer =
  * dedicated workspace when the style prefers one or a dirty tree rules the
  * checkout out. The style-preferred option comes first.
  */
-export async function gotoOffer<C extends ChangeName>(
-  backend: Backend<Revision, C>,
-  config: Config,
-  change: C,
-): Promise<GotoOffer> {
+export async function gotoOffer(backend: Backend, config: Config, change: ChangeName): Promise<GotoOffer> {
   const workspaces = await backend.workspaces();
   const holding = workspaces.find((workspace) => workspace.change === change);
   if (holding !== undefined) {
@@ -193,10 +171,10 @@ export type GotoResult =
  * current workspace ("shared", refusing a dirty one unless
  * `evenThoughDirty`), or in a fresh dedicated workspace ("dedicated").
  */
-export async function gotoChange<C extends ChangeName>(
-  backend: Backend<Revision, C>,
+export async function gotoChange(
+  backend: Backend,
   config: Config,
-  change: C,
+  change: ChangeName,
   evenThoughDirty: boolean,
 ): Promise<GotoResult> {
   const workspaces = await backend.workspaces();

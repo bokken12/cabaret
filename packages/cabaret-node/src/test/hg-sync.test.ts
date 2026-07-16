@@ -3,9 +3,17 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { currentParent, formatLogEntry, type LogAction, type LogEntry, timestampMs, userName } from "cabaret-core";
+import {
+  currentParent,
+  formatLogEntry,
+  type LogAction,
+  type LogEntry,
+  type Revision,
+  timestampMs,
+  userName,
+} from "cabaret-core";
 import { expect, onTestFinished, test } from "vitest";
-import { HgBackend, type HgName, type HgNode, parseHgName, parseHgNode } from "../index.js";
+import { HgBackend, parseHgName, parseHgNode } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,11 +59,11 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   return [await machine("alice@example.com"), await machine("bob@example.com")];
 }
 
-function entry(timestamp: number, user: string, action: LogAction<HgNode, HgName>): LogEntry<HgNode, HgName> {
+function entry(timestamp: number, user: string, action: LogAction): LogEntry {
   return { timestamp: timestampMs(timestamp), user: userName(user), action };
 }
 
-function setParent(timestamp: number, user: string, parent: string): LogEntry<HgNode, HgName> {
+function setParent(timestamp: number, user: string, parent: string): LogEntry {
   return entry(timestamp, user, { kind: "set-parent", parent: parseHgName(parent) });
 }
 
@@ -158,7 +166,7 @@ test("syncLogs sweeps every change, local and remote alike, sorted", { timeout: 
 });
 
 /** Commit `files` on `machine` and return the new changeset id. */
-async function commit(machine: Machine, message: string, files: Record<string, string>): Promise<HgNode> {
+async function commit(machine: Machine, message: string, files: Record<string, string>): Promise<Revision> {
   for (const [path, content] of Object.entries(files)) {
     await writeFile(join(machine.dir, path), content);
   }

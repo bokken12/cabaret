@@ -4,8 +4,6 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  type BranchName,
-  type CommitHash,
   currentParent,
   formatLogEntry,
   type LogAction,
@@ -59,15 +57,11 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   return [await machine("alice@example.com"), await machine("bob@example.com")];
 }
 
-function entry(
-  timestamp: number,
-  user: string,
-  action: LogAction<CommitHash, BranchName>,
-): LogEntry<CommitHash, BranchName> {
+function entry(timestamp: number, user: string, action: LogAction): LogEntry {
   return { timestamp: timestampMs(timestamp), user: userName(user), action };
 }
 
-function setParent(timestamp: number, user: string, parent: string): LogEntry<CommitHash, BranchName> {
+function setParent(timestamp: number, user: string, parent: string): LogEntry {
   return entry(timestamp, user, { kind: "set-parent", parent: parseBranchName(parent) });
 }
 

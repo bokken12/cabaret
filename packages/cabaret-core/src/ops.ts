@@ -81,7 +81,7 @@ export async function setReviewing(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
-  entries: readonly LogEntry<Revision>[],
+  entries: readonly LogEntry[],
   reviewing: Reviewing,
 ): Promise<void> {
   assertChangeExists(change, entries);
@@ -104,7 +104,7 @@ export async function widenReviewing(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
-  entries: readonly LogEntry<Revision>[],
+  entries: readonly LogEntry[],
 ): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
@@ -140,9 +140,9 @@ export async function widenReviewing(
 }
 
 /** One change of a resolved chain, with the log that placed it there. */
-export interface ChainLink<R extends Revision = Revision> {
+export interface ChainLink {
   readonly change: ChangeName;
-  readonly entries: readonly LogEntry<R>[];
+  readonly entries: readonly LogEntry[];
 }
 
 /**
@@ -151,12 +151,12 @@ export interface ChainLink<R extends Revision = Revision> {
  * be a change — a range bottoming out at trunk names the whole stack — but
  * every change after it must be, since only changes record parents.
  */
-export async function resolveRange<R extends Revision>(
-  backend: Backend<R>,
+export async function resolveRange(
+  backend: Backend,
   ancestor: ChangeName,
   descendant: ChangeName,
-): Promise<readonly ChainLink<R>[]> {
-  const chain: ChainLink<R>[] = [];
+): Promise<readonly ChainLink[]> {
+  const chain: ChainLink[] = [];
   const seen = new Set<ChangeName>();
   let cursor = descendant;
   while (cursor !== ancestor) {
@@ -182,11 +182,8 @@ export async function resolveRange<R extends Revision>(
  * verifying they form a stack: each change after the first must have its
  * predecessor as its current parent.
  */
-export async function resolveChain<R extends Revision>(
-  backend: Backend<R>,
-  changes: readonly ChangeName[],
-): Promise<readonly ChainLink<R>[]> {
-  const chain: ChainLink<R>[] = [];
+export async function resolveChain(backend: Backend, changes: readonly ChangeName[]): Promise<readonly ChainLink[]> {
+  const chain: ChainLink[] = [];
   for (const change of changes) {
     const entries = await backend.readLog(change);
     assertChangeExists(change, entries);
@@ -229,7 +226,7 @@ export class NotOwnerError extends UserError {
 export async function requireOwner(
   backend: Backend,
   change: ChangeName,
-  entries: readonly LogEntry<Revision>[],
+  entries: readonly LogEntry[],
   override: boolean,
 ): Promise<void> {
   const owner = currentOwner(change, entries);
@@ -262,11 +259,11 @@ export function assertNoConflict(target: ChangeName, conflicts: readonly FilePat
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
  */
-export async function rebaseChange<R extends Revision>(
-  backend: Backend<R>,
+export async function rebaseChange(
+  backend: Backend,
   now: () => TimestampMs,
   target: ChangeName,
-  entries: readonly LogEntry<R>[],
+  entries: readonly LogEntry[],
   override: boolean,
 ): Promise<void> {
   assertNotLanded(target, entries);
@@ -309,10 +306,10 @@ export async function rebaseChange<R extends Revision>(
  * and counts — the rebases before it stand, and rerunning the chain resumes
  * once it is fixed.
  */
-export async function rebaseChain<R extends Revision>(
-  backend: Backend<R>,
+export async function rebaseChain(
+  backend: Backend,
   now: () => TimestampMs,
-  chain: readonly ChainLink<R>[],
+  chain: readonly ChainLink[],
   override: boolean,
 ): Promise<void> {
   for (const { change, entries } of chain) {
@@ -324,12 +321,12 @@ export async function rebaseChain<R extends Revision>(
 }
 
 /** A land's endpoints, resolved once its preconditions have been checked. */
-export interface PreparedLand<R extends Revision = Revision> {
+export interface PreparedLand {
   readonly parent: ChangeName;
-  readonly base: R;
+  readonly base: Revision;
   /** The parent's tip the land merges onto: `base` itself unless the parent moved on. */
-  readonly onto: R;
-  readonly tip: R;
+  readonly onto: Revision;
+  readonly tip: Revision;
   readonly user: UserName;
 }
 
@@ -348,12 +345,12 @@ export interface LandOverrides {
  * and with its review obligations satisfied — and resolve the endpoints the
  * landing writes. `overrides` skips the checks it names.
  */
-export async function prepareLand<R extends Revision>(
-  backend: Backend<R>,
+export async function prepareLand(
+  backend: Backend,
   target: ChangeName,
-  entries: readonly LogEntry<R>[],
+  entries: readonly LogEntry[],
   overrides: LandOverrides,
-): Promise<PreparedLand<R>> {
+): Promise<PreparedLand> {
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
@@ -398,15 +395,15 @@ export async function prepareLand<R extends Revision>(
  * or whatever else the forge chose to write — also freezes the tip that
  * landed.
  */
-export async function recordLand<R extends Revision>(
-  backend: Backend<R>,
+export async function recordLand(
+  backend: Backend,
   now: () => TimestampMs,
   target: ChangeName,
-  entries: readonly LogEntry<R>[],
-  { base, tip, user }: PreparedLand<R>,
-  merge: LandedMerge<R>,
+  entries: readonly LogEntry[],
+  { base, tip, user }: PreparedLand,
+  merge: LandedMerge,
 ): Promise<void> {
-  const pin: LogEntry<R>[] =
+  const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
   await backend.appendLog(target, [
     ...pin,
@@ -421,11 +418,11 @@ export async function recordLand<R extends Revision>(
  * all the same when it merges cleanly onto it; rebase first when it
  * conflicts.
  */
-export async function landChange<R extends Revision>(
-  backend: Backend<R>,
+export async function landChange(
+  backend: Backend,
   now: () => TimestampMs,
   target: ChangeName,
-  entries: readonly LogEntry<R>[],
+  entries: readonly LogEntry[],
   method: LandMethod,
   overrides: LandOverrides,
 ): Promise<void> {
@@ -447,10 +444,10 @@ export async function landChange<R extends Revision>(
  * everything below. Changes that already landed are skipped, so a rerun after
  * a mid-chain failure resumes where it left off.
  */
-export async function landChain<R extends Revision>(
-  backend: Backend<R>,
-  chain: readonly ChainLink<R>[],
-  land: (change: ChangeName, entries: readonly LogEntry<R>[]) => Promise<void>,
+export async function landChain(
+  backend: Backend,
+  chain: readonly ChainLink[],
+  land: (change: ChangeName, entries: readonly LogEntry[]) => Promise<void>,
 ): Promise<void> {
   const first = chain[0];
   if (first === undefined) {
@@ -564,10 +561,10 @@ export async function transferChange(
 // needs to be recorded in the log itself. Children are similarly untouched:
 // their `set-parent` entries keep naming the old change until a manual
 // `cabaret reparent`.
-export async function renameChange<R extends Revision, C extends ChangeName>(
-  backend: Backend<R, C>,
-  from: C,
-  to: C,
+export async function renameChange(
+  backend: Backend,
+  from: ChangeName,
+  to: ChangeName,
   override: boolean,
 ): Promise<void> {
   const entries = await backend.readLog(from);

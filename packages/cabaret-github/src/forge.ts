@@ -1,6 +1,5 @@
 import {
-  type BranchName,
-  type CommitHash,
+  type ChangeName,
   type Forge,
   type ForgeChange,
   type ForgeChangeId,
@@ -13,6 +12,7 @@ import {
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
+  type Revision,
   timestampMs,
   UserError,
   type UserName,
@@ -233,7 +233,7 @@ export class GitHubForge implements Forge {
     };
   }
 
-  async findChange(branch: BranchName): Promise<ForgeChange | undefined> {
+  async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {
     const out = await this.client.graphql(FIND_PR, { ...this.repo, branch });
     const found = FindPrSchema.parse(out).repository.pullRequests.nodes[0];
     return found === undefined ? undefined : this.toChange(found);
@@ -271,7 +271,7 @@ export class GitHubForge implements Forge {
     return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createChange(head: BranchName, parent: BranchName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch —
     // reuses the one query that maps a PR.
@@ -286,7 +286,7 @@ export class GitHubForge implements Forge {
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }
 
-  async setParent(id: ForgeChangeId, parent: BranchName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {
     await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
       ...this.repo,
       pull_number: id,
@@ -313,7 +313,7 @@ export class GitHubForge implements Forge {
   async landChange(
     id: ForgeChangeId,
     method: LandMethod,
-    tip: CommitHash,
+    tip: Revision,
     title: string,
     message: string,
   ): Promise<ForgeMerge> {

@@ -3,7 +3,6 @@ import { expect, test } from "vitest";
 import {
   type Backend,
   type ChangeDiff,
-  type CommitHash,
   changeObligations,
   diffBetween,
   type FilePath,
@@ -15,6 +14,7 @@ import {
   parseCommitHash,
   parseFilePath,
   parseObligationsFile,
+  type Revision,
   reviewerSummary,
   reviewOwed,
   type Self,
@@ -90,7 +90,7 @@ test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
 });
 
 /** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
@@ -107,14 +107,14 @@ function repoBackend(opts: {
   changed?: Record<string, readonly string[]>;
   merges?: readonly { commit: string; onto: string }[];
 }): Backend {
-  const ancestry = (tip: CommitHash): CommitHash[] => {
+  const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
     for (let up = opts.history?.[tip[0] as string]; up !== undefined; up = opts.history?.[up]) {
       chain.push(fake(up));
     }
     return chain;
   };
-  const stub: Pick<Backend<CommitHash>, "readFile" | "changedFiles" | "landMerges" | "isAncestor"> = {
+  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor"> = {
     async readFile(commit, file) {
       return opts.trees?.[commit[0] as string]?.[file as string];
     },
@@ -141,7 +141,7 @@ function repoBackend(opts: {
       return ancestry(descendant).includes(ancestor);
     },
   };
-  return stub as Backend<CommitHash>;
+  return stub as Backend;
 }
 
 /** `.obligations` file text with the given rules. */

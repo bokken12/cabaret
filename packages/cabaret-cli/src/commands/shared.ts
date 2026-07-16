@@ -3,7 +3,6 @@ import {
   type Backend,
   type ChangeName,
   type LogEntry,
-  type Revision,
   UserError,
   type UserName,
   userName,
@@ -31,10 +30,10 @@ export function changeFlag(act: string) {
  * are only ever started by `create`, so acting on a missing one would conjure
  * a change out of thin air.
  */
-export async function resolveChange<R extends Revision, C extends ChangeName>(
-  backend: Backend<R, C>,
+export async function resolveChange(
+  backend: Backend,
   flagged: string | undefined,
-): Promise<{ change: C; entries: readonly LogEntry<R, C>[] }> {
+): Promise<{ change: ChangeName; entries: readonly LogEntry[] }> {
   const change = flagged === undefined ? await backend.currentChange() : backend.parseName(flagged);
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);

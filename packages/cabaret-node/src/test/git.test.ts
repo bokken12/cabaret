@@ -4,8 +4,6 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  type BranchName,
-  type CommitHash,
   type Config,
   changeBase,
   checkoutChange,
@@ -172,7 +170,7 @@ async function plumbCommit(message: string, ...parents: string[]): Promise<strin
   return git("commit-tree", tree, ...atop.flatMap((p) => ["-p", p]), "-m", message);
 }
 
-function logEntry(timestamp: number, action: LogAction<CommitHash, BranchName>): LogEntry<CommitHash, BranchName> {
+function logEntry(timestamp: number, action: LogAction): LogEntry {
   return { timestamp: timestampMs(timestamp), user: userName("alice@example.com"), action };
 }
 
