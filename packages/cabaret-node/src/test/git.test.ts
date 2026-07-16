@@ -4,8 +4,8 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  changeBase,
   type Config,
+  changeBase,
   createChange,
   DirtyWorkspaceError,
   gotoChange,

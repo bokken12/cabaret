@@ -182,11 +182,10 @@ test("todoDoc lists the changes checked out on this device in their own section"
     ╰────────┴──────────────────┴───────────────╯"
   `);
   // The section folds like the others.
-  expect(foldTexts(doc).at(-1)).toEqual({
-    from: "Workspaces on this device:",
-    to: "╰────────┴──────────────────┴───────────────╯",
-    folded: false,
-  });
+  expect(foldTexts(doc).at(-1)).toEqual([
+    "Workspaces on this device:",
+    "╰────────┴──────────────────┴───────────────╯",
+  ]);
   // The change links to its page and the path to the workspace's directory.
   const line = docText(doc)
     .split("\n")
@@ -235,7 +234,11 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   const doc = showDoc({
     summary: summary("widgets", {
       reviewers: [userName("bob@example.com"), userName("carol@example.com")],
-      forgeChange: { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) },
+      forgeChange: {
+        forge: parseForgeLocator("github.com/test-org/widgets"),
+        id: forgeChangeId(7),
+        staleParent: undefined,
+      },
       reviewLeft: files("api.ts", "ui.ts"),
     }),
     comments: [],
@@ -285,7 +288,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
       reviewLeft: files("api.ts"),
       origin: "behind",
       staleBase: "behind",
-      nextStep: "sync",
+      nextStep: "pull",
     }),
     comments: [],
     workspace: undefined,
@@ -298,7 +301,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ sync                         │
+    │ next step │ pull                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ everyone                     │
     │ parent    │ main                         │
@@ -333,6 +336,13 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
   expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
   expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
+  const tracked = { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) };
+  expect(attributeRow({ forgeChange: { ...tracked, staleParent: parseRefName("relic") } }, "forge change")).toBe(
+    "│ forge change │ github.com/test-org/widgets#7 (merges into relic) │",
+  );
+  expect(attributeRow({ forgeChange: { ...tracked, staleParent: undefined } }, "forge change")).toBe(
+    "│ forge change │ github.com/test-org/widgets#7 │",
+  );
   // Readings that agree with what they track go unannotated.
   expect(attributeRow({}, "tip")).toBe("│ tip       │ 222222222222      │");
   expect(attributeRow({}, "parent")).toBe("│ parent    │ gadget            │");

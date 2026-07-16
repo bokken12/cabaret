@@ -14,6 +14,7 @@ import {
   type ForgeLocator,
   type LogEntry,
   landedMerge,
+  observedForgeParent,
   type RefName,
   type ReviewedDiff,
   type Reviewing,
@@ -65,7 +66,8 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
 
 /** What must happen next to move a change toward landing. */
 export type NextStep =
-  | "sync"
+  | "pull"
+  | "resolve divergence"
   | "reparent"
   | "fix conflicts"
   | "add code"
@@ -73,6 +75,7 @@ export type NextStep =
   | "add reviewers"
   | "widen reviewing"
   | "rebase"
+  | "push"
   | "land"
   | "landed";
 
@@ -85,7 +88,14 @@ export interface ChangeSummary {
   readonly reviewers: readonly UserName[];
   /** Who is asked to review right now. */
   readonly reviewing: Reviewing;
-  readonly forgeChange: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
+  readonly forgeChange:
+    | {
+        readonly forge: ForgeLocator;
+        readonly id: ForgeChangeId;
+        /** The parent the forge was last seen merging into, when it is not the change's. */
+        readonly staleParent: RefName | undefined;
+      }
+    | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: CommitHash | undefined;
   readonly base: CommitHash;
@@ -118,6 +128,7 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
+  const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
   const rounds = await reviewRounds(backend, entries, user, diff);
   const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
@@ -125,9 +136,16 @@ export async function summarizeChange(
   // These are all local readings — origin's tip is whatever was last fetched
   // — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
+  let staleParent: RefName | undefined;
   let deadParent: ChangeSummary["deadParent"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: CommitHash } | undefined;
   if (landed === undefined) {
+    if (tracked !== undefined) {
+      const observed = observedForgeParent(entries, tracked.forge);
+      if (observed !== undefined && observed !== parent) {
+        staleParent = observed;
+      }
+    }
     const originTip = await backend.originTip(change);
     if (originTip !== undefined && originTip !== tip) {
       origin = (await backend.isAncestor(originTip, tip))
@@ -153,7 +171,7 @@ export async function summarizeChange(
     owner: currentOwner(change, entries),
     reviewers: currentReviewers(entries),
     reviewing: currentReviewing(entries),
-    forgeChange: currentForgeChange(entries),
+    forgeChange: tracked && { ...tracked, staleParent },
     landed,
     base,
     tip,
@@ -168,19 +186,26 @@ export async function summarizeChange(
 }
 
 /**
- * What must happen next, from the summary's other readings. An origin that
- * disagrees outranks everything: each reading below is a question about
- * revisions this clone may lack. A dead parent comes next: nothing can land
- * until the change hangs somewhere real. Unresolved conflicts outrank
- * review: markers are not code worth reading. A change nobody is reviewing
- * yet moves by widening; once the user's own review is done, a reviewing set
- * short of everyone widens next — after reviewers exist to widen to. A stale
- * base waits for review to finish — the parent moving on is routine, and
- * rebasing mid-review churns reviewers — and calls for a rebase only where
- * `land` would refuse it: when the tip no longer merges cleanly onto
- * `stale`'s parent tip. That merge is dry-run only when every earlier step
- * is settled; a land that skips a step anyway (`--even-though-unreviewed`)
- * is still safe, since `prepareLand` makes its own check.
+ * What must happen next, from the summary's other readings. An origin the
+ * tip trails outranks everything: each reading below is a question about
+ * revisions this clone may lack. Behind mends by fast-forwarding — a pull —
+ * while divergence is the owner's to resolve: an intentional rewrite pushes
+ * with lease, an accidental one resets to origin. A dead parent comes next:
+ * nothing can land until the change hangs somewhere real. Unresolved
+ * conflicts outrank review: markers are not code worth reading. A change
+ * nobody is reviewing yet moves by widening; once the user's own review is
+ * done, a reviewing set short of everyone widens next — after reviewers
+ * exist to widen to. A stale base waits for review to finish — the parent
+ * moving on is routine, and rebasing mid-review churns reviewers — and
+ * calls for a rebase only where `land` would refuse it: when the tip no
+ * longer merges cleanly onto `stale`'s parent tip. That merge is dry-run
+ * only when every earlier step is settled; a land that skips a step anyway
+ * (`--even-though-unreviewed`) is still safe, since `prepareLand` makes its
+ * own check. Last, a forge-tracked change pushes before landing when the
+ * forge lags this clone — a tip ahead of origin, or a local reparent the
+ * forge change's target has yet to follow — since the forge refuses to land
+ * state it has not seen, while a local land reads nothing from origin and
+ * lands as it stands.
  */
 async function nextStep(
   backend: Backend,
@@ -190,8 +215,11 @@ async function nextStep(
   if (readings.landed !== undefined) {
     return "landed";
   }
-  if (readings.origin === "behind" || readings.origin === "diverged") {
-    return "sync";
+  if (readings.origin === "behind") {
+    return "pull";
+  }
+  if (readings.origin === "diverged") {
+    return "resolve divergence";
   }
   if (readings.deadParent !== undefined) {
     return "reparent";
@@ -214,10 +242,13 @@ async function nextStep(
   if (readings.reviewing !== "everyone") {
     return "widen reviewing";
   }
-  if (stale === undefined) {
-    return "land";
+  if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
+    return "rebase";
   }
-  return (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length === 0 ? "land" : "rebase";
+  const { forgeChange } = readings;
+  return forgeChange !== undefined && (readings.origin === "ahead" || forgeChange.staleParent !== undefined)
+    ? "push"
+    : "land";
 }
 
 /** What a reviewer looks at to review a file in a round. */
