@@ -76,11 +76,14 @@ export class HgUnavailableError extends VcsUnavailableError {
 }
 
 /**
- * Run hg in `cwd` and return its stdout. HGPLAIN keeps the output stable
- * against user aliases, localization, and tweaked defaults. On nonzero exit
- * the rejection already names the command and carries stderr in its message.
+ * Run hg in `cwd` with no configuration of Cabaret's own and return its
+ * stdout. HGPLAIN keeps the output stable against user aliases,
+ * localization, and tweaked defaults; on nonzero exit the rejection already
+ * names the command and carries stderr in its message. Config readings go
+ * through here: `hg`'s injected extension would shadow the user's real
+ * configuration for its own key.
  */
-async function hg(cwd: string, args: readonly string[]): Promise<string> {
+async function hgRaw(cwd: string, args: readonly string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync("hg", args, {
       cwd,
@@ -94,6 +97,15 @@ async function hg(cwd: string, args: readonly string[]): Promise<string> {
     }
     throw error;
   }
+}
+
+/**
+ * As `hgRaw`, with the bundled share extension riding along: without it, hg
+ * cannot create shares, and inside a share made with -B it cannot see the
+ * shared bookmark store at all.
+ */
+async function hg(cwd: string, args: readonly string[]): Promise<string> {
+  return hgRaw(cwd, ["--config", "extensions.share=", ...args]);
 }
 
 /** Whether a rejection from `hg()` reported output matching `pattern`, on either stream. */
@@ -160,6 +172,24 @@ function lines(content: string): string[] {
   return content.split("\n");
 }
 
+/**
+ * The root of the repository `root`'s working tree belongs to: `root` itself
+ * normally, or the source a share's `.hg/sharedpath` names.
+ */
+async function sourceRoot(root: string): Promise<string> {
+  let shared: string;
+  try {
+    shared = (await readFsFile(join(root, ".hg", "sharedpath"), "utf8")).trimEnd();
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") {
+      return root;
+    }
+    throw error;
+  }
+  // A relative sharedpath (hg's relshared) resolves against the share's .hg.
+  return dirname(isAbsolute(shared) ? shared : join(root, ".hg", shared));
+}
+
 /** A `Backend` that shells out to a local `hg` (Mercurial). */
 export class HgBackend implements Backend<HgNode, HgName> {
   readonly vcs = "hg";
@@ -170,6 +200,13 @@ export class HgBackend implements Backend<HgNode, HgName> {
 
   private constructor(
     readonly root: string,
+    /**
+     * Root of the repository the working tree belongs to: `root` itself in
+     * the primary, the share's source in a dedicated workspace. Config, logs,
+     * the worker, and every remote exchange live here, so all workspaces of
+     * one repository read and write the same state.
+     */
+    private readonly repoRoot: string,
     /** Repo-relative path of the directory the backend was opened from: "" at the root, "src/" below it. */
     private readonly prefix: string,
   ) {}
@@ -180,11 +217,11 @@ export class HgBackend implements Backend<HgNode, HgName> {
     // hg has no `--show-prefix`; resolving both paths keeps symlinked
     // spellings of the same directory from producing a bogus prefix.
     const prefix = relative(await realpath(root), await realpath(dir));
-    return new HgBackend(root, prefix === "" ? "" : `${prefix}${sep}`);
+    return new HgBackend(root, await sourceRoot(root), prefix === "" ? "" : `${prefix}${sep}`);
   }
 
   private hgDir(): string {
-    return join(this.root, ".hg");
+    return join(this.repoRoot, ".hg");
   }
 
   resolveFile(raw: string): FilePath {
@@ -203,8 +240,8 @@ export class HgBackend implements Backend<HgNode, HgName> {
    * HEAD. A bookmark made outside Cabaret whose name Cabaret's grammar
    * reserves cannot be a change, so it also reads as none active.
    */
-  private async activeBookmark(): Promise<HgName | undefined> {
-    const out = await hg(this.root, ["log", "-r", "wdir()", "-T", "{activebookmark}"]);
+  private async activeBookmark(workspace: string = this.root): Promise<HgName | undefined> {
+    const out = await hg(workspace, ["log", "-r", "wdir()", "-T", "{activebookmark}"]);
     if (out === "") {
       return undefined;
     }
@@ -236,7 +273,10 @@ export class HgBackend implements Backend<HgNode, HgName> {
 
   async config(key: string): Promise<string | undefined> {
     try {
-      const out = await hg(this.root, ["config", key]);
+      // Raw, so the reading reflects the user's real configuration, and in
+      // the source repository: a share's own .hg/hgrc is never written, so
+      // every workspace reads the same settings.
+      const out = await hgRaw(this.repoRoot, ["config", key]);
       return out.trimEnd();
     } catch (error) {
       // Exit code 1 means exactly "unset"; anything else is a real failure.
@@ -415,6 +455,13 @@ export class HgBackend implements Backend<HgNode, HgName> {
         multi: false,
         brief: "tracking origin's bookmarks, so stale-state checks see what was last fetched",
       },
+      {
+        key: "extensions.share",
+        value: "",
+        scope: "global",
+        multi: false,
+        brief: "sharing working trees, so your own hg sees every change in a dedicated workspace",
+      },
     ];
   }
 
@@ -513,20 +560,101 @@ export class HgBackend implements Backend<HgNode, HgName> {
     await hg(this.root, ["bookmark", "-r", commit, "--", name]);
   }
 
+  /** Where the workspace registry lives: hg keeps no record of a repository's shares, so Cabaret keeps its own. */
+  private registryFile(): string {
+    return join(this.hgDir(), "cabaret", "workspaces");
+  }
+
+  /** The registered dedicated-workspace paths, in registration order. */
+  private async registeredWorkspaces(): Promise<readonly string[]> {
+    try {
+      return (await readFsFile(this.registryFile(), "utf8")).split("\n").filter((line) => line !== "");
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private async writeRegistry(paths: readonly string[]): Promise<void> {
+    await mkdir(dirname(this.registryFile()), { recursive: true });
+    await writeFile(this.registryFile(), paths.map((path) => `${path}\n`).join(""));
+  }
+
+  /** One workspace's reading, or undefined for a registry entry that is no longer a share of this repository. */
+  private async readWorkspace(path: string, primary: boolean): Promise<Workspace<HgName> | undefined> {
+    const source = primary
+      ? undefined
+      : await sourceRoot(path)
+          .then(realpath)
+          .catch((error) => {
+            // Only a vanished directory reads as "no longer a workspace";
+            // anything else is a real failure.
+            if ((error as { code?: unknown }).code !== "ENOENT") {
+              throw error;
+            }
+            return undefined;
+          });
+    if (!primary && source !== (await realpath(this.repoRoot))) {
+      return undefined;
+    }
+    const [change, status] = await Promise.all([this.activeBookmark(path), hg(path, ["status"])]);
+    return { path, change, dirty: status !== "", primary };
+  }
+
   async workspaces(): Promise<readonly Workspace<HgName>[]> {
-    // TODO: dedicated workspaces would map onto `hg share`, but hg keeps no
-    // registry of a repository's shares to enumerate; grow one here when a
-    // real hg user wants `cabaret workspace`.
-    const [change, status] = await Promise.all([this.activeBookmark(), hg(this.root, ["status"])]);
-    return [{ path: this.root, change, dirty: status !== "", primary: true }];
+    const registered = await this.registeredWorkspaces();
+    const read = await Promise.all([
+      this.readWorkspace(this.repoRoot, true),
+      ...registered.map((path) => this.readWorkspace(path, false)),
+    ]);
+    const found = read.filter((workspace) => workspace !== undefined);
+    // A workspace whose directory is gone is not a working tree anymore;
+    // prune it from the registry as well as the listing.
+    if (found.length !== read.length) {
+      await this.writeRegistry(found.filter(({ primary }) => !primary).map(({ path }) => path));
+    }
+    return found;
   }
 
-  async addWorkspace(_path: string, _change: HgName): Promise<void> {
-    throw new UserError("the hg backend does not support dedicated workspaces");
+  /**
+   * Fail unless the user's own hg would see the shared bookmark store. The
+   * backend enables the share extension itself on every call, but inside a
+   * share the user's plain hg shows no bookmarks and commits without moving
+   * the change's, so a workspace without the config is a trap, not a tree.
+   */
+  private async assertShareConfigured(): Promise<void> {
+    const value = await this.config("extensions.share");
+    // A "!" prefix is hg's spelling for an explicitly disabled extension.
+    if (value === undefined || value.startsWith("!")) {
+      throw new UserError(
+        "dedicated workspaces need the share extension enabled for your own hg: run `cabaret setup apply`",
+      );
+    }
   }
 
-  async removeWorkspace(_path: string, _force: boolean): Promise<void> {
-    throw new UserError("the hg backend does not support dedicated workspaces");
+  async addWorkspace(path: string, change: HgName): Promise<void> {
+    await this.assertShareConfigured();
+    // -B shares the bookmark store, so every workspace names the same
+    // changes; each keeps its own active bookmark and working directory.
+    // -U so the only checkout is the change's, below.
+    await hg(this.repoRoot, ["share", "-q", "-U", "-B", this.repoRoot, path]);
+    await hg(path, ["update", "-q", "--", change]);
+    await this.writeRegistry([...(await this.registeredWorkspaces()), await realpath(path)]);
+  }
+
+  async removeWorkspace(path: string, force: boolean): Promise<void> {
+    const resolved = await realpath(path);
+    const registered = await this.registeredWorkspaces();
+    if (!registered.includes(resolved)) {
+      throw new UserError(`not a dedicated workspace: ${path}`);
+    }
+    if (!force && (await hg(resolved, ["status"])) !== "") {
+      throw new UserError(`workspace has uncommitted changes: ${path}`);
+    }
+    await rm(resolved, { recursive: true, force: true });
+    await this.writeRegistry(registered.filter((entry) => entry !== resolved));
   }
 
   async checkout(change: HgName): Promise<void> {
@@ -534,7 +662,10 @@ export class HgBackend implements Backend<HgNode, HgName> {
       throw new UserError(`bookmark does not exist: ${JSON.stringify(change)}`);
     }
     // Updating to a bookmark by name activates it; local edits merge along,
-    // and hg aborts when one would be overwritten.
+    // and hg aborts when one would be overwritten. Two workspaces may hold
+    // the same change — unlike git, hg tolerates it: a commit only advances
+    // a bookmark sitting on the new commit's parent, so the slower
+    // workspace just grows an anonymous head to resolve, never corruption.
     await hg(this.root, ["update", "-q", "--", change]);
   }
 
@@ -665,14 +796,14 @@ export class HgBackend implements Backend<HgNode, HgName> {
     const dir = join(this.hgDir(), "cabaret", "worker");
     if (!existsSync(join(dir, ".hg"))) {
       await mkdir(dirname(dir), { recursive: true });
-      await hg(this.root, ["--config", "extensions.share=", "share", "-q", "-U", this.root, dir]);
+      await hg(this.repoRoot, ["share", "-q", "-U", this.repoRoot, dir]);
     }
     return dir;
   }
 
-  /** Run hg in the worker; shares need the share extension enabled to be read at all. */
+  /** Run hg in the worker. */
   private async hgWorker(args: readonly string[]): Promise<string> {
-    return hg(await this.worker(), ["--config", "extensions.share=", ...args]);
+    return hg(await this.worker(), args);
   }
 
   /** Reset the worker's working directory to `node` (or empty, for the null revision), clearing strays from failed runs. */
@@ -844,8 +975,9 @@ export class HgBackend implements Backend<HgNode, HgName> {
     if ((await this.logsTip()) !== undefined) {
       await hg(this.root, ["bookmark", "-q", "-d", "--", LOG_BOOKMARK]);
     }
-    // The worker holds only rebuildable state.
-    await rm(join(this.hgDir(), "cabaret"), { recursive: true, force: true });
+    // The worker holds only rebuildable state; the workspace registry
+    // beside it survives a wipe.
+    await rm(join(this.hgDir(), "cabaret", "worker"), { recursive: true, force: true });
     return names;
   }
 
@@ -864,7 +996,7 @@ export class HgBackend implements Backend<HgNode, HgName> {
   /** The path the `default` remote resolves to, failing when none is configured. */
   private async originUrl(): Promise<string> {
     try {
-      return (await hg(this.root, ["paths", ORIGIN_PATH])).trimEnd();
+      return (await hg(this.repoRoot, ["paths", ORIGIN_PATH])).trimEnd();
     } catch (error) {
       if ((error as { code?: unknown }).code === 1) {
         throw new UserError(`no origin: hg path ${JSON.stringify(ORIGIN_PATH)} is not configured`);
@@ -875,7 +1007,7 @@ export class HgBackend implements Backend<HgNode, HgName> {
 
   /** Origin's bookmarks, straight from the remote: one listing round trip. */
   private async remoteBookmarks(): Promise<ReadonlyMap<string, string>> {
-    const out = await hg(this.root, ["debugpushkey", await this.originUrl(), "bookmarks"]);
+    const out = await hg(this.repoRoot, ["debugpushkey", await this.originUrl(), "bookmarks"]);
     const marks = new Map<string, string>();
     for (const line of out.split("\n")) {
       if (line === "") {
@@ -897,7 +1029,7 @@ export class HgBackend implements Backend<HgNode, HgName> {
    * fails rather than deleting a position never seen.
    */
   private async pushkeyDelete(mark: string, old: string): Promise<void> {
-    const out = await hg(this.root, ["debugpushkey", await this.originUrl(), "bookmarks", mark, old, ""]);
+    const out = await hg(this.repoRoot, ["debugpushkey", await this.originUrl(), "bookmarks", mark, old, ""]);
     if (!out.startsWith("True")) {
       throw new Error(`origin refused deleting bookmark ${JSON.stringify(mark)}: moved concurrently?`);
     }
@@ -911,7 +1043,7 @@ export class HgBackend implements Backend<HgNode, HgName> {
   private async hgRemote(args: readonly string[]): Promise<void> {
     let out: string;
     try {
-      out = await hg(this.root, ["--config", "extensions.remotenames=", ...args]);
+      out = await hg(this.repoRoot, ["--config", "extensions.remotenames=", ...args]);
     } catch (error) {
       // hg push exits 1 for "nothing to push", which for Cabaret means the
       // remote already has everything — success, unless the same run also

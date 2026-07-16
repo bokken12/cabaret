@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -397,17 +397,62 @@ test("rename moves the branch and the log together and refuses existing targets"
   expect((await backend.readLog(parseHgName("new-name"))).length).toBeGreaterThan(0);
 });
 
-test("workspaces reports the primary working tree; dedicated workspaces are refused", async () => {
+test("dedicated workspaces are hg shares, registered and pruned by cabaret", { timeout: 60000 }, async () => {
   const backend = await HgBackend.open(repo);
+  const now = testClock();
   await hg("update", "-q", "main");
   const [workspace] = await backend.workspaces();
   expect(workspace).toEqual({ path: backend.root, change: "main", dirty: false, primary: true });
   await writeFile(join(repo, "dirty.txt"), "untracked\n");
   expect((await backend.workspaces())[0]?.dirty).toBe(true);
   await rm(join(repo, "dirty.txt"));
-  await expect(backend.addWorkspace(join(dir, "ws"), parseHgName("main"))).rejects.toThrow(
-    "does not support dedicated workspaces",
-  );
+
+  // Without the share extension in the user's own config, a workspace would
+  // be a trap: their hg would see no bookmarks inside it.
+  const ws = join(dir, "ws-gizmo");
+  await expect(backend.addWorkspace(ws, parseHgName("gizmo"))).rejects.toThrow("cabaret setup apply");
+  await backend.configSet("extensions.share", "", "global");
+
+  await createChange(backend, now, parseHgName("gizmo"), parseHgName("main"));
+  await backend.addWorkspace(ws, parseHgName("gizmo"));
+  const real = await realpath(ws);
+  expect(await backend.workspaces()).toEqual([
+    { path: backend.root, change: "main", dirty: false, primary: true },
+    { path: real, change: "gizmo", dirty: false, primary: false },
+  ]);
+
+  // The user's own hg works the change in its workspace: the shared store
+  // sees the commit, and the moved bookmark, everywhere.
+  const moved = await commit(ws, "gizmo work", { "gizmo.txt": "w\n" });
+  expect(await backend.tip(parseHgName("gizmo"))).toBe(moved);
+
+  // A backend opened in the share reads and writes the one repository. Its
+  // root matches the listing's spelling, so path equality finds the current
+  // workspace.
+  const shared = await HgBackend.open(ws);
+  expect(shared.root).toBe(real);
+  expect(await shared.currentChange()).toBe("gizmo");
+  expect(await shared.readLog(parseHgName("gizmo"))).toEqual(await backend.readLog(parseHgName("gizmo")));
+  await shared.configSet("cabaret.landMethod", "squash", "local");
+  expect(await backend.config("cabaret.landMethod")).toBe("squash");
+  await backend.configUnset("cabaret.landMethod", "local");
+
+  // Dirty workspaces refuse removal until forced; the registry prunes with them.
+  await writeFile(join(ws, "untracked.txt"), "x\n");
+  await expect(backend.removeWorkspace(ws, false)).rejects.toThrow("uncommitted changes");
+  await backend.removeWorkspace(ws, true);
+  expect(await backend.workspaces()).toEqual([
+    { path: backend.root, change: "main", dirty: false, primary: true },
+  ]);
+
+  // A workspace deleted out from under cabaret prunes from the listing and
+  // the registry alike.
+  await backend.addWorkspace(ws, parseHgName("gizmo"));
+  await rm(ws, { recursive: true, force: true });
+  expect(await backend.workspaces()).toEqual([
+    { path: backend.root, change: "main", dirty: false, primary: true },
+  ]);
+  expect(await readFile(join(repo, ".hg", "cabaret", "workspaces"), "utf8")).toBe("");
 });
 
 test("checkout activates the bookmark, refusing a missing one", async () => {

@@ -116,8 +116,9 @@ export async function removeChangeWorkspace<C extends ChangeName>(
 
 /**
  * Check `change` out in the current workspace and return that workspace's
- * path, refusing a dirty workspace unless `evenThoughDirty`. A change held
- * by another workspace cannot be checked out; the backend refuses it.
+ * path, refusing a dirty workspace unless `evenThoughDirty`. Under git a
+ * change held by another workspace cannot be checked out — the backend
+ * refuses it — while hg tolerates sharing one.
  */
 export async function checkoutChange<C extends ChangeName>(
   backend: Backend<Revision, C>,
