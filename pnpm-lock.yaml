@@ -61,6 +61,15 @@ importers:
         specifier: ^4.8.0
         version: 4.8.0
 
+  packages/cabaret-forgejo:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/cabaret-github:
     dependencies:
       '@octokit/core':
