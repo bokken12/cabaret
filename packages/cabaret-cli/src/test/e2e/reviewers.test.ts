@@ -132,7 +132,7 @@ test("pull mirrors forge-side reviewer changes in; a local removal pushes the wi
   // A teammate requests review from carol on the forge.
   forge.requestReviewer(PR, "carol");
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:alice as an alias\n" +
+    "recorded github:alice as an alias\n" +
       "updated 1 reviewer from github.com/test-org/widgets#1\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",

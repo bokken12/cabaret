@@ -64,11 +64,18 @@ describe("GitHubForge", () => {
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
-  test("currentUser is the token's account", async () => {
+  test("currentSelf is the token's account, its public email an alias", async () => {
     stubGitHub({
-      [`GET ${API}/user`]: { json: { login: "alice" } },
+      [`GET ${API}/user`]: { json: { login: "alice", email: "alice@example.com" } },
     });
-    expect(await forge().currentUser()).toBe("github:alice");
+    expect(await forge().currentSelf()).toEqual({ user: "github:alice", aliases: new Set(["alice@example.com"]) });
+  });
+
+  test("currentSelf of an account with no public email has no aliases", async () => {
+    stubGitHub({
+      [`GET ${API}/user`]: { json: { login: "bob", email: null } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "github:bob", aliases: new Set() });
   });
 
   test("getChange maps an open PR", async () => {

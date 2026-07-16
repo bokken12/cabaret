@@ -81,11 +81,18 @@ describe("ForgejoForge", () => {
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
-  test("currentUser is the token's account", async () => {
+  test("currentSelf is the token's account, its email an alias", async () => {
     stubForgejo({
-      [`GET ${API}/user`]: { json: { login: "alice" } },
+      [`GET ${API}/user`]: { json: { login: "alice", email: "alice@example.com" } },
     });
-    expect(await forge().currentUser()).toBe("codeberg:alice");
+    expect(await forge().currentSelf()).toEqual({ user: "codeberg:alice", aliases: new Set(["alice@example.com"]) });
+  });
+
+  test("currentSelf of an account with no email has no aliases", async () => {
+    stubForgejo({
+      [`GET ${API}/user`]: { json: { login: "bob", email: "" } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "codeberg:bob", aliases: new Set() });
   });
 
   test("getChange maps an open PR, unioning requested reviewers with submitted reviews", async () => {

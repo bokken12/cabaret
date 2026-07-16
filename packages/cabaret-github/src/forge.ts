@@ -13,6 +13,7 @@ import {
   parseForgeLocator,
   parseRefName,
   type RefName,
+  type Self,
   timestampMs,
   UserError,
   type UserName,
@@ -165,9 +166,14 @@ export class GitHubForge implements Forge {
     this.locator = parseForgeLocator(`github.com/${repo.owner}/${repo.repo}`);
   }
 
-  async currentUser(): Promise<UserName> {
+  async currentSelf(): Promise<Self> {
     const { data } = await this.client.request("GET /user");
-    return accountUser(z.object({ login: z.string() }).parse(data).login);
+    const { login, email } = z.object({ login: z.string(), email: z.string().nullable() }).parse(data);
+    const aliases = new Set<UserName>();
+    if (email !== null && email !== "") {
+      aliases.add(userName(email));
+    }
+    return { user: accountUser(login), aliases };
   }
 
   private toChange(pr: z.infer<typeof PrSchema>): ForgeChange {

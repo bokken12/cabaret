@@ -71,7 +71,7 @@ test("pull imports comments under forge identities, and again is a no-op", async
   forge.comment(PR, "carol", "does this handle empty diffs?");
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
-      "recorded forge account github:alice as an alias\n" +
+      "recorded github:alice as an alias\n" +
       "pulled 1 comment from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
     stderr: "",
@@ -116,7 +116,7 @@ test("pull does not echo comments push posted", async () => {
   await repo.cabaret("comment", "ship it");
   await repo.cabaret("push");
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:alice as an alias\n" +
+    "recorded github:alice as an alias\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
@@ -135,7 +135,7 @@ test("pull records a merged forge change as landing the change, once", async () 
   forge.merge(PR, merge);
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
-      "recorded forge account github:alice as an alias\n" +
+      "recorded github:alice as an alias\n" +
       "github.com/test-org/widgets#1 was merged; recorded the land\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 0 open forge changes\n",
@@ -168,7 +168,7 @@ test("pull adopts the branch's open forge change when the log names none", async
   await forge.createChange(parseRefName("gadget"), parseRefName("main"), "gadget", false);
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:alice as an alias\n" +
+    "recorded github:alice as an alias\n" +
       "pulled 1 comment from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
@@ -188,9 +188,7 @@ test("pull --change fails when the change has no forge change", async () => {
   });
   // The sweep just passes such a change by.
   expect(await repo.cabaret("pull")).toEqual({
-    stdout:
-      "recorded forge account github:alice as an alias\n" +
-      "synced github.com/test-org/widgets: 0 open forge changes\n",
+    stdout: "recorded github:alice as an alias\n" + "synced github.com/test-org/widgets: 0 open forge changes\n",
     stderr: "",
     exitCode: 0,
   });
@@ -231,7 +229,7 @@ test("pull turns a teammate's forge change into a change to review", async () =>
   forge.comment(id, "carol", "please take a look");
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
-      "recorded forge account github:alice as an alias\n" +
+      "recorded github:alice as an alias\n" +
       'imported github.com/test-org/widgets#1 as "their-feature" with 1 comment\n' +
       "synced github.com/test-org/widgets: 1 open forge change\n",
     stderr: "",
@@ -271,7 +269,7 @@ test("pull adopts the forge change of an existing local branch without fetching 
   forge.openPr("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
-      "recorded forge account github:alice as an alias\n" +
+      "recorded github:alice as an alias\n" +
       'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n' +
       "synced github.com/test-org/widgets: 1 open forge change\n",
     stderr: "",
@@ -293,12 +291,44 @@ test("a second machine's pull adopts the published import instead of re-importin
   // The second machine holds its own token.
   forge.tokenLogin = "bob";
   expect((await clone.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:bob as an alias\n" +
+    "recorded github:bob as an alias\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
   // Byte-identical logs: the clone adopted the import rather than re-creating it.
   expect(await clone.cabaret("log", "their-feature")).toEqual(await repo.cabaret("log", "their-feature"));
+});
+
+test("pull records the account's public email as an alias too, once", async () => {
+  const forge = new FakeForge();
+  forge.tokenEmail = "alice@work.example.com";
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "recorded github:alice as an alias\n" +
+      "recorded alice@work.example.com as an alias\n" +
+      "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 1 open forge change\n",
+  );
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 1 open forge change\n",
+  );
+});
+
+test("pull does not record a public email that is already you", async () => {
+  const forge = new FakeForge();
+  // makeRepo's identity: the account's public email adds nothing.
+  forge.tokenEmail = "alice@example.com";
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "recorded github:alice as an alias\n" +
+      "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 1 open forge change\n",
+  );
 });
 
 test("pull reads a capped discussion in full before importing", async () => {
@@ -320,8 +350,7 @@ test("pull skips a forge change whose branch cannot be fetched", async () => {
   // The forge change's branch never reached origin, so there is nothing to fetch.
   forge.openPr("carol", parseRefName("phantom"), parseRefName("main"), "Phantom");
   expect(await repo.cabaret("pull")).toEqual({
-    stdout:
-      "recorded forge account github:alice as an alias\n" + "synced github.com/test-org/widgets: 1 open forge change\n",
+    stdout: "recorded github:alice as an alias\n" + "synced github.com/test-org/widgets: 1 open forge change\n",
     stderr: 'warning: skipping github.com/test-org/widgets#1 ("phantom"): branch "phantom" could not be fetched\n',
     exitCode: 0,
   });
@@ -367,7 +396,7 @@ test("pull mirrors a forge-side retarget into the change", async () => {
   // stacked PR's base branch merges.
   await forge.setParent(PR, parseRefName("develop"));
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:alice as an alias\n" +
+    "recorded github:alice as an alias\n" +
       'github.com/test-org/widgets#1 was retargeted; reparented onto "develop"\n' +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
@@ -391,7 +420,7 @@ test("pull leaves an unpushed local reparent alone", async () => {
   await repo.cabaret("reparent", "gadget", "develop");
   // The forge still shows the parent the push left, which is not a retarget.
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded forge account github:alice as an alias\n" +
+    "recorded github:alice as an alias\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );

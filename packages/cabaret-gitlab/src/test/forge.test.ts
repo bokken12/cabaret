@@ -62,11 +62,21 @@ describe("GitLabForge", () => {
     expect(calls[0]?.headers.authorization).toBe("Bearer token-123");
   });
 
-  test("currentUser is the token's account", async () => {
+  test("currentSelf is the token's account, its emails as aliases", async () => {
     stubGitLab({
-      [`GET ${API}/user`]: { json: { username: "alice" } },
+      [`GET ${API}/user`]: {
+        json: {
+          username: "alice",
+          email: "alice@example.com",
+          public_email: "",
+          commit_email: "31-alice@users.noreply.gitlab.com",
+        },
+      },
     });
-    expect(await forge().currentUser()).toBe("gitlab:alice");
+    expect(await forge().currentSelf()).toEqual({
+      user: "gitlab:alice",
+      aliases: new Set(["alice@example.com", "31-alice@users.noreply.gitlab.com"]),
+    });
   });
 
   test("getChange maps an open MR with its reviewers, sorted by identity", async () => {

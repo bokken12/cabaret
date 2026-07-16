@@ -13,6 +13,7 @@ import {
   parseForgeLocator,
   parseRefName,
   type RefName,
+  type Self,
   timestampMs,
   UserError,
   type UserName,
@@ -111,9 +112,13 @@ export class ForgejoForge implements Forge {
     this.api = `/repos/${repo.owner}/${repo.repo}`;
   }
 
-  async currentUser(): Promise<UserName> {
-    const { login } = z.object({ login: z.string() }).parse(await this.client.get("/user"));
-    return accountUser(login);
+  async currentSelf(): Promise<Self> {
+    const { login, email } = z.object({ login: z.string(), email: z.string() }).parse(await this.client.get("/user"));
+    const aliases = new Set<UserName>();
+    if (email !== "") {
+      aliases.add(userName(email));
+    }
+    return { user: accountUser(login), aliases };
   }
 
   private async toChange(pr: Pr): Promise<ForgeChange> {

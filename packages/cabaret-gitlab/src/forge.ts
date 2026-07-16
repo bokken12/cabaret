@@ -13,6 +13,7 @@ import {
   parseForgeLocator,
   parseRefName,
   type RefName,
+  type Self,
   timestampMs,
   UserError,
   type UserName,
@@ -188,9 +189,20 @@ export class GitLabForge implements Forge {
     this.api = `/projects/${encodeURIComponent(project.path)}`;
   }
 
-  async currentUser(): Promise<UserName> {
-    const { username } = z.object({ username: z.string() }).parse(await this.client.get("/user"));
-    return accountUser(username);
+  async currentSelf(): Promise<Self> {
+    // The primary, public, and commit emails are all the account's own
+    // identities; absent ones read as "" or null depending on the field.
+    const email = z.string().nullish();
+    const user = z
+      .object({ username: z.string(), email, public_email: email, commit_email: email })
+      .parse(await this.client.get("/user"));
+    const aliases = new Set<UserName>();
+    for (const candidate of [user.email, user.public_email, user.commit_email]) {
+      if (candidate !== undefined && candidate !== null && candidate !== "") {
+        aliases.add(userName(candidate));
+      }
+    }
+    return { user: accountUser(user.username), aliases };
   }
 
   /**

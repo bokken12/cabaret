@@ -30,7 +30,7 @@ A forge account is an identity of its own, written as the account under a scheme
 
 The identity is minted from the account name alone: the mapping is total and offline, inverts by parsing (which review requests need), and cannot shift when someone edits their profile. A profile's public email would sometimes unify an account with its owner's git identity, but only while shown, and never reliably — that unification is the alias layer's job. The forges' own noreply spellings (`5+alice@users.noreply.github.com` and kin) name the same account wherever an identity is typed.
 
-Your own account is bridged by an alias rather than by changing what you write under: pulling asks the forge which account its credentials authenticate and records it as a `cabaret.alias` when it does not already count as you. The declaration lands in the repository's local config — the association is the repository's, since another repository's credentials may front a different account. From then on, changes that account authored or was asked to review read as yours.
+Your own account is bridged by an alias rather than by changing what you write under: pulling asks the forge which account its credentials authenticate and records it — and each email the account's profile shows — as a `cabaret.alias` when it does not already count as you. The declarations land in the repository's local config — the association is the repository's, since another repository's credentials may front a different account. From then on, changes those identities authored or were asked to review read as yours.
 
 ## Aliases
 

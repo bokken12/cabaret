@@ -13,6 +13,7 @@ import {
   parseCommitHash,
   parseForgeLocator,
   type RefName,
+  type Self,
   timestampMs,
   type UserName,
   userName,
@@ -69,6 +70,8 @@ export class FakeForge implements Forge {
   readonly locator = parseForgeLocator("github.com/test-org/widgets");
   /** The login the CLI's own posts arrive under, as the token's owner. */
   tokenLogin = "alice";
+  /** The public email the token's account shows, when it shows one. */
+  tokenEmail: string | undefined;
   /** The bare repository this forge hosts; `makeRepo` sets it. */
   origin: string | undefined;
   /** When set, `fetchOpenChanges` caps each change's comments at this many, as real forges do. */
@@ -98,8 +101,12 @@ export class FakeForge implements Forge {
     }
   }
 
-  async currentUser(): Promise<UserName> {
-    return loginIdentity(this.tokenLogin);
+  async currentSelf(): Promise<Self> {
+    const aliases = new Set<UserName>();
+    if (this.tokenEmail !== undefined) {
+      aliases.add(userName(this.tokenEmail));
+    }
+    return { user: loginIdentity(this.tokenLogin), aliases };
   }
 
   async findChange(branch: RefName): Promise<ForgeChange | undefined> {
