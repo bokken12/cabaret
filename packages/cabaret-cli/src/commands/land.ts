@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type LogEntry, landAsConfigured, landChain, type RefName, readConfig, resolveRange } from "cabaret-core";
+import { type ChangeName, type LogEntry, landAsConfigured, landChain, readConfig, resolveRange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
 
@@ -51,7 +51,7 @@ export const land = buildCommand({
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
-    const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
+    const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
       const { merged, reparented } = await landAsConfigured(backend, this.now, this.forge, config, change, entries, {
         notOwner: flags.evenThoughNotOwner,
         unreviewed: flags.evenThoughUnreviewed,
@@ -66,10 +66,10 @@ export const land = buildCommand({
       }
     };
     if (spec === undefined || spec.kind === "one") {
-      const target = spec?.change ?? (await backend.currentBranch());
+      const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
       await landOne(target, await backend.readLog(target));
     } else {
-      const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
+      const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));
       await landChain(backend, chain, landOne);
     }
   },

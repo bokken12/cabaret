@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   type Backend,
   type ChangeDiff,
+  type ChangeName,
   currentOwner,
   currentReviewers,
   currentReviewing,
@@ -10,7 +11,6 @@ import {
   type LogEntry,
   landedMerge,
   parseFilePath,
-  type RefName,
   type Reviewing,
   type Revision,
   type UserName,
@@ -170,7 +170,7 @@ export async function changeObligations(
  * outside the set can satisfy still blocks the land, which is what forces
  * widening.
  */
-export function isReviewing(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+export function isReviewing(self: Self, change: ChangeName, entries: readonly LogEntry[]): boolean {
   switch (currentReviewing(entries)) {
     case "none":
       return false;
@@ -193,7 +193,7 @@ export function isReviewing(self: Self, change: RefName, entries: readonly LogEn
  */
 export class NotReviewingError extends UserError {
   constructor(
-    readonly change: RefName,
+    readonly change: ChangeName,
     readonly reviewing: Reviewing,
     readonly user: UserName,
   ) {
@@ -208,7 +208,7 @@ export class NotReviewingError extends UserError {
  * read the whole diff — or the change has landed, where review is
  * bookkeeping, open to anyone as ever.
  */
-export function mayRecordReview(self: Self, change: RefName, entries: readonly LogEntry[]): boolean {
+export function mayRecordReview(self: Self, change: ChangeName, entries: readonly LogEntry[]): boolean {
   return (
     landedMerge(entries) !== undefined ||
     isReviewing(self, change, entries) ||
@@ -224,7 +224,11 @@ export function mayRecordReview(self: Self, change: RefName, entries: readonly L
  * frontends offer an override, and an overridden review counts toward
  * obligations like any other.
  */
-export async function assertReviewing(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<void> {
+export async function assertReviewing(
+  backend: Backend,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<void> {
   const self = await currentSelf(backend);
   if (!mayRecordReview(self, change, entries)) {
     throw new NotReviewingError(change, currentReviewing(entries), self.user);

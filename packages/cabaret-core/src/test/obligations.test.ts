@@ -11,10 +11,10 @@ import {
   isSatisfied,
   type LogEntry,
   obligationStatuses,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseObligationsFile,
-  parseRefName,
   reviewerSummary,
   reviewOwed,
   type Self,
@@ -394,7 +394,7 @@ test("a removed reviewer owes nothing, and an owning reviewer owes only as owner
 });
 
 test("isReviewing widens from nobody through the owner and reviewers to everyone", () => {
-  const change = parseRefName("feature");
+  const change = parseBranchName("feature");
   const at = (reviewing: "none" | "owner" | "reviewers" | "everyone", at: number): LogEntry => ({
     timestamp: timestampMs(at),
     user: alice,

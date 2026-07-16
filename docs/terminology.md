@@ -86,6 +86,16 @@ What should one call a working tree of the repository, each holding a checked-ou
 
 Decided: "workspace". Git's "worktree" appears only in the code that shells out to git.
 
+## Named pointers
+
+What should one call the named, movable pointer to a line of code — what a change (or a parent like trunk) is named by?
+
+- git calls this a "branch"
+- hg calls this a "bookmark" (its "branch" is a different, permanent thing)
+- JJ calls this a "bookmark" too
+
+Decided: there is no third word — everything is referred to by its change name (`ChangeName`, per-backend grammar), and the `Backend` interface speaks of changes even for parents that are not changes themselves. "Branch" and "bookmark" appear only in the code that shells out to git or hg, and in messages those backends emit, where the native word is what the user can act on.
+
 # Versions
 
 I like JJ's "revision" over git's "commit", the commit feels like the action

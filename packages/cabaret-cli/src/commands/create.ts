@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { createChange, parseRefName, type RefName, type UserName } from "cabaret-core";
+import { createChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { parseUser } from "./shared.js";
 
@@ -8,20 +8,20 @@ export const create = buildCommand({
     brief: "Create a change",
     fullDescription:
       "Create a change, initializing its log with a parent, a base, and an " +
-      "owner. A branch that does not exist yet is created at the parent's " +
-      "tip; an existing branch is adopted with the last revision shared with " +
+      "owner. A change with no code yet starts at the parent's " +
+      "tip; an existing branch or bookmark is adopted with the last revision shared with " +
       "the parent as its base. The change must not already exist.",
   },
   parameters: {
     positional: {
       kind: "tuple",
-      parameters: [{ brief: "name for the new change", placeholder: "change", parse: parseRefName }],
+      parameters: [{ brief: "name for the new change", placeholder: "change", parse: String }],
     },
     flags: {
       parent: {
         kind: "parsed",
-        parse: parseRefName,
-        brief: "The new change's parent (defaults to the current branch)",
+        parse: String,
+        brief: "The new change's parent (defaults to what is checked out)",
         optional: true,
       },
       owner: {
@@ -32,8 +32,10 @@ export const create = buildCommand({
       },
     },
   },
-  async func(this: LocalContext, flags: { parent?: RefName; owner?: UserName }, change: RefName) {
+  async func(this: LocalContext, flags: { parent?: string; owner?: UserName }, change: string) {
     const backend = await this.backend();
-    await createChange(backend, this.now, change, flags.parent ?? (await backend.currentBranch()), flags.owner);
+    const name = backend.parseName(change);
+    const parent = flags.parent === undefined ? await backend.currentChange() : backend.parseName(flags.parent);
+    await createChange(backend, this.now, name, parent, flags.owner);
   },
 });

@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, changeTip, conflictMarkers, parseRefName, type RefName } from "cabaret-core";
+import { changeBase, changeTip, conflictMarkers } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const conflicts = buildCommand({
@@ -17,15 +17,15 @@ export const conflicts = buildCommand({
         {
           brief: "change to inspect (defaults to current)",
           placeholder: "change",
-          parse: parseRefName,
+          parse: String,
           optional: true,
         },
       ],
     },
   },
-  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+  async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
-    const target = change ?? (await backend.currentBranch());
+    const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
     const entries = await backend.readLog(target);
     const base = await changeBase(backend, target, entries);
     const tip = await changeTip(backend, target, entries);

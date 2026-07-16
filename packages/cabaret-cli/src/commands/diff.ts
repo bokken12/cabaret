@@ -4,14 +4,13 @@ import {
   changeBase,
   defaultContext,
   parseContext,
-  type RefName,
   type ReviewSpan,
   readConfig,
   rebasedView,
   remainingSpans,
   renderDiff,
   renderDiff4,
-  requireBranchTip,
+  requireTip,
   reviewSpans,
   UserError,
   type UserName,
@@ -53,7 +52,7 @@ export const diff = buildCommand({
       },
     },
   },
-  async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, rawFile: string) {
+  async func(this: LocalContext, flags: { change?: string; for?: UserName; context?: number }, rawFile: string) {
     const backend = await this.backend();
     const file = backend.resolveFile(rawFile);
     // Config is read even when the flag preempts it, so a misconfigured
@@ -62,7 +61,7 @@ export const diff = buildCommand({
     const { change, entries } = await resolveChange(backend, flags.change);
     const user = flags.for ?? (await backend.currentUser());
     const base = await changeBase(backend, change, entries);
-    const tip = await requireBranchTip(backend, change);
+    const tip = await requireTip(backend, change);
     const reviewed = brain(entries, user).get(file);
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;

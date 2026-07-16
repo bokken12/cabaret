@@ -1,4 +1,4 @@
-import { forgeChangeId, parseCommitHash, parseRefName, UserError, userName } from "cabaret-core";
+import { forgeChangeId, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitLabClient, parseGitLabRemote } from "../client.js";
 import { GitLabForge } from "../forge.js";
@@ -58,7 +58,7 @@ describe("GitLabForge", () => {
     const calls = stubGitLab({
       [`PUT ${PROJECT}/merge_requests/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.headers.authorization).toBe("Bearer token-123");
   });
 
@@ -388,7 +388,7 @@ describe("GitLabForge", () => {
     stubGitLab({
       [GRAPHQL]: { json: { data: { project: null } } },
     });
-    await expect(forge().findChange(parseRefName("add-tables"))).rejects.toThrow(
+    await expect(forge().findChange(parseBranchName("add-tables"))).rejects.toThrow(
       "no project test-org/widgets on gitlab.com, or the token cannot see it",
     );
   });
@@ -424,7 +424,7 @@ describe("GitLabForge", () => {
         { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
       ],
     });
-    expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
+    expect(await forge().findChange(parseBranchName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
@@ -442,7 +442,7 @@ describe("GitLabForge", () => {
     stubGitLab({
       [GRAPHQL]: { json: { data: { project: { mergeRequests: { nodes: [] } } } } },
     });
-    expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
+    expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
   test("fetchOpenChanges follows the pagination cursor, carrying non-system notes and their cap", async () => {
@@ -648,8 +648,8 @@ describe("GitLabForge", () => {
       ],
     });
     const created = await forge().createChange(
-      parseRefName("new-work"),
-      parseRefName("parent-branch"),
+      parseBranchName("new-work"),
+      parseBranchName("parent-branch"),
       "New work",
       false,
     );
@@ -673,7 +673,7 @@ describe("GitLabForge", () => {
     const calls = stubGitLab({
       [`PUT ${PROJECT}/merge_requests/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.body).toBe(JSON.stringify({ target_branch: "develop" }));
   });
 

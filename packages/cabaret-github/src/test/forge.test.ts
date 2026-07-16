@@ -1,4 +1,4 @@
-import { forgeChangeId, parseRefName, UserError, userName } from "cabaret-core";
+import { forgeChangeId, parseBranchName, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { githubClient, parseGitHubRemote } from "../client.js";
 import { GitHubForge } from "../forge.js";
@@ -60,7 +60,7 @@ describe("GitHubForge", () => {
     const calls = stubGitHub({
       [`PATCH ${REPOS}/pulls/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
@@ -261,7 +261,7 @@ describe("GitHubForge", () => {
       },
       [`GET ${API}/users/alice`]: { json: { email: null } },
     });
-    expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
+    expect(await forge().findChange(parseBranchName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
@@ -279,7 +279,7 @@ describe("GitHubForge", () => {
     stubGitHub({
       [GRAPHQL]: { json: { data: { repository: { pullRequests: { nodes: [] } } } } },
     });
-    expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
+    expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
   test("fetchOpenChanges follows the pagination cursor, carrying comments and their cap", async () => {
@@ -469,8 +469,8 @@ describe("GitHubForge", () => {
       [`GET ${API}/users/dave`]: { json: { email: null } },
     });
     const created = await forge().createChange(
-      parseRefName("new-work"),
-      parseRefName("parent-branch"),
+      parseBranchName("new-work"),
+      parseBranchName("parent-branch"),
       "New work",
       false,
     );
@@ -494,7 +494,7 @@ describe("GitHubForge", () => {
     const calls = stubGitHub({
       [`PATCH ${REPOS}/pulls/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.body).toBe(JSON.stringify({ base: "develop" }));
   });
 

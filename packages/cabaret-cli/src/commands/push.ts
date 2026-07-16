@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { forgeBackend, pushChange, type RefName } from "cabaret-core";
+import { forgeBackend, pushChange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -14,7 +14,7 @@ export const push = buildCommand({
   parameters: {
     flags: { change: changeFlag("push") },
   },
-  async func(this: LocalContext, flags: { change?: RefName }) {
+  async func(this: LocalContext, flags: { change?: string }) {
     const backend = forgeBackend(await this.backend());
     const forge = await this.forge();
     const { change, entries } = await resolveChange(backend, flags.change);

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   type Backend,
+  type ChangeName,
   type ChangeSummary,
   type CommitHash,
   changeDiff,
@@ -11,11 +12,10 @@ import {
   forgeChangeId,
   type LogAction,
   type LogEntry,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
-  parseRefName,
-  type RefName,
   type ReviewRound,
   reviewRounds,
   summarizeChange,
@@ -24,8 +24,8 @@ import {
   userName,
 } from "../index.js";
 
-function refs(parents: Record<string, string>): ReadonlyMap<RefName, RefName> {
-  return new Map(Object.entries(parents).map(([change, parent]) => [parseRefName(change), parseRefName(parent)]));
+function refs(parents: Record<string, string>): ReadonlyMap<ChangeName, ChangeName> {
+  return new Map(Object.entries(parents).map(([change, parent]) => [parseBranchName(change), parseBranchName(parent)]));
 }
 
 test("changeForest nests children under parents, roots and children sorted", () => {
@@ -93,7 +93,7 @@ function repoBackend(opts: {
   const stub: Pick<
     Backend<CommitHash>,
     | "mergedTip"
-    | "branchTip"
+    | "tip"
     | "originTip"
     | "mergeBase"
     | "isAncestor"
@@ -110,7 +110,7 @@ function repoBackend(opts: {
       }
       return fake(digit);
     },
-    async branchTip(branch) {
+    async tip(branch) {
       const digit = opts.branches[branch as string];
       return digit === undefined ? undefined : fake(digit);
     },
@@ -175,7 +175,7 @@ function entry(action: LogAction<CommitHash>): LogEntry<CommitHash> {
 /** The entries `create` seeds a log with: parented on `parent`, based at `base`, owned by alice. */
 function created(parent: string, base: string): LogEntry<CommitHash>[] {
   return [
-    entry({ kind: "set-parent", parent: parseRefName(parent) }),
+    entry({ kind: "set-parent", parent: parseBranchName(parent) }),
     entry({ kind: "set-base", base: fake(base) }),
     entry({ kind: "set-owner", owner: alice }),
   ];
@@ -185,12 +185,12 @@ function review(file: string, base: string, tip: string): LogAction<CommitHash> 
   return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
 }
 
-const feature = parseRefName("feature");
+const feature = parseBranchName("feature");
 
 /** Summarize `change` with its diff read afresh from the log, as the pages do. */
 async function summarize(
   backend: Backend,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry[],
   user: UserName,
 ): Promise<ChangeSummary> {
@@ -592,7 +592,7 @@ test("a change behind origin's copy must pull, before anything else", async () =
     branches: { main: "1", widgets: "1" },
     origin: { widgets: "2" },
   });
-  const widgets = parseRefName("widgets");
+  const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
     change: "widgets",
     parent: "main",
@@ -620,7 +620,7 @@ test("a change diverged from origin's copy must resolve divergence, review left 
     origin: { widgets: "2" },
     changed: { "13": ["a.ts"] },
   });
-  const widgets = parseRefName("widgets");
+  const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
     change: "widgets",
     parent: "main",
@@ -647,7 +647,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     origin: { widgets: "1" },
     changed: { "12": ["a.ts"] },
   });
-  const widgets = parseRefName("widgets");
+  const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
     change: "widgets",
     parent: "main",
@@ -676,7 +676,7 @@ test("a reviewed forge-tracked change ahead of origin pushes before landing", as
     origin: { gadget: "2" },
     changed: { "13": ["gadget.ts"] },
   });
-  const gadget = parseRefName("gadget");
+  const gadget = parseBranchName("gadget");
   const entries = [
     ...created("main", "1"),
     entry({ kind: "set-forge", forge: parseForgeLocator("gitlab.com/test-org/gadgets"), id: forgeChangeId(12) }),
@@ -709,7 +709,7 @@ test("a reviewed change ahead of origin with no forge change may land", async ()
     origin: { docs: "1" },
     changed: { "12": ["notes.md"] },
   });
-  const docs = parseRefName("docs");
+  const docs = parseBranchName("docs");
   const entries = [...created("main", "1"), entry(review("notes.md", "1", "2"))];
   const summary = await summarize(backend, docs, entries, alice);
   expect({ origin: summary.origin, forgeChange: summary.forgeChange, nextStep: summary.nextStep }).toEqual({
@@ -729,7 +729,7 @@ test("a forge-tracked change ahead of origin rebases before pushing when its par
     changed: { "16": ["w.ts"] },
     conflicting: { "162": ["w.ts"] },
   });
-  const widgets = parseRefName("widgets");
+  const widgets = parseBranchName("widgets");
   const entries = [
     ...created("main", "1"),
     entry({ kind: "set-forge", forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(4) }),
@@ -753,12 +753,12 @@ test("a reviewed change whose forge change targets its old parent pushes to reta
     origin: { gizmo: "2" },
     changed: { "12": ["gizmo.ts"] },
   });
-  const gizmo = parseRefName("gizmo");
+  const gizmo = parseBranchName("gizmo");
   const entries = [
     ...created("relic", "1"),
     entry({ kind: "set-forge", forge, id: forgeChangeId(103) }),
-    { ...entry({ kind: "set-parent", parent: parseRefName("relic") }), source: { forge } },
-    { ...entry({ kind: "set-parent", parent: parseRefName("main") }), timestamp: timestampMs(1748000000001) },
+    { ...entry({ kind: "set-parent", parent: parseBranchName("relic") }), source: { forge } },
+    { ...entry({ kind: "set-parent", parent: parseBranchName("main") }), timestamp: timestampMs(1748000000001) },
     entry(review("gizmo.ts", "1", "2")),
   ];
   expect(await summarize(backend, gizmo, entries, alice)).toEqual({
@@ -787,7 +787,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     changed: { "12": ["ui.ts"] },
     logs: { gadget: [...created("main", "0"), entry({ kind: "land", merge: fake("9") })] },
   };
-  const ui = parseRefName("gadget-ui");
+  const ui = parseBranchName("gadget-ui");
   expect(await summarize(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({
     change: "gadget-ui",
     parent: "gadget",
@@ -821,7 +821,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     branches: { docs: "2" },
     changed: { "12": ["notes.md"] },
   });
-  const docs = parseRefName("docs");
+  const docs = parseBranchName("docs");
   expect(await summarize(backend, docs, created("gone", "1"), alice)).toEqual({
     change: "docs",
     parent: "gone",

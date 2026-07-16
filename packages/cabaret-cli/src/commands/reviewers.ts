@@ -1,12 +1,12 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { assertNotLanded, type RefName, type UserName } from "cabaret-core";
+import { assertNotLanded, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, parseUser, resolveChange } from "./shared.js";
 
 /** Append one reviewer entry to `change`'s log. */
 async function recordReviewer(
   ctx: LocalContext,
-  change: RefName | undefined,
+  change: string | undefined,
   reviewer: UserName,
   kind: "add-reviewer" | "remove-reviewer",
 ): Promise<void> {
@@ -37,7 +37,7 @@ export const reviewers = buildRouteMap({
         },
         flags: { change: changeFlag("add the reviewer to") },
       },
-      async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
+      async func(this: LocalContext, flags: { change?: string }, reviewer: UserName) {
         await recordReviewer(this, flags.change, reviewer, "add-reviewer");
       },
     }),
@@ -50,7 +50,7 @@ export const reviewers = buildRouteMap({
         },
         flags: { change: changeFlag("remove the reviewer from") },
       },
-      async func(this: LocalContext, flags: { change?: RefName }, reviewer: UserName) {
+      async func(this: LocalContext, flags: { change?: string }, reviewer: UserName) {
         await recordReviewer(this, flags.change, reviewer, "remove-reviewer");
       },
     }),

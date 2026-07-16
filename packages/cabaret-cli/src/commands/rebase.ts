@@ -33,11 +33,11 @@ export const rebase = buildCommand({
   async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
     const backend = await this.backend();
     if (spec === undefined || spec.kind === "one") {
-      const target = spec?.change ?? (await backend.currentBranch());
+      const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
       await rebaseChange(backend, this.now, target, await backend.readLog(target), flags.evenThoughNotOwner);
       return;
     }
-    const chain = await resolveRange(backend, spec.ancestor, spec.descendant);
+    const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));
     await rebaseChain(backend, this.now, chain, flags.evenThoughNotOwner);
   },
 });

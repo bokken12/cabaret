@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, newTodos, parseRefName, type RefName, requireBranchTip, type Todo } from "cabaret-core";
+import { changeBase, newTodos, requireTip, type Todo } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 /**
@@ -40,17 +40,17 @@ export const todos = buildCommand({
         {
           brief: "change to inspect (defaults to current)",
           placeholder: "change",
-          parse: parseRefName,
+          parse: String,
           optional: true,
         },
       ],
     },
   },
-  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+  async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
-    const target = change ?? (await backend.currentBranch());
+    const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
     const base = await changeBase(backend, target, await backend.readLog(target));
-    const tip = await requireBranchTip(backend, target);
+    const tip = await requireTip(backend, target);
     const rendered: string[] = [];
     for (const file of await backend.changedFiles(base, tip)) {
       const [prev, next] = await Promise.all([backend.readFile(base, file), backend.readFile(tip, file)]);

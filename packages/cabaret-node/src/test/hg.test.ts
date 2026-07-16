@@ -11,7 +11,6 @@ import {
   landChange,
   landMessage,
   parseFilePath,
-  parseRefName,
   rebaseChange,
   reviewSpans,
   type TimestampMs,
@@ -19,7 +18,7 @@ import {
   userName,
 } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { GitBackend, HgBackend, type HgNode, openBackend, parseHgNode } from "../index.js";
+import { GitBackend, HgBackend, type HgName, type HgNode, openBackend, parseHgName, parseHgNode } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,9 +91,9 @@ test("openBackend detects the VCS from the repository markers", async () => {
 test("reports the active bookmark as the current branch, failing when none is", async () => {
   const backend = await HgBackend.open(repo);
   await hg("update", "-q", "main");
-  expect(await backend.currentBranch()).toBe("main");
+  expect(await backend.currentChange()).toBe("main");
   await hg("bookmark", "-q", "-i", "main");
-  await expect(backend.currentBranch()).rejects.toThrow("no bookmark is active");
+  await expect(backend.currentChange()).rejects.toThrow("no bookmark is active");
   await hg("update", "-q", "main");
 });
 
@@ -108,6 +107,27 @@ test("resolveFile maps user paths to repo-relative ones", async () => {
   const sub = await HgBackend.open(join(repo, "sub"));
   expect(sub.resolveFile("a.ts")).toBe("sub/a.ts");
   expect(sub.resolveFile("../src/a.ts")).toBe("src/a.ts");
+});
+
+test("the hg name grammar reserves hg labels and cabaret's own namespace", () => {
+  for (const ok of ["main", "feature/foo", "release-1.2", "with space", "tip-of-tree", "0x1f"]) {
+    expect(parseHgName(ok)).toBe(ok);
+  }
+  for (const bad of [
+    "",
+    "tip",
+    "null",
+    ".",
+    "123",
+    "007",
+    "foo:bar",
+    "foo@default",
+    "cabaret/log/x",
+    " padded ",
+    "line\nbreak",
+  ]) {
+    expect(() => parseHgName(bad)).toThrow("not a valid bookmark name");
+  }
 });
 
 test("currentUser is the email inside a conventional username", async () => {
@@ -149,14 +169,14 @@ test("global config writes land in the global file, and scoped reads stay scoped
 
 test("a change with no log has the empty log, and appends round-trip", async () => {
   const backend = await HgBackend.open(repo);
-  const change = parseRefName("log-roundtrip");
+  const change = parseHgName("log-roundtrip");
   expect(await backend.readLog(change)).toEqual([]);
   const tip = await backend.resolveCommit(".");
-  const entries: LogEntry<HgNode>[] = [
+  const entries: LogEntry<HgNode, HgName>[] = [
     {
       timestamp: timestampMs(1748000000000),
       user: alice,
-      action: { kind: "set-parent", parent: parseRefName("main") },
+      action: { kind: "set-parent", parent: parseHgName("main") },
     },
     { timestamp: timestampMs(1748000001000), user: alice, action: { kind: "set-base", base: tip } },
   ];
@@ -167,11 +187,11 @@ test("a change with no log has the empty log, and appends round-trip", async () 
 
 test("log commits stay secret, invisible to the user's own push", async () => {
   const backend = await HgBackend.open(repo);
-  await backend.appendLog(parseRefName("log-secret"), [
+  await backend.appendLog(parseHgName("log-secret"), [
     {
       timestamp: timestampMs(1748000000000),
       user: alice,
-      action: { kind: "set-parent", parent: parseRefName("main") },
+      action: { kind: "set-parent", parent: parseHgName("main") },
     },
   ]);
   const phase = await hg("log", "-r", 'bookmark("cabaret/log/log-secret")', "-T", "{phase}");
@@ -181,24 +201,24 @@ test("log commits stay secret, invisible to the user's own push", async () => {
 
 test("listChanges names every change with a log, sorted by name", async () => {
   const backend = await HgBackend.open(repo);
-  const entry: LogEntry<HgNode> = {
+  const entry: LogEntry<HgNode, HgName> = {
     timestamp: timestampMs(1748000000000),
     user: alice,
-    action: { kind: "set-parent", parent: parseRefName("main") },
+    action: { kind: "set-parent", parent: parseHgName("main") },
   };
-  await backend.appendLog(parseRefName("list-b"), [entry]);
-  await backend.appendLog(parseRefName("list-a"), [entry]);
+  await backend.appendLog(parseHgName("list-b"), [entry]);
+  await backend.appendLog(parseHgName("list-a"), [entry]);
   const changes = await backend.listChanges();
   expect(changes.filter((name) => name.startsWith("list-"))).toEqual(["list-a", "list-b"]);
 });
 
-test("branchTip reads bookmarks; createBranch creates and refuses to overwrite", async () => {
+test("tip reads bookmarks; create creates and refuses to overwrite", async () => {
   const backend = await HgBackend.open(repo);
   const tip = await backend.resolveCommit(".");
-  expect(await backend.branchTip(parseRefName("no-such-bookmark"))).toBe(undefined);
-  await backend.createBranch(parseRefName("created"), tip);
-  expect(await backend.branchTip(parseRefName("created"))).toBe(tip);
-  await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow('branch already exists: "created"');
+  expect(await backend.tip(parseHgName("no-such-bookmark"))).toBe(undefined);
+  await backend.create(parseHgName("created"), tip);
+  expect(await backend.tip(parseHgName("created"))).toBe(tip);
+  await expect(backend.create(parseHgName("created"), tip)).rejects.toThrow('bookmark already exists: "created"');
 });
 
 test("resolveCommit speaks hg's native revision syntax and rejects unknowns", async () => {
@@ -251,10 +271,10 @@ test("createChange, rebaseChange, and landChange run against hg end to end", { t
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
-  const change = parseRefName("gadget");
+  const change = parseHgName("gadget");
 
-  await createChange(backend, now, change, parseRefName("main"));
-  expect(await backend.branchTip(change)).toBe(await backend.branchTip(parseRefName("main")));
+  await createChange(backend, now, change, parseHgName("main"));
+  expect(await backend.tip(change)).toBe(await backend.tip(parseHgName("main")));
 
   // The change grows a commit while main moves on underneath it.
   await hg("update", "-q", "gadget");
@@ -266,7 +286,7 @@ test("createChange, rebaseChange, and landChange run against hg end to end", { t
   await rebaseChange(backend, now, change, await backend.readLog(change), false);
   const rebased = await backend.readLog(change);
   const base = await changeBase(backend, change, rebased);
-  expect(base).toBe(await backend.branchTip(parseRefName("main")));
+  expect(base).toBe(await backend.tip(parseHgName("main")));
   const tip = await changeTip(backend, change, rebased);
   expect(await backend.readFile(tip, parseFilePath("main.txt"))).toBe("moved\n");
   expect(await backend.readFile(tip, parseFilePath("gadget.txt"))).toBe("work\n");
@@ -274,7 +294,7 @@ test("createChange, rebaseChange, and landChange run against hg end to end", { t
   // Land: a merge commit on main carrying the trailer, found by landMerges.
   // Obligations are core logic under core tests; this exercises the merge machinery.
   await landChange(backend, now, change, rebased, "merge", { notOwner: false, unreviewed: true });
-  const mainTip = await backend.branchTip(parseRefName("main"));
+  const mainTip = await backend.tip(parseHgName("main"));
   if (mainTip === undefined) {
     throw new Error("main lost its tip");
   }
@@ -291,8 +311,8 @@ test("squash lands one single-parent commit", { timeout: 60000 }, async () => {
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
-  const change = parseRefName("squashed");
-  await createChange(backend, now, change, parseRefName("main"));
+  const change = parseHgName("squashed");
+  await createChange(backend, now, change, parseHgName("main"));
   await hg("update", "-q", "squashed");
   await commit(repo, "first", { "squash.txt": "one\n" });
   await commit(repo, "second", { "squash.txt": "one\ntwo\n" });
@@ -301,7 +321,7 @@ test("squash lands one single-parent commit", { timeout: 60000 }, async () => {
     notOwner: false,
     unreviewed: true,
   });
-  const mainTip = await backend.branchTip(parseRefName("main"));
+  const mainTip = await backend.tip(parseHgName("main"));
   expect(await hg("log", "-r", "main", "-T", "{p2node}")).toBe("0".repeat(40));
   expect(mainTip === undefined ? undefined : await backend.readFile(mainTip, parseFilePath("squash.txt"))).toBe(
     "one\ntwo\n",
@@ -312,8 +332,8 @@ test("a net-empty change still squash-lands, as an empty commit", { timeout: 600
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
-  const change = parseRefName("net-empty");
-  await createChange(backend, now, change, parseRefName("main"));
+  const change = parseHgName("net-empty");
+  await createChange(backend, now, change, parseHgName("main"));
   await hg("update", "-q", "net-empty");
   await commit(repo, "add", { "ephemeral.txt": "here\n" });
   await hg("rm", "-q", "path:ephemeral.txt");
@@ -344,9 +364,9 @@ test("mergeOnto resolves against the change's own base and commits conflicts wit
   await hg("bookmark", "-q", "-f", "-r", onto, "main");
 
   expect(await backend.mergeConflicts(base, tip, onto)).toEqual(["clash.txt"]);
-  const conflicts = await backend.mergeOnto(parseRefName("clasher"), base, onto, "merge main into clasher");
+  const conflicts = await backend.mergeOnto(parseHgName("clasher"), base, onto, "merge main into clasher");
   expect(conflicts).toEqual(["clash.txt"]);
-  const merged = await backend.branchTip(parseRefName("clasher"));
+  const merged = await backend.tip(parseHgName("clasher"));
   if (merged === undefined) {
     throw new Error("clasher lost its tip");
   }
@@ -361,31 +381,31 @@ test("mergeOnto resolves against the change's own base and commits conflicts wit
   await hg("update", "-q", "main");
 });
 
-test("renameChange moves the branch and the log together and refuses existing targets", async () => {
+test("rename moves the branch and the log together and refuses existing targets", async () => {
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
-  await createChange(backend, now, parseRefName("old-name"), parseRefName("main"));
-  await createChange(backend, now, parseRefName("occupied"), parseRefName("main"));
-  await expect(backend.renameChange(parseRefName("old-name"), parseRefName("occupied"))).rejects.toThrow(
-    'branch or log already exists: "occupied"',
+  await createChange(backend, now, parseHgName("old-name"), parseHgName("main"));
+  await createChange(backend, now, parseHgName("occupied"), parseHgName("main"));
+  await expect(backend.rename(parseHgName("old-name"), parseHgName("occupied"))).rejects.toThrow(
+    'bookmark or log already exists: "occupied"',
   );
-  await backend.renameChange(parseRefName("old-name"), parseRefName("new-name"));
-  expect(await backend.branchTip(parseRefName("old-name"))).toBe(undefined);
-  expect(await backend.branchTip(parseRefName("new-name"))).toBeDefined();
-  expect(await backend.readLog(parseRefName("old-name"))).toEqual([]);
-  expect((await backend.readLog(parseRefName("new-name"))).length).toBeGreaterThan(0);
+  await backend.rename(parseHgName("old-name"), parseHgName("new-name"));
+  expect(await backend.tip(parseHgName("old-name"))).toBe(undefined);
+  expect(await backend.tip(parseHgName("new-name"))).toBeDefined();
+  expect(await backend.readLog(parseHgName("old-name"))).toEqual([]);
+  expect((await backend.readLog(parseHgName("new-name"))).length).toBeGreaterThan(0);
 });
 
 test("workspaces reports the primary working tree; dedicated workspaces are refused", async () => {
   const backend = await HgBackend.open(repo);
   await hg("update", "-q", "main");
   const [workspace] = await backend.workspaces();
-  expect(workspace).toEqual({ path: backend.root, branch: "main", dirty: false, primary: true });
+  expect(workspace).toEqual({ path: backend.root, change: "main", dirty: false, primary: true });
   await writeFile(join(repo, "dirty.txt"), "untracked\n");
   expect((await backend.workspaces())[0]?.dirty).toBe(true);
   await rm(join(repo, "dirty.txt"));
-  await expect(backend.addWorkspace(join(dir, "ws"), parseRefName("main"))).rejects.toThrow(
+  await expect(backend.addWorkspace(join(dir, "ws"), parseHgName("main"))).rejects.toThrow(
     "does not support dedicated workspaces",
   );
 });
@@ -394,9 +414,9 @@ test("checkout activates the bookmark, refusing a missing one", async () => {
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
-  await createChange(backend, now, parseRefName("checkout-me"), parseRefName("main"));
-  await backend.checkout(parseRefName("checkout-me"));
-  expect(await backend.currentBranch()).toBe("checkout-me");
-  await expect(backend.checkout(parseRefName("nowhere"))).rejects.toThrow('branch does not exist: "nowhere"');
-  await backend.checkout(parseRefName("main"));
+  await createChange(backend, now, parseHgName("checkout-me"), parseHgName("main"));
+  await backend.checkout(parseHgName("checkout-me"));
+  expect(await backend.currentChange()).toBe("checkout-me");
+  await expect(backend.checkout(parseHgName("nowhere"))).rejects.toThrow('bookmark does not exist: "nowhere"');
+  await backend.checkout(parseHgName("main"));
 });

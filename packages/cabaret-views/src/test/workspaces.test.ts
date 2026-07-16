@@ -1,4 +1,4 @@
-import { parseRefName } from "cabaret-core";
+import { parseBranchName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { displayPath, docText, targetAt, type WorkspaceRow, workspacesDoc } from "../index.js";
 
@@ -15,12 +15,12 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
   const row = (
     path: string,
     display: string,
-    branch: string | undefined,
+    change: string | undefined,
     opts?: Partial<Omit<WorkspaceRow, "workspace" | "display">> & { dirty?: boolean; primary?: boolean },
   ): WorkspaceRow => ({
     workspace: {
       path,
-      branch: branch === undefined ? undefined : parseRefName(branch),
+      change: change === undefined ? undefined : parseBranchName(change),
       dirty: opts?.dirty ?? false,
       primary: opts?.primary ?? false,
     },

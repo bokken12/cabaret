@@ -1,4 +1,4 @@
-import { forgeChangeId, parseRefName } from "cabaret-core";
+import { forgeChangeId, parseBranchName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo, type TestRepo } from "./fixture.js";
@@ -122,7 +122,7 @@ test("an imported draft starts with nobody reviewing", async () => {
   await repo.git("push", "-q", "origin", "their-feature");
   await repo.git("checkout", "-q", "main");
   await repo.git("branch", "-qD", "their-feature");
-  forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature", true);
+  forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature", true);
   await repo.cabaret("pull");
   expect(await repo.cabaret("reviewing", "--change", "their-feature")).toEqual({
     stdout: "none\n",

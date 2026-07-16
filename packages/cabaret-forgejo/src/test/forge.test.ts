@@ -1,4 +1,4 @@
-import { forgeChangeId, parseCommitHash, parseRefName, UserError, userName } from "cabaret-core";
+import { forgeChangeId, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ForgejoClient, parseForgejoRemote } from "../client.js";
 import { ForgejoForge } from "../forge.js";
@@ -77,7 +77,7 @@ describe("ForgejoForge", () => {
     const calls = stubForgejo({
       [`PATCH ${REPO}/pulls/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
@@ -332,7 +332,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/7/reviews?limit=50&page=1`]: { json: [] },
       [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
     });
-    expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
+    expect(await forge().findChange(parseBranchName("add-tables"))).toEqual({
       id: 7,
       head: "add-tables",
       tip: shaOf(7),
@@ -354,7 +354,7 @@ describe("ForgejoForge", () => {
     stubForgejo({
       [`GET ${REPO}/pulls?state=open&limit=50&page=1`]: { json: [openPr(3, "other")] },
     });
-    expect(await forge().findChange(parseRefName("orphan"))).toBeUndefined();
+    expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
   test("fetchOpenChanges pages past a full page, carrying each PR's whole discussion", async () => {
@@ -423,7 +423,7 @@ describe("ForgejoForge", () => {
       [`GET ${API}/users/dave`]: { json: { email: "" } },
     });
     expect(
-      await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work", false),
+      await forge().createChange(parseBranchName("new-work"), parseBranchName("parent-branch"), "New work", false),
     ).toEqual({
       id: 12,
       head: "new-work",
@@ -458,7 +458,9 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/13/reviews?limit=50&page=1`]: { json: [] },
       [`GET ${API}/users/dave`]: { json: { email: "" } },
     });
-    expect((await forge().createChange(parseRefName("sketch"), parseRefName("main"), "Sketch", true)).draft).toBe(true);
+    expect((await forge().createChange(parseBranchName("sketch"), parseBranchName("main"), "Sketch", true)).draft).toBe(
+      true,
+    );
     expect(calls[0]?.body).toBe(JSON.stringify({ head: "sketch", base: "main", title: "WIP: Sketch" }));
   });
 
@@ -466,7 +468,7 @@ describe("ForgejoForge", () => {
     const calls = stubForgejo({
       [`PATCH ${REPO}/pulls/12`]: { json: {} },
     });
-    await forge().setParent(forgeChangeId(12), parseRefName("develop"));
+    await forge().setParent(forgeChangeId(12), parseBranchName("develop"));
     expect(calls[0]?.body).toBe(JSON.stringify({ base: "develop" }));
   });
 

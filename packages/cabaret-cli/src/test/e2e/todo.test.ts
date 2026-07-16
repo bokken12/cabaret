@@ -1,4 +1,4 @@
-import { parseCommitHash, parseRefName } from "cabaret-core";
+import { parseBranchName, parseCommitHash } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo, type TestRepo } from "./fixture.js";
@@ -154,7 +154,7 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   await repo.git("branch", "-qD", "gadget");
   const { stdout, stderr, exitCode } = await repo.cabaret("todo");
   expect({ stderr, exitCode }).toEqual({
-    stderr: 'gadget: branch does not exist: "gadget"\n',
+    stderr: 'gadget: "gadget" does not exist\n',
     exitCode: 0,
   });
   expect(stdout).toMatchInlineSnapshot(`
@@ -222,7 +222,7 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   await repo.git("push", "-q", "origin", "their-feature");
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
-  forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
@@ -263,7 +263,7 @@ test("your own forge change joins the changes you own when identities align", as
   await repo.git("commit", "-qm", "solo work");
   await repo.git("push", "-q", "origin", "solo-feature");
   await repo.git("checkout", "-q", "main");
-  forge.openPr("alice", parseRefName("solo-feature"), parseRefName("main"), "Solo feature");
+  forge.openPr("alice", parseBranchName("solo-feature"), parseBranchName("main"), "Solo feature");
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
@@ -289,7 +289,7 @@ test("your own forge change joins the changes you own when identities align", as
 test("a merged forge change is not imported", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
   await repo.cabaret("pull");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`

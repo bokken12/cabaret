@@ -1,12 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import {
-  assertNoConflict,
-  assertReviewing,
-  changeBase,
-  conflictedFiles,
-  type RefName,
-  requireBranchTip,
-} from "cabaret-core";
+import { assertNoConflict, assertReviewing, changeBase, conflictedFiles, requireTip } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -41,7 +34,7 @@ export const review = buildCommand({
   },
   async func(
     this: LocalContext,
-    flags: { change?: RefName; tip?: string; evenThoughNotReviewing: boolean },
+    flags: { change?: string; tip?: string; evenThoughNotReviewing: boolean },
     ...rawFiles: string[]
   ) {
     const backend = await this.backend();
@@ -50,13 +43,13 @@ export const review = buildCommand({
     if (!flags.evenThoughNotReviewing) {
       await assertReviewing(backend, change, entries);
     }
-    const branchTip = await requireBranchTip(backend, change);
-    const tip = flags.tip === undefined ? branchTip : await backend.resolveCommit(flags.tip);
+    const head = await requireTip(backend, change);
+    const tip = flags.tip === undefined ? head : await backend.resolveCommit(flags.tip);
     const base = await changeBase(backend, change, entries);
     // Conflicts are judged at the change's own tip whatever --tip says: while
     // markers sit in the code, fixing them — not review — is the change's
     // next step.
-    assertNoConflict(change, await conflictedFiles(backend, branchTip, await backend.changedFiles(base, branchTip)));
+    assertNoConflict(change, await conflictedFiles(backend, head, await backend.changedFiles(base, head)));
     const user = await backend.currentUser();
     await backend.appendLog(
       change,

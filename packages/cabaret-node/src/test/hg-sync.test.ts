@@ -3,17 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import {
-  currentParent,
-  formatLogEntry,
-  type LogAction,
-  type LogEntry,
-  parseRefName,
-  timestampMs,
-  userName,
-} from "cabaret-core";
+import { currentParent, formatLogEntry, type LogAction, type LogEntry, timestampMs, userName } from "cabaret-core";
 import { expect, onTestFinished, test } from "vitest";
-import { HgBackend, type HgNode, parseHgNode } from "../index.js";
+import { HgBackend, type HgName, type HgNode, parseHgName, parseHgNode } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -59,15 +51,15 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   return [await machine("alice@example.com"), await machine("bob@example.com")];
 }
 
-function entry(timestamp: number, user: string, action: LogAction<HgNode>): LogEntry<HgNode> {
+function entry(timestamp: number, user: string, action: LogAction<HgNode, HgName>): LogEntry<HgNode, HgName> {
   return { timestamp: timestampMs(timestamp), user: userName(user), action };
 }
 
-function setParent(timestamp: number, user: string, parent: string): LogEntry<HgNode> {
-  return entry(timestamp, user, { kind: "set-parent", parent: parseRefName(parent) });
+function setParent(timestamp: number, user: string, parent: string): LogEntry<HgNode, HgName> {
+  return entry(timestamp, user, { kind: "set-parent", parent: parseHgName(parent) });
 }
 
-const WIDGETS = parseRefName("widgets");
+const WIDGETS = parseHgName("widgets");
 
 interface LogState {
   readonly blob: string;
@@ -153,13 +145,13 @@ test("syncLogs sweeps every change, local and remote alike, sorted", { timeout: 
   const [a, b] = await makeMachines();
   expect(await a.backend.syncLogs()).toEqual([]);
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
-  await a.backend.appendLog(parseRefName("api"), [setParent(1001, "alice@example.com", "main")]);
+  await a.backend.appendLog(parseHgName("api"), [setParent(1001, "alice@example.com", "main")]);
   expect(await a.backend.syncLogs()).toEqual(["api", "widgets"]);
-  await b.backend.appendLog(parseRefName("docs"), [setParent(1002, "bob@example.com", "main")]);
+  await b.backend.appendLog(parseHgName("docs"), [setParent(1002, "bob@example.com", "main")]);
   expect(await b.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
   expect(await b.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main")]);
   expect(await a.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
-  expect(await a.backend.readLog(parseRefName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
+  expect(await a.backend.readLog(parseHgName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
 });
 
 /** Commit `files` on `machine` and return the new changeset id. */
@@ -172,68 +164,68 @@ async function commit(machine: Machine, message: string, files: Record<string, s
   return parseHgNode(await machine.hg("log", "-r", ".", "-T", "{node}"));
 }
 
-test("pushBranch and fetchBranch move code branches, and originTip tracks what was seen", {
+test("push and fetch move code branches, and originTip tracks what was seen", {
   timeout: 60000,
 }, async () => {
   const [a, b] = await makeMachines();
-  const main = parseRefName("main");
+  const main = parseHgName("main");
   // A synced log first: origin then already has a named branch, so the code
   // push is the "push creates new remote branches" case, not an empty-repo one.
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
   await a.backend.syncLog(WIDGETS);
   const first = await commit(a, "root", { "f.txt": "one\n" });
   await a.hg("bookmark", "-r", ".", "main");
-  await a.backend.pushBranch(main);
+  await a.backend.push(main);
   expect(await a.backend.originTip(main)).toBe(first);
 
-  expect(await b.backend.branchTip(main)).toBe(undefined);
-  await b.backend.fetchBranch(main);
-  expect(await b.backend.branchTip(main)).toBe(first);
+  expect(await b.backend.tip(main)).toBe(undefined);
+  await b.backend.fetch(main);
+  expect(await b.backend.tip(main)).toBe(first);
   expect(await b.backend.originTip(main)).toBe(first);
 
   // a advances and pushes; b fast-forwards, carrying its checkout along.
   await a.hg("update", "-q", "main");
   const second = await commit(a, "more", { "f.txt": "one\ntwo\n" });
   await a.hg("bookmark", "-q", "-f", "-r", ".", "main");
-  await a.backend.pushBranch(main);
+  await a.backend.push(main);
   await b.hg("update", "-q", "main");
-  await b.backend.fetchBranch(main);
-  expect(await b.backend.branchTip(main)).toBe(second);
+  await b.backend.fetch(main);
+  expect(await b.backend.tip(main)).toBe(second);
   expect(await b.hg("log", "-r", ".", "-T", "{node}")).toBe(second);
 
   // With remotenames enabled in config — Cabaret's own setup recommends it —
   // records of origin's bookmarks must not read as local branches.
   await b.backend.configSet("extensions.remotenames", "", "local");
-  expect(await b.backend.branchTip(parseRefName("default/main"))).toBe(undefined);
+  expect(await b.backend.tip(parseHgName("default/main"))).toBe(undefined);
   expect(await b.backend.listChanges()).toEqual([]);
-  expect(await b.backend.branchTip(main)).toBe(second);
+  expect(await b.backend.tip(main)).toBe(second);
 });
 
-test("pushBranch replaces a rewritten branch under lease, but never unseen work", { timeout: 60000 }, async () => {
+test("push replaces a rewritten branch under lease, but never unseen work", { timeout: 60000 }, async () => {
   const [a, b] = await makeMachines();
-  const feature = parseRefName("feature");
+  const feature = parseHgName("feature");
   await commit(a, "base", { "f.txt": "base\n" });
   await a.hg("bookmark", "-r", ".", "feature");
-  await a.backend.pushBranch(feature);
-  await b.backend.fetchBranch(feature);
+  await a.backend.push(feature);
+  await b.backend.fetch(feature);
 
   // b "rewrites" the branch: a sibling commit replaces the fetched tip.
   await b.hg("update", "-q", "null");
   const rewritten = await commit(b, "rewrite", { "g.txt": "rewritten\n" });
   await b.hg("bookmark", "-q", "-f", "-r", ".", "feature");
   // b saw origin's tip when it fetched, so the replacement is within its lease.
-  await b.backend.pushBranch(feature);
+  await b.backend.push(feature);
 
   // a, still holding the old tip, has never fetched the rewrite: refused.
   await a.hg("update", "-q", "feature");
   await commit(a, "stale work", { "f.txt": "base\nstale\n" });
   await a.hg("bookmark", "-q", "-f", "-r", ".", "feature");
-  await expect(a.backend.pushBranch(feature)).rejects.toThrow(
+  await expect(a.backend.push(feature)).rejects.toThrow(
     'origin\'s copy of "feature" has work this repository never fetched',
   );
   // After fetching (and diverging), the branch is b's to resolve — but the
   // fetch itself must refuse to overwrite a's local work.
-  await expect(a.backend.fetchBranch(feature)).rejects.toThrow('branch has diverged from origin: "feature"');
+  await expect(a.backend.fetch(feature)).rejects.toThrow('bookmark has diverged from origin: "feature"');
   expect(await a.hg("bookmarks", "-T", "{bookmark}\\n")).not.toContain("feature@default");
   void rewritten;
 });
@@ -268,7 +260,7 @@ test("wipeReviewState forgets local logs and a sync restores them from origin", 
 test("wipeOriginLogs deletes every log on origin, for every change", { timeout: 60000 }, async () => {
   const [a, b] = await makeMachines();
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
-  await a.backend.appendLog(parseRefName("api"), [setParent(1001, "alice@example.com", "main")]);
+  await a.backend.appendLog(parseHgName("api"), [setParent(1001, "alice@example.com", "main")]);
   await a.backend.syncLogs();
   expect(await a.backend.wipeOriginLogs()).toEqual(["api", "widgets"]);
   // A fresh machine now sees no logs on origin.

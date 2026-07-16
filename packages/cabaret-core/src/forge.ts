@@ -1,5 +1,6 @@
 import {
   type Backend,
+  type ChangeName,
   type CommitHash,
   compareLogEntries,
   currentForgeChange,
@@ -19,7 +20,6 @@ import {
   observedForgeParent,
   observedForgeReviewers,
   observedForgeReviewing,
-  type RefName,
   type Reviewing,
   type Revision,
   type TimestampMs,
@@ -68,15 +68,15 @@ export interface Forge {
   fetchOpenChanges(): Promise<readonly OpenChange[]>;
 
   /** The open change with head `branch`, or undefined if there is none. */
-  findChange(branch: RefName): Promise<ForgeChange | undefined>;
+  findChange(branch: ChangeName): Promise<ForgeChange | undefined>;
 
   getChange(id: ForgeChangeId): Promise<ForgeChange>;
 
   /** Open a change merging `head` into `parent`, as a draft when `draft`. `head` must already be pushed. */
-  createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange>;
+  createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange>;
 
   /** Retarget an open change's parent branch. */
-  setParent(id: ForgeChangeId, parent: RefName): Promise<void>;
+  setParent(id: ForgeChangeId, parent: ChangeName): Promise<void>;
 
   /** Mark an open change as a draft, or as ready for review. */
   setDraft(id: ForgeChangeId, draft: boolean): Promise<void>;
@@ -428,7 +428,7 @@ function adoptionEntries(
   user: UserName,
   locator: ForgeLocator,
   forgeChange: ForgeChange,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry[],
 ): LogEntry<CommitHash>[] {
   const adoption: LogEntry<CommitHash>[] = [
@@ -463,7 +463,7 @@ export async function syncedForgeChange(
   backend: Backend<CommitHash>,
   now: () => TimestampMs,
   forge: Forge,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<CommitHash>[],
 ): Promise<ForgeChange | undefined> {
   const recorded = currentForgeChange(entries);
@@ -493,7 +493,7 @@ export async function landOnForge(
   backend: Backend<CommitHash>,
   now: () => TimestampMs,
   forge: Forge,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<CommitHash>[],
   forgeChange: ForgeChange,
   method: LandMethod,
@@ -521,7 +521,7 @@ export async function landOnForge(
         `not ${JSON.stringify(parent)}; run \`cabaret push\` to retarget it`,
     );
   }
-  await backend.fetchBranch(parent);
+  await backend.fetch(parent);
   const prepared = await prepareLand(backend, change, entries, overrides);
   if (forgeChange.tip !== prepared.tip) {
     throw new UserError(
@@ -530,7 +530,7 @@ export async function landOnForge(
   }
   const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
   await recordLand(backend, now, change, entries, prepared, merge);
-  await backend.fetchBranch(parent);
+  await backend.fetch(parent);
   return merge.commit;
 }
 
@@ -539,7 +539,7 @@ export interface LandOutcome {
   /** The forge change merged, or undefined for a local land. */
   readonly merged: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
   /** The landed change's children, moved onto `onto` to follow the code; undefined when none moved. */
-  readonly reparented: { readonly onto: RefName; readonly children: readonly RefName[] } | undefined;
+  readonly reparented: { readonly onto: ChangeName; readonly children: readonly ChangeName[] } | undefined;
 }
 
 /**
@@ -554,7 +554,7 @@ export async function landAsConfigured<R extends Revision>(
   now: () => TimestampMs,
   openForge: () => Promise<Forge>,
   config: Config,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<R>[],
   overrides: LandOverrides,
 ): Promise<LandOutcome> {
@@ -584,22 +584,22 @@ export async function landAsConfigured<R extends Revision>(
 
 /** One thing a pull did, as it happens, so hosts can narrate in their own voice. */
 export type PullEvent =
-  | { readonly kind: "imported"; readonly id: ForgeChangeId; readonly change: RefName; readonly comments: number }
-  | { readonly kind: "skipped"; readonly id: ForgeChangeId; readonly change: RefName; readonly reason: string }
+  | { readonly kind: "imported"; readonly id: ForgeChangeId; readonly change: ChangeName; readonly comments: number }
+  | { readonly kind: "skipped"; readonly id: ForgeChangeId; readonly change: ChangeName; readonly reason: string }
   | {
       readonly kind: "pulled";
       readonly id: ForgeChangeId;
-      readonly change: RefName;
+      readonly change: ChangeName;
       readonly comments: number;
       /** How many reviewer memberships the forge moved since last observed. */
       readonly reviewers: number;
       readonly landed: boolean;
       /** The parent a forge-side retarget mirrored in, when one did. */
-      readonly parent?: RefName | undefined;
+      readonly parent?: ChangeName | undefined;
       /** The reviewing set a forge-side draft toggle mirrored in, when one did. */
       readonly reviewing?: Reviewing | undefined;
     }
-  | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: RefName };
+  | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName };
 
 /**
  * Pull one tracked change's forge activity into its log: comments the log
@@ -616,7 +616,7 @@ export async function pullTrackedChange(
   backend: Backend<CommitHash>,
   now: () => TimestampMs,
   forge: Forge,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<CommitHash>[],
   forgeChange: ForgeChange,
   comments?: readonly ForgeComment[],
@@ -624,7 +624,7 @@ export async function pullTrackedChange(
   readonly comments: number;
   readonly reviewers: number;
   readonly landed: boolean;
-  readonly parent?: RefName | undefined;
+  readonly parent?: ChangeName | undefined;
   readonly reviewing?: Reviewing | undefined;
 }> {
   const user = await backend.currentUser();
@@ -705,7 +705,7 @@ export async function pullForge(
   const open = await forge.fetchOpenChanges();
   // Heads sharing a branch collapse to the lowest id, so every machine
   // imports the same change for a branch with several open forge changes.
-  const byHead = new Map<RefName, OpenChange>();
+  const byHead = new Map<ChangeName, OpenChange>();
   for (const candidate of open) {
     const prev = byHead.get(candidate.change.head);
     if (prev === undefined || candidate.change.id < prev.change.id) {
@@ -719,18 +719,18 @@ export async function pullForge(
   // one that exists stays as it is, not least because git refuses to fetch
   // into a branch some worktree has checked out.
   const imports = [...byHead.values()].filter(({ change }) => !existing.has(change.head));
-  const absent = new Set<RefName>();
+  const absent = new Set<ChangeName>();
   for (const { change } of imports) {
     for (const branch of [change.head, change.parent]) {
-      if (!absent.has(branch) && (await backend.branchTip(branch)) === undefined) {
+      if (!absent.has(branch) && (await backend.tip(branch)) === undefined) {
         absent.add(branch);
       }
     }
   }
-  await backend.fetchBranches([...absent]);
+  await backend.fetchAll([...absent]);
   for (const { change: forgeChange, comments, commentsTruncated } of imports) {
-    const headTip = await backend.branchTip(forgeChange.head);
-    const parentTip = await backend.branchTip(forgeChange.parent);
+    const headTip = await backend.tip(forgeChange.head);
+    const parentTip = await backend.tip(forgeChange.parent);
     if (headTip === undefined || parentTip === undefined) {
       const missing = headTip === undefined ? forgeChange.head : forgeChange.parent;
       onEvent({
@@ -773,7 +773,7 @@ export async function pullForge(
 
   // Refresh: every change tracked before the import phase, so a fresh import
   // is not immediately re-pulled as a no-op.
-  const pruneCandidates: { readonly change: RefName; readonly id: ForgeChangeId }[] = [];
+  const pruneCandidates: { readonly change: ChangeName; readonly id: ForgeChangeId }[] = [];
   for (const change of tracked) {
     const entries = await backend.readLog(change);
     if (landedMerge(entries) !== undefined) {
@@ -847,11 +847,11 @@ export async function pushChange(
   backend: Backend<CommitHash>,
   now: () => TimestampMs,
   forge: Forge,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<CommitHash>[],
 ): Promise<PushResult> {
   const parent = currentParent(change, entries);
-  await backend.pushBranch(change);
+  await backend.push(change);
   // Whenever the push sets the forge's parent — at creation or by a
   // retarget — the log records the observation, so a later pull can
   // tell a forge-side retarget from the state this push left behind.

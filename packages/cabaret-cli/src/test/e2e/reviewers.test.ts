@@ -1,4 +1,4 @@
-import { forgeChangeId, parseRefName } from "cabaret-core";
+import { forgeChangeId, parseBranchName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo, type TestRepo } from "./fixture.js";
@@ -195,7 +195,7 @@ test("pull imports a forge change with its reviewers", async () => {
   await repo.git("push", "-q", "origin", "their-feature");
   await repo.git("checkout", "-q", "main");
   await repo.git("branch", "-qD", "their-feature");
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.requestReviewer(id, "alice");
   await repo.cabaret("pull");
   expect(await shownReviewers(repo, "their-feature")).toBe("│ reviewers    │ alice@users.noreply.github.com │");

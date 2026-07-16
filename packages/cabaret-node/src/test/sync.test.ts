@@ -4,12 +4,13 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  type BranchName,
   type CommitHash,
   currentParent,
   formatLogEntry,
   type LogAction,
   type LogEntry,
-  parseRefName,
+  parseBranchName,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -58,15 +59,19 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   return [await machine("alice@example.com"), await machine("bob@example.com")];
 }
 
-function entry(timestamp: number, user: string, action: LogAction<CommitHash>): LogEntry<CommitHash> {
+function entry(
+  timestamp: number,
+  user: string,
+  action: LogAction<CommitHash, BranchName>,
+): LogEntry<CommitHash, BranchName> {
   return { timestamp: timestampMs(timestamp), user: userName(user), action };
 }
 
-function setParent(timestamp: number, user: string, parent: string): LogEntry<CommitHash> {
-  return entry(timestamp, user, { kind: "set-parent", parent: parseRefName(parent) });
+function setParent(timestamp: number, user: string, parent: string): LogEntry<CommitHash, BranchName> {
+  return entry(timestamp, user, { kind: "set-parent", parent: parseBranchName(parent) });
 }
 
-const WIDGETS = parseRefName("widgets");
+const WIDGETS = parseBranchName("widgets");
 
 interface LogState {
   readonly blob: string;
@@ -146,11 +151,11 @@ test("syncLogs sweeps every change, local and remote alike, sorted", async () =>
   const [a, b] = await makeMachines();
   expect(await a.backend.syncLogs()).toEqual([]);
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
-  await a.backend.appendLog(parseRefName("api"), [setParent(1001, "alice@example.com", "main")]);
+  await a.backend.appendLog(parseBranchName("api"), [setParent(1001, "alice@example.com", "main")]);
   expect(await a.backend.syncLogs()).toEqual(["api", "widgets"]);
-  await b.backend.appendLog(parseRefName("docs"), [setParent(1002, "bob@example.com", "main")]);
+  await b.backend.appendLog(parseBranchName("docs"), [setParent(1002, "bob@example.com", "main")]);
   expect(await b.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
   expect(await b.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main")]);
   expect(await a.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
-  expect(await a.backend.readLog(parseRefName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
+  expect(await a.backend.readLog(parseBranchName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
 });

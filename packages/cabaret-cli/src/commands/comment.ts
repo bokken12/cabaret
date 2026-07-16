@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type RefName, UserError } from "cabaret-core";
+import { UserError } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -24,7 +24,7 @@ export const comment = buildCommand({
     },
     flags: { change: changeFlag("comment on") },
   },
-  async func(this: LocalContext, flags: { change?: RefName }, text: string) {
+  async func(this: LocalContext, flags: { change?: string }, text: string) {
     const backend = await this.backend();
     const { change } = await resolveChange(backend, flags.change);
     await backend.appendLog(change, [

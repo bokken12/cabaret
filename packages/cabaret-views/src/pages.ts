@@ -1,11 +1,11 @@
-import { type FilePath, parseFilePath, parseRefName, type RefName } from "cabaret-core";
+import { type ChangeName, type FilePath, parseBranchName, parseFilePath } from "cabaret-core";
 
 /** A renderable page, addressed by the path of a `cabaret:` URI. */
 export type Page =
   | { readonly kind: "todo" }
-  | { readonly kind: "show"; readonly change: RefName }
-  | { readonly kind: "review"; readonly change: RefName }
-  | { readonly kind: "diff"; readonly change: RefName; readonly file: FilePath };
+  | { readonly kind: "show"; readonly change: ChangeName }
+  | { readonly kind: "review"; readonly change: ChangeName }
+  | { readonly kind: "diff"; readonly change: ChangeName; readonly file: FilePath };
 
 /**
  * The URI path denoting `page`. Inverse of `parsePagePath`. A diff path joins
@@ -32,18 +32,18 @@ export function parsePagePath(path: string): Page {
   }
   const show = /^\/show\/(.+)$/.exec(path)?.[1];
   if (show !== undefined) {
-    return { kind: "show", change: parseRefName(show) };
+    return { kind: "show", change: parseBranchName(show) };
   }
   const review = /^\/review\/(.+)$/.exec(path)?.[1];
   if (review !== undefined) {
-    return { kind: "review", change: parseRefName(review) };
+    return { kind: "review", change: parseBranchName(review) };
   }
   // `[\s\S]` rather than `.` keeps the parse total: a file path (unlike a
   // ref name) is not barred from containing newlines, even though the doc
   // layer will refuse to render one.
   const diff = /^\/diff\/([^:]+):([\s\S]+)$/.exec(path);
   if (diff?.[1] !== undefined && diff[2] !== undefined) {
-    return { kind: "diff", change: parseRefName(diff[1]), file: parseFilePath(diff[2]) };
+    return { kind: "diff", change: parseBranchName(diff[1]), file: parseFilePath(diff[2]) };
   }
   throw new Error(`not a cabaret page: ${JSON.stringify(path)}`);
 }

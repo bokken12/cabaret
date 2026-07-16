@@ -1,4 +1,3 @@
-import { ExitCode } from "@stricli/core";
 import { expect, test } from "vitest";
 import { makeRepo } from "./fixture.js";
 
@@ -27,7 +26,7 @@ test("rejects a malformed change name", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("log", "not..a..ref")).toEqual({
     stdout: "",
-    stderr: 'Failed to parse "not..a..ref" for change: not a valid ref name: "not..a..ref"\n',
-    exitCode: ExitCode.InvalidArgument,
+    stderr: 'not a valid branch name: "not..a..ref"\n',
+    exitCode: 1,
   });
 });

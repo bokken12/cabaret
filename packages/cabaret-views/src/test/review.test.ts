@@ -1,9 +1,9 @@
 import {
   type Backend,
   type LogEntry,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
-  parseRefName,
   type Revision,
   timestampMs,
   userName,
@@ -24,7 +24,7 @@ function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
-const widgets = parseRefName("widgets");
+const widgets = parseBranchName("widgets");
 
 test("reviewDoc lists the round's files and what follows", () => {
   const doc = reviewDoc({

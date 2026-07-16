@@ -1,4 +1,5 @@
 import {
+  type BranchName,
   type CommitHash,
   type Forge,
   type ForgeChange,
@@ -9,10 +10,9 @@ import {
   forgeChangeId,
   type LandMethod,
   type OpenChange,
+  parseBranchName,
   parseCommitHash,
   parseForgeLocator,
-  parseRefName,
-  type RefName,
   timestampMs,
   UserError,
   type UserName,
@@ -39,8 +39,8 @@ const PrSchema = z.object({
   draft: z.boolean(),
   merged: z.boolean(),
   merge_commit_sha: z.string().transform(parseCommitHash).nullable(),
-  head: z.object({ ref: z.string().transform(parseRefName), sha: z.string().transform(parseCommitHash) }),
-  base: z.object({ ref: z.string().transform(parseRefName) }),
+  head: z.object({ ref: z.string().transform(parseBranchName), sha: z.string().transform(parseCommitHash) }),
+  base: z.object({ ref: z.string().transform(parseBranchName) }),
   requested_reviewers: z.array(UserSchema.nullable()).nullable(),
 });
 
@@ -227,7 +227,7 @@ export class ForgejoForge implements Forge {
     return z.array(PrSchema).parse(await this.client.getPaginated(`${this.api}/pulls`, { state: "open" }));
   }
 
-  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+  async findChange(branch: BranchName): Promise<ForgeChange | undefined> {
     // The API cannot filter by head branch, so the open PRs are listed and
     // matched here; several on one branch collapse to the lowest number, the
     // one `pullForge` would import.
@@ -263,7 +263,7 @@ export class ForgejoForge implements Forge {
     return this.toChange(PrSchema.parse(data));
   }
 
-  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: BranchName, parent: BranchName, title: string, draft: boolean): Promise<ForgeChange> {
     // Creation cannot mark a draft, so a draft opens under the work-in-progress
     // title prefix. The response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch — reuses
@@ -276,7 +276,7 @@ export class ForgejoForge implements Forge {
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }
 
-  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: BranchName): Promise<void> {
     await this.client.patch(`${this.api}/pulls/${id}`, { base: parent });
   }
 

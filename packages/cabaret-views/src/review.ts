@@ -1,6 +1,7 @@
 import {
   assertNoConflict,
   type Backend,
+  type ChangeName,
   changeConflicts,
   changeDiff,
   currentReviewing,
@@ -11,7 +12,6 @@ import {
   type FileView,
   mayRecordReview,
   NotReviewingError,
-  type RefName,
   type Reviewing,
   type ReviewRound,
   type Revision,
@@ -54,7 +54,7 @@ function moreRounds(later: number): string {
  * review state that changed elsewhere until the next refresh.
  */
 export interface ChangeSnapshot {
-  readonly change: RefName;
+  readonly change: ChangeName;
   /** Whose review state this is: the backend's current user. */
   readonly user: UserName;
   /** Who the change asks to review right now. */
@@ -68,7 +68,7 @@ export interface ChangeSnapshot {
   readonly rounds: readonly ReviewRound[];
 }
 
-export async function changeSnapshot(backend: Backend, change: RefName): Promise<ChangeSnapshot> {
+export async function changeSnapshot(backend: Backend, change: ChangeName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
   const [diff, self] = await Promise.all([changeDiff(backend, change, entries), currentSelf(backend)]);
   return {
@@ -85,7 +85,7 @@ export async function changeSnapshot(backend: Backend, change: RefName): Promise
 
 /** A change's current round of review: what to read before any newer round opens. */
 export interface ReviewPage {
-  readonly change: RefName;
+  readonly change: ChangeName;
   /** Files with conflict markers to fix; nonempty exactly when they preempt the round. */
   readonly conflicts: readonly FilePath[];
   /** Undefined when nothing is left to review, or while conflicts block it. */
@@ -213,7 +213,7 @@ export function markReviewed(
 
 /** One file's diff left to review in its earliest pending round. */
 export interface DiffPage {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly file: FilePath;
   /** Undefined when the file has no review left. */
   readonly round:
@@ -339,7 +339,7 @@ function unifiedLineSpans(segments: readonly PatdiffCore.StructuredLine[], jump:
  */
 function hunkBodyLines(
   hunk: PatdiffCore.StructuredHunks[number],
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   anchor: number | undefined,
 ): Line[] {
@@ -404,7 +404,7 @@ function hunkBodyLines(
  * each is a section folding down to its styled header.
  */
 function twoWayDiffNodes(
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   view: Extract<DiffView, { kind: "two" }>,
   context?: number,
@@ -462,7 +462,7 @@ function ddiffStyle(line: Patdiff4.DiffAlgo.DdiffLine): Style | undefined {
  * blocks that never touch the new tip not at all.
  */
 function fourWayDiffNodes(
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   view: Extract<DiffView, { kind: "four" }>,
   context?: number,

@@ -176,10 +176,10 @@ USAGE
   cabaret create [--parent value] [--owner value] <change>
   cabaret create --help
 
-Create a change, initializing its log with a parent, a base, and an owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
+Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch or bookmark is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
-     [--parent]  The new change's parent (defaults to the current branch)
+     [--parent]  The new change's parent (defaults to what is checked out)
      [--owner]   The new change's owner (defaults to you)
   -h  --help     Print help information and exit
 
@@ -305,7 +305,7 @@ USAGE
   cabaret rename [--even-though-not-owner] <old> <new>
   cabaret rename --help
 
-Rename a change: move its branch and its log to the new name together, atomically. Only the change's owner may rename it.
+Rename a change: move its code and its log to the new name together, atomically. Only the change's owner may rename it.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
@@ -525,7 +525,7 @@ USAGE
   cabaret workspace remove [--even-though-dirty] <change>
   cabaret workspace remove --help
 
-Remove the workspace holding the change. The change itself — its branch and its log — is untouched.
+Remove the workspace holding the change. The change itself — its code and its log — is untouched.
 
 FLAGS
      [--even-though-dirty]  Remove the workspace even though it has uncommitted changes, discarding them [default = false]

@@ -1,4 +1,4 @@
-import { forgeChangeId, parseCommitHash, parseRefName, type RefName } from "cabaret-core";
+import { type ChangeName, forgeChangeId, parseBranchName, parseCommitHash } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeClone, makeRepo, shownComments, type TestRepo } from "./fixture.js";
@@ -162,7 +162,7 @@ test("pull adopts the branch's open forge change when the log names none", async
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await forge.createChange(parseRefName("gadget"), parseRefName("main"), "gadget", false);
+  await forge.createChange(parseBranchName("gadget"), parseBranchName("main"), "gadget", false);
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("pull")).stdout).toBe(
     "pulled 1 comment from github.com/test-org/widgets#1\n" +
@@ -205,7 +205,7 @@ test("push does not record forge activity, even an observed merge", async () => 
 });
 
 /** A teammate's branch, committed and pushed to origin but absent locally, as a forge change's head would be. */
-async function pushTeammateBranch(repo: TestRepo, branch: RefName): Promise<string> {
+async function pushTeammateBranch(repo: TestRepo, branch: ChangeName): Promise<string> {
   await repo.git("checkout", "-qb", branch);
   await repo.write(`${branch}.txt`, `${branch} work\n`);
   await repo.git("add", "-A");
@@ -220,8 +220,8 @@ async function pushTeammateBranch(repo: TestRepo, branch: RefName): Promise<stri
 test("pull turns a teammate's forge change into a change to review", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  const theirTip = await pushTeammateBranch(repo, parseRefName("their-feature"));
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const theirTip = await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
@@ -261,7 +261,7 @@ test("pull adopts the forge change of an existing local branch without fetching 
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "my work");
   await repo.git("push", "-q", "origin", "my-feature");
-  forge.openPr("alice", parseRefName("my-feature"), parseRefName("main"), "My feature");
+  forge.openPr("alice", parseBranchName("my-feature"), parseBranchName("main"), "My feature");
   expect(await repo.cabaret("pull")).toEqual({
     stdout:
       'imported github.com/test-org/widgets#1 as "my-feature" with 0 comments\n' +
@@ -278,8 +278,8 @@ test("a second machine's pull adopts the published import instead of re-importin
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("push", "-q", "origin", "main");
-  await pushTeammateBranch(repo, parseRefName("their-feature"));
-  forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("pull");
   const clone = await makeClone(repo, "bob@example.com", forge);
   expect((await clone.cabaret("pull")).stdout).toBe(
@@ -294,8 +294,8 @@ test("pull reads a capped discussion in full before importing", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   forge.commentCap = 1;
-  await pushTeammateBranch(repo, parseRefName("their-feature"));
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.comment(id, "carol", "first thought");
   forge.comment(id, "carol", "second thought");
   expect((await repo.cabaret("pull")).stdout).toContain(
@@ -307,7 +307,7 @@ test("pull skips a forge change whose branch cannot be fetched", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The forge change's branch never reached origin, so there is nothing to fetch.
-  forge.openPr("carol", parseRefName("phantom"), parseRefName("main"), "Phantom");
+  forge.openPr("carol", parseBranchName("phantom"), parseBranchName("main"), "Phantom");
   expect(await repo.cabaret("pull")).toEqual({
     stdout: "synced github.com/test-org/widgets: 1 open forge change\n",
     stderr: 'warning: skipping github.com/test-org/widgets#1 ("phantom"): branch "phantom" could not be fetched\n',
@@ -319,8 +319,8 @@ test("pull skips a forge change whose branch cannot be fetched", async () => {
 test("pull prunes the change of a closed forge change when nobody engaged with it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await pushTeammateBranch(repo, parseRefName("their-feature"));
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("pull");
   forge.close(id);
   expect(await repo.cabaret("pull")).toEqual({
@@ -337,8 +337,8 @@ test("pull prunes the change of a closed forge change when nobody engaged with i
 test("pull keeps the change of a closed forge change once someone engaged with it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await pushTeammateBranch(repo, parseRefName("their-feature"));
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("pull");
   await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
   forge.close(id);
@@ -353,7 +353,7 @@ test("pull mirrors a forge-side retarget into the change", async () => {
   await repo.cabaret("push");
   // A teammate retargets the forge change, as GitHub itself does when a
   // stacked PR's base branch merges.
-  await forge.setParent(PR, parseRefName("develop"));
+  await forge.setParent(PR, parseBranchName("develop"));
   expect((await repo.cabaret("pull")).stdout).toBe(
     'github.com/test-org/widgets#1 was retargeted; reparented onto "develop"\n' +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +

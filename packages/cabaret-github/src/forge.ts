@@ -1,4 +1,5 @@
 import {
+  type BranchName,
   type CommitHash,
   type Forge,
   type ForgeChange,
@@ -9,10 +10,9 @@ import {
   forgeChangeId,
   type LandMethod,
   type OpenChange,
+  parseBranchName,
   parseCommitHash,
   parseForgeLocator,
-  parseRefName,
-  type RefName,
   timestampMs,
   UserError,
   type UserName,
@@ -44,9 +44,9 @@ const PrSchema = z.object({
   // The GraphQL node id, which the draft mutations address PRs by.
   id: z.string(),
   number: z.number().transform(forgeChangeId),
-  headRefName: z.string().transform(parseRefName),
+  headRefName: z.string().transform(parseBranchName),
   headRefOid: z.string().transform(parseCommitHash),
-  baseRefName: z.string().transform(parseRefName),
+  baseRefName: z.string().transform(parseBranchName),
   title: z.string(),
   // A deleted account's PR has no author; REST's "ghost" stands in.
   author: z.object({ login: z.string() }).nullable(),
@@ -233,7 +233,7 @@ export class GitHubForge implements Forge {
     };
   }
 
-  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+  async findChange(branch: BranchName): Promise<ForgeChange | undefined> {
     const out = await this.client.graphql(FIND_PR, { ...this.repo, branch });
     const found = FindPrSchema.parse(out).repository.pullRequests.nodes[0];
     return found === undefined ? undefined : this.toChange(found);
@@ -271,7 +271,7 @@ export class GitHubForge implements Forge {
     return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: BranchName, parent: BranchName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch —
     // reuses the one query that maps a PR.
@@ -286,7 +286,7 @@ export class GitHubForge implements Forge {
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }
 
-  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: BranchName): Promise<void> {
     await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
       ...this.repo,
       pull_number: id,

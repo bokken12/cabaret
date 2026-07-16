@@ -1,13 +1,13 @@
 import {
   type Backend,
   type ChangeComment,
+  type ChangeName,
   type ChangeSummary,
   changeDiff,
   currentComments,
   type FilePath,
   isSatisfied,
   obligationStatuses,
-  type RefName,
   reviewerSummary,
   shortHash,
   summarizeChange,
@@ -28,7 +28,7 @@ export interface ShowPage {
 }
 
 /** Query the show page for `change`. */
-export async function showPage(backend: Backend, user: UserName, change: RefName): Promise<ShowPage> {
+export async function showPage(backend: Backend, user: UserName, change: ChangeName): Promise<ShowPage> {
   const entries = await backend.readLog(change);
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, user, diff);

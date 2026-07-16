@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
+  type ChangeName,
   type ConfigScope,
   type FilePath,
   formatLogEntry,
@@ -16,7 +17,6 @@ import {
   parseFilePath,
   parseLog,
   type Recommendation,
-  type RefName,
   type Revision,
   shortHash,
   UserError,
@@ -43,6 +43,26 @@ export function parseHgNode(raw: string): HgNode {
     throw new Error(`not an hg changeset id: ${JSON.stringify(raw)}`);
   }
   return raw as HgNode;
+}
+
+/** The hg backend's `ChangeName`: a bookmark name. Obtain via `parseHgName`. */
+export type HgName = Branded<ChangeName, "HgName">;
+
+// hg's own label rules forbid `:`, control characters, the reserved names
+// `tip`, `null`, and `.`, and whole names of digits alone, which read as
+// revision numbers. Cabaret adds its own reservations: `@`, because hg names
+// divergent bookmark copies `name@suffix` and Cabaret must tell those from
+// real bookmarks; the `cabaret/` prefix, where log bookmarks live (bookmarks
+// are one flat namespace); and surrounding whitespace, which hg strips on
+// input so such a name could never round-trip.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: hg label names forbid control characters, so we must match them.
+const HG_NAME_FORBIDDEN = /[\x00-\x1f\x7f:@]|^(?:tip|null|\.|[0-9]+)$|^cabaret\/|^\s|\s$/;
+
+export function parseHgName(raw: string): HgName {
+  if (raw === "" || HG_NAME_FORBIDDEN.test(raw)) {
+    throw new UserError(`not a valid bookmark name: ${JSON.stringify(raw)}`);
+  }
+  return raw as HgName;
 }
 
 /** There is no `hg` to run: nothing on PATH answers to the name. */
@@ -102,7 +122,7 @@ const LOG_BOOKMARK_PREFIX = "cabaret/log/";
 /** The named branch of a change's log commits; disjoint from the bookmark namespace, which hg requires. */
 const LOG_BRANCH_PREFIX = "cabaret/logs/";
 
-function logBookmark(change: RefName): string {
+function logBookmark(change: HgName): string {
   return `${LOG_BOOKMARK_PREFIX}${change}`;
 }
 
@@ -127,10 +147,12 @@ function lines(content: string): string[] {
 }
 
 /** A `Backend` that shells out to a local `hg` (Mercurial). */
-export class HgBackend implements Backend<HgNode> {
+export class HgBackend implements Backend<HgNode, HgName> {
   readonly vcs = "hg";
 
   readonly parseRevision = parseHgNode;
+
+  readonly parseName = parseHgName;
 
   private constructor(
     readonly root: string,
@@ -162,13 +184,24 @@ export class HgBackend implements Backend<HgNode> {
     return parseFilePath(path);
   }
 
-  /** The active bookmark, or undefined when none is active — hg's detached HEAD. */
-  private async activeBookmark(): Promise<RefName | undefined> {
+  /**
+   * The active bookmark, or undefined when none is active — hg's detached
+   * HEAD. A bookmark made outside Cabaret whose name Cabaret's grammar
+   * reserves cannot be a change, so it also reads as none active.
+   */
+  private async activeBookmark(): Promise<HgName | undefined> {
     const out = await hg(this.root, ["log", "-r", "wdir()", "-T", "{activebookmark}"]);
-    return out === "" ? undefined : (out as RefName);
+    if (out === "") {
+      return undefined;
+    }
+    try {
+      return parseHgName(out);
+    } catch {
+      return undefined;
+    }
   }
 
-  async currentBranch(): Promise<RefName> {
+  async currentChange(): Promise<HgName> {
     const active = await this.activeBookmark();
     if (active === undefined) {
       throw new UserError("no bookmark is active; check out a change (hg update <bookmark>) or name it explicitly");
@@ -410,12 +443,12 @@ export class HgBackend implements Backend<HgNode> {
     return marks;
   }
 
-  async branchTip(branch: RefName): Promise<HgNode | undefined> {
-    return (await this.bookmarks()).get(branch);
+  async tip(change: HgName): Promise<HgNode | undefined> {
+    return (await this.bookmarks()).get(change);
   }
 
-  async originTip(branch: RefName): Promise<HgNode | undefined> {
-    return this.remoteReading(branch);
+  async originTip(change: HgName): Promise<HgNode | undefined> {
+    return this.remoteReading(change);
   }
 
   /**
@@ -456,25 +489,25 @@ export class HgBackend implements Backend<HgNode> {
     return undefined;
   }
 
-  async createBranch(name: RefName, commit: HgNode): Promise<void> {
+  async create(name: HgName, commit: HgNode): Promise<void> {
     // `hg bookmark` moves an existing bookmark rather than failing, and hg
     // has no compare-and-swap for them, so existence is checked first; the
     // remaining race loses no commits, only a bookmark position.
-    if ((await this.branchTip(name)) !== undefined) {
-      throw new UserError(`branch already exists: ${JSON.stringify(name)}`);
+    if ((await this.tip(name)) !== undefined) {
+      throw new UserError(`bookmark already exists: ${JSON.stringify(name)}`);
     }
     await hg(this.root, ["bookmark", "-r", commit, "--", name]);
   }
 
-  async workspaces(): Promise<readonly Workspace[]> {
+  async workspaces(): Promise<readonly Workspace<HgName>[]> {
     // TODO: dedicated workspaces would map onto `hg share`, but hg keeps no
     // registry of a repository's shares to enumerate; grow one here when a
     // real hg user wants `cabaret workspace`.
-    const [branch, status] = await Promise.all([this.activeBookmark(), hg(this.root, ["status"])]);
-    return [{ path: this.root, branch, dirty: status !== "", primary: true }];
+    const [change, status] = await Promise.all([this.activeBookmark(), hg(this.root, ["status"])]);
+    return [{ path: this.root, change, dirty: status !== "", primary: true }];
   }
 
-  async addWorkspace(_path: string, _branch: RefName): Promise<void> {
+  async addWorkspace(_path: string, _change: HgName): Promise<void> {
     throw new UserError("the hg backend does not support dedicated workspaces");
   }
 
@@ -482,25 +515,25 @@ export class HgBackend implements Backend<HgNode> {
     throw new UserError("the hg backend does not support dedicated workspaces");
   }
 
-  async checkout(branch: RefName): Promise<void> {
-    if ((await this.branchTip(branch)) === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(branch)}`);
+  async checkout(change: HgName): Promise<void> {
+    if ((await this.tip(change)) === undefined) {
+      throw new UserError(`bookmark does not exist: ${JSON.stringify(change)}`);
     }
     // Updating to a bookmark by name activates it; local edits merge along,
     // and hg aborts when one would be overwritten.
-    await hg(this.root, ["update", "-q", "--", branch]);
+    await hg(this.root, ["update", "-q", "--", change]);
   }
 
-  async renameChange(from: RefName, to: RefName): Promise<void> {
-    if ((await this.branchTip(from)) === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
+  async rename(from: HgName, to: HgName): Promise<void> {
+    if ((await this.tip(from)) === undefined) {
+      throw new UserError(`bookmark does not exist: ${JSON.stringify(from)}`);
     }
     const marks = await this.bookmarks();
     if (!marks.has(logBookmark(from))) {
       throw new Error(`change has no log: ${JSON.stringify(from)}`);
     }
     if (marks.has(to) || marks.has(logBookmark(to))) {
-      throw new UserError(`branch or log already exists: ${JSON.stringify(to)}`);
+      throw new UserError(`bookmark or log already exists: ${JSON.stringify(to)}`);
     }
     // Two renames, not one transaction: hg has no multi-bookmark transaction,
     // so a crash between them strands the change under two names — visibly,
@@ -657,7 +690,7 @@ export class HgBackend implements Backend<HgNode> {
   }
 
   /** Write the log file in the worker atop `parent` (fresh on the change's log branch when undefined) and commit it. */
-  private async commitLog(change: RefName, parent: HgNode | undefined, text: string): Promise<HgNode> {
+  private async commitLog(change: HgName, parent: HgNode | undefined, text: string): Promise<HgNode> {
     if (parent === undefined) {
       await this.workerReset("null");
       // -f: recreating a deleted change reuses its permanent branch name.
@@ -673,10 +706,10 @@ export class HgBackend implements Backend<HgNode> {
 
   // ---- logs ----
 
-  async listChanges(): Promise<readonly RefName[]> {
+  async listChanges(): Promise<readonly HgName[]> {
     return [...(await this.bookmarks()).keys()]
       .filter((name) => name.startsWith(LOG_BOOKMARK_PREFIX))
-      .map((name) => name.slice(LOG_BOOKMARK_PREFIX.length) as RefName)
+      .map((name) => name.slice(LOG_BOOKMARK_PREFIX.length) as HgName)
       .sort();
   }
 
@@ -689,15 +722,15 @@ export class HgBackend implements Backend<HgNode> {
     return text;
   }
 
-  async readLog(change: RefName): Promise<readonly LogEntry<HgNode>[]> {
+  async readLog(change: HgName): Promise<readonly LogEntry<HgNode, HgName>[]> {
     const tip = (await this.bookmarks()).get(logBookmark(change));
     if (tip === undefined) {
       return [];
     }
-    return parseLog(await this.logText(tip), parseHgNode);
+    return parseLog(await this.logText(tip), parseHgNode, parseHgName);
   }
 
-  async appendLog(change: RefName, entries: readonly LogEntry<HgNode>[]): Promise<void> {
+  async appendLog(change: HgName, entries: readonly LogEntry<HgNode, HgName>[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
@@ -715,7 +748,7 @@ export class HgBackend implements Backend<HgNode> {
     await hg(this.root, ["bookmark", "-q", "-f", "-r", node, "--", mark]);
   }
 
-  async deleteLog(change: RefName): Promise<void> {
+  async deleteLog(change: HgName): Promise<void> {
     const mark = logBookmark(change);
     if ((await this.bookmarks()).has(mark)) {
       await hg(this.root, ["bookmark", "-q", "-d", "--", mark]);
@@ -726,7 +759,7 @@ export class HgBackend implements Backend<HgNode> {
     }
   }
 
-  async wipeReviewState(): Promise<readonly RefName[]> {
+  async wipeReviewState(): Promise<readonly HgName[]> {
     const names = await this.listChanges();
     if (names.length > 0) {
       await hg(this.root, ["bookmark", "-q", "-d", "--", ...names.map((name) => logBookmark(name))]);
@@ -736,14 +769,14 @@ export class HgBackend implements Backend<HgNode> {
     return names;
   }
 
-  async wipeOriginLogs(): Promise<readonly RefName[]> {
-    const names: RefName[] = [];
+  async wipeOriginLogs(): Promise<readonly HgName[]> {
+    const names: HgName[] = [];
     for (const [mark, node] of await this.remoteBookmarks()) {
       if (!mark.startsWith(LOG_BOOKMARK_PREFIX)) {
         continue;
       }
       await this.pushkeyDelete(mark, node);
-      names.push(mark.slice(LOG_BOOKMARK_PREFIX.length) as RefName);
+      names.push(mark.slice(LOG_BOOKMARK_PREFIX.length) as HgName);
     }
     return names.sort();
   }
@@ -840,22 +873,22 @@ export class HgBackend implements Backend<HgNode> {
     return true;
   }
 
-  async pushBranch(branch: RefName): Promise<void> {
+  async push(change: HgName): Promise<void> {
     // The lease: origin may be overwritten exactly as far as it was last
     // seen — the same bargain as git's push --force-with-lease, minus the
     // server-side atomicity hg does not offer. Checked before any push:
     // hg's own `push -B` happily moves a remote bookmark the pusher has
     // never seen whenever the changesets themselves add no head.
-    const lease = await this.remoteReading(branch);
-    const remote = (await this.remoteBookmarks()).get(branch);
+    const lease = await this.remoteReading(change);
+    const remote = (await this.remoteBookmarks()).get(change);
     if (remote !== undefined && remote !== (lease as string | undefined)) {
-      throw new UserError(`origin's copy of ${JSON.stringify(branch)} has work this repository never fetched`);
+      throw new UserError(`origin's copy of ${JSON.stringify(change)} has work this repository never fetched`);
     }
     // --new-branch: the commits may sit on a named branch origin has never
     // seen (hg's own workflows use them for code); a new branch only adds a
     // head, and the bookmark lease above is what guards overwrites.
     try {
-      await this.hgRemote(["push", "--new-branch", "-B", branch]);
+      await this.hgRemote(["push", "--new-branch", "-B", change]);
       return;
     } catch (error) {
       if (!aborted(error, /push creates new remote head|diverged bookmark/)) {
@@ -863,73 +896,73 @@ export class HgBackend implements Backend<HgNode> {
       }
     }
     // The new head replaces work within the lease, checked just above.
-    await this.hgRemote(["push", "-f", "-B", branch]);
+    await this.hgRemote(["push", "-f", "-B", change]);
   }
 
-  async fetchBranch(branch: RefName): Promise<void> {
-    const before = await this.branchTip(branch);
+  async fetch(change: HgName): Promise<void> {
+    const before = await this.tip(change);
     // Read before pulling: a pull that moves the active bookmark deactivates it.
-    const active = (await this.activeBookmark()) === branch;
+    const active = (await this.activeBookmark()) === change;
     if (before === undefined) {
-      // -B imports the bookmark outright, creating the local branch. -f on
+      // -B imports the bookmark outright, creating the local change. -f on
       // every pull: two machines' histories may share nothing at all (log
       // chains are rootless by design), which plain hg refuses to pull across.
-      await this.hgRemote(["pull", "-q", "-f", "-B", branch]);
+      await this.hgRemote(["pull", "-q", "-f", "-B", change]);
       return;
     }
     // A plain pull of the remote head fast-forwards a matching local
     // bookmark and leaves a divergent copy otherwise — never overwriting.
     try {
-      await this.hgRemote(["pull", "-q", "-f", "-r", branch]);
+      await this.hgRemote(["pull", "-q", "-f", "-r", change]);
     } catch (error) {
       if (aborted(error, /unknown revision/)) {
-        throw new UserError(`origin does not have branch ${JSON.stringify(branch)}`);
+        throw new UserError(`origin does not have bookmark ${JSON.stringify(change)}`);
       }
       throw error;
     }
-    await this.dropDivergentBookmark(branch);
-    const remote = await this.remoteReading(branch);
-    const after = await this.branchTip(branch);
+    await this.dropDivergentBookmark(change);
+    const remote = await this.remoteReading(change);
+    const after = await this.tip(change);
     if (remote !== undefined && remote !== after) {
-      throw new UserError(`branch has diverged from origin: ${JSON.stringify(branch)}`);
+      throw new UserError(`bookmark has diverged from origin: ${JSON.stringify(change)}`);
     }
-    // Carry a checked-out branch's working directory along, as a
+    // Carry a checked-out change's working directory along, as a
     // fast-forward does; hg merges local edits and aborts on overwrite.
     // Updating to the bookmark by name also re-activates it.
     if (after !== before && active) {
-      await hg(this.root, ["update", "-q", "--", branch]);
+      await hg(this.root, ["update", "-q", "--", change]);
     }
   }
 
-  async fetchBranches(branches: readonly RefName[]): Promise<void> {
-    if (branches.length === 0) {
+  async fetchAll(changes: readonly HgName[]): Promise<void> {
+    if (changes.length === 0) {
       return;
     }
-    // Callers pass only branches absent locally. Best-effort: one branch
+    // Callers pass only changes absent locally. Best-effort: one change
     // origin no longer has fails a batched pull wholesale, so fall back to
-    // one-by-one and let callers observe what arrived via `branchTip`.
+    // one-by-one and let callers observe what arrived via `tip`.
     try {
-      await this.hgRemote(["pull", "-q", "-f", ...branches.flatMap((branch) => ["-B", branch])]);
+      await this.hgRemote(["pull", "-q", "-f", ...changes.flatMap((change) => ["-B", change])]);
     } catch {
-      for (const branch of branches) {
+      for (const change of changes) {
         try {
-          await this.hgRemote(["pull", "-q", "-f", "-B", branch]);
+          await this.hgRemote(["pull", "-q", "-f", "-B", change]);
         } catch {
-          // Observed by the caller as a still-missing branch.
+          // Observed by the caller as a still-missing change.
         }
       }
     }
   }
 
-  async syncLog(change: RefName): Promise<void> {
+  async syncLog(change: HgName): Promise<void> {
     await this.reconcileLog(change);
   }
 
-  async syncLogs(): Promise<readonly RefName[]> {
-    const names = new Set<RefName>(await this.listChanges());
+  async syncLogs(): Promise<readonly HgName[]> {
+    const names = new Set<HgName>(await this.listChanges());
     for (const mark of (await this.remoteBookmarks()).keys()) {
       if (mark.startsWith(LOG_BOOKMARK_PREFIX)) {
-        names.add(mark.slice(LOG_BOOKMARK_PREFIX.length) as RefName);
+        names.add(mark.slice(LOG_BOOKMARK_PREFIX.length) as HgName);
       }
     }
     const changes = [...names].sort();
@@ -946,7 +979,7 @@ export class HgBackend implements Backend<HgNode> {
    * new entries to merge, so re-observe and retry, bounded so a persistent
    * failure surfaces.
    */
-  private async reconcileLog(change: RefName): Promise<void> {
+  private async reconcileLog(change: HgName): Promise<void> {
     const mark = logBookmark(change);
     for (let attempt = 0; ; attempt++) {
       try {
@@ -1002,7 +1035,9 @@ export class HgBackend implements Backend<HgNode> {
   /** The merge of two log commits: `mergeLogs` of their entries, atop both. */
   private async mergeLogCommits(a: HgNode, b: HgNode): Promise<HgNode> {
     const [logA, logB] = await Promise.all([this.logText(a), this.logText(b)]);
-    const merged = mergeLogs(parseLog(logA, parseHgNode), parseLog(logB, parseHgNode)).map(formatLogEntry).join("");
+    const merged = mergeLogs(parseLog(logA, parseHgNode, parseHgName), parseLog(logB, parseHgNode, parseHgName))
+      .map(formatLogEntry)
+      .join("");
     await this.workerReset(a);
     await this.hgWorker(["debugsetparents", a, b]);
     await writeFile(join(await this.worker(), LOG_PATH), merged);
@@ -1102,9 +1137,9 @@ export class HgBackend implements Backend<HgNode> {
    * Advance `branch` from `expected` to descendant `commit`, failing fast on
    * a concurrent move; a checked-out branch's working directory follows.
    */
-  private async advanceBranch(branch: RefName, commit: HgNode, expected: HgNode): Promise<void> {
-    if ((await this.branchTip(branch)) !== expected) {
-      throw new Error(`branch moved concurrently: ${JSON.stringify(branch)}`);
+  private async advanceBranch(branch: HgName, commit: HgNode, expected: HgNode): Promise<void> {
+    if ((await this.tip(branch)) !== expected) {
+      throw new Error(`bookmark moved concurrently: ${JSON.stringify(branch)}`);
     }
     await hg(this.root, ["bookmark", "-q", "-f", "-r", commit, "--", branch]);
     if ((await this.activeBookmark()) === branch) {
@@ -1112,16 +1147,16 @@ export class HgBackend implements Backend<HgNode> {
     }
   }
 
-  async merge(into: RefName, base: HgNode, onto: HgNode, tip: HgNode, message: string): Promise<HgNode> {
+  async merge(into: HgName, base: HgNode, onto: HgNode, tip: HgNode, message: string): Promise<HgNode> {
     return this.commitLand(into, base, onto, tip, message, [onto, tip]);
   }
 
-  async squash(into: RefName, base: HgNode, onto: HgNode, tip: HgNode, message: string): Promise<HgNode> {
+  async squash(into: HgName, base: HgNode, onto: HgNode, tip: HgNode, message: string): Promise<HgNode> {
     return this.commitLand(into, base, onto, tip, message, [onto]);
   }
 
   private async commitLand(
-    into: RefName,
+    into: HgName,
     base: HgNode,
     onto: HgNode,
     tip: HgNode,
@@ -1138,10 +1173,10 @@ export class HgBackend implements Backend<HgNode> {
     return commit;
   }
 
-  async mergeOnto(change: RefName, base: HgNode, onto: HgNode, message: string): Promise<readonly FilePath[]> {
+  async mergeOnto(change: HgName, base: HgNode, onto: HgNode, message: string): Promise<readonly FilePath[]> {
     const tip = (await this.bookmarks()).get(change);
     if (tip === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(change)}`);
+      throw new UserError(`bookmark does not exist: ${JSON.stringify(change)}`);
     }
     if (await this.isAncestor(tip, onto)) {
       await this.advanceBranch(change, onto, tip);

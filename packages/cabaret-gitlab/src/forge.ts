@@ -1,4 +1,5 @@
 import {
+  type BranchName,
   type CommitHash,
   type Forge,
   type ForgeChange,
@@ -9,10 +10,9 @@ import {
   forgeChangeId,
   type LandMethod,
   type OpenChange,
+  parseBranchName,
   parseCommitHash,
   parseForgeLocator,
-  parseRefName,
-  type RefName,
   timestampMs,
   UserError,
   type UserName,
@@ -57,9 +57,9 @@ const MR_FIELDS =
 const MrSchema = z.object({
   // GraphQL serializes the iid as a string.
   iid: z.string().transform((raw) => forgeChangeId(Number(raw))),
-  sourceBranch: z.string().transform(parseRefName),
+  sourceBranch: z.string().transform(parseBranchName),
   diffHeadSha: z.string().transform(parseCommitHash),
-  targetBranch: z.string().transform(parseRefName),
+  targetBranch: z.string().transform(parseBranchName),
   title: z.string(),
   author: z.object({ username: z.string() }).nullable(),
   state: z.enum(["opened", "closed", "locked", "merged"]),
@@ -323,7 +323,7 @@ export class GitLabForge implements Forge {
     return project;
   }
 
-  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+  async findChange(branch: BranchName): Promise<ForgeChange | undefined> {
     const out = await this.client.graphql(FIND_MR, { path: this.project.path, branch });
     const found = this.requireProject(FindMrSchema.parse(out).project).mergeRequests.nodes[0];
     return found === undefined ? undefined : this.toChange(found);
@@ -375,7 +375,7 @@ export class GitLabForge implements Forge {
     return this.toChange(found);
   }
 
-  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: BranchName, parent: BranchName, title: string, draft: boolean): Promise<ForgeChange> {
     // The creation response names the new MR; fetching by its iid —
     // never by head, which could race another MR on the same branch —
     // reuses the one query that maps an MR. GitLab stores draft state in the
@@ -388,7 +388,7 @@ export class GitLabForge implements Forge {
     return this.getChange(forgeChangeId(z.object({ iid: z.number() }).parse(data).iid));
   }
 
-  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: BranchName): Promise<void> {
     await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
   }
 

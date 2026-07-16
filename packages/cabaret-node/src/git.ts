@@ -4,6 +4,7 @@ import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
+  type BranchName,
   type CommitHash,
   type ConfigScope,
   type FilePath,
@@ -12,12 +13,11 @@ import {
   type LandMerge,
   type LogEntry,
   mergeLogs,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseLog,
-  parseRefName,
   type Recommendation,
-  type RefName,
   UserError,
   type UserName,
   userName,
@@ -238,22 +238,24 @@ const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
  */
 export const LOG_FETCH_REFSPEC = `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`;
 
-function logRef(change: RefName): RefName {
-  return parseRefName(`${LOG_REF_PREFIX}${change}`);
+function logRef(change: BranchName): BranchName {
+  return parseBranchName(`${LOG_REF_PREFIX}${change}`);
 }
 
-function remoteLogRef(change: RefName): RefName {
-  return parseRefName(`${REMOTE_LOG_REF_PREFIX}${change}`);
+function remoteLogRef(change: BranchName): BranchName {
+  return parseBranchName(`${REMOTE_LOG_REF_PREFIX}${change}`);
 }
 
 /** Path of the log file within a log ref's tree. */
 const LOG_PATH = "log";
 
 /** A `Backend` that shells out to a local `git`. */
-export class GitBackend implements Backend<CommitHash> {
+export class GitBackend implements Backend<CommitHash, BranchName> {
   readonly vcs = "git";
 
   readonly parseRevision = parseCommitHash;
+
+  readonly parseName = parseBranchName;
 
   /** Serves all scalar object reads without a per-read process spawn. */
   private readonly reader: ObjectReader;
@@ -293,7 +295,7 @@ export class GitBackend implements Backend<CommitHash> {
     return parseFilePath(path);
   }
 
-  async currentBranch(): Promise<RefName> {
+  async currentChange(): Promise<BranchName> {
     const branch = await this.checkedOutBranch();
     if (branch === undefined) {
       throw new UserError("HEAD is detached; check out a branch or name the change explicitly");
@@ -302,10 +304,10 @@ export class GitBackend implements Backend<CommitHash> {
   }
 
   /** The branch HEAD points at, or undefined when HEAD is detached. */
-  private async checkedOutBranch(): Promise<RefName | undefined> {
+  private async checkedOutBranch(): Promise<BranchName | undefined> {
     try {
       const out = await git(this.root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-      return parseRefName(out.trimEnd());
+      return parseBranchName(out.trimEnd());
     } catch (error) {
       // With --quiet, exit code 1 means exactly "HEAD is detached"; anything
       // else (e.g. not a repository) is a real failure.
@@ -428,7 +430,7 @@ export class GitBackend implements Backend<CommitHash> {
     return this.resolveCommit(`${merge}^2`);
   }
 
-  async pushBranch(branch: RefName): Promise<void> {
+  async push(branch: BranchName): Promise<void> {
     // `origin` is pinned rather than configurable: the forge to sync with is
     // likewise derived from `origin`, so the two always name the same place.
     await git(this.root, [
@@ -440,7 +442,7 @@ export class GitBackend implements Backend<CommitHash> {
     ]);
   }
 
-  async fetchBranch(branch: RefName): Promise<void> {
+  async fetch(branch: BranchName): Promise<void> {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
     // update, so a diverged local branch fails instead of losing work. Git
     // also refuses to fetch into a checked-out branch, so that case takes a
@@ -454,15 +456,15 @@ export class GitBackend implements Backend<CommitHash> {
     }
   }
 
-  async fetchBranches(branches: readonly RefName[]): Promise<void> {
+  async fetchAll(branches: readonly BranchName[]): Promise<void> {
     if (branches.length === 0) {
       return;
     }
     // Callers pass only branches absent locally, so the checked-out and
-    // diverged cases `fetchBranch` handles cannot arise. Best-effort: one
+    // diverged cases `fetch` handles cannot arise. Best-effort: one
     // branch origin no longer has fails a batched fetch wholesale, so fall
     // back to fetching one by one and let callers observe what arrived via
-    // `branchTip`.
+    // `tip`.
     const refspecs = branches.map((branch) => `refs/heads/${branch}:refs/heads/${branch}`);
     try {
       await git(this.root, ["fetch", "--quiet", "origin", ...refspecs]);
@@ -477,19 +479,19 @@ export class GitBackend implements Backend<CommitHash> {
     }
   }
 
-  async syncLog(change: RefName): Promise<void> {
+  async syncLog(change: BranchName): Promise<void> {
     await this.fetchLogs();
     await this.reconcileLog(change);
   }
 
-  async syncLogs(): Promise<readonly RefName[]> {
+  async syncLogs(): Promise<readonly BranchName[]> {
     await this.fetchLogs();
-    const names = new Set<RefName>();
+    const names = new Set<BranchName>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
       const out = await git(this.root, ["for-each-ref", "--format=%(refname)", prefix]);
       for (const line of out.split("\n")) {
         if (line !== "") {
-          names.add(parseRefName(line.slice(prefix.length)));
+          names.add(parseBranchName(line.slice(prefix.length)));
         }
       }
     }
@@ -500,7 +502,7 @@ export class GitBackend implements Backend<CommitHash> {
     return changes;
   }
 
-  async wipeReviewState(): Promise<readonly RefName[]> {
+  async wipeReviewState(): Promise<readonly BranchName[]> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", CABARET_REF_PREFIX]);
     const refs = out.split("\n").filter((line) => line !== "");
     if (refs.length > 0) {
@@ -509,18 +511,18 @@ export class GitBackend implements Backend<CommitHash> {
     }
     // The directory holds only stale caches from older versions.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
-    const names = new Set<RefName>();
+    const names = new Set<BranchName>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
       for (const ref of refs) {
         if (ref.startsWith(prefix)) {
-          names.add(parseRefName(ref.slice(prefix.length)));
+          names.add(parseBranchName(ref.slice(prefix.length)));
         }
       }
     }
     return [...names].sort();
   }
 
-  async wipeOriginLogs(): Promise<readonly RefName[]> {
+  async wipeOriginLogs(): Promise<readonly BranchName[]> {
     const out = await git(this.root, ["ls-remote", "origin", `${CABARET_REF_PREFIX}*`]);
     const refs = out
       .split("\n")
@@ -537,7 +539,7 @@ export class GitBackend implements Backend<CommitHash> {
     }
     return refs
       .filter((ref) => ref.startsWith(LOG_REF_PREFIX))
-      .map((ref) => parseRefName(ref.slice(LOG_REF_PREFIX.length)))
+      .map((ref) => parseBranchName(ref.slice(LOG_REF_PREFIX.length)))
       .sort();
   }
 
@@ -553,7 +555,7 @@ export class GitBackend implements Backend<CommitHash> {
    * swap; both mean new entries to merge, so re-observe and retry, bounded so
    * a persistent failure surfaces.
    */
-  private async reconcileLog(change: RefName): Promise<void> {
+  private async reconcileLog(change: BranchName): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       try {
         const local = await this.commitAt(logRef(change));
@@ -594,7 +596,10 @@ export class GitBackend implements Backend<CommitHash> {
       git(this.root, ["cat-file", "blob", `${a}:${LOG_PATH}`]),
       git(this.root, ["cat-file", "blob", `${b}:${LOG_PATH}`]),
     ]);
-    const merged = mergeLogs(parseLog(logA, parseCommitHash), parseLog(logB, parseCommitHash))
+    const merged = mergeLogs(
+      parseLog(logA, parseCommitHash, parseBranchName),
+      parseLog(logB, parseCommitHash, parseBranchName),
+    )
       .map(formatLogEntry)
       .join("");
     const blob = await git(this.root, ["hash-object", "-w", "--stdin"], merged);
@@ -637,20 +642,20 @@ export class GitBackend implements Backend<CommitHash> {
       .map(parseFilePath);
   }
 
-  async branchTip(branch: RefName): Promise<CommitHash | undefined> {
-    return this.commitAt(parseRefName(`refs/heads/${branch}`));
+  async tip(branch: BranchName): Promise<CommitHash | undefined> {
+    return this.commitAt(parseBranchName(`refs/heads/${branch}`));
   }
 
-  async originTip(branch: RefName): Promise<CommitHash | undefined> {
-    return this.commitAt(parseRefName(`refs/remotes/origin/${branch}`));
+  async originTip(branch: BranchName): Promise<CommitHash | undefined> {
+    return this.commitAt(parseBranchName(`refs/remotes/origin/${branch}`));
   }
 
-  async createBranch(name: RefName, commit: CommitHash): Promise<void> {
+  async create(name: BranchName, commit: CommitHash): Promise<void> {
     // The empty old-value makes update-ref fail if the branch already exists.
     await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);
   }
 
-  async workspaces(): Promise<readonly Workspace[]> {
+  async workspaces(): Promise<readonly Workspace<BranchName>[]> {
     const out = await git(this.root, ["worktree", "list", "--porcelain"]);
     // One attribute-line block per working tree, blank-line separated, the
     // primary one first.
@@ -668,33 +673,33 @@ export class GitBackend implements Backend<CommitHash> {
           return [];
         }
         const ref = lines.find((line) => line.startsWith("branch "))?.slice("branch ".length);
-        const branch = ref === undefined ? undefined : parseRefName(ref.replace(/^refs\/heads\//, ""));
-        return [{ path, branch, primary: index === 0 }];
+        const change = ref === undefined ? undefined : parseBranchName(ref.replace(/^refs\/heads\//, ""));
+        return [{ path, change, primary: index === 0 }];
       });
     return Promise.all(
-      listed.map(async ({ path, branch, primary }) => ({
+      listed.map(async ({ path, change, primary }) => ({
         path,
-        branch,
+        change,
         primary,
         dirty: (await git(path, ["status", "--porcelain"])) !== "",
       })),
     );
   }
 
-  async addWorkspace(path: string, branch: RefName): Promise<void> {
-    await git(this.root, ["worktree", "add", "--quiet", "--end-of-options", path, branch]);
+  async addWorkspace(path: string, change: BranchName): Promise<void> {
+    await git(this.root, ["worktree", "add", "--quiet", "--end-of-options", path, change]);
   }
 
   async removeWorkspace(path: string, force: boolean): Promise<void> {
     await git(this.root, ["worktree", "remove", ...(force ? ["--force"] : []), "--end-of-options", path]);
   }
 
-  async checkout(branch: RefName): Promise<void> {
+  async checkout(branch: BranchName): Promise<void> {
     await git(this.root, ["switch", "--quiet", "--end-of-options", branch]);
   }
 
-  async renameChange(from: RefName, to: RefName): Promise<void> {
-    const tip = await this.branchTip(from);
+  async rename(from: BranchName, to: BranchName): Promise<void> {
+    const tip = await this.tip(from);
     if (tip === undefined) {
       throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
     }
@@ -758,16 +763,16 @@ export class GitBackend implements Backend<CommitHash> {
     }
   }
 
-  merge(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+  merge(into: BranchName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
     return this.commitLand(into, base, onto, tip, message, ["-p", onto, "-p", tip]);
   }
 
-  squash(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
+  squash(into: BranchName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash> {
     return this.commitLand(into, base, onto, tip, message, ["-p", onto]);
   }
 
   private async commitLand(
-    into: RefName,
+    into: BranchName,
     base: CommitHash,
     onto: CommitHash,
     tip: CommitHash,
@@ -797,7 +802,7 @@ export class GitBackend implements Backend<CommitHash> {
    * `branch` fails fast instead of publishing commits the caller never
    * validated.
    */
-  private async advanceBranch(branch: RefName, commit: CommitHash, expected: CommitHash): Promise<void> {
+  private async advanceBranch(branch: BranchName, commit: CommitHash, expected: CommitHash): Promise<void> {
     if ((await this.checkedOutBranch()) === branch) {
       await git(this.root, ["merge", "--ff-only", commit]);
     } else {
@@ -805,7 +810,12 @@ export class GitBackend implements Backend<CommitHash> {
     }
   }
 
-  async mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<readonly FilePath[]> {
+  async mergeOnto(
+    change: BranchName,
+    base: CommitHash,
+    onto: CommitHash,
+    message: string,
+  ): Promise<readonly FilePath[]> {
     const tip = await this.resolveCommit(`refs/heads/${change}`);
     if (await this.isAncestor(tip, onto)) {
       await this.advanceBranch(change, onto, tip);
@@ -886,15 +896,15 @@ export class GitBackend implements Backend<CommitHash> {
     return merges;
   }
 
-  async listChanges(): Promise<readonly RefName[]> {
+  async listChanges(): Promise<readonly BranchName[]> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX]);
     return out
       .split("\n")
       .filter((line) => line !== "")
-      .map((line) => parseRefName(line.slice(LOG_REF_PREFIX.length)));
+      .map((line) => parseBranchName(line.slice(LOG_REF_PREFIX.length)));
   }
 
-  async readLog(change: RefName): Promise<readonly LogEntry<CommitHash>[]> {
+  async readLog(change: BranchName): Promise<readonly LogEntry<CommitHash, BranchName>[]> {
     const ref = logRef(change);
     // Pinning the read at the resolved tip keeps it consistent under a
     // concurrent append moving the ref.
@@ -908,10 +918,10 @@ export class GitBackend implements Backend<CommitHash> {
     if (log === undefined) {
       throw new Error(`log ref has no ${LOG_PATH} file: ${ref}`);
     }
-    return parseLog(log, parseCommitHash);
+    return parseLog(log, parseCommitHash, parseBranchName);
   }
 
-  async appendLog(change: RefName, entries: readonly LogEntry<CommitHash>[]): Promise<void> {
+  async appendLog(change: BranchName, entries: readonly LogEntry<CommitHash, BranchName>[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
@@ -943,7 +953,7 @@ export class GitBackend implements Backend<CommitHash> {
     }
   }
 
-  async deleteLog(change: RefName): Promise<void> {
+  async deleteLog(change: BranchName): Promise<void> {
     // One transaction for the local refs, so a failure partway deletes
     // neither; origin's copy goes second, so a push failure leaves the local
     // refs deleted and a re-run only the push to redo.
@@ -959,7 +969,7 @@ export class GitBackend implements Backend<CommitHash> {
   }
 
   /** The commit `ref` points at, or undefined if `ref` does not exist. */
-  private async commitAt(ref: RefName): Promise<CommitHash | undefined> {
+  private async commitAt(ref: BranchName): Promise<CommitHash | undefined> {
     const response = await this.reader.request("info", `${ref}^{commit}`);
     return response === undefined ? undefined : parseCommitHash(response.oid);
   }

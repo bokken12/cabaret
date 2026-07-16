@@ -2,6 +2,7 @@ import {
   assertChangeExists,
   assertNotLanded,
   type Backend,
+  type ChangeName,
   changeBase,
   changeDiff,
   conflictedFiles,
@@ -16,10 +17,9 @@ import {
   type LogEntry,
   landedMerge,
   landMessage,
-  type RefName,
   type Reviewing,
   type Revision,
-  requireBranchTip,
+  requireTip,
   type TimestampMs,
   type UserName,
   widerReviewing,
@@ -41,8 +41,8 @@ import { reviewRounds } from "./summary.js";
 export async function createChange(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
-  parent: RefName,
+  change: ChangeName,
+  parent: ChangeName,
   owner?: UserName,
 ): Promise<void> {
   if (change === parent) {
@@ -51,19 +51,19 @@ export async function createChange(
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
-  const parentTip = await backend.branchTip(parent);
+  const parentTip = await backend.tip(parent);
   if (parentTip === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
-  const existing = await backend.branchTip(change);
+  const existing = await backend.tip(change);
   // A fresh branch is created at the parent's tip, which is therefore its
   // base; an adopted branch is based where it last shared with the parent.
   let base: typeof parentTip;
   if (existing === undefined) {
-    await backend.createBranch(change, parentTip);
+    await backend.create(change, parentTip);
     base = parentTip;
   } else {
     base = await backend.mergeBase(parentTip, existing);
@@ -80,7 +80,7 @@ export async function createChange(
 export async function setReviewing(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<Revision>[],
   reviewing: Reviewing,
 ): Promise<void> {
@@ -103,7 +103,7 @@ export async function setReviewing(
 export async function widenReviewing(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<Revision>[],
 ): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
   assertChangeExists(change, entries);
@@ -141,7 +141,7 @@ export async function widenReviewing(
 
 /** One change of a resolved chain, with the log that placed it there. */
 export interface ChainLink<R extends Revision = Revision> {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly entries: readonly LogEntry<R>[];
 }
 
@@ -153,11 +153,11 @@ export interface ChainLink<R extends Revision = Revision> {
  */
 export async function resolveRange<R extends Revision>(
   backend: Backend<R>,
-  ancestor: RefName,
-  descendant: RefName,
+  ancestor: ChangeName,
+  descendant: ChangeName,
 ): Promise<readonly ChainLink<R>[]> {
   const chain: ChainLink<R>[] = [];
-  const seen = new Set<RefName>();
+  const seen = new Set<ChangeName>();
   let cursor = descendant;
   while (cursor !== ancestor) {
     if (seen.has(cursor)) {
@@ -184,7 +184,7 @@ export async function resolveRange<R extends Revision>(
  */
 export async function resolveChain<R extends Revision>(
   backend: Backend<R>,
-  changes: readonly RefName[],
+  changes: readonly ChangeName[],
 ): Promise<readonly ChainLink<R>[]> {
   const chain: ChainLink<R>[] = [];
   for (const change of changes) {
@@ -212,7 +212,7 @@ export async function resolveChain<R extends Revision>(
  */
 export class NotOwnerError extends UserError {
   constructor(
-    readonly change: RefName,
+    readonly change: ChangeName,
     readonly owner: UserName,
     readonly user: UserName,
   ) {
@@ -228,7 +228,7 @@ export class NotOwnerError extends UserError {
  */
 export async function requireOwner(
   backend: Backend,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry<Revision>[],
   override: boolean,
 ): Promise<void> {
@@ -243,7 +243,7 @@ export async function requireOwner(
 }
 
 /** Fail if `target` still carries conflict markers in `conflicts`. */
-export function assertNoConflict(target: RefName, conflicts: readonly FilePath[]): void {
+export function assertNoConflict(target: ChangeName, conflicts: readonly FilePath[]): void {
   if (conflicts.length > 0) {
     throw new UserError(
       `${JSON.stringify(target)} has unresolved conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
@@ -265,19 +265,19 @@ export function assertNoConflict(target: RefName, conflicts: readonly FilePath[]
 export async function rebaseChange<R extends Revision>(
   backend: Backend<R>,
   now: () => TimestampMs,
-  target: RefName,
+  target: ChangeName,
   entries: readonly LogEntry<R>[],
   override: boolean,
 ): Promise<void> {
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, override);
   const parent = currentParent(target, entries);
-  const onto = await backend.branchTip(parent);
+  const onto = await backend.tip(parent);
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  const tip = await requireBranchTip(backend, target);
+  const tip = await requireTip(backend, target);
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   // When the change already sits on the parent's tip (base === onto), whether
   // because it was just rebased or an out-of-band rebase put it there, there
@@ -325,7 +325,7 @@ export async function rebaseChain<R extends Revision>(
 
 /** A land's endpoints, resolved once its preconditions have been checked. */
 export interface PreparedLand<R extends Revision = Revision> {
-  readonly parent: RefName;
+  readonly parent: ChangeName;
   readonly base: R;
   /** The parent's tip the land merges onto: `base` itself unless the parent moved on. */
   readonly onto: R;
@@ -350,7 +350,7 @@ export interface LandOverrides {
  */
 export async function prepareLand<R extends Revision>(
   backend: Backend<R>,
-  target: RefName,
+  target: ChangeName,
   entries: readonly LogEntry<R>[],
   overrides: LandOverrides,
 ): Promise<PreparedLand<R>> {
@@ -361,12 +361,12 @@ export async function prepareLand<R extends Revision>(
   // would grow the code its own land froze. A parent that is not a change
   // (an empty log) cannot have landed.
   assertNotLanded(parent, await backend.readLog(parent));
-  const onto = await backend.branchTip(parent);
+  const onto = await backend.tip(parent);
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  const tip = await requireBranchTip(backend, target);
+  const tip = await requireTip(backend, target);
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
@@ -401,7 +401,7 @@ export async function prepareLand<R extends Revision>(
 export async function recordLand<R extends Revision>(
   backend: Backend<R>,
   now: () => TimestampMs,
-  target: RefName,
+  target: ChangeName,
   entries: readonly LogEntry<R>[],
   { base, tip, user }: PreparedLand<R>,
   merge: LandedMerge<R>,
@@ -424,7 +424,7 @@ export async function recordLand<R extends Revision>(
 export async function landChange<R extends Revision>(
   backend: Backend<R>,
   now: () => TimestampMs,
-  target: RefName,
+  target: ChangeName,
   entries: readonly LogEntry<R>[],
   method: LandMethod,
   overrides: LandOverrides,
@@ -450,7 +450,7 @@ export async function landChange<R extends Revision>(
 export async function landChain<R extends Revision>(
   backend: Backend<R>,
   chain: readonly ChainLink<R>[],
-  land: (change: RefName, entries: readonly LogEntry<R>[]) => Promise<void>,
+  land: (change: ChangeName, entries: readonly LogEntry<R>[]) => Promise<void>,
 ): Promise<void> {
   const first = chain[0];
   if (first === undefined) {
@@ -490,11 +490,11 @@ export async function landChain<R extends Revision>(
 export async function reparentLandedChildren(
   backend: Backend,
   now: () => TimestampMs,
-  landed: RefName,
-  parent: RefName,
-): Promise<readonly RefName[]> {
+  landed: ChangeName,
+  parent: ChangeName,
+): Promise<readonly ChangeName[]> {
   const user = await backend.currentUser();
-  const moved: RefName[] = [];
+  const moved: ChangeName[] = [];
   for (const change of await backend.listChanges()) {
     // `parent` itself can be a child of `landed` when a reparent made the two
     // a cycle; moving it would make it its own parent, so leave the cycle for
@@ -519,8 +519,8 @@ export async function reparentLandedChildren(
 export async function reparentChange(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
-  parent: RefName,
+  change: ChangeName,
+  parent: ChangeName,
   override: boolean,
 ): Promise<void> {
   if (change === parent) {
@@ -530,7 +530,7 @@ export async function reparentChange(
   assertNotLanded(change, entries);
   await requireOwner(backend, change, entries, override);
   // The same liveness `create` demands: a parent is a branch, change log or not.
-  if ((await backend.branchTip(parent)) === undefined) {
+  if ((await backend.tip(parent)) === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   await backend.appendLog(change, [
@@ -542,7 +542,7 @@ export async function reparentChange(
 export async function transferChange(
   backend: Backend,
   now: () => TimestampMs,
-  change: RefName,
+  change: ChangeName,
   owner: UserName,
   override: boolean,
 ): Promise<void> {
@@ -564,7 +564,12 @@ export async function transferChange(
 // needs to be recorded in the log itself. Children are similarly untouched:
 // their `set-parent` entries keep naming the old change until a manual
 // `cabaret reparent`.
-export async function renameChange(backend: Backend, from: RefName, to: RefName, override: boolean): Promise<void> {
+export async function renameChange<R extends Revision, C extends ChangeName>(
+  backend: Backend<R, C>,
+  from: C,
+  to: C,
+  override: boolean,
+): Promise<void> {
   const entries = await backend.readLog(from);
   assertChangeExists(from, entries);
   assertNotLanded(from, entries);
@@ -572,8 +577,8 @@ export async function renameChange(backend: Backend, from: RefName, to: RefName,
   if ((await backend.readLog(to)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(to)}`);
   }
-  if ((await backend.branchTip(to)) !== undefined) {
+  if ((await backend.tip(to)) !== undefined) {
     throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
   }
-  await backend.renameChange(from, to);
+  await backend.rename(from, to);
 }
