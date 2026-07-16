@@ -26,7 +26,7 @@ import {
 } from "./backend.js";
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
-import { type LandOverrides, landChange, prepareLand, recordLand } from "./ops.js";
+import { type LandOverrides, landChange, prepareLand, recordLand, reparentLandedChildren } from "./ops.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -520,12 +520,20 @@ export async function landOnForge(
   return merge.commit;
 }
 
+/** What a land did beyond the landing itself, for hosts to narrate. */
+export interface LandOutcome {
+  /** The forge change merged, or undefined for a local land. */
+  readonly merged: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
+  /** The landed change's children, moved onto `onto` to follow the code; undefined when none moved. */
+  readonly reparented: { readonly onto: RefName; readonly children: readonly RefName[] } | undefined;
+}
+
 /**
  * Land `change` where `config` says: on the forge — merging its forge change —
  * when `landVia` is "forge", or "auto" with a forge change recorded in the
- * log; locally otherwise. Returns the forge change landed, or undefined for a
- * local land. `openForge` is consulted only for a forge land, so local lands
- * need no forge at all.
+ * log; locally otherwise. `openForge` is consulted only for a forge land, so
+ * local lands need no forge at all. Either way the landed change's children
+ * are then reparented onto its parent, where their code now lives.
  */
 export async function landAsConfigured(
   backend: Backend,
@@ -535,22 +543,26 @@ export async function landAsConfigured(
   change: RefName,
   entries: readonly LogEntry[],
   overrides: LandOverrides,
-): Promise<{ readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined> {
+): Promise<LandOutcome> {
   const viaForge =
     config.landVia === "forge" || (config.landVia === "auto" && currentForgeChange(entries) !== undefined);
+  let merged: LandOutcome["merged"];
   if (!viaForge) {
     await landChange(backend, now, change, entries, config.landMethod, overrides);
-    return undefined;
+  } else {
+    const forge = await openForge();
+    const forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
+    if (forgeChange === undefined) {
+      throw new UserError(
+        `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
+      );
+    }
+    await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
+    merged = { forge: forge.locator, id: forgeChange.id };
   }
-  const forge = await openForge();
-  const forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
-  if (forgeChange === undefined) {
-    throw new UserError(
-      `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
-    );
-  }
-  await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
-  return { forge: forge.locator, id: forgeChange.id };
+  const onto = currentParent(change, entries);
+  const children = await reparentLandedChildren(backend, now, change, onto);
+  return { merged, reparented: children.length > 0 ? { onto, children } : undefined };
 }
 
 /** One thing a pull did, as it happens, so hosts can narrate in their own voice. */

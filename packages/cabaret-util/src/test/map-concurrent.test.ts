@@ -11,38 +11,30 @@ async function stall(turns: number): Promise<void> {
 
 test("mapConcurrent maps in input order whatever order calls finish in", async () => {
   await fc.assert(
-    fc.asyncProperty(
-      fc.array(fc.nat(20), { maxLength: 30 }),
-      fc.integer({ min: 1, max: 8 }),
-      async (stalls, limit) => {
-        const results = await mapConcurrent(stalls, limit, async (turns, index) => {
-          await stall(turns);
-          return index * 10;
-        });
-        expect(results).toEqual(stalls.map((_, index) => index * 10));
-      },
-    ),
+    fc.asyncProperty(fc.array(fc.nat(20), { maxLength: 30 }), fc.integer({ min: 1, max: 8 }), async (stalls, limit) => {
+      const results = await mapConcurrent(stalls, limit, async (turns, index) => {
+        await stall(turns);
+        return index * 10;
+      });
+      expect(results).toEqual(stalls.map((_, index) => index * 10));
+    }),
   );
 });
 
 test("mapConcurrent keeps at most `limit` calls in flight", async () => {
   await fc.assert(
-    fc.asyncProperty(
-      fc.array(fc.nat(10), { maxLength: 30 }),
-      fc.integer({ min: 1, max: 4 }),
-      async (stalls, limit) => {
-        let inFlight = 0;
-        let peak = 0;
-        await mapConcurrent(stalls, limit, async (turns) => {
-          inFlight += 1;
-          peak = Math.max(peak, inFlight);
-          await stall(turns);
-          inFlight -= 1;
-        });
-        expect(peak).toBeLessThanOrEqual(limit);
-        expect(peak).toBe(Math.min(limit, stalls.length));
-      },
-    ),
+    fc.asyncProperty(fc.array(fc.nat(10), { maxLength: 30 }), fc.integer({ min: 1, max: 4 }), async (stalls, limit) => {
+      let inFlight = 0;
+      let peak = 0;
+      await mapConcurrent(stalls, limit, async (turns) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await stall(turns);
+        inFlight -= 1;
+      });
+      expect(peak).toBeLessThanOrEqual(limit);
+      expect(peak).toBe(Math.min(limit, stalls.length));
+    }),
   );
 });
 

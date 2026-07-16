@@ -243,7 +243,13 @@ test("show tells a change whose parent has landed to reparent", async () => {
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "gadget");
   await repo.cabaret("review", "gadget.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: 'reparented "gizmo" onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  // Hang gizmo back under the landed gadget to see the nudge.
+  await repo.cabaret("reparent", "gizmo", "gadget");
   expect((await repo.cabaret("show", "gizmo")).stdout).toMatchInlineSnapshot(`
     "gizmo
     =====

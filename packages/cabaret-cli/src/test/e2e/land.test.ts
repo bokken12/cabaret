@@ -447,6 +447,8 @@ test("a range that would land into a landed change refuses before landing anythi
   await addChange(repo, "b");
   await addChange(repo, "c");
   await repo.cabaret("land", "a", "--even-though-unreviewed");
+  // The land moved b onto main; hanging it back under the landed a jams the chain.
+  await repo.cabaret("reparent", "b", "a");
   expect(await repo.cabaret("land", "main..c")).toEqual({
     stdout: "",
     stderr: '"b" would land into "a", which has landed; run `cabaret reparent` first\n',
@@ -454,6 +456,115 @@ test("a range that would land into a landed change refuses before landing anythi
   });
   // Nothing moved: landing c first would only bury it in the jammed chain.
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("b work\na work\nroot");
+});
+
+test("landing a change reparents its children onto where it landed", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  const gadgetTip = await repo.git("rev-parse", "gadget");
+  await addChange(repo, "gizmo");
+  await repo.cabaret("create", "widget", "--parent", "gadget");
+  expect(await repo.cabaret("land", "gadget", "--even-though-unreviewed")).toEqual({
+    stdout: 'reparented "gizmo" onto "main"\nreparented "widget" onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "gizmo")).toEqual({
+    stdout:
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "widget")).toEqual({
+    stdout:
+      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
+      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("landing leaves landed children where they landed", async () => {
+  const repo = await makeStack();
+  const parentTip = await repo.git("rev-parse", "parent");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
+  const childMerge = await repo.git("rev-parse", "parent");
+  expect(await repo.cabaret("land", "parent", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The landed child's parent stays the frozen history it landed into.
+  expect(await repo.cabaret("log", "child")).toEqual({
+    stdout:
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"land","merge":"${childMerge}"}}\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("landing into its own child leaves the cycle for a manual reparent", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "outer");
+  const outerTip = await repo.git("rev-parse", "outer");
+  await addChange(repo, "inner");
+  await repo.git("checkout", "-q", "outer");
+  await repo.write("outer2.txt", "more outer work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "more outer work");
+  // outer→inner→outer: landing outer merges it into inner, but moving inner
+  // onto itself would knot the cycle tighter, so it stays put.
+  await repo.cabaret("reparent", "outer", "inner");
+  expect(await repo.cabaret("land", "outer", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "inner")).toEqual({
+    stdout:
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${outerTip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("a range land carries an outside child down with each landing", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "a");
+  await addChange(repo, "b");
+  const bTip = await repo.git("rev-parse", "b");
+  await repo.cabaret("create", "d", "--parent", "b");
+  expect(await repo.cabaret("land", "main..b", "--even-though-unreviewed")).toEqual({
+    stdout: 'reparented "d" onto "a"\nreparented "d" onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  // d followed its code: onto a when b landed there, onto main when a landed.
+  expect(await repo.cabaret("log", "d")).toEqual({
+    stdout:
+      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
+      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
+      '{"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
+    stderr: "",
+    exitCode: 0,
+  });
 });
 
 test("a landed change can still be reviewed and forgotten", async () => {
