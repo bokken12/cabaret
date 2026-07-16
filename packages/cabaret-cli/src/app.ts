@@ -52,7 +52,7 @@ function userMessage(error: UserError): string {
 
 const routes = buildRouteMap({
   docs: {
-    brief: "Diff-based distributed code review built on top of git",
+    brief: "Diff-based distributed code review built on top of your version control",
   },
   routes: {
     approve,

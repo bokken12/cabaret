@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   currentParent,
@@ -49,10 +49,7 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   const machine = async (email: string): Promise<Machine> => {
     const dir = await tempDir("cabaret-hg-sync-");
     await hgIn(dir, "init");
-    await writeFile(
-      join(dir, ".hg", "hgrc"),
-      `[ui]\nusername = Test User <${email}>\n[paths]\ndefault = ${origin}\n`,
-    );
+    await writeFile(join(dir, ".hg", "hgrc"), `[ui]\nusername = Test User <${email}>\n[paths]\ndefault = ${origin}\n`);
     return {
       dir,
       backend: await HgBackend.open(dir),
@@ -172,7 +169,9 @@ async function commit(machine: Machine, message: string, files: Record<string, s
   return parseHgNode(await machine.hg("log", "-r", ".", "-T", "{node}"));
 }
 
-test("pushBranch and fetchBranch move code branches, and originTip tracks what was seen", { timeout: 60000 }, async () => {
+test("pushBranch and fetchBranch move code branches, and originTip tracks what was seen", {
+  timeout: 60000,
+}, async () => {
   const [a, b] = await makeMachines();
   const main = parseRefName("main");
   const first = await commit(a, "root", { "f.txt": "one\n" });

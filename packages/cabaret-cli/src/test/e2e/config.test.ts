@@ -46,7 +46,7 @@ test("a bad value is rejected", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("config", "land-via", "carrier-pigeon")).toEqual({
     stdout: "",
-    stderr: 'git config cabaret.landVia must be one of local, forge, auto: "carrier-pigeon"\n',
+    stderr: 'config cabaret.landVia must be one of local, forge, auto: "carrier-pigeon"\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("config", "context", "many")).toEqual({
@@ -76,7 +76,7 @@ test("--unset without a value to unset fails", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("config", "land-via", "--unset")).toEqual({
     stdout: "",
-    stderr: "git config cabaret.landVia has no local value\n",
+    stderr: "config cabaret.landVia has no local value\n",
     exitCode: 1,
   });
 });
@@ -116,7 +116,7 @@ test("add rejects a duplicate and an empty alias; remove rejects a missing one",
   await repo.cabaret("config", "alias", "add", "agent@example.com");
   expect(await repo.cabaret("config", "alias", "add", "agent@example.com")).toEqual({
     stdout: "",
-    stderr: 'git config cabaret.alias already contains "agent@example.com" in global config\n',
+    stderr: 'config cabaret.alias already contains "agent@example.com" in global config\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("config", "alias", "add", "")).toEqual({
@@ -126,7 +126,7 @@ test("add rejects a duplicate and an empty alias; remove rejects a missing one",
   });
   expect(await repo.cabaret("config", "alias", "remove", "ghost@example.com")).toEqual({
     stdout: "",
-    stderr: 'git config cabaret.alias has no global value "ghost@example.com"\n',
+    stderr: 'config cabaret.alias has no global value "ghost@example.com"\n',
     exitCode: 1,
   });
 });
@@ -156,7 +156,7 @@ test("--global and --local override a setting's home scope", async () => {
   // Unsetting where nothing is set reports the scope it looked in.
   expect(await repo.cabaret("config", "land-method", "--unset", "--local")).toEqual({
     stdout: "",
-    stderr: "git config cabaret.landMethod has no local value\n",
+    stderr: "config cabaret.landMethod has no local value\n",
     exitCode: 1,
   });
 });

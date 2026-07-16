@@ -4,7 +4,6 @@ import { mkdir, readFile as readFsFile, realpath, rm, unlink, writeFile } from "
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
-import type { Branded } from "cabaret-util";
 import {
   type Backend,
   type ConfigScope,
@@ -26,6 +25,7 @@ import {
   VcsUnavailableError,
   type Workspace,
 } from "cabaret-core";
+import type { Branded } from "cabaret-util";
 import { mergeDiff3 } from "node-diff3";
 
 const execFileAsync = promisify(execFile);
@@ -111,14 +111,6 @@ const LOG_PATH = "log";
 
 /** The remote every remote operation uses: hg's counterpart of git's `origin`. */
 const ORIGIN_PATH = "default";
-
-/** Quote `raw` as a revset string literal. Backslash is invalid in every name we quote, so only the quote needs escaping. */
-function revsetString(raw: string): string {
-  if (raw.includes("\\")) {
-    throw new Error(`cannot quote for a revset: ${JSON.stringify(raw)}`);
-  }
-  return `"${raw.replaceAll('"', '\\"')}"`;
-}
 
 /** One file's part in a computed content merge. */
 interface MergedFile {
@@ -572,13 +564,7 @@ export class HgBackend implements Backend<HgNode> {
   async landMerges(base: HgNode, tip: HgNode): Promise<readonly LandMerge<HgNode>[]> {
     // `only(tip, base)` is everything in tip's history and not base's; the
     // first-parent chain is walked here, from the fetched parent links.
-    const out = await hg(this.root, [
-      "log",
-      "-r",
-      `only(${tip}, ${base})`,
-      "-T",
-      "{node}\\t{p1node}\\t{desc|json}\\n",
-    ]);
+    const out = await hg(this.root, ["log", "-r", `only(${tip}, ${base})`, "-T", "{node}\\t{p1node}\\t{desc|json}\\n"]);
     const commits = new Map<string, { p1: string; desc: string }>();
     for (const line of out.split("\n")) {
       if (line === "") {
@@ -1008,9 +994,7 @@ export class HgBackend implements Backend<HgNode> {
   /** The merge of two log commits: `mergeLogs` of their entries, atop both. */
   private async mergeLogCommits(a: HgNode, b: HgNode): Promise<HgNode> {
     const [logA, logB] = await Promise.all([this.logText(a), this.logText(b)]);
-    const merged = mergeLogs(parseLog(logA, parseHgNode), parseLog(logB, parseHgNode))
-      .map(formatLogEntry)
-      .join("");
+    const merged = mergeLogs(parseLog(logA, parseHgNode), parseLog(logB, parseHgNode)).map(formatLogEntry).join("");
     await this.workerReset(a);
     await this.hgWorker(["debugsetparents", a, b]);
     await writeFile(join(await this.worker(), LOG_PATH), merged);
@@ -1026,11 +1010,7 @@ export class HgBackend implements Backend<HgNode> {
    * ancestor, with no way to name `base` instead, and Cabaret's whole
    * rebase-tolerance rests on resolving against the change's own base.
    */
-  private async computeMerge(
-    base: HgNode,
-    primary: HgNode,
-    secondary: HgNode,
-  ): Promise<readonly MergedFile[]> {
+  private async computeMerge(base: HgNode, primary: HgNode, secondary: HgNode): Promise<readonly MergedFile[]> {
     const merged: MergedFile[] = [];
     for (const path of await this.changedFiles(base, secondary)) {
       const [baseC, primaryC, secondaryC] = await Promise.all([

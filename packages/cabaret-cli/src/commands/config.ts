@@ -7,8 +7,8 @@ const settingNameWidth = Math.max(...settings.map((s) => s.name.length));
 
 /** The git-style scope flags every config subcommand takes. */
 const scopeFlags = {
-  global: { kind: "boolean", brief: "Use the person's global git config", default: false },
-  local: { kind: "boolean", brief: "Use this repository's git config", default: false },
+  global: { kind: "boolean", brief: "Use the person's global config", default: false },
+  local: { kind: "boolean", brief: "Use this repository's config", default: false },
 } as const;
 
 interface ScopeFlags {
@@ -72,7 +72,7 @@ function settingCommand(setting: Setting) {
         }
         const scope = writeScope(setting, flags);
         if (!(await backend.configUnset(setting.key, scope))) {
-          throw new UserError(`git config ${setting.key} has no ${scope} value`);
+          throw new UserError(`config ${setting.key} has no ${scope} value`);
         }
       } else if (value !== undefined) {
         await backend.configSet(setting.key, setting.parse(value), writeScope(setting, flags));
@@ -102,9 +102,7 @@ function settingRouteMap(setting: Setting) {
           const value = setting.parse(raw);
           const backend = await this.backend();
           if ((await backend.configAll(setting.key, scope)).includes(value)) {
-            throw new UserError(
-              `git config ${setting.key} already contains ${JSON.stringify(value)} in ${scope} config`,
-            );
+            throw new UserError(`config ${setting.key} already contains ${JSON.stringify(value)} in ${scope} config`);
           }
           await backend.configAdd(setting.key, value, scope);
         },
@@ -122,7 +120,7 @@ function settingRouteMap(setting: Setting) {
           const scope = writeScope(setting, flags);
           const backend = await this.backend();
           if (!(await backend.configUnset(setting.key, scope, value))) {
-            throw new UserError(`git config ${setting.key} has no ${scope} value ${JSON.stringify(value)}`);
+            throw new UserError(`config ${setting.key} has no ${scope} value ${JSON.stringify(value)}`);
           }
         },
       }),
@@ -133,7 +131,7 @@ function settingRouteMap(setting: Setting) {
           const scope = writeScope(setting, flags);
           const backend = await this.backend();
           if (!(await backend.configUnset(setting.key, scope))) {
-            throw new UserError(`git config ${setting.key} has no ${scope} value`);
+            throw new UserError(`config ${setting.key} has no ${scope} value`);
           }
         },
       }),
@@ -145,7 +143,7 @@ export const config = buildRouteMap({
   docs: {
     brief: "Manage Cabaret's settings",
     fullDescription:
-      "Manage Cabaret's settings, stored as `cabaret.*` git config keys. " +
+      "Manage Cabaret's settings, stored as `cabaret.*` keys in the version control's config. " +
       "Each setting is a command: bare it shows the value, with a value it " +
       "sets it. Without --global or --local, settings of the person (alias, " +
       "context) go to global config, and settings of the repository " +

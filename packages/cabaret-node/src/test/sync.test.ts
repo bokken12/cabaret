@@ -4,9 +4,9 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  type CommitHash,
   currentParent,
   formatLogEntry,
-  type CommitHash,
   type LogAction,
   type LogEntry,
   parseRefName,

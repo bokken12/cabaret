@@ -1,10 +1,10 @@
 import {
   type Backend,
-  type Revision,
   type LogEntry,
   parseCommitHash,
   parseFilePath,
   parseRefName,
+  type Revision,
   timestampMs,
   userName,
 } from "cabaret-core";

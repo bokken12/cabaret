@@ -4,6 +4,7 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  type CommitHash,
   type Config,
   changeBase,
   checkoutChange,
@@ -11,7 +12,6 @@ import {
   DirtyWorkspaceError,
   gotoChange,
   gotoOffer,
-  type CommitHash,
   type LogAction,
   type LogEntry,
   parseCommitHash,

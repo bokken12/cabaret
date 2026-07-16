@@ -1,11 +1,16 @@
 import {
   addChangeWorkspace,
+  applySetup,
+  auditSetup,
   type Backend,
   checkoutChange,
   createChange,
   currentParent,
   DirtyWorkspaceError,
+  declinedScopes,
+  declineSetup,
   type Forge,
+  forgeBackend,
   type GotoOption,
   type GotoResult,
   gotoChange,
@@ -28,6 +33,7 @@ import {
   reparentChange,
   resolveChain,
   reviewerSummary,
+  type SetupAudit,
   setReviewing,
   type TimestampMs,
   timestampMs,
@@ -35,18 +41,10 @@ import {
   UnsatisfiedObligationsError,
   UserError,
   userName,
+  VcsUnavailableError,
   widenReviewing,
 } from "cabaret-core";
-import {
-  applySetup,
-  auditSetup,
-  declinedScopes,
-  declineSetup,
-  forgeBackend,
-  type SetupAudit,
-  VcsUnavailableError,
-} from "cabaret-core";
-import { GitBackend, openGitHubForge } from "cabaret-node";
+import { openGitHubForge, openBackend as openRepositoryBackend } from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -68,12 +66,12 @@ import { linkRanges, styledRanges } from "./ranges.js";
 const SCHEME = "cabaret";
 
 /** Open the backend for the repository containing the first workspace folder. */
-async function openBackend(): Promise<GitBackend> {
+async function openBackend(): Promise<Backend> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
-    throw new Error("cabaret needs an open folder inside a git repository");
+    throw new Error("cabaret needs an open folder inside a repository");
   }
-  return GitBackend.open(folder.uri.fsPath);
+  return openRepositoryBackend(folder.uri.fsPath);
 }
 
 /**
@@ -500,7 +498,7 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
 async function runPull(provider: PageProvider): Promise<void> {
   try {
     const forge = await requireForge();
-    const { open } = await pullForge(await openBackend(), now, forge, () => {});
+    const { open } = await pullForge(forgeBackend(await openBackend()), now, forge, () => {});
     vscode.window.setStatusBarMessage(
       `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
@@ -560,11 +558,7 @@ async function offerSetup(): Promise<void> {
       return;
     }
     const briefs = pending.map(({ rec }) => rec.brief).join(", ");
-    const choice = await vscode.window.showInformationMessage(
-      `cabaret recommends settings: ${briefs}`,
-      "Apply",
-      "No",
-    );
+    const choice = await vscode.window.showInformationMessage(`cabaret recommends settings: ${briefs}`, "Apply", "No");
     if (choice === "Apply") {
       await applyRecommendations(backend, pending);
     } else if (choice === "No") {

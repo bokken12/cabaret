@@ -1,11 +1,11 @@
 import {
   type ChangeSummary,
-  type Revision,
   forgeChangeId,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   parseRefName,
+  type Revision,
   timestampMs,
   userName,
 } from "cabaret-core";

@@ -2,7 +2,6 @@ import {
   type Backend,
   brain,
   type ChangeDiff,
-  type Revision,
   changeConflicts,
   currentForgeChange,
   currentOwner,
@@ -18,6 +17,7 @@ import {
   type RefName,
   type ReviewedDiff,
   type Reviewing,
+  type Revision,
   remainingSpans,
   type UserName,
 } from "./backend.js";

@@ -22,7 +22,7 @@ export type LandVia = (typeof landVias)[number];
  */
 export type WorkspaceStyle = (typeof workspaceStyles)[number];
 
-/** Settings read from `cabaret.*` git config keys. */
+/** Settings read from `cabaret.*` config keys. */
 export interface Config {
   readonly landMethod: LandMethod;
   readonly landVia: LandVia;
@@ -45,7 +45,7 @@ function parseChoice<T extends string>(key: string, raw: string | undefined, fal
     return fallback;
   }
   if (!(choices as readonly string[]).includes(raw)) {
-    throw new UserError(`git config ${key} must be one of ${choices.join(", ")}: ${JSON.stringify(raw)}`);
+    throw new UserError(`config ${key} must be one of ${choices.join(", ")}: ${JSON.stringify(raw)}`);
   }
   return raw as T;
 }
@@ -61,20 +61,20 @@ export async function readConfig(backend: Backend): Promise<Config> {
   return {
     landMethod: parseChoice("cabaret.landMethod", method, "merge", landMethods),
     landVia: parseChoice("cabaret.landVia", via, "auto", landVias),
-    context: context === undefined ? undefined : parseContext(context, "git config cabaret.context"),
+    context: context === undefined ? undefined : parseContext(context, "config cabaret.context"),
     workspaceStyle: parseChoice("cabaret.workspaceStyle", style, "shared", workspaceStyles),
   };
 }
 
 /**
- * One Cabaret setting: a `cabaret.*` git config key and how to write it.
+ * One Cabaret setting: a `cabaret.*` config key and how to write it.
  * Settings that describe the person (their aliases, how they read diffs)
  * default to global config; repository policy defaults to local config.
  */
 export interface Setting {
   /** The name the `config` command uses. */
   readonly name: string;
-  /** The git config key holding the value. */
+  /** The config key holding the value. */
   readonly key: string;
   /** Where writes land when no flag picks a scope. */
   readonly scope: ConfigScope;

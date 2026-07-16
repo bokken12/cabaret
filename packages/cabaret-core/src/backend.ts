@@ -223,10 +223,7 @@ function parseLogLine<R extends Revision>(line: string, schema: z.ZodType<LogEnt
 }
 
 /** Parse a whole log: a sequence of newline-terminated `formatLogEntry` lines. */
-export function parseLog<R extends Revision>(
-  text: string,
-  parseRevision: (raw: string) => R,
-): readonly LogEntry<R>[] {
+export function parseLog<R extends Revision>(text: string, parseRevision: (raw: string) => R): readonly LogEntry<R>[] {
   if (text === "") {
     return [];
   }
@@ -261,7 +258,10 @@ export function compareLogEntries<R extends Revision>(a: LogEntry<R>, b: LogEntr
  * sets alone, so machines merging in any order or grouping converge on
  * byte-identical logs.
  */
-export function mergeLogs<R extends Revision>(a: readonly LogEntry<R>[], b: readonly LogEntry<R>[]): readonly LogEntry<R>[] {
+export function mergeLogs<R extends Revision>(
+  a: readonly LogEntry<R>[],
+  b: readonly LogEntry<R>[],
+): readonly LogEntry<R>[] {
   const byLine = new Map<string, LogEntry<R>>();
   for (const entry of [...a, ...b]) {
     byLine.set(formatLogEntry(entry), entry);
@@ -706,7 +706,10 @@ export function currentReviewing(entries: readonly LogEntry<Revision>[]): Review
  * mirrors in, and a local `set-reviewing` awaiting a push is never overridden
  * by re-observing the state it is about to replace.
  */
-export function observedForgeReviewing(entries: readonly LogEntry<Revision>[], forge: ForgeLocator): Reviewing | undefined {
+export function observedForgeReviewing(
+  entries: readonly LogEntry<Revision>[],
+  forge: ForgeLocator,
+): Reviewing | undefined {
   let found: LogEntry | undefined;
   for (const entry of entries) {
     if (
@@ -746,7 +749,10 @@ export function observedForgeParent(entries: readonly LogEntry<Revision>[], forg
  * user, the entry greatest by `compareLogEntries` among those `accept`ed
  * decides whether they are a reviewer.
  */
-function foldReviewers(entries: readonly LogEntry<Revision>[], accept: (entry: LogEntry<Revision>) => boolean): Set<UserName> {
+function foldReviewers(
+  entries: readonly LogEntry<Revision>[],
+  accept: (entry: LogEntry<Revision>) => boolean,
+): Set<UserName> {
   const latest = new Map<UserName, { entry: LogEntry; member: boolean }>();
   for (const entry of entries) {
     const { action } = entry;
@@ -784,7 +790,10 @@ export function currentReviewers(entries: readonly LogEntry<Revision>[]): readon
  * observed mirrors in, so local edits awaiting a push are never overridden by
  * re-observing the state they are about to replace.
  */
-export function observedForgeReviewers(entries: readonly LogEntry<Revision>[], forge: ForgeLocator): ReadonlySet<UserName> {
+export function observedForgeReviewers(
+  entries: readonly LogEntry<Revision>[],
+  forge: ForgeLocator,
+): ReadonlySet<UserName> {
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
@@ -818,7 +827,10 @@ export interface ReviewedDiff<R extends Revision = Revision> {
  * `compareLogEntries` wins, and a winning `forget` erases the file's
  * knowledge.
  */
-export function brain<R extends Revision>(entries: readonly LogEntry<R>[], user: UserName): ReadonlyMap<FilePath, ReviewedDiff<R>> {
+export function brain<R extends Revision>(
+  entries: readonly LogEntry<R>[],
+  user: UserName,
+): ReadonlyMap<FilePath, ReviewedDiff<R>> {
   const latest = new Map<FilePath, { entry: LogEntry<R>; reviewed?: ReviewedDiff<R> }>();
   for (const entry of entries) {
     const { action } = entry;
@@ -985,7 +997,11 @@ export interface ReviewSpan<R extends Revision = Revision> {
  * land's onto, and finally the last land merge → tip. A span a land merge
  * jumps over entirely (its start is its end) is dropped.
  */
-export async function reviewSpans<R extends Revision>(backend: Backend<R>, base: R, tip: R): Promise<readonly ReviewSpan<R>[]> {
+export async function reviewSpans<R extends Revision>(
+  backend: Backend<R>,
+  base: R,
+  tip: R,
+): Promise<readonly ReviewSpan<R>[]> {
   const spans: ReviewSpan<R>[] = [];
   let start = base;
   for (const { commit, onto } of await backend.landMerges(base, tip)) {
@@ -1062,6 +1078,9 @@ export async function diffBetween<R extends Revision>(backend: Backend<R>, base:
 }
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
-export async function changeConflicts<R extends Revision>(backend: Backend<R>, diff: ChangeDiff<R>): Promise<readonly FilePath[]> {
+export async function changeConflicts<R extends Revision>(
+  backend: Backend<R>,
+  diff: ChangeDiff<R>,
+): Promise<readonly FilePath[]> {
   return conflictedFiles(backend, diff.tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort());
 }

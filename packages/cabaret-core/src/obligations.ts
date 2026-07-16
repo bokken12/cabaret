@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   type Backend,
   type ChangeDiff,
-  type Revision,
   currentOwner,
   currentReviewers,
   currentReviewing,
@@ -13,6 +12,7 @@ import {
   parseFilePath,
   type RefName,
   type Reviewing,
+  type Revision,
   type UserName,
   userName,
 } from "./backend.js";

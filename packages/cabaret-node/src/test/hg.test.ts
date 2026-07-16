@@ -7,9 +7,9 @@ import {
   changeBase,
   changeTip,
   createChange,
+  type LogEntry,
   landChange,
   landMessage,
-  type LogEntry,
   parseFilePath,
   parseRefName,
   rebaseChange,
@@ -49,7 +49,10 @@ async function commit(cwd: string, message: string, files: Record<string, string
 /** A deterministic clock, one second per reading. */
 function testClock(): () => TimestampMs {
   let time = 1748000000000;
-  return () => timestampMs((time += 1000));
+  return () => {
+    time += 1000;
+    return timestampMs(time);
+  };
 }
 
 const alice = userName("alice@example.com");
@@ -150,7 +153,11 @@ test("a change with no log has the empty log, and appends round-trip", async () 
   expect(await backend.readLog(change)).toEqual([]);
   const tip = await backend.resolveCommit(".");
   const entries: LogEntry<HgNode>[] = [
-    { timestamp: timestampMs(1748000000000), user: alice, action: { kind: "set-parent", parent: parseRefName("main") } },
+    {
+      timestamp: timestampMs(1748000000000),
+      user: alice,
+      action: { kind: "set-parent", parent: parseRefName("main") },
+    },
     { timestamp: timestampMs(1748000001000), user: alice, action: { kind: "set-base", base: tip } },
   ];
   await backend.appendLog(change, entries.slice(0, 1));
@@ -161,7 +168,11 @@ test("a change with no log has the empty log, and appends round-trip", async () 
 test("log commits stay secret, invisible to the user's own push", async () => {
   const backend = await HgBackend.open(repo);
   await backend.appendLog(parseRefName("log-secret"), [
-    { timestamp: timestampMs(1748000000000), user: alice, action: { kind: "set-parent", parent: parseRefName("main") } },
+    {
+      timestamp: timestampMs(1748000000000),
+      user: alice,
+      action: { kind: "set-parent", parent: parseRefName("main") },
+    },
   ]);
   const phase = await hg("log", "-r", 'bookmark("cabaret/log/log-secret")', "-T", "{phase}");
   expect(phase).toBe("secret");
@@ -187,9 +198,7 @@ test("branchTip reads bookmarks; createBranch creates and refuses to overwrite",
   expect(await backend.branchTip(parseRefName("no-such-bookmark"))).toBe(undefined);
   await backend.createBranch(parseRefName("created"), tip);
   expect(await backend.branchTip(parseRefName("created"))).toBe(tip);
-  await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow(
-    'branch already exists: "created"',
-  );
+  await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow('branch already exists: "created"');
 });
 
 test("resolveCommit speaks hg's native revision syntax and rejects unknowns", async () => {
@@ -299,7 +308,9 @@ test("squash lands one single-parent commit", { timeout: 60000 }, async () => {
   );
 });
 
-test("mergeOnto resolves against the change's own base and commits conflicts with markers", { timeout: 60000 }, async () => {
+test("mergeOnto resolves against the change's own base and commits conflicts with markers", {
+  timeout: 60000,
+}, async () => {
   const backend = await HgBackend.open(repo);
   await hg("update", "-q", "main");
   const base = await commit(repo, "conflict base", { "clash.txt": "original\n", "clean.txt": "a\n" });

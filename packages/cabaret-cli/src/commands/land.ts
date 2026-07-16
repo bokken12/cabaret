@@ -15,11 +15,11 @@ export const land = buildCommand({
     brief: "Land a change into its parent",
     fullDescription:
       "Land a change: write it onto its parent as a commit marked as landing " +
-      "(a merge, or a squash with git config cabaret.landMethod squash), so " +
+      "(a merge, or a squash with cabaret config land-method squash), so " +
       "the parent's reviewers are not asked to re-review the change's diff, " +
       "and record the landing in the change's log. A change tracked on a " +
-      "forge lands by merging there and fetching the result; git config " +
-      "cabaret.landVia local (or forge) picks one side " +
+      "forge lands by merging there and fetching the result; cabaret config " +
+      "land-via local (or forge) picks one side " +
       "unconditionally. A change whose parent moved on lands as it stands " +
       "when it merges cleanly onto the new tip; `cabaret rebase` first when " +
       "it conflicts. Children of the landed change are reparented onto its " +

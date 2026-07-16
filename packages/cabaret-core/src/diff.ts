@@ -2,7 +2,7 @@
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import type { Backend, Revision, FilePath, ReviewedDiff } from "./backend.js";
+import type { Backend, FilePath, ReviewedDiff, Revision } from "./backend.js";
 
 /** Hashes display abbreviated; full hashes travel in structured data, never prose. */
 export function shortHash(hash: Revision): string {

@@ -20,8 +20,8 @@ import {
   observedForgeReviewers,
   observedForgeReviewing,
   type RefName,
-  type Revision,
   type Reviewing,
+  type Revision,
   type TimestampMs,
   type UserName,
 } from "./backend.js";

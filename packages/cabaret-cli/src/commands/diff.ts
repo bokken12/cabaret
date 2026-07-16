@@ -47,7 +47,7 @@ export const diff = buildCommand({
       context: {
         kind: "parsed",
         parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to git config cabaret.context, or ${defaultContext})`,
+        brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
         optional: true,
       },
     },

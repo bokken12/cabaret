@@ -1,7 +1,6 @@
 import {
   assertNoConflict,
   type Backend,
-  type Revision,
   changeConflicts,
   changeDiff,
   currentReviewing,
@@ -15,6 +14,7 @@ import {
   type RefName,
   type Reviewing,
   type ReviewRound,
+  type Revision,
   rebasedView,
   reviewRounds,
   shortHash,
