@@ -115,25 +115,11 @@ async function readChange(backend: Backend, self: Self, change: RefName): Promis
 }
 
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
-<<<<<<< aec551c0ee8ad42376b440898c5b2ca1d00d3605
+  const workspaces = await workspaceNotes(backend);
   const changes = [...(await backend.listChanges())].sort();
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.
   const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
-||||||| d0673b7e7ea3f7c9404ab4b3c2da15b47660d394
-  const summaries = new Map<RefName, ChangeSummary>();
-  const parents = new Map<RefName, RefName>();
-  const owedFiles = new Map<RefName, readonly FilePath[]>();
-  const broken: BrokenChange[] = [];
-  for (const change of [...(await backend.listChanges())].sort()) {
-=======
-  const workspaces = await workspaceNotes(backend);
-  const summaries = new Map<RefName, ChangeSummary>();
-  const parents = new Map<RefName, RefName>();
-  const owedFiles = new Map<RefName, readonly FilePath[]>();
-  const broken: BrokenChange[] = [];
-  for (const change of [...(await backend.listChanges())].sort()) {
->>>>>>> 8f5c9bdd4843019cdf1e6fa2bb8bedb920334546
     try {
       return await readChange(backend, self, change);
     } catch (error) {
