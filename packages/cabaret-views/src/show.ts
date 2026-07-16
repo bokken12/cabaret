@@ -21,18 +21,10 @@ import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 export interface ShowPage {
   readonly summary: ChangeSummary;
   readonly comments: readonly ChangeComment[];
-<<<<<<< 986a02426092fa10a96eea9016eafa4709b81051
-  /** Per-reviewer unsatisfied obligations; empty once landed. */
-  readonly remaining: readonly ReviewerDue[];
-  /** The change's workspace on this device, when it has one. */
-  readonly workspace: WorkspaceNote | undefined;
-||||||| 63b077cbb80f99d58c53fe96d2eacc2492a6eba0
-  /** Per-reviewer unsatisfied obligations; empty once landed. */
-  readonly remaining: readonly ReviewerDue[];
-=======
   /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
   readonly remaining: readonly string[];
->>>>>>> f56e1b7ed00b6a8f69565d1b1a74838ed8d63659
+  /** The change's workspace on this device, when it has one. */
+  readonly workspace: WorkspaceNote | undefined;
 }
 
 /** Query the show page for `change`. */

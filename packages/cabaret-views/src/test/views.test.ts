@@ -239,20 +239,8 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       reviewLeft: files("api.ts", "ui.ts"),
     }),
     comments: [],
-<<<<<<< 986a02426092fa10a96eea9016eafa4709b81051
     workspace: undefined,
-    remaining: [
-      { user: alice, files: files("api.ts", "ui.ts") },
-      { user: userName("bob@example.com"), files: files("api.ts") },
-    ],
-||||||| 63b077cbb80f99d58c53fe96d2eacc2492a6eba0
-    remaining: [
-      { user: alice, files: files("api.ts", "ui.ts") },
-      { user: userName("bob@example.com"), files: files("api.ts") },
-    ],
-=======
     remaining: ["alice@example.com: 2 files", "bob@example.com: 1 file"],
->>>>>>> f56e1b7ed00b6a8f69565d1b1a74838ed8d63659
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -300,14 +288,8 @@ test("showDoc notes disagreeing readings on their own rows", () => {
       nextStep: "sync",
     }),
     comments: [],
-<<<<<<< 986a02426092fa10a96eea9016eafa4709b81051
     workspace: undefined,
-    remaining: [{ user: alice, files: files("api.ts") }],
-||||||| 63b077cbb80f99d58c53fe96d2eacc2492a6eba0
-    remaining: [{ user: alice, files: files("api.ts") }],
-=======
     remaining: ["alice@example.com: 1 file"],
->>>>>>> f56e1b7ed00b6a8f69565d1b1a74838ed8d63659
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -360,14 +342,8 @@ test("showDoc words each note by its reading", () => {
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
-<<<<<<< 986a02426092fa10a96eea9016eafa4709b81051
-    remaining: [{ user: userName("bob@example.com"), files: files("gadget.ts") }],
-    workspace: undefined,
-||||||| 63b077cbb80f99d58c53fe96d2eacc2492a6eba0
-    remaining: [{ user: userName("bob@example.com"), files: files("gadget.ts") }],
-=======
     remaining: ["bob@example.com: 1 file"],
->>>>>>> f56e1b7ed00b6a8f69565d1b1a74838ed8d63659
+    workspace: undefined,
     comments: [
       {
         timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
