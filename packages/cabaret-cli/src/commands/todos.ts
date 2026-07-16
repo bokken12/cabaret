@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, newTodos, parseRefName, type RefName, type Todo } from "cabaret-core";
+import { changeBase, newTodos, parseRefName, type RefName, requireBranchTip, type Todo } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 /**
@@ -50,9 +50,7 @@ export const todos = buildCommand({
     const backend = await this.backend();
     const target = change ?? (await backend.currentBranch());
     const base = await changeBase(backend, target, await backend.readLog(target));
-    // Pin to the branch namespace so a same-named tag cannot shadow the
-    // change's tip.
-    const tip = await backend.resolveCommit(`refs/heads/${target}`);
+    const tip = await requireBranchTip(backend, target);
     const rendered: string[] = [];
     for (const file of await backend.changedFiles(base, tip)) {
       const [prev, next] = await Promise.all([backend.readFile(base, file), backend.readFile(tip, file)]);

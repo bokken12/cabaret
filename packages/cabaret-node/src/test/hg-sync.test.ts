@@ -96,6 +96,9 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", { timeout
   // Publishing made the log public on both sides; nothing is left outgoing,
   // so the user's own `hg push` has nothing of Cabaret's to trip over.
   expect(await a.hg("log", "-r", "secret() or draft()", "-T", "{node}")).toBe("");
+  // The record of origin's cabaret/log/widgets bookmark is no reading of a
+  // code bookmark "widgets", suffix match or not.
+  expect(await a.backend.originTip(WIDGETS)).toBe(undefined);
 });
 
 test("concurrent appends converge to byte-identical logs, ties resolved alike", { timeout: 60000 }, async () => {
@@ -174,6 +177,10 @@ test("pushBranch and fetchBranch move code branches, and originTip tracks what w
 }, async () => {
   const [a, b] = await makeMachines();
   const main = parseRefName("main");
+  // A synced log first: origin then already has a named branch, so the code
+  // push is the "push creates new remote branches" case, not an empty-repo one.
+  await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
+  await a.backend.syncLog(WIDGETS);
   const first = await commit(a, "root", { "f.txt": "one\n" });
   await a.hg("bookmark", "-r", ".", "main");
   await a.backend.pushBranch(main);

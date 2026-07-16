@@ -1,5 +1,12 @@
 import { buildCommand } from "@stricli/core";
-import { assertNoConflict, assertReviewing, changeBase, conflictedFiles, type RefName } from "cabaret-core";
+import {
+  assertNoConflict,
+  assertReviewing,
+  changeBase,
+  conflictedFiles,
+  type RefName,
+  requireBranchTip,
+} from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -43,13 +50,12 @@ export const review = buildCommand({
     if (!flags.evenThoughNotReviewing) {
       await assertReviewing(backend, change, entries);
     }
-    // Pin the default to the branch namespace so a same-named tag cannot
-    // shadow the change's tip.
-    const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
+    const branchTip = await requireBranchTip(backend, change);
+    const tip = flags.tip === undefined ? branchTip : await backend.resolveCommit(flags.tip);
     const base = await changeBase(backend, change, entries);
-    // Judged at the change's own tip whatever --tip says: while markers sit
-    // in the code, fixing them — not review — is the change's next step.
-    const branchTip = await backend.resolveCommit(`refs/heads/${change}`);
+    // Conflicts are judged at the change's own tip whatever --tip says: while
+    // markers sit in the code, fixing them — not review — is the change's
+    // next step.
     assertNoConflict(change, await conflictedFiles(backend, branchTip, await backend.changedFiles(base, branchTip)));
     const user = await backend.currentUser();
     await backend.appendLog(

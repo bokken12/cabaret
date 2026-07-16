@@ -412,39 +412,35 @@ export class HgBackend implements Backend<HgNode> {
    * The node the remotenames extension recorded for origin's `bookmark` when
    * last exchanged. The extension is bundled with hg and Cabaret enables it
    * on its own pulls and pushes; a repository that never exchanged through it
-   * simply has no reading, which `originTip`'s contract allows. Records are
-   * keyed by the path alias or the resolved URL, depending on how hg was
-   * invoked (a symlinked path can defeat the alias match), so the lookup
-   * matches the bookmark name under any key — every remote operation here
-   * uses the one pinned origin anyway.
+   * simply has no reading, which `originTip`'s contract allows.
+   *
+   * Read straight from the extension's versioned store: its template view
+   * joins the remote key and bookmark name with "/", which a slashed
+   * bookmark name counterfeits (the `cabaret/log/gadget` record reads as a
+   * reading of a code bookmark `gadget` under a key ending `/cabaret/log`),
+   * while the store keeps them as separate fields. Records of any key count:
+   * hg keys them by the `default` alias or the resolved URL depending on how
+   * the path was spelled, and every exchange here uses the one pinned origin.
    */
   private async remoteReading(bookmark: string): Promise<HgNode | undefined> {
-    let out: string;
+    let text: string;
     try {
-      out = await hg(this.root, [
-        "log",
-        "--config",
-        "extensions.remotenames=",
-        "-r",
-        "remotebookmarks()",
-        "-T",
-        "{node} {remotebookmarks}\n",
-      ]);
+      text = await readFsFile(join(this.hgDir(), "logexchange", "bookmarks"), "utf8");
     } catch (error) {
-      // No records at all reads as nothing recorded.
-      if ((error as { code?: unknown }).code === 1 || aborted(error, /unknown revision/)) {
+      // No file means nothing was ever recorded.
+      if ((error as { code?: unknown }).code === "ENOENT") {
         return undefined;
       }
       throw error;
     }
-    // Cabaret's bookmark names contain no spaces, so splitting is sound.
-    for (const line of out.split("\n")) {
-      if (line === "") {
-        continue;
-      }
-      const [node, ...names] = line.split(" ");
-      if (names.some((name) => name === `${ORIGIN_PATH}/${bookmark}` || name.endsWith(`/${bookmark}`))) {
-        return parseHgNode(node as string);
+    const [version, blank, ...records] = text.split("\n");
+    if (version !== "0" || blank !== "") {
+      throw new Error(`unrecognized hg logexchange format: ${JSON.stringify(version)}`);
+    }
+    for (const record of records) {
+      const [node, , name] = record.split("\0");
+      if (node !== undefined && name === bookmark) {
+        return parseHgNode(node);
       }
     }
     return undefined;
@@ -786,9 +782,8 @@ export class HgBackend implements Backend<HgNode> {
 
   /**
    * Run a pull/push against origin with remotenames recording what was seen.
-   * The origin rides as hg's implied default path — named explicitly,
-   * remotenames would file its readings under the resolved URL instead of
-   * the `default` alias `remoteReading` looks up.
+   * The origin rides as hg's implied default path; `remoteReading` accepts
+   * records under whatever key remotenames files them.
    */
   private async hgRemote(args: readonly string[]): Promise<void> {
     let out: string;
@@ -846,8 +841,11 @@ export class HgBackend implements Backend<HgNode> {
     if (remote !== undefined && remote !== (lease as string | undefined)) {
       throw new UserError(`origin's copy of ${JSON.stringify(branch)} has work this repository never fetched`);
     }
+    // --new-branch: the commits may sit on a named branch origin has never
+    // seen (hg's own workflows use them for code); a new branch only adds a
+    // head, and the bookmark lease above is what guards overwrites.
     try {
-      await this.hgRemote(["push", "-B", branch]);
+      await this.hgRemote(["push", "--new-branch", "-B", branch]);
       return;
     } catch (error) {
       if (!aborted(error, /push creates new remote head|diverged bookmark/)) {
@@ -1079,6 +1077,10 @@ export class HgBackend implements Backend<HgNode> {
     await this.hgWorker([
       "commit",
       "-q",
+      // A net-empty change still lands as a commit, as git's commit-tree
+      // would write it; without this a squash of one aborts "nothing changed".
+      "--config",
+      "ui.allowemptycommit=yes",
       ...(username === undefined ? [] : ["--config", `ui.username=${username}`]),
       "-m",
       message,

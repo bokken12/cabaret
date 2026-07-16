@@ -308,6 +308,26 @@ test("squash lands one single-parent commit", { timeout: 60000 }, async () => {
   );
 });
 
+test("a net-empty change still squash-lands, as an empty commit", { timeout: 60000 }, async () => {
+  const backend = await HgBackend.open(repo);
+  const now = testClock();
+  await hg("update", "-q", "main");
+  const change = parseRefName("net-empty");
+  await createChange(backend, now, change, parseRefName("main"));
+  await hg("update", "-q", "net-empty");
+  await commit(repo, "add", { "ephemeral.txt": "here\n" });
+  await hg("rm", "-q", "path:ephemeral.txt");
+  await hg("commit", "-q", "-m", "remove again");
+  await hg("update", "-q", "main");
+  await landChange(backend, now, change, await backend.readLog(change), "squash", {
+    notOwner: false,
+    unreviewed: true,
+  });
+  expect(await hg("log", "-r", "main", "-T", "{files}|{desc|firstline}")).toBe(
+    `|${landMessage(change).split("\n")[0]}`,
+  );
+});
+
 test("mergeOnto resolves against the change's own base and commits conflicts with markers", {
   timeout: 60000,
 }, async () => {

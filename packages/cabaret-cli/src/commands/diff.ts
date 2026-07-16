@@ -11,6 +11,7 @@ import {
   remainingSpans,
   renderDiff,
   renderDiff4,
+  requireBranchTip,
   reviewSpans,
   UserError,
   type UserName,
@@ -61,9 +62,7 @@ export const diff = buildCommand({
     const { change, entries } = await resolveChange(backend, flags.change);
     const user = flags.for ?? (await backend.currentUser());
     const base = await changeBase(backend, change, entries);
-    // Pin to the branch namespace so a same-named tag cannot shadow the
-    // change's tip.
-    const tip = await backend.resolveCommit(`refs/heads/${change}`);
+    const tip = await requireBranchTip(backend, change);
     const reviewed = brain(entries, user).get(file);
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
