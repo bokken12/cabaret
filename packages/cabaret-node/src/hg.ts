@@ -26,7 +26,6 @@ import {
   type Workspace,
 } from "cabaret-core";
 import type { Branded } from "cabaret-util";
-import { mergeDiff3 } from "node-diff3";
 
 const execFileAsync = promisify(execFile);
 
@@ -158,19 +157,8 @@ function decodeLogName(path: string): HgName {
 /** The remote every remote operation uses: hg's counterpart of git's `origin`. */
 const ORIGIN_PATH = "default";
 
-/** One file's part in a computed content merge. */
-interface MergedFile {
-  readonly path: FilePath;
-  /** The contents the merge resolves to; undefined removes the file. */
-  readonly content: string | undefined;
-  /** Whether the resolution carries conflict markers (or is a delete/edit conflict). */
-  readonly conflict: boolean;
-}
-
-/** Split file contents into the lines node-diff3 merges; joining with "\n" inverts it. */
-function lines(content: string): string[] {
-  return content.split("\n");
-}
+/** hg's marker-writing internal merge tools: what a headless merge can honor from the user's `ui.merge`. */
+const MARKER_STYLES = ["merge", "merge3", "mergediff"];
 
 /**
  * The root of the repository `root`'s working tree belongs to: `root` itself
@@ -461,6 +449,13 @@ export class HgBackend implements Backend<HgNode, HgName> {
         scope: "global",
         multi: false,
         brief: "sharing working trees, so your own hg sees every change in a dedicated workspace",
+      },
+      {
+        key: "ui.merge",
+        value: ":merge3",
+        scope: "global",
+        multi: false,
+        brief: "merge3 conflict markers, so conflicts show the base",
       },
     ];
   }
@@ -1291,77 +1286,70 @@ export class HgBackend implements Backend<HgNode, HgName> {
   // ---- merges ----
 
   /**
-   * The content merge of `secondary` into `primary`, resolved against
-   * `base`: what changed base → secondary, applied atop primary's copy.
-   * Computed here — hg's own merge machinery resolves against the DAG
-   * ancestor, with no way to name `base` instead, and Cabaret's whole
-   * rebase-tolerance rests on resolving against the change's own base.
+   * Fail unless `base` is what hg will resolve a merge of `a` and `b`
+   * against. Cabaret merges resolve against the change's recorded base, and
+   * hg merges against the graph's common ancestor with no way to name
+   * another revision — so the two must agree, and the merge is refused when
+   * they do not (after a reparent off an unlanded parent, or under a
+   * squash-landed one) rather than silently misreading the reviewed diff.
    */
-  private async computeMerge(base: HgNode, primary: HgNode, secondary: HgNode): Promise<readonly MergedFile[]> {
-    const merged: MergedFile[] = [];
-    for (const path of await this.changedFiles(base, secondary)) {
-      const [baseC, primaryC, secondaryC] = await Promise.all([
-        this.readFile(base, path),
-        this.readFile(primary, path),
-        this.readFile(secondary, path),
-      ]);
-      if (primaryC === baseC || primaryC === secondaryC) {
-        // Primary kept the base's copy (or already agrees): take secondary's.
-        merged.push({ path, content: secondaryC, conflict: false });
-        continue;
-      }
-      if (secondaryC === undefined || primaryC === undefined) {
-        // One side deleted what the other edited: a conflict markers cannot
-        // express, so the surviving edit stays in place, flagged.
-        merged.push({ path, content: primaryC ?? secondaryC, conflict: true });
-        continue;
-      }
-      const three = mergeDiff3(lines(primaryC), lines(baseC ?? ""), lines(secondaryC), {
-        // zdiff3-style markers, labeled by revision like git's merges.
-        label: { a: shortHash(primary), o: shortHash(base), b: shortHash(secondary) },
-      });
-      merged.push({ path, content: three.result.join("\n"), conflict: three.conflict });
+  private async assertMergeableBase(base: HgNode, a: HgNode, b: HgNode): Promise<void> {
+    const ancestor = await this.mergeBase(a, b);
+    if (ancestor !== base) {
+      throw new UserError(
+        `the log records base ${shortHash(base)}, but hg merges against the common ancestor ` +
+          `${shortHash(ancestor)} and cannot be told otherwise; refusing a merge that would ` +
+          `misread the reviewed diff`,
+      );
     }
-    return merged;
-  }
-
-  async mergeConflicts(base: HgNode, tip: HgNode, onto: HgNode): Promise<readonly FilePath[]> {
-    return (await this.computeMerge(base, tip, onto)).filter(({ conflict }) => conflict).map(({ path }) => path);
   }
 
   /**
-   * Build a commit in the worker: primary checked out, `files` applied, the
-   * given parents, carrying `message` under the repository's own identity.
+   * The marker style the user's `ui.merge` names, when it names one of hg's
+   * marker-writing internal tools, and merge3 — markers showing the base —
+   * otherwise. Merges run headless in the worker and commit their conflicts,
+   * so an interactive or auto-resolving tool cannot be honored, only a
+   * style.
    */
-  private async commitMerge(
-    primary: HgNode,
-    files: readonly MergedFile[],
-    parents: readonly [HgNode] | readonly [HgNode, HgNode],
-    message: string,
-  ): Promise<HgNode> {
+  private async markerStyle(): Promise<string> {
+    const tool = (await this.config("ui.merge"))?.replace(/^(internal)?:/, "");
+    return tool !== undefined && MARKER_STYLES.includes(tool) ? tool : "merge3";
+  }
+
+  /**
+   * hg's own merge of `other` into `primary` in the worker's working
+   * directory, returning the conflicted paths. Conflicts stay in the files
+   * as markers, every path marked resolved: the markers are the resolution,
+   * for the owner to amend in their own time.
+   */
+  private async workerMerge(primary: HgNode, other: HgNode): Promise<readonly FilePath[]> {
     await this.workerReset(primary);
-    const dir = await this.worker();
-    const written: FilePath[] = [];
-    for (const { path, content } of files) {
-      const target = join(dir, path);
-      if (content === undefined) {
-        if (existsSync(target)) {
-          await this.hgWorker(["rm", "-q", "-f", `path:${path}`]);
-        }
-        continue;
+    try {
+      await this.hgWorker(["merge", "-q", "-r", other, "-t", `:${await this.markerStyle()}`]);
+    } catch (error) {
+      // Exit code 1 means exactly "unresolved files remain": the merge is
+      // done, markers in place. Anything else is a real failure.
+      if ((error as { code?: unknown }).code !== 1) {
+        throw error;
       }
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, content);
-      written.push(path);
     }
-    if (written.length > 0) {
-      // Adding a tracked file is a no-op, so every written path can be added.
-      await this.hgWorker(["add", "-q", ...written.map((path) => `path:${path}`)]);
+    const conflicted = (await this.hgWorker(["resolve", "-l"]))
+      .split("\n")
+      .filter((line) => line.startsWith("U "))
+      .map((line) => parseFilePath(line.slice(2)));
+    if (conflicted.length > 0) {
+      await this.hgWorker(["resolve", "-q", "-m", "--all"]);
     }
-    const second = parents[1];
-    if (second !== undefined) {
-      await this.hgWorker(["debugsetparents", parents[0], second]);
-    }
+    return conflicted;
+  }
+
+  async mergeConflicts(base: HgNode, tip: HgNode, onto: HgNode): Promise<readonly FilePath[]> {
+    await this.assertMergeableBase(base, tip, onto);
+    return this.workerMerge(tip, onto);
+  }
+
+  /** Commit the worker's working directory under the repository's own identity and return the new commit. */
+  private async workerCommit(message: string): Promise<HgNode> {
     const username = await this.config("ui.username");
     await this.hgWorker([
       "commit",
@@ -1407,12 +1395,18 @@ export class HgBackend implements Backend<HgNode, HgName> {
     message: string,
     parents: readonly [HgNode] | readonly [HgNode, HgNode],
   ): Promise<HgNode> {
-    const files = await this.computeMerge(base, onto, tip);
-    const conflicted = files.filter(({ conflict }) => conflict).map(({ path }) => path);
-    if (conflicted.length > 0) {
-      throw new Error(`landing ${tip} onto ${onto} conflicts in ${conflicted.join(", ")}`);
+    if (onto === base) {
+      // The tree is tip's own: nothing to merge, only parents to set.
+      await this.workerReset(tip);
+    } else {
+      await this.assertMergeableBase(base, onto, tip);
+      const conflicted = await this.workerMerge(onto, tip);
+      if (conflicted.length > 0) {
+        throw new Error(`landing ${tip} onto ${onto} conflicts in ${conflicted.join(", ")}`);
+      }
     }
-    const commit = await this.commitMerge(onto, files, parents, message);
+    await this.hgWorker(["debugsetparents", ...parents]);
+    const commit = await this.workerCommit(message);
     await this.advanceBranch(into, commit, onto);
     return commit;
   }
@@ -1426,9 +1420,10 @@ export class HgBackend implements Backend<HgNode, HgName> {
       await this.advanceBranch(change, onto, tip);
       return [];
     }
-    const files = await this.computeMerge(base, tip, onto);
-    const commit = await this.commitMerge(tip, files, [tip, onto], message);
+    await this.assertMergeableBase(base, tip, onto);
+    const conflicted = await this.workerMerge(tip, onto);
+    const commit = await this.workerCommit(message);
     await this.advanceBranch(change, commit, tip);
-    return files.filter(({ conflict }) => conflict).map(({ path }) => path);
+    return conflicted;
   }
 }

@@ -372,12 +372,48 @@ test("mergeOnto resolves against the change's own base and commits conflicts wit
   }
   // Parents: the change's tip first, then what it merged onto.
   expect(await hg("log", "-r", merged.slice(0, 12), "-T", "{p1node} {p2node}")).toBe(`${tip} ${onto}`);
-  // The clean file took the onto side; the clash carries zdiff3-style markers.
+  // The clean file took the onto side; the clash carries hg's own merge3
+  // markers, base shown.
   expect(await backend.readFile(merged, parseFilePath("clean.txt"))).toBe("a\nb\n");
-  const clash = await backend.readFile(merged, parseFilePath("clash.txt"));
-  expect(clash).toContain("<<<<<<<");
-  expect(clash).toContain("ours");
-  expect(clash).toContain("theirs");
+  expect(await backend.readFile(merged, parseFilePath("clash.txt"))).toBe(
+    "<<<<<<< working copy\nours\n||||||| common ancestor\noriginal\n=======\ntheirs\n>>>>>>> merge rev\n",
+  );
+
+  // A `ui.merge` naming one of hg's marker-writing internal tools sets the
+  // style; here plain merge markers, base hidden.
+  await backend.configSet("ui.merge", ":merge", "global");
+  await hg("update", "-q", "-r", base);
+  const tip2 = await commit(repo, "ours again", { "clash.txt": "ours2\n" });
+  await hg("bookmark", "-q", "-r", tip2, "clasher2");
+  expect(await backend.mergeOnto(parseHgName("clasher2"), base, onto, "merge main into clasher2")).toEqual([
+    "clash.txt",
+  ]);
+  const merged2 = await backend.tip(parseHgName("clasher2"));
+  if (merged2 === undefined) {
+    throw new Error("clasher2 lost its tip");
+  }
+  expect(await backend.readFile(merged2, parseFilePath("clash.txt"))).toBe(
+    "<<<<<<< working copy\nours2\n=======\ntheirs\n>>>>>>> merge rev\n",
+  );
+  await backend.configUnset("ui.merge", "global");
+  await hg("update", "-q", "main");
+});
+
+test("mergeOnto refuses a base the graph disagrees with", { timeout: 60000 }, async () => {
+  const backend = await HgBackend.open(repo);
+  const onto = await backend.tip(parseHgName("main"));
+  if (onto === undefined) {
+    throw new Error("main lost its tip");
+  }
+  // A change stacked on an unlanded parent, reparented onto main: its
+  // recorded base (the old parent's tip) is no common ancestor at all.
+  await hg("update", "-q", "-r", onto);
+  const parentTip = await commit(repo, "unlanded parent work", { "parent-work.txt": "parent\n" });
+  const stacked = await commit(repo, "stacked work", { "stacked.txt": "stacked\n" });
+  await hg("bookmark", "-q", "-r", stacked, "stacked");
+  await expect(backend.mergeOnto(parseHgName("stacked"), parentTip, onto, "merge main into stacked")).rejects.toThrow(
+    "hg merges against the common ancestor",
+  );
   await hg("update", "-q", "main");
 });
 
@@ -441,17 +477,13 @@ test("dedicated workspaces are hg shares, registered and pruned by cabaret", { t
   await writeFile(join(ws, "untracked.txt"), "x\n");
   await expect(backend.removeWorkspace(ws, false)).rejects.toThrow("uncommitted changes");
   await backend.removeWorkspace(ws, true);
-  expect(await backend.workspaces()).toEqual([
-    { path: backend.root, change: "main", dirty: false, primary: true },
-  ]);
+  expect(await backend.workspaces()).toEqual([{ path: backend.root, change: "main", dirty: false, primary: true }]);
 
   // A workspace deleted out from under cabaret prunes from the listing and
   // the registry alike.
   await backend.addWorkspace(ws, parseHgName("gizmo"));
   await rm(ws, { recursive: true, force: true });
-  expect(await backend.workspaces()).toEqual([
-    { path: backend.root, change: "main", dirty: false, primary: true },
-  ]);
+  expect(await backend.workspaces()).toEqual([{ path: backend.root, change: "main", dirty: false, primary: true }]);
   expect(await readFile(join(repo, ".hg", "cabaret", "workspaces"), "utf8")).toBe("");
 });
 

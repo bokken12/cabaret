@@ -519,12 +519,14 @@ export interface Backend<R extends Revision = Revision, C extends ChangeName = C
    * Merge `onto` into branch `change`: a content merge of the change's tip
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge
-   * resolves against `base`, the change's own base, not the git merge-base:
-   * what the change did since its base applies onto `onto`, so a parent
-   * whose history was rewritten merges as cleanly as one that advanced.
-   * Carries a checked-out `change`'s working tree along. Conflicts still
-   * commit, markers left in the files, and come back as the conflicted
-   * paths.
+   * resolves against `base`, the change's own base: what the change did
+   * since its base applies onto `onto`. Under git the base overrides the
+   * graph's merge-base, so a parent whose history was rewritten merges as
+   * cleanly as one that advanced; hg can only resolve against the graph's
+   * own ancestor, so a `base` the graph disagrees with is refused rather
+   * than misread. Carries a checked-out `change`'s working tree along.
+   * Conflicts still commit, markers left in the files, and come back as the
+   * conflicted paths.
    */
   mergeOnto(change: C, base: R, onto: R, message: string): Promise<readonly FilePath[]>;
 
