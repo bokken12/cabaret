@@ -51,7 +51,7 @@ export function timestampMs(raw: number): TimestampMs {
   return raw as TimestampMs;
 }
 
-/** A user identity (git `user.email`). Obtain via `userName`. */
+/** A user identity: a git `user.email`, or a forge account like `github:alice`. Obtain via `userName`. */
 export type UserName = Branded<string, "UserName">;
 
 /** Tag `raw` as a user name. Applies no validation. */

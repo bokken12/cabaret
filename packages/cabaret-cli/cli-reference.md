@@ -266,7 +266,7 @@ USAGE
   cabaret pull [--change value]
   cabaret pull --help
 
-Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one.
+Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one. The account the forge credentials authenticate is recorded as an alias of you, so its changes read as yours.
 
 FLAGS
      [--change]  Only change to pull

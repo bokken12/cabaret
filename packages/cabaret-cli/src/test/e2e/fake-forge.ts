@@ -44,14 +44,14 @@ interface FakePr {
   readonly reviewed: Set<string>;
 }
 
-/** The identity every fake login maps to, mirroring `makeRepo`'s user setup. */
+/** The identity every fake login maps to, as the real GitHub forge mints them. */
 function loginIdentity(login: string): UserName {
-  return userName(`${login}@users.noreply.github.com`);
+  return userName(`github:${login}`);
 }
 
 /** Invert `loginIdentity`, as a real forge maps an identity back to an account. */
 function identityLogin(user: string): string {
-  const login = /^([^@]+)@users\.noreply\.github\.com$/.exec(user)?.[1];
+  const login = /^github:(.+)$/.exec(user)?.[1];
   if (login === undefined) {
     throw new Error(`no github.com account for ${JSON.stringify(user)}`);
   }
@@ -96,6 +96,10 @@ export class FakeForge implements Forge {
     } catch {
       return parseCommitHash("0".repeat(40));
     }
+  }
+
+  async currentUser(): Promise<UserName> {
+    return loginIdentity(this.tokenLogin);
   }
 
   async findChange(branch: RefName): Promise<ForgeChange | undefined> {

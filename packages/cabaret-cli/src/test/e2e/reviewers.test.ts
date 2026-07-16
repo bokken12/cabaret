@@ -104,7 +104,7 @@ test("push requests local reviewers on the forge and records the observation", a
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewers", "add", "bob@users.noreply.github.com");
+  await repo.cabaret("reviewers", "add", "github:bob");
   expect(await repo.cabaret("push")).toEqual({
     stdout:
       "opened github.com/test-org/widgets#1\n" +
@@ -113,9 +113,9 @@ test("push requests local reviewers on the forge and records the observation", a
     stderr: "",
     exitCode: 0,
   });
-  expect((await forge.getChange(PR)).reviewers).toEqual(["bob@users.noreply.github.com"]);
+  expect((await forge.getChange(PR)).reviewers).toEqual(["github:bob"]);
   expect((await repo.cabaret("log")).stdout).toContain(
-    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"add-reviewer","reviewer":"bob@users.noreply.github.com"}',
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"add-reviewer","reviewer":"github:bob"}',
   );
   // The request was observed once: pushing or pulling again moves nothing.
   expect((await repo.cabaret("push")).stdout).toBe("pushed 0 comments to github.com/test-org/widgets#1\n");
@@ -132,13 +132,14 @@ test("pull mirrors forge-side reviewer changes in; a local removal pushes the wi
   // A teammate requests review from carol on the forge.
   forge.requestReviewer(PR, "carol");
   expect((await repo.cabaret("pull")).stdout).toBe(
-    "updated 1 reviewer from github.com/test-org/widgets#1\n" +
+    "recorded forge account github:alice as an alias\n" +
+      "updated 1 reviewer from github.com/test-org/widgets#1\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
-  expect(await shownReviewers(repo)).toBe("│ reviewers    │ carol@users.noreply.github.com │");
+  expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
   // Removing carol locally is intent the next push carries to the forge.
-  await repo.cabaret("reviewers", "remove", "carol@users.noreply.github.com");
+  await repo.cabaret("reviewers", "remove", "github:carol");
   expect((await repo.cabaret("push")).stdout).toBe(
     "updated 1 reviewer on github.com/test-org/widgets#1\n" + "pushed 0 comments to github.com/test-org/widgets#1\n",
   );
@@ -160,8 +161,8 @@ test("push absorbs a forge-side request it has not pulled, rather than withdrawi
   // No pull in between: the push itself mirrors carol in as an observation
   // and pushes nothing, since what remains after the mirror is no intent.
   expect((await repo.cabaret("push")).stdout).toBe("pushed 0 comments to github.com/test-org/widgets#1\n");
-  expect((await forge.getChange(PR)).reviewers).toEqual(["carol@users.noreply.github.com"]);
-  expect(await shownReviewers(repo)).toBe("│ reviewers    │ carol@users.noreply.github.com │");
+  expect((await forge.getChange(PR)).reviewers).toEqual(["github:carol"]);
+  expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 
 test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back on the next pull", async () => {
@@ -172,16 +173,16 @@ test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back 
   forge.requestReviewer(PR, "carol");
   forge.review(PR, "carol");
   await repo.cabaret("pull");
-  await repo.cabaret("reviewers", "remove", "carol@users.noreply.github.com");
+  await repo.cabaret("reviewers", "remove", "github:carol");
   // The push attempts the withdrawal, but the forge cannot unmake the review.
   await repo.cabaret("push");
-  expect((await forge.getChange(PR)).reviewers).toEqual(["carol@users.noreply.github.com"]);
+  expect((await forge.getChange(PR)).reviewers).toEqual(["github:carol"]);
   expect((await repo.cabaret("pull")).stdout).toBe(
     "updated 1 reviewer from github.com/test-org/widgets#1\n" +
       "pulled 0 comments from github.com/test-org/widgets#1\n" +
       "synced github.com/test-org/widgets: 1 open forge change\n",
   );
-  expect(await shownReviewers(repo)).toBe("│ reviewers    │ carol@users.noreply.github.com │");
+  expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 
 test("pull imports a forge change with its reviewers", async () => {
@@ -198,7 +199,7 @@ test("pull imports a forge change with its reviewers", async () => {
   const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
   forge.requestReviewer(id, "alice");
   await repo.cabaret("pull");
-  expect(await shownReviewers(repo, "their-feature")).toBe("│ reviewers    │ alice@users.noreply.github.com │");
+  expect(await shownReviewers(repo, "their-feature")).toBe("│ reviewers    │ github:alice                  │");
   // Imported wholesale, reviewers included, the change holds no engagement:
   // it is pruned when the forge change closes.
   forge.close(id);

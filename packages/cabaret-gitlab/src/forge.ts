@@ -21,22 +21,22 @@ import {
 import { z } from "zod";
 import { type GitLabClient, type GitLabProject, isStatus } from "./client.js";
 
-/**
- * The identity for a username whose profile shows no public email: GitLab's
- * private-commit-email convention, which prefixes the numeric user id. An
- * account that cannot be looked up has no id and gets the bare form.
- */
-function noreplyUser(id: string | undefined, username: string): UserName {
-  return userName(`${id === undefined ? "" : `${id}-`}${username}@users.noreply.gitlab.com`);
+/** The identity for a GitLab account: its username under the `gitlab:` scheme. */
+function accountUser(username: string): UserName {
+  return userName(`gitlab:${username}`);
 }
 
 // GitLab reattributes a deleted account's contributions to a per-instance
 // "ghost" user, so an authorless MR is nearly unreachable — but the API
 // admits one, and this fixed identity keeps the mapping total.
-const GHOST = noreplyUser(undefined, "ghost");
+const GHOST = accountUser("ghost");
 
-// Inverts `noreplyUser`: the id-prefixed form names its account outright; the
-// bare form still carries a username to look up.
+// Inverts `accountUser`.
+const ACCOUNT = /^gitlab:(.+)$/;
+
+// GitLab's private-commit-email forms name their account just as well, so a
+// pasted noreply address is taken as the account it belongs to: the
+// id-prefixed form names it outright, the bare form by username.
 const NOREPLY = /^(?:(\d+)-)?([^@]+)@users\.noreply\.gitlab\.com$/;
 
 /** The numeric user id in a User gid; a gid in any other shape must not silently pass for an account. */
@@ -94,7 +94,7 @@ const GET_MR = `query ($path: ID!, $iid: String!) {
   }
 }`;
 
-const USER = "query ($username: String!) { user(username: $username) { id publicEmail } }";
+const USER = "query ($username: String!) { user(username: $username) { id } }";
 
 // GitLab's GraphQL nulls a missing or unauthorized record instead of
 // erroring, so every query's schema admits the null and absence is raised as
@@ -139,7 +139,7 @@ const GetMrSchema = z.object({
 });
 
 const UserSchema = z.object({
-  user: z.object({ id: z.string(), publicEmail: z.string().nullable() }).nullable(),
+  user: z.object({ id: z.string() }).nullable(),
 });
 
 // The merged-commit fields of a REST merge-request object: what the merge
@@ -174,12 +174,8 @@ const NoteSchema = z.object({
 // `setReviewers` edits, since REST is the only API that writes reviewers.
 const ReviewersSchema = z.object({ reviewers: z.array(z.object({ id: z.number() })) });
 
-const UserSearchSchema = z.array(z.object({ id: z.number() }));
-
 /** A `Forge` for a gitlab.com project, speaking the API directly. */
 export class GitLabForge implements Forge {
-  private readonly identities = new Map<string, Promise<UserName>>();
-  private readonly accounts = new Map<UserName, Promise<number>>();
   readonly locator: ForgeLocator;
   /** The REST path prefix naming the project. */
   private readonly api: string;
@@ -192,75 +188,33 @@ export class GitLabForge implements Forge {
     this.api = `/projects/${encodeURIComponent(project.path)}`;
   }
 
-  /**
-   * The Cabaret identity for `username`: the account's public profile email
-   * when it shows one, else GitLab's noreply convention. One API call per
-   * username; only a success is cached, so a transient failure cannot pin a
-   * wrong identity for the forge's lifetime.
-   */
-  private identity(username: string): Promise<UserName> {
-    let pending = this.identities.get(username);
-    if (pending === undefined) {
-      pending = this.client
-        .graphql(USER, { username })
-        .then((out) => {
-          const user = UserSchema.parse(out).user;
-          if (user === null) {
-            return noreplyUser(undefined, username);
-          }
-          if (user.publicEmail !== null && user.publicEmail !== "") {
-            return userName(user.publicEmail);
-          }
-          return noreplyUser(userIdOfGid(user.id), username);
-        })
-        .catch((error: unknown) => {
-          this.identities.delete(username);
-          throw error;
-        });
-      this.identities.set(username, pending);
-    }
-    return pending;
+  async currentUser(): Promise<UserName> {
+    const { username } = z.object({ username: z.string() }).parse(await this.client.get("/user"));
+    return accountUser(username);
   }
 
   /**
-   * The numeric user id behind a Cabaret identity — `identity` in reverse. An
-   * id-prefixed noreply name carries its id outright; a bare one still names
-   * a username to look up; anything else is searched as a public email, which
-   * GitLab matches exactly. As with `identity`, only a success is cached.
+   * The numeric user id behind a Cabaret identity — `accountUser` in reverse,
+   * also taking GitLab's noreply email forms: the id-prefixed one carries its
+   * id outright, the others cost a lookup by username. Fails for an identity
+   * that names no account: emails are not searched, since GitLab's matching
+   * is too loose for a review request that must never land on whichever
+   * stranger matched first.
    */
-  private accountId(user: UserName): Promise<number> {
-    let pending = this.accounts.get(user);
-    if (pending === undefined) {
-      pending = this.lookupAccountId(user).catch((error: unknown) => {
-        this.accounts.delete(user);
-        throw error;
-      });
-      this.accounts.set(user, pending);
-    }
-    return pending;
-  }
-
-  private async lookupAccountId(user: UserName): Promise<number> {
-    const [, id, username] = NOREPLY.exec(user) ?? [];
+  private async accountId(user: UserName): Promise<number> {
+    const [, id, noreplyUsername] = NOREPLY.exec(user) ?? [];
     if (id !== undefined) {
       return Number(id);
     }
-    if (username !== undefined) {
-      const found = UserSchema.parse(await this.client.graphql(USER, { username })).user;
-      if (found === null) {
-        throw new UserError(`no gitlab.com account found for "${user}"`);
-      }
-      return Number(userIdOfGid(found.id));
+    const username = ACCOUNT.exec(user)?.[1] ?? noreplyUsername;
+    if (username === undefined) {
+      throw new UserError(`${JSON.stringify(user)} names no gitlab.com account; use gitlab:<username>`);
     }
-    const matches = UserSearchSchema.parse(await this.client.get("/users", { search: user }));
-    const match = matches[0];
-    if (match === undefined) {
+    const found = UserSchema.parse(await this.client.graphql(USER, { username })).user;
+    if (found === null) {
       throw new UserError(`no gitlab.com account found for "${user}"`);
     }
-    if (matches.length > 1) {
-      throw new UserError(`"${user}" is ambiguous on gitlab.com`);
-    }
-    return match.id;
+    return Number(userIdOfGid(found.id));
   }
 
   private async toChange(mr: z.infer<typeof MrSchema>): Promise<ForgeChange> {
@@ -270,15 +224,13 @@ export class GitLabForge implements Forge {
       tip: mr.diffHeadSha,
       parent: mr.targetBranch,
       title: mr.title,
-      author: mr.author === null ? GHOST : await this.identity(mr.author.username),
+      author: mr.author === null ? GHOST : accountUser(mr.author.username),
       // A locked MR is mid-merge on the server; until that lands it has
       // not merged, so it reads as open.
       state: mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open",
       draft: mr.draft,
       // Sorted by identity: the forge promises no order of its own.
-      reviewers: (
-        await Promise.all((mr.reviewers?.nodes ?? []).map((reviewer) => this.identity(reviewer.username)))
-      ).sort(),
+      reviewers: (mr.reviewers?.nodes ?? []).map((reviewer) => accountUser(reviewer.username)).sort(),
       ...(mr.state === "merged" ? { merge: await this.mergeOf(mr) } : {}),
     };
   }
@@ -306,10 +258,10 @@ export class GitLabForge implements Forge {
     return { commit, parents: parent_ids.length === 2 && parent_ids[1] === tip ? 2 : 1 };
   }
 
-  private async toComment(note: z.infer<typeof NoteSchema>): Promise<ForgeComment> {
+  private toComment(note: z.infer<typeof NoteSchema>): ForgeComment {
     return {
       id: String(note.id),
-      author: await this.identity(note.author.username),
+      author: accountUser(note.author.username),
       body: note.body,
       updatedAt: timestampMs(Date.parse(note.updated_at)),
     };
@@ -330,28 +282,25 @@ export class GitLabForge implements Forge {
   }
 
   private async toOpenChange(mr: z.infer<typeof OpenMrSchema>): Promise<OpenChange> {
-    const change = await this.toChange(mr);
-    const comments = await Promise.all(
-      mr.notes.nodes
-        .filter((note) => !note.system)
-        .map(async (note) => {
-          const id = NOTE_GID.exec(note.id)?.[1];
-          // A gid in any other shape must not silently desynchronize these
-          // note identities from REST's.
-          if (id === undefined) {
-            throw new Error(`unexpected note id format: ${note.id}`);
-          }
-          return {
-            id,
-            author: note.author === null ? GHOST : await this.identity(note.author.username),
-            body: note.body,
-            updatedAt: timestampMs(Date.parse(note.updatedAt)),
-          };
-        }),
-    );
+    const comments = mr.notes.nodes
+      .filter((note) => !note.system)
+      .map((note) => {
+        const id = NOTE_GID.exec(note.id)?.[1];
+        // A gid in any other shape must not silently desynchronize these
+        // note identities from REST's.
+        if (id === undefined) {
+          throw new Error(`unexpected note id format: ${note.id}`);
+        }
+        return {
+          id,
+          author: note.author === null ? GHOST : accountUser(note.author.username),
+          body: note.body,
+          updatedAt: timestampMs(Date.parse(note.updatedAt)),
+        };
+      });
     // System notes are filtered after the cap, so a capped page may over-
     // report truncation; the fallback just re-lists what was already whole.
-    return { change, comments, commentsTruncated: mr.notes.pageInfo.hasNextPage };
+    return { change: await this.toChange(mr), comments, commentsTruncated: mr.notes.pageInfo.hasNextPage };
   }
 
   async fetchOpenChanges(): Promise<readonly OpenChange[]> {
@@ -450,11 +399,11 @@ export class GitLabForge implements Forge {
     // promises. System notes — retargets, approvals, GitLab's own narration
     // of the MR — are not comments.
     const data = await this.client.getPaginated(`${this.api}/merge_requests/${id}/notes`, { sort: "asc" });
-    const notes = z
+    return z
       .array(NoteSchema)
       .parse(data)
-      .filter((note) => !note.system);
-    return Promise.all(notes.map(this.toComment, this));
+      .filter((note) => !note.system)
+      .map(this.toComment, this);
   }
 
   async addComment(id: ForgeChangeId, body: string): Promise<void> {

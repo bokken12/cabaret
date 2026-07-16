@@ -22,7 +22,7 @@ import {
 const FORGE = parseForgeLocator("github.com/test-org/widgets");
 const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
-const carol = userName("carol@users.noreply.github.com");
+const carol = userName("github:carol");
 
 function comment(timestamp: number, user: UserName, text: string, source?: ForgeSource, edits?: string): LogEntry {
   return {
@@ -224,7 +224,7 @@ test("planReviewingPush pushes the local draft boundary and records the observat
 const forgeUsers = () =>
   fc
     .string({ minLength: 1, unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz") })
-    .map((login) => userName(`${login}@users.noreply.github.com`));
+    .map((login) => userName(`github:${login}`));
 
 const foreignComments = () =>
   fc

@@ -115,7 +115,9 @@ test("land via forge records the land another machine can pull", async () => {
   const merge = parseCommitHash(await repo.git("rev-parse", "main"));
   // A rerun of pull adds nothing: the land is already recorded, so the
   // sweep passes the change by.
-  expect((await repo.cabaret("pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open forge changes\n");
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "recorded forge account github:alice as an alias\n" + "synced github.com/test-org/widgets: 0 open forge changes\n",
+  );
   expect((await repo.cabaret("log")).stdout.split("\n").filter((line) => line.includes('"kind":"land"'))).toHaveLength(
     1,
   );

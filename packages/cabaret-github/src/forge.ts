@@ -21,13 +21,31 @@ import {
 import { z } from "zod";
 import { type GitHubClient, type GitHubRepo, isStatus } from "./client.js";
 
-/** The identity for a login whose profile shows no email: GitHub's own noreply convention. */
-function noreplyUser(login: string): UserName {
-  return userName(`${login}@users.noreply.github.com`);
+/** The identity for a GitHub account: its login under the `github:` scheme. */
+function accountUser(login: string): UserName {
+  return userName(`github:${login}`);
 }
 
-// Inverts `noreplyUser`, including the id-prefixed form GitHub also hands out.
+// Inverts `accountUser`.
+const ACCOUNT = /^github:(.+)$/;
+
+// GitHub's private-commit-email forms name their account just as well, so a
+// pasted noreply address is taken as the account it belongs to.
 const NOREPLY = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/;
+
+/**
+ * The login a Cabaret identity names — `accountUser`'s inverse, also taking
+ * GitHub's noreply email forms. Fails for an identity that names no account:
+ * emails are not searched, since GitHub's matching is too loose for a review
+ * request that must never land on whichever stranger matched first.
+ */
+function accountLogin(user: UserName): string {
+  const login = ACCOUNT.exec(user)?.[1] ?? NOREPLY.exec(user)?.[1];
+  if (login === undefined) {
+    throw new UserError(`${JSON.stringify(user)} names no github.com account; use github:<login>`);
+  }
+  return login;
+}
 
 // The PR fields every query selects. GraphQL rather than REST because the
 // open-changes sweep pages a hundred PRs with their comments in one query —
@@ -138,8 +156,6 @@ const IssueCommentSchema = z.object({
 
 /** A `Forge` for a github.com repository, speaking the API directly. */
 export class GitHubForge implements Forge {
-  private readonly identities = new Map<string, Promise<UserName>>();
-  private readonly logins = new Map<UserName, Promise<string>>();
   readonly locator: ForgeLocator;
 
   constructor(
@@ -149,85 +165,38 @@ export class GitHubForge implements Forge {
     this.locator = parseForgeLocator(`github.com/${repo.owner}/${repo.repo}`);
   }
 
-  /**
-   * The Cabaret identity for `login`: the account's public profile email when
-   * it shows one, else GitHub's noreply convention. One API call per login,
-   * cached for this forge's lifetime.
-   */
-  private identity(login: string): Promise<UserName> {
-    let pending = this.identities.get(login);
-    if (pending === undefined) {
-      pending = this.client
-        .request("GET /users/{username}", { username: login })
-        .then(({ data }) => {
-          const { email } = z.object({ email: z.string().nullable() }).parse(data);
-          return email === null || email === "" ? noreplyUser(login) : userName(email);
-        })
-        // Deleted accounts 404; their PRs and comments still need an identity.
-        .catch(() => noreplyUser(login));
-      this.identities.set(login, pending);
-    }
-    return pending;
+  async currentUser(): Promise<UserName> {
+    const { data } = await this.client.request("GET /user");
+    return accountUser(z.object({ login: z.string() }).parse(data).login);
   }
 
-  /**
-   * The login for a Cabaret identity — `identity`'s inverse. A noreply
-   * identity names its login directly; anything else costs an email search,
-   * cached for this forge's lifetime. Search matching is loose, so anything
-   * but exactly one hit fails: a review request must never land on whichever
-   * stranger matched first.
-   */
-  private login(user: UserName): Promise<string> {
-    const noreply = NOREPLY.exec(user)?.[1];
-    if (noreply !== undefined) {
-      return Promise.resolve(noreply);
-    }
-    let pending = this.logins.get(user);
-    if (pending === undefined) {
-      pending = this.client.request("GET /search/users", { q: `${user} in:email` }).then(({ data }) => {
-        const { items } = z.object({ items: z.array(z.object({ login: z.string() })) }).parse(data);
-        const [match] = items;
-        if (match === undefined) {
-          throw new UserError(`no github.com account found for ${JSON.stringify(user)}`);
-        }
-        if (items.length > 1) {
-          throw new UserError(`${JSON.stringify(user)} is ambiguous on github.com`);
-        }
-        return match.login;
-      });
-      this.logins.set(user, pending);
-    }
-    return pending;
-  }
-
-  private async toChange(pr: z.infer<typeof PrSchema>): Promise<ForgeChange> {
+  private toChange(pr: z.infer<typeof PrSchema>): ForgeChange {
     const logins = new Set(
       [
         ...pr.reviewRequests.nodes.map(({ requestedReviewer }) => requestedReviewer?.login),
         ...pr.latestReviews.nodes.map(({ author }) => author?.login),
       ].filter((login) => login !== undefined),
     );
-    const reviewers = await Promise.all([...logins].map((login) => this.identity(login)));
     return {
       id: pr.number,
       head: pr.headRefName,
       tip: pr.headRefOid,
       parent: pr.baseRefName,
       title: pr.title,
-      author: await this.identity(pr.author?.login ?? "ghost"),
+      author: accountUser(pr.author?.login ?? "ghost"),
       state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
       draft: pr.isDraft,
-      reviewers: reviewers.sort(),
+      reviewers: [...logins].map(accountUser).sort(),
       ...(pr.mergeCommit === null
         ? {}
         : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
     };
   }
 
-  private async toComment(comment: z.infer<typeof IssueCommentSchema>): Promise<ForgeComment> {
+  private toComment(comment: z.infer<typeof IssueCommentSchema>): ForgeComment {
     return {
       id: String(comment.id),
-      author: await this.identity(comment.user.login),
+      author: accountUser(comment.user.login),
       body: comment.body,
       updatedAt: timestampMs(Date.parse(comment.updated_at)),
     };
@@ -239,23 +208,20 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toOpenChange(pr: z.infer<typeof OpenPrSchema>): Promise<OpenChange> {
-    const change = await this.toChange(pr);
-    const comments = await Promise.all(
-      pr.comments.nodes
-        .filter((comment) => comment.databaseId !== null)
-        .map(async (comment) => ({
-          id: String(comment.databaseId),
-          author: await this.identity(comment.author?.login ?? "ghost"),
-          body: comment.body,
-          updatedAt: timestampMs(Date.parse(comment.updatedAt)),
-        })),
-    );
-    return { change, comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
+  private toOpenChange(pr: z.infer<typeof OpenPrSchema>): OpenChange {
+    const comments = pr.comments.nodes
+      .filter((comment) => comment.databaseId !== null)
+      .map((comment) => ({
+        id: String(comment.databaseId),
+        author: accountUser(comment.author?.login ?? "ghost"),
+        body: comment.body,
+        updatedAt: timestampMs(Date.parse(comment.updatedAt)),
+      }));
+    return { change: this.toChange(pr), comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
   }
 
   async fetchOpenChanges(): Promise<readonly OpenChange[]> {
-    const changes: Promise<OpenChange>[] = [];
+    const changes: OpenChange[] = [];
     let cursor: string | null = null;
     do {
       const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { ...this.repo, cursor });
@@ -263,7 +229,7 @@ export class GitHubForge implements Forge {
       changes.push(...nodes.map(this.toOpenChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return Promise.all(changes);
+    return changes;
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
@@ -356,7 +322,7 @@ export class GitHubForge implements Forge {
       issue_number: id,
       per_page: 100,
     });
-    return Promise.all(z.array(IssueCommentSchema).parse(data).map(this.toComment, this));
+    return z.array(IssueCommentSchema).parse(data).map(this.toComment, this);
   }
 
   async addComment(id: ForgeChangeId, body: string): Promise<void> {
@@ -368,10 +334,8 @@ export class GitHubForge implements Forge {
   }
 
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
-    const [adding, removing] = await Promise.all([
-      Promise.all(add.map((user) => this.login(user))),
-      Promise.all(remove.map((user) => this.login(user))),
-    ]);
+    const adding = add.map(accountLogin);
+    const removing = remove.map(accountLogin);
     try {
       if (adding.length > 0) {
         await this.client.request("POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
