@@ -62,34 +62,46 @@ describe("GitLabForge", () => {
     expect(calls[0]?.headers.authorization).toBe("Bearer token-123");
   });
 
+  test("currentSelf is the token's account, its emails as aliases", async () => {
+    stubGitLab({
+      [`GET ${API}/user`]: {
+        json: {
+          username: "alice",
+          email: "alice@example.com",
+          public_email: "",
+          commit_email: "31-alice@users.noreply.gitlab.com",
+        },
+      },
+    });
+    expect(await forge().currentSelf()).toEqual({
+      user: "gitlab:alice",
+      aliases: new Set(["alice@example.com", "31-alice@users.noreply.gitlab.com"]),
+    });
+  });
+
   test("getChange maps an open MR with its reviewers, sorted by identity", async () => {
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "7",
-                  sourceBranch: "add-tables",
-                  diffHeadSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-                  targetBranch: "main",
-                  title: "Add tables",
-                  author: { username: "alice" },
-                  state: "opened",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [{ username: "carol" }, { username: "bob" }] },
-                  diffStatsSummary: { fileCount: 3 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "7",
+                sourceBranch: "add-tables",
+                diffHeadSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+                targetBranch: "main",
+                title: "Add tables",
+                author: { username: "alice" },
+                state: "opened",
+                draft: false,
+                mergeCommitSha: null,
+                reviewers: { nodes: [{ username: "carol" }, { username: "bob" }] },
+                diffStatsSummary: { fileCount: 3 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: "alice@example.com" } } } },
-        { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: "carol@example.com" } } } },
-        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: "bob@example.com" } } } },
-      ],
+      },
     });
     expect(await forge().getChange(forgeChangeId(7))).toEqual({
       id: 7,
@@ -97,39 +109,36 @@ describe("GitLabForge", () => {
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       parent: "main",
       title: "Add tables",
-      author: "alice@example.com",
+      author: "gitlab:alice",
       state: "open",
       draft: false,
-      reviewers: ["bob@example.com", "carol@example.com"],
+      reviewers: ["gitlab:bob", "gitlab:carol"],
     });
   });
 
-  test("getChange maps a true merge, falling back to the id-prefixed noreply identity", async () => {
+  test("getChange maps a true merge", async () => {
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "8",
-                  sourceBranch: "fix-crash",
-                  diffHeadSha: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
-                  targetBranch: "release",
-                  title: "Fix crash",
-                  author: { username: "bob" },
-                  state: "merged",
-                  draft: false,
-                  mergeCommitSha: "89e6c98d92887913cadf06b2adb97f26cde4849b",
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 1 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "8",
+                sourceBranch: "fix-crash",
+                diffHeadSha: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
+                targetBranch: "release",
+                title: "Fix crash",
+                author: { username: "bob" },
+                state: "merged",
+                draft: false,
+                mergeCommitSha: "89e6c98d92887913cadf06b2adb97f26cde4849b",
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 1 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: null } } } },
-      ],
+      },
       [`GET ${PROJECT}/repository/commits/89e6c98d92887913cadf06b2adb97f26cde4849b`]: {
         json: {
           parent_ids: ["1111111111111111111111111111111111111111", "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877"],
@@ -142,7 +151,7 @@ describe("GitLabForge", () => {
       tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
       parent: "release",
       title: "Fix crash",
-      author: "12-bob@users.noreply.gitlab.com",
+      author: "gitlab:bob",
       state: "merged",
       draft: false,
       reviewers: [],
@@ -154,30 +163,27 @@ describe("GitLabForge", () => {
     // The merge commit's second parent is the squash commit, not the head
     // that was reviewed, so `parents` is 1 despite the two-parent commit.
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "9",
-                  sourceBranch: "polish",
-                  diffHeadSha: "44556677889900aabbccddeeff112233445566aa",
-                  targetBranch: "main",
-                  title: "Polish",
-                  author: { username: "carol" },
-                  state: "merged",
-                  draft: false,
-                  mergeCommitSha: "2222222222222222222222222222222222222222",
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 4 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "9",
+                sourceBranch: "polish",
+                diffHeadSha: "44556677889900aabbccddeeff112233445566aa",
+                targetBranch: "main",
+                title: "Polish",
+                author: { username: "carol" },
+                state: "merged",
+                draft: false,
+                mergeCommitSha: "2222222222222222222222222222222222222222",
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 4 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: null } } } },
-      ],
+      },
       [`GET ${PROJECT}/repository/commits/2222222222222222222222222222222222222222`]: {
         json: {
           parent_ids: ["1111111111111111111111111111111111111111", "3333333333333333333333333333333333333333"],
@@ -192,30 +198,27 @@ describe("GitLabForge", () => {
 
   test("a fast-forward squash lands the squash commit itself", async () => {
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "10",
-                  sourceBranch: "tidy",
-                  diffHeadSha: "5566778899aabbccddeeff001122334455667788",
-                  targetBranch: "main",
-                  title: "Tidy",
-                  author: { username: "carol" },
-                  state: "merged",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 2 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "10",
+                sourceBranch: "tidy",
+                diffHeadSha: "5566778899aabbccddeeff001122334455667788",
+                targetBranch: "main",
+                title: "Tidy",
+                author: { username: "carol" },
+                state: "merged",
+                draft: false,
+                mergeCommitSha: null,
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 2 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: null } } } },
-      ],
+      },
       [`GET ${PROJECT}/merge_requests/10`]: {
         json: {
           merge_commit_sha: null,
@@ -233,7 +236,7 @@ describe("GitLabForge", () => {
     });
   });
 
-  test("getChange maps a closed, authorless MR to the ghost identity without a lookup", async () => {
+  test("getChange maps a closed, authorless MR to the ghost identity", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: {
         json: {
@@ -263,7 +266,7 @@ describe("GitLabForge", () => {
       tip: "44556677889900aabbccddeeff112233445566aa",
       parent: "main",
       title: "Abandoned",
-      author: "ghost@users.noreply.gitlab.com",
+      author: "gitlab:ghost",
       state: "closed",
       draft: false,
       reviewers: [],
@@ -273,90 +276,54 @@ describe("GitLabForge", () => {
 
   test("a locked MR reads as open", async () => {
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "13",
-                  sourceBranch: "landing",
-                  diffHeadSha: "66778899aabbccddeeff00112233445566778899",
-                  targetBranch: "main",
-                  title: "Landing",
-                  author: { username: "alice" },
-                  state: "locked",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 1 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "13",
+                sourceBranch: "landing",
+                diffHeadSha: "66778899aabbccddeeff00112233445566778899",
+                targetBranch: "main",
+                title: "Landing",
+                author: { username: "alice" },
+                state: "locked",
+                draft: false,
+                mergeCommitSha: null,
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 1 },
               },
             },
           },
         },
-        { json: { data: { user: null } } },
-      ],
+      },
     });
     expect((await forge().getChange(forgeChangeId(13))).state).toBe("open");
   });
 
-  test("an unknown username still maps to a stable noreply identity", async () => {
-    stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "14",
-                  sourceBranch: "old-work",
-                  diffHeadSha: "778899aabbccddeeff0011223344556677889900",
-                  targetBranch: "main",
-                  title: "Old work",
-                  author: { username: "vanished" },
-                  state: "opened",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 1 },
-                },
-              },
-            },
-          },
-        },
-        { json: { data: { user: null } } },
-      ],
-    });
-    expect((await forge().getChange(forgeChangeId(14))).author).toBe("vanished@users.noreply.gitlab.com");
-  });
-
   test("an externally merged MR without merge or squash commit lands its head", async () => {
     stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "15",
-                  sourceBranch: "hotfix",
-                  diffHeadSha: "8899aabbccddeeff001122334455667788990011",
-                  targetBranch: "main",
-                  title: "Hotfix",
-                  author: { username: "bob" },
-                  state: "merged",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 1 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "15",
+                sourceBranch: "hotfix",
+                diffHeadSha: "8899aabbccddeeff001122334455667788990011",
+                targetBranch: "main",
+                title: "Hotfix",
+                author: { username: "bob" },
+                state: "merged",
+                draft: false,
+                mergeCommitSha: null,
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 1 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: null } } } },
-      ],
+      },
       [`GET ${PROJECT}/merge_requests/15`]: {
         json: {
           merge_commit_sha: null,
@@ -395,34 +362,31 @@ describe("GitLabForge", () => {
 
   test("findChange queries by source branch and maps the MR", async () => {
     const calls = stubGitLab({
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequests: {
-                  nodes: [
-                    {
-                      iid: "7",
-                      sourceBranch: "add-tables",
-                      diffHeadSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
-                      targetBranch: "main",
-                      title: "Add tables",
-                      author: { username: "alice" },
-                      state: "opened",
-                      draft: false,
-                      mergeCommitSha: null,
-                      reviewers: { nodes: [] },
-                      diffStatsSummary: { fileCount: 3 },
-                    },
-                  ],
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequests: {
+                nodes: [
+                  {
+                    iid: "7",
+                    sourceBranch: "add-tables",
+                    diffHeadSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+                    targetBranch: "main",
+                    title: "Add tables",
+                    author: { username: "alice" },
+                    state: "opened",
+                    draft: false,
+                    mergeCommitSha: null,
+                    reviewers: { nodes: [] },
+                    diffStatsSummary: { fileCount: 3 },
+                  },
+                ],
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
-      ],
+      },
     });
     expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
       id: 7,
@@ -430,7 +394,7 @@ describe("GitLabForge", () => {
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       parent: "main",
       title: "Add tables",
-      author: "31-alice@users.noreply.gitlab.com",
+      author: "gitlab:alice",
       state: "open",
       draft: false,
       reviewers: [],
@@ -505,10 +469,6 @@ describe("GitLabForge", () => {
             },
           },
         },
-        // The first page's identities resolve while the second page is still
-        // being fetched, so the user lookups land between the page queries.
-        { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
-        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: null } } } },
         {
           json: {
             data: {
@@ -545,7 +505,7 @@ describe("GitLabForge", () => {
           tip: "123456789abcdef0123456789abcdef012345678",
           parent: "main",
           title: "First",
-          author: "31-alice@users.noreply.gitlab.com",
+          author: "gitlab:alice",
           state: "open",
           draft: false,
           reviewers: [],
@@ -553,7 +513,7 @@ describe("GitLabForge", () => {
         comments: [
           {
             id: "101",
-            author: "12-bob@users.noreply.gitlab.com",
+            author: "gitlab:bob",
             body: "please take a look",
             updatedAt: Date.parse("2026-05-01T00:00:00Z"),
           },
@@ -567,7 +527,7 @@ describe("GitLabForge", () => {
           tip: "23456789abcdef0123456789abcdef0123456789",
           parent: "first",
           title: "Second",
-          author: "12-bob@users.noreply.gitlab.com",
+          author: "gitlab:bob",
           state: "open",
           draft: false,
           reviewers: [],
@@ -582,7 +542,7 @@ describe("GitLabForge", () => {
           tip: "3456789abcdef0123456789abcdef0123456789a",
           parent: "main",
           title: "Third",
-          author: "31-alice@users.noreply.gitlab.com",
+          author: "gitlab:alice",
           state: "open",
           draft: false,
           reviewers: [],
@@ -593,59 +553,34 @@ describe("GitLabForge", () => {
     ]);
     expect(graphqlVariables(calls)).toEqual([
       { path: "test-org/widgets", cursor: null },
-      { username: "alice" },
-      { username: "bob" },
       { path: "test-org/widgets", cursor: "CUR1" },
     ]);
-  });
-
-  test("identities are looked up once per username", async () => {
-    const calls = stubGitLab({
-      [`GET ${PROJECT}/merge_requests/7/notes?sort=asc&per_page=100&page=1`]: {
-        json: [
-          { id: 101, author: { username: "alice" }, body: "first", system: false, updated_at: "2026-05-01T00:00:00Z" },
-          {
-            id: 102,
-            author: { username: "alice" },
-            body: "second",
-            system: false,
-            updated_at: "2026-05-02T12:30:00Z",
-          },
-        ],
-      },
-      [GRAPHQL]: { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
-    });
-    await forge().listComments(forgeChangeId(7));
-    expect(calls.filter(({ url }) => url === GRAPHQL_URL)).toHaveLength(1);
   });
 
   test("createChange posts the MR and fetches it by iid", async () => {
     const calls = stubGitLab({
       [`POST ${PROJECT}/merge_requests`]: { status: 201, json: { iid: 12 } },
-      [GRAPHQL]: [
-        {
-          json: {
-            data: {
-              project: {
-                mergeRequest: {
-                  iid: "12",
-                  sourceBranch: "new-work",
-                  diffHeadSha: "456789abcdef0123456789abcdef0123456789ab",
-                  targetBranch: "parent-branch",
-                  title: "New work",
-                  author: { username: "dave" },
-                  state: "opened",
-                  draft: false,
-                  mergeCommitSha: null,
-                  reviewers: { nodes: [] },
-                  diffStatsSummary: { fileCount: 1 },
-                },
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequest: {
+                iid: "12",
+                sourceBranch: "new-work",
+                diffHeadSha: "456789abcdef0123456789abcdef0123456789ab",
+                targetBranch: "parent-branch",
+                title: "New work",
+                author: { username: "dave" },
+                state: "opened",
+                draft: false,
+                mergeCommitSha: null,
+                reviewers: { nodes: [] },
+                diffStatsSummary: { fileCount: 1 },
               },
             },
           },
         },
-        { json: { data: { user: { id: "gid://gitlab/User/9", publicEmail: null } } } },
-      ],
+      },
     });
     const created = await forge().createChange(
       parseRefName("new-work"),
@@ -659,7 +594,7 @@ describe("GitLabForge", () => {
       tip: "456789abcdef0123456789abcdef0123456789ab",
       parent: "parent-branch",
       title: "New work",
-      author: "9-dave@users.noreply.gitlab.com",
+      author: "gitlab:dave",
       state: "open",
       draft: false,
       reviewers: [],
@@ -779,21 +714,17 @@ describe("GitLabForge", () => {
           { id: 103, author: { username: "bob" }, body: "second", system: false, updated_at: "2026-05-02T12:30:00Z" },
         ],
       },
-      [GRAPHQL]: [
-        { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: "alice@example.com" } } } },
-        { json: { data: { user: { id: "gid://gitlab/User/12", publicEmail: null } } } },
-      ],
     });
     expect(await forge().listComments(forgeChangeId(7))).toEqual([
       {
         id: "101",
-        author: "alice@example.com",
+        author: "gitlab:alice",
         body: "first",
         updatedAt: Date.parse("2026-05-01T00:00:00Z"),
       },
       {
         id: "103",
-        author: "12-bob@users.noreply.gitlab.com",
+        author: "gitlab:bob",
         body: "second",
         updatedAt: Date.parse("2026-05-02T12:30:00Z"),
       },
@@ -813,20 +744,22 @@ describe("GitLabForge", () => {
     const calls = stubGitLab({
       // Current reviewers: eve (5, removed below) and frank (7, kept).
       [`GET ${PROJECT}/merge_requests/21`]: { json: { reviewers: [{ id: 5 }, { id: 7 }] } },
-      [`GET ${API}/users?search=alice%40example.com`]: { json: [{ id: 31 }] },
-      [GRAPHQL]: { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: null } } } },
+      [GRAPHQL]: [
+        { json: { data: { user: { id: "gid://gitlab/User/44", publicEmail: null } } } },
+        { json: { data: { user: { id: "gid://gitlab/User/31", publicEmail: null } } } },
+      ],
       [`PUT ${PROJECT}/merge_requests/21`]: { json: {} },
     });
     await forge().setReviewers(
       forgeChangeId(21),
       [
         userName("12-bob@users.noreply.gitlab.com"),
-        userName("alice@example.com"),
-        userName("carol@users.noreply.gitlab.com"),
+        userName("gitlab:carol"),
+        userName("alice@users.noreply.gitlab.com"),
       ],
       [userName("5-eve@users.noreply.gitlab.com")],
     );
-    expect(graphqlVariables(calls)).toEqual([{ username: "carol" }]);
+    expect(graphqlVariables(calls)).toEqual([{ username: "carol" }, { username: "alice" }]);
     expect(calls.at(-1)).toEqual({
       method: "PUT",
       url: `${PROJECT}/merge_requests/21`,
@@ -848,33 +781,22 @@ describe("GitLabForge", () => {
     expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([`GET ${PROJECT}/merge_requests/22`]);
   });
 
-  test("an email with no gitlab.com account fails setReviewers as a UserError", async () => {
+  test("an identity that names no gitlab.com account fails setReviewers as a UserError", async () => {
     stubGitLab({
       [`GET ${PROJECT}/merge_requests/23`]: { json: { reviewers: [] } },
-      [`GET ${API}/users?search=nobody%40example.com`]: { json: [] },
     });
     const pending = forge().setReviewers(forgeChangeId(23), [userName("nobody@example.com")], []);
     await expect(pending).rejects.toThrow(UserError);
-    await expect(pending).rejects.toThrow('no gitlab.com account found for "nobody@example.com"');
+    await expect(pending).rejects.toThrow('"nobody@example.com" names no gitlab.com account; use gitlab:<username>');
   });
 
-  test("a bare noreply identity whose username vanished fails setReviewers as a UserError", async () => {
+  test("an account whose username vanished fails setReviewers as a UserError", async () => {
     stubGitLab({
       [`GET ${PROJECT}/merge_requests/24`]: { json: { reviewers: [] } },
       [GRAPHQL]: { json: { data: { user: null } } },
     });
-    await expect(
-      forge().setReviewers(forgeChangeId(24), [], [userName("vanished@users.noreply.gitlab.com")]),
-    ).rejects.toThrow('no gitlab.com account found for "vanished@users.noreply.gitlab.com"');
-  });
-
-  test("an email matching more than one gitlab.com account fails setReviewers as ambiguous", async () => {
-    stubGitLab({
-      [`GET ${PROJECT}/merge_requests/25`]: { json: { reviewers: [] } },
-      [`GET ${API}/users?search=dev%40example.com`]: { json: [{ id: 1 }, { id: 2 }] },
-    });
-    await expect(forge().setReviewers(forgeChangeId(25), [userName("dev@example.com")], [])).rejects.toThrow(
-      '"dev@example.com" is ambiguous on gitlab.com',
+    await expect(forge().setReviewers(forgeChangeId(24), [], [userName("gitlab:vanished")])).rejects.toThrow(
+      'no gitlab.com account found for "gitlab:vanished"',
     );
   });
 

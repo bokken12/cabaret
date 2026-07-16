@@ -272,13 +272,13 @@ test("a formatted log parses back to the original entries", () => {
     },
     {
       timestamp: timestampMs(1748000540000),
-      user: userName("carol@users.noreply.github.com"),
+      user: userName("github:carol"),
       source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
       action: { kind: "comment", text: "imported" },
     },
     {
       timestamp: timestampMs(1748000600000),
-      user: userName("carol@users.noreply.github.com"),
+      user: userName("github:carol"),
       source: { forge: parseForgeLocator("github.com/test-org/widgets"), id: "3025" },
       action: { kind: "comment", text: "imported (edited)", edits: "ab".repeat(32) },
     },

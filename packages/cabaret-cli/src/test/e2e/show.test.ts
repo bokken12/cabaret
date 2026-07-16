@@ -90,23 +90,23 @@ test("show renders a change pull imported like any other", async () => {
     "their-feature
     =============
 
-    ╭──────────────┬────────────────────────────────╮
-    │ attribute    │ value                          │
-    ├──────────────┼────────────────────────────────┤
-    │ next step    │ review                         │
-    │ owner        │ carol@users.noreply.github.com │
-    │ reviewing    │ everyone                       │
-    │ parent       │ main                           │
-    │ forge change │ github.com/test-org/widgets#1  │
-    │ tip          │ 7993514c52a1                   │
-    │ base         │ 1ac0b33426d0                   │
-    ╰──────────────┴────────────────────────────────╯
+    ╭──────────────┬───────────────────────────────╮
+    │ attribute    │ value                         │
+    ├──────────────┼───────────────────────────────┤
+    │ next step    │ review                        │
+    │ owner        │ github:carol                  │
+    │ reviewing    │ everyone                      │
+    │ parent       │ main                          │
+    │ forge change │ github.com/test-org/widgets#1 │
+    │ tip          │ 7993514c52a1                  │
+    │ base         │ 1ac0b33426d0                  │
+    ╰──────────────┴───────────────────────────────╯
 
     Remaining review:
-      carol@users.noreply.github.com: 1 file
+      github:carol: 1 file
 
     Comments:
-      2025-06-15T15:06:40.000Z carol@users.noreply.github.com
+      2025-06-15T15:06:40.000Z github:carol
         please take a look
 
     Files to review:

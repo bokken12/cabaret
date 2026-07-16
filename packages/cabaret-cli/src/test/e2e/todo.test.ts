@@ -253,10 +253,9 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   `);
 });
 
-test("your own forge change joins the changes you own when identities align", async () => {
+test("your own forge change joins the changes you own through the recorded alias", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await repo.git("config", "user.email", "alice@users.noreply.github.com");
   await repo.git("checkout", "-qb", "solo-feature");
   await repo.write("solo.txt", "solo work\n");
   await repo.git("add", "-A");

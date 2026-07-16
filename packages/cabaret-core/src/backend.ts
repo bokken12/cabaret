@@ -51,12 +51,22 @@ export function timestampMs(raw: number): TimestampMs {
   return raw as TimestampMs;
 }
 
-/** A user identity (git `user.email`). Obtain via `userName`. */
+/** A user identity: a git `user.email`, or a forge account like `github:alice`. Obtain via `userName`. */
 export type UserName = Branded<string, "UserName">;
 
 /** Tag `raw` as a user name. Applies no validation. */
 export function userName(raw: string): UserName {
   return raw as UserName;
+}
+
+/** The schemes forge accounts are written under, one per supported forge. */
+export const forgeAccountSchemes = ["github", "gitlab", "codeberg"] as const;
+
+export type ForgeAccountScheme = (typeof forgeAccountSchemes)[number];
+
+/** The identity for a forge account: its name under the forge's scheme, e.g. `github:alice`. */
+export function forgeAccount(scheme: ForgeAccountScheme, account: string): UserName {
+  return userName(`${scheme}:${account}`);
 }
 
 /** A forge repository locator, e.g. "github.com/test-org/widgets". Obtain via `parseForgeLocator`. */

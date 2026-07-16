@@ -88,6 +88,141 @@ FLAGS
      [--local]   Use this repository's git config   [default = false]
   -h  --help     Print help information and exit
 
+##### cabaret config alias github add
+
+USAGE
+  cabaret config alias github add [--global] [--local] <account>
+  cabaret config alias github add --help
+
+Add an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias github remove
+
+USAGE
+  cabaret config alias github remove [--global] [--local] <account>
+  cabaret config alias github remove --help
+
+Remove an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias github clear
+
+USAGE
+  cabaret config alias github clear [--global] [--local]
+  cabaret config alias github clear --help
+
+Remove every github account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias gitlab add
+
+USAGE
+  cabaret config alias gitlab add [--global] [--local] <account>
+  cabaret config alias gitlab add --help
+
+Add an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias gitlab remove
+
+USAGE
+  cabaret config alias gitlab remove [--global] [--local] <account>
+  cabaret config alias gitlab remove --help
+
+Remove an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias gitlab clear
+
+USAGE
+  cabaret config alias gitlab clear [--global] [--local]
+  cabaret config alias gitlab clear --help
+
+Remove every gitlab account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias codeberg add
+
+USAGE
+  cabaret config alias codeberg add [--global] [--local] <account>
+  cabaret config alias codeberg add --help
+
+Add an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias codeberg remove
+
+USAGE
+  cabaret config alias codeberg remove [--global] [--local] <account>
+  cabaret config alias codeberg remove --help
+
+Remove an account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cabaret config alias codeberg clear
+
+USAGE
+  cabaret config alias codeberg clear [--global] [--local]
+  cabaret config alias codeberg clear --help
+
+Remove every codeberg account
+
+FLAGS
+     [--global]  Use the person's global git config [default = false]
+     [--local]   Use this repository's git config   [default = false]
+  -h  --help     Print help information and exit
+
 ### cabaret config context
 
 USAGE
@@ -266,7 +401,7 @@ USAGE
   cabaret pull [--change value]
   cabaret pull --help
 
-Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one.
+Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours.
 
 FLAGS
      [--change]  Only change to pull

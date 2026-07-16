@@ -64,7 +64,21 @@ describe("GitHubForge", () => {
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
-  test("getChange maps an open PR, using the author's public profile email", async () => {
+  test("currentSelf is the token's account, its public email an alias", async () => {
+    stubGitHub({
+      [`GET ${API}/user`]: { json: { login: "alice", email: "alice@example.com" } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "github:alice", aliases: new Set(["alice@example.com"]) });
+  });
+
+  test("currentSelf of an account with no public email has no aliases", async () => {
+    stubGitHub({
+      [`GET ${API}/user`]: { json: { login: "bob", email: null } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "github:bob", aliases: new Set() });
+  });
+
+  test("getChange maps an open PR", async () => {
     stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -87,7 +101,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
     });
     expect(await forge().getChange(forgeChangeId(7))).toEqual({
       id: 7,
@@ -95,14 +108,14 @@ describe("GitHubForge", () => {
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       parent: "main",
       title: "Add tables",
-      author: "alice@example.com",
+      author: "github:alice",
       state: "open",
       draft: false,
       reviewers: [],
     });
   });
 
-  test("getChange maps a merged PR, falling back to the noreply identity", async () => {
+  test("getChange maps a merged PR", async () => {
     stubGitHub({
       [GRAPHQL]: {
         json: {
@@ -125,7 +138,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/bob`]: { json: { email: null } },
     });
     expect(await forge().getChange(forgeChangeId(8))).toEqual({
       id: 8,
@@ -133,7 +145,7 @@ describe("GitHubForge", () => {
       tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
       parent: "release",
       title: "Fix crash",
-      author: "bob@users.noreply.github.com",
+      author: "github:bob",
       state: "merged",
       draft: false,
       reviewers: [],
@@ -164,7 +176,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/ghost`]: { status: 404, json: { message: "Not Found" } },
     });
     expect(await forge().getChange(forgeChangeId(9))).toEqual({
       id: 9,
@@ -172,7 +183,7 @@ describe("GitHubForge", () => {
       tip: "44556677889900aabbccddeeff112233445566aa",
       parent: "main",
       title: "Abandoned",
-      author: "ghost@users.noreply.github.com",
+      author: "github:ghost",
       state: "closed",
       draft: false,
       reviewers: [],
@@ -215,9 +226,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/alice`]: { json: { email: null } },
-      [`GET ${API}/users/bob`]: { json: { email: null } },
-      [`GET ${API}/users/carol`]: { json: { email: "carol@example.com" } },
     });
     expect(await forge().getChange(forgeChangeId(10))).toEqual({
       id: 10,
@@ -225,10 +233,10 @@ describe("GitHubForge", () => {
       tip: "5566778899aabbccddeeff00112233445566aabb",
       parent: "main",
       title: "Reviewed",
-      author: "alice@users.noreply.github.com",
+      author: "github:alice",
       state: "open",
       draft: false,
-      reviewers: ["bob@users.noreply.github.com", "carol@example.com"],
+      reviewers: ["github:bob", "github:carol"],
     });
   });
 
@@ -259,7 +267,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/alice`]: { json: { email: null } },
     });
     expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
       id: 7,
@@ -267,7 +274,7 @@ describe("GitHubForge", () => {
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       parent: "main",
       title: "Add tables",
-      author: "alice@users.noreply.github.com",
+      author: "github:alice",
       state: "open",
       draft: false,
       reviewers: [],
@@ -365,8 +372,6 @@ describe("GitHubForge", () => {
           },
         },
       ],
-      [`GET ${API}/users/alice`]: { json: { email: null } },
-      [`GET ${API}/users/bob`]: { json: { email: null } },
     });
     expect(await forge().fetchOpenChanges()).toEqual([
       {
@@ -376,15 +381,15 @@ describe("GitHubForge", () => {
           tip: "123456789abcdef0123456789abcdef012345678",
           parent: "main",
           title: "First",
-          author: "alice@users.noreply.github.com",
+          author: "github:alice",
           state: "open",
           draft: false,
-          reviewers: ["bob@users.noreply.github.com"],
+          reviewers: ["github:bob"],
         },
         comments: [
           {
             id: "101",
-            author: "bob@users.noreply.github.com",
+            author: "github:bob",
             body: "please take a look",
             updatedAt: Date.parse("2026-05-01T00:00:00Z"),
           },
@@ -398,7 +403,7 @@ describe("GitHubForge", () => {
           tip: "23456789abcdef0123456789abcdef0123456789",
           parent: "first",
           title: "Second",
-          author: "bob@users.noreply.github.com",
+          author: "github:bob",
           state: "open",
           draft: false,
           reviewers: [],
@@ -413,7 +418,7 @@ describe("GitHubForge", () => {
           tip: "3456789abcdef0123456789abcdef0123456789a",
           parent: "main",
           title: "Third",
-          author: "alice@users.noreply.github.com",
+          author: "github:alice",
           state: "open",
           draft: false,
           reviewers: [],
@@ -426,20 +431,6 @@ describe("GitHubForge", () => {
       { owner: "test-org", repo: "widgets", cursor: null },
       { owner: "test-org", repo: "widgets", cursor: "CUR1" },
     ]);
-  });
-
-  test("identities are looked up once per login", async () => {
-    const calls = stubGitHub({
-      [`GET ${REPOS}/issues/7/comments?per_page=100`]: {
-        json: [
-          { id: 101, user: { login: "alice" }, body: "first", updated_at: "2026-05-01T00:00:00Z" },
-          { id: 102, user: { login: "alice" }, body: "second", updated_at: "2026-05-02T12:30:00Z" },
-        ],
-      },
-      [`GET ${API}/users/alice`]: { json: { email: null } },
-    });
-    await forge().listComments(forgeChangeId(7));
-    expect(calls.filter(({ url }) => url === `${API}/users/alice`)).toHaveLength(1);
   });
 
   test("createChange posts the PR and fetches it by number", async () => {
@@ -466,7 +457,6 @@ describe("GitHubForge", () => {
           },
         },
       },
-      [`GET ${API}/users/dave`]: { json: { email: null } },
     });
     const created = await forge().createChange(
       parseRefName("new-work"),
@@ -480,7 +470,7 @@ describe("GitHubForge", () => {
       tip: "456789abcdef0123456789abcdef0123456789ab",
       parent: "parent-branch",
       title: "New work",
-      author: "dave@users.noreply.github.com",
+      author: "github:dave",
       state: "open",
       draft: false,
       reviewers: [],
@@ -511,25 +501,23 @@ describe("GitHubForge", () => {
       [`GET ${page2}`]: {
         json: [{ id: 103, user: { login: "alice" }, body: "third", updated_at: "2026-05-03T08:15:00Z" }],
       },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
-      [`GET ${API}/users/bob`]: { json: { email: null } },
     });
     expect(await forge().listComments(forgeChangeId(7))).toEqual([
       {
         id: "101",
-        author: "alice@example.com",
+        author: "github:alice",
         body: "first",
         updatedAt: Date.parse("2026-05-01T00:00:00Z"),
       },
       {
         id: "102",
-        author: "bob@users.noreply.github.com",
+        author: "github:bob",
         body: "second",
         updatedAt: Date.parse("2026-05-02T12:30:00Z"),
       },
       {
         id: "103",
-        author: "alice@example.com",
+        author: "github:alice",
         body: "third",
         updatedAt: Date.parse("2026-05-03T08:15:00Z"),
       },
@@ -545,21 +533,18 @@ describe("GitHubForge", () => {
     expect(calls[0]?.body).toBe(JSON.stringify({ body }));
   });
 
-  test("setReviewers maps identities to logins, unwrapping noreply and searching the rest", async () => {
-    const search = `${API}/search/users?q=${encodeURIComponent("carol@example.com in:email")}`;
+  test("setReviewers maps identities to logins, unwrapping noreply email forms", async () => {
     const calls = stubGitHub({
-      [`GET ${search}`]: { json: { items: [{ login: "carol" }] } },
       [`POST ${REPOS}/pulls/12/requested_reviewers`]: { status: 201, json: {} },
       [`GET ${REPOS}/pulls/12/requested_reviewers`]: { json: { users: [{ login: "erin" }], teams: [] } },
       [`DELETE ${REPOS}/pulls/12/requested_reviewers`]: { json: {} },
     });
     await forge().setReviewers(
       forgeChangeId(12),
-      [userName("carol@example.com"), userName("12345+dave@users.noreply.github.com")],
+      [userName("github:carol"), userName("12345+dave@users.noreply.github.com")],
       [userName("erin@users.noreply.github.com")],
     );
     expect(calls.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
-      { method: "GET", url: search, body: undefined },
       {
         method: "POST",
         url: `${REPOS}/pulls/12/requested_reviewers`,
@@ -574,27 +559,17 @@ describe("GitHubForge", () => {
     const calls = stubGitHub({
       [`GET ${REPOS}/pulls/12/requested_reviewers`]: { json: { users: [], teams: [] } },
     });
-    await forge().setReviewers(forgeChangeId(12), [], [userName("erin@users.noreply.github.com")]);
+    await forge().setReviewers(forgeChangeId(12), [], [userName("github:erin")]);
     expect(calls.map(({ method, url }) => ({ method, url }))).toEqual([
       { method: "GET", url: `${REPOS}/pulls/12/requested_reviewers` },
     ]);
   });
 
-  test("setReviewers fails when no account claims the email, or several match the search", async () => {
-    stubGitHub({
-      [`GET ${API}/search/users?q=${encodeURIComponent("frank@example.com in:email")}`]: { json: { items: [] } },
-    });
+  test("setReviewers fails for an identity that names no account", async () => {
+    stubGitHub({});
     const failure = forge().setReviewers(forgeChangeId(12), [userName("frank@example.com")], []);
     await expect(failure).rejects.toThrow(UserError);
-    await expect(failure).rejects.toThrow('no github.com account found for "frank@example.com"');
-    stubGitHub({
-      [`GET ${API}/search/users?q=${encodeURIComponent("grace@example.com in:email")}`]: {
-        json: { items: [{ login: "grace" }, { login: "gracie" }] },
-      },
-    });
-    const ambiguous = forge().setReviewers(forgeChangeId(12), [userName("grace@example.com")], []);
-    await expect(ambiguous).rejects.toThrow(UserError);
-    await expect(ambiguous).rejects.toThrow('"grace@example.com" is ambiguous on github.com');
+    await expect(failure).rejects.toThrow('"frank@example.com" names no github.com account; use github:<login>');
   });
 
   test("setReviewers surfaces GitHub's refusal of an unassignable reviewer", async () => {
@@ -604,7 +579,7 @@ describe("GitHubForge", () => {
         json: { message: "Reviews may only be requested from collaborators." },
       },
     });
-    const failure = forge().setReviewers(forgeChangeId(12), [userName("erin@users.noreply.github.com")], []);
+    const failure = forge().setReviewers(forgeChangeId(12), [userName("github:erin")], []);
     await expect(failure).rejects.toThrow(UserError);
     await expect(failure).rejects.toThrow(/^github\.com\/test-org\/widgets#12 reviewers not updated: .*collaborators/);
   });

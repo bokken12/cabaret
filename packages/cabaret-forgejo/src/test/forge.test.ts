@@ -81,6 +81,20 @@ describe("ForgejoForge", () => {
     expect(calls[0]?.headers.authorization).toBe("token token-123");
   });
 
+  test("currentSelf is the token's account, its email an alias", async () => {
+    stubForgejo({
+      [`GET ${API}/user`]: { json: { login: "alice", email: "alice@example.com" } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "codeberg:alice", aliases: new Set(["alice@example.com"]) });
+  });
+
+  test("currentSelf of an account with no email has no aliases", async () => {
+    stubForgejo({
+      [`GET ${API}/user`]: { json: { login: "bob", email: "" } },
+    });
+    expect(await forge().currentSelf()).toEqual({ user: "codeberg:bob", aliases: new Set() });
+  });
+
   test("getChange maps an open PR, unioning requested reviewers with submitted reviews", async () => {
     stubForgejo({
       [`GET ${REPO}/pulls/7`]: {
@@ -108,11 +122,6 @@ describe("ForgejoForge", () => {
           { user: null, state: "APPROVED" },
         ],
       },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
-      [`GET ${API}/users/bob`]: { json: { email: "bob@example.com" } },
-      // An account with no email at all still gets a stable identity.
-      [`GET ${API}/users/carol`]: { json: { email: "" } },
-      [`GET ${API}/users/dave`]: { json: { email: "dave@example.com" } },
     });
     expect(await forge().getChange(forgeChangeId(7))).toEqual({
       id: 7,
@@ -120,10 +129,10 @@ describe("ForgejoForge", () => {
       tip: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
       parent: "main",
       title: "Add tables",
-      author: "alice@example.com",
+      author: "codeberg:alice",
       state: "open",
       draft: false,
-      reviewers: ["bob@example.com", "carol@noreply.codeberg.org", "dave@example.com"],
+      reviewers: ["codeberg:bob", "codeberg:carol", "codeberg:dave"],
     });
   });
 
@@ -144,8 +153,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/8/reviews?limit=50&page=1`]: { json: [] },
-      // A hidden email is served already in placeholder form.
-      [`GET ${API}/users/bob`]: { json: { email: "bob@noreply.codeberg.org" } },
       [`GET ${REPO}/git/commits/89e6c98d92887913cadf06b2adb97f26cde4849b?${SLIM_COMMIT}`]: {
         json: {
           parents: [
@@ -161,7 +168,7 @@ describe("ForgejoForge", () => {
       tip: "0f9e8d7c6b5a49382716053f4e3d2c1b0a998877",
       parent: "release",
       title: "Fix crash",
-      author: "bob@noreply.codeberg.org",
+      author: "codeberg:bob",
       state: "merged",
       draft: false,
       reviewers: [],
@@ -186,7 +193,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/9/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/carol`]: { json: { email: "" } },
       [`GET ${REPO}/git/commits/2222222222222222222222222222222222222222?${SLIM_COMMIT}`]: {
         json: { parents: [{ sha: "1111111111111111111111111111111111111111" }] },
       },
@@ -216,7 +222,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/10/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/carol`]: { json: { email: "" } },
       [`GET ${REPO}/git/commits/2222222222222222222222222222222222222222?${SLIM_COMMIT}`]: {
         json: {
           parents: [
@@ -249,7 +254,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/15/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/bob`]: { json: { email: "bob@noreply.codeberg.org" } },
       [`GET ${REPO}/git/commits/8899aabbccddeeff001122334455667788990011?${SLIM_COMMIT}`]: {
         json: { parents: [{ sha: "1111111111111111111111111111111111111111" }] },
       },
@@ -260,7 +264,7 @@ describe("ForgejoForge", () => {
     });
   });
 
-  test("getChange maps a closed, authorless draft to the ghost identity without a lookup", async () => {
+  test("getChange maps a closed, authorless draft to the ghost identity", async () => {
     const calls = stubForgejo({
       [`GET ${REPO}/pulls/11`]: {
         json: {
@@ -284,34 +288,12 @@ describe("ForgejoForge", () => {
       tip: "44556677889900aabbccddeeff112233445566aa",
       parent: "main",
       title: "WIP: Abandoned",
-      author: "ghost@noreply.codeberg.org",
+      author: "codeberg:ghost",
       state: "closed",
       draft: true,
       reviewers: [],
     });
     expect(calls).toHaveLength(2);
-  });
-
-  test("a vanished account still maps to a stable noreply identity", async () => {
-    stubForgejo({
-      [`GET ${REPO}/pulls/14`]: {
-        json: {
-          number: 14,
-          title: "Old work",
-          user: { login: "Vanished" },
-          state: "open",
-          draft: false,
-          merged: false,
-          merge_commit_sha: null,
-          head: { ref: "old-work", sha: "778899aabbccddeeff0011223344556677889900" },
-          base: { ref: "main" },
-          requested_reviewers: null,
-        },
-      },
-      [`GET ${REPO}/pulls/14/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/Vanished`]: { status: 404, json: { message: "user does not exist" } },
-    });
-    expect((await forge().getChange(forgeChangeId(14))).author).toBe("vanished@noreply.codeberg.org");
   });
 
   test("a missing pull request surfaces as a UserError, not a parse failure", async () => {
@@ -330,7 +312,6 @@ describe("ForgejoForge", () => {
         json: [openPr(9, "add-tables"), openPr(3, "other"), openPr(7, "add-tables")],
       },
       [`GET ${REPO}/pulls/7/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
     });
     expect(await forge().findChange(parseRefName("add-tables"))).toEqual({
       id: 7,
@@ -338,7 +319,7 @@ describe("ForgejoForge", () => {
       tip: shaOf(7),
       parent: "main",
       title: "Change 7",
-      author: "alice@example.com",
+      author: "codeberg:alice",
       state: "open",
       draft: false,
       reviewers: [],
@@ -346,7 +327,6 @@ describe("ForgejoForge", () => {
     expect(calls.map(({ url }) => url)).toEqual([
       `${REPO}/pulls?state=open&limit=50&page=1`,
       `${REPO}/pulls/7/reviews?limit=50&page=1`,
-      `${API}/users/alice`,
     ]);
   });
 
@@ -363,8 +343,6 @@ describe("ForgejoForge", () => {
         json: Array.from({ length: 50 }, (_, i) => openPr(i + 1, `branch-${i + 1}`)),
       },
       [`GET ${REPO}/pulls?state=open&limit=50&page=2`]: { json: [openPr(51, "branch-51")] },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
-      [`GET ${API}/users/bob`]: { json: { email: "" } },
     };
     for (let n = 1; n <= 51; n++) {
       routes[`GET ${REPO}/issues/${n}/comments`] = { json: [] };
@@ -373,7 +351,7 @@ describe("ForgejoForge", () => {
     routes[`GET ${REPO}/issues/3/comments`] = {
       json: [{ id: 301, user: { login: "bob" }, body: "looks good", updated_at: "2026-05-01T00:00:00Z" }],
     };
-    const calls = stubForgejo(routes);
+    stubForgejo(routes);
     const changes = await forge().fetchOpenChanges();
     expect(changes.map(({ change }) => change.id)).toEqual(Array.from({ length: 51 }, (_, i) => i + 1));
     expect(changes[2]).toEqual({
@@ -383,7 +361,7 @@ describe("ForgejoForge", () => {
         tip: shaOf(3),
         parent: "main",
         title: "Change 3",
-        author: "alice@example.com",
+        author: "codeberg:alice",
         state: "open",
         draft: false,
         reviewers: [],
@@ -391,15 +369,13 @@ describe("ForgejoForge", () => {
       comments: [
         {
           id: "301",
-          author: "bob@noreply.codeberg.org",
+          author: "codeberg:bob",
           body: "looks good",
           updatedAt: Date.parse("2026-05-01T00:00:00Z"),
         },
       ],
       commentsTruncated: false,
     });
-    // One identity lookup per login, however many changes share it.
-    expect(calls.filter(({ url }) => url === `${API}/users/alice`)).toHaveLength(1);
   });
 
   test("createChange posts the PR and fetches it by number", async () => {
@@ -420,7 +396,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/12/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/dave`]: { json: { email: "" } },
     });
     expect(
       await forge().createChange(parseRefName("new-work"), parseRefName("parent-branch"), "New work", false),
@@ -430,7 +405,7 @@ describe("ForgejoForge", () => {
       tip: "456789abcdef0123456789abcdef0123456789ab",
       parent: "parent-branch",
       title: "New work",
-      author: "dave@noreply.codeberg.org",
+      author: "codeberg:dave",
       state: "open",
       draft: false,
       reviewers: [],
@@ -456,7 +431,6 @@ describe("ForgejoForge", () => {
         },
       },
       [`GET ${REPO}/pulls/13/reviews?limit=50&page=1`]: { json: [] },
-      [`GET ${API}/users/dave`]: { json: { email: "" } },
     });
     expect((await forge().createChange(parseRefName("sketch"), parseRefName("main"), "Sketch", true)).draft).toBe(true);
     expect(calls[0]?.body).toBe(JSON.stringify({ head: "sketch", base: "main", title: "WIP: Sketch" }));
@@ -554,38 +528,22 @@ describe("ForgejoForge", () => {
           { id: 104, user: null, body: "orphaned", updated_at: "2026-05-03T08:00:00Z" },
         ],
       },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
-      [`GET ${API}/users/bob`]: { json: { email: "" } },
     });
     expect(await forge().listComments(forgeChangeId(7))).toEqual([
-      { id: "101", author: "alice@example.com", body: "first", updatedAt: Date.parse("2026-05-01T00:00:00Z") },
+      { id: "101", author: "codeberg:alice", body: "first", updatedAt: Date.parse("2026-05-01T00:00:00Z") },
       {
         id: "103",
-        author: "bob@noreply.codeberg.org",
+        author: "codeberg:bob",
         body: "second",
         updatedAt: Date.parse("2026-05-02T12:30:00Z"),
       },
       {
         id: "104",
-        author: "ghost@noreply.codeberg.org",
+        author: "codeberg:ghost",
         body: "orphaned",
         updatedAt: Date.parse("2026-05-03T08:00:00Z"),
       },
     ]);
-  });
-
-  test("identities are looked up once per login", async () => {
-    const calls = stubForgejo({
-      [`GET ${REPO}/issues/7/comments`]: {
-        json: [
-          { id: 101, user: { login: "alice" }, body: "first", updated_at: "2026-05-01T00:00:00Z" },
-          { id: 102, user: { login: "alice" }, body: "second", updated_at: "2026-05-02T12:30:00Z" },
-        ],
-      },
-      [`GET ${API}/users/alice`]: { json: { email: "alice@example.com" } },
-    });
-    await forge().listComments(forgeChangeId(7));
-    expect(calls.filter(({ url }) => url === `${API}/users/alice`)).toHaveLength(1);
   });
 
   test("addComment posts the body verbatim, marker included", async () => {
@@ -599,55 +557,27 @@ describe("ForgejoForge", () => {
 
   test("setReviewers resolves every identity form, requesting adds and withdrawing removes", async () => {
     const calls = stubForgejo({
-      // Search matches names as loosely as emails, so the exact email decides.
-      [`GET ${API}/users/search?q=alice%40example.com`]: {
-        json: {
-          ok: true,
-          data: [
-            { login: "alicia", email: "alicia@example.com" },
-            { login: "alice", email: "alice@example.com" },
-          ],
-        },
-      },
       [`POST ${REPO}/pulls/21/requested_reviewers`]: { status: 201, json: {} },
       [`DELETE ${REPO}/pulls/21/requested_reviewers`]: { status: 204, json: null },
     });
     await forge().setReviewers(
       forgeChangeId(21),
-      [userName("bob@noreply.codeberg.org"), userName("alice@example.com")],
+      [userName("bob@noreply.codeberg.org"), userName("codeberg:alice")],
       [userName("eve@noreply.codeberg.org")],
     );
     expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
-      `GET ${API}/users/search?q=alice%40example.com`,
       `POST ${REPO}/pulls/21/requested_reviewers`,
       `DELETE ${REPO}/pulls/21/requested_reviewers`,
     ]);
-    expect(calls[1]?.body).toBe(JSON.stringify({ reviewers: ["bob", "alice"] }));
-    expect(calls[2]?.body).toBe(JSON.stringify({ reviewers: ["eve"] }));
+    expect(calls[0]?.body).toBe(JSON.stringify({ reviewers: ["bob", "alice"] }));
+    expect(calls[1]?.body).toBe(JSON.stringify({ reviewers: ["eve"] }));
   });
 
-  test("logins are searched once per identity", async () => {
-    const calls = stubForgejo({
-      [`GET ${API}/users/search?q=carol%40example.com`]: {
-        json: { ok: true, data: [{ login: "carol", email: "carol@example.com" }] },
-      },
-      [`POST ${REPO}/pulls/23/requested_reviewers`]: { status: 201, json: {} },
-    });
-    const same = forge();
-    await same.setReviewers(forgeChangeId(23), [userName("carol@example.com")], []);
-    await same.setReviewers(forgeChangeId(23), [userName("carol@example.com")], []);
-    expect(calls.filter(({ url }) => url.includes("/users/search"))).toHaveLength(1);
-  });
-
-  test("an email with no codeberg.org account fails setReviewers as a UserError", async () => {
-    stubForgejo({
-      [`GET ${API}/users/search?q=nobody%40example.com`]: {
-        json: { ok: true, data: [{ login: "somebody", email: "somebody@example.com" }] },
-      },
-    });
+  test("an identity that names no codeberg.org account fails setReviewers as a UserError", async () => {
+    stubForgejo({});
     const pending = forge().setReviewers(forgeChangeId(24), [userName("nobody@example.com")], []);
     await expect(pending).rejects.toThrow(UserError);
-    await expect(pending).rejects.toThrow('no codeberg.org account found for "nobody@example.com"');
+    await expect(pending).rejects.toThrow('"nobody@example.com" names no codeberg.org account; use codeberg:<login>');
   });
 
   test("a refused reviewer surfaces as a UserError naming the PR", async () => {

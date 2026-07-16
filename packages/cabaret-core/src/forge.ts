@@ -27,6 +27,7 @@ import {
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import { type LandOverrides, landChange, prepareLand, recordLand, reparentLandedChildren } from "./ops.js";
+import { currentSelf, isSelf, type Self } from "./self.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -57,6 +58,12 @@ export interface OpenChange {
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
   readonly locator: ForgeLocator;
+
+  /**
+   * The forge's reading of the current user: the account its credentials
+   * authenticate, with the emails the account's profile shows as aliases.
+   */
+  currentSelf(): Promise<Self>;
 
   /**
    * Every open change with its comments, in no particular order. Taken in one
@@ -567,6 +574,7 @@ export async function landAsConfigured(
 
 /** One thing a pull did, as it happens, so hosts can narrate in their own voice. */
 export type PullEvent =
+  | { readonly kind: "aliased"; readonly alias: UserName }
   | { readonly kind: "imported"; readonly id: ForgeChangeId; readonly change: RefName; readonly comments: number }
   | { readonly kind: "skipped"; readonly id: ForgeChangeId; readonly change: RefName; readonly reason: string }
   | {
@@ -666,6 +674,13 @@ function pureImport(entries: readonly LogEntry[]): boolean {
  * `pullTrackedChange`), and prune changes whose forge change closed before
  * anyone engaged with them. Returns how many forge changes are open.
  *
+ * The account the forge's credentials authenticate — and each email its
+ * profile shows — is declared a `cabaret.alias` when it does not already
+ * count as the current user, so changes those identities authored or are
+ * asked to review read as theirs. The association is the repository's —
+ * another repository may front a different account — so the declarations
+ * land in local config.
+ *
  * Everything is reported through `onEvent` as it happens. Two machines
  * pulling concurrently import the same changes twice; the union merge that
  * syncing applies keeps both machines' entries, current-stamped so the latest
@@ -677,6 +692,15 @@ export async function pullForge(
   forge: Forge,
   onEvent: (event: PullEvent) => void,
 ): Promise<{ readonly open: number }> {
+  const forgeSelf = await forge.currentSelf();
+  const self = await currentSelf(backend);
+  for (const alias of [forgeSelf.user, ...forgeSelf.aliases]) {
+    if (!isSelf(self, alias)) {
+      await backend.configAdd("cabaret.alias", alias, "local");
+      onEvent({ kind: "aliased", alias });
+    }
+  }
+
   // Adopt before importing: a change another machine already imported and
   // published arrives as a log here, keeping this pull's import phase to
   // forge changes nobody holds.
