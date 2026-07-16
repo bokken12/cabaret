@@ -26,7 +26,7 @@ export function soleUser(user: UserName): Self {
 
 /**
  * The current user's `Self`: their writing identity plus the aliases the
- * multi-valued git config `cabaret.alias` declares. Aliases are a property of
+ * multi-valued config `cabaret.alias` declares. Aliases are a property of
  * the person, not the repository, so they normally live in `--global` config.
  */
 export async function currentSelf(backend: Backend): Promise<Self> {
@@ -34,7 +34,7 @@ export async function currentSelf(backend: Backend): Promise<Self> {
   const aliases = new Set<UserName>();
   for (const alias of await backend.configAll("cabaret.alias")) {
     if (alias === "") {
-      throw new UserError("git config cabaret.alias must be nonempty");
+      throw new UserError("config cabaret.alias must be nonempty");
     }
     aliases.add(userName(alias));
   }

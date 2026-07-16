@@ -2,7 +2,7 @@ import {
   type Backend,
   brain,
   type ChangeDiff,
-  type CommitHash,
+  type Revision,
   changeConflicts,
   currentForgeChange,
   currentOwner,
@@ -97,9 +97,9 @@ export interface ChangeSummary {
       }
     | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
-  readonly landed: CommitHash | undefined;
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly landed: Revision | undefined;
+  readonly base: Revision;
+  readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
@@ -138,7 +138,7 @@ export async function summarizeChange(
   let origin: ChangeSummary["origin"];
   let staleParent: RefName | undefined;
   let deadParent: ChangeSummary["deadParent"];
-  let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: CommitHash } | undefined;
+  let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
   if (landed === undefined) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
@@ -210,7 +210,7 @@ export async function summarizeChange(
 async function nextStep(
   backend: Backend,
   readings: Omit<ChangeSummary, "nextStep">,
-  stale: { readonly parentTip: CommitHash } | undefined,
+  stale: { readonly parentTip: Revision } | undefined,
 ): Promise<NextStep> {
   if (readings.landed !== undefined) {
     return "landed";
@@ -254,23 +254,23 @@ async function nextStep(
 /** What a reviewer looks at to review a file in a round. */
 export type FileView =
   /** The plain diff from `start` to the round's end. */
-  | { readonly kind: "span"; readonly start: CommitHash }
+  | { readonly kind: "span"; readonly start: Revision }
   /** The base moved under the review: compare the reviewed diff with the current one. */
   | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
   /** The reviewed tip left the change's history: diff from its contents. */
-  | { readonly kind: "rewritten"; readonly from: CommitHash };
+  | { readonly kind: "rewritten"; readonly from: Revision };
 
 /** One round of review: a span of a change's history with review left in it. */
 export interface ReviewRound {
   /** The revision the round reviews up to: reviewing a file here records `{base, tip: end}`. */
-  readonly end: CommitHash;
+  readonly end: Revision;
   /** What to review per file, sorted by name. */
   readonly files: ReadonlyMap<FilePath, FileView>;
 }
 
 /** Memoize an async derivation per reviewed tip: reviews sharing a tip share what remains. */
-function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedTip: CommitHash) => Promise<T> {
-  const memo = new Map<CommitHash, T>();
+function perTip<T>(compute: (reviewedTip: Revision) => Promise<T>): (reviewedTip: Revision) => Promise<T> {
+  const memo = new Map<Revision, T>();
   return async (reviewedTip) => {
     let value = memo.get(reviewedTip);
     if (value === undefined) {
@@ -301,8 +301,8 @@ export async function reviewRounds(
 ): Promise<readonly ReviewRound[]> {
   const { base, tip } = diff;
   const rounds: {
-    start: CommitHash;
-    end: CommitHash;
+    start: Revision;
+    end: Revision;
     changed: ReadonlySet<FilePath>;
     files: Map<FilePath, FileView>;
   }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
@@ -380,8 +380,8 @@ async function carriedCleanly(
   backend: Backend,
   file: FilePath,
   view: Extract<FileView, { kind: "rebased" | "rewritten" }>,
-  base: CommitHash,
-  end: CommitHash,
+  base: Revision,
+  end: Revision,
 ): Promise<boolean> {
   let resolved: DiffView;
   if (view.kind === "rebased") {

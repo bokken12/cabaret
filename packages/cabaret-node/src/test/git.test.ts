@@ -11,6 +11,7 @@ import {
   DirtyWorkspaceError,
   gotoChange,
   gotoOffer,
+  type CommitHash,
   type LogAction,
   type LogEntry,
   parseCommitHash,
@@ -170,7 +171,7 @@ async function plumbCommit(message: string, ...parents: string[]): Promise<strin
   return git("commit-tree", tree, ...atop.flatMap((p) => ["-p", p]), "-m", message);
 }
 
-function logEntry(timestamp: number, action: LogAction): LogEntry {
+function logEntry(timestamp: number, action: LogAction<CommitHash>): LogEntry<CommitHash> {
   return { timestamp: timestampMs(timestamp), user: userName("alice@example.com"), action };
 }
 

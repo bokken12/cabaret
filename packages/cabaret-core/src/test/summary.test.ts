@@ -76,13 +76,13 @@ function repoBackend(opts: {
   conflicting?: Record<string, readonly string[]>;
   /** File texts by commit digit, for `readFile`; an unlisted file reads as absent. */
   contents?: Record<string, Record<string, string>>;
-  /** Second parents of merge commits, for `<merge>^2` resolution. */
+  /** Second parents of merge commits, for `mergedTip`. */
   tips?: Record<string, string>;
   /** Origin's last-fetched branch tips, for `originTip`. */
   origin?: Record<string, string>;
   /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
-  logs?: Record<string, readonly LogEntry[]>;
-}): Backend {
+  logs?: Record<string, readonly LogEntry<CommitHash>[]>;
+}): Backend<CommitHash> {
   const ancestry = (tip: CommitHash): CommitHash[] => {
     const chain = [tip];
     for (let up = opts.history[tip[0] as string]; up !== undefined; up = opts.history[up]) {
@@ -90,16 +90,9 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const tipOf = (branch: string): CommitHash => {
-    const digit = opts.branches[branch.replace(/^refs\/heads\//, "")];
-    if (digit === undefined) {
-      throw new Error(`no branch: ${branch}`);
-    }
-    return fake(digit);
-  };
   const stub: Pick<
-    Backend,
-    | "resolveCommit"
+    Backend<CommitHash>,
+    | "mergedTip"
     | "branchTip"
     | "originTip"
     | "mergeBase"
@@ -110,14 +103,10 @@ function repoBackend(opts: {
     | "readFile"
     | "readLog"
   > = {
-    async resolveCommit(revision) {
-      const merge = /^(\w)\1{39}\^2$/.exec(revision);
-      if (merge === null) {
-        return tipOf(revision);
-      }
-      const digit = opts.tips?.[merge[1] as string];
+    async mergedTip(merge) {
+      const digit = opts.tips?.[merge[0] as string];
       if (digit === undefined) {
-        throw new Error(`unexpected resolveCommit query: ${revision}`);
+        throw new Error(`unexpected mergedTip query: ${merge}`);
       }
       return fake(digit);
     },
@@ -173,18 +162,18 @@ function repoBackend(opts: {
       return paths.map(parseFilePath);
     },
   };
-  return stub as Backend;
+  return stub as Backend<CommitHash>;
 }
 
 const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
 
-function entry(action: LogAction): LogEntry {
+function entry(action: LogAction<CommitHash>): LogEntry<CommitHash> {
   return { timestamp: timestampMs(1748000000000), user: alice, action };
 }
 
 /** The entries `create` seeds a log with: parented on `parent`, based at `base`, owned by alice. */
-function created(parent: string, base: string): LogEntry[] {
+function created(parent: string, base: string): LogEntry<CommitHash>[] {
   return [
     entry({ kind: "set-parent", parent: parseRefName(parent) }),
     entry({ kind: "set-base", base: fake(base) }),
@@ -192,7 +181,7 @@ function created(parent: string, base: string): LogEntry[] {
   ];
 }
 
-function review(file: string, base: string, tip: string): LogAction {
+function review(file: string, base: string, tip: string): LogAction<CommitHash> {
   return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
 }
 

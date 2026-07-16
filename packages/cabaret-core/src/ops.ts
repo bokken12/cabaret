@@ -2,7 +2,7 @@ import {
   assertChangeExists,
   assertNotLanded,
   type Backend,
-  type CommitHash,
+  type Revision,
   changeBase,
   changeDiff,
   conflictedFiles,
@@ -13,11 +13,12 @@ import {
   currentReviewing,
   diffBetween,
   type FilePath,
-  type ForgeMerge,
+  type LandedMerge,
   type LogEntry,
   landedMerge,
   landMessage,
   type RefName,
+  requireBranchTip,
   type Reviewing,
   type TimestampMs,
   type UserName,
@@ -54,7 +55,7 @@ export async function createChange(
   if (parentTip === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
-  // Resolve the identity before mutating any ref so a missing git identity
+  // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
   const existing = await backend.branchTip(change);
@@ -80,7 +81,7 @@ export async function setReviewing(
   backend: Backend,
   now: () => TimestampMs,
   change: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<Revision>[],
   reviewing: Reviewing,
 ): Promise<void> {
   assertChangeExists(change, entries);
@@ -103,7 +104,7 @@ export async function widenReviewing(
   backend: Backend,
   now: () => TimestampMs,
   change: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<Revision>[],
 ): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
@@ -139,9 +140,9 @@ export async function widenReviewing(
 }
 
 /** One change of a resolved chain, with the log that placed it there. */
-export interface ChainLink {
+export interface ChainLink<R extends Revision = Revision> {
   readonly change: RefName;
-  readonly entries: readonly LogEntry[];
+  readonly entries: readonly LogEntry<R>[];
 }
 
 /**
@@ -150,12 +151,12 @@ export interface ChainLink {
  * be a change — a range bottoming out at trunk names the whole stack — but
  * every change after it must be, since only changes record parents.
  */
-export async function resolveRange(
-  backend: Backend,
+export async function resolveRange<R extends Revision>(
+  backend: Backend<R>,
   ancestor: RefName,
   descendant: RefName,
-): Promise<readonly ChainLink[]> {
-  const chain: ChainLink[] = [];
+): Promise<readonly ChainLink<R>[]> {
+  const chain: ChainLink<R>[] = [];
   const seen = new Set<RefName>();
   let cursor = descendant;
   while (cursor !== ancestor) {
@@ -181,8 +182,11 @@ export async function resolveRange(
  * verifying they form a stack: each change after the first must have its
  * predecessor as its current parent.
  */
-export async function resolveChain(backend: Backend, changes: readonly RefName[]): Promise<readonly ChainLink[]> {
-  const chain: ChainLink[] = [];
+export async function resolveChain<R extends Revision>(
+  backend: Backend<R>,
+  changes: readonly RefName[],
+): Promise<readonly ChainLink<R>[]> {
+  const chain: ChainLink<R>[] = [];
   for (const change of changes) {
     const entries = await backend.readLog(change);
     assertChangeExists(change, entries);
@@ -225,7 +229,7 @@ export class NotOwnerError extends UserError {
 export async function requireOwner(
   backend: Backend,
   change: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<Revision>[],
   override: boolean,
 ): Promise<void> {
   const owner = currentOwner(change, entries);
@@ -258,11 +262,11 @@ export function assertNoConflict(target: RefName, conflicts: readonly FilePath[]
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
  */
-export async function rebaseChange(
-  backend: Backend,
+export async function rebaseChange<R extends Revision>(
+  backend: Backend<R>,
   now: () => TimestampMs,
   target: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<R>[],
   override: boolean,
 ): Promise<void> {
   assertNotLanded(target, entries);
@@ -273,11 +277,11 @@ export async function rebaseChange(
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  const tip = await backend.resolveCommit(`refs/heads/${target}`);
+  const tip = await requireBranchTip(backend, target);
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   // When the change already sits on the parent's tip (base === onto), whether
-  // because it was just rebased or an out-of-band `git rebase` put it there,
-  // there is no code to move.
+  // because it was just rebased or an out-of-band rebase put it there, there
+  // is no code to move.
   let conflicts: readonly FilePath[] = [];
   if (base !== onto) {
     conflicts = await backend.mergeOnto(target, base, onto, `Merge branch '${parent}' into ${target}`);
@@ -305,10 +309,10 @@ export async function rebaseChange(
  * and counts — the rebases before it stand, and rerunning the chain resumes
  * once it is fixed.
  */
-export async function rebaseChain(
-  backend: Backend,
+export async function rebaseChain<R extends Revision>(
+  backend: Backend<R>,
   now: () => TimestampMs,
-  chain: readonly ChainLink[],
+  chain: readonly ChainLink<R>[],
   override: boolean,
 ): Promise<void> {
   for (const { change, entries } of chain) {
@@ -320,12 +324,12 @@ export async function rebaseChain(
 }
 
 /** A land's endpoints, resolved once its preconditions have been checked. */
-export interface PreparedLand {
+export interface PreparedLand<R extends Revision = Revision> {
   readonly parent: RefName;
-  readonly base: CommitHash;
+  readonly base: R;
   /** The parent's tip the land merges onto: `base` itself unless the parent moved on. */
-  readonly onto: CommitHash;
-  readonly tip: CommitHash;
+  readonly onto: R;
+  readonly tip: R;
   readonly user: UserName;
 }
 
@@ -344,12 +348,12 @@ export interface LandOverrides {
  * and with its review obligations satisfied — and resolve the endpoints the
  * landing writes. `overrides` skips the checks it names.
  */
-export async function prepareLand(
-  backend: Backend,
+export async function prepareLand<R extends Revision>(
+  backend: Backend<R>,
   target: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<R>[],
   overrides: LandOverrides,
-): Promise<PreparedLand> {
+): Promise<PreparedLand<R>> {
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
@@ -362,9 +366,7 @@ export async function prepareLand(
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  // Pin to the branch namespace so a same-named tag cannot shadow the
-  // change's tip.
-  const tip = await backend.resolveCommit(`refs/heads/${target}`);
+  const tip = await requireBranchTip(backend, target);
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
@@ -382,7 +384,7 @@ export async function prepareLand(
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
   }
-  // Resolve the identity before any ref moves so a missing git identity
+  // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.
   const user = await backend.currentUser();
   return { parent, base, onto, tip, user };
@@ -396,15 +398,15 @@ export async function prepareLand(
  * or whatever else the forge chose to write — also freezes the tip that
  * landed.
  */
-export async function recordLand(
-  backend: Backend,
+export async function recordLand<R extends Revision>(
+  backend: Backend<R>,
   now: () => TimestampMs,
   target: RefName,
-  entries: readonly LogEntry[],
-  { base, tip, user }: PreparedLand,
-  merge: ForgeMerge,
+  entries: readonly LogEntry<R>[],
+  { base, tip, user }: PreparedLand<R>,
+  merge: LandedMerge<R>,
 ): Promise<void> {
-  const pin: LogEntry[] =
+  const pin: LogEntry<R>[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
   await backend.appendLog(target, [
     ...pin,
@@ -419,11 +421,11 @@ export async function recordLand(
  * all the same when it merges cleanly onto it; rebase first when it
  * conflicts.
  */
-export async function landChange(
-  backend: Backend,
+export async function landChange<R extends Revision>(
+  backend: Backend<R>,
   now: () => TimestampMs,
   target: RefName,
-  entries: readonly LogEntry[],
+  entries: readonly LogEntry<R>[],
   method: LandMethod,
   overrides: LandOverrides,
 ): Promise<void> {
@@ -445,10 +447,10 @@ export async function landChange(
  * everything below. Changes that already landed are skipped, so a rerun after
  * a mid-chain failure resumes where it left off.
  */
-export async function landChain(
-  backend: Backend,
-  chain: readonly ChainLink[],
-  land: (change: RefName, entries: readonly LogEntry[]) => Promise<void>,
+export async function landChain<R extends Revision>(
+  backend: Backend<R>,
+  chain: readonly ChainLink<R>[],
+  land: (change: RefName, entries: readonly LogEntry<R>[]) => Promise<void>,
 ): Promise<void> {
   const first = chain[0];
   if (first === undefined) {

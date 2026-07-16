@@ -1,6 +1,5 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import type { ConfigScope } from "cabaret-core";
-import { applySetup, auditSetup, declinedScopes, type SetupAudit } from "cabaret-node";
+import { applySetup, auditSetup, type ConfigScope, declinedScopes, type SetupAudit } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 /** Render `audit`'s standing as a value with annotations, in `config list`'s idiom. */
@@ -17,12 +16,12 @@ function shownStanding({ rec, standing }: SetupAudit, declined: ReadonlySet<Conf
 
 export const setup = buildRouteMap({
   docs: {
-    brief: "Check and apply recommended git configuration",
+    brief: "Check and apply recommended configuration",
     fullDescription:
-      "Git configuration Cabaret recommends: zdiff3 conflict markers, " +
-      "rerere, and fetching change logs with every git fetch. `list` shows " +
-      "each recommendation's status; `apply` sets the unset ones, leaving a " +
-      "key already set to another value alone.",
+      "Configuration the repository's backend recommends — for git: zdiff3 " +
+      "conflict markers, rerere, and fetching change logs with every git " +
+      "fetch. `list` shows each recommendation's status; `apply` sets the " +
+      "unset ones, leaving a key already set to another value alone.",
   },
   routes: {
     list: buildCommand({

@@ -35,8 +35,10 @@ export async function mapConcurrent<T, R>(
 /**
  * Nominal typing: a `T` tagged with a phantom `Brand` label, assignable to
  * `T` but not constructible without an explicit cast. Wrap that cast in a
- * single parse function per brand.
+ * single parse function per brand. Labels accumulate as a record rather
+ * than intersecting literal types, so brands refine: `Branded<Base, "Sub">`
+ * is assignable to `Base` but not conversely.
  */
 export type Branded<T, Brand extends string> = T & {
-  readonly [brand]: Brand;
+  readonly [brand]: { readonly [K in Brand]: true };
 };

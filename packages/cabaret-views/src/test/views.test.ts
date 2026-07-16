@@ -1,6 +1,6 @@
 import {
   type ChangeSummary,
-  type CommitHash,
+  type Revision,
   forgeChangeId,
   parseCommitHash,
   parseFilePath,
@@ -12,7 +12,7 @@ import {
 import { expect, test } from "vitest";
 import { type Doc, docText, showDoc, targetAt, todoDoc } from "../index.js";
 
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 

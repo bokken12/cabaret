@@ -16,19 +16,24 @@ import {
   parseFilePath,
   parseLog,
   parseRefName,
+  type Recommendation,
   type RefName,
   UserError,
   type UserName,
   userName,
+  VcsUnavailableError,
   type Workspace,
 } from "cabaret-core";
 
 const execFileAsync = promisify(execFile);
 
 /** There is no `git` to run: nothing on PATH answers to the name. */
-export class GitUnavailableError extends UserError {
+export class GitUnavailableError extends VcsUnavailableError {
   constructor() {
-    super("git not found on PATH; install it from https://git-scm.com/downloads (on macOS: xcode-select --install)");
+    super(
+      "git not found on PATH; install it from https://git-scm.com/downloads (on macOS: xcode-select --install)",
+      "https://git-scm.com/downloads",
+    );
   }
 }
 
@@ -245,7 +250,11 @@ function remoteLogRef(change: RefName): RefName {
 const LOG_PATH = "log";
 
 /** A `Backend` that shells out to a local `git`. */
-export class GitBackend implements Backend {
+export class GitBackend implements Backend<CommitHash> {
+  readonly vcs = "git";
+
+  readonly parseRevision = parseCommitHash;
+
   /** Serves all scalar object reads without a per-read process spawn. */
   private readonly reader: ObjectReader;
 
@@ -378,14 +387,45 @@ export class GitBackend implements Backend {
     }
   }
 
-  async resolveCommit(revision: string): Promise<CommitHash> {
+  setupRecommendations(): readonly Recommendation[] {
+    return [
+      {
+        key: "merge.conflictStyle",
+        value: "zdiff3",
+        scope: "global",
+        multi: false,
+        brief: "zdiff3 conflict markers",
+      },
+      {
+        key: "rerere.enabled",
+        value: "true",
+        scope: "global",
+        multi: false,
+        brief: "reusing recorded conflict resolutions",
+      },
+      {
+        key: "remote.origin.fetch",
+        value: LOG_FETCH_REFSPEC,
+        scope: "local",
+        multi: true,
+        brief: "fetching change logs with every git fetch",
+        applies: async (backend) => (await backend.config("remote.origin.url")) !== undefined,
+      },
+    ];
+  }
+
+  async resolveCommit(expression: string): Promise<CommitHash> {
     // In batch-command syntax the whole line names the object, so a revision
     // starting with `-` cannot be taken for a flag.
-    const response = await this.reader.request("info", `${revision}^{commit}`);
+    const response = await this.reader.request("info", `${expression}^{commit}`);
     if (response === undefined) {
-      throw new UserError(`unknown revision: ${JSON.stringify(revision)}`);
+      throw new UserError(`unknown revision: ${JSON.stringify(expression)}`);
     }
     return parseCommitHash(response.oid);
+  }
+
+  mergedTip(merge: CommitHash): Promise<CommitHash> {
+    return this.resolveCommit(`${merge}^2`);
   }
 
   async pushBranch(branch: RefName): Promise<void> {
@@ -554,7 +594,9 @@ export class GitBackend implements Backend {
       git(this.root, ["cat-file", "blob", `${a}:${LOG_PATH}`]),
       git(this.root, ["cat-file", "blob", `${b}:${LOG_PATH}`]),
     ]);
-    const merged = mergeLogs(parseLog(logA), parseLog(logB)).map(formatLogEntry).join("");
+    const merged = mergeLogs(parseLog(logA, parseCommitHash), parseLog(logB, parseCommitHash))
+      .map(formatLogEntry)
+      .join("");
     const blob = await git(this.root, ["hash-object", "-w", "--stdin"], merged);
     const tree = await git(this.root, ["mktree"], `100644 blob ${blob.trimEnd()}\t${LOG_PATH}\n`);
     const commit = await git(this.root, ["commit-tree", tree.trimEnd(), "-m", "cabaret log", "-p", a, "-p", b]);
@@ -813,7 +855,7 @@ export class GitBackend implements Backend {
     return { tree, conflicts: conflicted.map(parseFilePath) };
   }
 
-  async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]> {
+  async landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge<CommitHash>[]> {
     // Tab-delimit the fields: %P holds space-separated parents, and the
     // trailer value (checked for presence only) is a branch name, so neither
     // can contain a tab. `unfold` keeps a folded trailer value to one line.
@@ -824,7 +866,7 @@ export class GitBackend implements Backend {
       `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`,
       `${base}..${tip}`,
     ]);
-    const merges: LandMerge[] = [];
+    const merges: LandMerge<CommitHash>[] = [];
     for (const line of out.split("\n")) {
       const [commit, parentsField, trailer] = line.split("\t");
       if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
@@ -852,7 +894,7 @@ export class GitBackend implements Backend {
       .map((line) => parseRefName(line.slice(LOG_REF_PREFIX.length)));
   }
 
-  async readLog(change: RefName): Promise<readonly LogEntry[]> {
+  async readLog(change: RefName): Promise<readonly LogEntry<CommitHash>[]> {
     const ref = logRef(change);
     // Pinning the read at the resolved tip keeps it consistent under a
     // concurrent append moving the ref.
@@ -866,10 +908,10 @@ export class GitBackend implements Backend {
     if (log === undefined) {
       throw new Error(`log ref has no ${LOG_PATH} file: ${ref}`);
     }
-    return parseLog(log);
+    return parseLog(log, parseCommitHash);
   }
 
-  async appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void> {
+  async appendLog(change: RefName, entries: readonly LogEntry<CommitHash>[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }

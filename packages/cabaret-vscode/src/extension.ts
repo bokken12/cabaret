@@ -42,11 +42,11 @@ import {
   auditSetup,
   declinedScopes,
   declineSetup,
-  GitBackend,
-  GitUnavailableError,
-  openGitHubForge,
+  forgeBackend,
   type SetupAudit,
-} from "cabaret-node";
+  VcsUnavailableError,
+} from "cabaret-core";
+import { GitBackend, openGitHubForge } from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -512,12 +512,13 @@ async function runPull(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Surface a setup failure, attaching the way out when the failure is git itself. */
+/** Surface a setup failure, attaching the way out when the failure is the version-control tool itself. */
 function showSetupError(error: unknown): void {
-  if (error instanceof GitUnavailableError) {
+  if (error instanceof VcsUnavailableError) {
+    const { downloadUrl } = error;
     void vscode.window.showErrorMessage(`cabaret: ${error.message}`, "Open Download Page").then((choice) => {
       if (choice !== undefined) {
-        void vscode.env.openExternal(vscode.Uri.parse("https://git-scm.com/downloads"));
+        void vscode.env.openExternal(vscode.Uri.parse(downloadUrl));
       }
     });
     return;
@@ -531,7 +532,7 @@ async function applyRecommendations(backend: Backend, audits: readonly SetupAudi
   const applied = audits.filter(({ standing }) => standing.kind === "unset").length;
   if (applied > 0) {
     vscode.window.setStatusBarMessage(
-      `cabaret: applied ${applied} recommended git setting${applied === 1 ? "" : "s"}`,
+      `cabaret: applied ${applied} recommended setting${applied === 1 ? "" : "s"}`,
       5000,
     );
   }
@@ -544,8 +545,8 @@ async function applyRecommendations(backend: Backend, audits: readonly SetupAudi
 }
 
 /**
- * Offer the recommended git settings still unset, once per scope: a no is
- * recorded where it was given — global config for the person's settings,
+ * Offer the backend's recommended settings still unset, once per scope: a no
+ * is recorded where it was given — global config for the person's settings,
  * local for the repository's — and that scope is never offered again.
  */
 async function offerSetup(): Promise<void> {
@@ -560,7 +561,7 @@ async function offerSetup(): Promise<void> {
     }
     const briefs = pending.map(({ rec }) => rec.brief).join(", ");
     const choice = await vscode.window.showInformationMessage(
-      `cabaret recommends git settings: ${briefs}`,
+      `cabaret recommends settings: ${briefs}`,
       "Apply",
       "No",
     );
@@ -575,13 +576,13 @@ async function offerSetup(): Promise<void> {
   }
 }
 
-/** Apply the recommended git settings on demand, past any recorded no. */
+/** Apply the backend's recommended settings on demand, past any recorded no. */
 async function runSetup(): Promise<void> {
   try {
     const backend = await openBackend();
     const audits = await auditSetup(backend);
     if (audits.every(({ standing }) => standing.kind === "applied")) {
-      vscode.window.showInformationMessage("cabaret: recommended git settings are already applied");
+      vscode.window.showInformationMessage("cabaret: recommended settings are already applied");
       return;
     }
     await applyRecommendations(backend, audits);
@@ -592,10 +593,11 @@ async function runSetup(): Promise<void> {
 
 /** Push each selected change to the forge, ancestormost first. */
 async function pushSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+  const git = forgeBackend(backend);
   const forge = await requireForge();
   const pushed: string[] = [];
   for (const change of changes) {
-    const { id } = await pushChange(backend, now, forge, change, await backend.readLog(change));
+    const { id } = await pushChange(git, now, forge, change, await git.readLog(change));
     pushed.push(`${change} to ${forge.locator}#${id}`);
   }
   vscode.window.setStatusBarMessage(

@@ -283,11 +283,11 @@ test("a formatted log parses back to the original entries", () => {
       action: { kind: "comment", text: "imported (edited)", edits: "ab".repeat(32) },
     },
   ];
-  expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
+  expect(parseLog(entries.map(formatLogEntry).join(""), parseCommitHash)).toEqual(entries);
 });
 
 test("the empty log parses to no entries", () => {
-  expect(parseLog("")).toEqual([]);
+  expect(parseLog("", parseCommitHash)).toEqual([]);
 });
 
 test("parseLog rejects malformed logs", () => {
@@ -325,7 +325,7 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, action: { kind: "set-forge", id: 1 } }), "malformed log line"],
   ];
   for (const [log, error] of cases) {
-    expect(() => parseLog(log)).toThrow(error);
+    expect(() => parseLog(log, parseCommitHash)).toThrow(error);
   }
 });
 
@@ -459,10 +459,10 @@ function fake(digit: string): CommitHash {
  * touches exist; ancestry is chain order, and anything off the chain is
  * nobody's relative.
  */
-function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
+function chainBackend(digits: string, merges: readonly LandMerge<CommitHash>[]): Backend<CommitHash> {
   const chain = [...digits].map(fake);
   const at = (hash: CommitHash) => chain.indexOf(hash);
-  const stub: Pick<Backend, "landMerges" | "isAncestor"> = {
+  const stub: Pick<Backend<CommitHash>, "landMerges" | "isAncestor"> = {
     async landMerges(base, tip) {
       return merges.filter(({ commit }) => at(commit) > at(base) && at(commit) <= at(tip));
     },
@@ -470,7 +470,7 @@ function chainBackend(digits: string, merges: readonly LandMerge[]): Backend {
       return ancestor === descendant || (at(ancestor) !== -1 && at(descendant) !== -1 && at(ancestor) < at(descendant));
     },
   };
-  return stub as Backend;
+  return stub as Backend<CommitHash>;
 }
 
 test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
@@ -611,7 +611,7 @@ function logEntries(): fc.Arbitrary<LogEntry> {
 test("format/parse round-trips arbitrary logs", () => {
   fc.assert(
     fc.property(fc.array(logEntries()), (entries) => {
-      expect(parseLog(entries.map(formatLogEntry).join(""))).toEqual(entries);
+      expect(parseLog(entries.map(formatLogEntry).join(""), parseCommitHash)).toEqual(entries);
     }),
   );
 });

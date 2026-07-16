@@ -1,13 +1,12 @@
-import type { Backend, ConfigScope } from "cabaret-core";
-import { LOG_FETCH_REFSPEC } from "./git.js";
+import type { Backend, ConfigScope } from "./backend.js";
 
 /**
- * One git setting Cabaret recommends. As with `Setting`, a recommendation
+ * One setting a backend recommends. As with `Setting`, a recommendation
  * about the person lives in global config; one about the repository, in
  * local config.
  */
 export interface Recommendation {
-  /** The git config key to write. */
+  /** The config key to write. */
   readonly key: string;
   /** The value to write: the key's value when single-valued, one of them when multi-valued. */
   readonly value: string;
@@ -20,31 +19,6 @@ export interface Recommendation {
   /** Whether the recommendation makes sense in this repository; omitted means always. */
   readonly applies?: (backend: Backend) => Promise<boolean>;
 }
-
-export const recommendations: readonly Recommendation[] = [
-  {
-    key: "merge.conflictStyle",
-    value: "zdiff3",
-    scope: "global",
-    multi: false,
-    brief: "zdiff3 conflict markers",
-  },
-  {
-    key: "rerere.enabled",
-    value: "true",
-    scope: "global",
-    multi: false,
-    brief: "reusing recorded conflict resolutions",
-  },
-  {
-    key: "remote.origin.fetch",
-    value: LOG_FETCH_REFSPEC,
-    scope: "local",
-    multi: true,
-    brief: "fetching change logs with every git fetch",
-    applies: async (backend) => (await backend.config("remote.origin.url")) !== undefined,
-  },
-];
 
 /** How one recommendation stands in a repository. */
 export type Standing =
@@ -74,7 +48,7 @@ async function standing(backend: Backend, rec: Recommendation): Promise<Standing
 /** Audit the recommendations that apply to `backend`'s repository. */
 export async function auditSetup(backend: Backend): Promise<readonly SetupAudit[]> {
   const audits: SetupAudit[] = [];
-  for (const rec of recommendations) {
+  for (const rec of backend.setupRecommendations()) {
     if (rec.applies === undefined || (await rec.applies(backend))) {
       audits.push({ rec, standing: await standing(backend, rec) });
     }

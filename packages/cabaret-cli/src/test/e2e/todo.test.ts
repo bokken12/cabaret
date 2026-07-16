@@ -154,7 +154,7 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   await repo.git("branch", "-qD", "gadget");
   const { stdout, stderr, exitCode } = await repo.cabaret("todo");
   expect({ stderr, exitCode }).toEqual({
-    stderr: 'gadget: unknown revision: "refs/heads/gadget"\n',
+    stderr: 'gadget: branch does not exist: "gadget"\n',
     exitCode: 0,
   });
   expect(stdout).toMatchInlineSnapshot(`

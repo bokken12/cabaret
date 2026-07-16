@@ -1,7 +1,7 @@
 import {
   assertNoConflict,
   type Backend,
-  type CommitHash,
+  type Revision,
   changeConflicts,
   changeDiff,
   currentReviewing,
@@ -61,8 +61,8 @@ export interface ChangeSnapshot {
   readonly reviewing: Reviewing;
   /** Whether the user may record review without a nudge, as `mayRecordReview`. */
   readonly asked: boolean;
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly base: Revision;
+  readonly tip: Revision;
   /** Files whose tip contents still carry conflict markers; review waits while any remain. */
   readonly conflicts: readonly FilePath[];
   readonly rounds: readonly ReviewRound[];
@@ -91,7 +91,7 @@ export interface ReviewPage {
   /** Undefined when nothing is left to review, or while conflicts block it. */
   readonly round:
     | {
-        readonly end: CommitHash;
+        readonly end: Revision;
         readonly files: readonly FilePath[];
         /** Rounds still to come after this one. */
         readonly later: number;
@@ -219,7 +219,7 @@ export interface DiffPage {
   readonly round:
     | {
         /** The revision the round reviews up to: marking the file reviewed records `{base, tip: end}`. */
-        readonly end: CommitHash;
+        readonly end: Revision;
         /** Rounds after this one that still include the file. */
         readonly later: number;
         readonly view: DiffView;
@@ -230,7 +230,7 @@ export interface DiffPage {
 /** Query the diff page for `file`: `snapshot`'s rounds locate the diff, and only the file contents are read. */
 export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
   const { change, base } = snapshot;
-  let found: { end: CommitHash; view: FileView } | undefined;
+  let found: { end: Revision; view: FileView } | undefined;
   let later = 0;
   for (const { end, files } of snapshot.rounds) {
     const view = files.get(file);
@@ -247,7 +247,7 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
     return { change, file, round: undefined };
   }
   const { end, view } = found;
-  const two = async (from: CommitHash): Promise<DiffView> => {
+  const two = async (from: Revision): Promise<DiffView> => {
     const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(end, file)]);
     return { kind: "two", prev, next };
   };

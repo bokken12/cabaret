@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import {
   currentParent,
   formatLogEntry,
+  type CommitHash,
   type LogAction,
   type LogEntry,
   parseRefName,
@@ -57,11 +58,11 @@ async function makeMachines(): Promise<readonly [Machine, Machine]> {
   return [await machine("alice@example.com"), await machine("bob@example.com")];
 }
 
-function entry(timestamp: number, user: string, action: LogAction): LogEntry {
+function entry(timestamp: number, user: string, action: LogAction<CommitHash>): LogEntry<CommitHash> {
   return { timestamp: timestampMs(timestamp), user: userName(user), action };
 }
 
-function setParent(timestamp: number, user: string, parent: string): LogEntry {
+function setParent(timestamp: number, user: string, parent: string): LogEntry<CommitHash> {
   return entry(timestamp, user, { kind: "set-parent", parent: parseRefName(parent) });
 }
 

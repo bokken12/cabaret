@@ -1,6 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import {
   assertChangeExists,
+  forgeBackend,
   type PullEvent,
   parseRefName,
   pullForge,
@@ -70,7 +71,7 @@ export const pull = buildCommand({
     },
   },
   async func(this: LocalContext, flags: { change?: RefName }) {
-    const backend = await this.backend();
+    const backend = forgeBackend(await this.backend());
     const forge = await this.forge();
     if (flags.change !== undefined) {
       const change = flags.change;

@@ -114,7 +114,7 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor"> = {
+  const stub: Pick<Backend<CommitHash>, "readFile" | "changedFiles" | "landMerges" | "isAncestor"> = {
     async readFile(commit, file) {
       return opts.trees?.[commit[0] as string]?.[file as string];
     },
@@ -141,7 +141,7 @@ function repoBackend(opts: {
       return ancestry(descendant).includes(ancestor);
     },
   };
-  return stub as Backend;
+  return stub as Backend<CommitHash>;
 }
 
 /** `.obligations` file text with the given rules. */

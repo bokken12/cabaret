@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   type Backend,
   type ChangeDiff,
-  type CommitHash,
+  type Revision,
   currentOwner,
   currentReviewers,
   currentReviewing,
@@ -76,7 +76,7 @@ export function parseObligationsFile(text: string): ObligationsFile {
 /** Read and parse the obligations file at `path` in `commit`'s tree, or undefined if there is none. */
 async function readObligations(
   backend: Backend,
-  commit: CommitHash,
+  commit: Revision,
   path: FilePath,
 ): Promise<ObligationsFile | undefined> {
   const text = await backend.readFile(commit, path);
@@ -121,8 +121,8 @@ export interface Obligation {
  */
 export async function changeObligations(
   backend: Backend,
-  base: CommitHash,
-  tip: CommitHash,
+  base: Revision,
+  tip: Revision,
   files: readonly FilePath[],
 ): Promise<readonly Obligation[]> {
   const cache = new Map<FilePath, Promise<ObligationsFile | undefined>>();

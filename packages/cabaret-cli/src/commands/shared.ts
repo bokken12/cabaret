@@ -4,6 +4,7 @@ import {
   type LogEntry,
   parseRefName,
   type RefName,
+  type Revision,
   UserError,
   type UserName,
   userName,
@@ -26,10 +27,10 @@ export function changeFlag(act: string) {
  * log. The change must exist: logs are only ever started by `create`, so
  * acting on a missing one would conjure a change out of thin air.
  */
-export async function resolveChange(
-  backend: Backend,
+export async function resolveChange<R extends Revision>(
+  backend: Backend<R>,
   flagged: RefName | undefined,
-): Promise<{ change: RefName; entries: readonly LogEntry[] }> {
+): Promise<{ change: RefName; entries: readonly LogEntry<R>[] }> {
   const change = flagged ?? (await backend.currentBranch());
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);

@@ -5,3 +5,17 @@
  * stack trace.
  */
 export class UserError extends Error {}
+
+/**
+ * The repository's version-control tool is not installed: nothing on PATH
+ * answers to its name. Frontends may pair the message with `downloadUrl` —
+ * a button, a link — to offer the install.
+ */
+export class VcsUnavailableError extends UserError {
+  constructor(
+    message: string,
+    readonly downloadUrl: string,
+  ) {
+    super(message);
+  }
+}
