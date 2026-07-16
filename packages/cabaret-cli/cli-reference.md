@@ -139,6 +139,23 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
+### cabaret config workspace-style
+
+USAGE
+  cabaret config workspace-style [--global] [--local] [--unset] [<value>]
+  cabaret config workspace-style --help
+
+Where going to a change with no workspace checks it out: shared or dedicated
+
+FLAGS
+     [--global]  Use the person's global git config       [default = false]
+     [--local]   Use this repository's git config         [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
 ## cabaret conflicts
 
 USAGE
@@ -475,3 +492,58 @@ Widen a change's reviewing set to the next level with review to do — owner, re
 FLAGS
      [--change]  Change to act on (defaults to current)
   -h  --help     Print help information and exit
+
+### cabaret workspace list
+
+USAGE
+  cabaret workspace list
+  cabaret workspace list --help
+
+List this repository's workspaces
+
+FLAGS
+  -h --help  Print help information and exit
+
+### cabaret workspace add
+
+USAGE
+  cabaret workspace add [--at value] <change>
+  cabaret workspace add --help
+
+Create a workspace — a new working tree — with the change checked out, beside the primary workspace. Prints where it went.
+
+FLAGS
+     [--at]   Where to create the workspace (defaults beside the primary workspace)
+  -h  --help  Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds
+
+### cabaret workspace remove
+
+USAGE
+  cabaret workspace remove [--even-though-dirty] <change>
+  cabaret workspace remove --help
+
+Remove the workspace holding the change. The change itself — its branch and its log — is untouched.
+
+FLAGS
+     [--even-though-dirty]  Remove the workspace even though it has uncommitted changes, discarding them [default = false]
+  -h  --help                Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds
+
+### cabaret workspace dir
+
+USAGE
+  cabaret workspace dir <change>
+  cabaret workspace dir --help
+
+Print the directory of the workspace holding a change
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  change  change the workspace holds

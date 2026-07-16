@@ -16,7 +16,8 @@ import {
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
-import { type Cell, type Column, tableParts } from "./table.js";
+import { type Cell, type Column, table, tableParts } from "./table.js";
+import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
 export interface TodoNode {
@@ -60,6 +61,20 @@ export interface TodoPage {
    * the page, since this page is where every other change gets triaged.
    */
   readonly broken: readonly BrokenChange[];
+  /**
+   * The changes checked out in workspaces on this device, in workspace
+   * order (the primary working tree first). This is where a workspace
+   * whose change has landed gets noticed — and reclaimed.
+   */
+  readonly workspaces: readonly WorkspaceEntry[];
+}
+
+/** A change and the workspace holding it on this device. */
+export interface WorkspaceEntry {
+  readonly change: RefName;
+  readonly workspace: WorkspaceNote;
+  /** Whether the change has landed, leaving the workspace ready to remove. */
+  readonly landed: boolean;
 }
 
 /** Changes read at once: each reading costs several git processes. */
@@ -100,10 +115,25 @@ async function readChange(backend: Backend, self: Self, change: RefName): Promis
 }
 
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
+<<<<<<< aec551c0ee8ad42376b440898c5b2ca1d00d3605
   const changes = [...(await backend.listChanges())].sort();
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.
   const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
+||||||| d0673b7e7ea3f7c9404ab4b3c2da15b47660d394
+  const summaries = new Map<RefName, ChangeSummary>();
+  const parents = new Map<RefName, RefName>();
+  const owedFiles = new Map<RefName, readonly FilePath[]>();
+  const broken: BrokenChange[] = [];
+  for (const change of [...(await backend.listChanges())].sort()) {
+=======
+  const workspaces = await workspaceNotes(backend);
+  const summaries = new Map<RefName, ChangeSummary>();
+  const parents = new Map<RefName, RefName>();
+  const owedFiles = new Map<RefName, readonly FilePath[]>();
+  const broken: BrokenChange[] = [];
+  for (const change of [...(await backend.listChanges())].sort()) {
+>>>>>>> 8f5c9bdd4843019cdf1e6fa2bb8bedb920334546
     try {
       return await readChange(backend, self, change);
     } catch (error) {
@@ -154,7 +184,13 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  return { review: pruneReview(forest), owned: pruneOwned(forest), broken };
+  const entries = [...workspaces].flatMap(([change, workspace]): WorkspaceEntry[] => {
+    const found = summaries.get(change);
+    // A workspace on a branch that is no change, or whose change is broken,
+    // is not this page's business; broken changes already surface as errors.
+    return found === undefined ? [] : [{ change, workspace, landed: found.landed !== undefined }];
+  });
+  return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -215,6 +251,26 @@ function forestSection<N extends { readonly children: readonly N[] }>(
   return section({ spans: [span(title, { style: "heading" })] }, [...head, ...treeNodes(forest, rows), foot]);
 }
 
+/** The workspaces section: one row per change checked out on this device. */
+function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
+  const rows = entries.map(({ change, workspace, landed }): readonly Cell[] => [
+    span(change, { target: { kind: "change", change } }),
+    span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
+    span([...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : [])].join(", ")),
+  ]);
+  return section(
+    { spans: [span("Workspaces on this device:", { style: "heading" })] },
+    table(
+      [
+        { header: "change", align: "left" },
+        { header: "workspace", align: "left" },
+        { header: "note", align: "left" },
+      ],
+      rows,
+    ),
+  );
+}
+
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
@@ -228,8 +284,12 @@ export function todoDoc(page: TodoPage): Doc {
       span(summary.nextStep, { style }),
     ];
   });
+  const title = "Todo";
   return layout(
     [
+      { spans: [span(title, { style: "heading" })] },
+      { spans: [span("=".repeat(title.length))] },
+      { spans: [] },
       forestSection(
         "Changes to review:",
         page.review,
@@ -250,6 +310,9 @@ export function todoDoc(page: TodoPage): Doc {
         ],
         ownedRows,
       ),
+      // Unlike the sections above, absence needs no showing: no row is not a
+      // gap to fill but simply no change checked out on this device.
+      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces)]),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

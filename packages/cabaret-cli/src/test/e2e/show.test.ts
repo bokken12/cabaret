@@ -21,6 +21,7 @@ test("show renders the current change's status page", async () => {
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
     Remaining review:
@@ -50,6 +51,7 @@ test("show renders the comments on a change, oldest first, above the files", asy
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
     Remaining review:
@@ -135,6 +137,7 @@ test("show tallies the remaining review per user", async () => {
     │ parent    │ main              │
     │ tip       │ 01cd7b3eb0c9      │
     │ base      │ 7651e9c1eed4      │
+    │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
     Remaining review:
@@ -162,6 +165,7 @@ test("show by name reflects review progress", async () => {
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
     ╰───────────┴───────────────────╯
     "
   `);
@@ -187,6 +191,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     │ parent    │ main                         │
     │ tip       │ f37230616d25 (behind origin) │
     │ base      │ 1ac0b33426d0                 │
+    │ workspace │ .                            │
     ╰───────────┴──────────────────────────────╯
 
     Remaining review:
@@ -220,6 +225,7 @@ test("show notes a stale base on its row while review stays the step", async () 
     │ parent    │ main                         │
     │ tip       │ f37230616d25                 │
     │ base      │ 1ac0b33426d0 (behind parent) │
+    │ workspace │ .                            │
     ╰───────────┴──────────────────────────────╯
 
     Remaining review:
@@ -284,6 +290,7 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
     │ parent    │ topic (does not exist) │
     │ tip       │ db5a7532d33d           │
     │ base      │ 1ac0b33426d0           │
+    │ workspace │ .                      │
     ╰───────────┴────────────────────────╯
 
     Remaining review:
@@ -313,6 +320,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     │ parent    │ main                                │
     │ tip       │ 7eccbe63002f (diverged from origin) │
     │ base      │ 1ac0b33426d0                        │
+    │ workspace │ .                                   │
     ╰───────────┴─────────────────────────────────────╯
 
     Remaining review:
@@ -344,6 +352,7 @@ test("show notes a tip ahead of origin's copy without changing the step", async 
     │ parent    │ main                           │
     │ tip       │ cd374afd6b0a (ahead of origin) │
     │ base      │ 1ac0b33426d0                   │
+    │ workspace │ .                              │
     ╰───────────┴────────────────────────────────╯
 
     Remaining review:
@@ -378,6 +387,7 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     │ parent    │ main              │
     │ tip       │ 7eccbe63002f      │
     │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
     Remaining review:

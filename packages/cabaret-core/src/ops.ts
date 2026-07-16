@@ -482,7 +482,6 @@ export async function landChain(
  * Update `change`'s parent. This is a metadata/log change only, and does not
  * touch code without a subsequent rebase.
  */
-// TODO: validate that `parent` names a real change before logging.
 export async function reparentChange(
   backend: Backend,
   now: () => TimestampMs,
@@ -490,9 +489,16 @@ export async function reparentChange(
   parent: RefName,
   override: boolean,
 ): Promise<void> {
+  if (change === parent) {
+    throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
+  }
   const entries = await backend.readLog(change);
   assertNotLanded(change, entries);
   await requireOwner(backend, change, entries, override);
+  // The same liveness `create` demands: a parent is a branch, change log or not.
+  if ((await backend.branchTip(parent)) === undefined) {
+    throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-parent", parent } },
   ]);

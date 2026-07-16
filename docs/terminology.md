@@ -74,6 +74,18 @@ What should signify a comment needing to be addressed?
 
 honestly I kind of like "TODO"? It's longer, but feels more universally acknowledged - and in general I prefer to avoid acronyms?
 
+## Working trees
+
+What should one call a working tree of the repository, each holding a checked-out change?
+
+- git calls this a "worktree"
+- Iron calls this a "workspace"
+- VS Code also says "workspace", for the folder(s) a window has open
+
+"Workspace" reads as a place you work rather than a data structure, which is the point. The VS Code collision is tolerable: in practice a Cabaret workspace opened in VS Code *is* the window's workspace.
+
+Decided: "workspace". Git's "worktree" appears only in the code that shells out to git.
+
 # Versions
 
 I like JJ's "revision" over git's "commit", the commit feels like the action

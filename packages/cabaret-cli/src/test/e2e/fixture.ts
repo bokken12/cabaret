@@ -113,10 +113,16 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
  * `alice@example.com`, and a bare `origin` remote, removed when the current
  * test finishes. Each repo's clock starts at a fixed epoch and ticks one
  * millisecond per read, so all command output is deterministic. `forge`, when
- * given, is what the `gh` commands talk to; without it they fail.
+ * given, is what the `gh` commands talk to; without it they fail. `nest`
+ * places the repo in a subdirectory of that name, so sibling workspaces get
+ * deterministic relative paths.
  */
-export async function makeRepo(forge?: Forge): Promise<TestRepo> {
-  const dir = await tempDir("cabaret-e2e-");
+export async function makeRepo(forge?: Forge, nest?: string): Promise<TestRepo> {
+  let dir = await tempDir("cabaret-e2e-");
+  if (nest !== undefined) {
+    dir = join(dir, nest);
+    await mkdir(dir);
+  }
   const repo = wrapRepo(dir, forge, 1748000000000);
   await repo.git("init", "-qb", "main");
   await repo.git("config", "user.name", "Alice Test");
