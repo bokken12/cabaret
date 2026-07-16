@@ -14,6 +14,7 @@ import {
   summarizeChange,
   UserError,
 } from "cabaret-core";
+import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
@@ -76,45 +77,78 @@ export interface WorkspaceEntry {
   readonly landed: boolean;
 }
 
+/** Changes read at once: each reading costs several git processes. */
+const READ_CONCURRENCY = 8;
+
+/** One change's readings for the page, or what broke reading them. */
+type ChangeReading =
+  | {
+      readonly kind: "read";
+      readonly summary: ChangeSummary;
+      readonly parent: RefName;
+      readonly owed: readonly FilePath[];
+    }
+  | { readonly kind: "broken"; readonly message: string };
+
+async function readChange(backend: Backend, self: Self, change: RefName): Promise<ChangeReading> {
+  const entries = await backend.readLog(change);
+  const diff = await changeDiff(backend, change, entries);
+  const summary = await summarizeChange(backend, change, entries, self.user, diff);
+  // Obligations ask nothing of a user outside the reviewing set — a
+  // membership the log alone decides, sparing the obligations files of
+  // most changes. An empty reviewLeft already counts the user toward
+  // every obligation — though it says nothing about their aliases, whose
+  // obligations each count that identity's own reviews. A change with
+  // conflict markers asks review of nobody: fixing them rewrites the
+  // tip, so reading it now is wasted.
+  const asked =
+    summary.landed === undefined &&
+    summary.conflicts.length === 0 &&
+    (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
+    isReviewing(self, change, entries);
+  return {
+    kind: "read",
+    summary,
+    parent: currentParent(change, entries),
+    owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
+  };
+}
+
 export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
   const workspaces = await workspaceNotes(backend);
-  const summaries = new Map<RefName, ChangeSummary>();
-  const parents = new Map<RefName, RefName>();
-  const owedFiles = new Map<RefName, readonly FilePath[]>();
-  const broken: BrokenChange[] = [];
-  for (const change of [...(await backend.listChanges())].sort()) {
+  const changes = [...(await backend.listChanges())].sort();
+  // Each change reads independently; assembling in `changes` order afterwards
+  // keeps the page deterministic whatever order the readings finish in.
+  const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
     try {
-      const entries = await backend.readLog(change);
-      const diff = await changeDiff(backend, change, entries);
-      const candidate = await summarizeChange(backend, change, entries, self.user, diff);
-      summaries.set(change, candidate);
-      parents.set(change, currentParent(change, entries));
-      // Obligations ask nothing of a user outside the reviewing set — a
-      // membership the log alone decides, sparing the obligations files of
-      // most changes. An empty reviewLeft already counts the user toward
-      // every obligation — though it says nothing about their aliases, whose
-      // obligations each count that identity's own reviews. A change with
-      // conflict markers asks review of nobody: fixing them rewrites the
-      // tip, so reading it now is wasted.
-      if (
-        candidate.landed === undefined &&
-        candidate.conflicts.length === 0 &&
-        (candidate.reviewLeft.length > 0 || self.aliases.size > 0) &&
-        isReviewing(self, change, entries)
-      ) {
-        const owed = await reviewOwed(backend, entries, candidate.owner, self, diff);
-        if (owed.length > 0) {
-          owedFiles.set(change, owed);
-        }
-      }
+      return await readChange(backend, self, change);
     } catch (error) {
       // Only state problems isolate to their change; a bug still throws.
       if (!(error instanceof UserError)) {
         throw error;
       }
-      broken.push({ change, message: error.message });
+      return { kind: "broken", message: error.message };
     }
-  }
+  });
+  const summaries = new Map<RefName, ChangeSummary>();
+  const parents = new Map<RefName, RefName>();
+  const owedFiles = new Map<RefName, readonly FilePath[]>();
+  const broken: BrokenChange[] = [];
+  changes.forEach((change, index) => {
+    const reading = readings[index];
+    if (reading === undefined) {
+      throw new Error(`change read no reading: ${change}`);
+    }
+    if (reading.kind === "broken") {
+      broken.push({ change, message: reading.message });
+      return;
+    }
+    summaries.set(change, reading.summary);
+    parents.set(change, reading.parent);
+    if (reading.owed.length > 0) {
+      owedFiles.set(change, reading.owed);
+    }
+  });
   const summary = (change: RefName): ChangeSummary => {
     const found = summaries.get(change);
     if (found === undefined) {

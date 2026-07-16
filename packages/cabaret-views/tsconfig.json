@@ -10,6 +10,9 @@
       "path": "../cabaret-core"
     },
     {
+      "path": "../cabaret-util"
+    },
+    {
       "path": "../patdiff"
     }
   ]
