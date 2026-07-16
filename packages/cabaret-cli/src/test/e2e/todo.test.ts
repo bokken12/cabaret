@@ -38,6 +38,13 @@ test("todo shows review work and owned changes as a tree", async () => {
     │ gadget   │      1 │ review    │
     │ └─ gizmo │      1 │ review    │
     ╰──────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gizmo  │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -87,6 +94,13 @@ test("todo counts an alias's changes among the user's own", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gizmo  │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
   // Declared an alias, the agent's change is alice's own, and its owner
@@ -109,6 +123,13 @@ test("todo counts an alias's changes among the user's own", async () => {
     ├────────┼────────┼───────────┤
     │ gizmo  │      1 │ review    │
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gizmo  │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -143,6 +164,13 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
     ├────────┼────────┼───────────┤
     │ gizmo  │      1 │ reparent  │
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gizmo  │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -204,6 +232,13 @@ test("pull imports an open forge change, and todo lists it when review is owed",
     ├────────┼────────┼───────────┤
     │ gadget │      1 │ review    │
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gadget │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -292,6 +327,13 @@ test("a landed change stays only while children hang from it", async () => {
     │ gadget   │        │ landed    │
     │ └─ gizmo │      1 │ reparent  │
     ╰──────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gizmo  │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -316,6 +358,13 @@ test("someone else's change obliging nothing of the user is not review work", as
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gadget │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -344,6 +393,13 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭─────────┬───────────┬──────╮
+    │ change  │ workspace │ note │
+    ├─────────┼───────────┼──────┤
+    │ feature │ .         │      │
+    ╰─────────┴───────────┴──────╯
     "
   `);
   await repo.git("config", "user.email", "bob@example.com");
@@ -364,6 +420,13 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭─────────┬───────────┬──────╮
+    │ change  │ workspace │ note │
+    ├─────────┼───────────┼──────┤
+    │ feature │ .         │      │
+    ╰─────────┴───────────┴──────╯
     "
   `);
 });
@@ -388,6 +451,13 @@ test("a landed change with no children drops out entirely", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬────────╮
+    │ change │ workspace │ note   │
+    ├────────┼───────────┼────────┤
+    │ gadget │ .         │ landed │
+    ╰────────┴───────────┴────────╯
     "
   `);
 });

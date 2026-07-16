@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { type Doc, docText, type Line, layout, section, span, targetAt } from "../index.js";
 
 const change = { kind: "change", change: parseRefName("widgets") } as const;
-const location = { kind: "location", file: parseFilePath("api.ts"), line: 7 } as const;
+const location = { kind: "location", change: change.change, file: parseFilePath("api.ts"), line: 7 } as const;
 
 const doc: Doc = {
   lines: [

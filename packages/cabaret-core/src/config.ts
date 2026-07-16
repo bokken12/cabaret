@@ -4,6 +4,7 @@ import { UserError } from "./error.js";
 
 const landMethods = ["merge", "squash"] as const;
 const landVias = ["local", "forge", "auto"] as const;
+const workspaceStyles = ["shared", "dedicated"] as const;
 
 /** How a land writes a change onto its parent: a land merge, or one squash commit. */
 export type LandMethod = (typeof landMethods)[number];
@@ -15,12 +16,19 @@ export type LandMethod = (typeof landMethods)[number];
  */
 export type LandVia = (typeof landVias)[number];
 
+/**
+ * How going to a change that has no workspace materializes one: check it
+ * out in the current workspace, or create a dedicated workspace for it.
+ */
+export type WorkspaceStyle = (typeof workspaceStyles)[number];
+
 /** Settings read from `cabaret.*` git config keys. */
 export interface Config {
   readonly landMethod: LandMethod;
   readonly landVia: LandVia;
   /** Lines of diff context, -1 for whole files; undefined when unset. */
   readonly context: number | undefined;
+  readonly workspaceStyle: WorkspaceStyle;
 }
 
 /** Parse a count of diff context lines from `source`: a nonnegative integer, or -1 for whole files. */
@@ -44,15 +52,17 @@ function parseChoice<T extends string>(key: string, raw: string | undefined, fal
 
 /** Read this repository's Cabaret settings. */
 export async function readConfig(backend: Backend): Promise<Config> {
-  const [method, via, context] = await Promise.all([
+  const [method, via, context, style] = await Promise.all([
     backend.config("cabaret.landMethod"),
     backend.config("cabaret.landVia"),
     backend.config("cabaret.context"),
+    backend.config("cabaret.workspaceStyle"),
   ]);
   return {
     landMethod: parseChoice("cabaret.landMethod", method, "merge", landMethods),
     landVia: parseChoice("cabaret.landVia", via, "auto", landVias),
     context: context === undefined ? undefined : parseContext(context, "git config cabaret.context"),
+    workspaceStyle: parseChoice("cabaret.workspaceStyle", style, "shared", workspaceStyles),
   };
 }
 
@@ -119,5 +129,14 @@ export const settings: readonly Setting[] = [
     brief: "Where a land executes: local, forge, or auto",
     fallback: "auto",
     parse: (raw) => parseChoice("cabaret.landVia", raw, "auto", landVias),
+  },
+  {
+    name: "workspace-style",
+    key: "cabaret.workspaceStyle",
+    scope: "local",
+    multi: false,
+    brief: "Where going to a change with no workspace checks it out: shared or dedicated",
+    fallback: "shared",
+    parse: (raw) => parseChoice("cabaret.workspaceStyle", raw, "shared", workspaceStyles),
   },
 ];

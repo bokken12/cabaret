@@ -20,6 +20,7 @@ import {
   UserError,
   type UserName,
   userName,
+  type Workspace,
 } from "cabaret-core";
 
 const execFileAsync = promisify(execFile);
@@ -605,6 +606,49 @@ export class GitBackend implements Backend {
   async createBranch(name: RefName, commit: CommitHash): Promise<void> {
     // The empty old-value makes update-ref fail if the branch already exists.
     await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);
+  }
+
+  async workspaces(): Promise<readonly Workspace[]> {
+    const out = await git(this.root, ["worktree", "list", "--porcelain"]);
+    // One attribute-line block per working tree, blank-line separated, the
+    // primary one first.
+    const listed = out
+      .trimEnd()
+      .split("\n\n")
+      .flatMap((block, index) => {
+        const lines = block.split("\n");
+        const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+        if (path === undefined || lines.includes("bare")) {
+          return [];
+        }
+        // A prunable working tree's directory is gone; it is not a workspace.
+        if (lines.some((line) => line.startsWith("prunable"))) {
+          return [];
+        }
+        const ref = lines.find((line) => line.startsWith("branch "))?.slice("branch ".length);
+        const branch = ref === undefined ? undefined : parseRefName(ref.replace(/^refs\/heads\//, ""));
+        return [{ path, branch, primary: index === 0 }];
+      });
+    return Promise.all(
+      listed.map(async ({ path, branch, primary }) => ({
+        path,
+        branch,
+        primary,
+        dirty: (await git(path, ["status", "--porcelain"])) !== "",
+      })),
+    );
+  }
+
+  async addWorkspace(path: string, branch: RefName): Promise<void> {
+    await git(this.root, ["worktree", "add", "--quiet", "--end-of-options", path, branch]);
+  }
+
+  async removeWorkspace(path: string, force: boolean): Promise<void> {
+    await git(this.root, ["worktree", "remove", ...(force ? ["--force"] : []), "--end-of-options", path]);
+  }
+
+  async checkout(branch: RefName): Promise<void> {
+    await git(this.root, ["switch", "--quiet", "--end-of-options", branch]);
   }
 
   async renameChange(from: RefName, to: RefName): Promise<void> {

@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   changeBase,
+  type Config,
+  createChange,
+  DirtyWorkspaceError,
+  gotoChange,
   type LogAction,
   type LogEntry,
   parseCommitHash,
@@ -12,6 +16,7 @@ import {
   parseRefName,
   timestampMs,
   userName,
+  type WorkspaceStyle,
 } from "cabaret-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { GitBackend } from "../index.js";
@@ -490,4 +495,93 @@ test("fails fast on detached HEAD", async () => {
   await expect(backend.currentBranch()).rejects.toThrow(
     "HEAD is detached; check out a branch or name the change explicitly",
   );
+});
+
+test("workspaces lists each working tree with its branch and dirtiness, dropping pruned ones", async () => {
+  // Nested so the linked working trees live beside the repo, not inside it.
+  const base = await mkdtemp(join(tmpdir(), "cabaret-workspaces-test-"));
+  try {
+    const dir = join(base, "repo");
+    await mkdir(dir);
+    await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    await gitIn(dir, "branch", "gadget");
+    await gitIn(dir, "branch", "doomed");
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "gadget-tree"), "gadget");
+    await gitIn(dir, "worktree", "add", "--quiet", "--detach", join(base, "adrift-tree"));
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "doomed-tree"), "doomed");
+    await writeFile(join(base, "gadget-tree", "junk.txt"), "junk\n");
+    await rm(join(base, "doomed-tree"), { recursive: true, force: true });
+    const backend = await GitBackend.open(dir);
+    // Paths as git reports them, symlinks (macOS /tmp) resolved.
+    const roots = await Promise.all(
+      [dir, join(base, "adrift-tree"), join(base, "gadget-tree")].map((tree) =>
+        gitIn(tree, "rev-parse", "--show-toplevel"),
+      ),
+    );
+    expect(await backend.workspaces()).toEqual([
+      { path: roots[0], branch: "main", dirty: false, primary: true },
+      { path: roots[1], branch: undefined, dirty: false, primary: false },
+      { path: roots[2], branch: "gadget", dirty: true, primary: false },
+    ]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("gotoChange reports a change's workspace, checking one out shared or adding one dedicated", async () => {
+  // Nested so a dedicated workspace lands beside the repo, not inside it.
+  const base = await mkdtemp(join(tmpdir(), "cabaret-goto-test-"));
+  try {
+    const dir = join(base, "repo");
+    await mkdir(dir);
+    await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "config", "user.email", "alice@example.com");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    const backend = await GitBackend.open(dir);
+    let clock = 1748000000000;
+    const now = () => timestampMs(clock++);
+    for (const change of ["gizmo", "widget", "gadget"]) {
+      await createChange(backend, now, parseRefName(change), parseRefName("main"));
+    }
+    const config = (workspaceStyle: WorkspaceStyle): Config => ({
+      landMethod: "merge",
+      landVia: "auto",
+      context: undefined,
+      workspaceStyle,
+    });
+    const root = await gitIn(dir, "rev-parse", "--show-toplevel");
+
+    // Shared style checks the change out in this working tree; thereafter
+    // the tree is the change's workspace.
+    expect(await gotoChange(backend, config("shared"), parseRefName("gizmo"), false)).toEqual({
+      kind: "checked-out",
+      path: root,
+    });
+    expect(await gitIn(dir, "branch", "--show-current")).toBe("gizmo");
+    expect(await gotoChange(backend, config("shared"), parseRefName("gizmo"), false)).toEqual({
+      kind: "at",
+      path: root,
+    });
+
+    // A dirty tree refuses the checkout until overridden.
+    await writeFile(join(dir, "junk.txt"), "junk\n");
+    await expect(gotoChange(backend, config("shared"), parseRefName("widget"), false)).rejects.toThrow(
+      DirtyWorkspaceError,
+    );
+    expect(await gotoChange(backend, config("shared"), parseRefName("widget"), true)).toEqual({
+      kind: "checked-out",
+      path: root,
+    });
+
+    // Dedicated style leaves this tree alone and adds a sibling workspace.
+    expect(await gotoChange(backend, config("dedicated"), parseRefName("gadget"), false)).toEqual({
+      kind: "added",
+      path: `${root}-gadget`,
+    });
+    expect(await gitIn(dir, "branch", "--show-current")).toBe("widget");
+    expect(await gitIn(`${root}-gadget`, "branch", "--show-current")).toBe("gadget");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });

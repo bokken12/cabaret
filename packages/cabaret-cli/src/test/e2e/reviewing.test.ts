@@ -61,7 +61,9 @@ test("obligations reach a user's todo only once the reviewing set includes them"
     await repo.git("config", "user.email", "alice@example.com");
     const { stdout } = await repo.cabaret("todo");
     await repo.git("config", "user.email", "bob@example.com");
-    return stdout;
+    // The workspaces section lists whatever is checked out, asked or not;
+    // this test cares about the obligation-driven sections above it.
+    return stdout.split("Workspaces on this device:")[0] as string;
   };
   // Only bob, the owner, is reviewing; alice's obligation is not yet asked.
   expect(await aliceTodo()).not.toContain("feature");
