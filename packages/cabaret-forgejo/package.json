@@ -1,0 +1,20 @@
+{
+  "name": "cabaret-forgejo",
+  "description": "Cabaret's Forgejo integration for codeberg.org, over the REST API so it runs wherever fetch exists",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "cabaret-core": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}
