@@ -31,6 +31,15 @@ function primaryWorkspace(workspaces: readonly Workspace[]): Workspace {
   return primary;
 }
 
+/** The workspace the backend was opened in. */
+function currentWorkspace(backend: Backend, workspaces: readonly Workspace[]): Workspace {
+  const current = workspaces.find((workspace) => workspace.path === backend.root);
+  if (current === undefined) {
+    throw new Error(`current working tree is not a workspace: ${backend.root}`);
+  }
+  return current;
+}
+
 /**
  * Where a new workspace for `change` goes: beside the primary workspace,
  * named after it — `widgets-gadget` beside `widgets`. A change name with
@@ -91,6 +100,61 @@ export async function removeChangeWorkspace(
   return workspace.path;
 }
 
+/**
+ * Check `change` out in the current workspace and return that workspace's
+ * path, refusing a dirty workspace unless `evenThoughDirty`. A branch held
+ * by another workspace cannot be checked out; the backend refuses it.
+ */
+export async function checkoutChange(backend: Backend, change: RefName, evenThoughDirty: boolean): Promise<string> {
+  await assertCheckoutable(backend, change);
+  const current = currentWorkspace(backend, await backend.workspaces());
+  if (current.dirty && !evenThoughDirty) {
+    throw new DirtyWorkspaceError(current.path);
+  }
+  await backend.checkout(change);
+  return current.path;
+}
+
+/** A way to bring `change` in front of the user, offered when the current workspace does not hold it. */
+export type GotoOption =
+  /** Open the workspace that holds the change. */
+  | { readonly kind: "open"; readonly path: string }
+  /** Check the change out in the current workspace. */
+  | { readonly kind: "checkout" }
+  /** Create the change's dedicated workspace. */
+  | { readonly kind: "add"; readonly path: string };
+
+/** Where visiting `change` finds it: checked out here, or reachable through one of the offered options. */
+export type GotoOffer =
+  | { readonly kind: "here" }
+  | { readonly kind: "offer"; readonly options: readonly [GotoOption, ...GotoOption[]] };
+
+/**
+ * How to visit `change` from the current workspace: "here" when this
+ * workspace holds it, and otherwise the options worth offering — the
+ * workspace it already has, a checkout here when this tree is clean, and a
+ * dedicated workspace when the style prefers one or a dirty tree rules the
+ * checkout out. The style-preferred option comes first.
+ */
+export async function gotoOffer(backend: Backend, config: Config, change: RefName): Promise<GotoOffer> {
+  const workspaces = await backend.workspaces();
+  const holding = workspaces.find((workspace) => workspace.branch === change);
+  if (holding !== undefined) {
+    return holding.path === backend.root
+      ? { kind: "here" }
+      : { kind: "offer", options: [{ kind: "open", path: holding.path }] };
+  }
+  const add: GotoOption = { kind: "add", path: workspacePath(primaryWorkspace(workspaces).path, change) };
+  if (currentWorkspace(backend, workspaces).dirty) {
+    return { kind: "offer", options: [add] };
+  }
+  const checkout: GotoOption = { kind: "checkout" };
+  return {
+    kind: "offer",
+    options: config.workspaceStyle === "dedicated" ? [add, checkout] : [checkout],
+  };
+}
+
 /** How `gotoChange` put the change in front of the user. */
 export type GotoResult =
   /** The change already had a workspace. */
@@ -117,19 +181,11 @@ export async function gotoChange(
   if (holding !== undefined) {
     return { kind: "at", path: holding.path };
   }
-  await assertCheckoutable(backend, change);
   if (config.workspaceStyle === "dedicated") {
+    await assertCheckoutable(backend, change);
     const path = workspacePath(primaryWorkspace(workspaces).path, change);
     await backend.addWorkspace(path, change);
     return { kind: "added", path };
   }
-  const current = workspaces.find((workspace) => workspace.path === backend.root);
-  if (current === undefined) {
-    throw new Error(`current working tree is not a workspace: ${backend.root}`);
-  }
-  if (current.dirty && !evenThoughDirty) {
-    throw new DirtyWorkspaceError(current.path);
-  }
-  await backend.checkout(change);
-  return { kind: "checked-out", path: current.path };
+  return { kind: "checked-out", path: await checkoutChange(backend, change, evenThoughDirty) };
 }

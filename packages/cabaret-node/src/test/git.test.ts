@@ -4,11 +4,13 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  changeBase,
   type Config,
+  changeBase,
+  checkoutChange,
   createChange,
   DirtyWorkspaceError,
   gotoChange,
+  gotoOffer,
   type LogAction,
   type LogEntry,
   parseCommitHash,
@@ -581,6 +583,66 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
     });
     expect(await gitIn(dir, "branch", "--show-current")).toBe("widget");
     expect(await gitIn(`${root}-gadget`, "branch", "--show-current")).toBe("gadget");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("gotoOffer reports a held change as here and offers ways to bring in an unheld one", async () => {
+  // Nested so linked workspaces land beside the repo, not inside it.
+  const base = await mkdtemp(join(tmpdir(), "cabaret-offer-test-"));
+  try {
+    const dir = join(base, "repo");
+    await mkdir(dir);
+    await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "config", "user.email", "alice@example.com");
+    await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
+    const backend = await GitBackend.open(dir);
+    let clock = 1748000000000;
+    const now = () => timestampMs(clock++);
+    for (const change of ["gizmo", "widget", "gadget"]) {
+      await createChange(backend, now, parseRefName(change), parseRefName("main"));
+    }
+    const config = (workspaceStyle: WorkspaceStyle): Config => ({
+      landMethod: "merge",
+      landVia: "auto",
+      context: undefined,
+      workspaceStyle,
+    });
+    const root = await gitIn(dir, "rev-parse", "--show-toplevel");
+    await gitIn(dir, "worktree", "add", "--quiet", `${root}-gadget`, "gadget");
+
+    // A change held elsewhere offers only its own workspace, whatever the style.
+    expect(await gotoOffer(backend, config("shared"), parseRefName("gadget"))).toEqual({
+      kind: "offer",
+      options: [{ kind: "open", path: `${root}-gadget` }],
+    });
+
+    // An unheld change in a clean tree offers a checkout, joined and led by a
+    // dedicated workspace when the style prefers one.
+    expect(await gotoOffer(backend, config("shared"), parseRefName("gizmo"))).toEqual({
+      kind: "offer",
+      options: [{ kind: "checkout" }],
+    });
+    expect(await gotoOffer(backend, config("dedicated"), parseRefName("gizmo"))).toEqual({
+      kind: "offer",
+      options: [{ kind: "add", path: `${root}-gizmo` }, { kind: "checkout" }],
+    });
+
+    // Taking the checkout makes this tree the change's home.
+    expect(await checkoutChange(backend, parseRefName("gizmo"), false)).toBe(root);
+    expect(await gitIn(dir, "branch", "--show-current")).toBe("gizmo");
+    expect(await gotoOffer(backend, config("shared"), parseRefName("gizmo"))).toEqual({ kind: "here" });
+
+    // A dirty tree rules the checkout out, leaving only a dedicated workspace.
+    await writeFile(join(dir, "junk.txt"), "junk\n");
+    expect(await gotoOffer(backend, config("shared"), parseRefName("widget"))).toEqual({
+      kind: "offer",
+      options: [{ kind: "add", path: `${root}-widget` }],
+    });
+    await expect(checkoutChange(backend, parseRefName("widget"), false)).rejects.toThrow(DirtyWorkspaceError);
+    expect(await checkoutChange(backend, parseRefName("widget"), true)).toBe(root);
+    expect(await gitIn(dir, "branch", "--show-current")).toBe("widget");
   } finally {
     await rm(base, { recursive: true, force: true });
   }

@@ -1,13 +1,15 @@
 import {
   addChangeWorkspace,
   type Backend,
-  changeWorkspace,
+  checkoutChange,
   createChange,
   currentParent,
   DirtyWorkspaceError,
   type Forge,
+  type GotoOption,
   type GotoResult,
   gotoChange,
+  gotoOffer,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -335,26 +337,9 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "file":
       await openPage(provider, { kind: "diff", change: target.change, file: target.file });
       break;
-    case "location": {
-      // Visit the copy in the workspace holding the change — the one the
-      // diff shows and the one worth editing — falling back to this working
-      // tree, which can drift from the diff's line numbers when it is on
-      // some other branch.
-      const backend = await openBackend();
-      const workspace = await changeWorkspace(backend, target.change);
-      const uri = vscode.Uri.joinPath(vscode.Uri.file(workspace?.path ?? backend.root), target.file);
-      try {
-        const document = await vscode.workspace.openTextDocument(uri);
-        const position = new vscode.Position(target.line - 1, 0);
-        await vscode.window.showTextDocument(document, {
-          preview: false,
-          selection: new vscode.Range(position, position),
-        });
-      } catch {
-        vscode.window.showInformationMessage(`cabaret: ${target.file} is not in the working tree`);
-      }
+    case "location":
+      await visitLocation(provider, target);
       break;
-    }
     case "workspace":
       await openWorkspaceWindow(target.path);
       break;
@@ -364,6 +349,73 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
 /** Open the workspace at `path` in its own window; a window already on that folder takes focus instead. */
 async function openWorkspaceWindow(path: string): Promise<void> {
   await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
+}
+
+/** Show `file` at 1-based `line` from the workspace at `root`. */
+async function openFileAt(root: string, file: string, line: number): Promise<void> {
+  const uri = vscode.Uri.joinPath(vscode.Uri.file(root), file);
+  try {
+    const document = await vscode.workspace.openTextDocument(uri);
+    const position = new vscode.Position(line - 1, 0);
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      selection: new vscode.Range(position, position),
+    });
+  } catch {
+    vscode.window.showInformationMessage(`cabaret: ${file} is not in the working tree`);
+  }
+}
+
+/**
+ * Visit `target`'s file for its change. The copy worth seeing is the one in
+ * the change's workspace, so when this workspace is not it, offer to bring
+ * the change in front of the user first — its own workspace's window, a
+ * checkout here, or a fresh workspace — rather than showing a copy whose
+ * lines can drift from the diff's.
+ */
+async function visitLocation(provider: PageProvider, target: Extract<Target, { kind: "location" }>): Promise<void> {
+  const backend = await openBackend();
+  const offer = await gotoOffer(backend, await readConfig(backend), target.change);
+  if (offer.kind === "here") {
+    await openFileAt(backend.root, target.file, target.line);
+    return;
+  }
+  const labels: { readonly [K in GotoOption["kind"]]: string } = {
+    open: "Open Its Workspace",
+    checkout: "Check Out Here",
+    add: "Create Its Workspace",
+  };
+  const picked = await vscode.window.showInformationMessage(
+    `${target.change} is not checked out in this workspace.`,
+    { modal: true },
+    ...offer.options.map((option) => labels[option.kind]),
+  );
+  const option = offer.options.find((candidate) => labels[candidate.kind] === picked);
+  if (option === undefined) {
+    return;
+  }
+  try {
+    switch (option.kind) {
+      case "open":
+        await openWorkspaceWindow(option.path);
+        break;
+      case "checkout":
+        await checkoutChange(backend, target.change, false);
+        await openFileAt(backend.root, target.file, target.line);
+        break;
+      case "add":
+        await addChangeWorkspace(backend, target.change, option.path);
+        await openWorkspaceWindow(option.path);
+        break;
+    }
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    // A checkout or new workspace reshapes what pages say about workspaces.
+    if (option.kind !== "open") {
+      provider.refreshAll();
+    }
+  }
 }
 
 /** Enter review of the shown change: open its list of files to review. */
