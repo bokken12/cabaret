@@ -400,6 +400,48 @@ test("mergeOnto resolves against the change's own base and commits conflicts wit
   await hg("update", "-q", "main");
 });
 
+test("the repository lock serializes concurrent merges and breaks stale locks", { timeout: 60000 }, async () => {
+  const backend = await HgBackend.open(repo);
+  const onto = await backend.tip(parseHgName("main"));
+  if (onto === undefined) {
+    throw new Error("main lost its tip");
+  }
+  // Two changes branch from main's tip, then main advances.
+  await hg("update", "-q", "-r", onto);
+  const tipA = await commit(repo, "lock a", { "lock-a.txt": "a\n" });
+  await hg("bookmark", "-q", "-r", tipA, "lock-a");
+  await hg("update", "-q", "-r", onto);
+  const tipB = await commit(repo, "lock b", { "lock-b.txt": "b\n" });
+  await hg("bookmark", "-q", "-r", tipB, "lock-b");
+  await hg("update", "-q", "-r", onto);
+  const onto2 = await commit(repo, "main advances", { "lock-trunk.txt": "t\n" });
+  await hg("bookmark", "-q", "-f", "-r", onto2, "main");
+
+  // A lock with no live holder is broken rather than waited out.
+  await mkdir(join(repo, ".hg", "cabaret"), { recursive: true });
+  await writeFile(join(repo, ".hg", "cabaret", "lock"), "not a pid\n");
+
+  // Both merges build in the one worker; unserialized, one would commit the
+  // other's half-built tree.
+  const [conflictsA, conflictsB] = await Promise.all([
+    backend.mergeOnto(parseHgName("lock-a"), onto, onto2, "merge main into lock-a"),
+    backend.mergeOnto(parseHgName("lock-b"), onto, onto2, "merge main into lock-b"),
+  ]);
+  expect(conflictsA).toEqual([]);
+  expect(conflictsB).toEqual([]);
+  for (const [name, tip] of [
+    ["lock-a", tipA],
+    ["lock-b", tipB],
+  ] as const) {
+    const merged = await backend.tip(parseHgName(name));
+    if (merged === undefined) {
+      throw new Error(`${name} lost its tip`);
+    }
+    expect(await hg("log", "-r", merged.slice(0, 12), "-T", "{p1node} {p2node}")).toBe(`${tip} ${onto2}`);
+  }
+  await hg("update", "-q", "main");
+});
+
 test("mergeOnto refuses a base the graph disagrees with", { timeout: 60000 }, async () => {
   const backend = await HgBackend.open(repo);
   const onto = await backend.tip(parseHgName("main"));

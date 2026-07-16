@@ -155,6 +155,46 @@ const ORIGIN_PATH = "default";
 /** hg's marker-writing internal merge tools: what a headless merge can honor from the user's `ui.merge`. */
 const MARKER_STYLES = ["merge", "merge3", "mergediff"];
 
+/** How long one Cabaret waits on another before giving up, and how often it looks. */
+const LOCK_PATIENCE_MS = 600_000;
+const LOCK_POLL_MS = 100;
+
+/** Resolve after `ms`. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Remove the lock at `path` when the process it names is gone: a crashed
+ * holder must not wedge the repository. PID liveness is the usual lock-file
+ * imperfection — a recycled PID holds a dead lock until patience runs out,
+ * and two waiters both breaking a stale lock can displace a third's fresh
+ * one in a tiny window; both stay races between crashes, not operations.
+ */
+async function breakIfStale(path: string): Promise<void> {
+  let content: string;
+  try {
+    content = await readFsFile(path, "utf8");
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") {
+      return; // Released meanwhile.
+    }
+    throw error;
+  }
+  const pid = Number.parseInt(content, 10);
+  if (Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(pid, 0);
+      return; // The holder is alive.
+    } catch (error) {
+      if ((error as { code?: unknown }).code === "EPERM") {
+        return; // Alive, under another user.
+      }
+    }
+  }
+  await rm(path, { force: true });
+}
+
 /**
  * The root of the repository `root`'s working tree belongs to: `root` itself
  * normally, or the source a share's `.hg/sharedpath` names.
@@ -601,9 +641,13 @@ export class HgBackend implements Backend {
     ]);
     const found = read.filter((workspace) => workspace !== undefined);
     // A workspace whose directory is gone is not a working tree anymore;
-    // prune it from the registry as well as the listing.
+    // prune it from the registry as well as the listing. Under the lock,
+    // against a re-read registry, so a concurrent registration is kept.
     if (found.length !== read.length) {
-      await this.writeRegistry(found.filter(({ primary }) => !primary).map(({ path }) => path));
+      const gone = new Set(registered.filter((path) => !found.some((workspace) => workspace.path === path)));
+      await this.locked(async () =>
+        this.writeRegistry((await this.registeredWorkspaces()).filter((path) => !gone.has(path))),
+      );
     }
     return found;
   }
@@ -626,25 +670,29 @@ export class HgBackend implements Backend {
 
   async addWorkspace(path: string, change: ChangeName): Promise<void> {
     await this.assertShareConfigured();
-    // -B shares the bookmark store, so every workspace names the same
-    // changes; each keeps its own active bookmark and working directory.
-    // -U so the only checkout is the change's, below.
-    await hg(this.repoRoot, ["share", "-q", "-U", "-B", this.repoRoot, path]);
-    await hg(path, ["update", "-q", "--", change]);
-    await this.writeRegistry([...(await this.registeredWorkspaces()), await realpath(path)]);
+    await this.locked(async () => {
+      // -B shares the bookmark store, so every workspace names the same
+      // changes; each keeps its own active bookmark and working directory.
+      // -U so the only checkout is the change's, below.
+      await hg(this.repoRoot, ["share", "-q", "-U", "-B", this.repoRoot, path]);
+      await hg(path, ["update", "-q", "--", change]);
+      await this.writeRegistry([...(await this.registeredWorkspaces()), await realpath(path)]);
+    });
   }
 
   async removeWorkspace(path: string, force: boolean): Promise<void> {
-    const resolved = await realpath(path);
-    const registered = await this.registeredWorkspaces();
-    if (!registered.includes(resolved)) {
-      throw new UserError(`not a dedicated workspace: ${path}`);
-    }
-    if (!force && (await hg(resolved, ["status"])) !== "") {
-      throw new UserError(`workspace has uncommitted changes: ${path}`);
-    }
-    await rm(resolved, { recursive: true, force: true });
-    await this.writeRegistry(registered.filter((entry) => entry !== resolved));
+    await this.locked(async () => {
+      const resolved = await realpath(path);
+      const registered = await this.registeredWorkspaces();
+      if (!registered.includes(resolved)) {
+        throw new UserError(`not a dedicated workspace: ${path}`);
+      }
+      if (!force && (await hg(resolved, ["status"])) !== "") {
+        throw new UserError(`workspace has uncommitted changes: ${path}`);
+      }
+      await rm(resolved, { recursive: true, force: true });
+      await this.writeRegistry(registered.filter((entry) => entry !== resolved));
+    });
   }
 
   async checkout(change: ChangeName): Promise<void> {
@@ -660,27 +708,29 @@ export class HgBackend implements Backend {
   }
 
   async rename(from: ChangeName, to: ChangeName): Promise<void> {
-    if ((await this.tip(from)) === undefined) {
-      throw new UserError(`bookmark does not exist: ${JSON.stringify(from)}`);
-    }
-    const logs = await this.logsTip();
-    const log = logs === undefined ? undefined : await this.readFile(logs, logPath(from));
-    if (logs === undefined || log === undefined) {
-      throw new Error(`change has no log: ${JSON.stringify(from)}`);
-    }
-    if ((await this.bookmarks()).has(to) || (await this.readFile(logs, logPath(to))) !== undefined) {
-      throw new UserError(`bookmark or log already exists: ${JSON.stringify(to)}`);
-    }
-    // Two steps, not one transaction: a crash between them strands the
-    // change under two names — visibly, and mendable by renaming the code
-    // bookmark by hand.
-    const node = await this.commitLogTree(logs, [
-      { path: logPath(from), content: undefined },
-      { path: logPath(to), content: log },
-    ]);
-    await this.moveLogsTip(node);
-    // `bookmark -m` rejects a "--" separator outright, so the names ride bare.
-    await hg(this.root, ["bookmark", "-m", from, to]);
+    await this.locked(async () => {
+      if ((await this.tip(from)) === undefined) {
+        throw new UserError(`bookmark does not exist: ${JSON.stringify(from)}`);
+      }
+      const logs = await this.logsTip();
+      const log = logs === undefined ? undefined : await this.readFile(logs, logPath(from));
+      if (logs === undefined || log === undefined) {
+        throw new Error(`change has no log: ${JSON.stringify(from)}`);
+      }
+      if ((await this.bookmarks()).has(to) || (await this.readFile(logs, logPath(to))) !== undefined) {
+        throw new UserError(`bookmark or log already exists: ${JSON.stringify(to)}`);
+      }
+      // Two steps, not one transaction: a crash between them strands the
+      // change under two names — visibly, and mendable by renaming the code
+      // bookmark by hand.
+      const node = await this.commitLogTree(logs, [
+        { path: logPath(from), content: undefined },
+        { path: logPath(to), content: log },
+      ]);
+      await this.moveLogsTip(node);
+      // `bookmark -m` rejects a "--" separator outright, so the names ride bare.
+      await hg(this.root, ["bookmark", "-m", from, to]);
+    });
   }
 
   /** The single node `revset` names, or undefined when it names none. */
@@ -775,12 +825,47 @@ export class HgBackend implements Backend {
   // ---- worker: a hidden share where commits and merges are built ----
 
   /**
+   * Run `fn` as the repository's only Cabaret. hg's own locks make each
+   * command atomic, but Cabaret's operations are command sequences sharing
+   * one worker, one workspace registry, and check-then-move bookmarks (hg
+   * has no compare-and-swap) — interleaved, two processes would commit each
+   * other's half-built trees. Not reentrant: outermost operations take it,
+   * private helpers never do. A holder that died is displaced by
+   * `breakIfStale`.
+   */
+  private async locked<T>(fn: () => Promise<T>): Promise<T> {
+    const file = join(this.hgDir(), "cabaret", "lock");
+    await mkdir(dirname(file), { recursive: true });
+    const deadline = Date.now() + LOCK_PATIENCE_MS;
+    for (;;) {
+      try {
+        await writeFile(file, `${process.pid}\n`, { flag: "wx" });
+        break;
+      } catch (error) {
+        if ((error as { code?: unknown }).code !== "EEXIST") {
+          throw error;
+        }
+        if (Date.now() >= deadline) {
+          throw new UserError(`timed out waiting for another cabaret to finish: ${file}`);
+        }
+        await breakIfStale(file);
+        await sleep(LOCK_POLL_MS);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      await rm(file, { force: true });
+    }
+  }
+
+  /**
    * The worker: a share of this repository (same store, own working
    * directory) hidden under `.hg/cabaret`, where log commits and merge trees
    * are built without ever touching the user's working directory. hg offers
    * no tree-construction plumbing like git's `commit-tree`, so a working
-   * directory it is. One worker serves one backend; concurrent Cabaret
-   * processes race benignly, retrying at the bookmark move.
+   * directory it is. One worker serves the whole repository — every use runs
+   * under `locked`.
    */
   private async worker(): Promise<string> {
     const dir = join(this.hgDir(), "cabaret", "worker");
@@ -929,13 +1014,15 @@ export class HgBackend implements Backend {
     if (entries.length === 0) {
       return;
     }
-    const logs = await this.logsTip();
-    const log = logs === undefined ? undefined : await this.readFile(logs, logPath(change));
-    if (log !== undefined && log !== "" && !log.endsWith("\n")) {
-      throw new Error(`malformed log for ${change}: missing trailing newline`);
-    }
-    const text = (log ?? "") + entries.map(formatLogEntry).join("");
-    await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: text }]));
+    await this.locked(async () => {
+      const logs = await this.logsTip();
+      const log = logs === undefined ? undefined : await this.readFile(logs, logPath(change));
+      if (log !== undefined && log !== "" && !log.endsWith("\n")) {
+        throw new Error(`malformed log for ${change}: missing trailing newline`);
+      }
+      const text = (log ?? "") + entries.map(formatLogEntry).join("");
+      await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: text }]));
+    });
   }
 
   async deleteLog(change: ChangeName): Promise<void> {
@@ -943,32 +1030,36 @@ export class HgBackend implements Backend {
     // lands atop everything origin holds, then push, deleting origin's copy
     // too. A machine still holding the log resurrects it at its next sync —
     // callers decide a log holds nothing worth keeping before deleting it.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await this.pullLogs();
-        const logs = await this.logsTip();
-        if (logs !== undefined && (await this.readFile(logs, logPath(change))) !== undefined) {
-          await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: undefined }]));
-        }
-        await this.pushLogs();
-        return;
-      } catch (error) {
-        if (attempt >= 2) {
-          throw error;
+    await this.locked(async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await this.pullLogs();
+          const logs = await this.logsTip();
+          if (logs !== undefined && (await this.readFile(logs, logPath(change))) !== undefined) {
+            await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: undefined }]));
+          }
+          await this.pushLogs();
+          return;
+        } catch (error) {
+          if (attempt >= 2) {
+            throw error;
+          }
         }
       }
-    }
+    });
   }
 
   async wipeReviewState(): Promise<readonly ChangeName[]> {
-    const names = await this.listChanges();
-    if ((await this.logsTip()) !== undefined) {
-      await hg(this.root, ["bookmark", "-q", "-d", "--", LOG_BOOKMARK]);
-    }
-    // The worker holds only rebuildable state; the workspace registry
-    // beside it survives a wipe.
-    await rm(join(this.hgDir(), "cabaret", "worker"), { recursive: true, force: true });
-    return names;
+    return this.locked(async () => {
+      const names = await this.listChanges();
+      if ((await this.logsTip()) !== undefined) {
+        await hg(this.root, ["bookmark", "-q", "-d", "--", LOG_BOOKMARK]);
+      }
+      // The worker holds only rebuildable state; the workspace registry
+      // beside it survives a wipe.
+      await rm(join(this.hgDir(), "cabaret", "worker"), { recursive: true, force: true });
+      return names;
+    });
   }
 
   async wipeOriginLogs(): Promise<readonly ChangeName[]> {
@@ -1158,11 +1249,11 @@ export class HgBackend implements Backend {
 
   async syncLog(_change: ChangeName): Promise<void> {
     // The chain is one unit: syncing one change's log syncs them all.
-    await this.reconcileLogs();
+    await this.locked(() => this.reconcileLogs());
   }
 
   async syncLogs(): Promise<readonly ChangeName[]> {
-    await this.reconcileLogs();
+    await this.locked(() => this.reconcileLogs());
     return this.listChanges();
   }
 
@@ -1340,7 +1431,7 @@ export class HgBackend implements Backend {
 
   async mergeConflicts(base: Revision, tip: Revision, onto: Revision): Promise<readonly FilePath[]> {
     await this.assertMergeableBase(base, tip, onto);
-    return this.workerMerge(tip, onto);
+    return this.locked(() => this.workerMerge(tip, onto));
   }
 
   /** Commit the worker's working directory under the repository's own identity and return the new commit. */
@@ -1390,35 +1481,41 @@ export class HgBackend implements Backend {
     message: string,
     parents: readonly [Revision] | readonly [Revision, Revision],
   ): Promise<Revision> {
-    if (onto === base) {
-      // The tree is tip's own: nothing to merge, only parents to set.
-      await this.workerReset(tip);
-    } else {
+    if (onto !== base) {
       await this.assertMergeableBase(base, onto, tip);
-      const conflicted = await this.workerMerge(onto, tip);
-      if (conflicted.length > 0) {
-        throw new Error(`landing ${tip} onto ${onto} conflicts in ${conflicted.join(", ")}`);
-      }
     }
-    await this.hgWorker(["debugsetparents", ...parents]);
-    const commit = await this.workerCommit(message);
-    await this.advanceBranch(into, commit, onto);
-    return commit;
+    return this.locked(async () => {
+      if (onto === base) {
+        // The tree is tip's own: nothing to merge, only parents to set.
+        await this.workerReset(tip);
+      } else {
+        const conflicted = await this.workerMerge(onto, tip);
+        if (conflicted.length > 0) {
+          throw new Error(`landing ${tip} onto ${onto} conflicts in ${conflicted.join(", ")}`);
+        }
+      }
+      await this.hgWorker(["debugsetparents", ...parents]);
+      const commit = await this.workerCommit(message);
+      await this.advanceBranch(into, commit, onto);
+      return commit;
+    });
   }
 
   async mergeOnto(change: ChangeName, base: Revision, onto: Revision, message: string): Promise<readonly FilePath[]> {
-    const tip = (await this.bookmarks()).get(change);
-    if (tip === undefined) {
-      throw new UserError(`bookmark does not exist: ${JSON.stringify(change)}`);
-    }
-    if (await this.isAncestor(tip, onto)) {
-      await this.advanceBranch(change, onto, tip);
-      return [];
-    }
-    await this.assertMergeableBase(base, tip, onto);
-    const conflicted = await this.workerMerge(tip, onto);
-    const commit = await this.workerCommit(message);
-    await this.advanceBranch(change, commit, tip);
-    return conflicted;
+    return this.locked(async () => {
+      const tip = (await this.bookmarks()).get(change);
+      if (tip === undefined) {
+        throw new UserError(`bookmark does not exist: ${JSON.stringify(change)}`);
+      }
+      if (await this.isAncestor(tip, onto)) {
+        await this.advanceBranch(change, onto, tip);
+        return [];
+      }
+      await this.assertMergeableBase(base, tip, onto);
+      const conflicted = await this.workerMerge(tip, onto);
+      const commit = await this.workerCommit(message);
+      await this.advanceBranch(change, commit, tip);
+      return conflicted;
+    });
   }
 }
