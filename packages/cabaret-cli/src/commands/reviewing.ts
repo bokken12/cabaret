@@ -1,8 +1,6 @@
 import { buildCommand } from "@stricli/core";
 import {
-  assertChangeExists,
   currentReviewing,
-  parseRefName,
   REVIEWING,
   type RefName,
   type Reviewing,
@@ -11,6 +9,7 @@ import {
   widenReviewing,
 } from "cabaret-core";
 import type { LocalContext } from "../context.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 function parseReviewing(raw: string): Reviewing {
   const value = REVIEWING.find((candidate) => candidate === raw);
@@ -19,13 +18,6 @@ function parseReviewing(raw: string): Reviewing {
   }
   return value;
 }
-
-const changeFlag = {
-  kind: "parsed",
-  parse: parseRefName,
-  brief: "Change to act on (defaults to current)",
-  optional: true,
-} as const;
 
 export const reviewing = buildCommand({
   docs: {
@@ -48,13 +40,11 @@ export const reviewing = buildCommand({
         },
       ],
     },
-    flags: { change: changeFlag },
+    flags: { change: changeFlag("act on") },
   },
   async func(this: LocalContext, flags: { change?: RefName }, value?: Reviewing) {
     const backend = await this.backend();
-    const change = flags.change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(change);
-    assertChangeExists(change, entries);
+    const { change, entries } = await resolveChange(backend, flags.change);
     if (value === undefined) {
       this.process.stdout.write(`${currentReviewing(entries)}\n`);
       return;
@@ -73,12 +63,11 @@ export const widen = buildCommand({
   },
   parameters: {
     positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag },
+    flags: { change: changeFlag("widen") },
   },
   async func(this: LocalContext, flags: { change?: RefName }) {
     const backend = await this.backend();
-    const change = flags.change ?? (await backend.currentBranch());
-    const entries = await backend.readLog(change);
+    const { change, entries } = await resolveChange(backend, flags.change);
     const { to } = await widenReviewing(backend, this.now, change, entries);
     this.process.stdout.write(`reviewing ${to}\n`);
   },

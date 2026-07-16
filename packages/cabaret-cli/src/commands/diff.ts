@@ -4,7 +4,6 @@ import {
   changeBase,
   defaultContext,
   parseContext,
-  parseRefName,
   type RefName,
   type ReviewSpan,
   readConfig,
@@ -17,7 +16,7 @@ import {
   type UserName,
 } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { parseUser } from "./shared.js";
+import { changeFlag, parseUser, resolveChange } from "./shared.js";
 
 export const diff = buildCommand({
   docs: {
@@ -38,12 +37,7 @@ export const diff = buildCommand({
       parameters: [{ brief: "file to diff", placeholder: "file", parse: String }],
     },
     flags: {
-      change: {
-        kind: "parsed",
-        parse: parseRefName,
-        brief: "Change to diff (defaults to current)",
-        optional: true,
-      },
+      change: changeFlag("diff"),
       for: {
         kind: "parsed",
         parse: parseUser,
@@ -64,9 +58,8 @@ export const diff = buildCommand({
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;
-    const change = flags.change ?? (await backend.currentBranch());
+    const { change, entries } = await resolveChange(backend, flags.change);
     const user = flags.for ?? (await backend.currentUser());
-    const entries = await backend.readLog(change);
     const base = await changeBase(backend, change, entries);
     // Pin to the branch namespace so a same-named tag cannot shadow the
     // change's tip.
