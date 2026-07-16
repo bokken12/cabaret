@@ -16,7 +16,6 @@ import {
   parseObligationsFile,
   parseRefName,
   reviewerSummary,
-  reviewersDue,
   reviewOwed,
   type Self,
   soleUser,
@@ -312,28 +311,19 @@ test("files changed only by a land merge carry no obligations", async () => {
   expect(statuses.map(isSatisfied)).toEqual([false, false]);
 });
 
-test("reviewersDue collects each outstanding reviewer's distinct files, both sorted", () => {
+test("reviewerSummary counts each outstanding reviewer's distinct files", () => {
   const status = (file: string, reviewedBy: readonly UserName[], atLeast: number, ...of: readonly UserName[]) => ({
     obligation: { file: parseFilePath(file), source: "owner" as const, require: { atLeast, of } },
     reviewedBy,
   });
-  expect(reviewersDue([])).toEqual([]);
-  const unsatisfied = [
-    status("src/keys.rs", [carol], 2, alice, bob, carol),
-    status("src/lib.rs", [], 1, bob),
-    status("src/lib.rs", [], 1, bob, carol),
-    status("src/api.rs", [], 1, bob),
-  ];
-  expect(reviewersDue(unsatisfied)).toEqual([
-    { user: alice, files: ["src/keys.rs"] },
-    { user: bob, files: ["src/api.rs", "src/keys.rs", "src/lib.rs"] },
-    { user: carol, files: ["src/lib.rs"] },
-  ]);
-  expect(reviewerSummary(unsatisfied)).toEqual([
-    "alice@example.com: 1 file",
-    "bob@example.com: 3 files",
-    "carol@example.com: 1 file",
-  ]);
+  expect(reviewerSummary([])).toEqual([]);
+  expect(
+    reviewerSummary([
+      status("src/keys.rs", [carol], 2, alice, bob, carol),
+      status("src/lib.rs", [], 1, bob),
+      status("src/lib.rs", [], 1, bob, carol),
+    ]),
+  ).toEqual(["alice@example.com: 1 file", "bob@example.com: 2 files", "carol@example.com: 1 file"]);
 });
 
 test("reviewOwed lists only files whose unsatisfied obligations await the user", async () => {

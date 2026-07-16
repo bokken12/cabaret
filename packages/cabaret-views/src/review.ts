@@ -1,6 +1,8 @@
 import {
+  assertNoConflict,
   type Backend,
   type CommitHash,
+  changeConflicts,
   changeDiff,
   currentReviewing,
   currentSelf,
@@ -61,6 +63,8 @@ export interface ChangeSnapshot {
   readonly asked: boolean;
   readonly base: CommitHash;
   readonly tip: CommitHash;
+  /** Files whose tip contents still carry conflict markers; review waits while any remain. */
+  readonly conflicts: readonly FilePath[];
   readonly rounds: readonly ReviewRound[];
 }
 
@@ -74,6 +78,7 @@ export async function changeSnapshot(backend: Backend, change: RefName): Promise
     asked: mayRecordReview(self, change, entries),
     base: diff.base,
     tip: diff.tip,
+    conflicts: await changeConflicts(backend, diff),
     rounds: await reviewRounds(backend, entries, self.user, diff),
   };
 }
@@ -81,7 +86,9 @@ export async function changeSnapshot(backend: Backend, change: RefName): Promise
 /** A change's current round of review: what to read before any newer round opens. */
 export interface ReviewPage {
   readonly change: RefName;
-  /** Undefined when nothing is left to review. */
+  /** Files with conflict markers to fix; nonempty exactly when they preempt the round. */
+  readonly conflicts: readonly FilePath[];
+  /** Undefined when nothing is left to review, or while conflicts block it. */
   readonly round:
     | {
         readonly end: CommitHash;
@@ -96,7 +103,11 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
   const first = snapshot.rounds[0];
   return {
     change: snapshot.change,
-    round: first && { end: first.end, files: [...first.files.keys()], later: snapshot.rounds.length - 1 },
+    conflicts: snapshot.conflicts,
+    round:
+      snapshot.conflicts.length > 0
+        ? undefined
+        : first && { end: first.end, files: [...first.files.keys()], later: snapshot.rounds.length - 1 },
   };
 }
 
@@ -114,6 +125,10 @@ export function reviewDoc(page: ReviewPage): Doc {
     { spans: [span("=".repeat(title.length), proceed)] },
     { spans: [span("", proceed)] },
   ];
+  if (page.conflicts.length > 0) {
+    lines.push({ spans: [span(`Unresolved conflicts in ${page.conflicts.join(", ")}; fix the markers and amend.`)] });
+    return layout(lines);
+  }
   if (page.round === undefined) {
     lines.push({ spans: [span("Nothing left to review.")] });
     return layout(lines);
@@ -149,8 +164,10 @@ export type MarkReviewedResult =
 /**
  * Mark `file` reviewed at the end of its earliest pending round in
  * `snapshot` — exactly the round the caller's page displayed. A snapshot
- * whose reviewing set does not ask the user fails with `NotReviewingError`
- * unless `evenThoughNotReviewing`; hosts attach their own override remedy.
+ * with conflict markers refuses outright: fixing them, not review, is the
+ * change's next step. One whose reviewing set does not ask the user fails
+ * with `NotReviewingError` unless `evenThoughNotReviewing`; hosts attach
+ * their own override remedy.
  *
  * The plan costs no queries, and the append rides behind `recorded`: a host
  * may open `next`'s diff immediately, because a review entry only changes
@@ -166,6 +183,7 @@ export function markReviewed(
   file: FilePath,
   evenThoughNotReviewing = false,
 ): MarkReviewedResult {
+  assertNoConflict(snapshot.change, snapshot.conflicts);
   if (!snapshot.asked && !evenThoughNotReviewing) {
     throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);
   }

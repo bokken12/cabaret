@@ -49,6 +49,28 @@ test("review from a subdirectory records repo-relative paths", async () => {
   });
 });
 
+test("review refuses a change with conflict markers, leaving the log untouched", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "trunk");
+  await repo.write("shared.txt", "<<<<<<< ours\nmine\n=======\ntheirs\n>>>>>>> parent\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "conflicted");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  const before = await repo.cabaret("log");
+  expect(await repo.cabaret("review", "shared.txt")).toEqual({
+    stdout: "",
+    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  // The override excuses reviewing ahead of one's turn, not markers.
+  expect(await repo.cabaret("review", "--even-though-not-reviewing", "shared.txt")).toEqual({
+    stdout: "",
+    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("log")).toEqual(before);
+});
+
 test("review rejects a path outside the repository, leaving the log untouched", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "trunk");

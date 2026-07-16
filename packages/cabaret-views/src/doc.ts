@@ -59,8 +59,6 @@ export interface Line {
 export interface Section {
   readonly heading: Line;
   readonly body: readonly Node[];
-  /** When true, the section starts folded: hosts open with it collapsed, and plain text elides its body. */
-  readonly folded: boolean;
 }
 
 /** What pages are built from: plain lines, and sections, which may nest. */
@@ -76,8 +74,6 @@ export interface Fold {
   readonly start: number;
   /** Zero-based last line the fold hides. */
   readonly end: number;
-  /** Whether the region starts folded. */
-  readonly folded: boolean;
 }
 
 /** A rendered page: plain text in which every meaningful span knows what it denotes. */
@@ -94,11 +90,11 @@ export interface Doc {
 }
 
 /** Make a section; an empty body would give folding nothing to hide, so it is refused. */
-export function section(heading: Line, body: readonly Node[], opts?: { folded?: boolean }): Section {
+export function section(heading: Line, body: readonly Node[]): Section {
   if (body.length === 0) {
     throw new Error("a section's body cannot be empty");
   }
-  return { heading, body, folded: opts?.folded ?? false };
+  return { heading, body };
 }
 
 /** Lay nodes out on the line grid, deriving each section's fold from its extent. */
@@ -115,7 +111,7 @@ export function layout(nodes: readonly Node[], errors: readonly string[] = []): 
     for (const child of node.body) {
       walk(child);
     }
-    folds.push({ start, end: lines.length - 1, folded: node.folded });
+    folds.push({ start, end: lines.length - 1 });
   };
   for (const node of nodes) {
     walk(node);
@@ -155,19 +151,4 @@ export function targetAt(doc: Doc, line: number): Target | undefined {
 /** The doc as plain text — how a host that paints no styles displays it. */
 export function docText(doc: Doc): string {
   return doc.lines.map((line) => line.spans.map(({ text }) => text).join("")).join("\n");
-}
-
-/** The doc's text with folded regions down to their headings — how a host that cannot unfold displays it. */
-export function foldedText(doc: Doc): string {
-  const hidden = new Set<number>();
-  for (const { start, end, folded } of doc.folds) {
-    if (folded) {
-      for (let line = start + 1; line <= end; line++) {
-        hidden.add(line);
-      }
-    }
-  }
-  return doc.lines
-    .flatMap((line, at) => (hidden.has(at) ? [] : [line.spans.map(({ text }) => text).join("")]))
-    .join("\n");
 }

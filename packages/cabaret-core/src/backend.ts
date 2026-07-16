@@ -973,3 +973,8 @@ export async function diffBetween(backend: Backend, base: CommitHash, tip: Commi
   );
   return { base, tip, spans };
 }
+
+/** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
+export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
+  return conflictedFiles(backend, diff.tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort());
+}

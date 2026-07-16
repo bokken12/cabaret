@@ -1,6 +1,6 @@
 import { parseFilePath, parseRefName } from "cabaret-core";
 import { expect, test } from "vitest";
-import { type Doc, docText, foldedText, type Line, layout, section, span, targetAt } from "../index.js";
+import { type Doc, docText, type Line, layout, section, span, targetAt } from "../index.js";
 
 const change = { kind: "change", change: parseRefName("widgets") } as const;
 const location = { kind: "location", change: change.change, file: parseFilePath("api.ts"), line: 7 } as const;
@@ -51,19 +51,16 @@ const line = (text: string): Line => ({ spans: [span(text)] });
 test("layout flattens nested sections and derives their folds", () => {
   const laid = layout([
     line("title"),
-    section(line("outer:"), [line("  a"), section(line("  inner:"), [line("    b")], { folded: true }), line("  c")]),
+    section(line("outer:"), [line("  a"), section(line("  inner:"), [line("    b")]), line("  c")]),
     line("tail"),
   ]);
   expect(docText(laid)).toBe("title\nouter:\n  a\n  inner:\n    b\n  c\ntail");
   // Each fold spans its whole section, the heading through the last line of
   // the deepest descendant, ordered by start line.
   expect(laid.folds).toEqual([
-    { start: 1, end: 5, folded: false },
-    { start: 3, end: 4, folded: true },
+    { start: 1, end: 5 },
+    { start: 3, end: 4 },
   ]);
-  // Folded text keeps a folded section's heading and drops its body.
-  expect(foldedText(laid)).toBe("title\nouter:\n  a\n  inner:\n  c\ntail");
-  expect(foldedText(layout([section(line("outer:"), [line("  a")], { folded: true })]))).toBe("outer:");
 });
 
 test("layout of bare lines has nothing to fold", () => {

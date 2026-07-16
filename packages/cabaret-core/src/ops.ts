@@ -239,7 +239,7 @@ export async function requireOwner(
 }
 
 /** Fail if `target` still carries conflict markers in `conflicts`. */
-function assertNoConflict(target: RefName, conflicts: readonly FilePath[]): void {
+export function assertNoConflict(target: RefName, conflicts: readonly FilePath[]): void {
   if (conflicts.length > 0) {
     throw new UserError(
       `${JSON.stringify(target)} has unresolved conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
