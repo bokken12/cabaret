@@ -106,28 +106,42 @@ function aborted(error: unknown, pattern: RegExp): boolean {
 }
 
 /**
- * Where a change's log lives: a chain of commits rooted at hg's null
- * revision, so it shares no history with the code, each holding the full log
- * text in a single `log` file. The movable pointer to the chain's tip is the
- * `LOG_BOOKMARK_PREFIX` bookmark; the chain also carries a per-change named
- * branch, purely so hg's push-time head counting sees each change's log as
- * its own branch instead of refusing sibling logs as "new remote heads".
- * Named branches are permanent, so a renamed or deleted change leaves its
- * branch label behind on old commits — only the bookmark is ever read.
- * Log commits stay in the secret phase until a sync publishes them, so the
- * user's own `hg push` never trips over them.
+ * Where logs live: one chain of commits rooted at hg's null revision, so it
+ * shares no history with the code, whose tree holds one file per change
+ * under `LOGS_DIR`. The `LOG_BOOKMARK` bookmark is the movable pointer to
+ * the chain's tip — the single entry Cabaret adds to the user's bookmark
+ * list. The chain carries the `LOG_BRANCH` named branch (hg forbids a
+ * bookmark shadowing a branch name, so the two differ), and every commit
+ * after the chain's root closes the branch, keeping it out of `hg branches`
+ * and `hg heads` — hg refuses to close a branch on its root commit, so the
+ * root is followed at once by an empty closing child. Log commits stay in
+ * the secret phase until a sync publishes them, so the user's own `hg push`
+ * never trips over them.
  */
-const LOG_BOOKMARK_PREFIX = "cabaret/log/";
+const LOG_BOOKMARK = "cabaret/log";
 
-/** The named branch of a change's log commits; disjoint from the bookmark namespace, which hg requires. */
-const LOG_BRANCH_PREFIX = "cabaret/logs/";
+/** The named branch of the log chain's commits. */
+const LOG_BRANCH = "cabaret/logs";
 
-function logBookmark(change: HgName): string {
-  return `${LOG_BOOKMARK_PREFIX}${change}`;
+/** The tree directory holding one log file per change. */
+const LOGS_DIR = "logs";
+
+/**
+ * The tree path of `change`'s log: its name flattened under `LOGS_DIR`, with
+ * `%`, `/`, and `\` percent-escaped so a name nesting another ("x", "x/y")
+ * cannot collide as file against directory, and no separator reaches the
+ * filesystem. `decodeLogName` inverts it.
+ */
+function logPath(change: HgName): FilePath {
+  const flat = change.replace(/[%/\\]/g, (ch) => (ch === "%" ? "%25" : ch === "/" ? "%2F" : "%5C"));
+  return parseFilePath(`${LOGS_DIR}/${flat}`);
 }
 
-/** Path of the log file within a log commit. */
-const LOG_PATH = "log";
+/** The change name of a log tree path, inverting `logPath`. */
+function decodeLogName(path: string): HgName {
+  const flat = path.slice(LOGS_DIR.length + 1);
+  return parseHgName(flat.replace(/%(25|2F|5C)/g, (token) => (token === "%25" ? "%" : token === "%2F" ? "/" : "\\")));
+}
 
 /** The remote every remote operation uses: hg's counterpart of git's `origin`. */
 const ORIGIN_PATH = "default";
@@ -528,19 +542,24 @@ export class HgBackend implements Backend<HgNode, HgName> {
     if ((await this.tip(from)) === undefined) {
       throw new UserError(`bookmark does not exist: ${JSON.stringify(from)}`);
     }
-    const marks = await this.bookmarks();
-    if (!marks.has(logBookmark(from))) {
+    const logs = await this.logsTip();
+    const log = logs === undefined ? undefined : await this.readFile(logs, logPath(from));
+    if (logs === undefined || log === undefined) {
       throw new Error(`change has no log: ${JSON.stringify(from)}`);
     }
-    if (marks.has(to) || marks.has(logBookmark(to))) {
+    if ((await this.bookmarks()).has(to) || (await this.readFile(logs, logPath(to))) !== undefined) {
       throw new UserError(`bookmark or log already exists: ${JSON.stringify(to)}`);
     }
-    // Two renames, not one transaction: hg has no multi-bookmark transaction,
-    // so a crash between them strands the change under two names — visibly,
-    // and mendable by renaming the log bookmark by hand.
+    // Two steps, not one transaction: a crash between them strands the
+    // change under two names — visibly, and mendable by renaming the code
+    // bookmark by hand.
+    const node = await this.commitLogTree(logs, [
+      { path: logPath(from), content: undefined },
+      { path: logPath(to), content: log },
+    ]);
+    await this.moveLogsTip(node);
     // `bookmark -m` rejects a "--" separator outright, so the names ride bare.
     await hg(this.root, ["bookmark", "-m", from, to]);
-    await hg(this.root, ["bookmark", "-m", logBookmark(from), logBookmark(to)]);
   }
 
   /** The single node `revset` names, or undefined when it names none. */
@@ -673,13 +692,22 @@ export class HgBackend implements Backend<HgNode, HgName> {
     return parseHgNode((await this.hgWorker(["log", "-r", ".", "-T", "{node}"])).trimEnd());
   }
 
-  /** Commit the worker's working directory as a log commit: secret until a sync publishes it. */
-  private async commitLogState(): Promise<HgNode> {
+  /**
+   * Commit the worker's working directory as a log commit: secret until a
+   * sync publishes it, and closing the log branch — except on a chain's
+   * root, where hg has no head to close yet — so the branch never surfaces
+   * in `hg branches` or `hg heads`.
+   */
+  private async commitLogState(close: boolean): Promise<HgNode> {
     await this.hgWorker([
       "commit",
       "-q",
+      ...(close ? ["--close-branch"] : []),
       "--config",
       "phases.new-commit=secret",
+      "--config",
+      // The chain-closing child after a fresh root carries no file changes.
+      "ui.allowemptycommit=yes",
       "--config",
       // Log commits are bookkeeping; the entries inside carry the real identities.
       "ui.username=cabaret",
@@ -689,80 +717,132 @@ export class HgBackend implements Backend<HgNode, HgName> {
     return this.workerNode();
   }
 
-  /** Write the log file in the worker atop `parent` (fresh on the change's log branch when undefined) and commit it. */
-  private async commitLog(change: HgName, parent: HgNode | undefined, text: string): Promise<HgNode> {
+  /**
+   * Apply `writes` to the log tree in the worker atop `parent` — a fresh
+   * chain root when undefined — and commit; an undefined content removes
+   * the file.
+   */
+  private async commitLogTree(
+    parent: HgNode | undefined,
+    writes: readonly { readonly path: FilePath; readonly content: string | undefined }[],
+  ): Promise<HgNode> {
     if (parent === undefined) {
       await this.workerReset("null");
-      // -f: recreating a deleted change reuses its permanent branch name.
-      await this.hgWorker(["branch", "-q", "-f", `${LOG_BRANCH_PREFIX}${change}`]);
-      await writeFile(join(await this.worker(), LOG_PATH), text);
-      await this.hgWorker(["add", "-q", `path:${LOG_PATH}`]);
+      // -f: the branch label outlives a wiped chain; a fresh root reuses it.
+      await this.hgWorker(["branch", "-q", "-f", LOG_BRANCH]);
     } else {
       await this.workerReset(parent);
-      await writeFile(join(await this.worker(), LOG_PATH), text);
     }
-    return this.commitLogState();
+    const dir = await this.worker();
+    const written: FilePath[] = [];
+    for (const { path, content } of writes) {
+      if (content === undefined) {
+        await this.hgWorker(["rm", "-q", "-f", `path:${path}`]);
+        continue;
+      }
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), content);
+      written.push(path);
+    }
+    if (written.length > 0) {
+      await this.hgWorker(["add", "-q", ...written.map((path) => `path:${path}`)]);
+    }
+    if (parent !== undefined) {
+      return this.commitLogState(true);
+    }
+    // hg cannot close a branch on its root commit, so a fresh chain's root
+    // is followed at once by an empty closing child, keeping the branch out
+    // of `hg branches` from its first state on.
+    await this.commitLogState(false);
+    return this.commitLogState(true);
   }
 
   // ---- logs ----
 
-  async listChanges(): Promise<readonly HgName[]> {
-    return [...(await this.bookmarks()).keys()]
-      .filter((name) => name.startsWith(LOG_BOOKMARK_PREFIX))
-      .map((name) => name.slice(LOG_BOOKMARK_PREFIX.length) as HgName)
-      .sort();
+  /** The tip of the log chain, or undefined when this repository has no logs. */
+  private async logsTip(): Promise<HgNode | undefined> {
+    return (await this.bookmarks()).get(LOG_BOOKMARK);
   }
 
-  /** The raw log text at log commit `node`. */
-  private async logText(node: HgNode): Promise<string> {
-    const text = await this.readFile(node, parseFilePath(LOG_PATH));
-    if (text === undefined) {
-      throw new Error(`log commit has no ${LOG_PATH} file: ${node}`);
+  /** Move the log bookmark to `node`. hg bookmarks have no compare-and-swap; a concurrent move here loses its position (never its commit — every state remains in the chain's history). TODO: retry from the surviving heads if concurrent same-machine appends turn out to matter. */
+  private async moveLogsTip(node: HgNode): Promise<void> {
+    await hg(this.root, ["bookmark", "-q", "-f", "-r", node, "--", LOG_BOOKMARK]);
+  }
+
+  /** The log tree paths at `node`, one per change. */
+  private async logFiles(node: HgNode): Promise<readonly FilePath[]> {
+    let out: string;
+    try {
+      out = await hg(this.root, ["files", "-r", node, "-T", "{path}\\0", `path:${LOGS_DIR}`]);
+    } catch (error) {
+      // Exit code 1 means exactly "no matches": a tree holding no logs.
+      if ((error as { code?: unknown }).code === 1) {
+        return [];
+      }
+      throw error;
     }
-    return text;
+    return out
+      .split("\0")
+      .filter((path) => path !== "")
+      .map(parseFilePath);
+  }
+
+  async listChanges(): Promise<readonly HgName[]> {
+    const logs = await this.logsTip();
+    if (logs === undefined) {
+      return [];
+    }
+    return (await this.logFiles(logs)).map((path) => decodeLogName(path)).sort();
   }
 
   async readLog(change: HgName): Promise<readonly LogEntry<HgNode, HgName>[]> {
-    const tip = (await this.bookmarks()).get(logBookmark(change));
-    if (tip === undefined) {
+    const logs = await this.logsTip();
+    const text = logs === undefined ? undefined : await this.readFile(logs, logPath(change));
+    if (text === undefined) {
       return [];
     }
-    return parseLog(await this.logText(tip), parseHgNode, parseHgName);
+    return parseLog(text, parseHgNode, parseHgName);
   }
 
   async appendLog(change: HgName, entries: readonly LogEntry<HgNode, HgName>[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
-    const mark = logBookmark(change);
-    const old = (await this.bookmarks()).get(mark);
-    const log = old === undefined ? "" : await this.logText(old);
-    if (log !== "" && !log.endsWith("\n")) {
+    const logs = await this.logsTip();
+    const log = logs === undefined ? undefined : await this.readFile(logs, logPath(change));
+    if (log !== undefined && log !== "" && !log.endsWith("\n")) {
       throw new Error(`malformed log for ${change}: missing trailing newline`);
     }
-    const node = await this.commitLog(change, old, log + entries.map(formatLogEntry).join(""));
-    // hg bookmarks have no compare-and-swap; a concurrent append here loses
-    // its bookmark position (never its commit — the entries remain in the
-    // log branch's history). TODO: retry from the surviving heads if
-    // concurrent same-machine appends turn out to matter.
-    await hg(this.root, ["bookmark", "-q", "-f", "-r", node, "--", mark]);
+    const text = (log ?? "") + entries.map(formatLogEntry).join("");
+    await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: text }]));
   }
 
   async deleteLog(change: HgName): Promise<void> {
-    const mark = logBookmark(change);
-    if ((await this.bookmarks()).has(mark)) {
-      await hg(this.root, ["bookmark", "-q", "-d", "--", mark]);
-    }
-    const remote = (await this.remoteBookmarks()).get(mark);
-    if (remote !== undefined) {
-      await this.pushkeyDelete(mark, remote);
+    // Deletion is one more log state: pull and merge first so the removal
+    // lands atop everything origin holds, then push, deleting origin's copy
+    // too. A machine still holding the log resurrects it at its next sync —
+    // callers decide a log holds nothing worth keeping before deleting it.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.pullLogs();
+        const logs = await this.logsTip();
+        if (logs !== undefined && (await this.readFile(logs, logPath(change))) !== undefined) {
+          await this.moveLogsTip(await this.commitLogTree(logs, [{ path: logPath(change), content: undefined }]));
+        }
+        await this.pushLogs();
+        return;
+      } catch (error) {
+        if (attempt >= 2) {
+          throw error;
+        }
+      }
     }
   }
 
   async wipeReviewState(): Promise<readonly HgName[]> {
     const names = await this.listChanges();
-    if (names.length > 0) {
-      await hg(this.root, ["bookmark", "-q", "-d", "--", ...names.map((name) => logBookmark(name))]);
+    if ((await this.logsTip()) !== undefined) {
+      await hg(this.root, ["bookmark", "-q", "-d", "--", LOG_BOOKMARK]);
     }
     // The worker holds only rebuildable state.
     await rm(join(this.hgDir(), "cabaret"), { recursive: true, force: true });
@@ -770,15 +850,15 @@ export class HgBackend implements Backend<HgNode, HgName> {
   }
 
   async wipeOriginLogs(): Promise<readonly HgName[]> {
-    const names: HgName[] = [];
-    for (const [mark, node] of await this.remoteBookmarks()) {
-      if (!mark.startsWith(LOG_BOOKMARK_PREFIX)) {
-        continue;
-      }
-      await this.pushkeyDelete(mark, node);
-      names.push(mark.slice(LOG_BOOKMARK_PREFIX.length) as HgName);
+    const remote = (await this.remoteBookmarks()).get(LOG_BOOKMARK);
+    if (remote === undefined) {
+      return [];
     }
-    return names.sort();
+    // Pull the remote tip first, to name what is being deleted.
+    await this.hgRemote(["pull", "-q", "-f", "-r", remote]);
+    const names = (await this.logFiles(parseHgNode(remote))).map((path) => decodeLogName(path)).sort();
+    await this.pushkeyDelete(LOG_BOOKMARK, remote);
+    return names;
   }
 
   /** The path the `default` remote resolves to, failing when none is configured. */
@@ -954,75 +1034,28 @@ export class HgBackend implements Backend<HgNode, HgName> {
     }
   }
 
-  async syncLog(change: HgName): Promise<void> {
-    await this.reconcileLog(change);
+  async syncLog(_change: HgName): Promise<void> {
+    // The chain is one unit: syncing one change's log syncs them all.
+    await this.reconcileLogs();
   }
 
   async syncLogs(): Promise<readonly HgName[]> {
-    const names = new Set<HgName>(await this.listChanges());
-    for (const mark of (await this.remoteBookmarks()).keys()) {
-      if (mark.startsWith(LOG_BOOKMARK_PREFIX)) {
-        names.add(mark.slice(LOG_BOOKMARK_PREFIX.length) as HgName);
-      }
-    }
-    const changes = [...names].sort();
-    for (const changeName of changes) {
-      await this.reconcileLog(changeName);
-    }
-    return changes;
+    await this.reconcileLogs();
+    return this.listChanges();
   }
 
   /**
-   * Bring `change`'s local log and origin's to the same content: pull the
-   * remote log, merge it with the local one as `mergeLogs` does, and push
+   * Bring the local log chain and origin's to the same content: pull the
+   * remote chain, merge it with the local one as `mergeLogs` does, and push
    * anything the remote lacks. Losing a race to a concurrent push only means
    * new entries to merge, so re-observe and retry, bounded so a persistent
    * failure surfaces.
    */
-  private async reconcileLog(change: HgName): Promise<void> {
-    const mark = logBookmark(change);
+  private async reconcileLogs(): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       try {
-        try {
-          await this.hgRemote(["pull", "-q", "-f", "-r", mark]);
-        } catch (error) {
-          if (!aborted(error, /unknown revision/)) {
-            throw error;
-          }
-          // Origin has no log for this change yet.
-        }
-        await this.dropDivergentBookmark(mark);
-        const local = (await this.bookmarks()).get(mark);
-        const remote = await this.remoteReading(mark);
-        let tip = local;
-        if (remote !== undefined && remote !== local) {
-          tip =
-            local === undefined || (await this.isAncestor(local, remote))
-              ? remote
-              : (await this.isAncestor(remote, local))
-                ? local
-                : await this.mergeLogCommits(local, remote);
-          if (tip !== local) {
-            await hg(this.root, ["bookmark", "-q", "-f", "-r", tip, "--", mark]);
-          }
-        }
-        if (tip === undefined || tip === remote) {
-          return;
-        }
-        // Publishing drafts the whole secret chain below the tip; a push
-        // then flips it public. --new-branch covers the log branch's first
-        // ever push; the bookmark refuses to move over unseen work, which
-        // is a retry, never an overwrite.
-        try {
-          await hg(this.root, ["phase", "--draft", "-r", tip]);
-        } catch (error) {
-          // Exit code 1 means exactly "no phases changed": the chain is
-          // already draft or public, as after a retried push.
-          if ((error as { code?: unknown }).code !== 1) {
-            throw error;
-          }
-        }
-        await this.hgRemote(["push", "--new-branch", "-B", mark]);
+        await this.pullLogs();
+        await this.pushLogs();
         return;
       } catch (error) {
         if (attempt >= 2) {
@@ -1032,16 +1065,95 @@ export class HgBackend implements Backend<HgNode, HgName> {
     }
   }
 
-  /** The merge of two log commits: `mergeLogs` of their entries, atop both. */
-  private async mergeLogCommits(a: HgNode, b: HgNode): Promise<HgNode> {
-    const [logA, logB] = await Promise.all([this.logText(a), this.logText(b)]);
-    const merged = mergeLogs(parseLog(logA, parseHgNode, parseHgName), parseLog(logB, parseHgNode, parseHgName))
-      .map(formatLogEntry)
-      .join("");
+  /** Pull origin's log chain and merge it into the local one, without pushing. */
+  private async pullLogs(): Promise<void> {
+    try {
+      await this.hgRemote(["pull", "-q", "-f", "-r", LOG_BOOKMARK]);
+    } catch (error) {
+      if (!aborted(error, /unknown revision/)) {
+        throw error;
+      }
+      // Origin has no logs yet.
+    }
+    await this.dropDivergentBookmark(LOG_BOOKMARK);
+    const local = await this.logsTip();
+    const remote = await this.remoteReading(LOG_BOOKMARK);
+    if (remote === undefined || remote === local) {
+      return;
+    }
+    const tip =
+      local === undefined || (await this.isAncestor(local, remote))
+        ? remote
+        : (await this.isAncestor(remote, local))
+          ? local
+          : await this.mergeLogChains(local, remote);
+    if (tip !== local) {
+      await this.moveLogsTip(tip);
+    }
+  }
+
+  /** Push the local log chain to origin. */
+  private async pushLogs(): Promise<void> {
+    const tip = await this.logsTip();
+    if (tip === undefined) {
+      return;
+    }
+    // Unconditionally: a push with nothing to send is a cheap no-op, while
+    // skipping on the last-exchanged record goes wrong once origin's
+    // bookmark was deleted out from under it (wipeOriginLogs), which the
+    // stale record would hide forever.
+    // Publishing drafts the whole secret chain below the tip; a push then
+    // flips it public. --new-branch covers the log branch's first ever push;
+    // the bookmark refuses to move over unseen work, which is a retry, never
+    // an overwrite.
+    try {
+      await hg(this.root, ["phase", "--draft", "-r", tip]);
+    } catch (error) {
+      // Exit code 1 means exactly "no phases changed": the chain is already
+      // draft or public, as after a retried push.
+      if ((error as { code?: unknown }).code !== 1) {
+        throw error;
+      }
+    }
+    await this.hgRemote(["push", "--new-branch", "-B", LOG_BOOKMARK]);
+  }
+
+  /**
+   * The merge of two log chain states: file-wise union of their trees, with
+   * a log both sides hold merged as `mergeLogs` does. A file one side lacks
+   * is kept — so a deletion loses to a concurrent append, never the reverse.
+   */
+  private async mergeLogChains(a: HgNode, b: HgNode): Promise<HgNode> {
+    const [filesA, filesB] = await Promise.all([this.logFiles(a), this.logFiles(b)]);
+    const paths = [...new Set([...filesA, ...filesB])].sort();
+    const writes: { path: FilePath; content: string }[] = [];
+    for (const path of paths) {
+      const [textA, textB] = await Promise.all([this.readFile(a, path), this.readFile(b, path)]);
+      const content =
+        textA !== undefined && textB !== undefined
+          ? mergeLogs(parseLog(textA, parseHgNode, parseHgName), parseLog(textB, parseHgNode, parseHgName))
+              .map(formatLogEntry)
+              .join("")
+          : // biome-ignore lint/style/noNonNullAssertion: every path came from one of the two trees.
+            (textA ?? textB)!;
+      writes.push({ path, content });
+    }
     await this.workerReset(a);
     await this.hgWorker(["debugsetparents", a, b]);
-    await writeFile(join(await this.worker(), LOG_PATH), merged);
-    return this.commitLogState();
+    const dir = await this.worker();
+    const added: FilePath[] = [];
+    for (const { path, content } of writes) {
+      if ((await this.readFile(a, path)) === content) {
+        continue;
+      }
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), content);
+      added.push(path);
+    }
+    if (added.length > 0) {
+      await this.hgWorker(["add", "-q", ...added.map((path) => `path:${path}`)]);
+    }
+    return this.commitLogState(true);
   }
 
   // ---- merges ----

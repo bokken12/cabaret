@@ -66,11 +66,11 @@ interface LogState {
   readonly node: string;
 }
 
-/** Both machines' logs for `change`, as bytes and nodes, for convergence checks. */
+/** Both machines' logs for `change`, as bytes and chain-tip nodes, for convergence checks. */
 async function logStates(machines: readonly [Machine, Machine], change: string): Promise<[LogState, LogState]> {
   const state = async ({ hg }: Machine): Promise<LogState> => ({
-    blob: await hg("cat", "-r", `bookmark("cabaret/log/${change}")`, "path:log"),
-    node: await hg("log", "-r", `bookmark("cabaret/log/${change}")`, "-T", "{node}"),
+    blob: await hg("cat", "-r", 'bookmark("cabaret/log")', `path:logs/${change}`),
+    node: await hg("log", "-r", 'bookmark("cabaret/log")', "-T", "{node}"),
   });
   return [await state(machines[0]), await state(machines[1])];
 }
@@ -88,9 +88,12 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", { timeout
   // Publishing made the log public on both sides; nothing is left outgoing,
   // so the user's own `hg push` has nothing of Cabaret's to trip over.
   expect(await a.hg("log", "-r", "secret() or draft()", "-T", "{node}")).toBe("");
-  // The record of origin's cabaret/log/widgets bookmark is no reading of a
-  // code bookmark "widgets", suffix match or not.
+  // The record of origin's cabaret/log bookmark is no reading of a code
+  // bookmark, and the chain stays out of hg's branch and head listings.
   expect(await a.backend.originTip(WIDGETS)).toBe(undefined);
+  expect(await a.hg("bookmarks", "-T", "{bookmark}\n")).toBe("cabaret/log");
+  expect(await a.hg("branches", "-T", "{branch}\n")).toBe("");
+  expect(await a.hg("log", "-r", "head() and not closed()", "-T", "{branch}\n")).toBe("");
 });
 
 test("concurrent appends converge to byte-identical logs, ties resolved alike", { timeout: 60000 }, async () => {

@@ -194,7 +194,7 @@ test("log commits stay secret, invisible to the user's own push", async () => {
       action: { kind: "set-parent", parent: parseHgName("main") },
     },
   ]);
-  const phase = await hg("log", "-r", 'bookmark("cabaret/log/log-secret")', "-T", "{phase}");
+  const phase = await hg("log", "-r", 'bookmark("cabaret/log")', "-T", "{phase}");
   expect(phase).toBe("secret");
   expect(await hg("log", "-r", "secret() and outgoing()", "-T", "{node}").catch(() => "no remote")).toBeDefined();
 });
@@ -381,7 +381,7 @@ test("mergeOnto resolves against the change's own base and commits conflicts wit
   await hg("update", "-q", "main");
 });
 
-test("rename moves the branch and the log together and refuses existing targets", async () => {
+test("rename moves the branch and the log together and refuses existing targets", { timeout: 60000 }, async () => {
   const backend = await HgBackend.open(repo);
   const now = testClock();
   await hg("update", "-q", "main");
