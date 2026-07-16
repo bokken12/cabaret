@@ -108,6 +108,12 @@ importers:
       cabaret-github:
         specifier: workspace:*
         version: link:../cabaret-github
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
+      node-diff3:
+        specifier: ^3.2.1
+        version: 3.2.1
 
   packages/cabaret-util:
     devDependencies:
@@ -740,6 +746,10 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  node-diff3@3.2.1:
+    resolution: {integrity: sha512-eKZcJ8RtMQ3cIaA15EgmtwG927fYnRlhtdA4Q9HAcCpAZPQhhU2XptnTH9GeAkMiX2bAXxlJSAFa9shFbztPgw==}
+    engines: {bun: '>=1.3.10'}
+
   obug@2.1.2:
     resolution: {integrity: sha512-AWGB9WFcRXOQs48Z/udjI5ZcZMHXwX8XPByNpOydgcGsDLIzjGizhoMWJyKAWze7AVW/2W1i+/gPX4YtKe5cyg==}
     engines: {node: '>=12.20.0'}
@@ -1342,6 +1352,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   nanoid@3.3.12: {}
+
+  node-diff3@3.2.1: {}
 
   obug@2.1.2: {}
 
