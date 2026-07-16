@@ -5,13 +5,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   type Config,
-<<<<<<< 899159e9d7529035be5d38d2aafbcbdc02791419
   changeBase,
   checkoutChange,
-||||||| b01ca99fee75147a1021a4843a4b3660895db0f6
-=======
-  changeBase,
->>>>>>> 7cfc7acaa729e91857e08d6e360d6f0321f965cc
   createChange,
   DirtyWorkspaceError,
   gotoChange,
