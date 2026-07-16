@@ -479,6 +479,38 @@ export async function landChain(
 }
 
 /**
+ * Reparent every unlanded child of `landed` onto `parent`, the branch its
+ * landing merged into. Landing froze `landed`, so a child pointing at it is
+ * stuck; the move follows the code, changes no child's diff — the base stays
+ * pinned — and so asks no owner's leave. Returns the children moved, in
+ * `listChanges` order.
+ */
+export async function reparentLandedChildren(
+  backend: Backend,
+  now: () => TimestampMs,
+  landed: RefName,
+  parent: RefName,
+): Promise<readonly RefName[]> {
+  const user = await backend.currentUser();
+  const moved: RefName[] = [];
+  for (const change of await backend.listChanges()) {
+    // `parent` itself can be a child of `landed` when a reparent made the two
+    // a cycle; moving it would make it its own parent, so leave the cycle for
+    // a manual reparent.
+    if (change === parent) {
+      continue;
+    }
+    const entries = await backend.readLog(change);
+    if (currentParent(change, entries) !== landed || landedMerge(entries) !== undefined) {
+      continue;
+    }
+    await backend.appendLog(change, [{ timestamp: now(), user, action: { kind: "set-parent", parent } }]);
+    moved.push(change);
+  }
+  return moved;
+}
+
+/**
  * Update `change`'s parent. This is a metadata/log change only, and does not
  * touch code without a subsequent rebase.
  */

@@ -318,6 +318,8 @@ test("a landed change stays only while children hang from it", async () => {
   await repo.cabaret("reviewing", "owner");
   await repo.cabaret("review", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
+  // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
+  await repo.cabaret("reparent", "gizmo", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
