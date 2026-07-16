@@ -32,6 +32,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     tip: fake("2"),
     origin: undefined,
     deadParent: undefined,
+    parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
@@ -341,6 +342,8 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ origin: "diverged" }, "tip")).toBe("│ tip       │ 222222222222 (diverged from origin) │");
   expect(attributeRow({ deadParent: "landed" }, "parent")).toBe("│ parent    │ gadget (landed)   │");
   expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
+  expect(attributeRow({ parentOrigin: "behind" }, "parent")).toBe("│ parent    │ gadget (behind origin) │");
+  expect(attributeRow({ parentOrigin: "diverged" }, "parent")).toBe("│ parent    │ gadget (diverged from origin) │");
   expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
   expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
   const tracked = { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) };

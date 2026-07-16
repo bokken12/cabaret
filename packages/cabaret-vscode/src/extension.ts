@@ -24,6 +24,7 @@ import {
   NotReviewingError,
   pullForge,
   pushChange,
+  type RebaseOverrides,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -33,6 +34,7 @@ import {
   resolveChain,
   reviewerSummary,
   type SetupAudit,
+  StaleParentError,
   setReviewing,
   type TimestampMs,
   timestampMs,
@@ -699,19 +701,43 @@ async function confirmNotOwner(button: string, op: (override: boolean) => Promis
 }
 
 /**
- * Rebase the selection. One change acts alone and reports a landed change as
- * the error it is; several act as a stack, where skipping landed links is
- * part of the semantics.
+ * Rebase the selection, confirming each overridable check it trips. One
+ * change acts alone and reports a landed change as the error it is; several
+ * act as a stack, where skipping landed links is part of the semantics.
  */
 async function rebaseSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
-  await confirmNotOwner("Rebase Anyway", async (override) => {
+  const rebaseAll = async (overrides: RebaseOverrides) => {
     if (only !== undefined) {
-      await rebaseChange(backend, now, only, await backend.readLog(only), override);
+      await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
     } else {
-      await rebaseChain(backend, now, await resolveChain(backend, changes), override);
+      await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
     }
-  });
+  };
+  let overrides: RebaseOverrides = { notOwner: false, staleParent: false };
+  for (;;) {
+    try {
+      return await rebaseAll(overrides);
+    } catch (error) {
+      let message: string;
+      if (error instanceof NotOwnerError && !overrides.notOwner) {
+        message = `${error.change} is owned by ${error.owner}, not you.`;
+        overrides = { ...overrides, notOwner: true };
+      } else if (error instanceof StaleParentError && !overrides.staleParent) {
+        message =
+          error.kind === "behind"
+            ? `Local ${error.parent} is behind origin's copy; pull it first.`
+            : `Local ${error.parent} has diverged from origin's copy.`;
+        overrides = { ...overrides, staleParent: true };
+      } else {
+        throw error;
+      }
+      const choice = await vscode.window.showWarningMessage(message, { modal: true }, "Rebase Anyway");
+      if (choice === undefined) {
+        return;
+      }
+    }
+  }
 }
 
 /**

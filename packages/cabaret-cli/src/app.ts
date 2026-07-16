@@ -3,6 +3,7 @@ import {
   DirtyWorkspaceError,
   NotOwnerError,
   NotReviewingError,
+  StaleParentError,
   UnsatisfiedObligationsError,
   UserError,
   VERSION,
@@ -41,6 +42,9 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof NotReviewingError) {
     return `${error.message}; pass --even-though-not-reviewing to override`;
+  }
+  if (error instanceof StaleParentError) {
+    return `${error.message}, or pass --even-though-parent-stale to override`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
