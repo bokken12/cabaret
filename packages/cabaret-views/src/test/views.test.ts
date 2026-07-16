@@ -182,11 +182,10 @@ test("todoDoc lists the changes checked out on this device in their own section"
     ╰────────┴──────────────────┴───────────────╯"
   `);
   // The section folds like the others.
-  expect(foldTexts(doc).at(-1)).toEqual({
-    from: "Workspaces on this device:",
-    to: "╰────────┴──────────────────┴───────────────╯",
-    folded: false,
-  });
+  expect(foldTexts(doc).at(-1)).toEqual([
+    "Workspaces on this device:",
+    "╰────────┴──────────────────┴───────────────╯",
+  ]);
   // The change links to its page and the path to the workspace's directory.
   const line = docText(doc)
     .split("\n")
