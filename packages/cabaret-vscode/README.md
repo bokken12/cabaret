@@ -12,7 +12,8 @@ text buffers, so search, selection, and vim keybindings work untouched.
   one when no change is current.
 - In a cabaret buffer, `enter` opens the target under the cursor, `tab`
   folds or unfolds the section at the cursor, `R` re-renders the page, and
-  `q` closes it.
+  `q` closes it. `?` opens the command palette filtered to the page's
+  commands, each shown with its current keybinding.
   On a show page, `r` opens the change's review page,
   `^` climbs to the parent's show page — or to the todo page from a change
   rooted on a trunk — and `$` descends to a child's, picking one when there

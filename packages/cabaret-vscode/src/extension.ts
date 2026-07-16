@@ -1056,6 +1056,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    // The palette filtered to cabaret's own commands, which VS Code renders
+    // with each command's effective keybinding — rebindings included, which
+    // no keybinding list an extension draws itself can honor.
+    vscode.commands.registerCommand("cabaret.help", () =>
+      vscode.commands.executeCommand("workbench.action.quickOpen", ">Cabaret: "),
+    ),
+    // Thin wrappers over workbench commands, so every key a page binds
+    // belongs to a Cabaret-titled command and appears in that palette.
+    vscode.commands.registerCommand("cabaret.toggleFold", () => vscode.commands.executeCommand("editor.toggleFold")),
+    vscode.commands.registerCommand("cabaret.closePage", () =>
+      vscode.commands.executeCommand("workbench.action.closeActiveEditor"),
+    ),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
