@@ -63,7 +63,7 @@
 - land should go via forge
 - add gitlab
 - add jj/hg
-- hg refuses merges whose recorded base is not the graph ancestor (Iron's design); a change wedged that way (reparented off an unlanded parent, stacked on a squash land) has no cabaret remedy, and a summary that probes its conflicts throws — decide between merge-land-only hg, a replay escape hatch, or living with it
+- hg refuses merges whose recorded base is not the graph ancestor (Iron's design); a change wedged that way (reparented off an unlanded parent, stacked on a squash land) has no cabaret remedy, and a summary that probes its conflicts throws. The refusal is a precondition of merging only: a replay-style rebase never consults the ancestor, hg replays without stopping (`premerge=keep-merge3` under an always-succeeding tool commits the markers), and obsolescence markers map rewritten revisions — so replay would both sidestep the refusal and un-wedge refused changes, making hg the natural first backend for the replay todo
 - look at change diff vs review
 - look at multiple files' diffs at once
 
