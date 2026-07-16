@@ -59,6 +59,16 @@ export function userName(raw: string): UserName {
   return raw as UserName;
 }
 
+/** The schemes forge accounts are written under, one per supported forge. */
+export const forgeAccountSchemes = ["github", "gitlab", "codeberg"] as const;
+
+export type ForgeAccountScheme = (typeof forgeAccountSchemes)[number];
+
+/** The identity for a forge account: its name under the forge's scheme, e.g. `github:alice`. */
+export function forgeAccount(scheme: ForgeAccountScheme, account: string): UserName {
+  return userName(`${scheme}:${account}`);
+}
+
 /** A forge repository locator, e.g. "github.com/test-org/widgets". Obtain via `parseForgeLocator`. */
 export type ForgeLocator = Branded<string, "ForgeLocator">;
 

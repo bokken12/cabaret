@@ -6,6 +6,7 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
+  forgeAccount,
   forgeChangeId,
   type LandMethod,
   type OpenChange,
@@ -24,7 +25,7 @@ import { type GitHubClient, type GitHubRepo, isStatus } from "./client.js";
 
 /** The identity for a GitHub account: its login under the `github:` scheme. */
 function accountUser(login: string): UserName {
-  return userName(`github:${login}`);
+  return forgeAccount("github", login);
 }
 
 // Inverts `accountUser`.

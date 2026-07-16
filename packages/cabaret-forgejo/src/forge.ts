@@ -6,6 +6,7 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
+  forgeAccount,
   forgeChangeId,
   type LandMethod,
   type OpenChange,
@@ -24,7 +25,7 @@ import { type ForgejoClient, type ForgejoRepo, isStatus } from "./client.js";
 
 /** The identity for a Codeberg account: its login under the `codeberg:` scheme. */
 function accountUser(login: string): UserName {
-  return userName(`codeberg:${login}`);
+  return forgeAccount("codeberg", login);
 }
 
 // Inverts `accountUser`.

@@ -1,5 +1,15 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { type Backend, type ConfigScope, type Setting, settings, UserError } from "cabaret-core";
+import {
+  type Backend,
+  type ConfigScope,
+  type ForgeAccountScheme,
+  forgeAccount,
+  forgeAccountSchemes,
+  type Setting,
+  settings,
+  UserError,
+  type UserName,
+} from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 /** Column width that aligns values after the longest setting name. */
@@ -83,6 +93,72 @@ function settingCommand(setting: Setting) {
   });
 }
 
+/**
+ * The route map for one forge's aliases: accounts are named bare and stored
+ * under the forge's scheme, so nobody has to spell `github:alice` by hand.
+ */
+function forgeAliasRouteMap(setting: Setting, scheme: ForgeAccountScheme) {
+  const account = (raw: string): UserName => {
+    if (raw === "" || raw.includes("@") || raw.includes(":")) {
+      throw new UserError(`pass the bare account name, e.g. \`cabaret config alias ${scheme} add alice\``);
+    }
+    return forgeAccount(scheme, raw);
+  };
+  const positional = {
+    kind: "tuple",
+    parameters: [{ brief: "account name, without the scheme", placeholder: "account", parse: String }],
+  } as const;
+  return buildRouteMap({
+    docs: { brief: `${setting.brief}, as bare ${scheme} accounts` },
+    routes: {
+      add: buildCommand({
+        docs: { brief: "Add an account" },
+        parameters: { positional, flags: scopeFlags },
+        async func(this: LocalContext, flags: ScopeFlags, raw: string) {
+          const value = account(raw);
+          const scope = writeScope(setting, flags);
+          const backend = await this.backend();
+          if ((await backend.configAll(setting.key, scope)).includes(value)) {
+            throw new UserError(
+              `git config ${setting.key} already contains ${JSON.stringify(value)} in ${scope} config`,
+            );
+          }
+          await backend.configAdd(setting.key, value, scope);
+        },
+      }),
+      remove: buildCommand({
+        docs: { brief: "Remove an account" },
+        parameters: { positional, flags: scopeFlags },
+        async func(this: LocalContext, flags: ScopeFlags, raw: string) {
+          const value = account(raw);
+          const scope = writeScope(setting, flags);
+          const backend = await this.backend();
+          if (!(await backend.configUnset(setting.key, scope, value))) {
+            throw new UserError(`git config ${setting.key} has no ${scope} value ${JSON.stringify(value)}`);
+          }
+        },
+      }),
+      clear: buildCommand({
+        docs: { brief: `Remove every ${scheme} account` },
+        parameters: { flags: scopeFlags },
+        async func(this: LocalContext, flags: ScopeFlags) {
+          const scope = writeScope(setting, flags);
+          const backend = await this.backend();
+          const accounts = (await backend.configAll(setting.key, scope)).filter((value) =>
+            value.startsWith(`${scheme}:`),
+          );
+          if (accounts.length === 0) {
+            throw new UserError(`git config ${setting.key} has no ${scope} ${scheme} accounts`);
+          }
+          for (const value of accounts) {
+            await backend.configUnset(setting.key, scope, value);
+          }
+        },
+      }),
+    },
+  });
+}
+
 /** The route map for multi-valued `setting`: values are added and removed, not set. */
 function settingRouteMap(setting: Setting) {
   return buildRouteMap({
@@ -137,6 +213,10 @@ function settingRouteMap(setting: Setting) {
           }
         },
       }),
+      // Aliases get a route per forge, taking bare account names.
+      ...(setting.key === "cabaret.alias"
+        ? Object.fromEntries(forgeAccountSchemes.map((scheme) => [scheme, forgeAliasRouteMap(setting, scheme)]))
+        : {}),
     },
   });
 }

@@ -6,6 +6,7 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
+  forgeAccount,
   forgeChangeId,
   type LandMethod,
   type OpenChange,
@@ -24,7 +25,7 @@ import { type GitLabClient, type GitLabProject, isStatus } from "./client.js";
 
 /** The identity for a GitLab account: its username under the `gitlab:` scheme. */
 function accountUser(username: string): UserName {
-  return userName(`gitlab:${username}`);
+  return forgeAccount("gitlab", username);
 }
 
 // GitLab reattributes a deleted account's contributions to a per-instance
