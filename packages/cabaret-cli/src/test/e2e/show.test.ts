@@ -171,7 +171,7 @@ test("show by name reflects review progress", async () => {
   `);
 });
 
-test("show notes a tip behind origin's copy and makes sync the step", async () => {
+test("show notes a tip behind origin's copy and makes pull the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
@@ -185,7 +185,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ sync                         │
+    │ next step │ pull                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ none                         │
     │ parent    │ main                         │
@@ -243,7 +243,13 @@ test("show tells a change whose parent has landed to reparent", async () => {
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "gadget");
   await repo.cabaret("review", "gadget.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: 'reparented "gizmo" onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  // Hang gizmo back under the landed gadget to see the nudge.
+  await repo.cabaret("reparent", "gizmo", "gadget");
   expect((await repo.cabaret("show", "gizmo")).stdout).toMatchInlineSnapshot(`
     "gizmo
     =====
@@ -302,7 +308,7 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
   `);
 });
 
-test("show notes a tip diverged from origin's copy and makes sync the step", async () => {
+test("show notes a tip diverged from origin's copy and makes resolving it the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.git("push", "-q", "origin", "gadget");
@@ -314,7 +320,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     ╭───────────┬─────────────────────────────────────╮
     │ attribute │ value                               │
     ├───────────┼─────────────────────────────────────┤
-    │ next step │ sync                                │
+    │ next step │ resolve divergence                  │
     │ owner     │ alice@example.com                   │
     │ reviewing │ none                                │
     │ parent    │ main                                │
@@ -360,6 +366,64 @@ test("show notes a tip ahead of origin's copy without changing the step", async 
 
     Files to review:
       gadget.txt
+    "
+  `);
+});
+
+test("show makes push the step when the forge lacks the reviewed tip", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  await repo.cabaret("reviewing", "everyone");
+  await repo.write("gadget.txt", "gadget work v2\n");
+  await repo.git("commit", "-qam", "more gadget work");
+  await repo.cabaret("review", "gadget.txt");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭──────────────┬────────────────────────────────╮
+    │ attribute    │ value                          │
+    ├──────────────┼────────────────────────────────┤
+    │ next step    │ push                           │
+    │ owner        │ alice@example.com              │
+    │ reviewing    │ everyone                       │
+    │ parent       │ main                           │
+    │ forge change │ github.com/test-org/widgets#1  │
+    │ tip          │ cd374afd6b0a (ahead of origin) │
+    │ base         │ 1ac0b33426d0                   │
+    │ workspace    │ .                              │
+    ╰──────────────┴────────────────────────────────╯
+    "
+  `);
+});
+
+test("show notes the forge change's stale target and makes push the step", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("review", "gadget.txt");
+  await repo.git("branch", "-q", "trunk", "main");
+  await repo.cabaret("reparent", "gadget", "trunk");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭──────────────┬──────────────────────────────────────────────────╮
+    │ attribute    │ value                                            │
+    ├──────────────┼──────────────────────────────────────────────────┤
+    │ next step    │ push                                             │
+    │ owner        │ alice@example.com                                │
+    │ reviewing    │ everyone                                         │
+    │ parent       │ trunk                                            │
+    │ forge change │ github.com/test-org/widgets#1 (merges into main) │
+    │ tip          │ f37230616d25                                     │
+    │ base         │ 1ac0b33426d0                                     │
+    │ workspace    │ .                                                │
+    ╰──────────────┴──────────────────────────────────────────────────╯
     "
   `);
 });

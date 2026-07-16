@@ -39,6 +39,18 @@ test("land merges the change's forge change and fetches the result", async () =>
   expect((await repo.cabaret("log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
 });
 
+test("a forge land reparents the landed change's children", async () => {
+  const forge = new FakeForge();
+  const repo = await makePr(forge);
+  await repo.cabaret("create", "doodad", "--parent", "gadget");
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: 'merged github.com/test-org/widgets#1\nreparented "doodad" onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("log", "doodad")).stdout).toContain('"action":{"kind":"set-parent","parent":"main"}');
+});
+
 test("land squashes the change's forge change when configured", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);

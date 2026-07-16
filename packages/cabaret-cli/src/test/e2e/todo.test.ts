@@ -56,7 +56,10 @@ test("a change with conflict markers asks no review, only its fix", async () => 
   await repo.write("gadget.txt", "<<<<<<< ours\ngadget work\n=======\nother\n>>>>>>> parent\n");
   await repo.git("commit", "-qam", "conflicted");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Changes to review:
+    "Todo
+    ====
+
+    Changes to review:
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
@@ -68,6 +71,13 @@ test("a change with conflict markers asks no review, only its fix", async () => 
     ├────────┼────────┼───────────────┤
     │ gadget │      1 │ fix conflicts │
     ╰────────┴────────┴───────────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gadget │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -308,6 +318,8 @@ test("a landed change stays only while children hang from it", async () => {
   await repo.cabaret("reviewing", "owner");
   await repo.cabaret("review", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
+  // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
+  await repo.cabaret("reparent", "gizmo", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
