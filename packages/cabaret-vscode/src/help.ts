@@ -35,11 +35,8 @@ function parsePageKind(kind: string): PageKind {
   return kind as PageKind;
 }
 
-/** Where a binding applies: every cabaret page, one page kind, or all but one. */
-type Scope =
-  | { readonly kind: "all" }
-  | { readonly kind: "only"; readonly page: PageKind }
-  | { readonly kind: "except"; readonly page: PageKind };
+/** Where a binding applies: every cabaret page, or the page kinds it names. */
+type Scope = "all" | readonly PageKind[];
 
 /** Every binding guards against vim reading input; scopes sit between this prefix and suffix. */
 const WHEN_PREFIX = "editorTextFocus && ";
@@ -52,28 +49,20 @@ function parseScope(when: string): Scope {
   }
   const scope = when.slice(WHEN_PREFIX.length, when.length - WHEN_SUFFIX.length);
   if (scope === "resourceScheme == cabaret") {
-    return { kind: "all" };
+    return "all";
   }
-  const only = /^cabaret\.page == '(\w+)'$/.exec(scope);
-  if (only?.[1] !== undefined) {
-    return { kind: "only", page: parsePageKind(only[1]) };
-  }
-  const except = /^resourceScheme == cabaret && cabaret\.page != '(\w+)'$/.exec(scope);
-  if (except?.[1] !== undefined) {
-    return { kind: "except", page: parsePageKind(except[1]) };
-  }
-  throw new Error(`unrecognized keybinding scope: ${scope}`);
+  const chain = scope.startsWith("(") && scope.endsWith(")") ? scope.slice(1, -1) : scope;
+  return chain.split(" || ").map((clause) => {
+    const page = /^cabaret\.page == '(\w+)'$/.exec(clause)?.[1];
+    if (page === undefined) {
+      throw new Error(`unrecognized keybinding scope: ${scope}`);
+    }
+    return parsePageKind(page);
+  });
 }
 
 function applies(scope: Scope, page: PageKind): boolean {
-  switch (scope.kind) {
-    case "all":
-      return true;
-    case "only":
-      return scope.page === page;
-    case "except":
-      return scope.page !== page;
-  }
+  return scope === "all" || scope.includes(page);
 }
 
 /** What shift makes of a US-layout key, for showing `shift+1 r b` as `! r b`. */

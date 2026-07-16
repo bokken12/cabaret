@@ -136,6 +136,9 @@ test("a binding outside the when grammar throws rather than going missing", () =
   expect(() => pageHelp(bind("x", GUARDED("cabaret.page =~ /show|diff/")), "todo")).toThrowError(
     /unrecognized keybinding scope/,
   );
+  expect(() =>
+    pageHelp(bind("x", GUARDED("resourceScheme == cabaret && cabaret.page != 'diff'")), "todo"),
+  ).toThrowError(/unrecognized keybinding scope/);
   expect(() => pageHelp(bind("x", GUARDED("cabaret.page == 'shw'")), "todo")).toThrowError(/unknown page kind/);
 });
 
