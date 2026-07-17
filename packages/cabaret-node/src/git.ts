@@ -484,7 +484,7 @@ export class GitBackend implements Backend {
 
   async syncLog(change: ChangeName): Promise<void> {
     await this.fetchLogs();
-    await this.reconcileLog(change);
+    await this.publishLogs([change]);
   }
 
   async syncLogs(): Promise<readonly ChangeName[]> {
@@ -499,9 +499,7 @@ export class GitBackend implements Backend {
       }
     }
     const changes = [...names].sort();
-    for (const changeName of changes) {
-      await this.reconcileLog(changeName);
-    }
+    await this.publishLogs(changes);
     return changes;
   }
 
@@ -552,13 +550,13 @@ export class GitBackend implements Backend {
   }
 
   /**
-   * Bring `change`'s local log and `origin`'s to the same content: merge the
-   * fetched remote log into the local one, then push anything the remote
-   * lacks. A concurrent local append or remote push loses us a compare-and-
-   * swap; both mean new entries to merge, so re-observe and retry, bounded so
-   * a persistent failure surfaces.
+   * Merge `change`'s fetched remote log into its local one, short of
+   * publishing: a concurrent local append losing the local compare-and-swap
+   * means new entries to merge, so re-observe and retry, bounded so a
+   * persistent failure surfaces. Returns the tip `change`'s log should be
+   * published at, or undefined when it already matches `origin`'s copy.
    */
-  private async reconcileLog(change: ChangeName): Promise<void> {
+  private async settleLog(change: ChangeName): Promise<Revision | undefined> {
     for (let attempt = 0; ; attempt++) {
       try {
         const local = await this.commitAt(logRef(change));
@@ -575,21 +573,92 @@ export class GitBackend implements Backend {
             await git(this.root, ["update-ref", logRef(change), tip, local ?? ""]);
           }
         }
-        if (tip === undefined || tip === remote) {
-          return;
-        }
-        // Not forced: the push succeeds only while the remote still points at
-        // what was fetched (or an ancestor), so a concurrent push is never
-        // overwritten — it fails here and merges on retry.
-        await git(this.root, ["push", "--quiet", "origin", `${tip}:${logRef(change)}`]);
-        await git(this.root, ["update-ref", remoteLogRef(change), tip]);
-        return;
+        return tip === remote ? undefined : tip;
       } catch (error) {
         if (attempt >= 2) {
           throw error;
         }
         await this.fetchLogs();
       }
+    }
+  }
+
+  /**
+   * Push every pending log's settled tip to `origin` in one round trip, not
+   * forced: a ref `origin` moved since it was settled is left unpushed,
+   * reported back so the caller can re-settle and retry just that one.
+   * `--porcelain` reports each ref's outcome on one line regardless of the
+   * command's overall exit code, which is nonzero whenever any ref failed.
+   */
+  private async pushLogs(pending: readonly { change: ChangeName; tip: Revision }[]): Promise<readonly ChangeName[]> {
+    const byRef = new Map(pending.map(({ change }) => [logRef(change), change]));
+    let out: string;
+    try {
+      out = await git(this.root, [
+        "push",
+        "--quiet",
+        "--porcelain",
+        "origin",
+        ...pending.map(({ change, tip }) => `${tip}:${logRef(change)}`),
+      ]);
+    } catch (error) {
+      const stdout = (error as { stdout?: string }).stdout;
+      if (stdout === undefined) {
+        throw error;
+      }
+      out = stdout;
+    }
+    const rejected: ChangeName[] = [];
+    for (const line of out.split("\n")) {
+      const [flag, refspec] = line.split("\t");
+      if (flag !== "!") {
+        continue;
+      }
+      const to = refspec?.split(":")[1];
+      const change = to === undefined ? undefined : byRef.get(parseBranchName(to));
+      if (change !== undefined) {
+        rejected.push(change);
+      }
+    }
+    const succeeded = pending.filter(({ change }) => !rejected.includes(change));
+    if (succeeded.length > 0) {
+      await git(
+        this.root,
+        ["update-ref", "--stdin"],
+        succeeded.map(({ change, tip }) => `update ${remoteLogRef(change)} ${tip}\n`).join(""),
+      );
+    }
+    return rejected;
+  }
+
+  /**
+   * Bring every one of `changes`' logs to the same content as `origin`: settle
+   * each locally, then publish every pending tip in one push. A ref `origin`
+   * moved since it was settled comes back from `pushLogs` rejected; retried
+   * against a fresh fetch, bounded so a persistent failure surfaces.
+   */
+  private async publishLogs(changes: readonly ChangeName[]): Promise<void> {
+    let pending = changes;
+    for (let attempt = 0; pending.length > 0; attempt++) {
+      const settled: { change: ChangeName; tip: Revision }[] = [];
+      for (const change of pending) {
+        const tip = await this.settleLog(change);
+        if (tip !== undefined) {
+          settled.push({ change, tip });
+        }
+      }
+      if (settled.length === 0) {
+        return;
+      }
+      const rejected = await this.pushLogs(settled);
+      if (rejected.length === 0) {
+        return;
+      }
+      if (attempt >= 2) {
+        throw new Error(`could not publish logs for: ${rejected.join(", ")}`);
+      }
+      await this.fetchLogs();
+      pending = rejected;
     }
   }
 
