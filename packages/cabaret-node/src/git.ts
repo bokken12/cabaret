@@ -750,7 +750,10 @@ export class GitBackend implements Backend {
     });
   }
 
-<<<<<<< e63ce4a249b8309ae17c84ef42ae6fd3ad2007d7
+  async hasRevision(revision: Revision): Promise<boolean> {
+    return (await this.reader.request("info", `${revision}^{commit}`)) !== undefined;
+  }
+
   isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return this.ancestry.isAncestor(ancestor, descendant, async () => {
       try {
@@ -763,31 +766,6 @@ export class GitBackend implements Backend {
           return false;
         }
         throw error;
-||||||| 6295683d86287a902bdd2a29765b97f4e2202ea1
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    try {
-      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
-      return true;
-    } catch (error) {
-      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
-      // commit pruned by gc) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        return false;
-=======
-  async hasRevision(revision: Revision): Promise<boolean> {
-    return (await this.reader.request("info", `${revision}^{commit}`)) !== undefined;
-  }
-
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    try {
-      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
-      return true;
-    } catch (error) {
-      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
-      // commit pruned by gc) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        return false;
->>>>>>> c3de0fb0012d62fb8d95a641e5fdcbabedc28463
       }
     });
   }

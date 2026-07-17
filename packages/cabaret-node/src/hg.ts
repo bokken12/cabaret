@@ -754,25 +754,17 @@ export class HgBackend implements Backend {
     });
   }
 
-<<<<<<< e63ce4a249b8309ae17c84ef42ae6fd3ad2007d7
+  async hasRevision(revision: Revision): Promise<boolean> {
+    // `present` turns the unknown-revision error into an empty revset.
+    return (await this.revsetNode(`present(${revision})`)) !== undefined;
+  }
+
   isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return this.ancestry.isAncestor(
       ancestor,
       descendant,
       async () => (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor,
     );
-||||||| 6295683d86287a902bdd2a29765b97f4e2202ea1
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
-=======
-  async hasRevision(revision: Revision): Promise<boolean> {
-    // `present` turns the unknown-revision error into an empty revset.
-    return (await this.revsetNode(`present(${revision})`)) !== undefined;
-  }
-
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
->>>>>>> c3de0fb0012d62fb8d95a641e5fdcbabedc28463
   }
 
   async mergedTip(merge: Revision): Promise<Revision> {
