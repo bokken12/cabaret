@@ -375,7 +375,7 @@ test("pull prunes the change of a closed forge change when nobody engaged with i
   expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).toBe("");
 });
 
-test("pull keeps the change of a closed forge change once someone engaged with it", async () => {
+test("pull archives the change of a closed forge change once someone engaged with it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await pushTeammateBranch(repo, parseBranchName("their-feature"));
@@ -383,8 +383,37 @@ test("pull keeps the change of a closed forge change once someone engaged with i
   await repo.cabaret("pull");
   await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
   forge.close(id);
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    'github.com/test-org/widgets#1 was closed; archived "their-feature"\n' +
+      "synced github.com/test-org/widgets: 0 open forge changes\n",
+  );
+  const log = (await repo.cabaret("log", "their-feature")).stdout;
+  expect(log).toContain('"kind":"review"');
+  expect(log).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
+  );
+  // The close was observed once; pulling again re-mirrors nothing.
   expect((await repo.cabaret("pull")).stdout).toBe("synced github.com/test-org/widgets: 0 open forge changes\n");
-  expect((await repo.cabaret("log", "their-feature")).stdout).toContain('"kind":"review"');
+});
+
+test("pull unarchives the change of a reopened forge change", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await pushTeammateBranch(repo, parseBranchName("their-feature"));
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
+  await repo.cabaret("pull");
+  await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
+  forge.close(id);
+  await repo.cabaret("pull");
+  await forge.setState(id, "open");
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "github.com/test-org/widgets#1 was reopened; unarchived the change\n" +
+      "pulled 0 comments from github.com/test-org/widgets#1\n" +
+      "synced github.com/test-org/widgets: 1 open forge change\n",
+  );
+  expect((await repo.cabaret("log", "their-feature")).stdout).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":false}',
+  );
 });
 
 test("pull mirrors a forge-side retarget into the change", async () => {

@@ -15,6 +15,7 @@ Where the `action` may be any of (incomplete)
 - `set-parent` to `ref`
 - `set-owner` to a user `owner`, replacing the previous owner
 - `set-reviewing` to one of `none`, `owner`, `reviewers`, `everyone`: who is asked to review right now (see `reviewing.md`); a log that never set one reads as `everyone`
+- `set-archived` to a boolean `archived`: whether the change is set aside as not landing; a log that never set one reads as live. Nothing else moves — the branch and log stay, todos stop asking after the change, and `land` refuses it. Syncing mirrors it to the forge change's open/closed state in both directions.
 - `add-reviewer` / `remove-reviewer` a user `reviewer`; per user, the latest entry decides membership, and a reviewer owes review of the change's whole diff
 
 - `review` a `file`, recording the `base` and `tip` of the reviewed diff

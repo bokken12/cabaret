@@ -105,6 +105,18 @@ What should one call the repository changes are shared through — where fetches
 
 Decided: "origin", everywhere — Cabaret pins a single remote, so the conventional git name doubles as the concept's name. hg's "default" path appears only in the code that shells out to hg (`ORIGIN_PATH` maps it) and in messages that tell the user which hg path to configure.
 
+## Abandoning
+
+What should one call setting a change aside without landing it?
+
+- GitHub calls this "close"
+- Iron calls this "archive"
+- Gerrit calls this "abandon"
+
+"Close" reads as final and says nothing about what happens to the work; "abandon" is accurate but harsh, and both undersell that the operation is reversible. "Archive" says exactly what Cabaret does: nothing is deleted, the change is set aside and can be brought back.
+
+Tentative: I'm going to call this "archive" (undone by "unarchive"). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
+
 # Versions
 
 I like JJ's "revision" over git's "commit", the commit feels like the action

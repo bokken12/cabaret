@@ -27,12 +27,14 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
     display,
     isChange: opts?.isChange ?? false,
     landed: opts?.landed ?? false,
+    archived: opts?.archived ?? false,
   });
   const doc = workspacesDoc({
     rows: [
       row("/src/widgets", ".", "main", { primary: true }),
       row("/src/widgets-gadget", "../widgets-gadget", "gadget", { isChange: true, dirty: true }),
       row("/src/widgets-relic", "../widgets-relic", "relic", { isChange: true, landed: true }),
+      row("/src/widgets-shelf", "../widgets-shelf", "shelf", { isChange: true, archived: true }),
       row("/src/widgets-probe", "../widgets-probe", undefined),
     ],
   });
@@ -40,14 +42,15 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
     "Workspaces
     ==========
 
-    ╭───────────────────┬────────────┬────────╮
-    │ workspace         │ change     │ note   │
-    ├───────────────────┼────────────┼────────┤
-    │ .                 │ main       │        │
-    │ ../widgets-gadget │ gadget     │ dirty  │
-    │ ../widgets-relic  │ relic      │ landed │
-    │ ../widgets-probe  │ (detached) │        │
-    ╰───────────────────┴────────────┴────────╯"
+    ╭───────────────────┬────────────┬──────────╮
+    │ workspace         │ change     │ note     │
+    ├───────────────────┼────────────┼──────────┤
+    │ .                 │ main       │          │
+    │ ../widgets-gadget │ gadget     │ dirty    │
+    │ ../widgets-relic  │ relic      │ landed   │
+    │ ../widgets-shelf  │ shelf      │ archived │
+    │ ../widgets-probe  │ (detached) │          │
+    ╰───────────────────┴────────────┴──────────╯"
   `);
   // Each row resolves to its workspace's directory; a change name links to
   // the change, while a branch that is no change goes nowhere.

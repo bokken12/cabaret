@@ -75,6 +75,8 @@ export interface WorkspaceEntry {
   readonly workspace: WorkspaceNote;
   /** Whether the change has landed, leaving the workspace ready to remove. */
   readonly landed: boolean;
+  /** Whether the change is archived, likewise leaving the workspace idle. */
+  readonly archived: boolean;
 }
 
 /** Changes read at once: each reading costs several git processes. */
@@ -103,6 +105,7 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   // tip, so reading it now is wasted.
   const asked =
     summary.landed === undefined &&
+    !summary.archived &&
     summary.conflicts.length === 0 &&
     (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
     isReviewing(self, change, entries);
@@ -160,7 +163,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
     nodes.flatMap((node) => {
       const candidate = summary(node.change);
       const children = pruneOwned(node.children);
-      const mine = candidate.landed === undefined && isSelf(self, candidate.owner);
+      const mine = candidate.landed === undefined && !candidate.archived && isSelf(self, candidate.owner);
       return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
@@ -174,7 +177,9 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
     const found = summaries.get(change);
     // A workspace on a branch that is no change, or whose change is broken,
     // is not this page's business; broken changes already surface as errors.
-    return found === undefined ? [] : [{ change, workspace, landed: found.landed !== undefined }];
+    return found === undefined
+      ? []
+      : [{ change, workspace, landed: found.landed !== undefined, archived: found.archived }];
   });
   return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
 }
@@ -239,10 +244,14 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 
 /** The workspaces section: one row per change checked out on this device. */
 function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
-  const rows = entries.map(({ change, workspace, landed }): readonly Cell[] => [
+  const rows = entries.map(({ change, workspace, landed, archived }): readonly Cell[] => [
     span(change, { target: { kind: "change", change } }),
     span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
-    span([...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : [])].join(", ")),
+    span(
+      [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : []), ...(archived ? ["archived"] : [])].join(
+        ", ",
+      ),
+    ),
   ]);
   return section(
     { spans: [span("Workspaces on this device:", { style: "heading" })] },

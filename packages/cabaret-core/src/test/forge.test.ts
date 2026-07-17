@@ -6,6 +6,8 @@ import {
   type ForgeSource,
   type LogEntry,
   parseForgeLocator,
+  planArchivedPull,
+  planArchivedPush,
   planPull,
   planPush,
   planReviewerPull,
@@ -219,6 +221,52 @@ test("planReviewingPush pushes the local draft boundary and records the observat
   // Widening within ready never touches the forge: the boundary agrees.
   const widened = [reviewingEntry(1750000000000, "owner")];
   expect(planReviewingPush(testClock(), alice, FORGE, widened, false)).toEqual({ observations: [] });
+});
+
+function archivedEntry(timestamp: number, archived: boolean, observed = false) {
+  return {
+    timestamp: timestampMs(timestamp),
+    user: alice,
+    ...(observed ? { source: { forge: FORGE } } : {}),
+    action: { kind: "set-archived" as const, archived },
+  };
+}
+
+test("planArchivedPull mirrors a forge close or reopen, and only one since last observed", () => {
+  // A forge change starts open, so a log never observed reads as having
+  // observed open: a close mirrors in without a baseline entry.
+  expect(planArchivedPull(testClock(), alice, FORGE, [], true)).toEqual([archivedEntry(1750000000000, true, true)]);
+  expect(planArchivedPull(testClock(), alice, FORGE, [], false)).toEqual([]);
+  // The forge still agreeing with the observation mirrors nothing, whatever
+  // local intent is pending its push.
+  const closed = [archivedEntry(1750000000000, true, true)];
+  expect(planArchivedPull(testClock(), alice, FORGE, closed, true)).toEqual([]);
+  const revived = [...closed, archivedEntry(1750000000001, false)];
+  expect(planArchivedPull(testClock(), alice, FORGE, revived, true)).toEqual([]);
+  // A reopen since the closed observation mirrors back in.
+  expect(planArchivedPull(testClock(), alice, FORGE, closed, false)).toEqual([
+    archivedEntry(1750000000000, false, true),
+  ]);
+});
+
+test("planArchivedPush pushes the local archived state and records the observation", () => {
+  // Locally archived; the forge still shows open.
+  const entries = [archivedEntry(1750000000000, true)];
+  const plan = planArchivedPush(testClock(), alice, FORGE, entries, false);
+  expect(plan).toEqual({ state: "closed", observations: [archivedEntry(1750000000000, true, true)] });
+  // The observation settles the push: planning again moves nothing, and the
+  // next pull mirrors nothing back.
+  const settled = [...entries, ...plan.observations];
+  expect(planArchivedPush(testClock(), alice, FORGE, settled, true)).toEqual({ observations: [] });
+  expect(planArchivedPull(testClock(), alice, FORGE, settled, true)).toEqual([]);
+  // A local unarchive reopens a closed forge change.
+  const reviving = [...settled, archivedEntry(1750000000002, false)];
+  expect(planArchivedPush(testClock(), alice, FORGE, reviving, true)).toEqual({
+    state: "open",
+    observations: [archivedEntry(1750000000000, false, true)],
+  });
+  // Sides agreeing move nothing.
+  expect(planArchivedPush(testClock(), alice, FORGE, [], false)).toEqual({ observations: [] });
 });
 
 const forgeUsers = () =>

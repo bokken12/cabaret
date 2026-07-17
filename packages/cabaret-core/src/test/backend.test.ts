@@ -2,10 +2,12 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
+  assertNotArchived,
   assertNotLanded,
   type Backend,
   brain,
   type ChangeName,
+  currentArchived,
   currentBase,
   currentOwner,
   currentParent,
@@ -18,12 +20,14 @@ import {
   type LogEntry,
   landedMerge,
   mergeLogs,
+  observedForgeArchived,
   observedForgeReviewers,
   parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
   parseLog,
+  REVIEWING,
   type Revision,
   remainingSpans,
   reviewSpans,
@@ -448,6 +452,39 @@ test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
   expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
 });
 
+test("currentArchived takes the set-archived with the greatest timestamp, and assertNotArchived rejects it", () => {
+  const entry = (timestamp: number, archived: boolean, source?: string): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    ...(source === undefined ? {} : { source: { forge: parseForgeLocator(source) } }),
+    action: { kind: "set-archived", archived },
+  });
+  const change = parseBranchName("feature");
+  expect(currentArchived([])).toBe(false);
+  expect(() => assertNotArchived(change, [])).not.toThrow();
+  // Order in the log does not matter, only timestamps.
+  const revived = [entry(9, false), entry(5, true)];
+  expect(currentArchived(revived)).toBe(false);
+  const archived = [entry(5, false), entry(9, true)];
+  expect(currentArchived(archived)).toBe(true);
+  expect(() => assertNotArchived(change, archived)).toThrow('change is archived: "feature"; run `cabaret unarchive`');
+});
+
+test("observedForgeArchived reads only entries sourced from the forge", () => {
+  const entry = (timestamp: number, archived: boolean, source?: string): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    ...(source === undefined ? {} : { source: { forge: parseForgeLocator(source) } }),
+    action: { kind: "set-archived", archived },
+  });
+  const forge = parseForgeLocator("github.com/test-org/widgets");
+  expect(observedForgeArchived([], forge)).toBeUndefined();
+  // A local unarchive does not count as an observation, however recent.
+  const entries = [entry(5, true, "github.com/test-org/widgets"), entry(9, false)];
+  expect(observedForgeArchived(entries, forge)).toBe(true);
+  expect(observedForgeArchived(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toBeUndefined();
+});
+
 /** The fake commit `digit.repeat(40)`, hex digits only. */
 function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
@@ -579,6 +616,8 @@ function logActions(): fc.Arbitrary<LogAction> {
       forge: forges,
       id: fc.integer({ min: 1 }).map(forgeChangeId),
     }),
+    fc.record({ kind: fc.constant("set-reviewing" as const), reviewing: fc.constantFrom(...REVIEWING) }),
+    fc.record({ kind: fc.constant("set-archived" as const), archived: fc.boolean() }),
     fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),

@@ -32,6 +32,16 @@ export const push = buildCommand({
         `marked ${forge.locator}#${pushed.id} ${pushed.draft ? "draft" : "ready for review"}\n`,
       );
     }
+    if (pushed.archived !== undefined) {
+      this.process.stdout.write(
+        `${forge.locator}#${pushed.id} was ${
+          pushed.archived ? "closed; archived the change" : "reopened; unarchived the change"
+        }\n`,
+      );
+    }
+    if (pushed.state !== undefined) {
+      this.process.stdout.write(`${pushed.state === "closed" ? "closed" : "reopened"} ${forge.locator}#${pushed.id}\n`);
+    }
     this.process.stdout.write(
       `pushed ${pushed.comments} comment${pushed.comments === 1 ? "" : "s"} to ${forge.locator}#${pushed.id}\n`,
     );

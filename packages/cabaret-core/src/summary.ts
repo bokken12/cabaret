@@ -4,6 +4,7 @@ import {
   type ChangeDiff,
   type ChangeName,
   changeConflicts,
+  currentArchived,
   currentForgeChange,
   currentOwner,
   currentParent,
@@ -77,7 +78,8 @@ export type NextStep =
   | "rebase"
   | "push"
   | "land"
-  | "landed";
+  | "landed"
+  | "archived";
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
@@ -98,6 +100,8 @@ export interface ChangeSummary {
     | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: Revision | undefined;
+  /** Whether the change is archived: set aside as not landing, reversibly. */
+  readonly archived: boolean;
   readonly base: Revision;
   readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
@@ -173,6 +177,7 @@ export async function summarizeChange(
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
     landed,
+    archived: currentArchived(entries),
     base,
     tip,
     origin,
@@ -186,7 +191,9 @@ export async function summarizeChange(
 }
 
 /**
- * What must happen next, from the summary's other readings. An origin the
+ * What must happen next, from the summary's other readings. A landed change
+ * is done and an archived one is set aside, so both read as their terminal
+ * step before anything else. An origin the
  * tip trails outranks everything: each reading below is a question about
  * revisions this clone may lack. Behind mends by fast-forwarding — a pull —
  * while divergence is the owner's to resolve: an intentional rewrite pushes
@@ -214,6 +221,9 @@ async function nextStep(
 ): Promise<NextStep> {
   if (readings.landed !== undefined) {
     return "landed";
+  }
+  if (readings.archived) {
+    return "archived";
   }
   if (readings.origin === "behind") {
     return "pull";

@@ -2,6 +2,7 @@ import {
   type Backend,
   type ChangeName,
   compareLogEntries,
+  currentArchived,
   currentForgeChange,
   currentParent,
   currentReviewers,
@@ -16,6 +17,7 @@ import {
   landedMerge,
   landTitle,
   landTrailer,
+  observedForgeArchived,
   observedForgeParent,
   observedForgeReviewers,
   observedForgeReviewing,
@@ -86,6 +88,9 @@ export interface Forge {
 
   /** Mark an open change as a draft, or as ready for review. */
   setDraft(id: ForgeChangeId, draft: boolean): Promise<void>;
+
+  /** Close an open change without merging, or reopen a closed one. */
+  setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void>;
 
   /**
    * Land an open change by merging it into its parent branch, the new commit's
@@ -389,6 +394,61 @@ export function planReviewingPush(
   return { draft: local === "none", observations: [reviewingObservation(now, user, forge, local)] };
 }
 
+/** One archived entry stamped with the forge as its source: a mirror of the forge's open/closed state, and the observation of it. */
+function archivedObservation(now: () => TimestampMs, user: UserName, forge: ForgeLocator, archived: boolean): LogEntry {
+  return {
+    timestamp: now(),
+    user,
+    source: { forge },
+    action: { kind: "set-archived", archived },
+  };
+}
+
+/**
+ * The entry mirroring the forge's open/closed state into the log as the
+ * change's archived state, when the forge crossed it since last observed. A
+ * forge change is only ever imported or opened while open, so a log with no
+ * observation reads as having observed open. Comparing against the
+ * observation, never local state, is what keeps a local `set-archived`
+ * awaiting its push from being overridden; a push settles the sides.
+ */
+export function planArchivedPull(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  closed: boolean,
+): readonly LogEntry[] {
+  const observed = observedForgeArchived(entries, forge) ?? false;
+  if (observed === closed) {
+    return [];
+  }
+  return [archivedObservation(now, user, forge, closed)];
+}
+
+/**
+ * What a push must do to the forge's open/closed state, given a log that has
+ * already absorbed `planArchivedPull`'s mirror: with observation and forge
+ * agreeing, any difference left between the log's archived state and the
+ * forge is local intent. `state` is the state to set, when one must be;
+ * `observations` record the state that request leaves the forge in — the
+ * local archived state, which the forge now agrees with — so the next pull
+ * does not mirror this push back.
+ */
+export function planArchivedPush(
+  now: () => TimestampMs,
+  user: UserName,
+  forge: ForgeLocator,
+  entries: readonly LogEntry[],
+  closed: boolean,
+): { readonly state?: "open" | "closed" | undefined; readonly observations: readonly LogEntry[] } {
+  const local = currentArchived(entries);
+  if (local === closed) {
+    return { observations: [] };
+  }
+  return { state: local ? "closed" : "open", observations: [archivedObservation(now, user, forge, local)] };
+}
+
 /**
  * The land entry a merged `forgeChange` implies, or undefined when `entries`
  * already record one: however the merge is observed, it means the change
@@ -598,7 +658,10 @@ export type PullEvent =
       readonly parent?: ChangeName | undefined;
       /** The reviewing set a forge-side draft toggle mirrored in, when one did. */
       readonly reviewing?: Reviewing | undefined;
+      /** The archived state a forge-side close or reopen mirrored in, when one did. */
+      readonly archived?: boolean | undefined;
     }
+  | { readonly kind: "archived"; readonly id: ForgeChangeId; readonly change: ChangeName }
   | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName };
 
 /**
@@ -607,10 +670,11 @@ export type PullEvent =
  * merged forge change implies, and a forge-side retarget as an observed
  * `set-parent`. Only a forge parent that moved since last observed mirrors
  * in, so a local reparent awaiting a push is never overridden — and a
- * forge-side reviewer change as mirrored add/remove entries, and a forge-side
- * draft toggle as a mirrored `set-reviewing`, on the same observation
- * principle. `comments` spares the `listComments` call when the caller
- * already holds the full discussion.
+ * forge-side reviewer change as mirrored add/remove entries, a forge-side
+ * draft toggle as a mirrored `set-reviewing`, and a forge-side close or
+ * reopen as a mirrored `set-archived`, on the same observation principle.
+ * `comments` spares the `listComments` call when the caller already holds
+ * the full discussion.
  */
 export async function pullTrackedChange(
   backend: Backend,
@@ -626,6 +690,7 @@ export async function pullTrackedChange(
   readonly landed: boolean;
   readonly parent?: ChangeName | undefined;
   readonly reviewing?: Reviewing | undefined;
+  readonly archived?: boolean | undefined;
 }> {
   const user = await backend.currentUser();
   const additions = [
@@ -653,16 +718,25 @@ export async function pullTrackedChange(
   const reviewing =
     forgeChange.state === "open" ? planReviewingPull(now, user, forge.locator, entries, forgeChange.draft) : [];
   additions.push(...reviewing);
+  // A closed forge change mirrors in as archived, a reopened one as live; a
+  // merged one has landed, which the land entry already records.
+  const archived =
+    forgeChange.state === "merged"
+      ? []
+      : planArchivedPull(now, user, forge.locator, entries, forgeChange.state === "closed");
+  additions.push(...archived);
   if (additions.length > 0) {
     await backend.appendLog(change, additions);
   }
   const mirroredReviewing = reviewing[0]?.action;
+  const mirroredArchived = archived[0]?.action;
   return {
     comments: additions.filter(({ action }) => action.kind === "comment").length,
     reviewers: mirrored.length,
     landed: landing !== undefined,
     ...(retargeted ? { parent: forgeChange.parent } : {}),
     ...(mirroredReviewing?.kind === "set-reviewing" ? { reviewing: mirroredReviewing.reviewing } : {}),
+    ...(mirroredArchived?.kind === "set-archived" ? { archived: mirroredArchived.archived } : {}),
   };
 }
 
@@ -680,8 +754,9 @@ function pureImport(entries: readonly LogEntry[]): boolean {
  * Sync with the forge wholesale: import every open forge change that has no
  * log yet as a change to review — owned by its author, parented on its target
  * branch, its discussion pulled — refresh every tracked change (as
- * `pullTrackedChange`), and prune changes whose forge change closed before
- * anyone engaged with them. Returns how many forge changes are open.
+ * `pullTrackedChange`), mirror closed forge changes in as archived, and
+ * prune changes whose forge change closed before anyone engaged with them.
+ * Returns how many forge changes are open.
  *
  * The account the forge's credentials authenticate — and each email its
  * profile shows — is declared a `cabaret.alias` when it does not already
@@ -789,7 +864,7 @@ export async function pullForge(
 
   // Refresh: every change tracked before the import phase, so a fresh import
   // is not immediately re-pulled as a no-op.
-  const pruneCandidates: { readonly change: ChangeName; readonly id: ForgeChangeId }[] = [];
+  const pruneCandidates: { readonly change: ChangeName; readonly id: ForgeChangeId; readonly archived: boolean }[] = [];
   for (const change of tracked) {
     const entries = await backend.readLog(change);
     if (landedMerge(entries) !== undefined) {
@@ -817,7 +892,13 @@ export async function pullForge(
       await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
     }
     if (forgeChange.state === "closed") {
-      pruneCandidates.push({ change, id: forgeChange.id });
+      // Mirror the close in as archived before judging engagement: the
+      // observation carries a source, so a pure import stays prunable.
+      const mirror = planArchivedPull(now, user, forge.locator, entries, true);
+      if (mirror.length > 0) {
+        await backend.appendLog(change, mirror);
+      }
+      pruneCandidates.push({ change, id: forgeChange.id, archived: mirror.length > 0 });
       continue;
     }
     const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
@@ -829,11 +910,14 @@ export async function pullForge(
   await backend.syncLogs();
 
   // Prune closed changes nobody engaged with, judged after the closing sync
-  // so engagement published from another machine counts.
-  for (const { change, id } of pruneCandidates) {
+  // so engagement published from another machine counts. An engaged change
+  // keeps its log; the close it mirrored in as archived is reported instead.
+  for (const { change, id, archived } of pruneCandidates) {
     if (pureImport(await backend.readLog(change))) {
       await backend.deleteLog(change);
       onEvent({ kind: "pruned", id, change });
+    } else if (archived) {
+      onEvent({ kind: "archived", id, change });
     }
   }
 
@@ -851,13 +935,18 @@ export interface PushResult {
   readonly comments: number;
   /** The draft state the push set on the forge, when it set one. */
   readonly draft?: boolean | undefined;
+  /** The open/closed state the push set on the forge, when it set one. */
+  readonly state?: "open" | "closed" | undefined;
+  /** The archived state a forge-side close or reopen mirrored in, when one did. */
+  readonly archived?: boolean | undefined;
 }
 
 /**
  * Push `change`'s activity to the forge: push its branch, open its forge
  * change if there is none (merging into the change's parent, a draft when
- * nobody is reviewing), retarget it to the parent, sync reviewers and the
- * draft boundary both ways, and post the change's comments the forge lacks.
+ * nobody is reviewing), close or reopen it to match the change's archived
+ * state, retarget it to the parent, sync reviewers and the draft boundary
+ * both ways, and post the change's comments the forge lacks.
  */
 export async function pushChange(
   backend: Backend,
@@ -880,6 +969,11 @@ export async function pushChange(
   let forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
+    if (currentArchived(entries)) {
+      throw new UserError(
+        `change is archived: ${JSON.stringify(change)}; run \`cabaret unarchive\` to open a forge change`,
+      );
+    }
     forgeChange = await forge.createChange(change, parent, change, currentReviewing(entries) === "none");
     await backend.appendLog(change, [
       {
@@ -894,13 +988,38 @@ export async function pushChange(
       // the state this push left behind.
       reviewingObservation(now, await backend.currentUser(), forge.locator, currentReviewing(entries)),
     ]);
-  } else if (forgeChange.state === "open" && forgeChange.parent !== parent) {
+  }
+  // Sync the open/closed state before anything that needs the forge change
+  // open: a local archive closes it, a local unarchive reopens it, and what
+  // follows syncs against the state the push leaves behind. A merged forge
+  // change has landed, so its state is nobody's to move.
+  let state: "open" | "closed" | undefined;
+  let mirroredArchived: boolean | undefined;
+  if (forgeChange.state !== "merged") {
+    const user = await backend.currentUser();
+    const closed = forgeChange.state === "closed";
+    const current = await backend.readLog(change);
+    const mirror = planArchivedPull(now, user, forge.locator, current, closed);
+    const mirrored = mirror[0]?.action;
+    mirroredArchived = mirrored?.kind === "set-archived" ? mirrored.archived : undefined;
+    const plan = planArchivedPush(now, user, forge.locator, [...current, ...mirror], closed);
+    state = plan.state;
+    if (state !== undefined) {
+      await forge.setState(forgeChange.id, state);
+    }
+    const additions = [...mirror, ...plan.observations];
+    if (additions.length > 0) {
+      await backend.appendLog(change, additions);
+    }
+  }
+  const open = (state ?? forgeChange.state) === "open";
+  if (open && forgeChange.parent !== parent) {
     await forge.setParent(forgeChange.id, parent);
     await backend.appendLog(change, [await observation()]);
   }
   let reviewers = 0;
   let draft: boolean | undefined;
-  if (forgeChange.state === "open") {
+  if (open) {
     const user = await backend.currentUser();
     // Absorb forge-side reviewer and draft changes first, so what remains
     // between the log and the forge is exactly this side's intent.
@@ -933,7 +1052,15 @@ export async function pushChange(
     await forge.addComment(forgeChange.id, body);
   }
   await backend.syncLog(change);
-  return { id: forgeChange.id, opened, reviewers, comments: bodies.length, ...(draft === undefined ? {} : { draft }) };
+  return {
+    id: forgeChange.id,
+    opened,
+    reviewers,
+    comments: bodies.length,
+    ...(draft === undefined ? {} : { draft }),
+    ...(state === undefined ? {} : { state }),
+    ...(mirroredArchived === undefined ? {} : { archived: mirroredArchived }),
+  };
 }
 
 /** One comment as displayed: the latest version of its group. */

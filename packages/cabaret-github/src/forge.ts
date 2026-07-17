@@ -267,6 +267,14 @@ export class GitHubForge implements Forge {
     });
   }
 
+  async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
+    await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+      ...this.repo,
+      pull_number: id,
+      state,
+    });
+  }
+
   async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
     // REST cannot toggle draft state; only the GraphQL mutations can, and
     // they address the PR by node id, so it is looked up first.

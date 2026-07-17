@@ -1,0 +1,192 @@
+import { forgeChangeId } from "cabaret-core";
+import { expect, test } from "vitest";
+import { FakeForge } from "./fake-forge.js";
+import { addChange, makeRepo } from "./fixture.js";
+
+const PR = forgeChangeId(1);
+
+test("an archived change leaves the todo page and unarchive brings it back", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("archive");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────────╮
+    │ change │ workspace │ note     │
+    ├────────┼───────────┼──────────┤
+    │ gadget │ .         │ archived │
+    ╰────────┴───────────┴──────────╯
+    "
+  `);
+  await repo.cabaret("unarchive");
+  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gadget │      1 │ review    │
+    ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ gadget │ .         │      │
+    ╰────────┴───────────┴──────╯
+    "
+  `);
+});
+
+test("show reads an archived change's next step as archived, demanding no review", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("archive");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "gadget
+    ======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ archived          │
+    │ owner     │ alice@example.com │
+    │ reviewing │ none              │
+    │ parent    │ main              │
+    │ tip       │ f37230616d25      │
+    │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
+    ╰───────────┴───────────────────╯
+
+    Files to review:
+      gadget.txt
+    "
+  `);
+});
+
+test("land refuses an archived change until it is unarchived", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("archive");
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: 'change is archived: "gadget"; run `cabaret unarchive`\n',
+    exitCode: 1,
+  });
+  await repo.cabaret("unarchive");
+  expect((await repo.cabaret("land", "--even-though-unreviewed")).exitCode).toBe(0);
+});
+
+test("land refuses a change whose parent is archived", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "parent");
+  await addChange(repo, "child");
+  await repo.cabaret("archive", "--change", "parent");
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: 'change is archived: "parent"; run `cabaret unarchive`\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("land", "main..child", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr:
+      '"child" would land into "parent", which is archived; run `cabaret unarchive` or `cabaret reparent` first\n',
+    exitCode: 1,
+  });
+});
+
+test("archive refuses a landed change", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("land", "--even-though-unreviewed");
+  const merge = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("archive")).toEqual({
+    stdout: "",
+    stderr: `change has landed: "gadget" (merge ${merge})\n`,
+    exitCode: 1,
+  });
+});
+
+test("push closes the forge change of an archived change, and reopens on unarchive", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  await repo.cabaret("archive");
+  expect((await repo.cabaret("push")).stdout).toBe(
+    "closed github.com/test-org/widgets#1\npushed 0 comments to github.com/test-org/widgets#1\n",
+  );
+  expect((await forge.getChange(PR)).state).toBe("closed");
+  // The push was observed; pushing again moves nothing, and a pull mirrors
+  // nothing back.
+  expect((await repo.cabaret("push")).stdout).toBe("pushed 0 comments to github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("pull")).stdout).toBe(
+    "recorded github:alice as an alias\nsynced github.com/test-org/widgets: 0 open forge changes\n",
+  );
+  // A reparent recorded while archived reaches the forge in the same push
+  // that reopens it.
+  await repo.git("branch", "develop", "main");
+  await repo.cabaret("reparent", "gadget", "develop");
+  await repo.cabaret("unarchive");
+  expect((await repo.cabaret("push")).stdout).toBe(
+    "reopened github.com/test-org/widgets#1\npushed 0 comments to github.com/test-org/widgets#1\n",
+  );
+  const reopened = await forge.getChange(PR);
+  expect({ state: reopened.state, parent: reopened.parent }).toEqual({ state: "open", parent: "develop" });
+});
+
+test("push absorbs a forge-side close as an archive instead of reopening", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("push");
+  forge.close(PR);
+  expect(await repo.cabaret("push")).toEqual({
+    stdout:
+      "github.com/test-org/widgets#1 was closed; archived the change\n" +
+      "pushed 0 comments to github.com/test-org/widgets#1\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(PR)).state).toBe("closed");
+  expect((await repo.cabaret("log")).stdout).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
+  );
+});
+
+test("push refuses to open a forge change for an archived change", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("archive");
+  expect(await repo.cabaret("push")).toEqual({
+    stdout: "",
+    stderr: 'change is archived: "gadget"; run `cabaret unarchive` to open a forge change\n',
+    exitCode: 1,
+  });
+});
