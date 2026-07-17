@@ -25,6 +25,7 @@ import {
   VcsUnavailableError,
   type Workspace,
 } from "cabaret-core";
+import { AncestryCache } from "./ancestry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -220,6 +221,9 @@ export class HgBackend implements Backend {
   readonly parseRevision = parseHgNode;
 
   readonly parseName = parseHgName;
+
+  /** Answers repeated and derivable ancestry queries without a spawn. */
+  private readonly ancestry = new AncestryCache();
 
   private constructor(
     readonly root: string,
@@ -740,12 +744,14 @@ export class HgBackend implements Backend {
     return node === undefined || node === NULL_NODE ? undefined : parseHgNode(node);
   }
 
-  async mergeBase(a: Revision, b: Revision): Promise<Revision> {
-    const found = await this.revsetNode(`ancestor(${a}, ${b})`);
-    if (found === undefined) {
-      throw new Error(`no common ancestor of ${a} and ${b}`);
-    }
-    return found;
+  mergeBase(a: Revision, b: Revision): Promise<Revision> {
+    return this.ancestry.mergeBase(a, b, async () => {
+      const found = await this.revsetNode(`ancestor(${a}, ${b})`);
+      if (found === undefined) {
+        throw new Error(`no common ancestor of ${a} and ${b}`);
+      }
+      return found;
+    });
   }
 
   async hasRevision(revision: Revision): Promise<boolean> {
@@ -753,8 +759,12 @@ export class HgBackend implements Backend {
     return (await this.revsetNode(`present(${revision})`)) !== undefined;
   }
 
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
+  isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    return this.ancestry.isAncestor(
+      ancestor,
+      descendant,
+      async () => (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor,
+    );
   }
 
   async mergedTip(merge: Revision): Promise<Revision> {

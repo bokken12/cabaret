@@ -246,6 +246,13 @@ test("isAncestor, mergeBase, and mergedTip read the graph", async () => {
   await hg("update", "-q", "main");
 });
 
+test("same-revision ancestry answers without consulting the repository", async () => {
+  const backend = await HgBackend.open(repo);
+  const absent = parseHgNode("deadbeef".repeat(5));
+  expect(await backend.isAncestor(absent, absent)).toBe(true);
+  expect(await backend.mergeBase(absent, absent)).toBe(absent);
+});
+
 test("readFile round-trips contents and distinguishes absence from directories", async () => {
   const backend = await HgBackend.open(repo);
   await hg("update", "-q", "main");
