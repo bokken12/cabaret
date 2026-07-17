@@ -1,10 +1,13 @@
 import fc from "fast-check";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
+  type Backend,
   currentComments,
+  type Forge,
   type ForgeComment,
   type ForgeSource,
   type LogEntry,
+  parseBranchName,
   parseForgeLocator,
   planArchivedPull,
   planArchivedPush,
@@ -14,6 +17,7 @@ import {
   planReviewerPush,
   planReviewingPull,
   planReviewingPush,
+  pushChange,
   type Reviewing,
   type TimestampMs,
   timestampMs,
@@ -25,6 +29,26 @@ const FORGE = parseForgeLocator("github.com/test-org/widgets");
 const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
 const carol = userName("github:carol");
+
+test("push resolves its identity before mutating the remote", async () => {
+  const identityError = new Error("identity unavailable");
+  const currentUser = vi.fn(async () => {
+    throw identityError;
+  });
+  const push = vi.fn();
+  const change = parseBranchName("feature");
+  const parent = parseBranchName("main");
+
+  await expect(
+    pushChange({ currentUser, push } as unknown as Backend, testClock(), { locator: FORGE } as Forge, change, [
+      { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } },
+    ]),
+  ).rejects.toBe(identityError);
+  expect({ identityReads: currentUser.mock.calls.length, pushes: push.mock.calls.length }).toEqual({
+    identityReads: 1,
+    pushes: 0,
+  });
+});
 
 function comment(timestamp: number, user: UserName, text: string, source?: ForgeSource, edits?: string): LogEntry {
   return {

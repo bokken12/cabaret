@@ -105,12 +105,15 @@ importers:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      cabaret-forgejo:
+        specifier: workspace:*
+        version: link:../cabaret-forgejo
       cabaret-github:
         specifier: workspace:*
         version: link:../cabaret-github
-      cabaret-util:
+      cabaret-gitlab:
         specifier: workspace:*
-        version: link:../cabaret-util
+        version: link:../cabaret-gitlab
 
   packages/cabaret-util:
     devDependencies:
@@ -152,9 +155,6 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
-      fast-check:
-        specifier: ^4.8.0
-        version: 4.8.0
 
   packages/patdiff:
     devDependencies:

@@ -430,7 +430,6 @@
   },
   "devDependencies": {
     "@types/vscode": "~1.120.0",
-    "esbuild": "^0.28.1",
-    "fast-check": "^4.8.0"
+    "esbuild": "^0.28.1"
   }
 }
