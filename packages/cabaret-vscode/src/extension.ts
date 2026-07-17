@@ -519,7 +519,13 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
 async function runPull(provider: PageProvider): Promise<void> {
   try {
     const forge = await requireForge();
-    const { open } = await pullForge(forgeBackend(await openBackend()), now, forge, () => {});
+    // A notification appears the moment the command fires, rather than
+    // leaving the user staring at an unchanged window until the pull —
+    // several git and forge round trips — finally resolves.
+    const { open } = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `cabaret: pulling from ${forge.locator}` },
+      async () => pullForge(forgeBackend(await openBackend()), now, forge, () => {}),
+    );
     vscode.window.setStatusBarMessage(
       `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
