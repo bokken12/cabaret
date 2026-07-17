@@ -55,6 +55,19 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
+#### cabaret config alias show
+
+USAGE
+  cabaret config alias show [--global] [--local]
+  cabaret config alias show --help
+
+Show the values
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
 #### cabaret config alias add
 
 USAGE
@@ -94,6 +107,19 @@ USAGE
   cabaret config alias clear --help
 
 Remove every value
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias github show
+
+USAGE
+  cabaret config alias github show [--global] [--local]
+  cabaret config alias github show --help
+
+Show the accounts
 
 FLAGS
      [--global]  Use the person's global config  [default = false]
@@ -145,6 +171,19 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
+##### cabaret config alias gitlab show
+
+USAGE
+  cabaret config alias gitlab show [--global] [--local]
+  cabaret config alias gitlab show --help
+
+Show the accounts
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
 ##### cabaret config alias gitlab add
 
 USAGE
@@ -184,6 +223,19 @@ USAGE
   cabaret config alias gitlab clear --help
 
 Remove every gitlab account
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias codeberg show
+
+USAGE
+  cabaret config alias codeberg show [--global] [--local]
+  cabaret config alias codeberg show --help
+
+Show the accounts
 
 FLAGS
      [--global]  Use the person's global config  [default = false]

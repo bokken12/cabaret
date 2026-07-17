@@ -110,7 +110,21 @@ function forgeAliasRouteMap(setting: Setting, scheme: ForgeAccountScheme) {
   } as const;
   return buildRouteMap({
     docs: { brief: `${setting.brief}, as bare ${scheme} accounts` },
+    defaultCommand: "show",
     routes: {
+      show: buildCommand({
+        docs: { brief: "Show the accounts" },
+        parameters: { flags: scopeFlags },
+        async func(this: LocalContext, flags: ScopeFlags) {
+          const scope = flaggedScope(flags);
+          const backend = await this.backend();
+          const accounts = (await backend.configAll(setting.key, scope))
+            .filter((value) => value.startsWith(`${scheme}:`))
+            .map((value) => value.slice(scheme.length + 1));
+          const shown = accounts.length > 0 ? accounts.join(", ") : scope !== undefined ? "(unset)" : "(none)";
+          this.process.stdout.write(`${shown}\n`);
+        },
+      }),
       add: buildCommand({
         docs: { brief: "Add an account" },
         parameters: { positional, flags: scopeFlags },
@@ -163,7 +177,16 @@ function forgeAliasRouteMap(setting: Setting, scheme: ForgeAccountScheme) {
 function settingRouteMap(setting: Setting) {
   return buildRouteMap({
     docs: { brief: setting.brief },
+    defaultCommand: "show",
     routes: {
+      show: buildCommand({
+        docs: { brief: "Show the values" },
+        parameters: { flags: scopeFlags },
+        async func(this: LocalContext, flags: ScopeFlags) {
+          const backend = await this.backend();
+          this.process.stdout.write(`${await shownValue(backend, setting, flaggedScope(flags))}\n`);
+        },
+      }),
       add: buildCommand({
         docs: { brief: "Add a value" },
         parameters: {
