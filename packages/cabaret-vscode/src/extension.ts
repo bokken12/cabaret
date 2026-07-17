@@ -66,13 +66,33 @@ import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
 
+/**
+ * The backend for whichever folder `openBackend` last opened: the root,
+ * version-control kind, and object-reading child process it holds are all
+ * fixed by the folder's path, so reopening it fresh on every command only
+ * costs a repository probe and a few subprocess spawns for nothing.
+ */
+let cachedBackend: { readonly path: string; readonly backend: Promise<Backend> } | undefined;
+
 /** Open the backend for the repository containing the first workspace folder. */
-async function openBackend(): Promise<Backend> {
+function openBackend(): Promise<Backend> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
     throw new Error("cabaret needs an open folder inside a repository");
   }
-  return openRepositoryBackend(folder.uri.fsPath);
+  if (cachedBackend === undefined || cachedBackend.path !== folder.uri.fsPath) {
+    const path = folder.uri.fsPath;
+    // A failed open (not a repository yet, say) is not cached: the next call
+    // gets a fresh attempt rather than the same rejection forever.
+    const backend = openRepositoryBackend(path).catch((error: unknown) => {
+      if (cachedBackend?.path === path) {
+        cachedBackend = undefined;
+      }
+      throw error;
+    });
+    cachedBackend = { path, backend };
+  }
+  return cachedBackend.backend;
 }
 
 /**
