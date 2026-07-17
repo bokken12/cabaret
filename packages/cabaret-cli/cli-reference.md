@@ -39,8 +39,8 @@ USAGE
 Show every setting
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 #### cabaret config alias add
@@ -52,8 +52,8 @@ USAGE
 Add a value
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -68,8 +68,8 @@ USAGE
 Remove a value
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -84,8 +84,8 @@ USAGE
 Remove every value
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ##### cabaret config alias github add
@@ -97,8 +97,8 @@ USAGE
 Add an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -113,8 +113,8 @@ USAGE
 Remove an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -129,8 +129,8 @@ USAGE
 Remove every github account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ##### cabaret config alias gitlab add
@@ -142,8 +142,8 @@ USAGE
 Add an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -158,8 +158,8 @@ USAGE
 Remove an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -174,8 +174,8 @@ USAGE
 Remove every gitlab account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ##### cabaret config alias codeberg add
@@ -187,8 +187,8 @@ USAGE
 Add an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -203,8 +203,8 @@ USAGE
 Remove an account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ARGUMENTS
@@ -219,8 +219,8 @@ USAGE
 Remove every codeberg account
 
 FLAGS
-     [--global]  Use the person's global git config [default = false]
-     [--local]   Use this repository's git config   [default = false]
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
 ### cabaret config context
@@ -232,8 +232,8 @@ USAGE
 Lines of diff context, -1 for whole files
 
 FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
+     [--global]  Use the person's global config           [default = false]
+     [--local]   Use this repository's config             [default = false]
      [--unset]   Unset the setting, restoring its default [default = false]
   -h  --help     Print help information and exit
 
@@ -249,8 +249,8 @@ USAGE
 How a land writes a change onto its parent: merge or squash
 
 FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
+     [--global]  Use the person's global config           [default = false]
+     [--local]   Use this repository's config             [default = false]
      [--unset]   Unset the setting, restoring its default [default = false]
   -h  --help     Print help information and exit
 
@@ -266,8 +266,8 @@ USAGE
 Where a land executes: local, forge, or auto
 
 FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
+     [--global]  Use the person's global config           [default = false]
+     [--local]   Use this repository's config             [default = false]
      [--unset]   Unset the setting, restoring its default [default = false]
   -h  --help     Print help information and exit
 
@@ -283,8 +283,8 @@ USAGE
 Where going to a change with no workspace checks it out: shared or dedicated
 
 FLAGS
-     [--global]  Use the person's global git config       [default = false]
-     [--local]   Use this repository's git config         [default = false]
+     [--global]  Use the person's global config           [default = false]
+     [--local]   Use this repository's config             [default = false]
      [--unset]   Unset the setting, restoring its default [default = false]
   -h  --help     Print help information and exit
 
@@ -311,10 +311,10 @@ USAGE
   cabaret create [--parent value] [--owner value] <change>
   cabaret create --help
 
-Create a change, initializing its log with a parent, a base, and an owner. A branch that does not exist yet is created at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
+Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch or bookmark is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
-     [--parent]  The new change's parent (defaults to the current branch)
+     [--parent]  The new change's parent (defaults to what is checked out)
      [--owner]   The new change's owner (defaults to you)
   -h  --help     Print help information and exit
 
@@ -344,7 +344,7 @@ Show the diff of a file left to review, given the reviewer's brain: the full bas
 FLAGS
      [--change]   Change to diff (defaults to current)
      [--for]      Show the diff for another user (defaults to self)
-     [--context]  Lines of context around each hunk, -1 for whole files (defaults to git config cabaret.context, or 3)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
   -h  --help      Print help information and exit
 
 ARGUMENTS
@@ -371,7 +371,7 @@ USAGE
   cabaret land [--even-though-not-owner] [--even-though-unreviewed] [<change>]
   cabaret land --help
 
-Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with git config cabaret.landMethod squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; git config cabaret.landVia local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
+Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cabaret config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cabaret config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]   Proceed even though you do not own the change       [default = false]
@@ -440,7 +440,7 @@ USAGE
   cabaret rename [--even-though-not-owner] <old> <new>
   cabaret rename --help
 
-Rename a change: move its branch and its log to the new name together, atomically. Only the change's owner may rename it.
+Rename a change: move its code and its log to the new name together, atomically. Only the change's owner may rename it.
 
 FLAGS
      [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
@@ -660,7 +660,7 @@ USAGE
   cabaret workspace remove [--even-though-dirty] <change>
   cabaret workspace remove --help
 
-Remove the workspace holding the change. The change itself — its branch and its log — is untouched.
+Remove the workspace holding the change. The change itself — its code and its log — is untouched.
 
 FLAGS
      [--even-though-dirty]  Remove the workspace even though it has uncommitted changes, discarding them [default = false]

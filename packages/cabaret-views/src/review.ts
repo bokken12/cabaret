@@ -1,7 +1,7 @@
 import {
   assertNoConflict,
   type Backend,
-  type CommitHash,
+  type ChangeName,
   changeConflicts,
   changeDiff,
   currentReviewing,
@@ -12,9 +12,9 @@ import {
   type FileView,
   mayRecordReview,
   NotReviewingError,
-  type RefName,
   type Reviewing,
   type ReviewRound,
+  type Revision,
   rebasedView,
   reviewRounds,
   shortHash,
@@ -54,21 +54,21 @@ function moreRounds(later: number): string {
  * review state that changed elsewhere until the next refresh.
  */
 export interface ChangeSnapshot {
-  readonly change: RefName;
+  readonly change: ChangeName;
   /** Whose review state this is: the backend's current user. */
   readonly user: UserName;
   /** Who the change asks to review right now. */
   readonly reviewing: Reviewing;
   /** Whether the user may record review without a nudge, as `mayRecordReview`. */
   readonly asked: boolean;
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly base: Revision;
+  readonly tip: Revision;
   /** Files whose tip contents still carry conflict markers; review waits while any remain. */
   readonly conflicts: readonly FilePath[];
   readonly rounds: readonly ReviewRound[];
 }
 
-export async function changeSnapshot(backend: Backend, change: RefName): Promise<ChangeSnapshot> {
+export async function changeSnapshot(backend: Backend, change: ChangeName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
   const [diff, self] = await Promise.all([changeDiff(backend, change, entries), currentSelf(backend)]);
   return {
@@ -85,13 +85,13 @@ export async function changeSnapshot(backend: Backend, change: RefName): Promise
 
 /** A change's current round of review: what to read before any newer round opens. */
 export interface ReviewPage {
-  readonly change: RefName;
+  readonly change: ChangeName;
   /** Files with conflict markers to fix; nonempty exactly when they preempt the round. */
   readonly conflicts: readonly FilePath[];
   /** Undefined when nothing is left to review, or while conflicts block it. */
   readonly round:
     | {
-        readonly end: CommitHash;
+        readonly end: Revision;
         readonly files: readonly FilePath[];
         /** Rounds still to come after this one. */
         readonly later: number;
@@ -213,13 +213,13 @@ export function markReviewed(
 
 /** One file's diff left to review in its earliest pending round. */
 export interface DiffPage {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly file: FilePath;
   /** Undefined when the file has no review left. */
   readonly round:
     | {
         /** The revision the round reviews up to: marking the file reviewed records `{base, tip: end}`. */
-        readonly end: CommitHash;
+        readonly end: Revision;
         /** Rounds after this one that still include the file. */
         readonly later: number;
         readonly view: DiffView;
@@ -230,7 +230,7 @@ export interface DiffPage {
 /** Query the diff page for `file`: `snapshot`'s rounds locate the diff, and only the file contents are read. */
 export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
   const { change, base } = snapshot;
-  let found: { end: CommitHash; view: FileView } | undefined;
+  let found: { end: Revision; view: FileView } | undefined;
   let later = 0;
   for (const { end, files } of snapshot.rounds) {
     const view = files.get(file);
@@ -247,7 +247,7 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
     return { change, file, round: undefined };
   }
   const { end, view } = found;
-  const two = async (from: CommitHash): Promise<DiffView> => {
+  const two = async (from: Revision): Promise<DiffView> => {
     const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(end, file)]);
     return { kind: "two", prev, next };
   };
@@ -339,7 +339,7 @@ function unifiedLineSpans(segments: readonly PatdiffCore.StructuredLine[], jump:
  */
 function hunkBodyLines(
   hunk: PatdiffCore.StructuredHunks[number],
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   anchor: number | undefined,
 ): Line[] {
@@ -404,7 +404,7 @@ function hunkBodyLines(
  * each is a section folding down to its styled header.
  */
 function twoWayDiffNodes(
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   view: Extract<DiffView, { kind: "two" }>,
   context?: number,
@@ -462,7 +462,7 @@ function ddiffStyle(line: Patdiff4.DiffAlgo.DdiffLine): Style | undefined {
  * blocks that never touch the new tip not at all.
  */
 function fourWayDiffNodes(
-  change: RefName,
+  change: ChangeName,
   file: FilePath,
   view: Extract<DiffView, { kind: "four" }>,
   context?: number,

@@ -1,13 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import {
-  currentReviewing,
-  REVIEWING,
-  type RefName,
-  type Reviewing,
-  setReviewing,
-  UserError,
-  widenReviewing,
-} from "cabaret-core";
+import { currentReviewing, REVIEWING, type Reviewing, setReviewing, UserError, widenReviewing } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -42,7 +34,7 @@ export const reviewing = buildCommand({
     },
     flags: { change: changeFlag("act on") },
   },
-  async func(this: LocalContext, flags: { change?: RefName }, value?: Reviewing) {
+  async func(this: LocalContext, flags: { change?: string }, value?: Reviewing) {
     const backend = await this.backend();
     const { change, entries } = await resolveChange(backend, flags.change);
     if (value === undefined) {
@@ -65,7 +57,7 @@ export const widen = buildCommand({
     positional: { kind: "tuple", parameters: [] },
     flags: { change: changeFlag("widen") },
   },
-  async func(this: LocalContext, flags: { change?: RefName }) {
+  async func(this: LocalContext, flags: { change?: string }) {
     const backend = await this.backend();
     const { change, entries } = await resolveChange(backend, flags.change);
     const { to } = await widenReviewing(backend, this.now, change, entries);

@@ -1,4 +1,4 @@
-import { assertChangeExists, assertNotLanded, type Backend, type RefName, type Workspace } from "./backend.js";
+import { assertChangeExists, assertNotLanded, type Backend, type ChangeName, type Workspace } from "./backend.js";
 import type { Config } from "./config.js";
 import { UserError } from "./error.js";
 
@@ -14,12 +14,12 @@ export class DirtyWorkspaceError extends UserError {
 }
 
 /**
- * The workspace holding `change` — the one with its branch checked out — or
- * undefined. A branch is checked out in at most one workspace, so this is
- * the change's only home.
+ * The workspace holding `change` — the one with it checked out — or
+ * undefined. A change is checked out in at most one workspace, so this is
+ * its only home.
  */
-export async function changeWorkspace(backend: Backend, change: RefName): Promise<Workspace | undefined> {
-  return (await backend.workspaces()).find((workspace) => workspace.branch === change);
+export async function changeWorkspace(backend: Backend, change: ChangeName): Promise<Workspace | undefined> {
+  return (await backend.workspaces()).find((workspace) => workspace.change === change);
 }
 
 /** The primary working tree; every repository has one. */
@@ -43,19 +43,19 @@ function currentWorkspace(backend: Backend, workspaces: readonly Workspace[]): W
 /**
  * Where a new workspace for `change` goes: beside the primary workspace,
  * named after it — `widgets-gadget` beside `widgets`. A change name with
- * `/` in it nests directories, as it does under `refs/heads/`.
+ * `/` in it nests directories.
  */
-export function workspacePath(primary: string, change: RefName): string {
+export function workspacePath(primary: string, change: ChangeName): string {
   return `${primary}-${change}`;
 }
 
-/** Fail unless `change` is a change whose branch exists — what a workspace can check out. */
-async function assertCheckoutable(backend: Backend, change: RefName): Promise<void> {
+/** Fail unless `change` is a change whose code exists — what a workspace can check out. */
+async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
-  if ((await backend.branchTip(change)) === undefined) {
-    throw new UserError(`branch does not exist: ${JSON.stringify(change)}`);
+  if ((await backend.tip(change)) === undefined) {
+    throw new UserError(`${JSON.stringify(change)} does not exist`);
   }
 }
 
@@ -64,10 +64,10 @@ async function assertCheckoutable(backend: Backend, change: RefName): Promise<vo
  * `workspacePath` default, and return where it went. The change must be a
  * real, unlanded change without a workspace already.
  */
-export async function addChangeWorkspace(backend: Backend, change: RefName, path?: string): Promise<string> {
+export async function addChangeWorkspace(backend: Backend, change: ChangeName, path?: string): Promise<string> {
   await assertCheckoutable(backend, change);
   const workspaces = await backend.workspaces();
-  const holding = workspaces.find((workspace) => workspace.branch === change);
+  const holding = workspaces.find((workspace) => workspace.change === change);
   if (holding !== undefined) {
     throw new UserError(`change already has a workspace: ${holding.path}`);
   }
@@ -79,11 +79,11 @@ export async function addChangeWorkspace(backend: Backend, change: RefName, path
 /**
  * Remove the workspace holding `change` and return its path. A dirty
  * workspace is refused unless `evenThoughDirty`, which discards its
- * uncommitted changes; the branch itself is untouched either way.
+ * uncommitted changes; the change itself is untouched either way.
  */
 export async function removeChangeWorkspace(
   backend: Backend,
-  change: RefName,
+  change: ChangeName,
   evenThoughDirty: boolean,
 ): Promise<string> {
   const workspace = await changeWorkspace(backend, change);
@@ -102,10 +102,11 @@ export async function removeChangeWorkspace(
 
 /**
  * Check `change` out in the current workspace and return that workspace's
- * path, refusing a dirty workspace unless `evenThoughDirty`. A branch held
- * by another workspace cannot be checked out; the backend refuses it.
+ * path, refusing a dirty workspace unless `evenThoughDirty`. Under git a
+ * change held by another workspace cannot be checked out — the backend
+ * refuses it — while hg tolerates sharing one.
  */
-export async function checkoutChange(backend: Backend, change: RefName, evenThoughDirty: boolean): Promise<string> {
+export async function checkoutChange(backend: Backend, change: ChangeName, evenThoughDirty: boolean): Promise<string> {
   await assertCheckoutable(backend, change);
   const current = currentWorkspace(backend, await backend.workspaces());
   if (current.dirty && !evenThoughDirty) {
@@ -136,9 +137,9 @@ export type GotoOffer =
  * dedicated workspace when the style prefers one or a dirty tree rules the
  * checkout out. The style-preferred option comes first.
  */
-export async function gotoOffer(backend: Backend, config: Config, change: RefName): Promise<GotoOffer> {
+export async function gotoOffer(backend: Backend, config: Config, change: ChangeName): Promise<GotoOffer> {
   const workspaces = await backend.workspaces();
-  const holding = workspaces.find((workspace) => workspace.branch === change);
+  const holding = workspaces.find((workspace) => workspace.change === change);
   if (holding !== undefined) {
     return holding.path === backend.root
       ? { kind: "here" }
@@ -173,11 +174,11 @@ export type GotoResult =
 export async function gotoChange(
   backend: Backend,
   config: Config,
-  change: RefName,
+  change: ChangeName,
   evenThoughDirty: boolean,
 ): Promise<GotoResult> {
   const workspaces = await backend.workspaces();
-  const holding = workspaces.find((workspace) => workspace.branch === change);
+  const holding = workspaces.find((workspace) => workspace.change === change);
   if (holding !== undefined) {
     return { kind: "at", path: holding.path };
   }

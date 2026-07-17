@@ -3,7 +3,6 @@ import { expect, test } from "vitest";
 import {
   type Backend,
   type ChangeDiff,
-  type CommitHash,
   changeObligations,
   diffBetween,
   type FilePath,
@@ -11,10 +10,11 @@ import {
   isSatisfied,
   type LogEntry,
   obligationStatuses,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseObligationsFile,
-  parseRefName,
+  type Revision,
   reviewerSummary,
   reviewOwed,
   type Self,
@@ -90,7 +90,7 @@ test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
 });
 
 /** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
@@ -107,7 +107,7 @@ function repoBackend(opts: {
   changed?: Record<string, readonly string[]>;
   merges?: readonly { commit: string; onto: string }[];
 }): Backend {
-  const ancestry = (tip: CommitHash): CommitHash[] => {
+  const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
     for (let up = opts.history?.[tip[0] as string]; up !== undefined; up = opts.history?.[up]) {
       chain.push(fake(up));
@@ -394,7 +394,7 @@ test("a removed reviewer owes nothing, and an owning reviewer owes only as owner
 });
 
 test("isReviewing widens from nobody through the owner and reviewers to everyone", () => {
-  const change = parseRefName("feature");
+  const change = parseBranchName("feature");
   const at = (reviewing: "none" | "owner" | "reviewers" | "everyone", at: number): LogEntry => ({
     timestamp: timestampMs(at),
     user: alice,

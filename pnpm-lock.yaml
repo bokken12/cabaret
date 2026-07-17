@@ -108,6 +108,9 @@ importers:
       cabaret-github:
         specifier: workspace:*
         version: link:../cabaret-github
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
 
   packages/cabaret-util:
     devDependencies:

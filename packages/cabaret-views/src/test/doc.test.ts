@@ -1,8 +1,8 @@
-import { parseFilePath, parseRefName } from "cabaret-core";
+import { parseBranchName, parseFilePath } from "cabaret-core";
 import { expect, test } from "vitest";
 import { type Doc, docText, type Line, layout, section, span, targetAt } from "../index.js";
 
-const change = { kind: "change", change: parseRefName("widgets") } as const;
+const change = { kind: "change", change: parseBranchName("widgets") } as const;
 const location = { kind: "location", change: change.change, file: parseFilePath("api.ts"), line: 7 } as const;
 
 const doc: Doc = {

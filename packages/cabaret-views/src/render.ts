@@ -1,4 +1,4 @@
-import { type Backend, currentSelf, type RefName } from "cabaret-core";
+import { type Backend, type ChangeName, currentSelf } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
 import { type ChangeSnapshot, changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
@@ -10,10 +10,10 @@ import { todoDoc, todoPage } from "./todo.js";
  * lifetime: entries live until it decides the review state should be re-read
  * (a refresh, a failed mark, leaving the change).
  */
-export type SnapshotCache = Map<RefName, Promise<ChangeSnapshot>>;
+export type SnapshotCache = Map<ChangeName, Promise<ChangeSnapshot>>;
 
 /** The cached snapshot of `change`, taking and remembering one when absent; with no cache, always fresh. */
-export function cachedSnapshot(backend: Backend, change: RefName, cache?: SnapshotCache): Promise<ChangeSnapshot> {
+export function cachedSnapshot(backend: Backend, change: ChangeName, cache?: SnapshotCache): Promise<ChangeSnapshot> {
   const held = cache?.get(change);
   if (held !== undefined) {
     return held;

@@ -4,13 +4,13 @@ import {
   changeBase,
   defaultContext,
   parseContext,
-  type RefName,
   type ReviewSpan,
   readConfig,
   rebasedView,
   remainingSpans,
   renderDiff,
   renderDiff4,
+  requireTip,
   reviewSpans,
   UserError,
   type UserName,
@@ -47,12 +47,12 @@ export const diff = buildCommand({
       context: {
         kind: "parsed",
         parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to git config cabaret.context, or ${defaultContext})`,
+        brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
         optional: true,
       },
     },
   },
-  async func(this: LocalContext, flags: { change?: RefName; for?: UserName; context?: number }, rawFile: string) {
+  async func(this: LocalContext, flags: { change?: string; for?: UserName; context?: number }, rawFile: string) {
     const backend = await this.backend();
     const file = backend.resolveFile(rawFile);
     // Config is read even when the flag preempts it, so a misconfigured
@@ -61,9 +61,7 @@ export const diff = buildCommand({
     const { change, entries } = await resolveChange(backend, flags.change);
     const user = flags.for ?? (await backend.currentUser());
     const base = await changeBase(backend, change, entries);
-    // Pin to the branch namespace so a same-named tag cannot shadow the
-    // change's tip.
-    const tip = await backend.resolveCommit(`refs/heads/${change}`);
+    const tip = await requireTip(backend, change);
     const reviewed = brain(entries, user).get(file);
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;

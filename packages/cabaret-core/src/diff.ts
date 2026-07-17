@@ -2,10 +2,10 @@
 // filesystem and console — imports a browser host cannot load.
 import { IsBinary, PatdiffCore } from "patdiff/kernel";
 import * as Patdiff4 from "patdiff/patdiff4";
-import type { Backend, CommitHash, FilePath, ReviewedDiff } from "./backend.js";
+import type { Backend, FilePath, ReviewedDiff, Revision } from "./backend.js";
 
 /** Hashes display abbreviated; full hashes travel in structured data, never prose. */
-export function shortHash(hash: CommitHash): string {
+export function shortHash(hash: Revision): string {
   return hash.slice(0, 12);
 }
 
@@ -16,7 +16,7 @@ export type DiffView =
   /** The base's copy changed under the review: a 4-way diff of the reviewed and current diffs. */
   | {
       readonly kind: "four";
-      readonly revs: Patdiff4.Diamond.Diamond<CommitHash>;
+      readonly revs: Patdiff4.Diamond.Diamond<Revision>;
       readonly contents: Patdiff4.Diamond.Diamond<string | undefined>;
     };
 
@@ -31,8 +31,8 @@ export async function rebasedView(
   backend: Backend,
   file: FilePath,
   reviewed: ReviewedDiff,
-  base: CommitHash,
-  end: CommitHash,
+  base: Revision,
+  end: Revision,
 ): Promise<DiffView> {
   const [prevBase, nextBase, prevTip, nextTip] = await Promise.all([
     backend.readFile(reviewed.base, file),
@@ -86,7 +86,7 @@ export function renderDiff(
 
 interface Diff4Args {
   readonly file: FilePath;
-  readonly revs: Patdiff4.Diamond.Diamond<CommitHash>;
+  readonly revs: Patdiff4.Diamond.Diamond<Revision>;
   readonly contents: Patdiff4.Diamond.Diamond<string | undefined>;
   readonly color: boolean;
   readonly context?: number | undefined;

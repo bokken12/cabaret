@@ -1,4 +1,4 @@
-import { type Backend, landedMerge, type RefName, type Workspace } from "cabaret-core";
+import { type Backend, type ChangeName, landedMerge, type Workspace } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
@@ -31,12 +31,12 @@ export interface WorkspaceNote {
   readonly dirty: boolean;
 }
 
-/** Each checked-out branch's workspace note, from the current workspace's point of view. */
-export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<RefName, WorkspaceNote>> {
-  const notes = new Map<RefName, WorkspaceNote>();
-  for (const { path, branch, dirty } of await backend.workspaces()) {
-    if (branch !== undefined) {
-      notes.set(branch, { path, display: displayPath(backend.root, path), dirty });
+/** Each checked-out change's workspace note, from the current workspace's point of view. */
+export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<ChangeName, WorkspaceNote>> {
+  const notes = new Map<ChangeName, WorkspaceNote>();
+  for (const { path, change, dirty } of await backend.workspaces()) {
+    if (change !== undefined) {
+      notes.set(change, { path, display: displayPath(backend.root, path), dirty });
     }
   }
   return notes;
@@ -62,7 +62,7 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
   const changes = new Set(await backend.listChanges());
   const rows: WorkspaceRow[] = [];
   for (const workspace of await backend.workspaces()) {
-    const change = workspace.branch !== undefined && changes.has(workspace.branch) ? workspace.branch : undefined;
+    const change = workspace.change !== undefined && changes.has(workspace.change) ? workspace.change : undefined;
     rows.push({
       workspace,
       display: displayPath(backend.root, workspace.path),
@@ -76,14 +76,14 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
 export function workspacesDoc(page: WorkspacesPage): Doc {
   const rows = page.rows.map(({ workspace, display, isChange, landed }): readonly Cell[] => {
     const notes = [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : [])];
-    const branch =
-      workspace.branch === undefined
+    const name =
+      workspace.change === undefined
         ? span("(detached)", { style: "context" })
-        : span(workspace.branch, {
+        : span(workspace.change, {
             style: isChange ? undefined : "context",
-            ...(isChange ? { target: { kind: "change", change: workspace.branch } } : {}),
+            ...(isChange ? { target: { kind: "change", change: workspace.change } } : {}),
           });
-    return [span(display, { target: { kind: "workspace", path: workspace.path } }), branch, span(notes.join(", "))];
+    return [span(display, { target: { kind: "workspace", path: workspace.path } }), name, span(notes.join(", "))];
   });
   const title = "Workspaces";
   return layout([

@@ -1,11 +1,17 @@
 import {
   addChangeWorkspace,
+  applySetup,
+  auditSetup,
   type Backend,
+  type ChangeName,
   checkoutChange,
   createChange,
   currentParent,
   DirtyWorkspaceError,
+  declinedScopes,
+  declineSetup,
   type Forge,
+  forgeBackend,
   type GotoOption,
   type GotoResult,
   gotoChange,
@@ -16,10 +22,8 @@ import {
   landChain,
   NotOwnerError,
   NotReviewingError,
-  parseRefName,
   pullForge,
   pushChange,
-  type RefName,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -28,6 +32,7 @@ import {
   reparentChange,
   resolveChain,
   reviewerSummary,
+  type SetupAudit,
   setReviewing,
   type TimestampMs,
   timestampMs,
@@ -35,18 +40,10 @@ import {
   UnsatisfiedObligationsError,
   UserError,
   userName,
+  VcsUnavailableError,
   widenReviewing,
 } from "cabaret-core";
-import {
-  applySetup,
-  auditSetup,
-  declinedScopes,
-  declineSetup,
-  GitBackend,
-  GitUnavailableError,
-  openGitHubForge,
-  type SetupAudit,
-} from "cabaret-node";
+import { openGitHubForge, openBackend as openRepositoryBackend } from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -68,12 +65,12 @@ import { linkRanges, styledRanges } from "./ranges.js";
 const SCHEME = "cabaret";
 
 /** Open the backend for the repository containing the first workspace folder. */
-async function openBackend(): Promise<GitBackend> {
+async function openBackend(): Promise<Backend> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
-    throw new Error("cabaret needs an open folder inside a git repository");
+    throw new Error("cabaret needs an open folder inside a repository");
   }
-  return GitBackend.open(folder.uri.fsPath);
+  return openRepositoryBackend(folder.uri.fsPath);
 }
 
 /**
@@ -243,7 +240,7 @@ async function showChange(provider: PageProvider): Promise<void> {
   const changes = await backend.listChanges();
   const branch = onTodo
     ? undefined
-    : await backend.currentBranch().catch((error: unknown) => {
+    : await backend.currentChange().catch((error: unknown) => {
         if (error instanceof UserError) {
           return undefined;
         }
@@ -254,7 +251,7 @@ async function showChange(provider: PageProvider): Promise<void> {
       ? branch
       : await vscode.window.showQuickPick(changes, { placeHolder: "Change to show" });
   if (change !== undefined) {
-    await openPage(provider, { kind: "show", change: parseRefName(change) });
+    await openPage(provider, { kind: "show", change: backend.parseName(change) });
   }
 }
 
@@ -265,7 +262,7 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
 }
 
 /** The change shown by the active editor, when it is a show page. */
-function shownChange(): RefName | undefined {
+function shownChange(): ChangeName | undefined {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return undefined;
@@ -293,7 +290,7 @@ async function showChild(provider: PageProvider): Promise<void> {
     return;
   }
   const backend = await openBackend();
-  const children: RefName[] = [];
+  const children: ChangeName[] = [];
   for (const other of await backend.listChanges()) {
     if (currentParent(other, await backend.readLog(other)) === change) {
       children.push(other);
@@ -308,7 +305,7 @@ async function showChild(provider: PageProvider): Promise<void> {
       ? children[0]
       : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${change}` });
   if (child !== undefined) {
-    await openPage(provider, { kind: "show", change: parseRefName(child) });
+    await openPage(provider, { kind: "show", change: backend.parseName(child) });
   }
 }
 
@@ -500,7 +497,7 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
 async function runPull(provider: PageProvider): Promise<void> {
   try {
     const forge = await requireForge();
-    const { open } = await pullForge(await openBackend(), now, forge, () => {});
+    const { open } = await pullForge(forgeBackend(await openBackend()), now, forge, () => {});
     vscode.window.setStatusBarMessage(
       `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
@@ -512,12 +509,13 @@ async function runPull(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Surface a setup failure, attaching the way out when the failure is git itself. */
+/** Surface a setup failure, attaching the way out when the failure is the version-control tool itself. */
 function showSetupError(error: unknown): void {
-  if (error instanceof GitUnavailableError) {
+  if (error instanceof VcsUnavailableError) {
+    const { downloadUrl } = error;
     void vscode.window.showErrorMessage(`cabaret: ${error.message}`, "Open Download Page").then((choice) => {
       if (choice !== undefined) {
-        void vscode.env.openExternal(vscode.Uri.parse("https://git-scm.com/downloads"));
+        void vscode.env.openExternal(vscode.Uri.parse(downloadUrl));
       }
     });
     return;
@@ -531,7 +529,7 @@ async function applyRecommendations(backend: Backend, audits: readonly SetupAudi
   const applied = audits.filter(({ standing }) => standing.kind === "unset").length;
   if (applied > 0) {
     vscode.window.setStatusBarMessage(
-      `cabaret: applied ${applied} recommended git setting${applied === 1 ? "" : "s"}`,
+      `cabaret: applied ${applied} recommended setting${applied === 1 ? "" : "s"}`,
       5000,
     );
   }
@@ -544,8 +542,8 @@ async function applyRecommendations(backend: Backend, audits: readonly SetupAudi
 }
 
 /**
- * Offer the recommended git settings still unset, once per scope: a no is
- * recorded where it was given — global config for the person's settings,
+ * Offer the backend's recommended settings still unset, once per scope: a no
+ * is recorded where it was given — global config for the person's settings,
  * local for the repository's — and that scope is never offered again.
  */
 async function offerSetup(): Promise<void> {
@@ -559,11 +557,7 @@ async function offerSetup(): Promise<void> {
       return;
     }
     const briefs = pending.map(({ rec }) => rec.brief).join(", ");
-    const choice = await vscode.window.showInformationMessage(
-      `cabaret recommends git settings: ${briefs}`,
-      "Apply",
-      "No",
-    );
+    const choice = await vscode.window.showInformationMessage(`cabaret recommends settings: ${briefs}`, "Apply", "No");
     if (choice === "Apply") {
       await applyRecommendations(backend, pending);
     } else if (choice === "No") {
@@ -575,13 +569,13 @@ async function offerSetup(): Promise<void> {
   }
 }
 
-/** Apply the recommended git settings on demand, past any recorded no. */
+/** Apply the backend's recommended settings on demand, past any recorded no. */
 async function runSetup(): Promise<void> {
   try {
     const backend = await openBackend();
     const audits = await auditSetup(backend);
     if (audits.every(({ standing }) => standing.kind === "applied")) {
-      vscode.window.showInformationMessage("cabaret: recommended git settings are already applied");
+      vscode.window.showInformationMessage("cabaret: recommended settings are already applied");
       return;
     }
     await applyRecommendations(backend, audits);
@@ -591,11 +585,12 @@ async function runSetup(): Promise<void> {
 }
 
 /** Push each selected change to the forge, ancestormost first. */
-async function pushSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+async function pushSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
+  const git = forgeBackend(backend);
   const forge = await requireForge();
   const pushed: string[] = [];
   for (const change of changes) {
-    const { id } = await pushChange(backend, now, forge, change, await backend.readLog(change));
+    const { id } = await pushChange(git, now, forge, change, await git.readLog(change));
     pushed.push(`${change} to ${forge.locator}#${id}`);
   }
   vscode.window.setStatusBarMessage(
@@ -612,14 +607,16 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** `showInputBox` validator accepting exactly the strings `parseRefName` does. */
-function invalidRefName(value: string): string | undefined {
-  try {
-    parseRefName(value);
-    return undefined;
-  } catch (error) {
-    return message(error);
-  }
+/** `showInputBox` validator accepting exactly the strings the backend's name grammar does. */
+function invalidName(backend: Backend): (value: string) => string | undefined {
+  return (value) => {
+    try {
+      backend.parseName(value);
+      return undefined;
+    } catch (error) {
+      return message(error);
+    }
+  };
 }
 
 /**
@@ -627,7 +624,7 @@ function invalidRefName(value: string): string | undefined {
  * show page; on the todo page, the changes named by the lines the selection
  * covers, which is just the cursor's line when nothing is selected.
  */
-function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly RefName[] {
+function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly ChangeName[] {
   const page = parsePagePath(editor.document.uri.path);
   if (page.kind === "show") {
     return [page.change];
@@ -636,7 +633,7 @@ function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): rea
   if (doc === undefined) {
     return [];
   }
-  const changes: RefName[] = [];
+  const changes: ChangeName[] = [];
   for (let line = editor.selection.start.line; line <= editor.selection.end.line; line++) {
     const target = targetAt(doc, line);
     if (target?.kind === "change") {
@@ -653,7 +650,7 @@ function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): rea
  */
 async function actOnSelection(
   provider: PageProvider,
-  act: (backend: Backend, editor: vscode.TextEditor, changes: readonly RefName[]) => Promise<void>,
+  act: (backend: Backend, editor: vscode.TextEditor, changes: readonly ChangeName[]) => Promise<void>,
 ): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
@@ -706,7 +703,7 @@ async function confirmNotOwner(button: string, op: (override: boolean) => Promis
  * the error it is; several act as a stack, where skipping landed links is
  * part of the semantics.
  */
-async function rebaseSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+async function rebaseSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
   await confirmNotOwner("Rebase Anyway", async (override) => {
     if (only !== undefined) {
@@ -722,10 +719,10 @@ async function rebaseSelection(backend: Backend, changes: readonly RefName[]): P
  * `rebaseSelection`, confirming each overridable check the land trips.
  * Reruns after a confirmation skip the links that already landed.
  */
-async function landSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+async function landSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const config = await readConfig(backend);
   const landAll = async (overrides: LandOverrides) => {
-    const landOne = async (change: RefName, entries: readonly LogEntry[]) => {
+    const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
       await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
@@ -766,7 +763,7 @@ async function landSelection(backend: Backend, changes: readonly RefName[]): Pro
  * per the workspace-style setting — confirming before a checkout lands in a
  * dirty workspace.
  */
-async function gotoSelection(backend: Backend, change: RefName): Promise<void> {
+async function gotoSelection(backend: Backend, change: ChangeName): Promise<void> {
   const config = await readConfig(backend);
   let result: GotoResult;
   try {
@@ -795,13 +792,13 @@ async function gotoSelection(backend: Backend, change: RefName): Promise<void> {
 }
 
 /** Create a workspace for `change` and open it in its own window. */
-async function addWorkspaceSelection(backend: Backend, change: RefName): Promise<void> {
+async function addWorkspaceSelection(backend: Backend, change: ChangeName): Promise<void> {
   const path = await addChangeWorkspace(backend, change);
   await openWorkspaceWindow(path);
 }
 
 /** Remove `change`'s workspace, confirming before uncommitted changes are discarded. */
-async function removeWorkspaceSelection(backend: Backend, change: RefName): Promise<void> {
+async function removeWorkspaceSelection(backend: Backend, change: ChangeName): Promise<void> {
   let path: string;
   try {
     path = await removeChangeWorkspace(backend, change, false);
@@ -844,7 +841,7 @@ async function closeTabs(uri: vscode.Uri): Promise<void> {
 }
 
 /** The lone selected change, or undefined after telling the user `action` takes exactly one. */
-function singleChange(changes: readonly RefName[], action: string): RefName | undefined {
+function singleChange(changes: readonly ChangeName[], action: string): ChangeName | undefined {
   const only = changes.length === 1 ? changes[0] : undefined;
   if (only === undefined) {
     vscode.window.showInformationMessage(`cabaret: select a single change to ${action}`);
@@ -853,12 +850,12 @@ function singleChange(changes: readonly RefName[], action: string): RefName | un
 }
 
 /** Prompt for a name and create a change with `parent` as its parent, returning the new name. */
-async function promptCreate(backend: Backend, parent: RefName, prompt: string): Promise<RefName | undefined> {
-  const raw = await vscode.window.showInputBox({ prompt, validateInput: invalidRefName });
+async function promptCreate(backend: Backend, parent: ChangeName, prompt: string): Promise<ChangeName | undefined> {
+  const raw = await vscode.window.showInputBox({ prompt, validateInput: invalidName(backend) });
   if (raw === undefined) {
     return undefined;
   }
-  const change = parseRefName(raw);
+  const change = backend.parseName(raw);
   await createChange(backend, now, change, parent);
   return change;
 }
@@ -867,7 +864,7 @@ async function promptCreate(backend: Backend, parent: RefName, prompt: string): 
  * Pick a new parent for `change`: any other change, or a branch some change
  * already hangs from, which is how trunks appear without being changes.
  */
-async function pickParent(backend: Backend, change: RefName): Promise<RefName | undefined> {
+async function pickParent(backend: Backend, change: ChangeName): Promise<ChangeName | undefined> {
   const changes = await backend.listChanges();
   const candidates = new Set(changes);
   for (const other of changes) {
@@ -877,7 +874,7 @@ async function pickParent(backend: Backend, change: RefName): Promise<RefName | 
   const picked = await vscode.window.showQuickPick([...candidates].sort(), {
     placeHolder: `New parent for ${change}`,
   });
-  return picked === undefined ? undefined : parseRefName(picked);
+  return picked === undefined ? undefined : backend.parseName(picked);
 }
 
 /** Prompt for a new name and rename `from`, following a renamed show page to its new name. */
@@ -885,17 +882,17 @@ async function rename(
   provider: PageProvider,
   backend: Backend,
   editor: vscode.TextEditor,
-  from: RefName,
+  from: ChangeName,
 ): Promise<void> {
   const raw = await vscode.window.showInputBox({
     prompt: `Rename ${from}`,
     value: from,
-    validateInput: invalidRefName,
+    validateInput: invalidName(backend),
   });
   if (raw === undefined || raw === from) {
     return;
   }
-  const to = parseRefName(raw);
+  const to = backend.parseName(raw);
   if (!(await confirmNotOwner("Rename Anyway", (override) => renameChange(backend, from, to, override)))) {
     return;
   }

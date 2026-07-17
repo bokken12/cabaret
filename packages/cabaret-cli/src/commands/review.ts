@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { assertNoConflict, assertReviewing, changeBase, conflictedFiles, type RefName } from "cabaret-core";
+import { assertNoConflict, assertReviewing, changeBase, conflictedFiles, requireTip } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -34,7 +34,7 @@ export const review = buildCommand({
   },
   async func(
     this: LocalContext,
-    flags: { change?: RefName; tip?: string; evenThoughNotReviewing: boolean },
+    flags: { change?: string; tip?: string; evenThoughNotReviewing: boolean },
     ...rawFiles: string[]
   ) {
     const backend = await this.backend();
@@ -43,14 +43,13 @@ export const review = buildCommand({
     if (!flags.evenThoughNotReviewing) {
       await assertReviewing(backend, change, entries);
     }
-    // Pin the default to the branch namespace so a same-named tag cannot
-    // shadow the change's tip.
-    const tip = await backend.resolveCommit(flags.tip ?? `refs/heads/${change}`);
+    const head = await requireTip(backend, change);
+    const tip = flags.tip === undefined ? head : await backend.resolveCommit(flags.tip);
     const base = await changeBase(backend, change, entries);
-    // Judged at the change's own tip whatever --tip says: while markers sit
-    // in the code, fixing them — not review — is the change's next step.
-    const branchTip = await backend.resolveCommit(`refs/heads/${change}`);
-    assertNoConflict(change, await conflictedFiles(backend, branchTip, await backend.changedFiles(base, branchTip)));
+    // Conflicts are judged at the change's own tip whatever --tip says: while
+    // markers sit in the code, fixing them — not review — is the change's
+    // next step.
+    assertNoConflict(change, await conflictedFiles(backend, head, await backend.changedFiles(base, head)));
     const user = await backend.currentUser();
     await backend.appendLog(
       change,

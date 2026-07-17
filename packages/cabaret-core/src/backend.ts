@@ -1,34 +1,47 @@
 import type { Branded } from "cabaret-util";
 import { z } from "zod";
 import { UserError } from "./error.js";
+import type { Recommendation } from "./setup.js";
 
-/** A full (non-abbreviated) git commit hash. Obtain via `parseCommitHash`. */
-export type CommitHash = Branded<string, "CommitHash">;
+/**
+ * A revision identifier in some backend's native format, obtained only
+ * through a backend's `parseRevision`, which enforces its grammar. Core code
+ * handles revisions opaquely: it compares them, stores them in logs, and
+ * passes them back to the backend they came from.
+ */
+export type Revision = Branded<string, "Revision">;
 
 const COMMIT_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
-export function parseCommitHash(raw: string): CommitHash {
+/** Parse a full (non-abbreviated) git commit hash: the git backend's `parseRevision`, also what forges record. */
+export function parseCommitHash(raw: string): Revision {
   if (!COMMIT_HASH.test(raw)) {
     throw new Error(`not a commit hash: ${JSON.stringify(raw)}`);
   }
-  return raw as CommitHash;
+  return raw as Revision;
 }
 
-/** A git branch or ref name (e.g. "main"). Obtain via `parseRefName`. */
-export type RefName = Branded<string, "RefName">;
+/**
+ * The name of a change (or of a parent it builds on, trunk included),
+ * obtained only through a backend's `parseName`, which enforces its native
+ * grammar. Backends map the name onto whatever they natively point at code
+ * with: a git branch, an hg bookmark.
+ */
+export type ChangeName = Branded<string, "ChangeName">;
 
 // The forbidden-character subset of `git check-ref-format`: control chars and
-// space, the glob/revision metacharacters, `..`, `@{`, a bare `@`, a component
-// starting with `.`, a component ending in `.lock`, leading/trailing/doubled
-// slashes, and a trailing `.` on the whole name.
+// space, the glob/revision metacharacters, `..`, `@{`, a bare `@`, a
+// component starting with `.`, a component ending in `.lock`,
+// leading/trailing/doubled slashes, and a trailing `.` on the whole name.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: git ref names forbid control characters, so we must match them.
-const REF_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$/;
+const BRANCH_NAME_FORBIDDEN = /[\x00-\x20~^:?*[\\\x7f]|\.\.|@\{|^@$|(?:^|\/)\.|\/\/|\.lock(?:$|\/)|^\/|\/$|\.$/;
 
-export function parseRefName(raw: string): RefName {
-  if (raw === "" || REF_NAME_FORBIDDEN.test(raw)) {
-    throw new UserError(`not a valid ref name: ${JSON.stringify(raw)}`);
+/** Parse a git branch name: the git backend's `parseName`, also what forges target. */
+export function parseBranchName(raw: string): ChangeName {
+  if (raw === "" || BRANCH_NAME_FORBIDDEN.test(raw)) {
+    throw new UserError(`not a valid branch name: ${JSON.stringify(raw)}`);
   }
-  return raw as RefName;
+  return raw as ChangeName;
 }
 
 /** A repository-relative file path, as named in diffs. Obtain via `parseFilePath`. */
@@ -51,7 +64,7 @@ export function timestampMs(raw: number): TimestampMs {
   return raw as TimestampMs;
 }
 
-/** A user identity: a git `user.email`, or a forge account like `github:alice`. Obtain via `userName`. */
+/** A user identity: an email as the backend attributes work, or a forge account like `github:alice`. Obtain via `userName`. */
 export type UserName = Branded<string, "UserName">;
 
 /** Tag `raw` as a user name. Applies no validation. */
@@ -119,18 +132,18 @@ export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
   return REVIEWING[REVIEWING.indexOf(reviewing) + 1];
 }
 
-/** An action that can be recorded in a change's log. */
+/** An action that can be recorded in a change's log. Revisions and names it records are in the owning backend's formats. */
 export type LogAction =
-  | { readonly kind: "set-parent"; readonly parent: RefName }
-  | { readonly kind: "set-base"; readonly base: CommitHash }
+  | { readonly kind: "set-parent"; readonly parent: ChangeName }
+  | { readonly kind: "set-base"; readonly base: Revision }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
-  | { readonly kind: "review"; readonly file: FilePath; readonly base: CommitHash; readonly tip: CommitHash }
+  | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
   | { readonly kind: "forget"; readonly file: FilePath }
-  | { readonly kind: "land"; readonly merge: CommitHash; readonly tip?: CommitHash | undefined }
+  | { readonly kind: "land"; readonly merge: Revision; readonly tip?: Revision | undefined }
   /** `edits` names the `commentHash` of the entry this comment supersedes: versions of one comment group through it, and the greatest timestamp is displayed. */
   | { readonly kind: "comment"; readonly text: string; readonly edits?: string | undefined };
 
@@ -151,44 +164,60 @@ const ForgeSourceSchema = z.object({
   id: z.string().min(1).optional(),
 }) satisfies z.ZodType<ForgeSource>;
 
-const LogActionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseRefName) }),
-  z.object({ kind: z.literal("set-base"), base: z.string().transform(parseCommitHash) }),
-  z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
-  z.object({
-    kind: z.literal("set-forge"),
-    forge: z.string().transform(parseForgeLocator),
-    id: z.number().transform(forgeChangeId),
-  }),
-  z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
-  z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
-  z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
-  z.object({
-    kind: z.literal("review"),
-    file: z.string().transform(parseFilePath),
-    base: z.string().transform(parseCommitHash),
-    tip: z.string().transform(parseCommitHash),
-  }),
-  z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
-  z.object({
-    kind: z.literal("land"),
-    merge: z.string().transform(parseCommitHash),
-    tip: z.string().transform(parseCommitHash).optional(),
-  }),
-  z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
-]) satisfies z.ZodType<LogAction>;
-
 /**
  * The log's wire format: entries are stored as this schema's JSON, one object
- * per line, keys in shape order. `satisfies` has the compiler verify that the
- * schema parses to exactly `LogEntry`.
+ * per line, keys in shape order. Revisions and names are opaque to the
+ * format, so the schema is built around the owning backend's `parseRevision`
+ * and `parseName`; `satisfies` has the compiler verify that the schema parses
+ * to exactly `LogEntry`.
  */
-const LogEntrySchema = z.object({
-  timestamp: z.number().transform(timestampMs),
-  user: z.string().min(1).transform(userName),
-  source: ForgeSourceSchema.optional(),
-  action: LogActionSchema,
-}) satisfies z.ZodType<LogEntry>;
+function logEntrySchema(
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): z.ZodType<LogEntry> {
+  const revision = z.string().transform(parseRevision);
+  const action = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseName) }),
+    z.object({ kind: z.literal("set-base"), base: revision }),
+    z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
+    z.object({
+      kind: z.literal("set-forge"),
+      forge: z.string().transform(parseForgeLocator),
+      id: z.number().transform(forgeChangeId),
+    }),
+    z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
+    z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
+    z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
+    z.object({
+      kind: z.literal("review"),
+      file: z.string().transform(parseFilePath),
+      base: revision,
+      tip: revision,
+    }),
+    z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
+    z.object({ kind: z.literal("land"), merge: revision, tip: revision.optional() }),
+    z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
+  ]) satisfies z.ZodType<LogAction>;
+  return z.object({
+    timestamp: z.number().transform(timestampMs),
+    user: z.string().min(1).transform(userName),
+    source: ForgeSourceSchema.optional(),
+    action,
+  }) satisfies z.ZodType<LogEntry>;
+}
+
+// Serialization does not re-parse revisions or names — the brands certify a
+// backend already did — so one shape-checking schema serves every backend.
+function nonempty<T>(what: string): (raw: string) => T {
+  return (raw) => {
+    if (raw === "") {
+      throw new Error(`${what} must be nonempty`);
+    }
+    return raw as T;
+  };
+}
+
+const WireLogEntrySchema = logEntrySchema(nonempty<Revision>("revision"), nonempty<ChangeName>("name"));
 
 /**
  * Render an entry as its log line. Re-parsing through the schema validates
@@ -196,27 +225,43 @@ const LogEntrySchema = z.object({
  * newlines, so the result is always a single line.
  */
 export function formatLogEntry(entry: LogEntry): string {
-  return `${JSON.stringify(LogEntrySchema.parse(entry))}\n`;
+  return `${JSON.stringify(WireLogEntrySchema.parse(entry))}\n`;
 }
 
 /** Parse one log line (without its trailing newline), inverting `formatLogEntry`. */
-export function parseLogEntry(line: string): LogEntry {
+export function parseLogEntry(
+  line: string,
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): LogEntry {
+  return parseLogLine(line, logEntrySchema(parseRevision, parseName));
+}
+
+function parseLogLine(line: string, schema: z.ZodType<LogEntry>): LogEntry {
   try {
-    return LogEntrySchema.parse(JSON.parse(line));
+    return schema.parse(JSON.parse(line));
   } catch (cause) {
     throw new Error(`malformed log line: ${JSON.stringify(line)}`, { cause });
   }
 }
 
 /** Parse a whole log: a sequence of newline-terminated `formatLogEntry` lines. */
-export function parseLog(text: string): readonly LogEntry[] {
+export function parseLog(
+  text: string,
+  parseRevision: (raw: string) => Revision,
+  parseName: (raw: string) => ChangeName,
+): readonly LogEntry[] {
   if (text === "") {
     return [];
   }
   if (!text.endsWith("\n")) {
     throw new Error("malformed log: missing trailing newline");
   }
-  return text.slice(0, -1).split("\n").map(parseLogEntry);
+  const schema = logEntrySchema(parseRevision, parseName);
+  return text
+    .slice(0, -1)
+    .split("\n")
+    .map((line) => parseLogLine(line, schema));
 }
 
 /**
@@ -256,41 +301,44 @@ export function mergeLogs(a: readonly LogEntry[], b: readonly LogEntry[]): reado
 export const LAND_TRAILER = "Cabaret-Landed";
 
 /** The title line of the commit that lands `change`. */
-export function landTitle(change: RefName): string {
+export function landTitle(change: ChangeName): string {
   return `Land ${change}`;
 }
 
 /** The trailer line marking the commit that lands `change`. */
-export function landTrailer(change: RefName): string {
+export function landTrailer(change: ChangeName): string {
   return `${LAND_TRAILER}: ${change}`;
 }
 
 /** The message for the commit that lands `change`. */
-export function landMessage(change: RefName): string {
+export function landMessage(change: ChangeName): string {
   return `${landTitle(change)}\n\n${landTrailer(change)}\n`;
 }
 
 /** A commit that landed a change, and the parent tip it landed onto. */
 export interface LandMerge {
-  readonly commit: CommitHash;
-  readonly onto: CommitHash;
+  readonly commit: Revision;
+  readonly onto: Revision;
 }
 
-/** The commit that landed a merged forge change on its parent branch. */
-export interface ForgeMerge {
-  readonly commit: CommitHash;
+/** The commit that landed a change on its parent branch, however it was written. */
+export interface LandedMerge {
+  readonly commit: Revision;
   /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
   readonly parents: number;
 }
 
+/** The commit that landed a merged forge change on its parent branch. */
+export type ForgeMerge = LandedMerge;
+
 /** A change as a forge holds it: a pull request (GitHub) or merge request (GitLab). */
 export interface ForgeChange {
   readonly id: ForgeChangeId;
-  readonly head: RefName;
+  readonly head: ChangeName;
   /** The commit the head branch points at — for a merged change, what merged. */
-  readonly tip: CommitHash;
+  readonly tip: Revision;
   /** The branch the change merges into. */
-  readonly parent: RefName;
+  readonly parent: ChangeName;
   readonly title: string;
   /** Who opened the change, mapped to a Cabaret identity by the `Forge` implementation. */
   readonly author: UserName;
@@ -316,28 +364,50 @@ export interface ForgeComment {
 /** Where a config write lands: this repository, or the person's global config. */
 export type ConfigScope = "local" | "global";
 
-/** One workspace of the repository: a working tree (git worktree) and what it has checked out. */
+/** One workspace of the repository: a working tree and what it has checked out. */
 export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
-  /** The branch checked out there, or undefined when its HEAD is detached. */
-  readonly branch: RefName | undefined;
+  /** The branch checked out there, or undefined when none is (git: detached HEAD; hg: no active bookmark). */
+  readonly change: ChangeName | undefined;
   /** Whether the working tree or index differs from the checkout, untracked files included. */
   readonly dirty: boolean;
   /** Whether this is the repository's primary working tree, which cannot be removed. */
   readonly primary: boolean;
 }
 
+/** The version-control systems a backend can speak for. */
+export type Vcs = "git" | "hg";
+
 /**
- * The operations Cabaret needs from a version-control backend.
- * The primary implementation (`cabaret-node`) shells out to a local git.
+ * The operations Cabaret needs from a version-control backend. The
+ * implementations (`cabaret-node`) shell out to a local git or hg.
+ *
+ * Vocabulary maps onto whatever the backend natively has: a "branch" is a git
+ * branch or an hg bookmark, and "origin" is the pinned remote every remote
+ * operation uses — git's `origin` remote, hg's `default` path.
  */
 export interface Backend {
+  /** Which version-control system this backend speaks. */
+  readonly vcs: Vcs;
+
   /** Absolute path of the working tree the backend was opened in. */
   readonly root: string;
 
+  /**
+   * Parse a raw string as one of this backend's revisions, failing when it is
+   * not in the backend's format.
+   */
+  readonly parseRevision: (raw: string) => Revision;
+
+  /**
+   * Parse a raw string as one of this backend's change names, failing when
+   * the backend's name grammar rejects it.
+   */
+  readonly parseName: (raw: string) => ChangeName;
+
   /** The name of the branch checked out in the working tree. */
-  currentBranch(): Promise<RefName>;
+  currentChange(): Promise<ChangeName>;
 
   /** The identity attributed to log entries this user writes. */
   currentUser(): Promise<UserName>;
@@ -349,19 +419,19 @@ export interface Backend {
    */
   resolveFile(raw: string): FilePath;
 
-  /** The value of git config `key`, or undefined when unset. */
+  /** The value of config `key`, or undefined when unset. */
   config(key: string): Promise<string | undefined>;
 
   /**
-   * Every value of multi-valued git config `key`, in definition order; empty
+   * Every value of multi-valued config `key`, in definition order; empty
    * when unset. Reads only `scope` when given, all scopes merged otherwise.
    */
   configAll(key: string, scope?: ConfigScope): Promise<readonly string[]>;
 
-  /** Set single-valued git config `key` to `value` in `scope`. */
+  /** Set single-valued config `key` to `value` in `scope`. */
   configSet(key: string, value: string, scope: ConfigScope): Promise<void>;
 
-  /** Append `value` to multi-valued git config `key` in `scope`. */
+  /** Append `value` to multi-valued config `key` in `scope`. */
   configAdd(key: string, value: string, scope: ConfigScope): Promise<void>;
 
   /**
@@ -370,11 +440,18 @@ export interface Backend {
    */
   configUnset(key: string, scope: ConfigScope, value?: string): Promise<boolean>;
 
-  /** Resolve `revision` (a ref name, hash prefix, `HEAD~1`, …) to a full commit hash. */
-  resolveCommit(revision: string): Promise<CommitHash>;
+  /** The configuration this backend recommends applying, audited and offered by setup. */
+  setupRecommendations(): readonly Recommendation[];
 
-  /** The commit branch `branch` points at, or undefined if it does not exist. */
-  branchTip(branch: RefName): Promise<CommitHash | undefined>;
+  /** Resolve `expression`, in the backend's native revision syntax, to a full revision. */
+  resolveCommit(expression: string): Promise<Revision>;
+
+  /**
+   * The commit branch `branch` points at, or undefined if it does not exist.
+   * Resolved within the branch namespace itself, so nothing of another kind
+   * (a same-named git tag, say) can shadow it.
+   */
+  tip(change: ChangeName): Promise<Revision | undefined>;
 
   /**
    * The commit `origin`'s copy of `branch` pointed at when last fetched, or
@@ -382,15 +459,15 @@ export interface Backend {
    * operation, whatever upstream the branch is configured with. A local
    * reading, so it may trail the remote itself.
    */
-  originTip(branch: RefName): Promise<CommitHash | undefined>;
+  originTip(change: ChangeName): Promise<Revision | undefined>;
 
   /** Create branch `name` at `commit`, failing if the branch already exists. */
-  createBranch(name: RefName, commit: CommitHash): Promise<void>;
+  create(change: ChangeName, at: Revision): Promise<void>;
 
   /**
    * Every workspace of the repository, the primary working tree first. A
-   * workspace whose directory is gone (git calls it prunable) is not a
-   * working tree anymore and is dropped.
+   * workspace whose directory is gone is not a working tree anymore and is
+   * dropped.
    */
   workspaces(): Promise<readonly Workspace[]>;
 
@@ -399,16 +476,16 @@ export interface Backend {
    * `path` already exists or the branch is checked out in another workspace
    * — a branch is checked out in at most one.
    */
-  addWorkspace(path: string, branch: RefName): Promise<void>;
+  addWorkspace(path: string, change: ChangeName): Promise<void>;
 
   /** Remove the workspace at `path`; `force` discards its uncommitted changes. */
   removeWorkspace(path: string, force: boolean): Promise<void>;
 
   /**
-   * Check out `branch` in this workspace, carrying local edits along as git
-   * does — and failing as git does when an edit would be overwritten.
+   * Check out `branch` in this workspace, carrying local edits along — and
+   * failing when an edit would be overwritten.
    */
-  checkout(branch: RefName): Promise<void>;
+  checkout(change: ChangeName): Promise<void>;
 
   /**
    * Rename change `from` to `to`: move its branch and its log to the new name
@@ -416,33 +493,42 @@ export interface Backend {
    * out. Fails if `to`'s branch or log already exists, or if either of
    * `from`'s refs moves concurrently.
    */
-  renameChange(from: RefName, to: RefName): Promise<void>;
+  rename(from: ChangeName, to: ChangeName): Promise<void>;
 
-  /** The last revision shared by the histories of `a` and `b`, as `git merge-base`. */
-  mergeBase(a: CommitHash, b: CommitHash): Promise<CommitHash>;
+  /** The last revision shared by the histories of `a` and `b`, failing when they share none. */
+  mergeBase(a: Revision, b: Revision): Promise<Revision>;
 
-  /** Whether `ancestor` is reachable from `descendant`, as `git merge-base --is-ancestor`. */
-  isAncestor(ancestor: CommitHash, descendant: CommitHash): Promise<boolean>;
+  /** Whether `ancestor` is reachable from `descendant`'s history (a revision is its own ancestor). */
+  isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean>;
+
+  /**
+   * The tip a merge commit carries as its second parent — for a land merge,
+   * the reviewed head it merged in. Fails when `merge` has fewer than two
+   * parents.
+   */
+  mergedTip(merge: Revision): Promise<Revision>;
 
   /**
    * Merge `onto` into branch `change`: a content merge of the change's tip
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge
-   * resolves against `base`, the change's own base, not the git merge-base:
-   * what the change did since its base applies onto `onto`, so a parent
-   * whose history was rewritten merges as cleanly as one that advanced.
-   * Carries a checked-out `change`'s working tree along. Conflicts still
-   * commit, markers left in the files, and come back as the conflicted
-   * paths.
+   * resolves against `base`, the change's own base: what the change did
+   * since its base applies onto `onto`. Under git the base overrides the
+   * graph's merge-base, so a parent whose history was rewritten merges as
+   * cleanly as one that advanced; hg can only resolve against the graph's
+   * own ancestor, so a `base` the graph disagrees with is refused rather
+   * than misread. Carries a checked-out `change`'s working tree along.
+   * Conflicts still commit, markers left in the files, and come back as the
+   * conflicted paths.
    */
-  mergeOnto(change: RefName, base: CommitHash, onto: CommitHash, message: string): Promise<readonly FilePath[]>;
+  mergeOnto(change: ChangeName, base: Revision, onto: Revision, message: string): Promise<readonly FilePath[]>;
 
   /**
    * The paths that would conflict merging `tip` and `onto`, resolving
    * against `base` as `mergeOnto` does, without writing anything. Empty
    * means the merge is clean.
    */
-  mergeConflicts(base: CommitHash, tip: CommitHash, onto: CommitHash): Promise<readonly FilePath[]>;
+  mergeConflicts(base: Revision, tip: Revision, onto: Revision): Promise<readonly FilePath[]>;
 
   /**
    * Create the merge commit recording `tip` merging into branch `into`:
@@ -453,40 +539,40 @@ export interface Backend {
    * the new commit, failing if `into` no longer points at `onto`, and
    * carries a checked-out `into`'s working tree along.
    */
-  merge(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+  merge(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
    * As `merge`, but the new commit's sole parent is `onto`: the tree lands
    * as one commit that does not carry `tip`'s history.
    */
-  squash(into: RefName, base: CommitHash, onto: CommitHash, tip: CommitHash, message: string): Promise<CommitHash>;
+  squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
    * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain
    * from `base` to `tip`, oldest first — land merges, whose `onto` is their
    * first parent, and squash lands, whose `onto` is their sole parent.
    */
-  landMerges(base: CommitHash, tip: CommitHash): Promise<readonly LandMerge[]>;
+  landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
    * (changes rebase freely) but refusing to overwrite work this repository
-   * has never fetched, as `git push --force-with-lease`.
+   * has never fetched.
    */
-  pushBranch(branch: RefName): Promise<void>;
+  push(change: ChangeName): Promise<void>;
 
   /**
    * Fetch branch `branch` from the `origin` remote into the local branch of
    * the same name, creating it if absent. Fast-forward only: a local branch
    * that has diverged from the remote fails rather than being overwritten.
    */
-  fetchBranch(branch: RefName): Promise<void>;
+  fetch(change: ChangeName): Promise<void>;
 
   /**
-   * As `fetchBranch` for each of `branches`, in one round trip where the
+   * As `fetch` for each of `branches`, in one round trip where the
    * backend can batch refspecs. Callers pass only branches absent locally.
    */
-  fetchBranches(branches: readonly RefName[]): Promise<void>;
+  fetchAll(changes: readonly ChangeName[]): Promise<void>;
 
   /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
@@ -494,13 +580,13 @@ export interface Backend {
    * side may be missing; syncing is how a change's review state reaches other
    * machines.
    */
-  syncLog(change: RefName): Promise<void>;
+  syncLog(change: ChangeName): Promise<void>;
 
   /**
    * Sync every log with the `origin` remote — every change with a log here,
    * there, or both — and return their names, sorted.
    */
-  syncLogs(): Promise<readonly RefName[]>;
+  syncLogs(): Promise<readonly ChangeName[]>;
 
   /**
    * Delete the review state this repository holds: every change's log and the
@@ -508,32 +594,31 @@ export interface Backend {
    * origin keeps its logs, so syncing restores them. Returns the names of the
    * changes whose logs were deleted, sorted.
    */
-  wipeReviewState(): Promise<readonly RefName[]>;
+  wipeReviewState(): Promise<readonly ChangeName[]>;
 
   /**
    * Delete every change's log on the `origin` remote — for every user of the
    * repository, with no way to recover them. Returns the names of the changes
    * whose logs were deleted, sorted.
    */
-  wipeOriginLogs(): Promise<readonly RefName[]>;
+  wipeOriginLogs(): Promise<readonly ChangeName[]>;
 
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
-  readFile(commit: CommitHash, file: FilePath): Promise<string | undefined>;
+  readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
 
   /**
-   * The file paths that differ between `base` and `tip`, as `git diff
-   * --name-only`. A moved file counts as a delete plus an add, so each path
-   * names the same file on both sides; submodules are not files and are
-   * never listed.
+   * The file paths that differ between `base` and `tip`. A moved file counts
+   * as a delete plus an add, so each path names the same file on both sides;
+   * nested repositories (git submodules) are not files and are never listed.
    */
-  changedFiles(base: CommitHash, tip: CommitHash): Promise<readonly FilePath[]>;
+  changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]>;
 
   /**
    * The name of every change, sorted by name: one per log ref. Only
    * `appendLog` creates logs and every log starts nonempty, so each named
    * change exists — though a landed change's branch may be gone.
    */
-  listChanges(): Promise<readonly RefName[]>;
+  listChanges(): Promise<readonly ChangeName[]>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
@@ -541,21 +626,30 @@ export interface Backend {
    *
    * TODO: parent/child queries (the todo forest, the reparent and show-child
    * pickers) derive the parent relation by reading every change's log through
-   * here, one git call each. If that lags once repos hold hundreds of
+   * here, one subprocess call each. If that lags once repos hold hundreds of
    * changes, add a batched or cached parent index to the backend rather than
    * memoizing in each caller.
    */
-  readLog(change: RefName): Promise<readonly LogEntry[]>;
+  readLog(change: ChangeName): Promise<readonly LogEntry[]>;
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
-  appendLog(change: RefName, entries: readonly LogEntry[]): Promise<void>;
+  appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void>;
 
   /**
    * Delete `change`'s log everywhere this backend reaches: locally, the
    * fetched copy of origin's, and origin's own. Gone for every user — callers
    * decide a log holds nothing worth keeping before deleting it.
    */
-  deleteLog(change: RefName): Promise<void>;
+  deleteLog(change: ChangeName): Promise<void>;
+}
+
+/** The tip of `branch` via `tip`, failing when the branch does not exist. */
+export async function requireTip(backend: Backend, change: ChangeName): Promise<Revision> {
+  const tip = await backend.tip(change);
+  if (tip === undefined) {
+    throw new UserError(`${JSON.stringify(change)} does not exist`);
+  }
+  return tip;
 }
 
 /**
@@ -576,7 +670,7 @@ function latestAction<K extends LogAction["kind"]>(
 }
 
 /** Fail unless `change` has been created: a change exists exactly when its log is nonempty. */
-export function assertChangeExists(change: RefName, entries: readonly LogEntry[]): void {
+export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
       `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret pull\` to import open forge changes`,
@@ -585,7 +679,7 @@ export function assertChangeExists(change: RefName, entries: readonly LogEntry[]
 }
 
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
-export function currentParent(change: RefName, entries: readonly LogEntry[]): RefName {
+export function currentParent(change: ChangeName, entries: readonly LogEntry[]): ChangeName {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-parent");
   if (action === undefined) {
@@ -595,7 +689,7 @@ export function currentParent(change: RefName, entries: readonly LogEntry[]): Re
 }
 
 /** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
-export function currentBase(change: RefName, entries: readonly LogEntry[]): CommitHash {
+export function currentBase(change: ChangeName, entries: readonly LogEntry[]): Revision {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-base");
   if (action === undefined) {
@@ -605,7 +699,7 @@ export function currentBase(change: RefName, entries: readonly LogEntry[]): Comm
 }
 
 /** The owner from the log's latest `set-owner`; `create` starts every log with one, so a missing owner is an error. */
-export function currentOwner(change: RefName, entries: readonly LogEntry[]): UserName {
+export function currentOwner(change: ChangeName, entries: readonly LogEntry[]): UserName {
   assertChangeExists(change, entries);
   const action = latestAction(entries, "set-owner");
   if (action === undefined) {
@@ -662,7 +756,7 @@ export function observedForgeReviewing(entries: readonly LogEntry[], forge: Forg
  * that moved since last observed mirrors in, so a local reparent awaiting a
  * push is never overridden by re-observing the state it is about to replace.
  */
-export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLocator): RefName | undefined {
+export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLocator): ChangeName | undefined {
   let found: LogEntry | undefined;
   for (const entry of entries) {
     if (
@@ -724,7 +818,7 @@ export function observedForgeReviewers(entries: readonly LogEntry[], forge: Forg
 }
 
 /** The merge that landed the change, or undefined if it has not landed. */
-export function landedMerge(entries: readonly LogEntry[]): CommitHash | undefined {
+export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
   return latestAction(entries, "land")?.merge;
 }
 
@@ -734,7 +828,7 @@ export function landedMerge(entries: readonly LogEntry[]): CommitHash | undefine
  * longer be written. Review state is not code, so `review` and `forget` stay
  * allowed and do not call this.
  */
-export function assertNotLanded(change: RefName, entries: readonly LogEntry[]): void {
+export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
   const merge = landedMerge(entries);
   if (merge !== undefined) {
     throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
@@ -743,8 +837,8 @@ export function assertNotLanded(change: RefName, entries: readonly LogEntry[]): 
 
 /** The endpoints of a diff a reviewer has reviewed. */
 export interface ReviewedDiff {
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly base: Revision;
+  readonly tip: Revision;
 }
 
 /**
@@ -802,7 +896,11 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
  */
-export async function changeBase(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
+export async function changeBase(
+  backend: Backend,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<Revision> {
   // Once the change lands, its parent's history contains the change itself,
   // so the merge-base slides to the change's own tip and would erase its
   // diff. `land` pins the base, and a landed change is frozen, so the stored
@@ -812,9 +910,9 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
   }
   const parent = currentParent(change, entries);
   const stored = currentBase(change, entries);
-  const tip = await backend.resolveCommit(`refs/heads/${change}`);
-  const readings = [...new Set([await backend.branchTip(parent), await backend.originTip(parent)])].filter(
-    (reading): reading is CommitHash => reading !== undefined,
+  const tip = await requireTip(backend, change);
+  const readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
+    (reading): reading is Revision => reading !== undefined,
   );
   // With no reading of the parent there is no merge-base; the stored base is
   // the only candidate, still valid while it remains an ancestor of the tip.
@@ -826,11 +924,11 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
       `parent branch of ${JSON.stringify(change)} does not exist: ${JSON.stringify(parent)}; run \`cabaret reparent\``,
     );
   }
-  const candidates = new Set(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
+  const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
   if (!candidates.has(stored) && (await backend.isAncestor(stored, tip))) {
     candidates.add(stored);
   }
-  let base: CommitHash | undefined;
+  let base: Revision | undefined;
   for (const candidate of candidates) {
     if (base === undefined || (await backend.isAncestor(base, candidate))) {
       base = candidate;
@@ -858,12 +956,12 @@ export async function changeBase(backend: Backend, change: RefName, entries: rea
  * on. An unlanded change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
-export async function changeTip(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<CommitHash> {
+export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
   const landed = latestAction(entries, "land");
   if (landed === undefined) {
-    return backend.resolveCommit(`refs/heads/${change}`);
+    return requireTip(backend, change);
   }
-  return landed.tip ?? backend.resolveCommit(`${landed.merge}^2`);
+  return landed.tip ?? backend.mergedTip(landed.merge);
 }
 
 /**
@@ -885,7 +983,7 @@ export function conflictMarkers(content: string): readonly { readonly line: numb
 /** The files among `files` whose contents at `commit` carry conflict markers, in `files` order. */
 export async function conflictedFiles(
   backend: Backend,
-  commit: CommitHash,
+  commit: Revision,
   files: readonly FilePath[],
 ): Promise<readonly FilePath[]> {
   const marked = await Promise.all(
@@ -899,8 +997,8 @@ export async function conflictedFiles(
 
 /** One contiguous span of a change's history that a reviewer must review. */
 export interface ReviewSpan {
-  readonly start: CommitHash;
-  readonly end: CommitHash;
+  readonly start: Revision;
+  readonly end: Revision;
 }
 
 /**
@@ -912,7 +1010,7 @@ export interface ReviewSpan {
  * land's onto, and finally the last land merge → tip. A span a land merge
  * jumps over entirely (its start is its end) is dropped.
  */
-export async function reviewSpans(backend: Backend, base: CommitHash, tip: CommitHash): Promise<readonly ReviewSpan[]> {
+export async function reviewSpans(backend: Backend, base: Revision, tip: Revision): Promise<readonly ReviewSpan[]> {
   const spans: ReviewSpan[] = [];
   let start = base;
   for (const { commit, onto } of await backend.landMerges(base, tip)) {
@@ -937,7 +1035,7 @@ export async function reviewSpans(backend: Backend, base: CommitHash, tip: Commi
 export async function remainingSpans(
   backend: Backend,
   spans: readonly ReviewSpan[],
-  reviewedTip: CommitHash,
+  reviewedTip: Revision,
 ): Promise<readonly ReviewSpan[]> {
   const remaining: ReviewSpan[] = [];
   for (const span of spans) {
@@ -963,18 +1061,22 @@ export interface SpanDiff extends ReviewSpan {
  * several shares one reading instead of each re-querying the history.
  */
 export interface ChangeDiff {
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly base: Revision;
+  readonly tip: Revision;
   readonly spans: readonly SpanDiff[];
 }
 
-export async function changeDiff(backend: Backend, change: RefName, entries: readonly LogEntry[]): Promise<ChangeDiff> {
+export async function changeDiff(
+  backend: Backend,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<ChangeDiff> {
   const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   return diffBetween(backend, base, tip);
 }
 
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
-export async function diffBetween(backend: Backend, base: CommitHash, tip: CommitHash): Promise<ChangeDiff> {
+export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
   const spans = await Promise.all(
     (await reviewSpans(backend, base, tip)).map(async (span) => ({
       ...span,

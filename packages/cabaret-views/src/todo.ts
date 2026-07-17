@@ -1,5 +1,6 @@
 import {
   type Backend,
+  type ChangeName,
   type ChangeNode,
   type ChangeSummary,
   changeDiff,
@@ -8,7 +9,6 @@ import {
   type FilePath,
   isReviewing,
   isSelf,
-  type RefName,
   reviewOwed,
   type Self,
   summarizeChange,
@@ -37,7 +37,7 @@ export interface ReviewNode {
 
 /** A change the page could not read, and what went wrong. */
 export interface BrokenChange {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly message: string;
 }
 
@@ -71,7 +71,7 @@ export interface TodoPage {
 
 /** A change and the workspace holding it on this device. */
 export interface WorkspaceEntry {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly workspace: WorkspaceNote;
   /** Whether the change has landed, leaving the workspace ready to remove. */
   readonly landed: boolean;
@@ -85,12 +85,12 @@ type ChangeReading =
   | {
       readonly kind: "read";
       readonly summary: ChangeSummary;
-      readonly parent: RefName;
+      readonly parent: ChangeName;
       readonly owed: readonly FilePath[];
     }
   | { readonly kind: "broken"; readonly message: string };
 
-async function readChange(backend: Backend, self: Self, change: RefName): Promise<ChangeReading> {
+async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
   const entries = await backend.readLog(change);
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, self.user, diff);
@@ -130,9 +130,9 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       return { kind: "broken", message: error.message };
     }
   });
-  const summaries = new Map<RefName, ChangeSummary>();
-  const parents = new Map<RefName, RefName>();
-  const owedFiles = new Map<RefName, readonly FilePath[]>();
+  const summaries = new Map<ChangeName, ChangeSummary>();
+  const parents = new Map<ChangeName, ChangeName>();
+  const owedFiles = new Map<ChangeName, readonly FilePath[]>();
   const broken: BrokenChange[] = [];
   changes.forEach((change, index) => {
     const reading = readings[index];
@@ -149,7 +149,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       owedFiles.set(change, reading.owed);
     }
   });
-  const summary = (change: RefName): ChangeSummary => {
+  const summary = (change: ChangeName): ChangeSummary => {
     const found = summaries.get(change);
     if (found === undefined) {
       throw new Error(`change vanished while summarizing: ${change}`);

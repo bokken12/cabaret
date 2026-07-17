@@ -635,7 +635,7 @@ test("a bad cabaret.landMethod fails before anything moves", async () => {
   const parentTip = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: 'git config cabaret.landMethod must be one of merge, squash: "rebase"\n',
+    stderr: 'config cabaret.landMethod must be one of merge, squash: "rebase"\n',
     exitCode: 1,
   });
   expect(await repo.git("rev-parse", "parent")).toBe(parentTip);

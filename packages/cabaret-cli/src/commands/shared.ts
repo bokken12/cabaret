@@ -1,9 +1,8 @@
 import {
   assertChangeExists,
   type Backend,
+  type ChangeName,
   type LogEntry,
-  parseRefName,
-  type RefName,
   UserError,
   type UserName,
   userName,
@@ -11,26 +10,31 @@ import {
 import { type Doc, docText } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 
-/** The `--change` flag of a command that acts on one change: "Change to <act> (defaults to current)". */
+/**
+ * The `--change` flag of a command that acts on one change: "Change to <act>
+ * (defaults to current)". Carried as a raw string — only the backend knows
+ * its name grammar — and validated by `resolveChange` or `parseName`.
+ */
 export function changeFlag(act: string) {
   return {
     kind: "parsed",
-    parse: parseRefName,
+    parse: String,
     brief: `Change to ${act} (defaults to current)`,
     optional: true,
   } as const;
 }
 
 /**
- * The change a command acts on — `flagged`, or the current branch — with its
- * log. The change must exist: logs are only ever started by `create`, so
- * acting on a missing one would conjure a change out of thin air.
+ * The change a command acts on — `flagged`, parsed by the backend's name
+ * grammar, or the current change — with its log. The change must exist: logs
+ * are only ever started by `create`, so acting on a missing one would conjure
+ * a change out of thin air.
  */
 export async function resolveChange(
   backend: Backend,
-  flagged: RefName | undefined,
-): Promise<{ change: RefName; entries: readonly LogEntry[] }> {
-  const change = flagged ?? (await backend.currentBranch());
+  flagged: string | undefined,
+): Promise<{ change: ChangeName; entries: readonly LogEntry[] }> {
+  const change = flagged === undefined ? await backend.currentChange() : backend.parseName(flagged);
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
   return { change, entries };
@@ -47,16 +51,17 @@ export function parseUser(raw: string): UserName {
 /**
  * What a rebase or land applies to: one change, or an `ancestor..descendant`
  * range of them. As with git's `upstream..branch`, the left endpoint is
- * excluded: it bounds the range and is never itself operated on.
+ * excluded: it bounds the range and is never itself operated on. Names ride
+ * raw until a backend's grammar parses them.
  */
 export type ChangeSpec =
-  | { readonly kind: "one"; readonly change: RefName }
-  | { readonly kind: "range"; readonly ancestor: RefName; readonly descendant: RefName };
+  | { readonly kind: "one"; readonly change: string }
+  | { readonly kind: "range"; readonly ancestor: string; readonly descendant: string };
 
 export function parseChangeSpec(raw: string): ChangeSpec {
   const parts = raw.split("..");
   if (parts.length === 1) {
-    return { kind: "one", change: parseRefName(raw) };
+    return { kind: "one", change: raw };
   }
   const [ancestor, descendant] = parts;
   // "a...b" splits into "a" and ".b": the stray leading dot, like an empty
@@ -64,7 +69,7 @@ export function parseChangeSpec(raw: string): ChangeSpec {
   if (parts.length !== 2 || !ancestor || !descendant || descendant.startsWith(".")) {
     throw new UserError(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
   }
-  return { kind: "range", ancestor: parseRefName(ancestor), descendant: parseRefName(descendant) };
+  return { kind: "range", ancestor, descendant };
 }
 
 /** The escape hatch for commands that `requireOwner` guards. */

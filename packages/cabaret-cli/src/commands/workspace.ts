@@ -1,19 +1,12 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import {
-  addChangeWorkspace,
-  changeWorkspace,
-  parseRefName,
-  type RefName,
-  removeChangeWorkspace,
-  UserError,
-} from "cabaret-core";
+import { addChangeWorkspace, changeWorkspace, removeChangeWorkspace, UserError } from "cabaret-core";
 import { workspacesDoc, workspacesPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { writeDoc } from "./shared.js";
 
 const changePositional = {
   kind: "tuple",
-  parameters: [{ brief: "change the workspace holds", placeholder: "change", parse: parseRefName }],
+  parameters: [{ brief: "change the workspace holds", placeholder: "change", parse: String }],
 } as const;
 
 const list = buildCommand({
@@ -42,9 +35,9 @@ const add = buildCommand({
       },
     },
   },
-  async func(this: LocalContext, flags: { at?: string }, change: RefName) {
+  async func(this: LocalContext, flags: { at?: string }, change: string) {
     const backend = await this.backend();
-    const path = await addChangeWorkspace(backend, change, flags.at);
+    const path = await addChangeWorkspace(backend, backend.parseName(change), flags.at);
     this.process.stdout.write(`${path}\n`);
   },
 });
@@ -53,7 +46,7 @@ const remove = buildCommand({
   docs: {
     brief: "Remove the workspace holding a change",
     fullDescription:
-      "Remove the workspace holding the change. The change itself — its branch and its log — is untouched.",
+      "Remove the workspace holding the change. The change itself — its code and its log — is untouched.",
   },
   parameters: {
     positional: changePositional,
@@ -65,9 +58,9 @@ const remove = buildCommand({
       },
     },
   },
-  async func(this: LocalContext, flags: { evenThoughDirty: boolean }, change: RefName) {
+  async func(this: LocalContext, flags: { evenThoughDirty: boolean }, change: string) {
     const backend = await this.backend();
-    const path = await removeChangeWorkspace(backend, change, flags.evenThoughDirty);
+    const path = await removeChangeWorkspace(backend, backend.parseName(change), flags.evenThoughDirty);
     this.process.stdout.write(`removed ${path}\n`);
   },
 });
@@ -75,8 +68,9 @@ const remove = buildCommand({
 const dir = buildCommand({
   docs: { brief: "Print the directory of the workspace holding a change" },
   parameters: { positional: changePositional },
-  async func(this: LocalContext, _flags: Record<never, never>, change: RefName) {
-    const workspace = await changeWorkspace(await this.backend(), change);
+  async func(this: LocalContext, _flags: Record<never, never>, change: string) {
+    const backend = await this.backend();
+    const workspace = await changeWorkspace(backend, backend.parseName(change));
     if (workspace === undefined) {
       throw new UserError(`change has no workspace: ${JSON.stringify(change)}`);
     }

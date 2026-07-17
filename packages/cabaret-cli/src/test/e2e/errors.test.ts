@@ -14,12 +14,12 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
   });
 });
 
-test("an argument that fails to parse names the argument and the reason", async () => {
+test("a name the repository's grammar rejects names the reason", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("log", "bad..name")).toEqual({
     stdout: "",
-    stderr: 'Failed to parse "bad..name" for change: not a valid ref name: "bad..name"\n',
-    exitCode: -4,
+    stderr: 'not a valid branch name: "bad..name"\n',
+    exitCode: 1,
   });
 });
 

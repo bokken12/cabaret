@@ -29,5 +29,5 @@ test("currentSelf collects aliases, dropping duplicates and the user themselves"
 
 test("currentSelf rejects an empty alias", async () => {
   const backend = configBackend("alice@example.com", [""]);
-  await expect(currentSelf(backend)).rejects.toThrow("git config cabaret.alias must be nonempty");
+  await expect(currentSelf(backend)).rejects.toThrow("config cabaret.alias must be nonempty");
 });

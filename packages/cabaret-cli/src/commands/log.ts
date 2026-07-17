@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { formatLogEntry, parseRefName, type RefName } from "cabaret-core";
+import { formatLogEntry } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 export const log = buildCommand({
@@ -11,15 +11,17 @@ export const log = buildCommand({
         {
           brief: "change to inspect (defaults to current)",
           placeholder: "change",
-          parse: parseRefName,
+          parse: String,
           optional: true,
         },
       ],
     },
   },
-  async func(this: LocalContext, _flags: Record<never, never>, change?: RefName) {
+  async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
-    const entries = await backend.readLog(change ?? (await backend.currentBranch()));
+    const entries = await backend.readLog(
+      change === undefined ? await backend.currentChange() : backend.parseName(change),
+    );
     this.process.stdout.write(entries.map(formatLogEntry).join(""));
   },
 });

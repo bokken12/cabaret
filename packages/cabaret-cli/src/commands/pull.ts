@@ -1,11 +1,10 @@
 import { buildCommand } from "@stricli/core";
 import {
   assertChangeExists,
+  forgeBackend,
   type PullEvent,
-  parseRefName,
   pullForge,
   pullTrackedChange,
-  type RefName,
   syncedForgeChange,
   UserError,
 } from "cabaret-core";
@@ -69,17 +68,17 @@ export const pull = buildCommand({
     flags: {
       change: {
         kind: "parsed",
-        parse: parseRefName,
+        parse: String,
         brief: "Only change to pull",
         optional: true,
       },
     },
   },
-  async func(this: LocalContext, flags: { change?: RefName }) {
-    const backend = await this.backend();
+  async func(this: LocalContext, flags: { change?: string }) {
+    const backend = forgeBackend(await this.backend());
     const forge = await this.forge();
     if (flags.change !== undefined) {
-      const change = flags.change;
+      const change = backend.parseName(flags.change);
       await backend.syncLog(change);
       const entries = await backend.readLog(change);
       assertChangeExists(change, entries);

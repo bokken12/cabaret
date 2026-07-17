@@ -13,9 +13,9 @@ import {
   gotoOffer,
   type LogAction,
   type LogEntry,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
-  parseRefName,
   timestampMs,
   userName,
   type WorkspaceStyle,
@@ -59,7 +59,7 @@ afterAll(async () => {
 
 test("reports the current working branch", async () => {
   const backend = await GitBackend.open(repo);
-  expect(await backend.currentBranch()).toBe("feature");
+  expect(await backend.currentChange()).toBe("feature");
 });
 
 test("resolveFile maps user paths to repo-relative ones", async () => {
@@ -104,7 +104,7 @@ test("config writes: set replaces, add appends, unset removes and reports", asyn
 
 test("a change with no log ref has the empty log", async () => {
   const backend = await GitBackend.open(repo);
-  expect(await backend.readLog(parseRefName("no-log-yet"))).toEqual([]);
+  expect(await backend.readLog(parseBranchName("no-log-yet"))).toEqual([]);
 });
 
 test("readLog parses the log file into entries", async () => {
@@ -118,7 +118,7 @@ test("readLog parses the log file into entries", async () => {
   await git("update-ref", "refs/cabaret/log/feature", commit);
 
   const backend = await GitBackend.open(repo);
-  expect(await backend.readLog(parseRefName("feature"))).toEqual([
+  expect(await backend.readLog(parseBranchName("feature"))).toEqual([
     { timestamp: 1748000000000, user: "alice@example.com", action: { kind: "set-parent", parent: "main" } },
     { timestamp: 1748000060000, user: "bob@example.com", action: { kind: "set-parent", parent: "trunk" } },
   ]);
@@ -129,7 +129,7 @@ test("fails fast on a log ref whose tree lacks the log file", async () => {
   await git("update-ref", "refs/cabaret/log/malformed", root);
 
   const backend = await GitBackend.open(repo);
-  await expect(backend.readLog(parseRefName("malformed"))).rejects.toThrow(
+  await expect(backend.readLog(parseBranchName("malformed"))).rejects.toThrow(
     "log ref has no log file: refs/cabaret/log/malformed",
   );
 });
@@ -143,11 +143,11 @@ test("changeBase is the last revision shared with the change's parent", async ()
   await git("update-ref", "refs/heads/gadget", gadget);
   const trunk = await git("commit-tree", tree, "-p", root, "-m", "trunk work");
   await git("update-ref", "refs/heads/trunk", trunk);
-  await backend.appendLog(parseRefName("gadget"), [
+  await backend.appendLog(parseBranchName("gadget"), [
     {
       timestamp: timestampMs(1748000000000),
       user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: parseRefName("trunk") },
+      action: { kind: "set-parent", parent: parseBranchName("trunk") },
     },
     {
       timestamp: timestampMs(1748000000001),
@@ -155,8 +155,8 @@ test("changeBase is the last revision shared with the change's parent", async ()
       action: { kind: "set-base", base: parseCommitHash(root) },
     },
   ]);
-  const entries = await backend.readLog(parseRefName("gadget"));
-  expect(await changeBase(backend, parseRefName("gadget"), entries)).toBe(root);
+  const entries = await backend.readLog(parseBranchName("gadget"));
+  expect(await changeBase(backend, parseBranchName("gadget"), entries)).toBe(root);
 });
 
 /**
@@ -178,15 +178,15 @@ function logEntry(timestamp: number, action: LogAction): LogEntry {
 async function plumbChange(change: string, tip: string, parent: string, base: string): Promise<void> {
   await git("update-ref", `refs/heads/${change}`, tip);
   const backend = await GitBackend.open(repo);
-  await backend.appendLog(parseRefName(change), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseRefName(parent) }),
+  await backend.appendLog(parseBranchName(change), [
+    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName(parent) }),
     logEntry(1748000000001, { kind: "set-base", base: parseCommitHash(base) }),
   ]);
 }
 
 async function changeBaseOf(change: string): Promise<string> {
   const backend = await GitBackend.open(repo);
-  return changeBase(backend, parseRefName(change), await backend.readLog(parseRefName(change)));
+  return changeBase(backend, parseBranchName(change), await backend.readLog(parseBranchName(change)));
 }
 
 test("changeBase keeps the stored base when the parent was rewritten", async () => {
@@ -270,36 +270,36 @@ test("isAncestor distinguishes ancestors from unrelated commits", async () => {
   expect(await backend.isAncestor(onto, onto)).toBe(true);
 });
 
-test("branchTip is the branch's commit, or undefined for a missing branch", async () => {
+test("tip is the branch's commit, or undefined for a missing branch", async () => {
   const backend = await GitBackend.open(repo);
-  expect(await backend.branchTip(parseRefName("feature"))).toBe(await git("rev-parse", "refs/heads/feature"));
-  expect(await backend.branchTip(parseRefName("no-such-branch"))).toBeUndefined();
+  expect(await backend.tip(parseBranchName("feature"))).toBe(await git("rev-parse", "refs/heads/feature"));
+  expect(await backend.tip(parseBranchName("no-such-branch"))).toBeUndefined();
 });
 
-test("createBranch creates at the given commit and refuses to overwrite", async () => {
+test("create creates at the given commit and refuses to overwrite", async () => {
   const backend = await GitBackend.open(repo);
   const tip = parseCommitHash(await plumbCommit("branch target"));
-  await backend.createBranch(parseRefName("created"), tip);
+  await backend.create(parseBranchName("created"), tip);
   expect(await git("rev-parse", "refs/heads/created")).toBe(tip);
-  await expect(backend.createBranch(parseRefName("created"), tip)).rejects.toThrow(/git update-ref/);
+  await expect(backend.create(parseBranchName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
-  await expect(changeBase(backend, parseRefName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
+  await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
 });
 
-test("renameChange moves nothing when its transaction fails", async () => {
+test("rename moves nothing when its transaction fails", async () => {
   const backend = await GitBackend.open(repo);
   const tip = parseCommitHash(await plumbCommit("rename source work"));
   await git("update-ref", "refs/heads/rename-src", tip);
-  await backend.appendLog(parseRefName("rename-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("feature") }),
+  await backend.appendLog(parseBranchName("rename-src"), [
+    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
   ]);
   const logTip = await git("rev-parse", "refs/cabaret/log/rename-src");
   await git("update-ref", "refs/heads/rename-taken", tip);
   await git("checkout", "-q", "rename-src");
-  await expect(backend.renameChange(parseRefName("rename-src"), parseRefName("rename-taken"))).rejects.toThrow(
+  await expect(backend.rename(parseBranchName("rename-src"), parseBranchName("rename-taken"))).rejects.toThrow(
     /reference already exists/,
   );
   // The failed transaction moved nothing, and HEAD is re-attached to the source.
@@ -310,20 +310,20 @@ test("renameChange moves nothing when its transaction fails", async () => {
   await git("checkout", "-q", "feature");
 });
 
-test("renameChange refuses a branch checked out in another worktree", async () => {
+test("rename refuses a branch checked out in another worktree", async () => {
   const backend = await GitBackend.open(repo);
   const tip = parseCommitHash(await plumbCommit("worktree work"));
   await git("update-ref", "refs/heads/wt-src", tip);
-  await backend.appendLog(parseRefName("wt-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("feature") }),
+  await backend.appendLog(parseBranchName("wt-src"), [
+    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
   ]);
   const linked = join(repo, "linked-worktree");
   await git("worktree", "add", linked, "wt-src");
-  await expect(backend.renameChange(parseRefName("wt-src"), parseRefName("wt-dst"))).rejects.toThrow(
+  await expect(backend.rename(parseBranchName("wt-src"), parseBranchName("wt-dst"))).rejects.toThrow(
     'branch is checked out in another worktree: "wt-src"',
   );
-  expect(await backend.branchTip(parseRefName("wt-src"))).toBe(tip);
-  expect(await backend.branchTip(parseRefName("wt-dst"))).toBeUndefined();
+  expect(await backend.tip(parseBranchName("wt-src"))).toBe(tip);
+  expect(await backend.tip(parseBranchName("wt-dst"))).toBeUndefined();
   await git("worktree", "remove", linked);
 });
 
@@ -344,26 +344,26 @@ async function makeRemotePair(): Promise<{ dir: string; origin: string }> {
   return { dir, origin };
 }
 
-test("fetchBranches fetches many branches at once", async () => {
+test("fetchAll fetches many branches at once", async () => {
   const { dir, origin } = await makeRemotePair();
   try {
     const backend = await GitBackend.open(dir);
-    await backend.fetchBranches([parseRefName("main"), parseRefName("extra")]);
-    expect(await backend.branchTip(parseRefName("main"))).toBeDefined();
-    expect(await backend.branchTip(parseRefName("extra"))).toBeDefined();
+    await backend.fetchAll([parseBranchName("main"), parseBranchName("extra")]);
+    expect(await backend.tip(parseBranchName("main"))).toBeDefined();
+    expect(await backend.tip(parseBranchName("extra"))).toBeDefined();
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
   }
 });
 
-test("fetchBranches fetches what it can when a branch is missing on origin", async () => {
+test("fetchAll fetches what it can when a branch is missing on origin", async () => {
   const { dir, origin } = await makeRemotePair();
   try {
     const backend = await GitBackend.open(dir);
-    await backend.fetchBranches([parseRefName("no-such-branch"), parseRefName("main")]);
-    expect(await backend.branchTip(parseRefName("main"))).toBeDefined();
-    expect(await backend.branchTip(parseRefName("no-such-branch"))).toBeUndefined();
+    await backend.fetchAll([parseBranchName("no-such-branch"), parseBranchName("main")]);
+    expect(await backend.tip(parseBranchName("main"))).toBeDefined();
+    expect(await backend.tip(parseBranchName("no-such-branch"))).toBeUndefined();
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
@@ -375,18 +375,18 @@ test("deleteLog deletes the log locally and on origin, tolerating a repeat", asy
   try {
     const backend = await GitBackend.open(dir);
     await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
-    await backend.appendLog(parseRefName("widgets"), [
-      logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("main") }),
+    await backend.appendLog(parseBranchName("widgets"), [
+      logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("main") }),
     ]);
-    await backend.syncLog(parseRefName("widgets"));
+    await backend.syncLog(parseBranchName("widgets"));
     expect(await gitIn(origin, "for-each-ref", "refs/cabaret/")).not.toBe("");
 
-    await backend.deleteLog(parseRefName("widgets"));
-    expect(await backend.readLog(parseRefName("widgets"))).toEqual([]);
+    await backend.deleteLog(parseBranchName("widgets"));
+    expect(await backend.readLog(parseBranchName("widgets"))).toEqual([]);
     expect(await gitIn(dir, "for-each-ref", "refs/cabaret/")).toBe("");
     expect(await gitIn(origin, "for-each-ref", "refs/cabaret/")).toBe("");
     // Origin already lacks the ref, as after a concurrent prune: not a failure.
-    await backend.deleteLog(parseRefName("widgets"));
+    await backend.deleteLog(parseBranchName("widgets"));
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
@@ -401,8 +401,8 @@ test("listChanges names every change with a log, sorted by name", async () => {
     const backend = await GitBackend.open(dir);
     expect(await backend.listChanges()).toEqual([]);
     for (const change of ["widgets", "team/api", "docs"]) {
-      await backend.appendLog(parseRefName(change), [
-        logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("main") }),
+      await backend.appendLog(parseBranchName(change), [
+        logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("main") }),
       ]);
     }
     expect(await backend.listChanges()).toEqual(["docs", "team/api", "widgets"]);
@@ -460,7 +460,7 @@ test("pipelined reads all frame correctly", async () => {
   const commit = parseCommitHash(await plumbTree(files));
   const reads = await Promise.all([
     ...Object.keys(files).map((path) => backend.readFile(commit, parseFilePath(path))),
-    ...Array.from({ length: 10 }, () => backend.branchTip(parseRefName("feature"))),
+    ...Array.from({ length: 10 }, () => backend.tip(parseBranchName("feature"))),
   ]);
   const tip = await git("rev-parse", "refs/heads/feature");
   expect(reads).toEqual([...Object.values(files), ...Array(10).fill(tip)]);
@@ -468,16 +468,16 @@ test("pipelined reads all frame correctly", async () => {
 
 test("reads see refs and objects written after the session started", async () => {
   const backend = await GitBackend.open(repo);
-  expect(await backend.readLog(parseRefName("late-arrival"))).toEqual([]);
-  const entry = logEntry(1748000000000, { kind: "set-parent", parent: parseRefName("feature") });
-  await backend.appendLog(parseRefName("late-arrival"), [entry]);
-  expect(await backend.readLog(parseRefName("late-arrival"))).toEqual([entry]);
+  expect(await backend.readLog(parseBranchName("late-arrival"))).toEqual([]);
+  const entry = logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") });
+  await backend.appendLog(parseBranchName("late-arrival"), [entry]);
+  expect(await backend.readLog(parseBranchName("late-arrival"))).toEqual([entry]);
 });
 
 test("reads recover after the session's git process dies", async () => {
   const backend = await GitBackend.open(repo);
   const tip = await git("rev-parse", "refs/heads/feature");
-  expect(await backend.branchTip(parseRefName("feature"))).toBe(tip);
+  expect(await backend.tip(parseBranchName("feature"))).toBe(tip);
   const { reader } = backend as unknown as {
     reader: { child?: { kill(): void; once(e: string, f: () => void): void } };
   };
@@ -487,14 +487,14 @@ test("reads recover after the session's git process dies", async () => {
   const closed = new Promise<void>((resolve) => reader.child?.once("close", () => resolve()));
   reader.child.kill();
   await closed;
-  expect(await backend.branchTip(parseRefName("feature"))).toBe(tip);
+  expect(await backend.tip(parseBranchName("feature"))).toBe(tip);
 });
 
 test("fails fast on detached HEAD", async () => {
   const backend = await GitBackend.open(repo);
   const head = await git("rev-parse", "HEAD");
   await git("checkout", "-q", head);
-  await expect(backend.currentBranch()).rejects.toThrow(
+  await expect(backend.currentChange()).rejects.toThrow(
     "HEAD is detached; check out a branch or name the change explicitly",
   );
 });
@@ -522,9 +522,9 @@ test("workspaces lists each working tree with its branch and dirtiness, dropping
       ),
     );
     expect(await backend.workspaces()).toEqual([
-      { path: roots[0], branch: "main", dirty: false, primary: true },
-      { path: roots[1], branch: undefined, dirty: false, primary: false },
-      { path: roots[2], branch: "gadget", dirty: true, primary: false },
+      { path: roots[0], change: "main", dirty: false, primary: true },
+      { path: roots[1], change: undefined, dirty: false, primary: false },
+      { path: roots[2], change: "gadget", dirty: true, primary: false },
     ]);
   } finally {
     await rm(base, { recursive: true, force: true });
@@ -544,7 +544,7 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseRefName(change), parseRefName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",
@@ -556,28 +556,28 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
 
     // Shared style checks the change out in this working tree; thereafter
     // the tree is the change's workspace.
-    expect(await gotoChange(backend, config("shared"), parseRefName("gizmo"), false)).toEqual({
+    expect(await gotoChange(backend, config("shared"), parseBranchName("gizmo"), false)).toEqual({
       kind: "checked-out",
       path: root,
     });
     expect(await gitIn(dir, "branch", "--show-current")).toBe("gizmo");
-    expect(await gotoChange(backend, config("shared"), parseRefName("gizmo"), false)).toEqual({
+    expect(await gotoChange(backend, config("shared"), parseBranchName("gizmo"), false)).toEqual({
       kind: "at",
       path: root,
     });
 
     // A dirty tree refuses the checkout until overridden.
     await writeFile(join(dir, "junk.txt"), "junk\n");
-    await expect(gotoChange(backend, config("shared"), parseRefName("widget"), false)).rejects.toThrow(
+    await expect(gotoChange(backend, config("shared"), parseBranchName("widget"), false)).rejects.toThrow(
       DirtyWorkspaceError,
     );
-    expect(await gotoChange(backend, config("shared"), parseRefName("widget"), true)).toEqual({
+    expect(await gotoChange(backend, config("shared"), parseBranchName("widget"), true)).toEqual({
       kind: "checked-out",
       path: root,
     });
 
     // Dedicated style leaves this tree alone and adds a sibling workspace.
-    expect(await gotoChange(backend, config("dedicated"), parseRefName("gadget"), false)).toEqual({
+    expect(await gotoChange(backend, config("dedicated"), parseBranchName("gadget"), false)).toEqual({
       kind: "added",
       path: `${root}-gadget`,
     });
@@ -601,7 +601,7 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseRefName(change), parseRefName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",
@@ -613,35 +613,35 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
     await gitIn(dir, "worktree", "add", "--quiet", `${root}-gadget`, "gadget");
 
     // A change held elsewhere offers only its own workspace, whatever the style.
-    expect(await gotoOffer(backend, config("shared"), parseRefName("gadget"))).toEqual({
+    expect(await gotoOffer(backend, config("shared"), parseBranchName("gadget"))).toEqual({
       kind: "offer",
       options: [{ kind: "open", path: `${root}-gadget` }],
     });
 
     // An unheld change in a clean tree offers a checkout, joined and led by a
     // dedicated workspace when the style prefers one.
-    expect(await gotoOffer(backend, config("shared"), parseRefName("gizmo"))).toEqual({
+    expect(await gotoOffer(backend, config("shared"), parseBranchName("gizmo"))).toEqual({
       kind: "offer",
       options: [{ kind: "checkout" }],
     });
-    expect(await gotoOffer(backend, config("dedicated"), parseRefName("gizmo"))).toEqual({
+    expect(await gotoOffer(backend, config("dedicated"), parseBranchName("gizmo"))).toEqual({
       kind: "offer",
       options: [{ kind: "add", path: `${root}-gizmo` }, { kind: "checkout" }],
     });
 
     // Taking the checkout makes this tree the change's home.
-    expect(await checkoutChange(backend, parseRefName("gizmo"), false)).toBe(root);
+    expect(await checkoutChange(backend, parseBranchName("gizmo"), false)).toBe(root);
     expect(await gitIn(dir, "branch", "--show-current")).toBe("gizmo");
-    expect(await gotoOffer(backend, config("shared"), parseRefName("gizmo"))).toEqual({ kind: "here" });
+    expect(await gotoOffer(backend, config("shared"), parseBranchName("gizmo"))).toEqual({ kind: "here" });
 
     // A dirty tree rules the checkout out, leaving only a dedicated workspace.
     await writeFile(join(dir, "junk.txt"), "junk\n");
-    expect(await gotoOffer(backend, config("shared"), parseRefName("widget"))).toEqual({
+    expect(await gotoOffer(backend, config("shared"), parseBranchName("widget"))).toEqual({
       kind: "offer",
       options: [{ kind: "add", path: `${root}-widget` }],
     });
-    await expect(checkoutChange(backend, parseRefName("widget"), false)).rejects.toThrow(DirtyWorkspaceError);
-    expect(await checkoutChange(backend, parseRefName("widget"), true)).toBe(root);
+    await expect(checkoutChange(backend, parseBranchName("widget"), false)).rejects.toThrow(DirtyWorkspaceError);
+    expect(await checkoutChange(backend, parseBranchName("widget"), true)).toBe(root);
     expect(await gitIn(dir, "branch", "--show-current")).toBe("widget");
   } finally {
     await rm(base, { recursive: true, force: true });

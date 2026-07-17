@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { type Forge, type ForgeChangeId, forgeChangeId, parseRefName } from "cabaret-core";
+import { type Forge, type ForgeChangeId, forgeChangeId, parseBranchName } from "cabaret-core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import { openGitHubForge } from "../github.js";
 
@@ -66,7 +66,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
 
   test("findChange is undefined for a branch with no open PR", async () => {
     const { forge } = await openFixture(FIXTURE ?? "");
-    expect(await forge.findChange(parseRefName("main"))).toBeUndefined();
+    expect(await forge.findChange(parseBranchName("main"))).toBeUndefined();
   }, 60000);
 });
 
@@ -78,7 +78,7 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
     await git("config", "user.email", "fixture@example.com");
     // Live state makes true determinism impossible; a timestamped branch at
     // least keeps concurrent runs off each other's toes.
-    const branch = parseRefName(`test-${Date.now()}`);
+    const branch = parseBranchName(`test-${Date.now()}`);
     await git("checkout", "-qb", branch);
     await writeFile(join(dir, `${branch}.txt`), `${branch}\n`);
     await git("add", "-A");
@@ -90,7 +90,7 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
         await execFileAsync("gh", ["pr", "close", String(id), "--delete-branch"], { cwd: dir });
       }
     });
-    const created = await forge.createChange(branch, parseRefName("main"), `live test ${branch}`, false);
+    const created = await forge.createChange(branch, parseBranchName("main"), `live test ${branch}`, false);
     id = created.id;
     expect(created).toEqual({
       id: expect.any(Number),
@@ -106,7 +106,7 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
     const body = `ship it\n\n<!-- cabaret:${"ab".repeat(32)} -->`;
     await forge.addComment(created.id, body);
     expect((await forge.listComments(created.id)).map((comment) => comment.body)).toEqual([body]);
-    await forge.setParent(created.id, parseRefName("base2"));
+    await forge.setParent(created.id, parseBranchName("base2"));
     expect((await forge.getChange(created.id)).parent).toBe("base2");
   }, 300000);
 });

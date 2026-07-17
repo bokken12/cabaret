@@ -1,18 +1,18 @@
 import {
   type ChangeSummary,
-  type CommitHash,
   forgeChangeId,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
-  parseRefName,
+  type Revision,
   timestampMs,
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
 import { type Doc, docText, showDoc, targetAt, todoDoc } from "../index.js";
 
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
@@ -20,8 +20,8 @@ const alice = userName("alice@example.com");
 
 function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
   return {
-    change: parseRefName(change),
-    parent: parseRefName("main"),
+    change: parseBranchName(change),
+    parent: parseBranchName("main"),
     owner: alice,
     reviewers: [],
     reviewing: "everyone",
@@ -50,7 +50,7 @@ function foldTexts(doc: Doc): (string | undefined)[][] {
 test("todoDoc lays out both sections as trees, ancestors kept for context", () => {
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
-    parent: parseRefName("gadget"),
+    parent: parseBranchName("gadget"),
     reviewLeft: files("gizmo.ts", "shared.ts"),
     base: fake("3"),
     tip: fake("4"),
@@ -201,8 +201,8 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
     review: [],
     owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
     broken: [
-      { change: parseRefName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
-      { change: parseRefName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
+      { change: parseBranchName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
+      { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
     ],
     workspaces: [],
   });
@@ -320,7 +320,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 test("showDoc words each note by its reading", () => {
   const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
     const doc = showDoc({
-      summary: summary("widgets", { parent: parseRefName("gadget"), ...opts }),
+      summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
       comments: [],
       workspace: undefined,
       remaining: [],
@@ -337,7 +337,7 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
   expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
   const tracked = { forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) };
-  expect(attributeRow({ forgeChange: { ...tracked, staleParent: parseRefName("relic") } }, "forge change")).toBe(
+  expect(attributeRow({ forgeChange: { ...tracked, staleParent: parseBranchName("relic") } }, "forge change")).toBe(
     "│ forge change │ github.com/test-org/widgets#7 (merges into relic) │",
   );
   expect(attributeRow({ forgeChange: { ...tracked, staleParent: undefined } }, "forge change")).toBe(

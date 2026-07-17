@@ -1,4 +1,4 @@
-import { parseFilePath, parseRefName } from "cabaret-core";
+import { parseBranchName, parseFilePath } from "cabaret-core";
 import { span } from "cabaret-views";
 import { expect, test } from "vitest";
 import { linkRanges, styledRanges } from "../ranges.js";
@@ -25,7 +25,7 @@ test("styledRanges of an unstyled doc is empty", () => {
 });
 
 test("linkRanges locates advertised links, skipping jump targets and empty spans", () => {
-  const change = { kind: "change", change: parseRefName("gizmo") } as const;
+  const change = { kind: "change", change: parseBranchName("gizmo") } as const;
   const file = { kind: "file", change: change.change, file: parseFilePath("api.ts") } as const;
   const location = { kind: "location", change: change.change, file: file.file, line: 3 } as const;
   const doc = {

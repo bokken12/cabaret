@@ -3,17 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { applySetup, auditSetup, declinedScopes, declineSetup, type SetupAudit } from "cabaret-core";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
-import {
-  applySetup,
-  auditSetup,
-  declinedScopes,
-  declineSetup,
-  GitBackend,
-  GitUnavailableError,
-  LOG_FETCH_REFSPEC,
-  type SetupAudit,
-} from "../index.js";
+import { GitBackend, GitUnavailableError, LOG_FETCH_REFSPEC } from "../index.js";
 
 const execFileAsync = promisify(execFile);
 

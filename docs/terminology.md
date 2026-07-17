@@ -86,6 +86,25 @@ What should one call a working tree of the repository, each holding a checked-ou
 
 Decided: "workspace". Git's "worktree" appears only in the code that shells out to git.
 
+## Named pointers
+
+What should one call the named, movable pointer to a line of code — what a change (or a parent like trunk) is named by?
+
+- git calls this a "branch"
+- hg calls this a "bookmark" (its "branch" is a different, permanent thing)
+- JJ calls this a "bookmark" too
+
+Decided: there is no third word — everything is referred to by its change name (`ChangeName`, per-backend grammar), and the `Backend` interface speaks of changes even for parents that are not changes themselves. "Branch" and "bookmark" appear only in the code that shells out to git or hg, and in messages those backends emit, where the native word is what the user can act on.
+
+## The remote
+
+What should one call the repository changes are shared through — where fetches read from and lands end up?
+
+- git calls it a "remote", conventionally named "origin"
+- hg calls it a "path", conventionally named "default"
+
+Decided: "origin", everywhere — Cabaret pins a single remote, so the conventional git name doubles as the concept's name. hg's "default" path appears only in the code that shells out to hg (`ORIGIN_PATH` maps it) and in messages that tell the user which hg path to configure.
+
 # Versions
 
 I like JJ's "revision" over git's "commit", the commit feels like the action

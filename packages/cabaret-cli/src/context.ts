@@ -1,6 +1,6 @@
 import type { CommandContext, StricliProcess } from "@stricli/core";
 import { type Backend, type Forge, type TimestampMs, timestampMs } from "cabaret-core";
-import { GitBackend, openGitHubForge } from "cabaret-node";
+import { openBackend, openGitHubForge } from "cabaret-node";
 
 /**
  * Context threaded through every Cabaret command. Extend this as commands gain
@@ -23,7 +23,7 @@ export function buildContext(process: NodeJS.Process): LocalContext {
     // must return the real `process` by reference so Stricli's exit-code writes
     // reach the runtime.
     process: process as StricliProcess,
-    backend: () => GitBackend.open(process.cwd()),
+    backend: () => openBackend(process.cwd()),
     forge: () => openGitHubForge(process.cwd()),
     now: () => timestampMs(Date.now()),
   };

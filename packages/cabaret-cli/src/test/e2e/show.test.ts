@@ -1,4 +1,4 @@
-import { parseRefName } from "cabaret-core";
+import { parseBranchName } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeRepo, tempDir } from "./fixture.js";
@@ -83,7 +83,7 @@ test("show renders a change pull imported like any other", async () => {
   await repo.git("push", "-q", "origin", "their-feature");
   await repo.git("checkout", "-q", "main");
   await repo.git("branch", "-qD", "their-feature");
-  const id = forge.openPr("carol", parseRefName("their-feature"), parseRefName("main"), "Their feature");
+  const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
   await repo.cabaret("pull");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`

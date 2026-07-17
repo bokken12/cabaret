@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type RefName, transferChange, type UserName } from "cabaret-core";
+import { transferChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, evenThoughNotOwner, parseUser } from "./shared.js";
 
@@ -20,9 +20,9 @@ export const setOwner = buildCommand({
       evenThoughNotOwner,
     },
   },
-  async func(this: LocalContext, flags: { change?: RefName; evenThoughNotOwner: boolean }, newOwner: UserName) {
+  async func(this: LocalContext, flags: { change?: string; evenThoughNotOwner: boolean }, newOwner: UserName) {
     const backend = await this.backend();
-    const change = flags.change ?? (await backend.currentBranch());
+    const change = flags.change === undefined ? await backend.currentChange() : backend.parseName(flags.change);
     await transferChange(backend, this.now, change, newOwner, flags.evenThoughNotOwner);
   },
 });

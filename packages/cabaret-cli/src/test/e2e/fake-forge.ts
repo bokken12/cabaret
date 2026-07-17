@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  type CommitHash,
+  type ChangeName,
   type Forge,
   type ForgeChange,
   type ForgeChangeId,
@@ -12,7 +12,7 @@ import {
   type OpenChange,
   parseCommitHash,
   parseForgeLocator,
-  type RefName,
+  type Revision,
   type Self,
   timestampMs,
   type UserName,
@@ -29,15 +29,15 @@ interface FakeComment {
 }
 
 interface FakePr {
-  readonly head: RefName;
-  base: RefName;
+  readonly head: ChangeName;
+  base: ChangeName;
   readonly title: string;
   readonly login: string;
   state: "open" | "closed" | "merged";
   draft: boolean;
   merge?: ForgeMerge;
   /** The head that merged; the live branch tip until then. */
-  tip?: CommitHash;
+  tip?: Revision;
   readonly comments: FakeComment[];
   /** Logins with a pending review request. */
   readonly requested: Set<string>;
@@ -93,7 +93,7 @@ export class FakeForge implements Forge {
    * cannot host a PR for a branch it does not have, but tests fabricate
    * them; the zero hash stands in, and never matches a real local tip.
    */
-  private async branchTip(branch: RefName): Promise<CommitHash> {
+  private async tip(branch: ChangeName): Promise<Revision> {
     try {
       return parseCommitHash(await this.git("rev-parse", "--verify", `refs/heads/${branch}`));
     } catch {
@@ -109,7 +109,7 @@ export class FakeForge implements Forge {
     return { user: loginIdentity(this.tokenLogin), aliases };
   }
 
-  async findChange(branch: RefName): Promise<ForgeChange | undefined> {
+  async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {
     for (const [id, pr] of this.prs) {
       if (pr.head === branch && pr.state === "open") {
         return this.toChange(id, pr);
@@ -138,11 +138,11 @@ export class FakeForge implements Forge {
     return this.toChange(id, this.pr(id));
   }
 
-  async createChange(head: RefName, parent: RefName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
     return this.getChange(this.openPr(this.tokenLogin, head, parent, title, draft));
   }
 
-  async setParent(id: ForgeChangeId, parent: RefName): Promise<void> {
+  async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {
     this.pr(id).base = parent;
   }
 
@@ -153,7 +153,7 @@ export class FakeForge implements Forge {
   async landChange(
     id: ForgeChangeId,
     method: LandMethod,
-    expectedTip: CommitHash,
+    expectedTip: Revision,
     title: string,
     message: string,
   ): Promise<ForgeMerge> {
@@ -161,8 +161,8 @@ export class FakeForge implements Forge {
     if (pr.state !== "open") {
       throw new Error(`PR ${id} is ${pr.state}`);
     }
-    const onto = await this.branchTip(pr.base);
-    const tip = await this.branchTip(pr.head);
+    const onto = await this.tip(pr.base);
+    const tip = await this.tip(pr.head);
     if (tip !== expectedTip) {
       throw new Error(`PR ${id} head is at ${tip}, not ${expectedTip}`);
     }
@@ -203,7 +203,7 @@ export class FakeForge implements Forge {
   }
 
   /** A PR opened on the forge by `login`; returns its number. */
-  openPr(login: string, head: RefName, base: RefName, title: string, draft = false): ForgeChangeId {
+  openPr(login: string, head: ChangeName, base: ChangeName, title: string, draft = false): ForgeChangeId {
     const id = forgeChangeId(this.prs.size + 1);
     this.prs.set(id, {
       head,
@@ -264,7 +264,7 @@ export class FakeForge implements Forge {
   }
 
   /** The merge button, pressed after `mergeCommit` reached the base branch out of band. */
-  merge(id: ForgeChangeId, mergeCommit: CommitHash, parents = 2): void {
+  merge(id: ForgeChangeId, mergeCommit: Revision, parents = 2): void {
     const pr = this.pr(id);
     pr.state = "merged";
     pr.merge = { commit: mergeCommit, parents };
@@ -282,7 +282,7 @@ export class FakeForge implements Forge {
     return {
       id,
       head: pr.head,
-      tip: pr.tip ?? (await this.branchTip(pr.head)),
+      tip: pr.tip ?? (await this.tip(pr.head)),
       parent: pr.base,
       title: pr.title,
       author: loginIdentity(pr.login),

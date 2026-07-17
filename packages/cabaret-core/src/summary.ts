@@ -2,7 +2,7 @@ import {
   type Backend,
   brain,
   type ChangeDiff,
-  type CommitHash,
+  type ChangeName,
   changeConflicts,
   currentForgeChange,
   currentOwner,
@@ -15,9 +15,9 @@ import {
   type LogEntry,
   landedMerge,
   observedForgeParent,
-  type RefName,
   type ReviewedDiff,
   type Reviewing,
+  type Revision,
   remainingSpans,
   type UserName,
 } from "./backend.js";
@@ -26,7 +26,7 @@ import { UserError } from "./error.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
-  readonly change: RefName;
+  readonly change: ChangeName;
   readonly children: readonly ChangeNode[];
 }
 
@@ -36,8 +36,8 @@ export interface ChangeNode {
  * roots and children sort by name. Parent links that form a cycle leave their
  * members reachable from no root, which is an error.
  */
-export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly ChangeNode[] {
-  const byParent = new Map<RefName, RefName[]>();
+export function changeForest(parents: ReadonlyMap<ChangeName, ChangeName>): readonly ChangeNode[] {
+  const byParent = new Map<ChangeName, ChangeName[]>();
   for (const [change, parent] of parents) {
     const siblings = byParent.get(parent);
     if (siblings === undefined) {
@@ -46,8 +46,8 @@ export function changeForest(parents: ReadonlyMap<RefName, RefName>): readonly C
       siblings.push(change);
     }
   }
-  const reached = new Set<RefName>();
-  const build = (change: RefName): ChangeNode => {
+  const reached = new Set<ChangeName>();
+  const build = (change: ChangeName): ChangeNode => {
     reached.add(change);
     const children = (byParent.get(change) ?? []).sort().map(build);
     return { change, children };
@@ -81,8 +81,8 @@ export type NextStep =
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
-  readonly change: RefName;
-  readonly parent: RefName;
+  readonly change: ChangeName;
+  readonly parent: ChangeName;
   readonly owner: UserName;
   /** The change's reviewers, sorted by name. */
   readonly reviewers: readonly UserName[];
@@ -93,13 +93,13 @@ export interface ChangeSummary {
         readonly forge: ForgeLocator;
         readonly id: ForgeChangeId;
         /** The parent the forge was last seen merging into, when it is not the change's. */
-        readonly staleParent: RefName | undefined;
+        readonly staleParent: ChangeName | undefined;
       }
     | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
-  readonly landed: CommitHash | undefined;
-  readonly base: CommitHash;
-  readonly tip: CommitHash;
+  readonly landed: Revision | undefined;
+  readonly base: Revision;
+  readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
@@ -121,7 +121,7 @@ export interface ChangeSummary {
  */
 export async function summarizeChange(
   backend: Backend,
-  change: RefName,
+  change: ChangeName,
   entries: readonly LogEntry[],
   user: UserName,
   diff: ChangeDiff,
@@ -136,9 +136,9 @@ export async function summarizeChange(
   // These are all local readings — origin's tip is whatever was last fetched
   // — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
-  let staleParent: RefName | undefined;
+  let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
-  let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: CommitHash } | undefined;
+  let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
   if (landed === undefined) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
@@ -157,7 +157,7 @@ export async function summarizeChange(
     if (landedMerge(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
-      const parentTip = await backend.branchTip(parent);
+      const parentTip = await backend.tip(parent);
       if (parentTip === undefined) {
         deadParent = "missing";
       } else if (parentTip !== base) {
@@ -210,7 +210,7 @@ export async function summarizeChange(
 async function nextStep(
   backend: Backend,
   readings: Omit<ChangeSummary, "nextStep">,
-  stale: { readonly parentTip: CommitHash } | undefined,
+  stale: { readonly parentTip: Revision } | undefined,
 ): Promise<NextStep> {
   if (readings.landed !== undefined) {
     return "landed";
@@ -254,23 +254,23 @@ async function nextStep(
 /** What a reviewer looks at to review a file in a round. */
 export type FileView =
   /** The plain diff from `start` to the round's end. */
-  | { readonly kind: "span"; readonly start: CommitHash }
+  | { readonly kind: "span"; readonly start: Revision }
   /** The base moved under the review: compare the reviewed diff with the current one. */
   | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
   /** The reviewed tip left the change's history: diff from its contents. */
-  | { readonly kind: "rewritten"; readonly from: CommitHash };
+  | { readonly kind: "rewritten"; readonly from: Revision };
 
 /** One round of review: a span of a change's history with review left in it. */
 export interface ReviewRound {
   /** The revision the round reviews up to: reviewing a file here records `{base, tip: end}`. */
-  readonly end: CommitHash;
+  readonly end: Revision;
   /** What to review per file, sorted by name. */
   readonly files: ReadonlyMap<FilePath, FileView>;
 }
 
 /** Memoize an async derivation per reviewed tip: reviews sharing a tip share what remains. */
-function perTip<T>(compute: (reviewedTip: CommitHash) => Promise<T>): (reviewedTip: CommitHash) => Promise<T> {
-  const memo = new Map<CommitHash, T>();
+function perTip<T>(compute: (reviewedTip: Revision) => Promise<T>): (reviewedTip: Revision) => Promise<T> {
+  const memo = new Map<Revision, T>();
   return async (reviewedTip) => {
     let value = memo.get(reviewedTip);
     if (value === undefined) {
@@ -301,8 +301,8 @@ export async function reviewRounds(
 ): Promise<readonly ReviewRound[]> {
   const { base, tip } = diff;
   const rounds: {
-    start: CommitHash;
-    end: CommitHash;
+    start: Revision;
+    end: Revision;
     changed: ReadonlySet<FilePath>;
     files: Map<FilePath, FileView>;
   }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
@@ -380,8 +380,8 @@ async function carriedCleanly(
   backend: Backend,
   file: FilePath,
   view: Extract<FileView, { kind: "rebased" | "rewritten" }>,
-  base: CommitHash,
-  end: CommitHash,
+  base: Revision,
+  end: Revision,
 ): Promise<boolean> {
   let resolved: DiffView;
   if (view.kind === "rebased") {

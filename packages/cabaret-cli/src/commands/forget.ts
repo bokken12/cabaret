@@ -1,5 +1,4 @@
 import { buildCommand } from "@stricli/core";
-import type { RefName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange } from "./shared.js";
 
@@ -18,7 +17,7 @@ export const forget = buildCommand({
     },
     flags: { change: changeFlag("forget in") },
   },
-  async func(this: LocalContext, flags: { change?: RefName }, ...rawFiles: string[]) {
+  async func(this: LocalContext, flags: { change?: string }, ...rawFiles: string[]) {
     const backend = await this.backend();
     const files = rawFiles.map((raw) => backend.resolveFile(raw));
     const { change } = await resolveChange(backend, flags.change);

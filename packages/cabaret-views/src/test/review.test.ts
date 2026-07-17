@@ -1,10 +1,10 @@
 import {
   type Backend,
-  type CommitHash,
   type LogEntry,
+  parseBranchName,
   parseCommitHash,
   parseFilePath,
-  parseRefName,
+  type Revision,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -20,11 +20,11 @@ import {
   targetAt,
 } from "../index.js";
 
-function fake(digit: string): CommitHash {
+function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
-const widgets = parseRefName("widgets");
+const widgets = parseBranchName("widgets");
 
 test("reviewDoc lists the round's files and what follows", () => {
   const doc = reviewDoc({
@@ -629,7 +629,7 @@ function snapshotWith(
   secondRound: readonly string[] = [],
   conflicts: readonly string[] = [],
 ): ChangeSnapshot {
-  const round = (end: CommitHash, names: readonly string[]) => ({
+  const round = (end: Revision, names: readonly string[]) => ({
     end,
     files: new Map(names.map((name) => [parseFilePath(name), { kind: "span", start: fake("1") } as const])),
   });
