@@ -19,7 +19,6 @@ export class AncestryCache {
 
   /** The memoized merge-base of `a` and `b`, running `compute` on a miss. */
   mergeBase(a: Revision, b: Revision, compute: () => Promise<Revision>): Promise<Revision> {
-    // Equal hashes name the same commit, trivially the last shared revision.
     if (a === b) {
       return Promise.resolve(a);
     }
@@ -47,7 +46,6 @@ export class AncestryCache {
 
   /** Whether `ancestor` is memoized as reachable from `descendant`, running `compute` on a miss. */
   isAncestor(ancestor: Revision, descendant: Revision, compute: () => Promise<boolean>): Promise<boolean> {
-    // A revision is its own ancestor.
     if (ancestor === descendant) {
       return TRUE;
     }
