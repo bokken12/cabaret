@@ -748,6 +748,11 @@ export class HgBackend implements Backend {
     return found;
   }
 
+  async hasRevision(revision: Revision): Promise<boolean> {
+    // `present` turns the unknown-revision error into an empty revset.
+    return (await this.revsetNode(`present(${revision})`)) !== undefined;
+  }
+
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
   }

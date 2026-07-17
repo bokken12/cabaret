@@ -80,6 +80,8 @@ function repoBackend(opts: {
   tips?: Record<string, string>;
   /** Origin's last-fetched branch tips, for `originTip`. */
   origin?: Record<string, string>;
+  /** Commit digits whose objects this clone lacks, for `hasRevision`. */
+  absent?: readonly string[];
   /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
   logs?: Record<string, readonly LogEntry[]>;
 }): Backend {
@@ -95,6 +97,7 @@ function repoBackend(opts: {
     | "mergedTip"
     | "tip"
     | "originTip"
+    | "hasRevision"
     | "mergeBase"
     | "isAncestor"
     | "landMerges"
@@ -117,6 +120,9 @@ function repoBackend(opts: {
     async originTip(branch) {
       const digit = opts.origin?.[branch as string];
       return digit === undefined ? undefined : fake(digit);
+    },
+    async hasRevision(revision) {
+      return !(opts.absent ?? []).includes(revision[0] as string);
     },
     async readLog(change) {
       return opts.logs?.[change as string] ?? [];
@@ -676,6 +682,69 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     reviewLeft: ["a.ts"],
     nextStep: "review",
   });
+});
+
+test("a change with no local branch reads origin's copy, with no origin note", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1" },
+    origin: { widgets: "3" },
+    changed: { "13": ["a.ts", "b.ts"] },
+  });
+  const widgets = parseBranchName("widgets");
+  expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
+    change: "widgets",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    reviewing: "everyone",
+    forgeChange: undefined,
+    landed: undefined,
+    archived: false,
+    base: fake("1"),
+    tip: fake("3"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: undefined,
+    conflicts: [],
+    reviewLeft: ["a.ts", "b.ts"],
+    nextStep: "review",
+  });
+});
+
+test("a parent with no local branch reads origin's copy too", async () => {
+  // Origin's main moved to 2 under the change; no local main exists at all.
+  const backend = repoBackend({
+    history: { "2": "1", "3": "1" },
+    branches: { feature: "3" },
+    origin: { main: "2" },
+    changed: { "13": ["a.ts"] },
+  });
+  expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    change: "feature",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    reviewing: "everyone",
+    forgeChange: undefined,
+    landed: undefined,
+    archived: false,
+    base: fake("1"),
+    tip: fake("3"),
+    origin: undefined,
+    deadParent: undefined,
+    staleBase: "behind",
+    conflicts: [],
+    reviewLeft: ["a.ts"],
+    nextStep: "review",
+  });
+});
+
+test("a stored base this clone lacks asks a reparent instead of failing the read", async () => {
+  const backend = repoBackend({ history: { "3": "1" }, branches: { feature: "3" }, absent: ["1"] });
+  await expect(summarize(backend, feature, created("main", "1"), alice)).rejects.toThrow(
+    'parent branch of "feature" does not exist: "main"; run `cabaret reparent`',
+  );
 });
 
 test("a reviewed forge-tracked change ahead of origin pushes before landing", async () => {

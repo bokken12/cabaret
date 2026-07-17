@@ -150,6 +150,8 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
+    // A change with no local branch reads as origin's copy itself — trivially
+    // in sync, so no reading arises, just as when a local branch matches.
     const originTip = await backend.originTip(change);
     if (originTip !== undefined && originTip !== tip) {
       origin = (await backend.isAncestor(originTip, tip))
@@ -161,7 +163,9 @@ export async function summarizeChange(
     if (landedMerge(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
-      const parentTip = await backend.tip(parent);
+      // The parent reads like the change itself: origin's copy stands in for
+      // a branch this clone does not hold.
+      const parentTip = (await backend.tip(parent)) ?? (await backend.originTip(parent));
       if (parentTip === undefined) {
         deadParent = "missing";
       } else if (parentTip !== base) {
@@ -197,8 +201,11 @@ export async function summarizeChange(
  * tip trails outranks everything: each reading below is a question about
  * revisions this clone may lack. Behind mends by fast-forwarding — a pull —
  * while divergence is the owner's to resolve: an intentional rewrite pushes
- * with lease, an accidental one resets to origin. A dead parent comes next:
- * nothing can land until the change hangs somewhere real. Unresolved
+ * with lease, an accidental one resets to origin. A change with no local
+ * branch gates nothing: its readings are origin's copy already, and
+ * operations that move the branch create it from that copy themselves. A
+ * dead parent comes next: nothing can land until the change hangs somewhere
+ * real. Unresolved
  * conflicts outrank review: markers are not code worth reading. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers

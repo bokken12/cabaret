@@ -749,6 +749,10 @@ export class GitBackend implements Backend {
     return parseCommitHash(out.trimEnd());
   }
 
+  async hasRevision(revision: Revision): Promise<boolean> {
+    return (await this.reader.request("info", `${revision}^{commit}`)) !== undefined;
+  }
+
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     try {
       await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
