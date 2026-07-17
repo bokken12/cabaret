@@ -46,7 +46,7 @@ import {
   VcsUnavailableError,
   widenReviewing,
 } from "cabaret-core";
-import { openGitHubForge, openBackend as openRepositoryBackend } from "cabaret-node";
+import { openBackend as openRepositoryBackend, openForge as openRepositoryForge } from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -96,13 +96,13 @@ function openBackend(): Promise<Backend> {
   return cachedBackend.backend;
 }
 
-/**
- * Open the forge for the first workspace folder's origin, or undefined when
- * none is reachable (no folder, no token, or a non-GitHub origin).
- */
-async function openForge(): Promise<Forge | undefined> {
+/** Open the supported forge named by the first workspace folder's origin. */
+async function openForge(): Promise<Forge> {
   const folder = vscode.workspace.workspaceFolders?.[0];
-  return folder === undefined ? undefined : openGitHubForge(folder.uri.fsPath).catch(() => undefined);
+  if (folder === undefined) {
+    throw new UserError("cabaret needs an open folder inside a repository");
+  }
+  return openRepositoryForge(folder.uri.fsPath);
 }
 
 /**
@@ -537,7 +537,7 @@ function describePullEvent(event: PullEvent): string | undefined {
 
 async function runPull(provider: PageProvider): Promise<void> {
   try {
-    const forge = await requireForge();
+    const forge = await openForge();
     // A notification appears the moment the command fires, rather than
     // leaving the user staring at an unchanged window until the pull —
     // several git and forge round trips — finally resolves; its message
@@ -642,7 +642,7 @@ async function runSetup(): Promise<void> {
 /** Push each selected change to the forge, ancestormost first. */
 async function pushSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const git = forgeBackend(backend);
-  const forge = await requireForge();
+  const forge = await openForge();
   const pushed: string[] = [];
   for (const change of changes) {
     const { id } = await pushChange(git, now, forge, change, await git.readLog(change));
@@ -802,7 +802,7 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
   const config = await readConfig(backend);
   const landAll = async (overrides: LandOverrides) => {
     const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
-      await landAsConfigured(backend, now, requireForge, config, change, entries, overrides);
+      await landAsConfigured(backend, now, openForge, config, change, entries, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only !== undefined) {
@@ -896,15 +896,6 @@ async function removeWorkspaceSelection(backend: Backend, change: ChangeName): P
     path = await removeChangeWorkspace(backend, change, true);
   }
   vscode.window.setStatusBarMessage(`cabaret: removed ${path}`, 5000);
-}
-
-/** The forge, for an operation that cannot proceed without one. */
-async function requireForge(): Promise<Forge> {
-  const forge = await openForge();
-  if (forge === undefined) {
-    throw new UserError("no reachable forge for this repository");
-  }
-  return forge;
 }
 
 /** Close every tab showing `uri`. */

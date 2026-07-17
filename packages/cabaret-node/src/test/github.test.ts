@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { type Forge, type ForgeChangeId, forgeChangeId, parseBranchName } from "cabaret-core";
 import { describe, expect, onTestFinished, test } from "vitest";
-import { openGitHubForge } from "../github.js";
+import { openForge } from "../forge.js";
 
 // Live tests against a real GitHub repository, covering what FakeForge
 // cannot: the exact HTTP requests and GitHub's actual responses. Skipped
@@ -29,7 +29,7 @@ async function openFixture(fixture: string): Promise<{ dir: string; forge: Forge
   const dir = await mkdtemp(join(tmpdir(), "cabaret-forge-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   await execFileAsync("gh", ["repo", "clone", fixture, dir, "--", "--quiet"]);
-  return { dir, forge: await openGitHubForge(dir) };
+  return { dir, forge: await openForge(dir) };
 }
 
 describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () => {

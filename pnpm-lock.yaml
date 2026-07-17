@@ -105,9 +105,15 @@ importers:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      cabaret-forgejo:
+        specifier: workspace:*
+        version: link:../cabaret-forgejo
       cabaret-github:
         specifier: workspace:*
         version: link:../cabaret-github
+      cabaret-gitlab:
+        specifier: workspace:*
+        version: link:../cabaret-gitlab
 
   packages/cabaret-util:
     devDependencies:
