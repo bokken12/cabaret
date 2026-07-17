@@ -574,10 +574,11 @@ export interface Backend {
   fetch(change: ChangeName): Promise<void>;
 
   /**
-   * As `fetch` for each of `branches`, in one round trip where the
-   * backend can batch refspecs. Callers pass only branches absent locally.
+   * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
+   * Moves no local branch under git; hg's native pull also imports new
+   * remote bookmarks, as any hg pull does, and never overwrites local work.
    */
-  fetchAll(changes: readonly ChangeName[]): Promise<void>;
+  fetchOrigin(): Promise<void>;
 
   /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
