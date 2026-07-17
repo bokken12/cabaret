@@ -309,9 +309,9 @@ test("createChange, rebaseChange, and landChange run against hg end to end", { t
   expect(await backend.mergedTip(mainTip)).toBe(tip);
   expect(await backend.readFile(mainTip, parseFilePath("gadget.txt"))).toBe("work\n");
   const merges = await backend.landMerges(base, mainTip);
-  expect(merges).toEqual([{ commit: mainTip, onto: base }]);
+  expect(merges).toEqual([{ change, commit: mainTip, onto: base }]);
   // The land splits main's history into spans that skip the reviewed diff.
-  expect(await reviewSpans(backend, base, mainTip)).toEqual([]);
+  expect(reviewSpans(merges, base, mainTip)).toEqual([]);
   expect(await hg("log", "-r", "main", "-T", "{desc}")).toBe(landMessage(change).trimEnd());
 });
 

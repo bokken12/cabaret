@@ -869,8 +869,8 @@ export class GitBackend implements Backend {
 
   async landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]> {
     // Tab-delimit the fields: %P holds space-separated parents, and the
-    // trailer value (checked for presence only) is a branch name, so neither
-    // can contain a tab. `unfold` keeps a folded trailer value to one line.
+    // trailer value is a branch name, so neither can contain a tab. `unfold`
+    // keeps a folded trailer value to one line.
     const out = await git(this.root, [
       "log",
       "--first-parent",
@@ -893,7 +893,7 @@ export class GitBackend implements Backend {
       if (onto === undefined) {
         continue;
       }
-      merges.push({ commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
+      merges.push({ change: parseBranchName(trailer), commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
     }
     return merges;
   }

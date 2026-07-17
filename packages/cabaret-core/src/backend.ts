@@ -319,6 +319,8 @@ export function landMessage(change: ChangeName): string {
 
 /** A commit that landed a change, and the parent tip it landed onto. */
 export interface LandMerge {
+  /** The landed change, as the commit's trailer names it. */
+  readonly change: ChangeName;
   readonly commit: Revision;
   readonly onto: Revision;
 }
@@ -1076,18 +1078,19 @@ export interface ReviewSpan {
 }
 
 /**
- * The spans of `base`..`tip` left for a reviewer to review, oldest first.
+ * The spans of `base`..`tip` left for a reviewer to review, oldest first,
+ * given the land merges on its first-parent chain.
  *
- * Land merges on the first-parent chain split the history into spans: the
- * diff each merge brings in was already reviewed in the landed child, so what
- * needs review is base → first land's onto, then each land merge → the next
- * land's onto, and finally the last land merge → tip. A span a land merge
- * jumps over entirely (its start is its end) is dropped.
+ * The land merges split the history into spans: the diff each merge brings
+ * in was already reviewed in the landed child, so what needs review is base
+ * → first land's onto, then each land merge → the next land's onto, and
+ * finally the last land merge → tip. A span a land merge jumps over entirely
+ * (its start is its end) is dropped.
  */
-export async function reviewSpans(backend: Backend, base: Revision, tip: Revision): Promise<readonly ReviewSpan[]> {
+export function reviewSpans(lands: readonly LandMerge[], base: Revision, tip: Revision): readonly ReviewSpan[] {
   const spans: ReviewSpan[] = [];
   let start = base;
-  for (const { commit, onto } of await backend.landMerges(base, tip)) {
+  for (const { commit, onto } of lands) {
     if (start !== onto) {
       spans.push({ start, end: onto });
     }
@@ -1137,6 +1140,8 @@ export interface SpanDiff extends ReviewSpan {
 export interface ChangeDiff {
   readonly base: Revision;
   readonly tip: Revision;
+  /** The land merges on the first-parent chain, oldest first. */
+  readonly lands: readonly LandMerge[];
   readonly spans: readonly SpanDiff[];
 }
 
@@ -1151,13 +1156,14 @@ export async function changeDiff(
 
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
+  const lands = await backend.landMerges(base, tip);
   const spans = await Promise.all(
-    (await reviewSpans(backend, base, tip)).map(async (span) => ({
+    reviewSpans(lands, base, tip).map(async (span) => ({
       ...span,
       changed: new Set(await backend.changedFiles(span.start, span.end)),
     })),
   );
-  return { base, tip, spans };
+  return { base, tip, lands, spans };
 }
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */

@@ -105,7 +105,7 @@ function repoBackend(opts: {
   trees?: Record<string, Record<string, string>>;
   history?: Record<string, string>;
   changed?: Record<string, readonly string[]>;
-  merges?: readonly { commit: string; onto: string }[];
+  merges?: readonly { change: string; commit: string; onto: string }[];
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
@@ -133,7 +133,11 @@ function repoBackend(opts: {
       const cut = path.indexOf(base);
       const between = new Set(cut === -1 ? path : path.slice(0, cut));
       return (opts.merges ?? [])
-        .map(({ commit, onto }) => ({ commit: fake(commit), onto: fake(onto) }))
+        .map(({ change, commit, onto }) => ({
+          change: parseBranchName(change),
+          commit: fake(commit),
+          onto: fake(onto),
+        }))
         .filter(({ commit }) => between.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
     },
@@ -302,7 +306,7 @@ test("files changed only by a land merge carry no obligations", async () => {
   // landed child, so only the spans 0-1 and 2-3 are governed here.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
-    merges: [{ commit: "2", onto: "1" }],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "01": ["a.rs"], "23": [] },
     trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
   });

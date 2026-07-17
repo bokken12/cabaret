@@ -7,6 +7,7 @@ import {
   currentComments,
   type FilePath,
   isSatisfied,
+  type LandMerge,
   obligationStatuses,
   reviewerSummary,
   shortHash,
@@ -98,6 +99,19 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
   );
 }
 
+/** The included changes section: one row per change landed into this one, linking to its page. */
+function includedChanges(included: readonly LandMerge[]): Section | undefined {
+  if (included.length === 0) {
+    return undefined;
+  }
+  return section(
+    { spans: [span("Included changes:", { style: "heading" })] },
+    included.map(({ change }) => ({
+      spans: [span("  "), span(change, { target: { kind: "change", change } })],
+    })),
+  );
+}
+
 /** The remaining review section: one tally row per reviewer with files left. */
 function remainingReview(remaining: readonly string[]): Section | undefined {
   if (remaining.length === 0) {
@@ -175,6 +189,7 @@ export function showDoc(page: ShowPage): Doc {
   const nodes: Node[] = header(heading, attributes);
   // Each section stands off from what precedes it with a blank line.
   for (const s of [
+    includedChanges(summary.included),
     remainingReview(page.remaining),
     commentsSection(page.comments),
     filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),

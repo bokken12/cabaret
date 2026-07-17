@@ -13,6 +13,7 @@ import {
   type FilePath,
   type ForgeChangeId,
   type ForgeLocator,
+  type LandMerge,
   type LogEntry,
   landedMerge,
   observedForgeParent,
@@ -102,6 +103,8 @@ export interface ChangeSummary {
     | undefined;
   /** The merge that landed the change, or undefined if it has not landed. */
   readonly landed: Revision | undefined;
+  /** The changes landed into this one, oldest first. */
+  readonly included: readonly LandMerge[];
   /** Whether the change is archived: set aside as not landing, reversibly. */
   readonly archived: boolean;
   readonly base: Revision;
@@ -201,6 +204,7 @@ export async function summarizeChange(
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
     landed,
+    included: diff.lands,
     archived: currentArchived(entries),
     base,
     tip,

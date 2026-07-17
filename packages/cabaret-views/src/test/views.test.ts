@@ -27,6 +27,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -288,6 +289,51 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
+});
+
+test("showDoc lists included changes above the review, each linking to its page", () => {
+  const doc = showDoc({
+    summary: summary("widgets", {
+      included: [
+        { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
+        { change: parseBranchName("widgets-ui"), commit: fake("5"), onto: fake("3") },
+      ],
+      reviewLeft: files("glue.ts"),
+    }),
+    comments: [],
+    workspace: undefined,
+    remaining: ["alice@example.com: 1 file"],
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "widgets
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ review            │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯
+
+    Included changes:
+      widgets-api
+      widgets-ui
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      glue.ts"
+  `);
+  const line = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("widgets-api"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-api" });
+  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-ui" });
 });
 
 test("showDoc notes disagreeing readings on their own rows", () => {
