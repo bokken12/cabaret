@@ -70,7 +70,7 @@ function fake(digit: string): Revision {
 function repoBackend(opts: {
   history: Record<string, string>;
   branches: Record<string, string>;
-  merges?: readonly { commit: string; onto: string }[];
+  merges?: readonly { change: string; commit: string; onto: string }[];
   changed?: Record<string, readonly string[]>;
   /** Conflicting paths by `<base><tip><onto>` digit triple, for `mergeConflicts`; an unanticipated triple is an error. */
   conflicting?: Record<string, readonly string[]>;
@@ -143,7 +143,11 @@ function repoBackend(opts: {
       const cut = path.indexOf(base);
       const between = new Set(cut === -1 ? path : path.slice(0, cut));
       return (opts.merges ?? [])
-        .map(({ commit, onto }) => ({ commit: fake(commit), onto: fake(onto) }))
+        .map(({ change, commit, onto }) => ({
+          change: parseBranchName(change),
+          commit: fake(commit),
+          onto: fake(onto),
+        }))
         .filter(({ commit }) => between.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
     },
@@ -224,6 +228,7 @@ test("a change with no commits of its own must add code", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("1"),
@@ -252,6 +257,7 @@ test("files outside the user's brain are left to review", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -272,6 +278,7 @@ test("files outside the user's brain are left to review", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -303,6 +310,7 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -334,6 +342,7 @@ test("a reviewed change whose parent trails origin's copy must pull the parent",
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -364,6 +373,7 @@ test("a parent diverged from origin's copy is the user's to reconcile", async ()
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -392,6 +402,7 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -421,6 +432,7 @@ test("a parent absent locally but held by origin is unpulled, not dead", async (
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -451,6 +463,7 @@ test("a parent ahead of origin's copy is current: rebase proceeds on it", async 
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -480,6 +493,7 @@ test("a reviewed change behind a parent it merges cleanly onto may land", async 
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -508,6 +522,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -550,6 +565,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     reviewing: "everyone",
     forgeChange: { forge: "github.com/test-org/widgets", id: 7, staleParent: undefined },
     landed: fake("5"),
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("4"),
@@ -573,7 +589,7 @@ test("reviewRounds splits review at land merges, oldest first", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ commit: "2", onto: "1" }],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"] },
   });
   expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual([
@@ -608,7 +624,7 @@ test("reviewRounds carries misplaced reviews into the earliest round's view", as
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ commit: "2", onto: "1" }],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "01": ["a.ts", "c.ts"], "23": ["a.ts", "c.ts"], "93": ["c.ts"] },
     // Every version distinct, so neither carried view renders empty.
     contents: {
@@ -706,7 +722,7 @@ test("reviewRounds skips only the round a carried review leaves empty", async ()
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ commit: "2", onto: "1" }],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "01": ["a.ts"], "23": ["a.ts"] },
     contents: {
       "0": { "a.ts": "base\n" },
@@ -728,7 +744,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ commit: "2", onto: "1" }],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"], "93": ["c.ts"] },
     // c.ts differs from the rewritten reviewed tip, so its view stays due.
     contents: { "1": { "c.ts": "one\n" }, "9": { "c.ts": "nine\n" } },
@@ -742,6 +758,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [{ change: "gizmo", commit: fake("2"), onto: fake("1") }],
     archived: false,
     base: fake("0"),
     tip: fake("3"),
@@ -771,6 +788,7 @@ test("a change behind origin's copy must pull, before anything else", async () =
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("1"),
@@ -801,6 +819,7 @@ test("a change diverged from origin's copy must resolve divergence, review left 
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -830,6 +849,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -859,6 +879,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -887,6 +908,7 @@ test("a parent with no local branch is unpulled, but review outranks it", async 
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -930,6 +952,7 @@ test("a reviewed forge-tracked change ahead of origin pushes before landing", as
     reviewing: "everyone",
     forgeChange: { forge: "gitlab.com/test-org/gadgets", id: 12, staleParent: undefined },
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("3"),
@@ -1011,6 +1034,7 @@ test("a reviewed change whose forge change targets its old parent pushes to reta
     reviewing: "everyone",
     forgeChange: { forge, id: 103, staleParent: "relic" },
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -1040,6 +1064,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -1077,6 +1102,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -1107,6 +1133,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: false,
     base: fake("1"),
     tip: fake("2"),
@@ -1163,6 +1190,7 @@ test("an archived change reads as archived until the latest set-archived revives
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    included: [],
     archived: true,
     base: fake("1"),
     tip: fake("2"),

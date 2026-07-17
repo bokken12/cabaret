@@ -829,8 +829,13 @@ export class HgBackend implements Backend {
       // A land merge's onto is its first parent; a squash land's, its sole
       // parent. As in the git backend, the trailer is trusted wherever it
       // appears in the message's lines.
-      if (commit.desc.split("\n").some((line) => line.startsWith(`${LAND_TRAILER}: `))) {
-        merges.push({ commit: parseHgNode(cursor), onto: parseHgNode(commit.p1) });
+      const trailer = commit.desc.split("\n").find((line) => line.startsWith(`${LAND_TRAILER}: `));
+      if (trailer !== undefined) {
+        merges.push({
+          change: parseHgName(trailer.slice(`${LAND_TRAILER}: `.length)),
+          commit: parseHgNode(cursor),
+          onto: parseHgNode(commit.p1),
+        });
       }
       cursor = commit.p1;
     }

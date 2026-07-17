@@ -115,6 +115,46 @@ test("show renders a change pull imported like any other", async () => {
   `);
 });
 
+test("show lists the changes landed into a parent, their diffs out of its review", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("create", "parent");
+  await repo.git("checkout", "-q", "parent");
+  await repo.write("parent.txt", "parent work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "parent work");
+  await repo.cabaret("create", "child");
+  await repo.git("checkout", "-q", "child");
+  await repo.write("child.txt", "child work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "child work");
+  await repo.cabaret("land", "--even-though-unreviewed");
+  expect((await repo.cabaret("show", "parent")).stdout).toMatchInlineSnapshot(`
+    "parent
+    ======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ widen reviewing   │
+    │ owner     │ alice@example.com │
+    │ reviewing │ none              │
+    │ parent    │ main              │
+    │ tip       │ 80ad42d25455      │
+    │ base      │ 1ac0b33426d0      │
+    ╰───────────┴───────────────────╯
+
+    Included changes:
+      child
+
+    Remaining review:
+      alice@example.com: 1 file
+
+    Files to review:
+      parent.txt
+    "
+  `);
+});
+
 test("show tallies the remaining review per user", async () => {
   const repo = await makeRepo();
   const policy = { rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }] };
