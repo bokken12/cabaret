@@ -150,6 +150,14 @@ export class FakeForge implements Forge {
     this.pr(id).draft = draft;
   }
 
+  async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
+    const pr = this.pr(id);
+    if (pr.state === "merged") {
+      throw new Error(`PR ${id} is merged`);
+    }
+    pr.state = state;
+  }
+
   async landChange(
     id: ForgeChangeId,
     method: LandMethod,

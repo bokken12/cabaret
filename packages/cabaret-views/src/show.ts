@@ -32,9 +32,10 @@ export async function showPage(backend: Backend, user: UserName, change: ChangeN
   const entries = await backend.readLog(change);
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, user, diff);
-  // A landed change has no review to demand, whatever state it landed in.
+  // A landed change has no review to demand, whatever state it landed in;
+  // an archived one asks nothing while set aside.
   const remaining =
-    summary.landed === undefined
+    summary.landed === undefined && !summary.archived
       ? reviewerSummary(
           (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
         )

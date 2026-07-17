@@ -139,6 +139,7 @@ export type LogAction =
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
+  | { readonly kind: "set-archived"; readonly archived: boolean }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
@@ -186,6 +187,7 @@ function logEntrySchema(
       id: z.number().transform(forgeChangeId),
     }),
     z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
+    z.object({ kind: z.literal("set-archived"), archived: z.boolean() }),
     z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({
@@ -728,6 +730,37 @@ export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
 }
 
 /**
+ * Whether the change is archived — set aside as not landing — from the log's
+ * latest `set-archived`. A log that never set one reads as live, so no entry
+ * is needed to create a change unarchived.
+ */
+export function currentArchived(entries: readonly LogEntry[]): boolean {
+  return latestAction(entries, "set-archived")?.archived ?? false;
+}
+
+/**
+ * The archived state the log last observed on `forge` — the latest
+ * `set-archived` carrying it as `source` — or undefined when never observed.
+ * A forge expresses archiving as its open/closed state, so syncing compares
+ * against it: only a forge that closed or reopened since last observed
+ * mirrors in, and a local `set-archived` awaiting a push is never overridden
+ * by re-observing the state it is about to replace.
+ */
+export function observedForgeArchived(entries: readonly LogEntry[], forge: ForgeLocator): boolean | undefined {
+  let found: LogEntry | undefined;
+  for (const entry of entries) {
+    if (
+      entry.action.kind === "set-archived" &&
+      entry.source?.forge === forge &&
+      (found === undefined || compareLogEntries(entry, found) >= 0)
+    ) {
+      found = entry;
+    }
+  }
+  return found?.action.kind === "set-archived" ? found.action.archived : undefined;
+}
+
+/**
  * The reviewing set the log last observed on `forge` — the latest
  * `set-reviewing` carrying it as `source` — or undefined when never observed.
  * A forge expresses only the none/wider boundary (draft or ready), so syncing
@@ -832,6 +865,16 @@ export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]
   const merge = landedMerge(entries);
   if (merge !== undefined) {
     throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
+  }
+}
+
+/**
+ * Fail if `change` is archived. Archiving sets a change aside as not
+ * landing, so a land must be preceded by an explicit unarchive.
+ */
+export function assertNotArchived(change: ChangeName, entries: readonly LogEntry[]): void {
+  if (currentArchived(entries)) {
+    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cabaret unarchive\``);
   }
 }
 

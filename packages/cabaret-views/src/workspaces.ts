@@ -1,4 +1,4 @@
-import { type Backend, type ChangeName, landedMerge, type Workspace } from "cabaret-core";
+import { type Backend, type ChangeName, currentArchived, landedMerge, type Workspace } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
@@ -51,6 +51,8 @@ export interface WorkspaceRow {
   readonly isChange: boolean;
   /** Whether that change has landed, leaving the workspace ready to remove. */
   readonly landed: boolean;
+  /** Whether that change is archived, likewise leaving the workspace idle. */
+  readonly archived: boolean;
 }
 
 /** What the workspaces page displays: every workspace of the repository. */
@@ -63,19 +65,25 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
   const rows: WorkspaceRow[] = [];
   for (const workspace of await backend.workspaces()) {
     const change = workspace.change !== undefined && changes.has(workspace.change) ? workspace.change : undefined;
+    const entries = change === undefined ? [] : await backend.readLog(change);
     rows.push({
       workspace,
       display: displayPath(backend.root, workspace.path),
       isChange: change !== undefined,
-      landed: change !== undefined && landedMerge(await backend.readLog(change)) !== undefined,
+      landed: landedMerge(entries) !== undefined,
+      archived: currentArchived(entries),
     });
   }
   return { rows };
 }
 
 export function workspacesDoc(page: WorkspacesPage): Doc {
-  const rows = page.rows.map(({ workspace, display, isChange, landed }): readonly Cell[] => {
-    const notes = [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : [])];
+  const rows = page.rows.map(({ workspace, display, isChange, landed, archived }): readonly Cell[] => {
+    const notes = [
+      ...(workspace.dirty ? ["dirty"] : []),
+      ...(landed ? ["landed"] : []),
+      ...(archived ? ["archived"] : []),
+    ];
     const name =
       workspace.change === undefined
         ? span("(detached)", { style: "context" })

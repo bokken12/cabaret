@@ -15,6 +15,18 @@ FLAGS
      [--allow-owner]  Allow approving a change you own [default = false]
   -h  --help          Print help information and exit
 
+## cabaret archive
+
+USAGE
+  cabaret archive [--change value]
+  cabaret archive --help
+
+Set a change aside without landing it: the change leaves the todo page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret unarchive` brings it back.
+
+FLAGS
+     [--change]  Change to archive (defaults to current)
+  -h  --help     Print help information and exit
+
 ## cabaret comment
 
 USAGE
@@ -615,6 +627,18 @@ FLAGS
 
 ARGUMENTS
   [change]  change to inspect (defaults to current)
+
+## cabaret unarchive
+
+USAGE
+  cabaret unarchive [--change value]
+  cabaret unarchive --help
+
+Bring an archived change back: it returns to the todo page and may land again. A push reopens its forge change.
+
+FLAGS
+     [--change]  Change to unarchive (defaults to current)
+  -h  --help     Print help information and exit
 
 ## cabaret widen
 

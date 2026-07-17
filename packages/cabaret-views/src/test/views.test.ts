@@ -27,6 +27,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
+    archived: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -147,11 +148,17 @@ test("todoDoc lists the changes checked out on this device in their own section"
     owned: [{ summary: gadget, context: false, children: [] }],
     broken: [],
     workspaces: [
-      { change: gadget.change, workspace: { path: "/src/widgets", display: ".", dirty: false }, landed: false },
+      {
+        change: gadget.change,
+        workspace: { path: "/src/widgets", display: ".", dirty: false },
+        landed: false,
+        archived: false,
+      },
       {
         change: relic.change,
         workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
         landed: true,
+        archived: false,
       },
     ],
   });

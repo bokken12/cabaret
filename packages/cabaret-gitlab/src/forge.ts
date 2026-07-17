@@ -354,6 +354,12 @@ export class GitLabForge implements Forge {
     await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
   }
 
+  async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
+    await this.client.put(`${this.api}/merge_requests/${id}`, {
+      state_event: state === "closed" ? "close" : "reopen",
+    });
+  }
+
   async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
     // The mutation edits the title's draft prefix in place, so the title
     // itself never needs rewriting here.

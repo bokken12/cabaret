@@ -8,6 +8,7 @@ import {
   VERSION,
 } from "cabaret-core";
 import { approve } from "./commands/approve.js";
+import { archive, unarchive } from "./commands/archive.js";
 import { comment } from "./commands/comment.js";
 import { config } from "./commands/config.js";
 import { conflicts } from "./commands/conflicts.js";
@@ -56,6 +57,7 @@ const routes = buildRouteMap({
   },
   routes: {
     approve,
+    archive,
     comment,
     config,
     conflicts,
@@ -79,6 +81,7 @@ const routes = buildRouteMap({
     sync,
     todo,
     todos,
+    unarchive,
     widen,
     workspace,
   },

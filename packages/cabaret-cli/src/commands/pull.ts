@@ -44,7 +44,15 @@ function reportPullEvent(context: LocalContext, locator: string, event: PullEven
           `${name} was marked ${event.reviewing === "none" ? "draft" : "ready"}; reviewing ${event.reviewing}\n`,
         );
       }
+      if (event.archived !== undefined) {
+        context.process.stdout.write(
+          `${name} was ${event.archived ? "closed; archived the change" : "reopened; unarchived the change"}\n`,
+        );
+      }
       context.process.stdout.write(`pulled ${event.comments} comment${event.comments === 1 ? "" : "s"} from ${name}\n`);
+      return;
+    case "archived":
+      context.process.stdout.write(`${name} was closed; archived ${JSON.stringify(event.change)}\n`);
       return;
     case "pruned":
       context.process.stdout.write(`${name} was closed; removed unreviewed change ${JSON.stringify(event.change)}\n`);

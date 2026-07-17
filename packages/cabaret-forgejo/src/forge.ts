@@ -239,6 +239,10 @@ export class ForgejoForge implements Forge {
     await this.client.patch(`${this.api}/pulls/${id}`, { base: parent });
   }
 
+  async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
+    await this.client.patch(`${this.api}/pulls/${id}`, { state });
+  }
+
   async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
     // Forgejo keeps draft state in the title's work-in-progress prefix; the
     // API's `draft` field only reads it, so toggling edits the title.

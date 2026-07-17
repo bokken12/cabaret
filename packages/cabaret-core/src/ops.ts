@@ -1,11 +1,13 @@
 import {
   assertChangeExists,
+  assertNotArchived,
   assertNotLanded,
   type Backend,
   type ChangeName,
   changeBase,
   changeDiff,
   conflictedFiles,
+  currentArchived,
   currentBase,
   currentOwner,
   currentParent,
@@ -88,6 +90,26 @@ export async function setReviewing(
   assertNotLanded(change, entries);
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-reviewing", reviewing } },
+  ]);
+}
+
+/**
+ * Archive `change` — set it aside as not landing — or bring it back. Nothing
+ * is deleted: the branch and log stay, todos just stop asking after the
+ * change and `land` refuses it until unarchived. A landed change is frozen,
+ * so it can move neither way.
+ */
+export async function setArchived(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+  archived: boolean,
+): Promise<void> {
+  assertChangeExists(change, entries);
+  assertNotLanded(change, entries);
+  await backend.appendLog(change, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-archived", archived } },
   ]);
 }
 
@@ -352,12 +374,16 @@ export async function prepareLand(
   overrides: LandOverrides,
 ): Promise<PreparedLand> {
   assertNotLanded(target, entries);
+  assertNotArchived(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
   // A parent that is itself a landed change is frozen too: landing into it
-  // would grow the code its own land froze. A parent that is not a change
-  // (an empty log) cannot have landed.
-  assertNotLanded(parent, await backend.readLog(parent));
+  // would grow the code its own land froze. One archived is set aside, so
+  // landing into it would bury the work. A parent that is not a change (an
+  // empty log) can be neither.
+  const parentEntries = await backend.readLog(parent);
+  assertNotLanded(parent, parentEntries);
+  assertNotArchived(parent, parentEntries);
   const onto = await backend.tip(parent);
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
@@ -453,21 +479,29 @@ export async function landChain(
   if (first === undefined) {
     return;
   }
-  // An unlanded change under a landed one can never reach its ancestor:
-  // landing below it would only bury work in a jammed chain, so refuse
-  // before any merge moves.
+  // An unlanded change under a landed or archived one can never reach its
+  // ancestor: landing below it would only bury work in a jammed chain, so
+  // refuse before any merge moves.
   let parent = currentParent(first.change, first.entries);
-  let parentLanded = landedMerge(await backend.readLog(parent)) !== undefined;
+  let parentEntries = await backend.readLog(parent);
   for (const { change, entries } of chain) {
     const changeLanded = landedMerge(entries) !== undefined;
-    if (parentLanded && !changeLanded) {
-      throw new UserError(
-        `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
-          "run `cabaret reparent` first",
-      );
+    if (!changeLanded) {
+      if (landedMerge(parentEntries) !== undefined) {
+        throw new UserError(
+          `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+            "run `cabaret reparent` first",
+        );
+      }
+      if (currentArchived(parentEntries)) {
+        throw new UserError(
+          `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
+            "run `cabaret unarchive` or `cabaret reparent` first",
+        );
+      }
     }
     parent = change;
-    parentLanded = changeLanded;
+    parentEntries = entries;
   }
   for (const { change, entries } of chain.toReversed()) {
     if (landedMerge(entries) !== undefined) {
