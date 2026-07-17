@@ -1,7 +1,7 @@
 import { parseBranchName, parseCommitHash } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
-import { addChange, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
 
 /** Commit an `.obligations` file at the repo root requiring one of `users` on every `.txt` file. */
 async function requireReviewers(repo: TestRepo, ...users: string[]): Promise<void> {
@@ -142,6 +142,62 @@ test("todo counts an alias's changes among the user's own", async () => {
     ╰────────┴───────────┴──────╯
     "
   `);
+});
+
+test("an adopted change reads, reviews, and materializes without ever being pulled", async () => {
+  const repo = await makeRepo();
+  await requireReviewers(repo, "bob@example.com");
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "everyone");
+  await repo.git("push", "-q", "origin", "main", "gadget", "refs/cabaret/log/gadget:refs/cabaret/log/gadget");
+  // The clone holds gadget's log and origin's copy of its branch, but no
+  // local branch: the state adoption leaves a second machine in.
+  const clone = await makeClone(repo, "bob@example.com");
+  await clone.git("fetch", "-q", "origin", "+refs/cabaret/log/*:refs/cabaret/log/*");
+  const { stdout, stderr, exitCode } = await clone.cabaret("todo");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+    "
+  `);
+  // Review marks record revisions, not branches, so reviewing needs no branch.
+  await clone.cabaret("review", "gadget.txt", "--change", "gadget");
+  expect((await clone.cabaret("todo")).stdout).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+    "
+  `);
+  // An operation that moves the branch creates it from origin's copy.
+  await clone.cabaret("rebase", "gadget", "--even-though-not-owner");
+  expect(await clone.git("rev-parse", "refs/heads/gadget")).toBe(
+    await clone.git("rev-parse", "refs/remotes/origin/gadget"),
+  );
 });
 
 test("a change whose branch is gone goes to stderr without blocking the page", async () => {

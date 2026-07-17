@@ -142,7 +142,15 @@ export function showDoc(page: ShowPage): Doc {
   if (summary.landed === undefined) {
     attributes.push(["reviewing", summary.reviewing]);
   }
-  attributes.push(["parent", noted(summary.parent, summary.deadParent && PARENT_NOTES[summary.deadParent])]);
+  attributes.push([
+    "parent",
+    noted(
+      summary.parent,
+      summary.deadParent !== undefined
+        ? PARENT_NOTES[summary.deadParent]
+        : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin],
+    ),
+  ]);
   if (summary.forgeChange !== undefined) {
     attributes.push([
       "forge change",

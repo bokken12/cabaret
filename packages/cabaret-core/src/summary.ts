@@ -75,6 +75,8 @@ export type NextStep =
   | "review"
   | "add reviewers"
   | "widen reviewing"
+  | "pull parent"
+  | "resolve parent divergence"
   | "rebase"
   | "push"
   | "land"
@@ -108,6 +110,8 @@ export interface ChangeSummary {
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
   readonly deadParent: "landed" | "missing" | undefined;
+  /** How the parent's local tip stands relative to origin's last-fetched copy, when it trails. */
+  readonly parentOrigin: "behind" | "diverged" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
@@ -142,6 +146,7 @@ export async function summarizeChange(
   let origin: ChangeSummary["origin"];
   let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
+  let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
   if (landed === undefined) {
     if (tracked !== undefined) {
@@ -150,6 +155,8 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
+    // A change with no local branch reads as origin's copy itself — trivially
+    // in sync, so no reading arises, just as when a local branch matches.
     const originTip = await backend.originTip(change);
     if (originTip !== undefined && originTip !== tip) {
       origin = (await backend.isAncestor(originTip, tip))
@@ -162,10 +169,27 @@ export async function summarizeChange(
       deadParent = "landed";
     } else {
       const parentTip = await backend.tip(parent);
+      const parentOriginTip = await backend.originTip(parent);
       if (parentTip === undefined) {
-        deadParent = "missing";
-      } else if (parentTip !== base) {
-        stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
+        // A parent origin holds but this clone lacks is not dead, just unpulled.
+        if (parentOriginTip === undefined) {
+          deadParent = "missing";
+        } else {
+          parentOrigin = "behind";
+        }
+      } else {
+        // A parent ahead of origin's copy is no reading at all: rebasing onto
+        // it already covers everything origin has.
+        if (
+          parentOriginTip !== undefined &&
+          parentOriginTip !== parentTip &&
+          !(await backend.isAncestor(parentOriginTip, parentTip))
+        ) {
+          parentOrigin = (await backend.isAncestor(parentTip, parentOriginTip)) ? "behind" : "diverged";
+        }
+        if (parentTip !== base) {
+          stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
+        }
       }
     }
   }
@@ -182,6 +206,7 @@ export async function summarizeChange(
     tip,
     origin,
     deadParent,
+    parentOrigin,
     staleBase: stale?.kind,
     // A landed change is frozen; only live code is worth scanning for markers.
     conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
@@ -197,8 +222,11 @@ export async function summarizeChange(
  * tip trails outranks everything: each reading below is a question about
  * revisions this clone may lack. Behind mends by fast-forwarding — a pull —
  * while divergence is the owner's to resolve: an intentional rewrite pushes
- * with lease, an accidental one resets to origin. A dead parent comes next:
- * nothing can land until the change hangs somewhere real. Unresolved
+ * with lease, an accidental one resets to origin. A change with no local
+ * branch gates nothing: its readings are origin's copy already, and
+ * operations that move the branch create it from that copy themselves. A
+ * dead parent comes next: nothing can land until the change hangs somewhere
+ * real. Unresolved
  * conflicts outrank review: markers are not code worth reading. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
@@ -208,7 +236,10 @@ export async function summarizeChange(
  * longer merges cleanly onto `stale`'s parent tip. That merge is dry-run
  * only when every earlier step is settled; a land that skips a step anyway
  * (`--even-though-unreviewed`) is still safe, since `prepareLand` makes its
- * own check. Last, a forge-tracked change pushes before landing when the
+ * own check. The dry-run, like the rebase and land it stands for, is a
+ * question about the parent's tip, so a parent whose local copy is not
+ * current outranks them all: one that trails origin pulls first, and one
+ * that diverged is the user's to reconcile. Last, a forge-tracked change pushes before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
  * forge change's target has yet to follow — since the forge refuses to land
  * state it has not seen, while a local land reads nothing from origin and
@@ -251,6 +282,12 @@ async function nextStep(
   }
   if (readings.reviewing !== "everyone") {
     return "widen reviewing";
+  }
+  if (readings.parentOrigin === "behind") {
+    return "pull parent";
+  }
+  if (readings.parentOrigin === "diverged") {
+    return "resolve parent divergence";
   }
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";

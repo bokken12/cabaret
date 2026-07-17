@@ -14,6 +14,7 @@ import {
   currentReviewers,
   currentReviewing,
   diffBetween,
+  ensureBranch,
   type FilePath,
   type LandedMerge,
   type LogEntry,
@@ -240,6 +241,48 @@ export class NotOwnerError extends UserError {
 }
 
 /**
+ * The parent's local branch is not current with origin's last-fetched copy:
+ * `behind` mends by pulling the parent, `diverged` is the user's to
+ * reconcile. As with `NotOwnerError`, the message states only the fact;
+ * each frontend attaches its own override remedy before showing it.
+ */
+export class StaleParentError extends UserError {
+  constructor(
+    readonly parent: ChangeName,
+    readonly kind: "behind" | "diverged",
+  ) {
+    super(
+      kind === "behind"
+        ? `local ${JSON.stringify(parent)} is behind origin's copy; pull it first`
+        : `local ${JSON.stringify(parent)} has diverged from origin's copy; reconcile them first`,
+    );
+  }
+}
+
+/**
+ * Fail unless the parent's local branch is current with origin's last-fetched
+ * copy; `override` skips the check. With no origin copy — no origin, or a
+ * branch it never had — there is nothing to be current with, so the local
+ * reading stands. A local copy ahead of origin's is current: it already
+ * carries everything origin has.
+ */
+async function requireFreshParent(
+  backend: Backend,
+  parent: ChangeName,
+  parentTip: Revision,
+  override: boolean,
+): Promise<void> {
+  if (override) {
+    return;
+  }
+  const originTip = await backend.originTip(parent);
+  if (originTip === undefined || originTip === parentTip || (await backend.isAncestor(originTip, parentTip))) {
+    return;
+  }
+  throw new StaleParentError(parent, (await backend.isAncestor(parentTip, originTip)) ? "behind" : "diverged");
+}
+
+/**
  * Fail unless the current user owns `change` — as themselves or as one of
  * their aliases; `override` skips the check. A log with no owner is malformed
  * and fails regardless of the override: the override excuses not being the
@@ -270,6 +313,14 @@ export function assertNoConflict(target: ChangeName, conflicts: readonly FilePat
   }
 }
 
+/** The rebase checks the user may explicitly override. */
+export interface RebaseOverrides {
+  /** Rebase a change the current user does not own. */
+  readonly notOwner: boolean;
+  /** Rebase onto the local parent even though origin's copy has moved on. */
+  readonly staleParent: boolean;
+}
+
 /**
  * Move `target` onto its parent's tip by merging the tip into the change,
  * then record the new base in the log. A conflicting merge still commits,
@@ -286,18 +337,28 @@ export async function rebaseChange(
   now: () => TimestampMs,
   target: ChangeName,
   entries: readonly LogEntry[],
-  override: boolean,
+  overrides: RebaseOverrides,
 ): Promise<void> {
   assertNotLanded(target, entries);
-  await requireOwner(backend, target, entries, override);
+  await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
-  const onto = await backend.tip(parent);
+  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  await requireFreshParent(backend, parent, onto, overrides.staleParent);
   const base = await changeBase(backend, target, entries);
-  const tip = await requireTip(backend, target);
+  // The merge moves the target's branch, so one held only at origin materializes.
+  const tip = await ensureBranch(backend, target);
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  // A tip the base already reaches — the parent trailing where the change
+  // was built, however the freshness check was satisfied — offers nothing to
+  // move; merging it would reverse-diff the newer history, and pinning to it
+  // would slide the base backwards and pull the parent's commits into the
+  // diff.
+  if (onto !== base && (await backend.isAncestor(onto, base))) {
+    return;
+  }
   // When the change already sits on the parent's tip (base === onto), whether
   // because it was just rebased or an out-of-band rebase put it there, there
   // is no code to move.
@@ -332,13 +393,13 @@ export async function rebaseChain(
   backend: Backend,
   now: () => TimestampMs,
   chain: readonly ChainLink[],
-  override: boolean,
+  overrides: RebaseOverrides,
 ): Promise<void> {
   for (const { change, entries } of chain) {
     if (landedMerge(entries) !== undefined) {
       continue;
     }
-    await rebaseChange(backend, now, change, entries, override);
+    await rebaseChange(backend, now, change, entries, overrides);
   }
 }
 
@@ -384,7 +445,7 @@ export async function prepareLand(
   const parentEntries = await backend.readLog(parent);
   assertNotLanded(parent, parentEntries);
   assertNotArchived(parent, parentEntries);
-  const onto = await backend.tip(parent);
+  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
@@ -454,6 +515,9 @@ export async function landChange(
 ): Promise<void> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
+  // The landing commit goes onto the parent's branch, so one held only at
+  // origin materializes; the target's own branch is only read.
+  await ensureBranch(backend, parent);
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, landMessage(target))

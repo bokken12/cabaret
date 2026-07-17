@@ -50,6 +50,8 @@ test("a fresh repository audits every recommendation unset", async () => {
     { key: "merge.conflictStyle", standing: { kind: "unset" } },
     { key: "rerere.enabled", standing: { kind: "unset" } },
     { key: "remote.origin.fetch", standing: { kind: "unset" } },
+    { key: "core.commitGraph", standing: { kind: "unset" } },
+    { key: "fetch.writeCommitGraph", standing: { kind: "unset" } },
   ]);
 });
 
@@ -60,9 +62,13 @@ test("apply writes each scope once and round-trips to applied", async () => {
     { key: "merge.conflictStyle", standing: { kind: "applied" } },
     { key: "rerere.enabled", standing: { kind: "applied" } },
     { key: "remote.origin.fetch", standing: { kind: "applied" } },
+    { key: "core.commitGraph", standing: { kind: "applied" } },
+    { key: "fetch.writeCommitGraph", standing: { kind: "applied" } },
   ]);
   expect(await git("config", "--global", "merge.conflictStyle")).toBe("zdiff3");
   expect(await git("config", "--global", "rerere.enabled")).toBe("true");
+  expect(await git("config", "--global", "core.commitGraph")).toBe("true");
+  expect(await git("config", "--global", "fetch.writeCommitGraph")).toBe("true");
   // A second apply sees everything applied and adds nothing.
   await applySetup(backend, await auditSetup(backend));
   expect(await git("config", "--local", "--get-all", "remote.origin.fetch")).toBe(
@@ -86,7 +92,12 @@ test("a key set to another value is reported differing and kept", async () => {
 test("the fetch refspec is inapplicable without an origin", async () => {
   await git("remote", "remove", "origin");
   const backend = await GitBackend.open(repo);
-  expect((await auditSetup(backend)).map(({ rec }) => rec.key)).toEqual(["merge.conflictStyle", "rerere.enabled"]);
+  expect((await auditSetup(backend)).map(({ rec }) => rec.key)).toEqual([
+    "merge.conflictStyle",
+    "rerere.enabled",
+    "core.commitGraph",
+    "fetch.writeCommitGraph",
+  ]);
 });
 
 test("once applied, a plain git fetch brings change logs down", async () => {

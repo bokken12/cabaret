@@ -417,6 +417,20 @@ export class GitBackend implements Backend {
         brief: "fetching change logs with every git fetch",
         applies: async (backend) => (await backend.config("remote.origin.url")) !== undefined,
       },
+      {
+        key: "core.commitGraph",
+        value: "true",
+        scope: "global",
+        multi: false,
+        brief: "reading the commit-graph file to keep merge-base and ancestry queries fast",
+      },
+      {
+        key: "fetch.writeCommitGraph",
+        value: "true",
+        scope: "global",
+        multi: false,
+        brief: "writing the commit-graph file on fetch so it stays current as history grows",
+      },
     ];
   }
 
@@ -460,27 +474,8 @@ export class GitBackend implements Backend {
     }
   }
 
-  async fetchAll(branches: readonly ChangeName[]): Promise<void> {
-    if (branches.length === 0) {
-      return;
-    }
-    // Callers pass only branches absent locally, so the checked-out and
-    // diverged cases `fetch` handles cannot arise. Best-effort: one
-    // branch origin no longer has fails a batched fetch wholesale, so fall
-    // back to fetching one by one and let callers observe what arrived via
-    // `tip`.
-    const refspecs = branches.map((branch) => `refs/heads/${branch}:refs/heads/${branch}`);
-    try {
-      await git(this.root, ["fetch", "--quiet", "origin", ...refspecs]);
-    } catch {
-      for (const refspec of refspecs) {
-        try {
-          await git(this.root, ["fetch", "--quiet", "origin", refspec]);
-        } catch {
-          // Observed by the caller as a still-missing branch.
-        }
-      }
-    }
+  async fetchOrigin(): Promise<void> {
+    await git(this.root, ["fetch", "--quiet", "origin"]);
   }
 
   async syncLog(change: ChangeName): Promise<void> {
@@ -755,6 +750,7 @@ export class GitBackend implements Backend {
     });
   }
 
+<<<<<<< e63ce4a249b8309ae17c84ef42ae6fd3ad2007d7
   isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return this.ancestry.isAncestor(ancestor, descendant, async () => {
       try {
@@ -767,6 +763,31 @@ export class GitBackend implements Backend {
           return false;
         }
         throw error;
+||||||| 6295683d86287a902bdd2a29765b97f4e2202ea1
+  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    try {
+      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch (error) {
+      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
+      // commit pruned by gc) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return false;
+=======
+  async hasRevision(revision: Revision): Promise<boolean> {
+    return (await this.reader.request("info", `${revision}^{commit}`)) !== undefined;
+  }
+
+  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    try {
+      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch (error) {
+      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
+      // commit pruned by gc) is a real failure.
+      if ((error as { code?: unknown }).code === 1) {
+        return false;
+>>>>>>> c3de0fb0012d62fb8d95a641e5fdcbabedc28463
       }
     });
   }

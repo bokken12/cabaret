@@ -754,12 +754,25 @@ export class HgBackend implements Backend {
     });
   }
 
+<<<<<<< e63ce4a249b8309ae17c84ef42ae6fd3ad2007d7
   isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return this.ancestry.isAncestor(
       ancestor,
       descendant,
       async () => (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor,
     );
+||||||| 6295683d86287a902bdd2a29765b97f4e2202ea1
+  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
+=======
+  async hasRevision(revision: Revision): Promise<boolean> {
+    // `present` turns the unknown-revision error into an empty revset.
+    return (await this.revsetNode(`present(${revision})`)) !== undefined;
+  }
+
+  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
+>>>>>>> c3de0fb0012d62fb8d95a641e5fdcbabedc28463
   }
 
   async mergedTip(merge: Revision): Promise<Revision> {
@@ -1237,24 +1250,10 @@ export class HgBackend implements Backend {
     }
   }
 
-  async fetchAll(changes: readonly ChangeName[]): Promise<void> {
-    if (changes.length === 0) {
-      return;
-    }
-    // Callers pass only changes absent locally. Best-effort: one change
-    // origin no longer has fails a batched pull wholesale, so fall back to
-    // one-by-one and let callers observe what arrived via `tip`.
-    try {
-      await this.hgRemote(["pull", "-q", "-f", ...changes.flatMap((change) => ["-B", change])]);
-    } catch {
-      for (const change of changes) {
-        try {
-          await this.hgRemote(["pull", "-q", "-f", "-B", change]);
-        } catch {
-          // Observed by the caller as a still-missing change.
-        }
-      }
-    }
+  async fetchOrigin(): Promise<void> {
+    // -f: two machines' histories may share nothing at all (log chains are
+    // rootless by design), which plain hg refuses to pull across.
+    await this.hgRemote(["pull", "-q", "-f"]);
   }
 
   async syncLog(_change: ChangeName): Promise<void> {

@@ -235,8 +235,10 @@ test("pull turns a teammate's forge change into a change to review", async () =>
     stderr: "",
     exitCode: 0,
   });
-  // The branch is local again, and the change belongs to its author.
-  expect(await repo.git("rev-parse", "--verify", "their-feature")).toBe(theirTip);
+  // No local branch is created: the change reads origin's copy until an
+  // operation needs the branch. The change belongs to its author.
+  await expect(repo.git("rev-parse", "--verify", "refs/heads/their-feature")).rejects.toThrow();
+  expect(await repo.git("rev-parse", "refs/remotes/origin/their-feature")).toBe(theirTip);
   expect(await shownComments(repo, "their-feature")).toBe(
     "Comments:\n  2025-06-15T15:06:40.000Z github:carol\n    please take a look\n",
   );
@@ -344,14 +346,14 @@ test("pull reads a capped discussion in full before importing", async () => {
   );
 });
 
-test("pull skips a forge change whose branch cannot be fetched", async () => {
+test("pull skips a forge change whose branch origin does not have", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  // The forge change's branch never reached origin, so there is nothing to fetch.
+  // The forge change's branch never reached origin, so there is nothing to read.
   forge.openPr("carol", parseBranchName("phantom"), parseBranchName("main"), "Phantom");
   expect(await repo.cabaret("pull")).toEqual({
     stdout: "recorded github:alice as an alias\n" + "synced github.com/test-org/widgets: 1 open forge change\n",
-    stderr: 'warning: skipping github.com/test-org/widgets#1 ("phantom"): branch "phantom" could not be fetched\n',
+    stderr: 'warning: skipping github.com/test-org/widgets#1 ("phantom"): origin has no branch "phantom"\n',
     exitCode: 0,
   });
   expect((await repo.cabaret("log", "phantom")).stdout).toBe("");

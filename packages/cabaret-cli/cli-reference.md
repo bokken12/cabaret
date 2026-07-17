@@ -55,6 +55,19 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
+#### cabaret config alias show
+
+USAGE
+  cabaret config alias show [--global] [--local]
+  cabaret config alias show --help
+
+Show the values
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
 #### cabaret config alias add
 
 USAGE
@@ -94,6 +107,19 @@ USAGE
   cabaret config alias clear --help
 
 Remove every value
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias github show
+
+USAGE
+  cabaret config alias github show [--global] [--local]
+  cabaret config alias github show --help
+
+Show the accounts
 
 FLAGS
      [--global]  Use the person's global config  [default = false]
@@ -145,6 +171,19 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
+##### cabaret config alias gitlab show
+
+USAGE
+  cabaret config alias gitlab show [--global] [--local]
+  cabaret config alias gitlab show --help
+
+Show the accounts
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
 ##### cabaret config alias gitlab add
 
 USAGE
@@ -184,6 +223,19 @@ USAGE
   cabaret config alias gitlab clear --help
 
 Remove every gitlab account
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+##### cabaret config alias codeberg show
+
+USAGE
+  cabaret config alias codeberg show [--global] [--local]
+  cabaret config alias codeberg show --help
+
+Show the accounts
 
 FLAGS
      [--global]  Use the person's global config  [default = false]
@@ -434,14 +486,15 @@ FLAGS
 ## cabaret rebase
 
 USAGE
-  cabaret rebase [--even-though-not-owner] [<change>]
+  cabaret rebase [--even-though-not-owner] [--even-though-parent-stale] [<change>]
   cabaret rebase --help
 
 Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
 FLAGS
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
+     [--even-though-not-owner]     Proceed even though you do not own the change                [default = false]
+     [--even-though-parent-stale]  Proceed even though origin's copy of the parent has moved on [default = false]
+  -h  --help                       Print help information and exit
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to rebase (defaults to current)
