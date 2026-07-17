@@ -103,6 +103,32 @@ test("aliases are added to and removed from global config", async () => {
   expect(await repo.git("config", "--global", "--get-all", "cabaret.alias")).toBe("alice@work.example");
 });
 
+test("alias bare and show print the current values", async () => {
+  const repo = await makeRepo();
+  expect(await repo.cabaret("config", "alias")).toEqual({ stdout: "(none)\n", stderr: "", exitCode: 0 });
+  await repo.cabaret("config", "alias", "add", "agent@example.com");
+  await repo.cabaret("config", "alias", "add", "alice@work.example");
+  expect((await repo.cabaret("config", "alias")).stdout).toBe("agent@example.com, alice@work.example\n");
+  expect((await repo.cabaret("config", "alias", "show")).stdout).toBe("agent@example.com, alice@work.example\n");
+  expect((await repo.cabaret("config", "alias", "--local")).stdout).toBe("(unset)\n");
+});
+
+test("a forge's show prints its accounts bare", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("config", "alias", "add", "agent@example.com");
+  await repo.cabaret("config", "alias", "github", "add", "alice");
+  await repo.cabaret("config", "alias", "github", "add", "alice-work");
+  await repo.cabaret("config", "alias", "codeberg", "add", "wanderer");
+  expect(await repo.cabaret("config", "alias", "github")).toEqual({
+    stdout: "alice, alice-work\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("config", "alias", "github", "show")).stdout).toBe("alice, alice-work\n");
+  expect((await repo.cabaret("config", "alias", "gitlab")).stdout).toBe("(none)\n");
+  expect((await repo.cabaret("config", "alias", "codeberg", "--local")).stdout).toBe("(unset)\n");
+});
+
 test("an added alias widens who counts as you", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature", "--owner", "agent@example.com");
