@@ -785,6 +785,9 @@ export async function pullForge(
     }
   }
 
+  // A pull begins by fetching: origin's copies are what every reading below
+  // — and every summary after — consults.
+  await backend.fetchOrigin();
   // Adopt before importing: a change another machine already imported and
   // published arrives as a log here, keeping this pull's import phase to
   // forge changes nobody holds.
@@ -806,29 +809,21 @@ export async function pullForge(
   const byId = new Map(open.map((candidate) => [candidate.change.id, candidate]));
 
   // Import: every open forge change whose head has no log. Import creates
-  // logs; it never moves local branches. Only missing branches are fetched —
-  // one that exists stays as it is, not least because git refuses to fetch
-  // into a branch some worktree has checked out.
+  // logs and nothing else: the change is born reading origin's copy of its
+  // branch, like any adopted change, and the branch materializes on
+  // engagement. A head origin has no branch for — a fork's, say — cannot be
+  // read and is skipped.
   const imports = [...byHead.values()].filter(({ change }) => !existing.has(change.head));
-  const absent = new Set<ChangeName>();
-  for (const { change } of imports) {
-    for (const branch of [change.head, change.parent]) {
-      if (!absent.has(branch) && (await backend.tip(branch)) === undefined) {
-        absent.add(branch);
-      }
-    }
-  }
-  await backend.fetchAll([...absent]);
   for (const { change: forgeChange, comments, commentsTruncated } of imports) {
-    const headTip = await backend.tip(forgeChange.head);
-    const parentTip = await backend.tip(forgeChange.parent);
+    const headTip = (await backend.tip(forgeChange.head)) ?? (await backend.originTip(forgeChange.head));
+    const parentTip = (await backend.tip(forgeChange.parent)) ?? (await backend.originTip(forgeChange.parent));
     if (headTip === undefined || parentTip === undefined) {
       const missing = headTip === undefined ? forgeChange.head : forgeChange.parent;
       onEvent({
         kind: "skipped",
         id: forgeChange.id,
         change: forgeChange.head,
-        reason: `branch ${JSON.stringify(missing)} could not be fetched`,
+        reason: `origin has no branch ${JSON.stringify(missing)}`,
       });
       continue;
     }

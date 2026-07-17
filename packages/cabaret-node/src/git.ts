@@ -456,27 +456,8 @@ export class GitBackend implements Backend {
     }
   }
 
-  async fetchAll(branches: readonly ChangeName[]): Promise<void> {
-    if (branches.length === 0) {
-      return;
-    }
-    // Callers pass only branches absent locally, so the checked-out and
-    // diverged cases `fetch` handles cannot arise. Best-effort: one
-    // branch origin no longer has fails a batched fetch wholesale, so fall
-    // back to fetching one by one and let callers observe what arrived via
-    // `tip`.
-    const refspecs = branches.map((branch) => `refs/heads/${branch}:refs/heads/${branch}`);
-    try {
-      await git(this.root, ["fetch", "--quiet", "origin", ...refspecs]);
-    } catch {
-      for (const refspec of refspecs) {
-        try {
-          await git(this.root, ["fetch", "--quiet", "origin", refspec]);
-        } catch {
-          // Observed by the caller as a still-missing branch.
-        }
-      }
-    }
+  async fetchOrigin(): Promise<void> {
+    await git(this.root, ["fetch", "--quiet", "origin"]);
   }
 
   async syncLog(change: ChangeName): Promise<void> {
@@ -747,6 +728,10 @@ export class GitBackend implements Backend {
   async mergeBase(a: Revision, b: Revision): Promise<Revision> {
     const out = await git(this.root, ["merge-base", a, b]);
     return parseCommitHash(out.trimEnd());
+  }
+
+  async hasRevision(revision: Revision): Promise<boolean> {
+    return (await this.reader.request("info", `${revision}^{commit}`)) !== undefined;
   }
 
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {

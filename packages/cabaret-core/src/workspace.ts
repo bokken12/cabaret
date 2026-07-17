@@ -1,4 +1,11 @@
-import { assertChangeExists, assertNotLanded, type Backend, type ChangeName, type Workspace } from "./backend.js";
+import {
+  assertChangeExists,
+  assertNotLanded,
+  type Backend,
+  type ChangeName,
+  ensureBranch,
+  type Workspace,
+} from "./backend.js";
 import type { Config } from "./config.js";
 import { UserError } from "./error.js";
 
@@ -49,14 +56,16 @@ export function workspacePath(primary: string, change: ChangeName): string {
   return `${primary}-${change}`;
 }
 
-/** Fail unless `change` is a change whose code exists — what a workspace can check out. */
+/**
+ * Fail unless `change` is a change whose code exists — what a workspace can
+ * check out — creating its branch from origin's copy when only origin holds
+ * one: checking out is the moment such a change materializes.
+ */
 async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
-  if ((await backend.tip(change)) === undefined) {
-    throw new UserError(`${JSON.stringify(change)} does not exist`);
-  }
+  await ensureBranch(backend, change);
 }
 
 /**

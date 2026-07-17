@@ -14,6 +14,7 @@ import {
   currentReviewers,
   currentReviewing,
   diffBetween,
+  ensureBranch,
   type FilePath,
   type LandedMerge,
   type LogEntry,
@@ -291,12 +292,13 @@ export async function rebaseChange(
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, override);
   const parent = currentParent(target, entries);
-  const onto = await backend.tip(parent);
+  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   const base = await changeBase(backend, target, entries);
-  const tip = await requireTip(backend, target);
+  // The merge moves the target's branch, so one held only at origin materializes.
+  const tip = await ensureBranch(backend, target);
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   // When the change already sits on the parent's tip (base === onto), whether
   // because it was just rebased or an out-of-band rebase put it there, there
@@ -384,7 +386,7 @@ export async function prepareLand(
   const parentEntries = await backend.readLog(parent);
   assertNotLanded(parent, parentEntries);
   assertNotArchived(parent, parentEntries);
-  const onto = await backend.tip(parent);
+  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
   if (onto === undefined) {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
@@ -454,6 +456,9 @@ export async function landChange(
 ): Promise<void> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
+  // The landing commit goes onto the parent's branch, so one held only at
+  // origin materializes; the target's own branch is only read.
+  await ensureBranch(backend, parent);
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, landMessage(target))

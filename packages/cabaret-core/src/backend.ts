@@ -497,6 +497,9 @@ export interface Backend {
    */
   rename(from: ChangeName, to: ChangeName): Promise<void>;
 
+  /** Whether this clone holds `revision`'s objects. */
+  hasRevision(revision: Revision): Promise<boolean>;
+
   /** The last revision shared by the histories of `a` and `b`, failing when they share none. */
   mergeBase(a: Revision, b: Revision): Promise<Revision>;
 
@@ -571,10 +574,11 @@ export interface Backend {
   fetch(change: ChangeName): Promise<void>;
 
   /**
-   * As `fetch` for each of `branches`, in one round trip where the
-   * backend can batch refspecs. Callers pass only branches absent locally.
+   * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
+   * Moves no local branch under git; hg's native pull also imports new
+   * remote bookmarks, as any hg pull does, and never overwrites local work.
    */
-  fetchAll(changes: readonly ChangeName[]): Promise<void>;
+  fetchOrigin(): Promise<void>;
 
   /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
@@ -645,13 +649,37 @@ export interface Backend {
   deleteLog(change: ChangeName): Promise<void>;
 }
 
-/** The tip of `branch` via `tip`, failing when the branch does not exist. */
+/**
+ * The tip `change` reads as: its local branch, or origin's last-fetched copy
+ * when no local branch exists. Reading never creates the branch — an adopted
+ * change is reviewable straight from origin's copy, and only an operation
+ * that moves the branch (`ensureBranch`) materializes it.
+ */
 export async function requireTip(backend: Backend, change: ChangeName): Promise<Revision> {
-  const tip = await backend.tip(change);
+  const tip = (await backend.tip(change)) ?? (await backend.originTip(change));
   if (tip === undefined) {
     throw new UserError(`${JSON.stringify(change)} does not exist`);
   }
   return tip;
+}
+
+/**
+ * The tip of `change`'s local branch, created at origin's copy when only
+ * origin holds one. Operations that move the branch call this; creating the
+ * branch at origin's tip loses nothing and asks no decision of the user, so
+ * it happens without ceremony.
+ */
+export async function ensureBranch(backend: Backend, change: ChangeName): Promise<Revision> {
+  const local = await backend.tip(change);
+  if (local !== undefined) {
+    return local;
+  }
+  const origin = await backend.originTip(change);
+  if (origin === undefined) {
+    throw new UserError(`${JSON.stringify(change)} does not exist`);
+  }
+  await backend.create(change, origin);
+  return origin;
 }
 
 /**
@@ -957,10 +985,13 @@ export async function changeBase(
   const readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
     (reading): reading is Revision => reading !== undefined,
   );
+  // A stored base this clone has no objects for cannot join the candidates —
+  // an adopted log may record a base on a branch never pushed anywhere this
+  // clone fetches from — so its presence gates every ancestry query on it.
   // With no reading of the parent there is no merge-base; the stored base is
   // the only candidate, still valid while it remains an ancestor of the tip.
   if (readings.length === 0) {
-    if (await backend.isAncestor(stored, tip)) {
+    if ((await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip))) {
       return stored;
     }
     throw new UserError(
@@ -968,7 +999,7 @@ export async function changeBase(
     );
   }
   const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
-  if (!candidates.has(stored) && (await backend.isAncestor(stored, tip))) {
+  if (!candidates.has(stored) && (await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip))) {
     candidates.add(stored);
   }
   let base: Revision | undefined;

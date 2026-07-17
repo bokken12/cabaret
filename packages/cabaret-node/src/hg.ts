@@ -748,6 +748,11 @@ export class HgBackend implements Backend {
     return found;
   }
 
+  async hasRevision(revision: Revision): Promise<boolean> {
+    // `present` turns the unknown-revision error into an empty revset.
+    return (await this.revsetNode(`present(${revision})`)) !== undefined;
+  }
+
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
     return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
   }
@@ -1227,24 +1232,10 @@ export class HgBackend implements Backend {
     }
   }
 
-  async fetchAll(changes: readonly ChangeName[]): Promise<void> {
-    if (changes.length === 0) {
-      return;
-    }
-    // Callers pass only changes absent locally. Best-effort: one change
-    // origin no longer has fails a batched pull wholesale, so fall back to
-    // one-by-one and let callers observe what arrived via `tip`.
-    try {
-      await this.hgRemote(["pull", "-q", "-f", ...changes.flatMap((change) => ["-B", change])]);
-    } catch {
-      for (const change of changes) {
-        try {
-          await this.hgRemote(["pull", "-q", "-f", "-B", change]);
-        } catch {
-          // Observed by the caller as a still-missing change.
-        }
-      }
-    }
+  async fetchOrigin(): Promise<void> {
+    // -f: two machines' histories may share nothing at all (log chains are
+    // rootless by design), which plain hg refuses to pull across.
+    await this.hgRemote(["pull", "-q", "-f"]);
   }
 
   async syncLog(_change: ChangeName): Promise<void> {
