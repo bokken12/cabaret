@@ -497,10 +497,18 @@ export interface Backend {
    */
   rename(from: ChangeName, to: ChangeName): Promise<void>;
 
-  /** The last revision shared by the histories of `a` and `b`, failing when they share none. */
+  /**
+   * The last revision shared by the histories of `a` and `b`, failing when
+   * they share none. Equal revisions answer themselves without consulting
+   * the store, existence unchecked.
+   */
   mergeBase(a: Revision, b: Revision): Promise<Revision>;
 
-  /** Whether `ancestor` is reachable from `descendant`'s history (a revision is its own ancestor). */
+  /**
+   * Whether `ancestor` is reachable from `descendant`'s history. A revision
+   * is its own ancestor, answered without consulting the store, existence
+   * unchecked.
+   */
   isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean>;
 
   /**

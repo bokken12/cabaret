@@ -745,11 +745,20 @@ export class GitBackend implements Backend {
   }
 
   async mergeBase(a: Revision, b: Revision): Promise<Revision> {
+    // Equal hashes name the same commit, which is trivially the last shared
+    // revision; answering here spares a subprocess.
+    if (a === b) {
+      return a;
+    }
     const out = await git(this.root, ["merge-base", a, b]);
     return parseCommitHash(out.trimEnd());
   }
 
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    // A revision is its own ancestor; answering here spares a subprocess.
+    if (ancestor === descendant) {
+      return true;
+    }
     try {
       await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
       return true;

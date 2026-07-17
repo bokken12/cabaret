@@ -270,6 +270,13 @@ test("isAncestor distinguishes ancestors from unrelated commits", async () => {
   expect(await backend.isAncestor(onto, onto)).toBe(true);
 });
 
+test("same-revision ancestry answers without consulting the repository", async () => {
+  const backend = await GitBackend.open(repo);
+  const absent = parseCommitHash("deadbeef".repeat(5));
+  expect(await backend.isAncestor(absent, absent)).toBe(true);
+  expect(await backend.mergeBase(absent, absent)).toBe(absent);
+});
+
 test("tip is the branch's commit, or undefined for a missing branch", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.tip(parseBranchName("feature"))).toBe(await git("rev-parse", "refs/heads/feature"));

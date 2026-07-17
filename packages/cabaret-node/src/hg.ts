@@ -741,6 +741,11 @@ export class HgBackend implements Backend {
   }
 
   async mergeBase(a: Revision, b: Revision): Promise<Revision> {
+    // Equal hashes name the same changeset, which is trivially the last
+    // shared revision; answering here spares a subprocess.
+    if (a === b) {
+      return a;
+    }
     const found = await this.revsetNode(`ancestor(${a}, ${b})`);
     if (found === undefined) {
       throw new Error(`no common ancestor of ${a} and ${b}`);
@@ -749,6 +754,10 @@ export class HgBackend implements Backend {
   }
 
   async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    // A revision is its own ancestor; answering here spares a subprocess.
+    if (ancestor === descendant) {
+      return true;
+    }
     return (await this.revsetNode(`ancestor(${ancestor}, ${descendant})`)) === ancestor;
   }
 
