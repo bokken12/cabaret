@@ -344,26 +344,15 @@ async function makeRemotePair(): Promise<{ dir: string; origin: string }> {
   return { dir, origin };
 }
 
-test("fetchAll fetches many branches at once", async () => {
+test("fetchOrigin refreshes origin readings without creating local branches", async () => {
   const { dir, origin } = await makeRemotePair();
   try {
     const backend = await GitBackend.open(dir);
-    await backend.fetchAll([parseBranchName("main"), parseBranchName("extra")]);
-    expect(await backend.tip(parseBranchName("main"))).toBeDefined();
-    expect(await backend.tip(parseBranchName("extra"))).toBeDefined();
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-    await rm(origin, { recursive: true, force: true });
-  }
-});
-
-test("fetchAll fetches what it can when a branch is missing on origin", async () => {
-  const { dir, origin } = await makeRemotePair();
-  try {
-    const backend = await GitBackend.open(dir);
-    await backend.fetchAll([parseBranchName("no-such-branch"), parseBranchName("main")]);
-    expect(await backend.tip(parseBranchName("main"))).toBeDefined();
-    expect(await backend.tip(parseBranchName("no-such-branch"))).toBeUndefined();
+    await backend.fetchOrigin();
+    for (const branch of [parseBranchName("main"), parseBranchName("extra")]) {
+      expect(await backend.originTip(branch)).toBeDefined();
+      expect(await backend.tip(branch)).toBeUndefined();
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
