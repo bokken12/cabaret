@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -170,6 +170,73 @@ test("a change lands cleanly after a rebase", async () => {
   expect(await repo.cabaret("land", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "main:feature.txt")).toBe("feature work");
   expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
+});
+
+test("rebase refuses a parent whose origin copy has moved on", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "feature");
+  // A second machine advances origin's main; this clone fetches the news but
+  // its own main stays put.
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-q", "main");
+  await other.write("trunk.txt", "trunk work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "trunk work");
+  await other.git("push", "-q", "origin", "main");
+  await repo.git("fetch", "-q", "origin");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr: 'local "main" is behind origin\'s copy; pull it first, or pass --even-though-parent-stale to override\n',
+    exitCode: 1,
+  });
+  await repo.cabaret("reviewing", "everyone", "--change", "feature");
+  await repo.cabaret("review", "feature.txt", "--change", "feature");
+  const shown = (await repo.cabaret("show", "feature")).stdout;
+  expect(shown).toContain("pull parent");
+  expect(shown).toContain("main (behind origin)");
+  // Overridden, the rebase stands on the local main as it is: the change
+  // already sits on its tip, so nothing moves.
+  const before = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
+  // Pulling the parent satisfies the check and the rebase carries the trunk work in.
+  await repo.git("fetch", "-q", "origin", "main:main");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("show", "feature:trunk.txt")).toBe("trunk work");
+});
+
+test("an overridden rebase onto a parent the base outran moves nothing", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "feature");
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-q", "main");
+  await other.write("trunk.txt", "trunk work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "trunk work");
+  await other.git("push", "-q", "origin", "main");
+  await repo.git("fetch", "-q", "origin", "main:main");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The local main slides back to the root while the base stays pinned ahead
+  // of it. Merging that tip would reverse-diff the newer history into the
+  // change; even overridden, the rebase must recognize there is nothing to
+  // move.
+  const root = await repo.git("rev-parse", "main~1");
+  await repo.git("update-ref", "refs/heads/main", root);
+  const tipBefore = await repo.git("rev-parse", "feature");
+  const logBefore = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("rev-parse", "feature")).toBe(tipBefore);
+  expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
 });
 
 test("rebase is a no-op when the change already sits on the parent's tip", async () => {

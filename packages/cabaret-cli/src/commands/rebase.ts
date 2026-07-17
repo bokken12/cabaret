@@ -28,16 +28,28 @@ export const rebase = buildCommand({
         },
       ],
     },
-    flags: { evenThoughNotOwner },
+    flags: {
+      evenThoughNotOwner,
+      evenThoughParentStale: {
+        kind: "boolean",
+        brief: "Proceed even though origin's copy of the parent has moved on",
+        default: false,
+      },
+    },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, spec?: ChangeSpec) {
+  async func(
+    this: LocalContext,
+    flags: { evenThoughNotOwner: boolean; evenThoughParentStale: boolean },
+    spec?: ChangeSpec,
+  ) {
     const backend = await this.backend();
+    const overrides = { notOwner: flags.evenThoughNotOwner, staleParent: flags.evenThoughParentStale };
     if (spec === undefined || spec.kind === "one") {
       const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
-      await rebaseChange(backend, this.now, target, await backend.readLog(target), flags.evenThoughNotOwner);
+      await rebaseChange(backend, this.now, target, await backend.readLog(target), overrides);
       return;
     }
     const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));
-    await rebaseChain(backend, this.now, chain, flags.evenThoughNotOwner);
+    await rebaseChain(backend, this.now, chain, overrides);
   },
 });

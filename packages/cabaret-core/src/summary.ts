@@ -75,6 +75,8 @@ export type NextStep =
   | "review"
   | "add reviewers"
   | "widen reviewing"
+  | "pull parent"
+  | "resolve parent divergence"
   | "rebase"
   | "push"
   | "land"
@@ -108,6 +110,8 @@ export interface ChangeSummary {
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
   readonly deadParent: "landed" | "missing" | undefined;
+  /** How the parent's local tip stands relative to origin's last-fetched copy, when it trails. */
+  readonly parentOrigin: "behind" | "diverged" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
@@ -142,6 +146,7 @@ export async function summarizeChange(
   let origin: ChangeSummary["origin"];
   let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
+  let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
   if (landed === undefined) {
     if (tracked !== undefined) {
@@ -163,13 +168,28 @@ export async function summarizeChange(
     if (landedMerge(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
-      // The parent reads like the change itself: origin's copy stands in for
-      // a branch this clone does not hold.
-      const parentTip = (await backend.tip(parent)) ?? (await backend.originTip(parent));
+      const parentTip = await backend.tip(parent);
+      const parentOriginTip = await backend.originTip(parent);
       if (parentTip === undefined) {
-        deadParent = "missing";
-      } else if (parentTip !== base) {
-        stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
+        // A parent origin holds but this clone lacks is not dead, just unpulled.
+        if (parentOriginTip === undefined) {
+          deadParent = "missing";
+        } else {
+          parentOrigin = "behind";
+        }
+      } else {
+        // A parent ahead of origin's copy is no reading at all: rebasing onto
+        // it already covers everything origin has.
+        if (
+          parentOriginTip !== undefined &&
+          parentOriginTip !== parentTip &&
+          !(await backend.isAncestor(parentOriginTip, parentTip))
+        ) {
+          parentOrigin = (await backend.isAncestor(parentTip, parentOriginTip)) ? "behind" : "diverged";
+        }
+        if (parentTip !== base) {
+          stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
+        }
       }
     }
   }
@@ -186,6 +206,7 @@ export async function summarizeChange(
     tip,
     origin,
     deadParent,
+    parentOrigin,
     staleBase: stale?.kind,
     // A landed change is frozen; only live code is worth scanning for markers.
     conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
@@ -215,7 +236,10 @@ export async function summarizeChange(
  * longer merges cleanly onto `stale`'s parent tip. That merge is dry-run
  * only when every earlier step is settled; a land that skips a step anyway
  * (`--even-though-unreviewed`) is still safe, since `prepareLand` makes its
- * own check. Last, a forge-tracked change pushes before landing when the
+ * own check. The dry-run, like the rebase and land it stands for, is a
+ * question about the parent's tip, so a parent whose local copy is not
+ * current outranks them all: one that trails origin pulls first, and one
+ * that diverged is the user's to reconcile. Last, a forge-tracked change pushes before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
  * forge change's target has yet to follow — since the forge refuses to land
  * state it has not seen, while a local land reads nothing from origin and
@@ -258,6 +282,12 @@ async function nextStep(
   }
   if (readings.reviewing !== "everyone") {
     return "widen reviewing";
+  }
+  if (readings.parentOrigin === "behind") {
+    return "pull parent";
+  }
+  if (readings.parentOrigin === "diverged") {
+    return "resolve parent divergence";
   }
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";
