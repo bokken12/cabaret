@@ -858,48 +858,54 @@ export async function pullForge(
   }
 
   // Refresh: every change tracked before the import phase, so a fresh import
-  // is not immediately re-pulled as a no-op.
-  const pruneCandidates: { readonly change: ChangeName; readonly id: ForgeChangeId; readonly archived: boolean }[] = [];
-  for (const change of tracked) {
-    const entries = await backend.readLog(change);
-    if (landedMerge(entries) !== undefined) {
-      continue;
-    }
-    const recorded = currentForgeChange(entries);
-    let bulk: OpenChange | undefined;
-    let forgeChange: ForgeChange;
-    if (recorded !== undefined) {
-      if (recorded.forge !== forge.locator) {
-        continue;
+  // is not immediately re-pulled as a no-op. Each change's refresh reads and
+  // appends only its own log, so refreshing the batch concurrently costs one
+  // round trip's latency, not `tracked.length`'s; `onEvent` fires in
+  // whatever order the changes finish in, not `tracked`'s.
+  type PruneCandidate = { readonly change: ChangeName; readonly id: ForgeChangeId; readonly archived: boolean };
+  const refreshed = await Promise.all(
+    tracked.map(async (change): Promise<PruneCandidate | undefined> => {
+      const entries = await backend.readLog(change);
+      if (landedMerge(entries) !== undefined) {
+        return undefined;
       }
-      bulk = byId.get(recorded.id);
-      // A tracked change absent from the open sweep merged or closed since;
-      // fetched live so this pull still records its land.
-      forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
-    } else {
-      // An untracked branch's open forge change is adopted without asking
-      // the forge change by change.
-      bulk = byHead.get(change);
-      if (bulk === undefined) {
-        continue;
+      const recorded = currentForgeChange(entries);
+      let bulk: OpenChange | undefined;
+      let forgeChange: ForgeChange;
+      if (recorded !== undefined) {
+        if (recorded.forge !== forge.locator) {
+          return undefined;
+        }
+        bulk = byId.get(recorded.id);
+        // A tracked change absent from the open sweep merged or closed since;
+        // fetched live so this pull still records its land.
+        forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
+      } else {
+        // An untracked branch's open forge change is adopted without asking
+        // the forge change by change.
+        bulk = byHead.get(change);
+        if (bulk === undefined) {
+          return undefined;
+        }
+        forgeChange = bulk.change;
+        await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
       }
-      forgeChange = bulk.change;
-      await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
-    }
-    if (forgeChange.state === "closed") {
-      // Mirror the close in as archived before judging engagement: the
-      // observation carries a source, so a pure import stays prunable.
-      const mirror = planArchivedPull(now, user, forge.locator, entries, true);
-      if (mirror.length > 0) {
-        await backend.appendLog(change, mirror);
+      if (forgeChange.state === "closed") {
+        // Mirror the close in as archived before judging engagement: the
+        // observation carries a source, so a pure import stays prunable.
+        const mirror = planArchivedPull(now, user, forge.locator, entries, true);
+        if (mirror.length > 0) {
+          await backend.appendLog(change, mirror);
+        }
+        return { change, id: forgeChange.id, archived: mirror.length > 0 };
       }
-      pruneCandidates.push({ change, id: forgeChange.id, archived: mirror.length > 0 });
-      continue;
-    }
-    const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
-    const pulled = await pullTrackedChange(backend, now, forge, change, entries, forgeChange, comments);
-    onEvent({ kind: "pulled", id: forgeChange.id, change, ...pulled });
-  }
+      const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
+      const pulled = await pullTrackedChange(backend, now, forge, change, entries, forgeChange, comments);
+      onEvent({ kind: "pulled", id: forgeChange.id, change, ...pulled });
+      return undefined;
+    }),
+  );
+  const pruneCandidates = refreshed.filter((candidate): candidate is PruneCandidate => candidate !== undefined);
 
   // Publish what this pull imported and appended.
   await backend.syncLogs();
