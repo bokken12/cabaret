@@ -95,6 +95,7 @@ function repoBackend(opts: {
   const stub: Pick<
     Backend,
     | "mergedTip"
+    | "mergedOnto"
     | "tip"
     | "originTip"
     | "hasRevision"
@@ -110,6 +111,13 @@ function repoBackend(opts: {
       const digit = opts.tips?.[merge[0] as string];
       if (digit === undefined) {
         throw new Error(`unexpected mergedTip query: ${merge}`);
+      }
+      return fake(digit);
+    },
+    async mergedOnto(merge) {
+      const digit = opts.history[merge[0] as string];
+      if (digit === undefined) {
+        throw new Error(`unexpected mergedOnto query: ${merge}`);
       }
       return fake(digit);
     },
@@ -541,7 +549,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
   // land merge's second parent. Origin having moved on does not matter; the
   // change is frozen, so landed outranks every origin step.
   const backend = repoBackend({
-    history: { "1": "0", "3": "1", "4": "3" },
+    history: { "1": "0", "3": "1", "4": "3", "5": "1" },
     branches: { main: "5" },
     changed: { "14": ["b.ts", "a.ts"] },
     // The base's copy changed underneath the review, and differently from
@@ -614,6 +622,24 @@ test("reviewRounds resumes mid-span from a reviewed tip", async () => {
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
     { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2") } }) },
+  ]);
+});
+
+test("reviewRounds counts a review against absent objects as no review at all", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["a.ts", "b.ts"] },
+    absent: ["8", "9"],
+  });
+  // a.ts was reviewed up to a tip, and b.ts against a base, that this clone
+  // has no objects for; both count as unreviewed.
+  const entries = [...created("main", "0"), entry(review("a.ts", "0", "9")), entry(review("b.ts", "8", "1"))];
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
+    {
+      end: fake("2"),
+      files: files({ "a.ts": { kind: "span", start: fake("0") }, "b.ts": { kind: "span", start: fake("0") } }),
+    },
   ]);
 });
 
