@@ -413,6 +413,20 @@ export class GitBackend implements Backend {
         brief: "fetching change logs with every git fetch",
         applies: async (backend) => (await backend.config("remote.origin.url")) !== undefined,
       },
+      {
+        key: "core.commitGraph",
+        value: "true",
+        scope: "global",
+        multi: false,
+        brief: "reading the commit-graph file to keep merge-base and ancestry queries fast",
+      },
+      {
+        key: "fetch.writeCommitGraph",
+        value: "true",
+        scope: "global",
+        multi: false,
+        brief: "writing the commit-graph file on fetch so it stays current as history grows",
+      },
     ];
   }
 
