@@ -775,6 +775,14 @@ export class HgBackend implements Backend {
     return parseHgNode(out);
   }
 
+  async mergedOnto(merge: Revision): Promise<Revision> {
+    const out = await hg(this.root, ["log", "-r", merge, "-T", "{p1node}"]);
+    if (out === NULL_NODE) {
+      throw new Error(`commit has no parent: ${merge}`);
+    }
+    return parseHgNode(out);
+  }
+
   async readFile(commit: Revision, file: FilePath): Promise<string | undefined> {
     let out: string;
     try {

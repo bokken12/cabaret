@@ -516,6 +516,12 @@ export interface Backend {
   mergedTip(merge: Revision): Promise<Revision>;
 
   /**
+   * The history a commit was committed onto — its first parent. For a land,
+   * merge or squash alike, the parent history the change landed onto.
+   */
+  mergedOnto(merge: Revision): Promise<Revision>;
+
+  /**
    * Merge `onto` into branch `change`: a content merge of the change's tip
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge
@@ -955,9 +961,12 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  * each covering the others' blind spots, so we take whichever reaches
  * furthest into the change's history:
  *
- * - The stored base (the log's latest `set-base`) goes stale when the change
- *   is rewritten outside Cabaret: its commits leave the change's history, so
- *   it stops being an ancestor of the tip and is discarded.
+ * - The stored base (the log's latest `set-base`) is only ever a hint: it
+ *   goes stale when the change is rewritten outside Cabaret — its commits
+ *   leave the change's history, so it stops being an ancestor of the tip —
+ *   and a log written elsewhere may record a revision on a branch never
+ *   pushed anywhere this clone fetches from, so it competes only while this
+ *   clone holds its objects and it remains an ancestor of the tip.
  * - The merge-base with a reading of the parent — its local branch, and
  *   origin's last-fetched copy — goes stale when that reading trails what
  *   the change was built on: it slides back to where the histories diverge,
@@ -965,6 +974,10 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   too new is harmless, since a merge-base cannot reach past the change's
  *   own history, so the freshest reading wins by being deepest, and the
  *   change's own ancestry arbitrates between diverged readings.
+ * - Once the change lands, its parent's history contains the change itself,
+ *   so a parent reading's merge-base would slide to the change's own tip and
+ *   erase its diff. The land merge freezes the history the change landed
+ *   onto as its first parent, so that becomes the one reading instead.
  *
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
@@ -974,34 +987,34 @@ export async function changeBase(
   change: ChangeName,
   entries: readonly LogEntry[],
 ): Promise<Revision> {
-  // Once the change lands, its parent's history contains the change itself,
-  // so the merge-base slides to the change's own tip and would erase its
-  // diff. `land` pins the base, and a landed change is frozen, so the stored
-  // base stays correct forever.
-  if (landedMerge(entries) !== undefined) {
-    return currentBase(change, entries);
-  }
-  const parent = currentParent(change, entries);
   const stored = currentBase(change, entries);
-  const tip = await requireTip(backend, change);
-  const readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
-    (reading): reading is Revision => reading !== undefined,
-  );
-  // A stored base this clone has no objects for cannot join the candidates —
-  // an adopted log may record a base on a branch never pushed anywhere this
-  // clone fetches from — so its presence gates every ancestry query on it.
-  // With no reading of the parent there is no merge-base; the stored base is
-  // the only candidate, still valid while it remains an ancestor of the tip.
-  if (readings.length === 0) {
-    if ((await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip))) {
-      return stored;
-    }
-    throw new UserError(
-      `parent branch of ${JSON.stringify(change)} does not exist: ${JSON.stringify(parent)}; run \`cabaret reparent\``,
+  const tip = await changeTip(backend, change, entries);
+  const landed = landedMerge(entries);
+  let readings: readonly Revision[];
+  if (landed !== undefined) {
+    readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
+  } else {
+    const parent = currentParent(change, entries);
+    readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
+      (reading): reading is Revision => reading !== undefined,
     );
   }
+  const storedValid = (await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip));
+  // With no reading there is no merge-base; the stored base is the only
+  // candidate.
+  if (readings.length === 0) {
+    if (storedValid) {
+      return stored;
+    }
+    throw landed !== undefined
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret pull\``)
+      : new UserError(
+          `parent branch of ${JSON.stringify(change)} does not exist: ` +
+            `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
+        );
+  }
   const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
-  if (!candidates.has(stored) && (await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip))) {
+  if (storedValid) {
     candidates.add(stored);
   }
   let base: Revision | undefined;
@@ -1017,7 +1030,8 @@ export async function changeBase(
     if (!(await backend.isAncestor(candidate, base))) {
       throw new UserError(
         `base of ${JSON.stringify(change)} is ambiguous: candidates ` +
-          `${[...candidates].join(", ")} are on unrelated lines; rebase to resolve`,
+          `${[...candidates].join(", ")} are on unrelated lines` +
+          (landed === undefined ? "; rebase to resolve" : ""),
       );
     }
   }
@@ -1037,7 +1051,20 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
   if (landed === undefined) {
     return requireTip(backend, change);
   }
-  return landed.tip ?? backend.mergedTip(landed.merge);
+  if (landed.tip !== undefined) {
+    // A squash does not carry the reviewed history, so a clone that never
+    // fetched it while the branch lived cannot reach the recorded tip.
+    if (!(await backend.hasRevision(landed.tip))) {
+      throw new UserError(`landed tip of ${JSON.stringify(change)} is not in this clone: ${landed.tip}`);
+    }
+    return landed.tip;
+  }
+  if (!(await backend.hasRevision(landed.merge))) {
+    throw new UserError(
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret pull\``,
+    );
+  }
+  return backend.mergedTip(landed.merge);
 }
 
 /**

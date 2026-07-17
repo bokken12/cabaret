@@ -448,6 +448,10 @@ export class GitBackend implements Backend {
     return this.resolveCommit(`${merge}^2`);
   }
 
+  mergedOnto(merge: Revision): Promise<Revision> {
+    return this.resolveCommit(`${merge}^1`);
+  }
+
   async push(branch: ChangeName): Promise<void> {
     // `origin` is pinned rather than configurable: the forge to sync with is
     // likewise derived from `origin`, so the two always name the same place.

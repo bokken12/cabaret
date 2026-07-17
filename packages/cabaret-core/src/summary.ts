@@ -319,14 +319,14 @@ export interface ReviewRound {
   readonly files: ReadonlyMap<FilePath, FileView>;
 }
 
-/** Memoize an async derivation per reviewed tip: reviews sharing a tip share what remains. */
-function perTip<T>(compute: (reviewedTip: Revision) => Promise<T>): (reviewedTip: Revision) => Promise<T> {
+/** Memoize an async derivation per revision: reviews sharing a revision share the answer. */
+function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision: Revision) => Promise<T> {
   const memo = new Map<Revision, T>();
-  return async (reviewedTip) => {
-    let value = memo.get(reviewedTip);
+  return async (revision) => {
+    let value = memo.get(revision);
     if (value === undefined) {
-      value = await compute(reviewedTip);
-      memo.set(reviewedTip, value);
+      value = await compute(revision);
+      memo.set(revision, value);
     }
     return value;
   };
@@ -357,14 +357,23 @@ export async function reviewRounds(
     changed: ReadonlySet<FilePath>;
     files: Map<FilePath, FileView>;
   }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
-  const known = brain(entries, user);
-  const tipKept = perTip((reviewedTip) => backend.isAncestor(reviewedTip, tip));
-  const spansPast = perTip(
+  // A review recorded against objects this clone lacks — reviewed where the
+  // commits were never pushed — can be neither placed in the history nor
+  // diffed from, so the file counts as unreviewed.
+  const held = perRevision((revision) => backend.hasRevision(revision));
+  const known = new Map(brain(entries, user));
+  for (const [file, reviewed] of known) {
+    if (!((await held(reviewed.base)) && (await held(reviewed.tip)))) {
+      known.delete(file);
+    }
+  }
+  const tipKept = perRevision((reviewedTip) => backend.isAncestor(reviewedTip, tip));
+  const spansPast = perRevision(
     async (reviewedTip) =>
       new Map((await remainingSpans(backend, diff.spans, reviewedTip)).map((span) => [span.end, span])),
   );
   // The files of the one span that resumes mid-span from the reviewed tip.
-  const resumedFiles = perTip(async (reviewedTip) => {
+  const resumedFiles = perRevision(async (reviewedTip) => {
     for (const { start, end } of (await spansPast(reviewedTip)).values()) {
       if (start === reviewedTip) {
         return new Set(await backend.changedFiles(start, end));
@@ -374,7 +383,7 @@ export async function reviewRounds(
     // span's, and such a span always starts at the reviewed tip.
     throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
   });
-  const unseenFiles = perTip(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
+  const unseenFiles = perRevision(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
   for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed]))].sort()) {
     const reviewed = known.get(file);
     if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {

@@ -62,7 +62,14 @@ export const diff = buildCommand({
     const user = flags.for ?? (await backend.currentUser());
     const base = await changeBase(backend, change, entries);
     const tip = await requireTip(backend, change);
-    const reviewed = brain(entries, user).get(file);
+    const known = brain(entries, user).get(file);
+    // A review recorded against objects this clone lacks — reviewed where the
+    // commits were never pushed — can be neither placed nor diffed from, so
+    // the file counts as unreviewed.
+    const reviewed =
+      known !== undefined && (await backend.hasRevision(known.base)) && (await backend.hasRevision(known.tip))
+        ? known
+        : undefined;
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
     if (reviewed !== undefined && reviewed.base !== base) {

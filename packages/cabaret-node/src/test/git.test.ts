@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import {
   type Config,
   changeBase,
+  changeTip,
   checkoutChange,
   createChange,
   DirtyWorkspaceError,
@@ -257,6 +258,80 @@ test("changeBase fails when the stored base and merge-base are unrelated", async
   await git("update-ref", "refs/heads/parent-merged", parent);
   await plumbChange("child-merged", child, "parent-merged", side);
   await expect(changeBaseOf("child-merged")).rejects.toThrow('base of "child-merged" is ambiguous');
+});
+
+/** Record `change` as landed by `merge`, optionally at a squash-recorded tip. */
+async function plumbLand(change: string, merge: string, tip?: string): Promise<void> {
+  const backend = await GitBackend.open(repo);
+  await backend.appendLog(parseBranchName(change), [
+    logEntry(1748000000002, {
+      kind: "land",
+      merge: parseCommitHash(merge),
+      ...(tip === undefined ? {} : { tip: parseCommitHash(tip) }),
+    }),
+  ]);
+}
+
+test("changeBase of a landed change derives from the land merge when the stored base is absent", async () => {
+  const onto = await plumbCommit("parent at land");
+  const tip = await plumbCommit("landed child work", onto);
+  const merge = await plumbCommit("Land landed-child", onto, tip);
+  await plumbChange("landed-child", tip, "trunk-gone", "deadbeef".repeat(5));
+  await plumbLand("landed-child", merge);
+  expect(await changeBaseOf("landed-child")).toBe(onto);
+});
+
+test("changeBase of a landed change keeps a stored base the landed-onto history cannot see", async () => {
+  // The change was built on a parent line later rewritten: its stored base is
+  // an ancestor of its tip but not of what it landed onto, and reaches deeper
+  // than the merge-base with the landed-onto history.
+  const oldParent = await plumbCommit("old parent line");
+  const tip = await plumbCommit("child atop the old line", oldParent);
+  const onto = await plumbCommit("rewritten parent line");
+  const merge = await plumbCommit("Land child-of-old-line", onto, tip);
+  await plumbChange("child-of-old-line", tip, "trunk-rewritten", oldParent);
+  await plumbLand("child-of-old-line", merge);
+  expect(await changeBaseOf("child-of-old-line")).toBe(oldParent);
+});
+
+test("changeBase of a squash-landed change falls back to the stored base when the merge is absent", async () => {
+  const base = await plumbCommit("parent at squash");
+  const tip = await plumbCommit("squashed child work", base);
+  await plumbChange("squashed-child", tip, "trunk-squash", base);
+  await plumbLand("squashed-child", "cafe".repeat(10), tip);
+  expect(await changeBaseOf("squashed-child")).toBe(base);
+});
+
+test("changeBase of a squash-landed change fails when the merge and the stored base are both absent", async () => {
+  const tip = await plumbCommit("squashed work, unplaceable");
+  await plumbChange("squashed-unplaceable", tip, "trunk-squash-gone", "deadbeef".repeat(5));
+  await plumbLand("squashed-unplaceable", "cafe".repeat(10), tip);
+  await expect(changeBaseOf("squashed-unplaceable")).rejects.toThrow(
+    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret pull\``,
+  );
+});
+
+test("changeTip fails when the land merge is absent from the clone", async () => {
+  const backend = await GitBackend.open(repo);
+  const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
+  await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
+    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret pull\``,
+  );
+});
+
+test("changeTip fails when a squash-recorded tip is absent from the clone", async () => {
+  const backend = await GitBackend.open(repo);
+  const merge = await plumbCommit("squash land whose reviewed tip is gone");
+  const entries = [
+    logEntry(1748000000000, {
+      kind: "land",
+      merge: parseCommitHash(merge),
+      tip: parseCommitHash("feed".repeat(10)),
+    }),
+  ];
+  await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
+    `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,
+  );
 });
 
 test("isAncestor distinguishes ancestors from unrelated commits", async () => {
