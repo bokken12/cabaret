@@ -24,6 +24,7 @@ import {
   VcsUnavailableError,
   type Workspace,
 } from "cabaret-core";
+import { AncestryCache } from "./ancestry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -259,6 +260,9 @@ export class GitBackend implements Backend {
 
   /** Serves all scalar object reads without a per-read process spawn. */
   private readonly reader: ObjectReader;
+
+  /** Answers repeated and derivable ancestry queries without a spawn. */
+  private readonly ancestry = new AncestryCache();
 
   private constructor(
     readonly root: string,
@@ -744,32 +748,27 @@ export class GitBackend implements Backend {
     }
   }
 
-  async mergeBase(a: Revision, b: Revision): Promise<Revision> {
-    // Equal hashes name the same commit, which is trivially the last shared
-    // revision; answering here spares a subprocess.
-    if (a === b) {
-      return a;
-    }
-    const out = await git(this.root, ["merge-base", a, b]);
-    return parseCommitHash(out.trimEnd());
+  mergeBase(a: Revision, b: Revision): Promise<Revision> {
+    return this.ancestry.mergeBase(a, b, async () => {
+      const out = await git(this.root, ["merge-base", a, b]);
+      return parseCommitHash(out.trimEnd());
+    });
   }
 
-  async isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
-    // A revision is its own ancestor; answering here spares a subprocess.
-    if (ancestor === descendant) {
-      return true;
-    }
-    try {
-      await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
-      return true;
-    } catch (error) {
-      // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
-      // commit pruned by gc) is a real failure.
-      if ((error as { code?: unknown }).code === 1) {
-        return false;
+  isAncestor(ancestor: Revision, descendant: Revision): Promise<boolean> {
+    return this.ancestry.isAncestor(ancestor, descendant, async () => {
+      try {
+        await git(this.root, ["merge-base", "--is-ancestor", ancestor, descendant]);
+        return true;
+      } catch (error) {
+        // Exit code 1 means exactly "not an ancestor"; anything else (e.g. a
+        // commit pruned by gc) is a real failure.
+        if ((error as { code?: unknown }).code === 1) {
+          return false;
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   merge(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision> {
