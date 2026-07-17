@@ -636,13 +636,14 @@ export class GitBackend implements Backend {
   private async publishLogs(changes: readonly ChangeName[]): Promise<void> {
     let pending = changes;
     for (let attempt = 0; pending.length > 0; attempt++) {
-      const settled: { change: ChangeName; tip: Revision }[] = [];
-      for (const change of pending) {
-        const tip = await this.settleLog(change);
-        if (tip !== undefined) {
-          settled.push({ change, tip });
-        }
-      }
+      // Each change's log settles independently, so settling the batch
+      // concurrently costs one round trip's latency, not `pending.length`'s.
+      const withTips = await Promise.all(
+        pending.map(async (change) => ({ change, tip: await this.settleLog(change) })),
+      );
+      const settled = withTips.filter(
+        (entry): entry is { change: ChangeName; tip: Revision } => entry.tip !== undefined,
+      );
       if (settled.length === 0) {
         return;
       }
