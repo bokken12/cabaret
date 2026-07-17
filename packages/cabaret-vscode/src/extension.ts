@@ -22,6 +22,7 @@ import {
   landChain,
   NotOwnerError,
   NotReviewingError,
+  type PullEvent,
   pullForge,
   pushChange,
   type RebaseOverrides,
@@ -516,10 +517,42 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
 }
 
 /** Pull from the forge — import open forge changes and their activity — surfacing failure as a notification. */
+/** What `event` did, in a few words fit for a progress message; undefined for one with nothing change-specific to say. */
+function describePullEvent(event: PullEvent): string | undefined {
+  switch (event.kind) {
+    case "aliased":
+      return undefined;
+    case "imported":
+      return `imported ${event.change}`;
+    case "skipped":
+      return `skipped ${event.change}`;
+    case "pulled":
+      return `pulled ${event.change}`;
+    case "archived":
+      return `archived ${event.change}`;
+    case "pruned":
+      return `pruned ${event.change}`;
+  }
+}
+
 async function runPull(provider: PageProvider): Promise<void> {
   try {
     const forge = await requireForge();
-    const { open } = await pullForge(forgeBackend(await openBackend()), now, forge, () => {});
+    // A notification appears the moment the command fires, rather than
+    // leaving the user staring at an unchanged window until the pull —
+    // several git and forge round trips — finally resolves; its message
+    // updates with each change as the pull works through them, so the wait
+    // reads as progress rather than a stalled spinner.
+    const { open } = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `cabaret: pulling from ${forge.locator}` },
+      async (progress) =>
+        pullForge(forgeBackend(await openBackend()), now, forge, (event) => {
+          const message = describePullEvent(event);
+          if (message !== undefined) {
+            progress.report({ message });
+          }
+        }),
+    );
     vscode.window.setStatusBarMessage(
       `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
