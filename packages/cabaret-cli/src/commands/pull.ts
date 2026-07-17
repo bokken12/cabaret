@@ -90,13 +90,14 @@ export const pull = buildCommand({
       await backend.syncLog(change);
       const entries = await backend.readLog(change);
       assertChangeExists(change, entries);
-      const forgeChange = await syncedForgeChange(backend, this.now, forge, change, entries);
+      const user = await backend.currentUser();
+      const forgeChange = await syncedForgeChange(backend, this.now, user, forge, change, entries);
       if (forgeChange === undefined) {
         throw new UserError(
           `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
         );
       }
-      const pulled = await pullTrackedChange(backend, this.now, forge, change, entries, forgeChange);
+      const pulled = await pullTrackedChange(backend, this.now, user, forge, change, entries, forgeChange);
       reportPullEvent(this, forge.locator, { kind: "pulled", id: forgeChange.id, change, ...pulled });
       return;
     }

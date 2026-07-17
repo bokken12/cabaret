@@ -521,6 +521,7 @@ function adoptionEntries(
 export async function syncedForgeChange(
   backend: Backend,
   now: () => TimestampMs,
+  user: UserName,
   forge: Forge,
   change: ChangeName,
   entries: readonly LogEntry[],
@@ -531,10 +532,7 @@ export async function syncedForgeChange(
   }
   const found = await forge.findChange(change);
   if (found !== undefined) {
-    await backend.appendLog(
-      change,
-      adoptionEntries(now, await backend.currentUser(), forge.locator, found, change, entries),
-    );
+    await backend.appendLog(change, adoptionEntries(now, user, forge.locator, found, change, entries));
   }
   return found;
 }
@@ -627,7 +625,7 @@ export async function landAsConfigured(
     const git = forgeBackend(backend);
     const gitEntries = entries as readonly LogEntry[] as readonly LogEntry[];
     const forge = await openForge();
-    const forgeChange = await syncedForgeChange(git, now, forge, change, gitEntries);
+    const forgeChange = await syncedForgeChange(git, now, await git.currentUser(), forge, change, gitEntries);
     if (forgeChange === undefined) {
       throw new UserError(
         `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret push\` first`,
@@ -679,6 +677,7 @@ export type PullEvent =
 export async function pullTrackedChange(
   backend: Backend,
   now: () => TimestampMs,
+  user: UserName,
   forge: Forge,
   change: ChangeName,
   entries: readonly LogEntry[],
@@ -692,7 +691,6 @@ export async function pullTrackedChange(
   readonly reviewing?: Reviewing | undefined;
   readonly archived?: boolean | undefined;
 }> {
-  const user = await backend.currentUser();
   const additions = [
     ...(await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)))),
   ];
@@ -778,6 +776,7 @@ export async function pullForge(
 ): Promise<{ readonly open: number }> {
   const forgeSelf = await forge.currentSelf();
   const self = await currentSelf(backend);
+  const user = self.user;
   for (const alias of [forgeSelf.user, ...forgeSelf.aliases]) {
     if (!isSelf(self, alias)) {
       await backend.configAdd("cabaret.alias", alias, "local");
@@ -794,7 +793,6 @@ export async function pullForge(
   await backend.syncLogs();
   const tracked = await backend.listChanges();
   const existing = new Set(tracked);
-  const user = await backend.currentUser();
 
   const open = await forge.fetchOpenChanges();
   // Heads sharing a branch collapse to the lowest id, so every machine
@@ -900,7 +898,7 @@ export async function pullForge(
         return { change, id: forgeChange.id, archived: mirror.length > 0 };
       }
       const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
-      const pulled = await pullTrackedChange(backend, now, forge, change, entries, forgeChange, comments);
+      const pulled = await pullTrackedChange(backend, now, user, forge, change, entries, forgeChange, comments);
       onEvent({ kind: "pulled", id: forgeChange.id, change, ...pulled });
       return undefined;
     }),
@@ -957,17 +955,18 @@ export async function pushChange(
   entries: readonly LogEntry[],
 ): Promise<PushResult> {
   const parent = currentParent(change, entries);
+  const user = await backend.currentUser();
   await backend.push(change);
   // Whenever the push sets the forge's parent — at creation or by a
   // retarget — the log records the observation, so a later pull can
   // tell a forge-side retarget from the state this push left behind.
-  const observation = async (): Promise<LogEntry> => ({
+  const observation = (): LogEntry => ({
     timestamp: now(),
-    user: await backend.currentUser(),
+    user,
     source: { forge: forge.locator },
     action: { kind: "set-parent", parent },
   });
-  let forgeChange = await syncedForgeChange(backend, now, forge, change, entries);
+  let forgeChange = await syncedForgeChange(backend, now, user, forge, change, entries);
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
     if (currentArchived(entries)) {
@@ -979,15 +978,15 @@ export async function pushChange(
     await backend.appendLog(change, [
       {
         timestamp: now(),
-        user: await backend.currentUser(),
+        user,
         source: { forge: forge.locator },
         action: { kind: "set-forge", forge: forge.locator, id: forgeChange.id },
       },
-      await observation(),
+      observation(),
       // The creation set the forge's draft boundary to the local reviewing
       // set's; recorded so a later pull can tell a forge-side toggle from
       // the state this push left behind.
-      reviewingObservation(now, await backend.currentUser(), forge.locator, currentReviewing(entries)),
+      reviewingObservation(now, user, forge.locator, currentReviewing(entries)),
     ]);
   }
   // Sync the open/closed state before anything that needs the forge change
@@ -997,7 +996,6 @@ export async function pushChange(
   let state: "open" | "closed" | undefined;
   let mirroredArchived: boolean | undefined;
   if (forgeChange.state !== "merged") {
-    const user = await backend.currentUser();
     const closed = forgeChange.state === "closed";
     const current = await backend.readLog(change);
     const mirror = planArchivedPull(now, user, forge.locator, current, closed);
@@ -1016,12 +1014,11 @@ export async function pushChange(
   const open = (state ?? forgeChange.state) === "open";
   if (open && forgeChange.parent !== parent) {
     await forge.setParent(forgeChange.id, parent);
-    await backend.appendLog(change, [await observation()]);
+    await backend.appendLog(change, [observation()]);
   }
   let reviewers = 0;
   let draft: boolean | undefined;
   if (open) {
-    const user = await backend.currentUser();
     // Absorb forge-side reviewer and draft changes first, so what remains
     // between the log and the forge is exactly this side's intent.
     const current = await backend.readLog(change);
@@ -1048,7 +1045,7 @@ export async function pushChange(
       await backend.appendLog(change, additions);
     }
   }
-  const bodies = await planPush(entries, await forge.listComments(forgeChange.id), await backend.currentUser());
+  const bodies = await planPush(entries, await forge.listComments(forgeChange.id), user);
   for (const body of bodies) {
     await forge.addComment(forgeChange.id, body);
   }
