@@ -12,6 +12,12 @@ export interface BackoffLoopOptions<T> {
   /** Whether `error` is worth backing off for quietly (offline, say) rather than a real failure. */
   readonly isTransient: (error: unknown) => boolean;
   readonly onSettled?: (result: BackoffResult<T>) => void;
+  /**
+   * Consulted before each scheduled tick, not before `runNow` — a setting
+   * that turns the loop off should not also disable an explicit, one-off
+   * request for the same work. Defaults to always running.
+   */
+  readonly shouldRun?: () => boolean;
 }
 
 /**
@@ -64,7 +70,11 @@ export class BackoffLoop<T> {
     }
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.tick();
+      if (this.options.shouldRun?.() ?? true) {
+        void this.tick();
+      } else {
+        this.scheduleNext(this.interval);
+      }
     }, delay);
   }
 
