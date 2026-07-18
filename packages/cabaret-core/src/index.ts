@@ -1,5 +1,6 @@
 export * from "./backend.js";
 export * from "./config.js";
+export * from "./connectivity.js";
 export * from "./diff.js";
 export * from "./error.js";
 export * from "./forge.js";

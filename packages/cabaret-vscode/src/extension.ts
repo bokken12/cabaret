@@ -16,6 +16,7 @@ import {
   type GotoResult,
   gotoChange,
   gotoOffer,
+  isConnectivityError,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -63,7 +64,6 @@ import {
 } from "cabaret-views";
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
-import { isConnectivityError } from "./connectivity.js";
 import { type Manifest, pageHelp } from "./help.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
