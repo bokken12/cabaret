@@ -1223,9 +1223,24 @@ export function activate(context: vscode.ExtensionContext): void {
   const forgePollLoop = createForgePollLoop(provider);
   localSyncLoop.start();
   forgePollLoop.start();
+  // Tabbing back in is a good moment to catch up sooner than the next
+  // scheduled poll — but rapid alt-tabbing should not turn into rapid
+  // polling, so this only fires again after a real gap since the last one.
+  let lastOpportunisticPollAt = 0;
   context.subscriptions.push(
     { dispose: () => localSyncLoop.dispose() },
     { dispose: () => forgePollLoop.dispose() },
+    vscode.window.onDidChangeWindowState((state) => {
+      if (!state.focused || !backgroundSyncEnabled()) {
+        return;
+      }
+      const at = Date.now();
+      if (at - lastOpportunisticPollAt < 30_000) {
+        return;
+      }
+      lastOpportunisticPollAt = at;
+      void forgePollLoop.runNow();
+    }),
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
