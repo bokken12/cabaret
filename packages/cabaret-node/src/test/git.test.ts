@@ -441,6 +441,38 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
   }
 });
 
+test("advanceBranches fast-forwards only idle branches with origin strictly ahead", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    await backend.fetchOrigin();
+    const root = await gitIn(dir, "rev-parse", "refs/remotes/origin/main");
+    // A commit origin never sees, to diverge with; then one origin gains.
+    await gitIn(dir, "switch", "-qc", "tmp", root);
+    await gitIn(dir, "commit", "-qm", "local only", "--allow-empty");
+    const local = await gitIn(dir, "rev-parse", "HEAD");
+    await gitIn(dir, "update-ref", "refs/heads/diverge", local);
+    await gitIn(dir, "reset", "-q", "--hard", root);
+    await gitIn(dir, "commit", "-qm", "landed on origin", "--allow-empty");
+    const landed = await gitIn(dir, "rev-parse", "HEAD");
+    await gitIn(dir, "push", "-q", "origin", "tmp:main", "tmp:extra");
+    await gitIn(dir, "branch", "main", root);
+    // Checked out and behind: left alone even though the move would be a plain ff.
+    await gitIn(dir, "switch", "-qc", "extra", root);
+    await backend.fetchOrigin();
+
+    expect(await backend.advanceBranches()).toEqual([parseBranchName("main")]);
+    expect(await backend.tip(parseBranchName("main"))).toBe(parseCommitHash(landed));
+    expect(await backend.tip(parseBranchName("extra"))).toBe(parseCommitHash(root));
+    expect(await backend.tip(parseBranchName("diverge"))).toBe(parseCommitHash(local));
+    // Nothing left to move: a second pass is a no-op.
+    expect(await backend.advanceBranches()).toEqual([]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
 test("deleteLog deletes the log locally and on origin, tolerating a repeat", async () => {
   const { dir, origin } = await makeRemotePair();
   try {

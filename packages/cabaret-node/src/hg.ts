@@ -561,13 +561,18 @@ export class HgBackend implements Backend {
    * the path was spelled, and every exchange here uses the one pinned origin.
    */
   private async remoteReading(bookmark: string): Promise<Revision | undefined> {
+    return (await this.remoteReadings()).get(bookmark);
+  }
+
+  /** Every bookmark's `remoteReading`, in one pass over the extension's store. */
+  private async remoteReadings(): Promise<ReadonlyMap<string, Revision>> {
     let text: string;
     try {
       text = await readFsFile(join(this.hgDir(), "logexchange", "bookmarks"), "utf8");
     } catch (error) {
       // No file means nothing was ever recorded.
       if ((error as { code?: unknown }).code === "ENOENT") {
-        return undefined;
+        return new Map();
       }
       throw error;
     }
@@ -575,13 +580,14 @@ export class HgBackend implements Backend {
     if (version !== "0" || blank !== "") {
       throw new Error(`unrecognized hg logexchange format: ${JSON.stringify(version)}`);
     }
+    const readings = new Map<string, Revision>();
     for (const record of records) {
       const [node, , name] = record.split("\0");
-      if (node !== undefined && name === bookmark) {
-        return parseHgNode(node);
+      if (node !== undefined && name !== undefined && !readings.has(name)) {
+        readings.set(name, parseHgNode(node));
       }
     }
-    return undefined;
+    return readings;
   }
 
   async create(name: ChangeName, commit: Revision): Promise<void> {
@@ -1259,6 +1265,38 @@ export class HgBackend implements Backend {
     // -f: two machines' histories may share nothing at all (log chains are
     // rootless by design), which plain hg refuses to pull across.
     await this.hgRemote(["pull", "-q", "-f"]);
+  }
+
+  async advanceBranches(): Promise<readonly ChangeName[]> {
+    const marks = await this.bookmarks();
+    const readings = await this.remoteReadings();
+    const active = new Set((await this.workspaces()).map(({ change }) => change));
+    const advanced: ChangeName[] = [];
+    for (const [name, tip] of marks) {
+      // The log chain syncs through `syncLogs`; foreign bookmarks outside
+      // the name grammar are not Cabaret's to move.
+      let change: ChangeName;
+      try {
+        change = parseHgName(name);
+      } catch {
+        continue;
+      }
+      const origin = readings.get(name);
+      if (origin === undefined || origin === tip || active.has(change)) {
+        continue;
+      }
+      if (!(await this.isAncestor(tip, origin))) {
+        continue;
+      }
+      try {
+        await this.advanceBranch(change, origin, tip);
+      } catch {
+        // A bookmark moved concurrently stays put.
+        continue;
+      }
+      advanced.push(change);
+    }
+    return advanced.sort();
   }
 
   async syncLog(_change: ChangeName): Promise<void> {

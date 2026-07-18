@@ -589,6 +589,16 @@ export interface Backend {
   fetchOrigin(): Promise<void>;
 
   /**
+   * Fast-forward local branches onto origin's last-fetched copies where the
+   * move is invisible: only a branch checked out in no workspace advances,
+   * and only to a descendant of its tip, so no working tree and no line of
+   * work anyone holds open moves. Returns the branches advanced, sorted.
+   * Reads last-fetched copies only; `fetchOrigin` first to advance onto
+   * fresh ones.
+   */
+  advanceBranches(): Promise<readonly ChangeName[]>;
+
+  /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
    * it with the local log as `mergeLogs` does, and push the result. Either
    * side may be missing; syncing is how a change's review state reaches other
