@@ -1,5 +1,6 @@
 export * from "./backend.js";
 export * from "./config.js";
+export * from "./connectivity.js";
 export * from "./diff.js";
 export * from "./error.js";
 export * from "./forge.js";
@@ -8,6 +9,7 @@ export * from "./ops.js";
 export * from "./self.js";
 export * from "./setup.js";
 export * from "./summary.js";
+export * from "./sync.js";
 export * from "./todo.js";
 export * from "./version.js";
 export * from "./workspace.js";

@@ -8,23 +8,25 @@ import {
   createChange,
   currentParent,
   DirtyWorkspaceError,
+  DivergedParentError,
   declinedScopes,
   declineSetup,
+  type FetchEvent,
   type Forge,
+  fetchForge,
+  fetchLocal,
   forgeBackend,
   type GotoOption,
   type GotoResult,
   gotoChange,
   gotoOffer,
+  isConnectivityError,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
   landChain,
   NotOwnerError,
   NotReviewingError,
-  type PullEvent,
-  pullForge,
-  pushChange,
   type RebaseOverrides,
   readConfig,
   rebaseChain,
@@ -35,8 +37,8 @@ import {
   resolveChain,
   reviewerSummary,
   type SetupAudit,
-  StaleParentError,
   setReviewing,
+  syncChange,
   type TimestampMs,
   timestampMs,
   transferChange,
@@ -46,7 +48,7 @@ import {
   VcsUnavailableError,
   widenReviewing,
 } from "cabaret-core";
-import { openBackend as openRepositoryBackend, openForge as openRepositoryForge } from "cabaret-node";
+import { NoForgeError, openBackend as openRepositoryBackend, openForge as openRepositoryForge } from "cabaret-node";
 import {
   changeSnapshot,
   type Doc,
@@ -63,7 +65,6 @@ import {
 } from "cabaret-views";
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
-import { isConnectivityError } from "./connectivity.js";
 import { type Manifest, pageHelp } from "./help.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
@@ -112,17 +113,15 @@ function backgroundSyncEnabled(): boolean {
 }
 
 /**
- * Fetch origin and settle cabaret's own logs against it -- everything a pull
- * needs from git, nothing from the forge. Every entry this can produce was
+ * The local half of a fetch -- origin refreshed, idle branches advanced,
+ * logs settled; nothing from the forge. Every log entry this can produce was
  * put there by somebody's forge sweep already, published through the shared
  * log refs, so running this often costs nothing beyond git's own traffic and
- * still surfaces a teammate's pulled comment or land quickly, without this
+ * still surfaces a teammate's absorbed comment or land quickly, without this
  * workspace polling the forge itself to get it.
  */
-async function syncLocal(): Promise<void> {
-  const backend = await openBackend();
-  await backend.fetchOrigin();
-  await backend.syncLogs();
+async function fetchLocalHalf(): Promise<void> {
+  await fetchLocal(await openBackend());
 }
 
 /**
@@ -133,7 +132,7 @@ async function syncLocal(): Promise<void> {
  * left on the normal cadence, since backing off would not fix it.
  */
 const localSyncLoop = new BackoffLoop({
-  run: syncLocal,
+  run: fetchLocalHalf,
   baseIntervalMs: 10_000,
   maxIntervalMs: 2 * 60_000,
   isTransient: isConnectivityError,
@@ -570,16 +569,18 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
 }
 
 /** What `event` did, in a few words fit for a progress message; undefined for one with nothing change-specific to say. */
-function describePullEvent(event: PullEvent): string | undefined {
+function describeFetchEvent(event: FetchEvent): string | undefined {
   switch (event.kind) {
     case "aliased":
       return undefined;
+    case "advanced":
+      return `advanced ${event.change}`;
     case "imported":
       return `imported ${event.change}`;
     case "skipped":
       return `skipped ${event.change}`;
-    case "pulled":
-      return `pulled ${event.change}`;
+    case "absorbed":
+      return `absorbed ${event.change}`;
     case "archived":
       return `archived ${event.change}`;
     case "pruned":
@@ -588,7 +589,7 @@ function describePullEvent(event: PullEvent): string | undefined {
 }
 
 /** Watching {@link pollForge}'s progress live, for whoever's `withProgress` call triggered or joined the run in flight. */
-const pullListeners = new Set<(event: PullEvent) => void>();
+const fetchListeners = new Set<(event: FetchEvent) => void>();
 
 /**
  * Import open forge changes and refresh tracked ones -- the only part of
@@ -603,8 +604,8 @@ async function pollForge(): Promise<{ readonly open: number } | undefined> {
   } catch {
     return undefined;
   }
-  return pullForge(forgeBackend(await openBackend()), now, forge, (event) => {
-    for (const listener of pullListeners) {
+  return fetchForge(forgeBackend(await openBackend()), now, forge, (event) => {
+    for (const listener of fetchListeners) {
       listener(event);
     }
   });
@@ -635,37 +636,37 @@ function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly ope
   });
 }
 
-async function runPull(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly open: number } | undefined>) {
+async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly open: number } | undefined>) {
   try {
     const forge = await openForge();
     // A notification appears the moment the command fires, rather than
-    // leaving the user staring at an unchanged window until the pull —
+    // leaving the user staring at an unchanged window until the fetch —
     // several git and forge round trips — finally resolves; its message
-    // updates with each change as the pull works through them, so the wait
+    // updates with each change as the fetch works through them, so the wait
     // reads as progress rather than a stalled spinner. `runNow` joins a
     // background poll already in flight rather than starting a second one;
     // listening while it is outstanding still gets this call live events
     // from it, whichever call actually triggered it.
     const result = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `cabaret: pulling from ${forge.locator}` },
+      { location: vscode.ProgressLocation.Notification, title: `cabaret: fetching from ${forge.locator}` },
       async (progress) => {
-        const listener = (event: PullEvent): void => {
-          const text = describePullEvent(event);
+        const listener = (event: FetchEvent): void => {
+          const text = describeFetchEvent(event);
           if (text !== undefined) {
             progress.report({ message: text });
           }
         };
-        pullListeners.add(listener);
+        fetchListeners.add(listener);
         try {
           return await forgePollLoop.runNow();
         } finally {
-          pullListeners.delete(listener);
+          fetchListeners.delete(listener);
         }
       },
     );
     const open = result?.open ?? 0;
     vscode.window.setStatusBarMessage(
-      `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
+      `cabaret: fetched ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
     );
   } catch (error) {
@@ -750,20 +751,36 @@ async function runSetup(): Promise<void> {
   }
 }
 
-/** Push each selected change to the forge, ancestormost first. */
-async function pushSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
-  const git = forgeBackend(backend);
-  const forge = await openForge();
-  const pushed: string[] = [];
+/** Sync each selected change with origin and the forge, ancestormost first. */
+async function syncSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
+  let forge: Forge | undefined;
+  try {
+    forge = await openForge();
+  } catch (error) {
+    if (!(error instanceof NoForgeError)) {
+      throw error;
+    }
+  }
+  const synced: string[] = [];
+  let offline = false;
   for (const change of changes) {
-    const { id } = await pushChange(git, now, forge, change, await git.readLog(change));
-    pushed.push(`${change} to ${forge.locator}#${id}`);
+    const result = await syncChange(backend, now, forge, change);
+    offline ||= result.offline;
+    const conflicts = result.joined?.conflicts ?? [];
+    if (conflicts.length > 0) {
+      vscode.window.showWarningMessage(
+        `cabaret: merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+      );
+    }
+    synced.push(result.published === undefined ? `${change}` : `${change} to ${forge?.locator}#${result.published.id}`);
   }
   vscode.window.setStatusBarMessage(
-    pushed.length === 1
-      ? `cabaret: pushed ${pushed[0]}`
-      : `cabaret: pushed ${pushed.length} changes to ${forge.locator}`,
-    5000,
+    offline
+      ? "cabaret: origin unreachable; synced locally — sync again online to publish"
+      : synced.length === 1
+        ? `cabaret: synced ${synced[0]}`
+        : `cabaret: synced ${synced.length} changes`,
+    8000,
   );
 }
 
@@ -878,7 +895,7 @@ async function rebaseSelection(backend: Backend, changes: readonly ChangeName[])
       await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
     }
   };
-  let overrides: RebaseOverrides = { notOwner: false, staleParent: false };
+  let overrides: RebaseOverrides = { notOwner: false, parentDiverged: false };
   for (;;) {
     try {
       return await rebaseAll(overrides);
@@ -887,12 +904,9 @@ async function rebaseSelection(backend: Backend, changes: readonly ChangeName[])
       if (error instanceof NotOwnerError && !overrides.notOwner) {
         message = `${error.change} is owned by ${error.owner}, not you.`;
         overrides = { ...overrides, notOwner: true };
-      } else if (error instanceof StaleParentError && !overrides.staleParent) {
-        message =
-          error.kind === "behind"
-            ? `Local ${error.parent} is behind origin's copy; pull it first.`
-            : `Local ${error.parent} has diverged from origin's copy.`;
-        overrides = { ...overrides, staleParent: true };
+      } else if (error instanceof DivergedParentError && !overrides.parentDiverged) {
+        message = `Local ${error.parent} has diverged from origin's copy; rebase onto the local reading?`;
+        overrides = { ...overrides, parentDiverged: true };
       } else {
         throw error;
       }
@@ -1276,10 +1290,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
-    vscode.commands.registerCommand("cabaret.pull", () => runPull(provider, forgePollLoop)),
+    vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
     vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
-    vscode.commands.registerCommand("cabaret.push", () =>
-      actOnSelection(provider, (backend, _editor, changes) => pushSelection(backend, changes)),
+    vscode.commands.registerCommand("cabaret.sync", () =>
+      actOnSelection(provider, (backend, _editor, changes) => syncSelection(backend, changes)),
     ),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;

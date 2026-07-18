@@ -30,20 +30,20 @@ export const rebase = buildCommand({
     },
     flags: {
       evenThoughNotOwner,
-      evenThoughParentStale: {
+      evenThoughParentDiverged: {
         kind: "boolean",
-        brief: "Proceed even though origin's copy of the parent has moved on",
+        brief: "Rebase onto the parent's local reading even though origin's has diverged from it",
         default: false,
       },
     },
   },
   async func(
     this: LocalContext,
-    flags: { evenThoughNotOwner: boolean; evenThoughParentStale: boolean },
+    flags: { evenThoughNotOwner: boolean; evenThoughParentDiverged: boolean },
     spec?: ChangeSpec,
   ) {
     const backend = await this.backend();
-    const overrides = { notOwner: flags.evenThoughNotOwner, staleParent: flags.evenThoughParentStale };
+    const overrides = { notOwner: flags.evenThoughNotOwner, parentDiverged: flags.evenThoughParentDiverged };
     if (spec === undefined || spec.kind === "one") {
       const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
       await rebaseChange(backend, this.now, target, await backend.readLog(target), overrides);

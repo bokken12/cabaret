@@ -482,6 +482,58 @@ export class GitBackend implements Backend {
     await git(this.root, ["fetch", "--quiet", "origin"]);
   }
 
+  async advanceBranches(): Promise<readonly ChangeName[]> {
+    const out = await git(this.root, [
+      "for-each-ref",
+      "--format=%(refname) %(objectname)",
+      "refs/heads/",
+      "refs/remotes/origin/",
+    ]);
+    const heads = new Map<ChangeName, Revision>();
+    const origins = new Map<ChangeName, Revision>();
+    for (const line of out.split("\n")) {
+      if (line === "") {
+        continue;
+      }
+      const space = line.indexOf(" ");
+      const ref = line.slice(0, space);
+      const oid = parseCommitHash(line.slice(space + 1));
+      if (ref.startsWith("refs/heads/")) {
+        heads.set(parseBranchName(ref.slice("refs/heads/".length)), oid);
+      } else if (ref !== "refs/remotes/origin/HEAD") {
+        origins.set(parseBranchName(ref.slice("refs/remotes/origin/".length)), oid);
+      }
+    }
+    // Straight from worktree list rather than `workspaces()`, whose
+    // dirtiness reading costs a status scan per worktree — too heavy for a
+    // background cadence, and checked-out-ness alone decides here.
+    const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
+    const checkedOut = new Set(
+      worktrees
+        .split("\n")
+        .filter((line) => line.startsWith("branch refs/heads/"))
+        .map((line) => parseBranchName(line.slice("branch refs/heads/".length))),
+    );
+    const advanced: ChangeName[] = [];
+    for (const [branch, tip] of heads) {
+      const origin = origins.get(branch);
+      if (origin === undefined || origin === tip || checkedOut.has(branch)) {
+        continue;
+      }
+      if (!(await this.isAncestor(tip, origin))) {
+        continue;
+      }
+      // CAS on the tip read above: a branch moved concurrently stays put.
+      try {
+        await git(this.root, ["update-ref", `refs/heads/${branch}`, origin, tip]);
+      } catch {
+        continue;
+      }
+      advanced.push(branch);
+    }
+    return advanced.sort();
+  }
+
   async syncLog(change: ChangeName): Promise<void> {
     await this.fetchLogs();
     await this.publishLogs([change]);

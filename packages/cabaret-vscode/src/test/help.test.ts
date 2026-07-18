@@ -24,8 +24,8 @@ test("todo page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -53,8 +53,8 @@ test("show page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -79,8 +79,8 @@ test("review page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -97,8 +97,8 @@ test("diff page keybindings", () => {
       "! l a  Land",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -115,8 +115,8 @@ test("help carries the command, so picking an entry can run it", () => {
       "! l a  cabaret.land",
       "! c  cabaret.createChild",
       "! p  cabaret.createParent",
-      "F  cabaret.pull",
-      "P  cabaret.push",
+      "F  cabaret.fetch",
+      "S  cabaret.sync",
     ]
   `);
 });

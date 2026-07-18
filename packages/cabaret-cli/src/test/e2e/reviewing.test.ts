@@ -78,35 +78,35 @@ test("obligations reach a user's todo only once the reviewing set includes them"
   expect(await aliceTodo()).toContain("feature");
 });
 
-test("push opens a draft for an unreviewing change and marks it ready when review starts", async () => {
+test("sync opens a draft for an unreviewing change and marks it ready when review starts", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  expect((await repo.cabaret("push")).stdout).toContain("opened github.com/test-org/widgets#1");
+  expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
   expect((await forge.getChange(PR)).draft).toBe(true);
-  // Widening past none is local intent the next push asserts on the forge.
+  // Widening past none is local intent the next sync asserts on the forge.
   await repo.cabaret("widen");
-  expect((await repo.cabaret("push")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
+  expect((await repo.cabaret("sync")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
   expect((await forge.getChange(PR)).draft).toBe(false);
-  // Settled: pushing again moves nothing.
-  expect((await repo.cabaret("push")).stdout).not.toContain("marked");
+  // Settled: syncing again moves nothing.
+  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
 });
 
-test("a forge-side draft toggle mirrors into the reviewing set on pull", async () => {
+test("a forge-side draft toggle mirrors into the reviewing set on fetch", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "everyone");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   // A teammate converts the forge change to a draft.
   forge.toggleDraft(PR, true);
-  expect((await repo.cabaret("pull")).stdout).toContain(
+  expect((await repo.cabaret("fetch")).stdout).toContain(
     "github.com/test-org/widgets#1 was marked draft; reviewing none",
   );
   expect(await repo.cabaret("reviewing")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
   // Marked ready again, review opens to everyone: the forge-faithful reading.
   forge.toggleDraft(PR, false);
-  expect((await repo.cabaret("pull")).stdout).toContain(
+  expect((await repo.cabaret("fetch")).stdout).toContain(
     "github.com/test-org/widgets#1 was marked ready; reviewing everyone",
   );
   expect(await repo.cabaret("reviewing")).toEqual({ stdout: "everyone\n", stderr: "", exitCode: 0 });
@@ -123,7 +123,7 @@ test("an imported draft starts with nobody reviewing", async () => {
   await repo.git("checkout", "-q", "main");
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature", true);
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect(await repo.cabaret("reviewing", "--change", "their-feature")).toEqual({
     stdout: "none\n",
     stderr: "",

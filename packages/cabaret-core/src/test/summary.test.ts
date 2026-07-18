@@ -332,14 +332,16 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
   });
 });
 
-test("a reviewed change whose parent trails origin's copy must pull the parent", async () => {
+test("a reviewed change whose parent trails origin reads through to origin's copy", async () => {
   // Origin's main moved to 5 while the local branch still sits at 2; the
-  // conflict dry-run against the stale local tip is never trusted.
+  // local branch is a working position, so staleness and the conflict
+  // dry-run read origin's fresher copy.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3", "5": "2" },
     branches: { main: "2", feature: "4" },
     origin: { main: "5" },
     changed: { "14": ["a.ts"] },
+    conflicting: { "145": [] },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
@@ -356,11 +358,11 @@ test("a reviewed change whose parent trails origin's copy must pull the parent",
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
+    parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull parent",
+    nextStep: "land",
   });
 });
 
@@ -395,7 +397,7 @@ test("a parent diverged from origin's copy is the user's to reconcile", async ()
   });
 });
 
-test("review outranks a parent that trails origin: pulling it can wait", async () => {
+test("a trailing parent reads through while review remains", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3", "5": "2" },
     branches: { main: "2", feature: "4" },
@@ -416,7 +418,7 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
+    parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
     reviewLeft: ["a.ts"],
@@ -424,12 +426,13 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
   });
 });
 
-test("a parent absent locally but held by origin is unpulled, not dead", async () => {
+test("a parent absent locally reads as origin's copy, not dead", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3" },
     branches: { feature: "4" },
     origin: { main: "2" },
     changed: { "14": ["a.ts"] },
+    conflicting: { "142": [] },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
@@ -446,11 +449,11 @@ test("a parent absent locally but held by origin is unpulled, not dead", async (
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
-    staleBase: undefined,
+    parentOrigin: undefined,
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull parent",
+    nextStep: "land",
   });
 });
 
@@ -798,7 +801,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
   });
 });
 
-test("a change behind origin's copy must pull, before anything else", async () => {
+test("a change behind origin's copy must sync, before anything else", async () => {
   // Origin's widgets moved to 2 while the local branch still sits at 1.
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
@@ -824,11 +827,11 @@ test("a change behind origin's copy must pull, before anything else", async () =
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull",
+    nextStep: "sync",
   });
 });
 
-test("a change diverged from origin's copy must resolve divergence, review left or not", async () => {
+test("a change diverged from origin's copy must sync, review left or not", async () => {
   // The local branch was rewritten to 3 while origin still holds the old 2.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1" },
@@ -855,7 +858,7 @@ test("a change diverged from origin's copy must resolve divergence, review left 
     staleBase: undefined,
     conflicts: [],
     reviewLeft: ["a.ts"],
-    nextStep: "resolve divergence",
+    nextStep: "sync",
   });
 });
 
@@ -918,7 +921,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
   });
 });
 
-test("a parent with no local branch is unpulled, but review outranks it", async () => {
+test("a parent with no local branch reads as origin's copy, review still the step", async () => {
   // Origin's main moved to 2 under the change; no local main exists at all.
   const backend = repoBackend({
     history: { "2": "1", "3": "1" },
@@ -940,8 +943,8 @@ test("a parent with no local branch is unpulled, but review outranks it", async 
     tip: fake("3"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
-    staleBase: undefined,
+    parentOrigin: undefined,
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
@@ -955,7 +958,7 @@ test("a stored base this clone lacks asks a reparent instead of failing the read
   );
 });
 
-test("a reviewed forge-tracked change ahead of origin pushes before landing", async () => {
+test("a reviewed forge-tracked change ahead of origin syncs before landing", async () => {
   // The tip moved to 3 locally while origin still holds 2: the forge cannot
   // land a tip it has not seen.
   const backend = repoBackend({
@@ -988,7 +991,7 @@ test("a reviewed forge-tracked change ahead of origin pushes before landing", as
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "push",
+    nextStep: "sync",
   });
 });
 
@@ -1010,7 +1013,7 @@ test("a reviewed change ahead of origin with no forge change may land", async ()
   });
 });
 
-test("a forge-tracked change ahead of origin rebases before pushing when its parent conflicts", async () => {
+test("a forge-tracked change ahead of origin rebases before syncing when its parent conflicts", async () => {
   // main moved under the change and the merge conflicts: rewriting the tip
   // comes before publishing it.
   const backend = repoBackend({
@@ -1034,9 +1037,9 @@ test("a forge-tracked change ahead of origin rebases before pushing when its par
   });
 });
 
-test("a reviewed change whose forge change targets its old parent pushes to retarget", async () => {
+test("a reviewed change whose forge change targets its old parent syncs to retarget", async () => {
   // Reparented from relic to main locally; the forge was last seen merging
-  // into relic, and only a push moves its target.
+  // into relic, and only publishing moves its target.
   const forge = parseForgeLocator("github.com/test-org/gizmos");
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
@@ -1070,7 +1073,7 @@ test("a reviewed change whose forge change targets its old parent pushes to reta
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "push",
+    nextStep: "sync",
   });
 });
 
@@ -1108,8 +1111,7 @@ test("a change whose parent has landed must reparent, review left or not", async
   expect({ origin: summary.origin, deadParent: summary.deadParent, nextStep: summary.nextStep }).toEqual({
     origin: "behind",
     deadParent: "landed",
-    parentOrigin: undefined,
-    nextStep: "pull",
+    nextStep: "sync",
   });
 });
 

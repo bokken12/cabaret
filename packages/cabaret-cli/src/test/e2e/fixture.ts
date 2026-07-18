@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { run } from "@stricli/core";
 import { type Forge, timestampMs } from "cabaret-core";
-import { GitBackend } from "cabaret-node";
+import { GitBackend, NoForgeError } from "cabaret-node";
 import { onTestFinished } from "vitest";
 import { app } from "../../app.js";
 import type { LocalContext } from "../../context.js";
@@ -88,7 +88,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
       backend: () => GitBackend.open(join(dir, subdir)),
       forge: async () => {
         if (forge === undefined) {
-          throw new Error("this test repo has no forge");
+          throw new NoForgeError("this test repo has no forge");
         }
         return forge;
       },

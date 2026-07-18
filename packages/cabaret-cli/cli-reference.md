@@ -391,7 +391,7 @@ USAGE
   cabaret dev wipe [--remote]
   cabaret dev wipe --help
 
-Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret sync` restores them. --remote deletes origin's logs too, for every user of the repository.
+Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret fetch` restores them. --remote deletes origin's logs too, for every user of the repository.
 
 FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
@@ -413,6 +413,17 @@ FLAGS
 
 ARGUMENTS
   file  file to diff
+
+## cabaret fetch
+
+USAGE
+  cabaret fetch
+  cabaret fetch --help
+
+Fetch remote activity, touching no working tree: refresh origin's copies, fast-forward branches no workspace has checked out, merge every change's log with origin's, and absorb forge activity — import every open forge change that is not yet a change, refresh tracked ones, record lands, and prune closed imports nobody engaged with. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours. Without a forge, the origin half still runs.
+
+FLAGS
+  -h --help  Print help information and exit
 
 ## cabaret forget
 
@@ -459,42 +470,18 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-## cabaret pull
-
-USAGE
-  cabaret pull [--change value]
-  cabaret pull --help
-
-Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours.
-
-FLAGS
-     [--change]  Only change to pull
-  -h  --help     Print help information and exit
-
-## cabaret push
-
-USAGE
-  cabaret push [--change value]
-  cabaret push --help
-
-Push activity to the forge: push the change's branch, open its forge change if there is none (merging into the change's parent), retarget it to the parent, and post the change's comments the forge lacks.
-
-FLAGS
-     [--change]  Change to push (defaults to current)
-  -h  --help     Print help information and exit
-
 ## cabaret rebase
 
 USAGE
-  cabaret rebase [--even-though-not-owner] [--even-though-parent-stale] [<change>]
+  cabaret rebase [--even-though-not-owner] [--even-though-parent-diverged] [<change>]
   cabaret rebase --help
 
 Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
 FLAGS
-     [--even-though-not-owner]     Proceed even though you do not own the change                [default = false]
-     [--even-though-parent-stale]  Proceed even though origin's copy of the parent has moved on [default = false]
-  -h  --help                       Print help information and exit
+     [--even-though-not-owner]        Proceed even though you do not own the change                                    [default = false]
+     [--even-though-parent-diverged]  Rebase onto the parent's local reading even though origin's has diverged from it [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to rebase (defaults to current)
@@ -554,7 +541,7 @@ USAGE
   cabaret reviewers add [--change value] <user>
   cabaret reviewers add --help
 
-Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `pull`/`push` sync them with the forge.
+Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `sync` settles them with the forge.
 
 FLAGS
      [--change]  Change to add the reviewer to (defaults to current)
@@ -648,13 +635,14 @@ ARGUMENTS
 ## cabaret sync
 
 USAGE
-  cabaret sync
+  cabaret sync [--change value]
   cabaret sync --help
 
-Sync review state with origin: fetch every change's log, merge it with the local log, and push the result. Only logs move; branches sync through git or `cabaret pull`/`cabaret push`.
+Sync a change: merge origin's copy of its branch into the local one — a conflicted merge commits its markers, to fix and amend — push the result, reconcile its forge change (opening one if none exists, retargeting it, settling comments, reviewers, draft and archived state both ways), and sync its log. Offline, the merge against origin's last-fetched copy still runs; syncing again online finishes the exchange.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--change]  Change to sync (defaults to current)
+  -h  --help     Print help information and exit
 
 ## cabaret todo
 

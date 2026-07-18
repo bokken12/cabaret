@@ -9,6 +9,14 @@ const execFileAsync = promisify(execFile);
 
 type ForgeHost = "github.com" | "gitlab.com" | "codeberg.org";
 
+/**
+ * There is no forge here: origin names no supported forge, or there is no
+ * origin at all. Sync and fetch proceed without a forge on this error, so a
+ * plain-git origin still shares branches and logs; a misconfigured token on
+ * a real forge stays a plain failure and surfaces.
+ */
+export class NoForgeError extends UserError {}
+
 /** The host named by one of the remote URL forms the supported forges accept. */
 function remoteHost(url: string): ForgeHost {
   const match = /^(?:https:\/\/([^/]+)\/|git@([^:]+):|ssh:\/\/git@([^/]+)\/)/i.exec(url);
@@ -19,7 +27,7 @@ function remoteHost(url: string): ForgeHost {
     case "codeberg.org":
       return host;
     default:
-      throw new UserError(
+      throw new NoForgeError(
         `unsupported forge origin: ${JSON.stringify(url)}; expected github.com, gitlab.com, or codeberg.org`,
       );
   }
@@ -74,7 +82,13 @@ function codebergToken(): string {
 
 /** Open the supported forge named by the `origin` remote of the git repository containing `dir`. */
 export async function openForge(dir: string): Promise<Forge> {
-  const { stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: dir });
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: dir }));
+  } catch {
+    // No git, no repository, or no origin remote: nowhere a forge could be.
+    throw new NoForgeError("no forge: the repository has no git origin remote");
+  }
   const url = stdout.trimEnd();
   switch (remoteHost(url)) {
     case "github.com": {

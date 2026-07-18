@@ -291,7 +291,7 @@ test("createChange, rebaseChange, and landChange run against hg end to end", { t
   await commit(repo, "main moves", { "main.txt": "moved\n" });
 
   // Rebase: a merge of main into the change, base pinned to main's tip.
-  await rebaseChange(backend, now, change, await backend.readLog(change), { notOwner: false, staleParent: false });
+  await rebaseChange(backend, now, change, await backend.readLog(change), { notOwner: false, parentDiverged: false });
   const rebased = await backend.readLog(change);
   const base = await changeBase(backend, change, rebased);
   expect(base).toBe(await backend.tip(parseHgName("main")));

@@ -5,7 +5,7 @@ test("wipe deletes logs and fetched logs; branches stay", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
   await repo.cabaret("review", "widgets.txt");
-  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
 
   // One change, even though its log and the fetched copy are two refs.
   expect(await repo.cabaret("dev", "wipe")).toEqual({
@@ -18,16 +18,16 @@ test("wipe deletes logs and fetched logs; branches stay", async () => {
   expect(await repo.cabaret("log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
-test("wipe is local: origin keeps its logs, so sync restores them", async () => {
+test("wipe is local: origin keeps its logs, so fetch restores them", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
   await repo.cabaret("review", "widgets.txt");
-  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
   const before = await repo.cabaret("log", "widgets");
 
   await repo.cabaret("dev", "wipe");
   expect(await repo.cabaret("log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
   expect(await repo.cabaret("log", "widgets")).toEqual(before);
 });
 
@@ -35,7 +35,7 @@ test("wipe --remote deletes origin's logs too", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
   await addChange(repo, "gadgets");
-  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
 
   expect(await repo.cabaret("dev", "wipe", "--remote")).toEqual({
     stdout: "wiped the logs of 2 changes\nwiped the logs of 2 changes on origin\n",

@@ -72,7 +72,7 @@ test("show renders the comments on a change, oldest first, above the files", asy
   `);
 });
 
-test("show renders a change pull imported like any other", async () => {
+test("show renders an imported change like any other", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The teammate's branch lives on origin and in a PR, but not locally.
@@ -85,7 +85,7 @@ test("show renders a change pull imported like any other", async () => {
   await repo.git("branch", "-qD", "their-feature");
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
     "their-feature
     =============
@@ -211,7 +211,7 @@ test("show by name reflects review progress", async () => {
   `);
 });
 
-test("show notes a tip behind origin's copy and makes pull the step", async () => {
+test("show notes a tip behind origin's copy and makes sync the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
@@ -225,7 +225,7 @@ test("show notes a tip behind origin's copy and makes pull the step", async () =
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ pull                         │
+    │ next step │ sync                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ none                         │
     │ parent    │ main                         │
@@ -348,7 +348,7 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
   `);
 });
 
-test("show notes a tip diverged from origin's copy and makes resolving it the step", async () => {
+test("show notes a tip diverged from origin's copy and makes sync the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.git("push", "-q", "origin", "gadget");
@@ -360,7 +360,7 @@ test("show notes a tip diverged from origin's copy and makes resolving it the st
     ╭───────────┬─────────────────────────────────────╮
     │ attribute │ value                               │
     ├───────────┼─────────────────────────────────────┤
-    │ next step │ resolve divergence                  │
+    │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
     │ reviewing │ none                                │
     │ parent    │ main                                │
@@ -410,11 +410,11 @@ test("show notes a tip ahead of origin's copy without changing the step", async 
   `);
 });
 
-test("show makes push the step when the forge lacks the reviewed tip", async () => {
+test("show makes sync the step when the forge lacks the reviewed tip", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   await repo.cabaret("reviewing", "everyone");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
@@ -426,7 +426,7 @@ test("show makes push the step when the forge lacks the reviewed tip", async () 
     ╭──────────────┬────────────────────────────────╮
     │ attribute    │ value                          │
     ├──────────────┼────────────────────────────────┤
-    │ next step    │ push                           │
+    │ next step    │ sync                           │
     │ owner        │ alice@example.com              │
     │ reviewing    │ everyone                       │
     │ parent       │ main                           │
@@ -439,11 +439,11 @@ test("show makes push the step when the forge lacks the reviewed tip", async () 
   `);
 });
 
-test("show notes the forge change's stale target and makes push the step", async () => {
+test("show notes the forge change's stale target and makes sync the step", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   await repo.cabaret("reviewing", "everyone");
   await repo.cabaret("review", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
@@ -455,7 +455,7 @@ test("show notes the forge change's stale target and makes push the step", async
     ╭──────────────┬──────────────────────────────────────────────────╮
     │ attribute    │ value                                            │
     ├──────────────┼──────────────────────────────────────────────────┤
-    │ next step    │ push                                             │
+    │ next step    │ sync                                             │
     │ owner        │ alice@example.com                                │
     │ reviewing    │ everyone                                         │
     │ parent       │ trunk                                            │
