@@ -122,3 +122,28 @@ test("runNow preempts a pending scheduled tick", async () => {
   expect(runs).toEqual([0, 1, 2]);
   loop.dispose();
 });
+
+test("shouldRun gates scheduled ticks but not runNow", async () => {
+  let enabled = false;
+  const runs: number[] = [];
+  const loop = new BackoffLoop({
+    run: async () => {
+      runs.push(runs.length);
+    },
+    baseIntervalMs: 1000,
+    maxIntervalMs: 8000,
+    isTransient: () => true,
+    shouldRun: () => enabled,
+  });
+  loop.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(runs).toEqual([]);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(runs).toEqual([]);
+  await loop.runNow();
+  expect(runs).toEqual([0]);
+  enabled = true;
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(runs).toEqual([0, 1]);
+  loop.dispose();
+});
