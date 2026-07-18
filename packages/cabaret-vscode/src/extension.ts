@@ -62,6 +62,8 @@ import {
   targetAt,
 } from "cabaret-views";
 import * as vscode from "vscode";
+import { BackoffLoop } from "./backoff.js";
+import { isConnectivityError } from "./connectivity.js";
 import { type Manifest, pageHelp } from "./help.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
@@ -103,6 +105,59 @@ async function openForge(): Promise<Forge> {
     throw new UserError("cabaret needs an open folder inside a repository");
   }
   return openRepositoryForge(folder.uri.fsPath);
+}
+
+function backgroundSyncEnabled(): boolean {
+  return vscode.workspace.getConfiguration("cabaret").get<boolean>("backgroundSync") ?? true;
+}
+
+/**
+ * Fetch origin and settle cabaret's own logs against it -- everything a pull
+ * needs from git, nothing from the forge. Every entry this can produce was
+ * put there by somebody's forge sweep already, published through the shared
+ * log refs, so running this often costs nothing beyond git's own traffic and
+ * still surfaces a teammate's pulled comment or land quickly, without this
+ * workspace polling the forge itself to get it.
+ */
+async function syncLocal(): Promise<void> {
+  if (!backgroundSyncEnabled()) {
+    return;
+  }
+  const backend = await openBackend();
+  await backend.fetchOrigin();
+  await backend.syncLogs();
+}
+
+/**
+ * Keeps branches and cabaret's logs synced with `origin` on a short,
+ * git-only cadence -- no forge call, so nothing here costs API budget.
+ * Backs off on a connectivity failure and resets the moment a fetch
+ * succeeds again; a real failure (not a repository, say) is reported but
+ * left on the normal cadence, since backing off would not fix it.
+ */
+const localSyncLoop = new BackoffLoop({
+  run: syncLocal,
+  baseIntervalMs: 10_000,
+  maxIntervalMs: 2 * 60_000,
+  isTransient: isConnectivityError,
+  onSettled: (result) => {
+    if (!result.ok && !result.backingOff) {
+      showBackgroundSyncError(result.error);
+    }
+  },
+});
+
+/** The last background error shown, so a persistent failure nags once rather than every retry. */
+let lastShownSyncError: string | undefined;
+
+/** Surface a real (non-connectivity) background sync failure once, quietly -- a status bar message, not a popup, since nothing here was user-triggered. */
+function showBackgroundSyncError(error: unknown): void {
+  const text = message(error);
+  if (text === lastShownSyncError) {
+    return;
+  }
+  lastShownSyncError = text;
+  vscode.window.setStatusBarMessage(`cabaret: background sync failed — ${text}`, 8000);
 }
 
 /**
@@ -1109,7 +1164,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
+  localSyncLoop.start();
   context.subscriptions.push(
+    { dispose: () => localSyncLoop.dispose() },
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
