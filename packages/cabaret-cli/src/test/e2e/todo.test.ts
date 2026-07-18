@@ -113,8 +113,9 @@ test("todo counts an alias's changes among the user's own", async () => {
     ╰────────┴───────────┴──────╯
     "
   `);
-  // Declared an alias, the agent's change is alice's own, and its owner
-  // self-review — still the agent's to give — is owed through her.
+  // Declared an alias, the agent's change is alice's own. Its owner
+  // self-review stays the agent's to give — a review alice records would
+  // be logged as her, never the agent — so it is not her review work.
   await repo.git("config", "--add", "cabaret.alias", "agent@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
@@ -124,7 +125,6 @@ test("todo counts an alias's changes among the user's own", async () => {
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
-    │ gizmo  │      1 │
     ╰────────┴────────╯
 
     Changes you own:
@@ -325,11 +325,10 @@ test("your own forge change joins the changes you own through the recorded alias
     ====
 
     Changes to review:
-    ╭──────────────┬────────╮
-    │ change       │ review │
-    ├──────────────┼────────┤
-    │ solo-feature │      1 │
-    ╰──────────────┴────────╯
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
 
     Changes you own:
     ╭──────────────┬────────┬───────────╮

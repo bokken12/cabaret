@@ -5,9 +5,10 @@ import { UserError } from "./error.js";
  * A user: the identity they write under, and the identities that also count
  * as them — an agent of theirs, another machine's email. Aliases never change
  * what is written (entries keep the identity that wrote them); they only
- * widen who counts as this user, as in ownership checks and the todo page.
- * Obligations stay per identity: an alias's review never satisfies a demand
- * naming the user.
+ * widen who counts as this user, as in ownership checks and the reviewing
+ * set. Obligations stay per identity: a review counts only toward demands
+ * naming the identity it was recorded under, so neither the user's review
+ * nor an alias's ever stands in for the other's.
  */
 export interface Self {
   readonly user: UserName;

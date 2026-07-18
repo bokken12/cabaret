@@ -17,7 +17,6 @@ import {
   type Revision,
   reviewerSummary,
   reviewOwed,
-  type Self,
   soleUser,
   timestampMs,
   type UserName,
@@ -340,15 +339,14 @@ test("reviewOwed lists only files whose unsatisfied obligations await the user",
     trees: { "1": { ".obligations": policyText([rule("*.rs", 1, bob, carol)]) } },
   });
   const entries = [review(alice, "a.rs", "0", "1"), review(carol, "a.rs", "0", "1")];
-  const owed = async (self: Self) => reviewOwed(backend, entries, alice, self, await diffOf(backend, "0", "1"));
+  const owed = async (user: UserName) => reviewOwed(backend, entries, alice, user, await diffOf(backend, "0", "1"));
   // The rule on a.rs is already satisfied by carol, so it asks nothing more
   // of bob; the owner still owes the files only their self-review governs.
-  expect(await owed(soleUser(bob))).toEqual(["b.rs"]);
-  expect(await owed(soleUser(carol))).toEqual(["b.rs"]);
-  expect(await owed(soleUser(alice))).toEqual(["b.rs", "c.md"]);
-  // An alias's outstanding obligations count as the user's own; dan has none
-  // of his own, so everything owed comes through the alias.
-  expect(await owed({ user: userName("dan@example.com"), aliases: new Set([bob]) })).toEqual(["b.rs"]);
+  expect(await owed(bob)).toEqual(["b.rs"]);
+  expect(await owed(carol)).toEqual(["b.rs"]);
+  expect(await owed(alice)).toEqual(["b.rs", "c.md"]);
+  // A user no requirement names owes nothing.
+  expect(await owed(userName("dan@example.com"))).toEqual([]);
 });
 
 test("the owner must review every governed file, rules or none", async () => {

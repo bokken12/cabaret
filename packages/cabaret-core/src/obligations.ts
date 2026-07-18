@@ -307,22 +307,22 @@ function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly Use
 }
 
 /**
- * The files of `diff` with an unsatisfied obligation that a review from
- * `self` — any of their identities — can still count toward, sorted by name.
- * Empty exactly when the change needs nothing from them — however much of it
- * they have not read.
+ * The files of `diff` with an unsatisfied obligation that a review recorded
+ * as `user` can still count toward, sorted by name. Empty exactly when the
+ * change needs nothing from that identity — however much of it they have not
+ * read. Strictly one identity, no aliases: a review is recorded under the
+ * identity that writes it, so a demand naming only an alias asks nothing of
+ * this user's own review.
  */
 export async function reviewOwed(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
-  self: Self,
+  user: UserName,
   diff: ChangeDiff,
 ): Promise<readonly FilePath[]> {
   const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const owed = statuses.filter(
-    (status) => !isSatisfied(status) && outstanding(status).some((user) => isSelf(self, user)),
-  );
+  const owed = statuses.filter((status) => !isSatisfied(status) && outstanding(status).includes(user));
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
 }
 
