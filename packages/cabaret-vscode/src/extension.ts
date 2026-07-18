@@ -62,6 +62,8 @@ import {
   targetAt,
 } from "cabaret-views";
 import * as vscode from "vscode";
+import { BackoffLoop } from "./backoff.js";
+import { isConnectivityError } from "./connectivity.js";
 import { type Manifest, pageHelp } from "./help.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
@@ -103,6 +105,57 @@ async function openForge(): Promise<Forge> {
     throw new UserError("cabaret needs an open folder inside a repository");
   }
   return openRepositoryForge(folder.uri.fsPath);
+}
+
+function backgroundSyncEnabled(): boolean {
+  return vscode.workspace.getConfiguration("cabaret").get<boolean>("backgroundSync") ?? true;
+}
+
+/**
+ * Fetch origin and settle cabaret's own logs against it -- everything a pull
+ * needs from git, nothing from the forge. Every entry this can produce was
+ * put there by somebody's forge sweep already, published through the shared
+ * log refs, so running this often costs nothing beyond git's own traffic and
+ * still surfaces a teammate's pulled comment or land quickly, without this
+ * workspace polling the forge itself to get it.
+ */
+async function syncLocal(): Promise<void> {
+  const backend = await openBackend();
+  await backend.fetchOrigin();
+  await backend.syncLogs();
+}
+
+/**
+ * Keeps branches and cabaret's logs synced with `origin` on a short,
+ * git-only cadence -- no forge call, so nothing here costs API budget.
+ * Backs off on a connectivity failure and resets the moment a fetch
+ * succeeds again; a real failure (not a repository, say) is reported but
+ * left on the normal cadence, since backing off would not fix it.
+ */
+const localSyncLoop = new BackoffLoop({
+  run: syncLocal,
+  baseIntervalMs: 10_000,
+  maxIntervalMs: 2 * 60_000,
+  isTransient: isConnectivityError,
+  shouldRun: backgroundSyncEnabled,
+  onSettled: (result) => {
+    if (!result.ok && !result.backingOff) {
+      showBackgroundSyncError(result.error);
+    }
+  },
+});
+
+/** The last background error shown, so a persistent failure nags once rather than every retry. */
+let lastShownSyncError: string | undefined;
+
+/** Surface a real (non-connectivity) background sync failure once, quietly -- a status bar message, not a popup, since nothing here was user-triggered. */
+function showBackgroundSyncError(error: unknown): void {
+  const text = message(error);
+  if (text === lastShownSyncError) {
+    return;
+  }
+  lastShownSyncError = text;
+  vscode.window.setStatusBarMessage(`cabaret: background sync failed — ${text}`, 8000);
 }
 
 /**
@@ -516,7 +569,6 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Pull from the forge — import open forge changes and their activity — surfacing failure as a notification. */
 /** What `event` did, in a few words fit for a progress message; undefined for one with nothing change-specific to say. */
 function describePullEvent(event: PullEvent): string | undefined {
   switch (event.kind) {
@@ -535,24 +587,83 @@ function describePullEvent(event: PullEvent): string | undefined {
   }
 }
 
-async function runPull(provider: PageProvider): Promise<void> {
+/** Watching {@link pollForge}'s progress live, for whoever's `withProgress` call triggered or joined the run in flight. */
+const pullListeners = new Set<(event: PullEvent) => void>();
+
+/**
+ * Import open forge changes and refresh tracked ones -- the only part of
+ * background sync that calls the forge, so the only part worth costing API
+ * budget over. Undefined, not a failure, when there is no supported forge
+ * here: most repositories this extension opens will never configure one.
+ */
+async function pollForge(): Promise<{ readonly open: number } | undefined> {
+  let forge: Forge;
+  try {
+    forge = await openForge();
+  } catch {
+    return undefined;
+  }
+  return pullForge(forgeBackend(await openBackend()), now, forge, (event) => {
+    for (const listener of pullListeners) {
+      listener(event);
+    }
+  });
+}
+
+/**
+ * Polls the forge on a minutes-scale cadence -- long enough that even many
+ * repos doing this stays a small fraction of GitHub's hourly rate limit.
+ * Backs off on connectivity failure up to half an hour; a real failure is
+ * reported once, not every retry, and left on the normal cadence. Gated by
+ * `cabaret.backgroundSync` for its own scheduled ticks only: the manual Pull
+ * command always actually pulls, via `runNow`.
+ */
+function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly open: number } | undefined> {
+  return new BackoffLoop({
+    run: pollForge,
+    baseIntervalMs: 90_000,
+    maxIntervalMs: 30 * 60_000,
+    isTransient: isConnectivityError,
+    shouldRun: backgroundSyncEnabled,
+    onSettled: (result) => {
+      if (result.ok) {
+        provider.refreshAll();
+      } else if (!result.backingOff) {
+        showBackgroundSyncError(result.error);
+      }
+    },
+  });
+}
+
+async function runPull(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly open: number } | undefined>) {
   try {
     const forge = await openForge();
     // A notification appears the moment the command fires, rather than
     // leaving the user staring at an unchanged window until the pull —
     // several git and forge round trips — finally resolves; its message
     // updates with each change as the pull works through them, so the wait
-    // reads as progress rather than a stalled spinner.
-    const { open } = await vscode.window.withProgress(
+    // reads as progress rather than a stalled spinner. `runNow` joins a
+    // background poll already in flight rather than starting a second one;
+    // listening while it is outstanding still gets this call live events
+    // from it, whichever call actually triggered it.
+    const result = await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `cabaret: pulling from ${forge.locator}` },
-      async (progress) =>
-        pullForge(forgeBackend(await openBackend()), now, forge, (event) => {
-          const message = describePullEvent(event);
-          if (message !== undefined) {
-            progress.report({ message });
+      async (progress) => {
+        const listener = (event: PullEvent): void => {
+          const text = describePullEvent(event);
+          if (text !== undefined) {
+            progress.report({ message: text });
           }
-        }),
+        };
+        pullListeners.add(listener);
+        try {
+          return await forgePollLoop.runNow();
+        } finally {
+          pullListeners.delete(listener);
+        }
+      },
     );
+    const open = result?.open ?? 0;
     vscode.window.setStatusBarMessage(
       `cabaret: pulled ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
       5000,
@@ -1109,7 +1220,27 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new PageProvider();
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
+  const forgePollLoop = createForgePollLoop(provider);
+  localSyncLoop.start();
+  forgePollLoop.start();
+  // Tabbing back in is a good moment to catch up sooner than the next
+  // scheduled poll — but rapid alt-tabbing should not turn into rapid
+  // polling, so this only fires again after a real gap since the last one.
+  let lastOpportunisticPollAt = 0;
   context.subscriptions.push(
+    { dispose: () => localSyncLoop.dispose() },
+    { dispose: () => forgePollLoop.dispose() },
+    vscode.window.onDidChangeWindowState((state) => {
+      if (!state.focused || !backgroundSyncEnabled()) {
+        return;
+      }
+      const at = Date.now();
+      if (at - lastOpportunisticPollAt < 30_000) {
+        return;
+      }
+      lastOpportunisticPollAt = at;
+      void forgePollLoop.runNow();
+    }),
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
@@ -1145,7 +1276,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
-    vscode.commands.registerCommand("cabaret.pull", () => runPull(provider)),
+    vscode.commands.registerCommand("cabaret.pull", () => runPull(provider, forgePollLoop)),
     vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
     vscode.commands.registerCommand("cabaret.push", () =>
       actOnSelection(provider, (backend, _editor, changes) => pushSelection(backend, changes)),
