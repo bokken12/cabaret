@@ -144,7 +144,7 @@ test("todo counts an alias's changes among the user's own", async () => {
   `);
 });
 
-test("an adopted change reads, reviews, and materializes without ever being pulled", async () => {
+test("an adopted change reads, reviews, and materializes without ever running fetch", async () => {
   const repo = await makeRepo();
   await requireReviewers(repo, "bob@example.com");
   await addChange(repo, "gadget");
@@ -262,7 +262,7 @@ test("todo with no changes shows both sections empty", async () => {
   `);
 });
 
-test("pull imports an open forge change, and todo lists it when review is owed", async () => {
+test("fetch imports an open forge change, and todo lists it when review is owed", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The policy on main is what puts the imported change on this user's plate.
@@ -279,7 +279,7 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -319,7 +319,7 @@ test("your own forge change joins the changes you own through the recorded alias
   await repo.git("push", "-q", "origin", "solo-feature");
   await repo.git("checkout", "-q", "main");
   forge.openPr("alice", parseBranchName("solo-feature"), parseBranchName("main"), "Solo feature");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -346,7 +346,7 @@ test("a merged forge change is not imported", async () => {
   const repo = await makeRepo(forge);
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====

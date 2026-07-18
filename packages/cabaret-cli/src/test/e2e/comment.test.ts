@@ -24,7 +24,7 @@ test("comment fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("comment", "--change", "ghost", "anyone home?")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "ghost"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "ghost"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("log", "ghost")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

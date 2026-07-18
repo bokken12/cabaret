@@ -307,7 +307,7 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
   await plumbChange("squashed-unplaceable", tip, "trunk-squash-gone", "deadbeef".repeat(5));
   await plumbLand("squashed-unplaceable", "cafe".repeat(10), tip);
   await expect(changeBaseOf("squashed-unplaceable")).rejects.toThrow(
-    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret pull\``,
+    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret fetch\``,
   );
 });
 
@@ -315,7 +315,7 @@ test("changeTip fails when the land merge is absent from the clone", async () =>
   const backend = await GitBackend.open(repo);
   const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
   await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
-    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret pull\``,
+    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret fetch\``,
   );
 });
 

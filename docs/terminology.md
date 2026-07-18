@@ -117,6 +117,31 @@ What should one call setting a change aside without landing it?
 
 Tentative: I'm going to call this "archive" (undone by "unarchive"). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
 
+## Exchanging with origin
+
+What should one call moving state between this clone and origin?
+
+- git splits it by direction: "fetch"/"pull" inbound, "push" outbound
+- fossil has one word, "sync", and autosyncs by default
+- hg has symmetric but manual "pull"/"push"
+
+Everything cabaret shares is append-only (logs union; branches only gain
+descendants, since rebase and land are merges), so the two copies of
+anything always have a join and direction carries no meaning. Directional
+verbs earn their keep when direction changes whose work wins (rewrites) or
+when publication is itself a speech act; cabaret has neither — attention is
+gated by the reviewing state, and release is `land`.
+
+Decided: "sync" for the explicit per-change join (merge origin's copy,
+conflicts committed; push; reconcile the forge change both ways), and
+"fetch" for the ambient unobtrusive sweep (refresh origin readings,
+fast-forward branches no workspace holds, union logs, absorb forge
+activity). "Fetch" is git's word with a wider meaning here, adopted like
+"origin" because the instinct it imports — gets remote state, never
+disturbs my work — is exactly right. "Merge" was rejected for sync:
+GitHub-reared users read "merge" as landing, and it already names a land
+method.
+
 # Versions
 
 I like JJ's "revision" over git's "commit", the commit feels like the action

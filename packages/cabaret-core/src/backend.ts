@@ -682,6 +682,34 @@ export async function requireTip(backend: Backend, change: ChangeName): Promise<
 }
 
 /**
+ * The freshest reading of a branch: the descendant-most of its local tip and
+ * origin's last-fetched copy. A local branch is a working position, not
+ * evidence — facts like rebase targets and staleness read the freshest copy
+ * this clone holds, wherever it lives. Diverged readings have no freshest
+ * side: both come back for the caller to arbitrate.
+ */
+export async function freshestReading(
+  backend: Backend,
+  branch: ChangeName,
+): Promise<
+  | { readonly kind: "none" }
+  | { readonly kind: "fresh"; readonly tip: Revision }
+  | { readonly kind: "diverged"; readonly local: Revision; readonly origin: Revision }
+> {
+  const local = await backend.tip(branch);
+  const origin = await backend.originTip(branch);
+  if (local === undefined) {
+    return origin === undefined ? { kind: "none" } : { kind: "fresh", tip: origin };
+  }
+  if (origin === undefined || origin === local || (await backend.isAncestor(origin, local))) {
+    return { kind: "fresh", tip: local };
+  }
+  return (await backend.isAncestor(local, origin))
+    ? { kind: "fresh", tip: origin }
+    : { kind: "diverged", local, origin };
+}
+
+/**
  * The tip of `change`'s local branch, created at origin's copy when only
  * origin holds one. Operations that move the branch call this; creating the
  * branch at origin's tip loses nothing and asks no decision of the user, so
@@ -721,7 +749,7 @@ function latestAction<K extends LogAction["kind"]>(
 export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret pull\` to import open forge changes`,
+      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret fetch\` to import open forge changes`,
     );
   }
 }
@@ -1017,7 +1045,7 @@ export async function changeBase(
       return stored;
     }
     throw landed !== undefined
-      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret pull\``)
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
       : new UserError(
           `parent branch of ${JSON.stringify(change)} does not exist: ` +
             `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
@@ -1071,7 +1099,7 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
   }
   if (!(await backend.hasRevision(landed.merge))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret pull\``,
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret fetch\``,
     );
   }
   return backend.mergedTip(landed.merge);

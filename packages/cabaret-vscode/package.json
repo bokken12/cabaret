@@ -175,16 +175,16 @@
         "title": "Cabaret: Mark Reviewed"
       },
       {
-        "command": "cabaret.pull",
-        "title": "Cabaret: Pull from Forge"
+        "command": "cabaret.fetch",
+        "title": "Cabaret: Fetch Remote Activity"
       },
       {
         "command": "cabaret.setup",
         "title": "Cabaret: Apply Recommended Git Settings"
       },
       {
-        "command": "cabaret.push",
-        "title": "Cabaret: Push to Forge"
+        "command": "cabaret.sync",
+        "title": "Cabaret: Sync Change"
       }
     ],
     "menus": {
@@ -266,11 +266,11 @@
           "when": "cabaret.page == 'diff'"
         },
         {
-          "command": "cabaret.pull",
+          "command": "cabaret.fetch",
           "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.push",
+          "command": "cabaret.sync",
           "when": "resourceScheme == cabaret"
         }
       ]
@@ -382,13 +382,13 @@
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.pull",
+        "command": "cabaret.fetch",
         "key": "shift+f",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.push",
-        "key": "shift+p",
+        "command": "cabaret.sync",
+        "key": "shift+s",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],

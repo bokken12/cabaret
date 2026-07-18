@@ -1,5 +1,13 @@
 import { buildCommand } from "@stricli/core";
-import { type ChangeName, type LogEntry, landAsConfigured, landChain, readConfig, resolveRange } from "cabaret-core";
+import {
+  type ChangeName,
+  currentParent,
+  type LogEntry,
+  landAsConfigured,
+  landChain,
+  readConfig,
+  resolveRange,
+} from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
 
@@ -52,12 +60,29 @@ export const land = buildCommand({
     const backend = await this.backend();
     const config = await readConfig(backend);
     const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
-      const { merged, reparented } = await landAsConfigured(backend, this.now, this.forge, config, change, entries, {
-        notOwner: flags.evenThoughNotOwner,
-        unreviewed: flags.evenThoughUnreviewed,
-      });
+      const { merged, reparented, publication } = await landAsConfigured(
+        backend,
+        this.now,
+        this.forge,
+        config,
+        change,
+        entries,
+        { notOwner: flags.evenThoughNotOwner, unreviewed: flags.evenThoughUnreviewed },
+      );
+      const parent = currentParent(change, entries);
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
+      }
+      if (publication === "published") {
+        this.process.stdout.write(`pushed ${JSON.stringify(parent)} to origin\n`);
+      } else if (publication === "origin-unreachable") {
+        this.process.stderr.write(
+          `warning: origin unreachable; ${JSON.stringify(parent)} keeps the land locally — push it when back online\n`,
+        );
+      } else if (publication === "parent-stale") {
+        this.process.stderr.write(
+          `warning: local ${JSON.stringify(parent)} is not current with origin's copy; the land stays local\n`,
+        );
       }
       if (reparented !== undefined) {
         for (const child of reparented.children) {

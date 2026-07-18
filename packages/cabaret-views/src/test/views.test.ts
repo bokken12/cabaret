@@ -342,7 +342,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
       reviewLeft: files("api.ts"),
       origin: "behind",
       staleBase: "behind",
-      nextStep: "pull",
+      nextStep: "sync",
     }),
     comments: [],
     workspace: undefined,
@@ -355,7 +355,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ pull                         │
+    │ next step │ sync                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ everyone                     │
     │ parent    │ main                         │
@@ -388,7 +388,6 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ origin: "diverged" }, "tip")).toBe("│ tip       │ 222222222222 (diverged from origin) │");
   expect(attributeRow({ deadParent: "landed" }, "parent")).toBe("│ parent    │ gadget (landed)   │");
   expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
-  expect(attributeRow({ parentOrigin: "behind" }, "parent")).toBe("│ parent    │ gadget (behind origin) │");
   expect(attributeRow({ parentOrigin: "diverged" }, "parent")).toBe("│ parent    │ gadget (diverged from origin) │");
   expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
   expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");

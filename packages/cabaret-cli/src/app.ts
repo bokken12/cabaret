@@ -1,9 +1,9 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import {
   DirtyWorkspaceError,
+  DivergedParentError,
   NotOwnerError,
   NotReviewingError,
-  StaleParentError,
   UnsatisfiedObligationsError,
   UserError,
   VERSION,
@@ -16,11 +16,10 @@ import { conflicts } from "./commands/conflicts.js";
 import { create } from "./commands/create.js";
 import { dev } from "./commands/dev.js";
 import { diff } from "./commands/diff.js";
+import { fetch } from "./commands/fetch.js";
 import { forget } from "./commands/forget.js";
 import { land } from "./commands/land.js";
 import { log } from "./commands/log.js";
-import { pull } from "./commands/pull.js";
-import { push } from "./commands/push.js";
 import { rebase } from "./commands/rebase.js";
 import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
@@ -43,8 +42,8 @@ function userMessage(error: UserError): string {
   if (error instanceof NotReviewingError) {
     return `${error.message}; pass --even-though-not-reviewing to override`;
   }
-  if (error instanceof StaleParentError) {
-    return `${error.message}, or pass --even-though-parent-stale to override`;
+  if (error instanceof DivergedParentError) {
+    return `${error.message}, or pass --even-though-parent-diverged to rebase onto the local reading`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
@@ -68,11 +67,10 @@ const routes = buildRouteMap({
     create,
     dev,
     diff,
+    fetch,
     forget,
     land,
     log,
-    pull,
-    push,
     rebase,
     rename,
     reparent,

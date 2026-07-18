@@ -1,19 +1,19 @@
 import { expect, test } from "vitest";
 import { addChange, makeClone, makeRepo, shownComments } from "./fixture.js";
 
-test("sync carries a change's log to a fresh machine verbatim", async () => {
+test("fetch carries a change's log to a fresh machine verbatim", async () => {
   const alice = await makeRepo();
   await addChange(alice, "widgets");
   await alice.cabaret("review", "widgets.txt");
   await alice.git("push", "-q", "origin", "main");
-  expect(await alice.cabaret("sync")).toEqual({
+  expect(await alice.cabaret("fetch")).toEqual({
     stdout: "synced 1 change with origin\n",
     stderr: "",
     exitCode: 0,
   });
 
   const bob = await makeClone(alice, "bob@example.com");
-  expect(await bob.cabaret("sync")).toEqual({
+  expect(await bob.cabaret("fetch")).toEqual({
     stdout: "synced 1 change with origin\n",
     stderr: "",
     exitCode: 0,
@@ -38,16 +38,16 @@ test("concurrent work on two machines merges into one identical log", async () =
   const alice = await makeRepo();
   await addChange(alice, "widgets");
   await alice.git("push", "-q", "origin", "main");
-  await alice.cabaret("sync");
+  await alice.cabaret("fetch");
   const bob = await makeClone(alice, "bob@example.com");
-  await bob.cabaret("sync");
+  await bob.cabaret("fetch");
 
   // Concurrently: neither machine has seen the other's comment.
   await alice.cabaret("comment", "does this handle empty diffs?", "--change", "widgets");
   await bob.cabaret("comment", "looks good overall", "--change", "widgets");
-  await alice.cabaret("sync");
-  await bob.cabaret("sync");
-  await alice.cabaret("sync");
+  await alice.cabaret("fetch");
+  await bob.cabaret("fetch");
+  await alice.cabaret("fetch");
 
   const aliceLog = await alice.cabaret("log", "widgets");
   expect(await bob.cabaret("log", "widgets")).toEqual(aliceLog);
@@ -57,11 +57,45 @@ test("concurrent work on two machines merges into one identical log", async () =
   );
 });
 
-test("sync with nothing to sync reports zero changes", async () => {
+test("fetch with nothing to sync reports zero changes", async () => {
   const repo = await makeRepo();
-  expect(await repo.cabaret("sync")).toEqual({
+  expect(await repo.cabaret("fetch")).toEqual({
     stdout: "synced 0 changes with origin\n",
     stderr: "",
     exitCode: 0,
   });
+});
+
+test("fetch fast-forwards a branch behind origin unless a workspace holds it", async () => {
+  const alice = await makeRepo();
+  await addChange(alice, "widgets");
+  await alice.git("push", "-q", "origin", "main", "widgets");
+  await alice.cabaret("fetch");
+  const bob = await makeClone(alice, "bob@example.com");
+  await bob.git("checkout", "-q", "main");
+  await bob.git("branch", "-q", "widgets", "origin/widgets");
+  // Alice advances the branch; bob's local copy trails until he fetches.
+  await alice.write("widgets.txt", "widgets work v2\n");
+  await alice.git("commit", "-qam", "more widgets work");
+  await alice.git("push", "-q", "origin", "widgets");
+  expect(await bob.cabaret("fetch")).toEqual({
+    stdout: 'advanced "widgets"\nsynced 1 change with origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await bob.git("rev-parse", "widgets")).toBe(await alice.git("rev-parse", "widgets"));
+  // The checkout counts as a workspace: bob's checked-out main never moves
+  // under him, even once it trails origin.
+  await alice.git("checkout", "-q", "main");
+  await alice.write("trunk.txt", "trunk work\n");
+  await alice.git("add", "-A");
+  await alice.git("commit", "-qm", "trunk work");
+  await alice.git("push", "-q", "origin", "main");
+  const mainBefore = await bob.git("rev-parse", "main");
+  expect(await bob.cabaret("fetch")).toEqual({
+    stdout: "synced 1 change with origin\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await bob.git("rev-parse", "main")).toBe(mainBefore);
 });

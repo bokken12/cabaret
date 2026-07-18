@@ -172,7 +172,7 @@ test("a change lands cleanly after a rebase", async () => {
   expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
 });
 
-test("rebase refuses a parent whose origin copy has moved on", async () => {
+test("rebase reads through to origin's copy of a parent that is merely behind", async () => {
   const repo = await makeRepo();
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "feature");
@@ -185,56 +185,68 @@ test("rebase refuses a parent whose origin copy has moved on", async () => {
   await other.git("commit", "-qm", "trunk work");
   await other.git("push", "-q", "origin", "main");
   await repo.git("fetch", "-q", "origin");
-  expect(await repo.cabaret("rebase", "feature")).toEqual({
-    stdout: "",
-    stderr: 'local "main" is behind origin\'s copy; pull it first, or pass --even-though-parent-stale to override\n',
-    exitCode: 1,
-  });
-  await repo.cabaret("reviewing", "everyone", "--change", "feature");
-  await repo.cabaret("review", "feature.txt", "--change", "feature");
+  // The show page already reads staleness through to origin's copy.
   const shown = (await repo.cabaret("show", "feature")).stdout;
-  expect(shown).toContain("pull parent");
-  expect(shown).toContain("main (behind origin)");
-  // Overridden, the rebase stands on the local main as it is: the change
-  // already sits on its tip, so nothing moves.
-  const before = await repo.cabaret("log", "feature");
-  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("log", "feature")).toEqual(before);
-  // Pulling the parent satisfies the check and the rebase carries the trunk work in.
-  await repo.git("fetch", "-q", "origin", "main:main");
+  expect(shown).toContain("(behind parent)");
+  // The local branch is just a working position: the rebase stands on the
+  // parent's freshest reading, carrying the trunk work in without moving
+  // local main.
+  const mainBefore = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "feature:trunk.txt")).toBe("trunk work");
+  expect(await repo.git("rev-parse", "main")).toBe(mainBefore);
 });
 
-test("an overridden rebase onto a parent the base outran moves nothing", async () => {
+test("rebase refuses a diverged parent; overridden, it stands on the local reading", async () => {
   const repo = await makeRepo();
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "feature");
+  // The readings part ways: origin's main gains trunk work while this
+  // clone's main takes local work, so no freshest reading exists.
   const other = await makeClone(repo, "bob@example.com");
   await other.git("checkout", "-q", "main");
   await other.write("trunk.txt", "trunk work\n");
   await other.git("add", "-A");
   await other.git("commit", "-qm", "trunk work");
   await other.git("push", "-q", "origin", "main");
-  await repo.git("fetch", "-q", "origin", "main:main");
-  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  // The local main slides back to the root while the base stays pinned ahead
-  // of it. Merging that tip would reverse-diff the newer history into the
-  // change; even overridden, the rebase must recognize there is nothing to
-  // move.
-  const root = await repo.git("rev-parse", "main~1");
-  await repo.git("update-ref", "refs/heads/main", root);
-  const tipBefore = await repo.git("rev-parse", "feature");
-  const logBefore = await repo.cabaret("log", "feature");
-  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
+  await repo.git("checkout", "-q", "main");
+  await repo.write("local.txt", "local work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "local work");
+  await repo.git("fetch", "-q", "origin");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      'local "main" has diverged from origin\'s copy; sync it first, ' +
+      "or pass --even-though-parent-diverged to rebase onto the local reading\n",
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-diverged")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
+  expect(await repo.git("show", "feature:local.txt")).toBe("local work");
+  await expect(repo.git("show", "feature:trunk.txt")).rejects.toThrow();
+});
+
+test("a rebase onto a parent the base outran moves nothing", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The local main slides back to the root while the base stays pinned ahead
+  // of it. Merging that tip would reverse-diff the newer history into the
+  // change; the rebase must recognize there is nothing to move.
+  await repo.git("checkout", "-q", "feature");
+  const root = await repo.git("rev-parse", "main~1");
+  await repo.git("update-ref", "refs/heads/main", root);
+  const tipBefore = await repo.git("rev-parse", "feature");
+  const logBefore = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("rev-parse", "feature")).toBe(tipBefore);
   expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
 });
@@ -287,7 +299,7 @@ test("rebase fails on a change that does not exist", async () => {
   await repo.git("branch", "orphan");
   expect(await repo.cabaret("rebase", "orphan")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "orphan"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "orphan"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });

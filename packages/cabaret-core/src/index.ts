@@ -9,6 +9,7 @@ export * from "./ops.js";
 export * from "./self.js";
 export * from "./setup.js";
 export * from "./summary.js";
+export * from "./sync.js";
 export * from "./todo.js";
 export * from "./version.js";
 export * from "./workspace.js";
