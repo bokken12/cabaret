@@ -128,18 +128,6 @@ export interface Forge {
 }
 
 /**
- * The backend a forge can sync with: git only. Forges hold git commits —
- * `ForgeChange.tip`, the merges they write — so only a repository whose
- * revisions are git's can mirror one.
- */
-export function forgeBackend(backend: Backend): Backend {
-  if (backend.vcs !== "git") {
-    throw new UserError("forge sync needs a git repository; this repository's forge support ends here");
-  }
-  return backend;
-}
-
-/**
  * A comment entry's identity: the SHA-256 of its log line. Entries are
  * immutable, so the hash is permanent; both sync directions use it to
  * recognize a comment they have seen before.
@@ -631,17 +619,14 @@ export async function landAsConfigured(
   if (!viaForge) {
     publication = await landChange(backend, now, change, entries, config.landMethod, overrides);
   } else {
-    // The narrowing that proves the backend git's covers the entries it read.
-    const git = forgeBackend(backend);
-    const gitEntries = entries as readonly LogEntry[] as readonly LogEntry[];
     const forge = await openForge();
-    const forgeChange = await syncedForgeChange(git, now, await git.currentUser(), forge, change, gitEntries);
+    const forgeChange = await syncedForgeChange(backend, now, await backend.currentUser(), forge, change, entries);
     if (forgeChange === undefined) {
       throw new UserError(
         `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret sync\` first`,
       );
     }
-    await landOnForge(git, now, forge, change, gitEntries, forgeChange, config.landMethod, overrides);
+    await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
     merged = { forge: forge.locator, id: forgeChange.id };
   }
   const onto = currentParent(change, entries);

@@ -13,7 +13,6 @@ import {
   type AbsorbResult,
   absorbForgeChange,
   type Forge,
-  forgeBackend,
   type PublishResult,
   publishForgeChange,
   syncedForgeChange,
@@ -126,13 +125,12 @@ export async function syncChange(
   let published: PublishResult | undefined;
   const current = await backend.readLog(change);
   if (forge !== undefined && landedMerge(current) === undefined) {
-    const git = forgeBackend(backend);
-    const user = await git.currentUser();
-    const found = await syncedForgeChange(git, now, user, forge, change, current);
+    const user = await backend.currentUser();
+    const found = await syncedForgeChange(backend, now, user, forge, change, current);
     if (found !== undefined) {
-      absorbed = await absorbForgeChange(git, now, user, forge, change, await git.readLog(change), found);
+      absorbed = await absorbForgeChange(backend, now, user, forge, change, await backend.readLog(change), found);
     }
-    published = await publishForgeChange(git, now, forge, change, await git.readLog(change), found);
+    published = await publishForgeChange(backend, now, forge, change, await backend.readLog(change), found);
   }
   await backend.syncLog(change);
   return { offline, joined, absorbed, published };

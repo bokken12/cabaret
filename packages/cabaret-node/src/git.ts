@@ -252,8 +252,6 @@ const LOG_PATH = "log";
 
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
-  readonly vcs = "git";
-
   readonly parseRevision = parseCommitHash;
 
   readonly parseName = parseBranchName;

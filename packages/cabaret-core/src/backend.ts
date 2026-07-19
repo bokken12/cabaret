@@ -25,7 +25,7 @@ export function parseCommitHash(raw: string): Revision {
  * The name of a change (or of a parent it builds on, trunk included),
  * obtained only through a backend's `parseName`, which enforces its native
  * grammar. Backends map the name onto whatever they natively point at code
- * with: a git branch, an hg bookmark.
+ * with: a git branch.
  */
 export type ChangeName = Branded<string, "ChangeName">;
 
@@ -385,7 +385,7 @@ export type ConfigScope = "local" | "global";
 export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
-  /** The branch checked out there, or undefined when none is (git: detached HEAD; hg: no active bookmark). */
+  /** The branch checked out there, or undefined when none is (a detached HEAD). */
   readonly change: ChangeName | undefined;
   /** Whether the working tree or index differs from the checkout, untracked files included. */
   readonly dirty: boolean;
@@ -393,21 +393,12 @@ export interface Workspace {
   readonly primary: boolean;
 }
 
-/** The version-control systems a backend can speak for. */
-export type Vcs = "git" | "hg";
-
 /**
  * The operations Cabaret needs from a version-control backend. The
- * implementations (`cabaret-node`) shell out to a local git or hg.
- *
- * Vocabulary maps onto whatever the backend natively has: a "branch" is a git
- * branch or an hg bookmark, and "origin" is the pinned remote every remote
- * operation uses — git's `origin` remote, hg's `default` path.
+ * implementation (`cabaret-node`) shells out to a local git. "origin" is the
+ * one pinned remote every remote operation uses.
  */
 export interface Backend {
-  /** Which version-control system this backend speaks. */
-  readonly vcs: Vcs;
-
   /** Absolute path of the working tree the backend was opened in. */
   readonly root: string;
 
@@ -539,11 +530,10 @@ export interface Backend {
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge
    * resolves against `base`, the change's own base: what the change did
-   * since its base applies onto `onto`. Under git the base overrides the
-   * graph's merge-base, so a parent whose history was rewritten merges as
-   * cleanly as one that advanced; hg can only resolve against the graph's
-   * own ancestor, so a `base` the graph disagrees with is refused rather
-   * than misread. Carries a checked-out `change`'s working tree along.
+   * since its base applies onto `onto`. The base overrides the graph's
+   * merge-base, so a parent whose history was rewritten merges as cleanly
+   * as one that advanced. Carries a checked-out `change`'s working tree
+   * along.
    * Conflicts still commit, markers left in the files, and come back as the
    * conflicted paths.
    */
@@ -596,8 +586,7 @@ export interface Backend {
 
   /**
    * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
-   * Moves no local branch under git; hg's native pull also imports new
-   * remote bookmarks, as any hg pull does, and never overwrites local work.
+   * Moves no local branch.
    */
   fetchOrigin(): Promise<void>;
 
