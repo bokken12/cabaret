@@ -319,14 +319,14 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
  * Show the change being worked on — the one the active cabaret page is about,
  * or the one whose branch is checked out — falling back to picking one when
  * neither resolves, as on a detached HEAD or a branch the logs do not speak
- * for. The todo page surveys every change, so it always picks rather than
+ * for. The home page surveys every change, so it always picks rather than
  * assuming the checked-out branch is the one wanted.
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   const active =
     editor !== undefined && editor.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path) : undefined;
-  if (active !== undefined && active.kind !== "todo") {
+  if (active !== undefined && active.kind !== "home") {
     await openPage(provider, { kind: "show", change: active.change, as: active.as });
     return;
   }
@@ -357,7 +357,7 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
 }
 
 /**
- * Pick a user and reopen the active page as them — the todo page when no
+ * Pick a user and reopen the active page as them — the home page when no
  * cabaret page is active. The list opens on the current user, so swapping
  * back to oneself is a bare confirm; one's aliases follow, and anyone else
  * can be typed in.
@@ -373,7 +373,7 @@ async function actAs(provider: PageProvider): Promise<void> {
       editor !== undefined && editor.document.uri.scheme === SCHEME
         ? parsePagePath(editor.document.uri.path)
         : undefined;
-    const page: Page = active ?? { kind: "todo" };
+    const page: Page = active ?? { kind: "home" };
     const self = await currentSelf(backend);
     type Item = vscode.QuickPickItem & { readonly user: UserName | undefined };
     const items: Item[] = [
@@ -604,7 +604,7 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "todo") {
+  if (page.kind === "home") {
     return;
   }
   await openPage(provider, { kind: "diffs", change: page.change, as: page.as });
@@ -942,7 +942,7 @@ function invalidName(backend: Backend): (value: string) => string | undefined {
 
 /**
  * The changes an action applies to, ancestormost first: the shown change on a
- * show page; on the todo page, the changes named by the lines the selection
+ * show page; on the home page, the changes named by the lines the selection
  * covers, which is just the cursor's line when nothing is selected.
  */
 function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly ChangeName[] {
@@ -1435,7 +1435,7 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.refreshAll();
       }
     }),
-    vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
+    vscode.commands.registerCommand("cabaret.home", () => openPage(provider, { kind: "home" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),

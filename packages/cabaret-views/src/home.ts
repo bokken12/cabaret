@@ -24,11 +24,11 @@ import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
-export interface TodoNode {
+export interface OwnedNode {
   readonly summary: ChangeSummary;
   /** Kept only so its descendants hang somewhere; hosts dim it. */
   readonly context: boolean;
-  readonly children: readonly TodoNode[];
+  readonly children: readonly OwnedNode[];
 }
 
 /** A change in the review forest and the changes stacked on it. */
@@ -46,8 +46,8 @@ export interface BrokenChange {
 }
 
 /** What awaits one user's attention, each section a forest along parent links. */
-export interface TodoPage {
-  /** Whose todo this is when not the current user's own, as `selfAs` resolves it. */
+export interface HomePage {
+  /** Whose home this is when not the current user's own, as `selfAs` resolves it. */
   readonly as: UserName | undefined;
   /**
    * Unlanded changes with an unsatisfied obligation the user's review can
@@ -60,7 +60,7 @@ export interface TodoPage {
    * The user's unlanded changes. A change that is landed or someone else's
    * stays only while kept children hang from it.
    */
-  readonly owned: readonly TodoNode[];
+  readonly owned: readonly OwnedNode[];
   /**
    * Changes whose state could not be read (say, a log whose branch is gone),
    * sorted by name. They are left out of the sections rather than blocking
@@ -125,7 +125,7 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   };
 }
 
-export async function todoPage(backend: Backend, as?: UserName): Promise<TodoPage> {
+export async function homePage(backend: Backend, as?: UserName): Promise<HomePage> {
   const acting = await selfAs(backend, as);
   const self = acting.self;
   const workspaces = await workspaceNotes(backend);
@@ -169,7 +169,7 @@ export async function todoPage(backend: Backend, as?: UserName): Promise<TodoPag
     }
     return found;
   };
-  const pruneOwned = (nodes: readonly ChangeNode[]): TodoNode[] =>
+  const pruneOwned = (nodes: readonly ChangeNode[]): OwnedNode[] =>
     nodes.flatMap((node) => {
       const candidate = summary(node.change);
       const children = pruneOwned(node.children);
@@ -286,7 +286,7 @@ function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | un
   );
 }
 
-export function todoDoc(page: TodoPage): Doc {
+export function homeDoc(page: HomePage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
     return [changeCell(summary, guide, page.as, style), span(owed.length === 0 ? "" : String(owed.length))];
@@ -299,7 +299,7 @@ export function todoDoc(page: TodoPage): Doc {
       span(summary.nextStep, { style }),
     ];
   });
-  const title = page.as === undefined ? "Todo" : `Todo as ${page.as}`;
+  const title = page.as === undefined ? "Home" : `Home as ${page.as}`;
   return layout(
     [
       { spans: [span(title, { style: "heading" })] },

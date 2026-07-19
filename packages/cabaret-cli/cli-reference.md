@@ -21,7 +21,7 @@ USAGE
   cabaret archive [--change value]
   cabaret archive --help
 
-Set a change aside without landing it: the change leaves the todo page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret unarchive` brings it back.
+Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret unarchive` brings it back.
 
 FLAGS
      [--change]  Change to archive (defaults to current)
@@ -423,6 +423,17 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
+## cabaret home
+
+USAGE
+  cabaret home
+  cabaret home --help
+
+Show your reviews, changes, and workspaces
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cabaret land
 
 USAGE
@@ -643,17 +654,6 @@ FLAGS
      [--change]  Change to sync (defaults to current)
   -h  --help     Print help information and exit
 
-## cabaret todo
-
-USAGE
-  cabaret todo
-  cabaret todo --help
-
-Show the changes awaiting your attention
-
-FLAGS
-  -h --help  Print help information and exit
-
 ## cabaret todos
 
 USAGE
@@ -674,7 +674,7 @@ USAGE
   cabaret unarchive [--change value]
   cabaret unarchive --help
 
-Bring an archived change back: it returns to the todo page and may land again. A push reopens its forge change.
+Bring an archived change back: it returns to the home page and may land again. A push reopens its forge change.
 
 FLAGS
      [--change]  Change to unarchive (defaults to current)

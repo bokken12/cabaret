@@ -28,8 +28,8 @@ narrowing back to `none` is how a change goes back to being a draft.
 
 ## What the set gates
 
-Todos. A change appears as review work only for users the reviewing set
-includes, which the log alone decides — so building a todo page reads the
+Home pages. A change appears as review work only for users the reviewing set
+includes, which the log alone decides — so building a home page reads the
 obligations files of just the changes whose set reaches the user, most of
 which it does not.
 

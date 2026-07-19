@@ -68,10 +68,10 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
       "  feature.txt: 1 more of bob@example.com (reviewer)\n",
     exitCode: 1,
   });
-  // The change lands in bob's todo, not just their obligations.
+  // The change lands in bob's home, not just their obligations.
   await repo.git("config", "user.email", "bob@example.com");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:

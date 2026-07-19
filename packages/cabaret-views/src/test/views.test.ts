@@ -10,7 +10,7 @@ import {
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
-import { type Doc, docText, showDoc, targetAt, todoDoc } from "../index.js";
+import { type Doc, docText, homeDoc, showDoc, targetAt } from "../index.js";
 
 function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
@@ -51,7 +51,7 @@ function foldTexts(doc: Doc): (string | undefined)[][] {
   return doc.folds.map(({ start, end }) => [text[start], text[end]]);
 }
 
-test("todoDoc lays out both sections as trees, ancestors kept for context", () => {
+test("homeDoc lays out both sections as trees, ancestors kept for context", () => {
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
     parent: parseBranchName("gadget"),
@@ -60,7 +60,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
-  const doc = todoDoc({
+  const doc = homeDoc({
     as: undefined,
     review: [
       { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
@@ -74,7 +74,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -126,11 +126,11 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
   ]);
 });
 
-test("todoDoc with nothing to do keeps both sections, empty", () => {
+test("homeDoc with nothing to do keeps both sections, empty", () => {
   expect(
-    docText(todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined })),
+    docText(homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined })),
   ).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -147,10 +147,10 @@ test("todoDoc with nothing to do keeps both sections, empty", () => {
   `);
 });
 
-test("todoDoc lists the changes checked out on this device in their own section", () => {
+test("homeDoc lists the changes checked out on this device in their own section", () => {
   const gadget = summary("gadget", { reviewLeft: files("gadget.ts") });
   const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
-  const doc = todoDoc({
+  const doc = homeDoc({
     as: undefined,
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
     owned: [{ summary: gadget, context: false, children: [] }],
@@ -172,7 +172,7 @@ test("todoDoc lists the changes checked out on this device in their own section"
     fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -212,9 +212,9 @@ test("todoDoc lists the changes checked out on this device in their own section"
   ]);
 });
 
-test("todoDoc as another user names them and keeps their identity on every change link", () => {
+test("homeDoc as another user names them and keeps their identity on every change link", () => {
   const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: files("gadget.ts") });
-  const doc = todoDoc({
+  const doc = homeDoc({
     as: userName("bob@example.com"),
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
     owned: [{ summary: gadget, context: false, children: [] }],
@@ -223,7 +223,7 @@ test("todoDoc as another user names them and keeps their identity on every chang
     fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Todo as bob@example.com
+    "Home as bob@example.com
     =======================
 
     Changes to review:
@@ -246,8 +246,8 @@ test("todoDoc as another user names them and keeps their identity on every chang
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
 });
 
-test("todoDoc carries broken changes as doc errors, named for their change", () => {
-  const doc = todoDoc({
+test("homeDoc carries broken changes as doc errors, named for their change", () => {
+  const doc = homeDoc({
     as: undefined,
     review: [],
     owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
@@ -264,7 +264,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
   ]);
   // The tables show only what could be read; broken changes stay off them.
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -678,9 +678,9 @@ test("showDoc renders a landed change without a files section", () => {
 test("each doc closes with a dimmed line dating the last fetch, when one is known", () => {
   const fetched = timestampMs(Date.UTC(2026, 6, 19, 8, 4, 5, 678));
   const footer = [{ text: "fetched 08:04, 2026-07-19", style: "context", target: undefined, tier: undefined }];
-  const todo = todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
-  expect(docText(todo)).toMatchInlineSnapshot(`
-    "Todo
+  const home = homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
+  expect(docText(home)).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -697,7 +697,7 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
 
     fetched 08:04, 2026-07-19"
   `);
-  expect(todo.lines.at(-1)?.spans).toEqual(footer);
+  expect(home.lines.at(-1)?.spans).toEqual(footer);
   const show = showDoc({
     as: undefined,
     summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),

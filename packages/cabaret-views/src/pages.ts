@@ -6,7 +6,7 @@ import { type ChangeName, type FilePath, parseBranchName, parseFilePath, type Us
  * navigates around as another reviewer.
  */
 export type Page =
-  | { readonly kind: "todo"; readonly as?: UserName | undefined }
+  | { readonly kind: "home"; readonly as?: UserName | undefined }
   | { readonly kind: "show"; readonly change: ChangeName; readonly as?: UserName | undefined }
   | { readonly kind: "review"; readonly change: ChangeName; readonly as?: UserName | undefined }
   | { readonly kind: "diffs"; readonly change: ChangeName; readonly as?: UserName | undefined }
@@ -28,8 +28,8 @@ export type Page =
 export function pagePath(page: Page): string {
   const base = ((): string => {
     switch (page.kind) {
-      case "todo":
-        return "/cabaret/todo";
+      case "home":
+        return "/cabaret/home";
       case "show":
         return `/cabaret/show/${page.change}`;
       case "review":
@@ -54,8 +54,8 @@ export function parsePagePath(path: string): Page {
     }
     return { ...inner, as: userName(decodeURIComponent(as[1])) };
   }
-  if (path === "/cabaret/todo") {
-    return { kind: "todo" };
+  if (path === "/cabaret/home") {
+    return { kind: "home" };
   }
   const show = /^\/cabaret\/show\/(.+)$/.exec(path)?.[1];
   if (show !== undefined) {

@@ -40,7 +40,7 @@ An identity is one name, but a user may have several: an agent working on their 
 
     cabaret config alias add agent@example.com
 
-Hand-declared aliases are a property of the person, not of any repository — global config is their natural home — and they act only when reading: a change owned by an alias is yours to operate, and its work shows on your todo. Log entries are always written under your own `user.email`, and obligations count each identity's own reviews, so an alias's review never satisfies a demand naming you (nor the reverse).
+Hand-declared aliases are a property of the person, not of any repository — global config is their natural home — and they act only when reading: a change owned by an alias is yours to operate, and its work shows on your home page. Log entries are always written under your own `user.email`, and obligations count each identity's own reviews, so an alias's review never satisfies a demand naming you (nor the reverse).
 
 Claiming an alias grants nothing that setting `user.email` to it would not, so a purely local declaration costs no trust beyond what git already extends.
 

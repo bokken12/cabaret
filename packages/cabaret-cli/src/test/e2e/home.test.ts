@@ -11,16 +11,16 @@ async function requireReviewers(repo: TestRepo, ...users: string[]): Promise<voi
   await repo.git("commit", "-qm", "policy");
 }
 
-test("todo shows review work and owned changes as a tree", async () => {
+test("home shows review work and owned changes as a tree", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "owner");
   await addChange(repo, "gizmo");
   await repo.cabaret("reviewing", "owner");
-  const { stdout, stderr, exitCode } = await repo.cabaret("todo");
+  const { stdout, stderr, exitCode } = await repo.cabaret("home");
   expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
   expect(stdout).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -55,8 +55,8 @@ test("a change with conflict markers asks no review, only its fix", async () => 
   await repo.cabaret("reviewing", "owner");
   await repo.write("gadget.txt", "<<<<<<< ours\ngadget work\n=======\nother\n>>>>>>> parent\n");
   await repo.git("commit", "-qam", "conflicted");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -82,15 +82,15 @@ test("a change with conflict markers asks no review, only its fix", async () => 
   `);
 });
 
-test("todo counts an alias's changes among the user's own", async () => {
+test("home counts an alias's changes among the user's own", async () => {
   const repo = await makeRepo();
   await repo.git("config", "user.email", "agent@example.com");
   await addChange(repo, "gizmo");
   await repo.cabaret("reviewing", "owner");
   await repo.git("config", "user.email", "alice@example.com");
   // Someone else's change: alice neither owns gizmo nor owes it review.
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -116,8 +116,8 @@ test("todo counts an alias's changes among the user's own", async () => {
   // Declared an alias, the agent's change is alice's own, and its owner
   // self-review — still the agent's to give — is owed through her.
   await repo.git("config", "--add", "cabaret.alias", "agent@example.com");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -154,10 +154,10 @@ test("an adopted change reads, reviews, and materializes without ever running fe
   // local branch: the state adoption leaves a second machine in.
   const clone = await makeClone(repo, "bob@example.com");
   await clone.git("fetch", "-q", "origin", "+refs/cabaret/log/*:refs/cabaret/log/*");
-  const { stdout, stderr, exitCode } = await clone.cabaret("todo");
+  const { stdout, stderr, exitCode } = await clone.cabaret("home");
   expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
   expect(stdout).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -185,8 +185,8 @@ test("an adopted change reads, reviews, and materializes without ever running fe
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
   await clone.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
-  expect((await clone.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await clone.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -227,13 +227,13 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   // Deleting the branch orphans gadget's log: the change can no longer be
   // read, while gizmo — parented on the missing branch — still can.
   await repo.git("branch", "-qD", "gadget");
-  const { stdout, stderr, exitCode } = await repo.cabaret("todo");
+  const { stdout, stderr, exitCode } = await repo.cabaret("home");
   expect({ stderr, exitCode }).toEqual({
     stderr: 'gadget: "gadget" does not exist\n',
     exitCode: 0,
   });
   expect(stdout).toMatchInlineSnapshot(`
-    "Todo
+    "Home
     ====
 
     Changes to review:
@@ -260,10 +260,10 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   `);
 });
 
-test("todo with no changes shows both sections empty", async () => {
+test("home with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -288,7 +288,7 @@ test("todo with no changes shows both sections empty", async () => {
   `);
 });
 
-test("fetch imports an open forge change, and todo lists it when review is owed", async () => {
+test("fetch imports an open forge change, and home lists it when review is owed", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The policy on main is what puts the imported change on this user's plate.
@@ -306,8 +306,8 @@ test("fetch imports an open forge change, and todo lists it when review is owed"
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("fetch");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -348,8 +348,8 @@ test("your own forge change joins the changes you own through the recorded alias
   await repo.git("checkout", "-q", "main");
   forge.openPr("alice", parseBranchName("solo-feature"), parseBranchName("main"), "Solo feature");
   await repo.cabaret("fetch");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -382,8 +382,8 @@ test("a merged forge change is not imported", async () => {
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
   await repo.cabaret("fetch");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -417,8 +417,8 @@ test("a landed change stays only while children hang from it", async () => {
   await repo.cabaret("land", "gadget");
   // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
   await repo.cabaret("reparent", "gizmo", "gadget");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -452,8 +452,8 @@ test("someone else's change obliging nothing of the user is not review work", as
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "gadget");
   await repo.git("config", "user.email", "alice@example.com");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -483,11 +483,11 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await requireReviewers(repo, "alice@example.com", "bob@example.com");
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
-  // Obligations only reach todos once the reviewing set includes their users.
+  // Obligations only reach home pages once the reviewing set includes their users.
   await repo.cabaret("reviewing", "everyone");
   await repo.git("config", "user.email", "alice@example.com");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -514,8 +514,8 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await repo.git("config", "user.email", "bob@example.com");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -545,8 +545,8 @@ test("a landed change with no children drops out entirely", async () => {
   await addChange(repo, "gadget");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.cabaret("land", "gadget");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:

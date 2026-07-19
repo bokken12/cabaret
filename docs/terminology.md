@@ -74,6 +74,18 @@ What should signify a comment needing to be addressed?
 
 honestly I kind of like "TODO"? It's longer, but feels more universally acknowledged - and in general I prefer to avoid acronyms?
 
+## The landing page
+
+What should one call the page surveying your reviews, changes, and workspaces?
+
+- Iron calls this "todo"
+- Graphite calls this "inbox"
+- Gerrit has a "dashboard" with an "attention set"
+
+Iron's "todo" sat one letter from `todos` (the code TODOs a change adds — Iron's CRs), a clash Iron never had: a typo in either direction silently ran the other command. And the page holds more than obligations — your own changes and this device's workspaces live there too, so "todo" over-promised that every row was actionable. "Inbox" has the same problem from the other side: your own changes and workspaces don't arrive from anyone.
+
+Decided: "home". Names the page by its role (where you start, where you return) rather than its contents, so it stays right as sections are added.
+
 ## Working trees
 
 What should one call a working tree of the repository, each holding a checked-out change?

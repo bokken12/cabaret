@@ -1,9 +1,9 @@
 import type { Backend, ChangeName, FilePath, Revision, UserName } from "cabaret-core";
 import type { Doc } from "./doc.js";
+import { homeDoc, homePage } from "./home.js";
 import type { Page } from "./pages.js";
 import { changeSnapshot, diffDoc, diffPage, diffsDoc, diffsPage, reviewDoc, reviewPage } from "./review.js";
 import { showDoc, showPage } from "./show.js";
-import { todoDoc, todoPage } from "./todo.js";
 
 /**
  * The diffs a render displayed: evidence a host records so `mark`'s viewed
@@ -34,8 +34,8 @@ export interface RenderOptions {
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
   switch (page.kind) {
-    case "todo":
-      return todoDoc(await todoPage(backend, page.as));
+    case "home":
+      return homeDoc(await homePage(backend, page.as));
     case "show":
       return showDoc(await showPage(backend, page.change, page.as));
     case "review":
