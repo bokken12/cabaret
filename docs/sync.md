@@ -20,9 +20,9 @@ Push and pull are therefore not distinct operations, just transport. The
 verbs are:
 
 - `fetch` — everything unobtrusive, and what background sync runs: refresh
-  origin's copies, fast-forward branches no workspace holds open, union
-  every log both ways, and absorb forge activity. Never touches a working
-  tree.
+  origin's copies, fast-forward branches whose moves lose nothing — a clean
+  workspace's tree follows its branch; a dirty one holds it put — union
+  every log both ways, and absorb forge activity.
 - `sync` — the per-change join, explicit because it may touch a working
   tree and publishes code: merge origin's copy of the branch (conflicts
   commit), push, reconcile the forge change both ways, sync the log.
@@ -52,13 +52,15 @@ declares a base by rebasing.
 
 ## Eagerness and intent
 
-Background work runs fetch on a short cadence and never touches a working
-tree; views render local state immediately and refresh when a fetch lands.
-The rule for what may run passively: passive operations transport
+Background work runs fetch on a short cadence and never disturbs work in
+progress; views render local state immediately and refresh when a fetch
+lands. The rule for what may run passively: passive operations transport
 already-intended state, and never mint new publication intent. Log entries
 were published when appended, so log pushes ride along with every fetch;
-fast-forwarding an idle branch changes nothing anyone can observe. Branch
-tips carry no publication intent until the user syncs (or lands), so those
+fast-forwarding a branch destroys nothing — an idle branch moves
+invisibly, and a clean workspace's tree just follows the line of work it
+already sits on, with a dirty one holding its branch put. Branch tips
+carry no publication intent until the user syncs (or lands), so those
 stay explicit.
 
 Sync works offline: the join against origin's last-fetched readings runs,
@@ -74,9 +76,10 @@ branch sync.
 ## Forcing resolution
 
 Reads never require unification, and behind is never an error: a trailing
-local branch is either advanced by fetch (idle) or read through (checked
-out). Writes fail fast only on genuine ambiguity or loss: a diverged parent
-asks for a join first (`sync`, with an override to proceed on the local
-reading); an ambiguous base demands a rebase; a local land whose parent
-does not descend from origin's reading keeps the land local rather than
-push over fetched-but-unabsorbed work.
+local branch is either advanced by fetch (idle, or held by a clean
+workspace) or read through (held by a dirty one). Writes fail fast only on
+genuine ambiguity or loss: a diverged parent asks for a join first
+(`sync`, with an override to proceed on the local reading); an ambiguous
+base demands a rebase; a local land whose parent does not descend from
+origin's reading keeps the land local rather than push over
+fetched-but-unabsorbed work.

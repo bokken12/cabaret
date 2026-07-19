@@ -135,12 +135,12 @@ gated by the reviewing state, and release is `land`.
 Decided: "sync" for the explicit per-change join (merge origin's copy,
 conflicts committed; push; reconcile the forge change both ways), and
 "fetch" for the ambient unobtrusive sweep (refresh origin readings,
-fast-forward branches no workspace holds, union logs, absorb forge
-activity). "Fetch" is git's word with a wider meaning here, adopted like
-"origin" because the instinct it imports — gets remote state, never
-disturbs my work — is exactly right. "Merge" was rejected for sync:
-GitHub-reared users read "merge" as landing, and it already names a land
-method.
+fast-forward branches losing nothing — dirty workspaces hold theirs put —
+union logs, absorb forge activity). "Fetch" is git's word with a wider
+meaning here, adopted like "origin" because the instinct it imports — gets
+remote state, never disturbs my work — is exactly right. "Merge" was
+rejected for sync: GitHub-reared users read "merge" as landing, and it
+already names a land method.
 
 # Versions
 

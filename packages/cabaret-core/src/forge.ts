@@ -741,14 +741,14 @@ function pureImport(entries: readonly LogEntry[]): boolean {
 
 /**
  * Fetch everything remote, forge included: refresh origin's copies,
- * fast-forward branches no workspace holds open, merge every change's log
- * with origin's, then absorb the forge wholesale — import every open forge
- * change that has no log yet as a change to review (owned by its author,
- * parented on its target branch, its discussion imported), refresh every
- * tracked change (as `absorbForgeChange`), mirror closed forge changes in as
- * archived, and prune changes whose forge change closed before anyone
- * engaged with them. Returns how many forge changes are open. Never touches
- * a working tree.
+ * fast-forward branches whose moves lose nothing (as `advanceBranches`),
+ * merge every change's log with origin's, then absorb the forge wholesale —
+ * import every open forge change that has no log yet as a change to review
+ * (owned by its author, parented on its target branch, its discussion
+ * imported), refresh every tracked change (as `absorbForgeChange`), mirror
+ * closed forge changes in as archived, and prune changes whose forge change
+ * closed before anyone engaged with them. Returns how many forge changes
+ * are open.
  *
  * The account the forge's credentials authenticate — and each email its
  * profile shows — is declared a `cabaret.alias` when it does not already

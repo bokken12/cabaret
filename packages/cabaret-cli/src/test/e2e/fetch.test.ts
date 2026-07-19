@@ -66,7 +66,7 @@ test("fetch with nothing to sync reports zero changes", async () => {
   });
 });
 
-test("fetch fast-forwards a branch behind origin unless a workspace holds it", async () => {
+test("fetch fast-forwards a branch behind origin unless a dirty workspace holds it", async () => {
   const alice = await makeRepo();
   await addChange(alice, "widgets");
   await alice.git("push", "-q", "origin", "main", "widgets");
@@ -84,12 +84,24 @@ test("fetch fast-forwards a branch behind origin unless a workspace holds it", a
     exitCode: 0,
   });
   expect(await bob.git("rev-parse", "widgets")).toBe(await alice.git("rev-parse", "widgets"));
-  // The checkout counts as a workspace: bob's checked-out main never moves
-  // under him, even once it trails origin.
+  // A clean checkout is no obstacle: bob's checked-out main advances, the
+  // working tree following.
   await alice.git("checkout", "-q", "main");
   await alice.write("trunk.txt", "trunk work\n");
   await alice.git("add", "-A");
   await alice.git("commit", "-qm", "trunk work");
+  await alice.git("push", "-q", "origin", "main");
+  expect(await bob.cabaret("fetch")).toEqual({
+    stdout: 'advanced "main"\nsynced 1 change with origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await bob.git("rev-parse", "main")).toBe(await alice.git("rev-parse", "main"));
+  expect(await bob.git("status", "--porcelain")).toBe("");
+  // Once the checkout is dirty, its line of work holds the branch in place.
+  await bob.write("wip.txt", "work in progress\n");
+  await alice.write("trunk.txt", "trunk work v2\n");
+  await alice.git("commit", "-qam", "more trunk work");
   await alice.git("push", "-q", "origin", "main");
   const mainBefore = await bob.git("rev-parse", "main");
   expect(await bob.cabaret("fetch")).toEqual({

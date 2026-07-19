@@ -606,11 +606,12 @@ export interface Backend {
 
   /**
    * Fast-forward local branches onto origin's last-fetched copies where the
-   * move is invisible: only a branch checked out in no workspace advances,
-   * and only to a descendant of its tip, so no working tree and no line of
-   * work anyone holds open moves. Returns the branches advanced, sorted.
-   * Reads last-fetched copies only; `fetchOrigin` first to advance onto
-   * fresh ones.
+   * move loses nothing: only to a descendant of the branch's tip, and a
+   * branch checked out in a workspace advances only when that workspace is
+   * clean — its working tree follows the branch — so no line of work anyone
+   * holds open moves. Returns the branches advanced, sorted. Reads
+   * last-fetched copies only; `fetchOrigin` first to advance onto fresh
+   * ones.
    */
   advanceBranches(): Promise<readonly ChangeName[]>;
 
