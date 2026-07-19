@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -18,6 +18,8 @@ import {
   parseLog,
   type Recommendation,
   type Revision,
+  type TimestampMs,
+  timestampMs,
   UserError,
   type UserName,
   userName,
@@ -482,6 +484,41 @@ export class GitBackend implements Backend {
 
   async fetchOrigin(): Promise<void> {
     await git(this.root, ["fetch", "--quiet", "origin"]);
+  }
+
+  async originFetched(): Promise<TimestampMs | undefined> {
+    // Git rewrites FETCH_HEAD on every fetch — including fetches run outside
+    // cabaret — but a failed one truncates it empty before connecting, so
+    // only a copy still holding ref lines has a mtime dating a success. The
+    // file is per-worktree while the refs a fetch updates are shared, so the
+    // freshest copy across the clone counts.
+    const dirs = [this.gitDir];
+    try {
+      const worktrees = join(this.gitDir, "worktrees");
+      dirs.push(...(await readdir(worktrees)).map((name) => join(worktrees, name)));
+    } catch (error) {
+      // ENOENT means exactly "no linked worktrees"; anything else is a real failure.
+      if ((error as { code?: unknown }).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    const times = await Promise.all(
+      dirs.map(async (dir) => {
+        const file = join(dir, "FETCH_HEAD");
+        try {
+          const { mtimeMs } = await stat(file);
+          return (await readFile(file, "utf8")).length === 0 ? undefined : mtimeMs;
+        } catch (error) {
+          if ((error as { code?: unknown }).code !== "ENOENT") {
+            throw error;
+          }
+          return undefined;
+        }
+      }),
+    );
+    const known = times.filter((time) => time !== undefined);
+    // mtimes carry fractional milliseconds; a timestamp is whole ones.
+    return known.length === 0 ? undefined : timestampMs(Math.round(Math.max(...known)));
   }
 
   async advanceBranches(): Promise<readonly ChangeName[]> {

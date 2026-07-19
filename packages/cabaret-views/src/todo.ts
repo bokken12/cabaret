@@ -13,11 +13,13 @@ import {
   type Self,
   selfAs,
   summarizeChange,
+  type TimestampMs,
   UserError,
   type UserName,
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
+import { fetchedFooter } from "./fetched.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -71,6 +73,8 @@ export interface TodoPage {
    * workspace whose change has landed gets noticed — and reclaimed.
    */
   readonly workspaces: readonly WorkspaceEntry[];
+  /** When this clone last fetched from origin, when known. */
+  readonly fetched: TimestampMs | undefined;
 }
 
 /** A checked-out name — not necessarily a change — and the workspace holding it on this device. */
@@ -190,7 +194,14 @@ export async function todoPage(backend: Backend, as?: UserName): Promise<TodoPag
       archived: found?.archived ?? false,
     };
   });
-  return { as: acting.as, review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
+  return {
+    as: acting.as,
+    review: pruneReview(forest),
+    owned: pruneOwned(forest),
+    broken,
+    workspaces: entries,
+    fetched: await backend.originFetched(),
+  };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -317,6 +328,7 @@ export function todoDoc(page: TodoPage): Doc {
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
       ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as)]),
+      ...fetchedFooter(page.fetched),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

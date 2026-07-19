@@ -469,6 +469,13 @@ export interface Backend {
    */
   originTip(change: ChangeName): Promise<Revision | undefined>;
 
+  /**
+   * When this clone last fetched from origin successfully — the freshest
+   * fetch from any of its workspaces, cabaret's or not — or undefined when
+   * none is known.
+   */
+  originFetched(): Promise<TimestampMs | undefined>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
 

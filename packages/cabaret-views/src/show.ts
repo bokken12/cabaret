@@ -16,11 +16,13 @@ import {
   shortHash,
   summarizeChange,
   summarizeTrunk,
+  type TimestampMs,
   type TrunkSummary,
   tallyText,
   type UserName,
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
+import { fetchedFooter } from "./fetched.js";
 import { type Cell, table } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -35,12 +37,15 @@ export interface ShowPage {
   readonly remaining: readonly ReviewerTally[];
   /** The change's workspace on this device, when it has one. */
   readonly workspace: WorkspaceNote | undefined;
+  /** When this clone last fetched from origin, when known. */
+  readonly fetched: TimestampMs | undefined;
 }
 
 /** Query the show page for `change`, read as the current user or as `as`. */
 export async function showPage(backend: Backend, change: ChangeName, as?: UserName): Promise<ShowPage> {
   const entries = await backend.readLog(change);
   const acting = await selfAs(backend, as);
+  const fetched = await backend.originFetched();
   if (entries.length === 0) {
     // A branch with no log still names a line of history worth viewing; its
     // log-borne sections are simply empty.
@@ -50,6 +55,7 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
       comments: [],
       remaining: [],
       workspace: (await workspaceNotes(backend)).get(change),
+      fetched,
     };
   }
   const diff = await changeDiff(backend, change, entries);
@@ -68,6 +74,7 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
     comments: await currentComments(entries),
     remaining,
     workspace: (await workspaceNotes(backend)).get(change),
+    fetched,
   };
 }
 
@@ -238,5 +245,6 @@ export function showDoc(page: ShowPage): Doc {
       nodes.push({ spans: [] }, s);
     }
   }
+  nodes.push(...fetchedFooter(page.fetched));
   return layout(nodes);
 }
