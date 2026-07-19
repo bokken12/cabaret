@@ -5,7 +5,7 @@ import { addChange, makeRepo } from "./fixture.js";
 
 const PR = forgeChangeId(1);
 
-test("an archived change leaves the home page and unarchive brings it back", async () => {
+test("an archived change leaves the home page and archive --undo brings it back", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "owner");
@@ -34,7 +34,7 @@ test("an archived change leaves the home page and unarchive brings it back", asy
     ╰────────┴──────────╯
     "
   `);
-  await repo.cabaret("unarchive");
+  await repo.cabaret("archive", "--undo");
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
     "Home
     ====
@@ -95,10 +95,10 @@ test("land refuses an archived change until it is unarchived", async () => {
   await repo.cabaret("archive");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "gadget"; run `cabaret unarchive`\n',
+    stderr: 'change is archived: "gadget"; run `cabaret archive --undo`\n',
     exitCode: 1,
   });
-  await repo.cabaret("unarchive");
+  await repo.cabaret("archive", "--undo");
   expect((await repo.cabaret("land", "--even-though-unreviewed")).exitCode).toBe(0);
 });
 
@@ -109,13 +109,13 @@ test("land refuses a change whose parent is archived", async () => {
   await repo.cabaret("archive", "--change", "parent");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "parent"; run `cabaret unarchive`\n',
+    stderr: 'change is archived: "parent"; run `cabaret archive --undo`\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "main..child", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr:
-      '"child" would land into "parent", which is archived; run `cabaret unarchive` or `cabaret reparent` first\n',
+      '"child" would land into "parent", which is archived; run `cabaret archive --undo` or `cabaret reparent` first\n',
     exitCode: 1,
   });
 });
@@ -132,7 +132,7 @@ test("archive refuses a landed change", async () => {
   });
 });
 
-test("sync closes the forge change of an archived change, and reopens on unarchive", async () => {
+test("sync closes the forge change of an archived change, and reopens on undo", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -152,7 +152,7 @@ test("sync closes the forge change of an archived change, and reopens on unarchi
   // that reopens it.
   await repo.git("branch", "develop", "main");
   await repo.cabaret("reparent", "gadget", "develop");
-  await repo.cabaret("unarchive");
+  await repo.cabaret("archive", "--undo");
   expect((await repo.cabaret("sync")).stdout).toBe(
     'reopened github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
   );

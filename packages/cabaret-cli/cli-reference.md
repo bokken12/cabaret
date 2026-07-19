@@ -18,13 +18,14 @@ FLAGS
 ## cabaret archive
 
 USAGE
-  cabaret archive [--change value]
+  cabaret archive [--change value] [--undo]
   cabaret archive --help
 
-Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret unarchive` brings it back.
+Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret archive --undo` brings it back.
 
 FLAGS
      [--change]  Change to archive (defaults to current)
+     [--undo]    Bring the change back: it may land again, and a push reopens its forge change [default = false]
   -h  --help     Print help information and exit
 
 ## cabaret comment
@@ -697,18 +698,6 @@ FLAGS
 
 ARGUMENTS
   [change]  change to inspect (defaults to current)
-
-## cabaret unarchive
-
-USAGE
-  cabaret unarchive [--change value]
-  cabaret unarchive --help
-
-Bring an archived change back: it returns to the home page and may land again. A push reopens its forge change.
-
-FLAGS
-     [--change]  Change to unarchive (defaults to current)
-  -h  --help     Print help information and exit
 
 ## cabaret widen
 

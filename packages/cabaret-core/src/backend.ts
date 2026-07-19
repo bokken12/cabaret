@@ -973,7 +973,7 @@ export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]
  */
 export function assertNotArchived(change: ChangeName, entries: readonly LogEntry[]): void {
   if (currentArchived(entries)) {
-    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cabaret unarchive\``);
+    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cabaret archive --undo\``);
   }
 }
 
