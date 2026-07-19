@@ -1,4 +1,3 @@
-import { mapConcurrent } from "cabaret-util";
 import { type Backend, type UserName, userName } from "./backend.js";
 import { UserError } from "./error.js";
 
@@ -56,20 +55,4 @@ export async function selfAs(
 ): Promise<{ readonly self: Self; readonly as: UserName | undefined }> {
   const self = await currentSelf(backend);
   return as === undefined || as === self.user ? { self, as: undefined } : { self: soleUser(as), as };
-}
-
-/** Change logs read at once: each costs a git process. */
-const LOG_CONCURRENCY = 8;
-
-/** Every identity the change logs mention — entry writers, and the owners and reviewers entries name — sorted by name. */
-export async function knownUsers(backend: Backend): Promise<readonly UserName[]> {
-  const changes = await backend.listChanges();
-  const perChange = await mapConcurrent(changes, LOG_CONCURRENCY, async (change) =>
-    (await backend.readLog(change)).flatMap((entry) => [
-      entry.user,
-      ...(entry.action.kind === "set-owner" ? [entry.action.owner] : []),
-      ...(entry.action.kind === "add-reviewer" ? [entry.action.reviewer] : []),
-    ]),
-  );
-  return [...new Set(perChange.flat())].sort();
 }

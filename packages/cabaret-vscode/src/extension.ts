@@ -22,7 +22,6 @@ import {
   gotoChange,
   gotoOffer,
   isConnectivityError,
-  knownUsers,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -342,9 +341,12 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
 /**
  * Pick a user and reopen the active page as them — the todo page when no
  * cabaret page is active. The list opens on the current user, so swapping
- * back to oneself is a bare confirm; everyone the change logs mention
- * follows, and anyone else can be typed in.
+ * back to oneself is a bare confirm; one's aliases follow, and anyone else
+ * can be typed in.
  */
+// TODO: suggest more identities — the change's owner, reviewers, and
+// remaining-review users are all cheap from the page at hand; a full
+// directory needs an index, not a sweep of every change log.
 async function actAs(provider: PageProvider): Promise<void> {
   try {
     const backend = await openBackend();
@@ -354,14 +356,11 @@ async function actAs(provider: PageProvider): Promise<void> {
         ? parsePagePath(editor.document.uri.path)
         : undefined;
     const page: Page = active ?? { kind: "todo" };
-    const [self, users] = await Promise.all([currentSelf(backend), knownUsers(backend)]);
+    const self = await currentSelf(backend);
     type Item = vscode.QuickPickItem & { readonly user: UserName | undefined };
     const items: Item[] = [
       { label: self.user, description: "yourself", user: self.user },
       ...[...self.aliases].sort().map((alias): Item => ({ label: alias, description: "your alias", user: alias })),
-      ...users
-        .filter((user) => user !== self.user && !self.aliases.has(user))
-        .map((user): Item => ({ label: user, user })),
       { label: "someone else…", user: undefined },
     ];
     const picked = await vscode.window.showQuickPick(items, {
