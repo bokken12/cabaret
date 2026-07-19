@@ -46,7 +46,7 @@ test("reviewers add fails on a change that does not exist, and on a landed chang
     exitCode: 1,
   });
   await addChange(repo, "feature");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.cabaret("land");
   const { stderr, exitCode } = await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature");
   expect({ stderr: stderr.replace(/merge [0-9a-f]{40}/, "merge <hash>"), exitCode }).toEqual({
@@ -60,7 +60,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   await addChange(repo, "feature");
   await repo.cabaret("reviewers", "add", "bob@example.com");
   await repo.cabaret("reviewing", "reviewers");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
     stderr:
@@ -95,7 +95,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
     ╰─────────┴───────────┴──────╯
     "
   `);
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

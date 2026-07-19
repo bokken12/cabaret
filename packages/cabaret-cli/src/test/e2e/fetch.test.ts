@@ -4,7 +4,7 @@ import { addChange, makeClone, makeRepo, shownComments } from "./fixture.js";
 test("fetch carries a change's log to a fresh machine verbatim", async () => {
   const alice = await makeRepo();
   await addChange(alice, "widgets");
-  await alice.cabaret("review", "widgets.txt");
+  await alice.cabaret("mark", "--tip", "HEAD", "widgets.txt");
   await alice.git("push", "-q", "origin", "main");
   expect(await alice.cabaret("fetch")).toEqual({
     stdout: "synced 1 change with origin\n",

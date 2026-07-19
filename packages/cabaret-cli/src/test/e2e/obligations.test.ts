@@ -17,7 +17,7 @@ test("land requires the owner's self-review even without obligations files", asy
       "review obligations are unsatisfied; pass --even-though-unreviewed to override:\n  feature.txt: 1 more of alice@example.com (owner)\n",
     exitCode: 1,
   });
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
@@ -41,7 +41,7 @@ test("land refuses until obligations are satisfied, counting the owner's review"
       "  feature.txt: 1 more of alice@example.com (.obligations)\n",
     exitCode: 1,
   });
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
@@ -53,7 +53,7 @@ test("a requirement on two users needs both reviews", async () => {
   await addChange(repo, "feature");
   // Widened so bob's review below is his turn, not an override.
   await repo.cabaret("reviewing", "everyone");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
     stderr:
@@ -61,7 +61,7 @@ test("a requirement on two users needs both reviews", async () => {
     exitCode: 1,
   });
   await repo.git("config", "user.email", "bob@example.com");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
@@ -87,9 +87,9 @@ test("weakening an obligations file needs sign-off under the policy it replaces"
       "  .obligations: 1 more of bob@example.com (.obligations)\n",
     exitCode: 1,
   });
-  await repo.cabaret("review", ".obligations");
+  await repo.cabaret("mark", "--tip", "HEAD", ".obligations");
   await repo.git("config", "user.email", "bob@example.com");
-  await repo.cabaret("review", ".obligations");
+  await repo.cabaret("mark", "--tip", "HEAD", ".obligations");
   await repo.git("config", "user.email", "alice@example.com");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

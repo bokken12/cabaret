@@ -15,11 +15,11 @@ import { config } from "./commands/config.js";
 import { conflicts } from "./commands/conflicts.js";
 import { create } from "./commands/create.js";
 import { dev } from "./commands/dev.js";
-import { diff } from "./commands/diff.js";
 import { fetch } from "./commands/fetch.js";
 import { forget } from "./commands/forget.js";
 import { land } from "./commands/land.js";
 import { log } from "./commands/log.js";
+import { mark } from "./commands/mark.js";
 import { rebase } from "./commands/rebase.js";
 import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
@@ -66,11 +66,11 @@ const routes = buildRouteMap({
     conflicts,
     create,
     dev,
-    diff,
     fetch,
     forget,
     land,
     log,
+    mark,
     rebase,
     rename,
     reparent,

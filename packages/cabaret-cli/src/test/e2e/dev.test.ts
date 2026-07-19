@@ -4,7 +4,7 @@ import { addChange, makeRepo } from "./fixture.js";
 test("wipe deletes logs and fetched logs; branches stay", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
-  await repo.cabaret("review", "widgets.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "widgets.txt");
   await repo.cabaret("fetch");
 
   // One change, even though its log and the fetched copy are two refs.
@@ -21,7 +21,7 @@ test("wipe deletes logs and fetched logs; branches stay", async () => {
 test("wipe is local: origin keeps its logs, so fetch restores them", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
-  await repo.cabaret("review", "widgets.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "widgets.txt");
   await repo.cabaret("fetch");
   const before = await repo.cabaret("log", "widgets");
 

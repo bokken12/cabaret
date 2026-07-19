@@ -152,6 +152,11 @@ export function reviewDoc(page: ReviewPage): Doc {
   return layout(lines);
 }
 
+/** The earliest round with review of `file` left, or undefined with none: what a mark of it records. */
+export function pendingRound(rounds: readonly ReviewRound[], file: FilePath): ReviewRound | undefined {
+  return rounds.find(({ files }) => files.has(file));
+}
+
 /** What marking a file reviewed did, and where review continues. */
 export type MarkReviewedResult =
   /** The file had no review pending, so nothing was recorded. */
@@ -198,7 +203,7 @@ export function markReviewed(
   if (!snapshot.asked && !evenThoughNotReviewing) {
     throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);
   }
-  const round = snapshot.rounds.find(({ files }) => files.has(file));
+  const round = pendingRound(snapshot.rounds, file);
   if (round === undefined) {
     return { kind: "nothing-left" };
   }

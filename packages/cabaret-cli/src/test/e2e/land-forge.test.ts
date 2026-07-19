@@ -14,7 +14,7 @@ async function makePr(forge: FakeForge): Promise<TestRepo> {
   const repo = await makeRepo(forge);
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "gadget");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.cabaret("sync");
   return repo;
 }
@@ -99,7 +99,7 @@ test("land via forge refuses a forge change behind the local tip", async () => {
   const repo = await makePr(forge);
   await repo.write("gadget.txt", "gadget work, more\n");
   await repo.git("commit", "-qam", "more gadget work");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
     stderr: 'github.com/test-org/widgets#1 is not at "gadget"\'s tip; run `cabaret sync` first\n',
