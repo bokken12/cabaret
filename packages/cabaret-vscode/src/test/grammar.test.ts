@@ -95,13 +95,14 @@ const page: DiffsPage = {
     files: [
       {
         file: parseFilePath("src/thing.alpha"),
+        movedFrom: undefined,
         view: {
           kind: "two",
           prev: "alpha1\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nomega\n",
           next: "opened /*\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nclosed\n",
         },
       },
-      { file: parseFilePath("sub/Betafile"), view: { kind: "two", prev: "x\n", next: "y\n" } },
+      { file: parseFilePath("sub/Betafile"), movedFrom: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
     ],
   },
 };
@@ -130,7 +131,7 @@ test("a single-file diff page's title opens its file's section", async () => {
     change: widgets,
     file: parseFilePath("src/thing.alpha"),
     as: undefined,
-    round: { end: fake("3"), later: 0, view: { kind: "two", prev: "x\n", next: "y\n" } },
+    round: { end: fake("3"), later: 0, movedFrom: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
   });
   const rows = await tokenized(docText(doc));
   expect(tokensOf(rows, "y")).toEqual([
@@ -149,6 +150,6 @@ test("a 4-way page's hint sentence closes the open hunk region", async () => {
 test("pageGrammar escapes file names into literal patterns", () => {
   const grammar = pageGrammar([{ id: "cpp", scope: "source.cpp", suffixes: [".c++"], basenames: ["c++.cfg"] }]);
   expect(grammar.repository["file-cpp"]?.begin).toBe(
-    "^(?:@+ )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg)(?: @+| in \\S.*)$",
+    "^(?:@+ )?(?:\\S+ -> )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg)(?: @+| in \\S.*)$",
   );
 });

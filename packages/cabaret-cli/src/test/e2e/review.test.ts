@@ -12,6 +12,37 @@ async function makeChange(path: string, content: string): Promise<TestRepo> {
   return repo;
 }
 
+test("a moved file reviews as one entry named by both sides", async () => {
+  const repo = await makeRepo();
+  await repo.write("notes.txt", "alpha\nbeta\ngamma\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.git("mv", "notes.txt", "journal.txt");
+  await repo.git("commit", "-qm", "reorganize");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to e20e72be5344.
+
+      notes.txt -> journal.txt
+
+    notes.txt -> journal.txt in main (up to e20e72be5344)
+
+    No differences left to read; mark the file reviewed to record that.
+
+    Record review of what you have read:
+      cabaret mark --tip e20e72be5344 journal.txt
+    ",
+    }
+  `);
+});
+
 test("review with no arguments shows the whole round", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "trunk");

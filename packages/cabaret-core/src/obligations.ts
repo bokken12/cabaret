@@ -264,7 +264,7 @@ export async function obligationStatuses(
 ): Promise<readonly ObligationStatus[]> {
   const files = new Set<FilePath>();
   for (const { changed } of diff.spans) {
-    for (const file of changed) {
+    for (const file of changed.keys()) {
       files.add(file);
     }
   }

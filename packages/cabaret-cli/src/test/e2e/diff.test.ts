@@ -85,6 +85,58 @@ test("a named file outside the change answers with no differences", async () => 
   `);
 });
 
+/** A repo whose change moves `notes.txt` untouched and `src/old.ts` with an edit. */
+async function makeMoves(): Promise<TestRepo> {
+  const repo = await makeRepo();
+  await repo.write("src/old.ts", "export const answer = 42;\nexport const question = 'unknown';\n");
+  await repo.write("notes.txt", "alpha\nbeta\ngamma\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.git("mv", "src/old.ts", "src/new.ts");
+  await repo.git("mv", "notes.txt", "journal.txt");
+  await repo.write("src/new.ts", "export const answer = 54;\nexport const question = 'unknown';\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "reorganize");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  return repo;
+}
+
+test("a moved file diffs as one entry, from its old copy", async () => {
+  const repo = await makeMoves();
+  expect(await repo.cabaret("diff")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "notes.txt -> journal.txt in main
+
+    No differences.
+
+    src/old.ts -> src/new.ts in main
+
+    -1,2 +1,2
+    -|export const answer = 42;
+    +|export const answer = 54;
+      export const question = 'unknown';
+    ",
+    }
+  `);
+});
+
+test("a moved file answers to its old name", async () => {
+  const repo = await makeMoves();
+  expect(await repo.cabaret("diff", "notes.txt")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "notes.txt -> journal.txt in main
+
+    No differences.
+    ",
+    }
+  `);
+});
+
 test("a pattern matching no changed file is an error", async () => {
   const repo = await makeChange({ "greeting.txt": "hello\n" });
   expect(await repo.cabaret("diff", "*.rs")).toEqual({

@@ -9,9 +9,10 @@ function fileTitle(page: DiffPage): string {
   if (page.round === undefined) {
     return `${page.file} in ${page.change}`;
   }
-  const { end, later } = page.round;
+  const { end, later, movedFrom } = page.round;
+  const name = movedFrom === undefined ? page.file : `${movedFrom} -> ${page.file}`;
   const more = later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
-  return `${page.file} in ${page.change} (up to ${shortHash(end)}${more})`;
+  return `${name} in ${page.change} (up to ${shortHash(end)}${more})`;
 }
 
 export const review = buildCommand({
@@ -56,11 +57,11 @@ export const review = buildCommand({
     // pending file, so a later round's file can be asked for by name.
     const files =
       args.length === 0
-        ? (page.round?.files ?? [])
+        ? (page.round?.files.map(({ path }) => path) ?? [])
         : selectFiles(backend, pendingFiles(snapshot.rounds), args, false, "file with review left");
     let separate = false;
     if (page.round !== undefined) {
-      const listed = page.round.files.filter((file) => files.includes(file));
+      const listed = page.round.files.filter(({ path }) => files.includes(path));
       if (listed.length > 0) {
         writeDoc(this, reviewDoc({ ...page, round: { ...page.round, files: listed } }));
         separate = true;

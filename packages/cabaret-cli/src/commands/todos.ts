@@ -52,8 +52,10 @@ export const todos = buildCommand({
     const base = await changeBase(backend, target, await backend.readLog(target));
     const tip = await requireTip(backend, target);
     const rendered: string[] = [];
-    for (const file of await backend.changedFiles(base, tip)) {
-      const [prev, next] = await Promise.all([backend.readFile(base, file), backend.readFile(tip, file)]);
+    // A moved file's TODOs compare against its old copy, so a move alone
+    // surfaces nothing.
+    for (const { path: file, movedFrom } of await backend.changedFiles(base, tip)) {
+      const [prev, next] = await Promise.all([backend.readFile(base, movedFrom ?? file), backend.readFile(tip, file)]);
       for (const todo of newTodos(prev, next)) {
         rendered.push(`${file}:${todo.line}:${todo.col}:\n${reindentTodo(todo)}\n`);
       }
