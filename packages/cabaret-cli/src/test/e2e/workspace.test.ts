@@ -47,18 +47,18 @@ test("workspace add creates a sibling working tree that dir, list, and todo repo
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬─────────────────╮
-    │ change │ review │ next step       │
-    ├────────┼────────┼─────────────────┤
-    │ gizmo  │      1 │ widen reviewing │
-    ╰────────┴────────┴─────────────────╯
+    ╭────────┬─────────────────╮
+    │ change │ next step       │
+    ├────────┼─────────────────┤
+    │ gizmo  │ widen reviewing │
+    ╰────────┴─────────────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────────┬──────╮
-    │ change │ workspace     │ note │
-    ├────────┼───────────────┼──────┤
-    │ gizmo  │ ../repo-gizmo │      │
-    ╰────────┴───────────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -128,17 +128,17 @@ test("a landed change stays in the todo workspaces section until its workspace i
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────────┬────────╮
-    │ change │ workspace     │ note   │
-    ├────────┼───────────────┼────────┤
-    │ gizmo  │ ../repo-gizmo │ landed │
-    ╰────────┴───────────────┴────────╯
+    ╭────────┬────────╮
+    │ change │ note   │
+    ├────────┼────────┤
+    │ gizmo  │ landed │
+    ╰────────┴────────╯
     "
   `);
   await repo.cabaret("workspace", "remove", "gizmo");

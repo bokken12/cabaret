@@ -82,17 +82,17 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
     ╰─────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭─────────┬───────────┬──────╮
-    │ change  │ workspace │ note │
-    ├─────────┼───────────┼──────┤
-    │ feature │ .         │      │
-    ╰─────────┴───────────┴──────╯
+    ╭─────────┬──────╮
+    │ change  │ note │
+    ├─────────┼──────┤
+    │ feature │      │
+    ╰─────────┴──────╯
     "
   `);
   await repo.cabaret("review", "feature.txt");

@@ -83,21 +83,21 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      2 │ review    │
-    │ widgets  │        │ land      │
-    ╰──────────┴────────┴───────────╯"
+    ╭──────────┬───────────╮
+    │ change   │ next step │
+    ├──────────┼───────────┤
+    │ gadget   │ landed    │
+    │ └─ gizmo │ review    │
+    │ widgets  │ land      │
+    ╰──────────┴───────────╯"
   `);
   // Each section folds down to its heading, and within each table gadget's
   // subtree folds down to gadget's own row.
   expect(foldTexts(doc)).toEqual([
     ["Changes to review:", "╰──────────┴────────╯"],
     ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
-    ["Changes you own:", "╰──────────┴────────┴───────────╯"],
-    ["│ gadget   │        │ landed    │", "│ └─ gizmo │      2 │ review    │"],
+    ["Changes you own:", "╰──────────┴───────────╯"],
+    ["│ gadget   │ landed    │", "│ └─ gizmo │ review    │"],
   ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -116,9 +116,8 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
   ]);
   expect(styled("│ └─ gizmo │      2 │")).toEqual([]);
-  expect(styled("│ gadget   │        │ landed    │")).toEqual([
+  expect(styled("│ gadget   │ landed    │")).toEqual([
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
-    { text: "", style: "context", target: undefined, tier: undefined },
     { text: "landed", style: "context", target: undefined, tier: undefined },
   ]);
 });
@@ -135,10 +134,10 @@ test("todoDoc with nothing to do keeps both sections, empty", () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯"
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯"
   `);
 });
 
@@ -176,32 +175,29 @@ test("todoDoc lists the changes checked out on this device in their own section"
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────────────────┬───────────────╮
-    │ change │ workspace        │ note          │
-    ├────────┼──────────────────┼───────────────┤
-    │ gadget │ .                │               │
-    │ relic  │ ../widgets-relic │ dirty, landed │
-    ╰────────┴──────────────────┴───────────────╯"
+    ╭────────┬───────────────╮
+    │ change │ note          │
+    ├────────┼───────────────┤
+    │ gadget │               │
+    │ relic  │ dirty, landed │
+    ╰────────┴───────────────╯"
   `);
   // The section folds like the others.
-  expect(foldTexts(doc).at(-1)).toEqual([
-    "Workspaces on this device:",
-    "╰────────┴──────────────────┴───────────────╯",
-  ]);
-  // The change links to its page and the path to the workspace's directory.
+  expect(foldTexts(doc).at(-1)).toEqual(["Workspaces on this device:", "╰────────┴───────────────╯"]);
+  // The change links to its page; the workspace's directory stays off this
+  // table, left to the workspaces page.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("relic"));
   expect(doc.lines[line]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
     { kind: "change", change: "relic" },
-    { kind: "workspace", path: "/src/widgets-relic" },
   ]);
 });
 
@@ -231,11 +227,11 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
     ╰────────┴────────╯
 
     Changes you own:
-    ╭─────────┬────────┬───────────╮
-    │ change  │ review │ next step │
-    ├─────────┼────────┼───────────┤
-    │ widgets │        │ review    │
-    ╰─────────┴────────┴───────────╯"
+    ╭─────────┬───────────╮
+    │ change  │ next step │
+    ├─────────┼───────────┤
+    │ widgets │ review    │
+    ╰─────────┴───────────╯"
   `);
 });
 
