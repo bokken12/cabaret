@@ -397,6 +397,22 @@ FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
   -h  --help     Print help information and exit
 
+## cabaret diff
+
+USAGE
+  cabaret diff [--change value] [--context value] <file>...
+  cabaret diff --help
+
+Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
+
+FLAGS
+     [--change]   Change to diff (defaults to current)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
+  -h  --help      Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to show (defaults to every changed file)
+
 ## cabaret fetch
 
 USAGE
