@@ -467,12 +467,16 @@ export class GitBackend implements Backend {
   async fetch(branch: ChangeName): Promise<void> {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
     // update, so a diverged local branch fails instead of losing work. Git
-    // also refuses to fetch into a checked-out branch, so that case takes a
-    // real fast-forward from FETCH_HEAD, carrying the index and working tree
-    // along — and still failing on divergence.
+    // also refuses to fetch into a checked-out branch, so that case fetches
+    // origin's reading into its remote-tracking ref and fast-forwards onto
+    // that, carrying the index and working tree along — and still failing on
+    // divergence. Merging FETCH_HEAD instead would race: it is one file
+    // shared by every fetch in the worktree, and a concurrent log fetch
+    // rewrites it to name an unrelated-history log commit as the merge
+    // candidate.
     if ((await this.checkedOutBranch()) === branch) {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}`]);
-      await git(this.root, ["merge", "--ff-only", "FETCH_HEAD"]);
+      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+      await git(this.root, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
     } else {
       await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
     }
