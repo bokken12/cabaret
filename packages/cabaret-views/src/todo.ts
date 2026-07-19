@@ -20,6 +20,7 @@ import {
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
+import { stepSpan } from "./steps.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -291,7 +292,7 @@ export function todoDoc(page: TodoPage): Doc {
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
-    return [changeCell(summary, guide, page.as, style), span(summary.nextStep, { style })];
+    return [changeCell(summary, guide, page.as, style), stepSpan(summary.nextStep, summary.change, page.as, style)];
   });
   const title = page.as === undefined ? "Todo" : `Todo as ${page.as}`;
   return layout(

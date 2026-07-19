@@ -1,5 +1,8 @@
 import type { ChangeName, FilePath, UserName } from "cabaret-core";
 
+/** The operations on a change that hosts run from its pages; each host maps them to its own commands. */
+export type ChangeAction = "sync" | "rebase" | "reparent" | "widen reviewing" | "land";
+
 /**
  * Semantic paint for a span; each host maps styles to its own palette. The
  * word styles mark the words that actually changed within a line — over the
@@ -42,6 +45,8 @@ export type Target =
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */
   | { readonly kind: "workspace"; readonly path: string }
+  /** An operation on `change`; following the target runs it. */
+  | { readonly kind: "action"; readonly change: ChangeName; readonly action: ChangeAction }
   /** A web page outside cabaret, e.g. a change's page on its forge. */
   | { readonly kind: "url"; readonly url: string };
 
