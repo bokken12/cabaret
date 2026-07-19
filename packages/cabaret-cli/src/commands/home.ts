@@ -1,14 +1,14 @@
 import { buildCommand } from "@stricli/core";
-import { todoDoc, todoPage } from "cabaret-views";
+import { homeDoc, homePage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { writeDoc } from "./shared.js";
 
-export const todo = buildCommand({
-  docs: { brief: "Show the changes awaiting your attention" },
+export const home = buildCommand({
+  docs: { brief: "Show your reviews, changes, and workspaces" },
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
-    const page = await todoPage(backend);
-    writeDoc(this, todoDoc(page));
+    const page = await homePage(backend);
+    writeDoc(this, homeDoc(page));
   },
 });

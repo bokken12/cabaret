@@ -5,13 +5,13 @@ import { addChange, makeRepo } from "./fixture.js";
 
 const PR = forgeChangeId(1);
 
-test("an archived change leaves the todo page and unarchive brings it back", async () => {
+test("an archived change leaves the home page and unarchive brings it back", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "owner");
   await repo.cabaret("archive");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -35,8 +35,8 @@ test("an archived change leaves the todo page and unarchive brings it back", asy
     "
   `);
   await repo.cabaret("unarchive");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:

@@ -29,7 +29,7 @@ function userNames(): fc.Arbitrary<UserName> {
 /** Every page shape, with and without a borrowed identity. */
 function pages(): fc.Arbitrary<Page> {
   const bare = fc.oneof(
-    fc.constant<Page>({ kind: "todo" }),
+    fc.constant<Page>({ kind: "home" }),
     refNames().map((change): Page => ({ kind: "show", change })),
     refNames().map((change): Page => ({ kind: "review", change })),
     refNames().map((change): Page => ({ kind: "diffs", change })),
@@ -70,11 +70,11 @@ test("diff page paths round-trip for files with colons and slashes", () => {
 test("as-page paths round-trip for user names full of path and encoding characters", () => {
   // The user's own segment is percent-encoded, so its slashes and colons
   // cannot bleed into the page kind, change, or file.
-  for (const raw of ["github:alice", "a/b@example.com", "100%", "café@example.com", "todo"]) {
+  for (const raw of ["github:alice", "a/b@example.com", "100%", "café@example.com", "home"]) {
     const change = parseBranchName("feature/x");
     const as = userName(raw);
-    const todo: Page = { kind: "todo", as };
-    expect(parsePagePath(pagePath(todo))).toEqual(todo);
+    const home: Page = { kind: "home", as };
+    expect(parsePagePath(pagePath(home))).toEqual(home);
     const review: Page = { kind: "review", change, as };
     expect(parsePagePath(pagePath(review))).toEqual(review);
     const diff: Page = { kind: "diff", change, file: parseFilePath("src/with:colon.ts"), as };
@@ -86,8 +86,8 @@ test("paths that name no page are refused", () => {
   for (const path of [
     "",
     "/",
-    "todo",
-    "/todos",
+    "home",
+    "/homes",
     "/show",
     "/show/",
     "/review/",
@@ -97,9 +97,9 @@ test("paths that name no page are refused", () => {
     "/as/",
     "/as/u",
     "/as/u/",
-    "/as//todo",
+    "/as//home",
     "/as/u/nope",
-    "/as/u/as/v/todo",
+    "/as/u/as/v/home",
   ]) {
     expect(() => parsePagePath(path)).toThrowError(/not a cabaret page/);
   }

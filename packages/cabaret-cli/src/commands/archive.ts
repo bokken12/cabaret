@@ -7,7 +7,7 @@ export const archive = buildCommand({
   docs: {
     brief: "Set a change aside without landing it",
     fullDescription:
-      "Set a change aside without landing it: the change leaves the todo " +
+      "Set a change aside without landing it: the change leaves the home " +
       "page and refuses to land, but its branch and log stay. A push closes " +
       "its forge change. `cabaret unarchive` brings it back.",
   },
@@ -26,7 +26,7 @@ export const unarchive = buildCommand({
   docs: {
     brief: "Bring an archived change back",
     fullDescription:
-      "Bring an archived change back: it returns to the todo page and may " +
+      "Bring an archived change back: it returns to the home page and may " +
       "land again. A push reopens its forge change.",
   },
   parameters: {

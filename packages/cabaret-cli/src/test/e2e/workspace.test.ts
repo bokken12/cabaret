@@ -8,7 +8,7 @@ async function rootOf(repo: TestRepo): Promise<string> {
   return repo.git("rev-parse", "--show-toplevel");
 }
 
-test("workspace add creates a sibling working tree that dir, list, and todo report", async () => {
+test("workspace add creates a sibling working tree that dir, list, and home report", async () => {
   const repo = await makeRepo(undefined, "repo");
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "main");
@@ -36,8 +36,8 @@ test("workspace add creates a sibling working tree that dir, list, and todo repo
     ╰───────────────┴────────┴──────╯
     "
   `);
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -110,7 +110,7 @@ test("workspace remove refuses a dirty workspace until --even-though-dirty, and 
   });
 });
 
-test("a landed change stays in the todo workspaces section until its workspace is removed", async () => {
+test("a landed change stays in the home workspaces section until its workspace is removed", async () => {
   const repo = await makeRepo(undefined, "repo");
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "main");
@@ -118,8 +118,8 @@ test("a landed change stays in the todo workspaces section until its workspace i
   await repo.cabaret("mark", "--tip", "gizmo", "--change", "gizmo", "gizmo.txt");
   await repo.cabaret("land", "gizmo");
 
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -144,5 +144,5 @@ test("a landed change stays in the todo workspaces section until its workspace i
     "
   `);
   await repo.cabaret("workspace", "remove", "gizmo");
-  expect((await repo.cabaret("todo")).stdout).not.toContain("gizmo");
+  expect((await repo.cabaret("home")).stdout).not.toContain("gizmo");
 });

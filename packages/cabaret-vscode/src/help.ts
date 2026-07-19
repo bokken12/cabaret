@@ -28,7 +28,7 @@ type PageKind = Page["kind"];
 
 /** The mapped type keeps this in step with `Page`, so scope parsing rejects page kinds that do not exist. */
 const PAGE_KINDS: { readonly [K in PageKind]: true } = {
-  todo: true,
+  home: true,
   show: true,
   review: true,
   diffs: true,

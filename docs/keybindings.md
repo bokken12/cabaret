@@ -49,7 +49,7 @@ effect. This also keeps the bare-key budget for navigation.
 
 ## Core vocabulary
 
-The keys every page shares. Pages nest — todo → show → review → diff → source
+The keys every page shares. Pages nest — home → show → review → diff → source
 location — and separately each change sits in a parent/child tree; the two
 axes get distinct keys.
 

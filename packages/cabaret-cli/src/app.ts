@@ -19,6 +19,7 @@ import { dev } from "./commands/dev.js";
 import { diff } from "./commands/diff.js";
 import { fetch } from "./commands/fetch.js";
 import { forget } from "./commands/forget.js";
+import { home } from "./commands/home.js";
 import { land } from "./commands/land.js";
 import { log } from "./commands/log.js";
 import { mark } from "./commands/mark.js";
@@ -32,7 +33,6 @@ import { setOwner } from "./commands/set-owner.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
-import { todo } from "./commands/todo.js";
 import { todos } from "./commands/todos.js";
 import { workspace } from "./commands/workspace.js";
 
@@ -72,6 +72,7 @@ const routes = buildRouteMap({
     diff,
     fetch,
     forget,
+    home,
     land,
     log,
     mark,
@@ -85,7 +86,6 @@ const routes = buildRouteMap({
     setup,
     show,
     sync,
-    todo,
     todos,
     unarchive,
     widen,

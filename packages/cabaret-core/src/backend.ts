@@ -673,7 +673,7 @@ export interface Backend {
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    *
-   * TODO: parent/child queries (the todo forest, the reparent and show-child
+   * TODO: parent/child queries (the home forest, the reparent and show-child
    * pickers) derive the parent relation by reading every change's log through
    * here, one subprocess call each. If that lags once repos hold hundreds of
    * changes, add a batched or cached parent index to the backend rather than

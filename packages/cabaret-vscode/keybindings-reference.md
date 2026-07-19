@@ -21,16 +21,16 @@ are chosen.
 | `! m`   | Mark Reviewed         | diff, review       |
 | `^`     | Show Parent           | show               |
 | `$`     | Show Child            | show               |
-| `! r b` | Rebase                | todo, show, review |
+| `! r b` | Rebase                | home, show, review |
 | `! l a` | Land                  | all                |
-| `! r n` | Rename                | todo, show, review |
-| `! r p` | Reparent              | todo, show, review |
-| `! o`   | Set Owner             | todo, show, review |
-| `! v`   | Widen Reviewing       | todo, show, review |
-| `! d`   | Disable Reviewing     | todo, show, review |
-| `! g`   | Go to Workspace       | todo, show, review |
-| `! w a` | Add Workspace         | todo, show, review |
-| `! w d` | Remove Workspace      | todo, show, review |
+| `! r n` | Rename                | home, show, review |
+| `! r p` | Reparent              | home, show, review |
+| `! o`   | Set Owner             | home, show, review |
+| `! v`   | Widen Reviewing       | home, show, review |
+| `! d`   | Disable Reviewing     | home, show, review |
+| `! g`   | Go to Workspace       | home, show, review |
+| `! w a` | Add Workspace         | home, show, review |
+| `! w d` | Remove Workspace      | home, show, review |
 | `! c`   | Create Child          | all                |
 | `! p`   | Create Parent         | all                |
 | `F`     | Fetch Remote Activity | all                |

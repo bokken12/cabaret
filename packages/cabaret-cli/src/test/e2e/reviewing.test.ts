@@ -52,30 +52,30 @@ test("widen from a draft skips an owner who already read the whole diff", async 
   expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
 });
 
-test("obligations reach a user's todo only once the reviewing set includes them", async () => {
+test("obligations reach a user's home only once the reviewing set includes them", async () => {
   const repo = await makeRepo();
   await requirePolicy(repo, "alice@example.com");
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
-  const aliceTodo = async () => {
+  const aliceHome = async () => {
     await repo.git("config", "user.email", "alice@example.com");
-    const { stdout } = await repo.cabaret("todo");
+    const { stdout } = await repo.cabaret("home");
     await repo.git("config", "user.email", "bob@example.com");
     // The workspaces section lists whatever is checked out, asked or not;
     // this test cares about the obligation-driven sections above it.
     return stdout.split("Workspaces on this device:")[0] as string;
   };
   // Only bob, the owner, is reviewing; alice's obligation is not yet asked.
-  expect(await aliceTodo()).not.toContain("feature");
+  expect(await aliceHome()).not.toContain("feature");
   // As a reviewer alice is asked as soon as reviewing widens to reviewers.
   await repo.cabaret("reviewers", "add", "alice@example.com");
   await repo.cabaret("reviewing", "reviewers");
-  expect(await aliceTodo()).toContain("feature");
+  expect(await aliceHome()).toContain("feature");
   await repo.cabaret("reviewers", "remove", "alice@example.com");
-  expect(await aliceTodo()).not.toContain("feature");
+  expect(await aliceHome()).not.toContain("feature");
   // Widened to everyone, the obligations files alone decide.
   await repo.cabaret("reviewing", "everyone");
-  expect(await aliceTodo()).toContain("feature");
+  expect(await aliceHome()).toContain("feature");
 });
 
 test("sync opens a draft for an unreviewing change and marks it ready when review starts", async () => {
