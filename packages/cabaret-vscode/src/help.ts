@@ -26,7 +26,13 @@ export type HelpEntry = {
 type PageKind = Page["kind"];
 
 /** The mapped type keeps this in step with `Page`, so scope parsing rejects page kinds that do not exist. */
-const PAGE_KINDS: { readonly [K in PageKind]: true } = { todo: true, show: true, review: true, diff: true };
+const PAGE_KINDS: { readonly [K in PageKind]: true } = {
+  todo: true,
+  show: true,
+  review: true,
+  diffs: true,
+  diff: true,
+};
 
 function parsePageKind(kind: string): PageKind {
   if (!(kind in PAGE_KINDS)) {

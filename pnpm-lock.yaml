@@ -148,6 +148,9 @@ importers:
       cabaret-views:
         specifier: workspace:*
         version: link:../cabaret-views
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/vscode':
         specifier: ~1.120.0
@@ -155,6 +158,12 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      vscode-oniguruma:
+        specifier: ^2.0.1
+        version: 2.0.1
+      vscode-textmate:
+        specifier: ^9.3.2
+        version: 9.3.2
 
   packages/patdiff:
     devDependencies:
@@ -1019,6 +1028,12 @@ packages:
       jsdom:
         optional: true
 
+  vscode-oniguruma@2.0.1:
+    resolution: {integrity: sha512-poJU8iHIWnC3vgphJnrLZyI3YdqRlR27xzqDmpPXYzA93R4Gk8z7T6oqDzDoHjoikA2aS82crdXFkjELCdJsjQ==}
+
+  vscode-textmate@9.3.2:
+    resolution: {integrity: sha512-n2uGbUcrjhUEBH16uGA0TvUfhWwliFZ1e3+pTjrkim1Mt7ydB41lV08aUvsi70OlzDWp6X7Bx3w/x3fAXIsN0Q==}
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -1652,6 +1667,10 @@ snapshots:
       '@types/node': 25.9.2
     transitivePeerDependencies:
       - msw
+
+  vscode-oniguruma@2.0.1: {}
+
+  vscode-textmate@9.3.2: {}
 
   why-is-node-running@2.3.0:
     dependencies:

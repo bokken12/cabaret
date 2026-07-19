@@ -574,6 +574,19 @@ function fourWayDiffNodes(
   return nodes;
 }
 
+/** One file's diff body: its hunks, or the note that nothing is left to read there. */
+function fileBodyNodes(change: ChangeName, file: FilePath, view: DiffView, context?: number): Node[] {
+  const body =
+    view.kind === "two" ? twoWayDiffNodes(change, file, view, context) : fourWayDiffNodes(change, file, view, context);
+  if (body.length === 0) {
+    // A due file's diff can still render empty — a tree diff lists changes
+    // patdiff shows no hunks for, like a mode-only change; marking the file
+    // reviewed is how the reviewer clears it.
+    return [{ spans: [span("No differences left to read; mark the file reviewed to record that.")] }];
+  }
+  return body;
+}
+
 export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
@@ -587,18 +600,84 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  const view = page.round.view;
-  const body =
-    view.kind === "two"
-      ? twoWayDiffNodes(page.change, page.file, view, context)
-      : fourWayDiffNodes(page.change, page.file, view, context);
-  if (body.length === 0) {
-    // A due file's diff can still render empty — a tree diff lists changes
-    // patdiff shows no hunks for, like a mode-only change; marking the file
-    // reviewed is how the reviewer clears it.
-    nodes.push({ spans: [span("No differences left to read; mark the file reviewed to record that.")] });
+  nodes.push(...fileBodyNodes(page.change, page.file, page.round.view, context));
+  return layout(nodes);
+}
+
+/** Every file of a change's current round, diffed in one page. */
+export interface DiffsPage {
+  readonly change: ChangeName;
+  /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
+  readonly as: UserName | undefined;
+  /** Files with conflict markers to fix; nonempty exactly when they preempt the round. */
+  readonly conflicts: readonly FilePath[];
+  /** Undefined when nothing is left to review, or while conflicts block it. */
+  readonly round:
+    | {
+        readonly end: Revision;
+        /** Rounds still to come after this one. */
+        readonly later: number;
+        readonly files: readonly { readonly file: FilePath; readonly view: DiffView }[];
+      }
+    | undefined;
+}
+
+/** Query the diffs page: one `diffPage` view per file of the current round. */
+export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Promise<DiffsPage> {
+  const { change, as, conflicts } = snapshot;
+  const first = snapshot.rounds[0];
+  if (conflicts.length > 0 || first === undefined) {
+    return { change, as, conflicts, round: undefined };
+  }
+  const files = await Promise.all(
+    [...first.files.keys()].map(async (file) => {
+      const page = await diffPage(backend, snapshot, file);
+      if (page.round === undefined) {
+        throw new Error(`${file} is in ${change}'s current round but has no diff`);
+      }
+      return { file, view: page.round.view };
+    }),
+  );
+  return { change, as, conflicts, round: { end: first.end, later: snapshot.rounds.length - 1, files } };
+}
+
+/**
+ * The bar naming a file above its hunks, as patdiff prints one. At least
+ * three @s a side keeps a long path's bar reading as a bar — and matching
+ * the page grammar's file-section pattern.
+ */
+function fileBar(file: FilePath): string {
+  const padded = ` ${file} `;
+  const left = Math.max(3, Math.floor((84 - padded.length) / 2));
+  const right = Math.max(3, 84 - padded.length - left);
+  return "@".repeat(left) + padded + "@".repeat(right);
+}
+
+export function diffsDoc(page: DiffsPage, context?: number): Doc {
+  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const title = `Review ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
+  const nodes: Node[] = [
+    { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
+    { spans: [] },
+  ];
+  if (page.conflicts.length > 0) {
+    nodes.push({ spans: [span(`Unresolved conflicts in ${page.conflicts.join(", ")}; fix the markers and amend.`)] });
     return layout(nodes);
   }
-  nodes.push(...body);
+  if (page.round === undefined) {
+    nodes.push({ spans: [span("Nothing left to review.")] });
+    return layout(nodes);
+  }
+  page.round.files.forEach(({ file, view }, i) => {
+    if (i > 0) {
+      nodes.push({ spans: [] });
+    }
+    const heading: Line = {
+      spans: [
+        span(fileBar(file), { style: "heading", target: { kind: "file", change: page.change, file, as: page.as } }),
+      ],
+    };
+    nodes.push(section(heading, fileBodyNodes(page.change, file, view, context)));
+  });
   return layout(nodes);
 }

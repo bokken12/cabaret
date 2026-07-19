@@ -1,4 +1,5 @@
 export * from "./doc.js";
+export * from "./grammar.js";
 export * from "./pages.js";
 export * from "./render.js";
 export * from "./review.js";

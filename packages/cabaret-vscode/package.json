@@ -17,6 +17,18 @@
     "onFileSystem:cabaret"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "cabaret"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cabaret",
+        "scopeName": "text.cabaret",
+        "path": "./dist/cabaret.tmLanguage.json"
+      }
+    ],
     "colors": [
       {
         "id": "cabaret.addedLineBackground",
@@ -171,6 +183,10 @@
         "title": "Cabaret: Review"
       },
       {
+        "command": "cabaret.reviewDiffs",
+        "title": "Cabaret: Review Diffs"
+      },
+      {
         "command": "cabaret.markReviewed",
         "title": "Cabaret: Mark Reviewed"
       },
@@ -262,6 +278,10 @@
           "when": "cabaret.page == 'show'"
         },
         {
+          "command": "cabaret.reviewDiffs",
+          "when": "cabaret.page == 'show' || cabaret.page == 'review'"
+        },
+        {
           "command": "cabaret.markReviewed",
           "when": "cabaret.page == 'diff'"
         },
@@ -305,6 +325,11 @@
         "command": "cabaret.review",
         "key": "r",
         "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.reviewDiffs",
+        "key": "d",
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.markReviewed",
@@ -428,13 +453,16 @@
   "dependencies": {
     "cabaret-core": "workspace:*",
     "cabaret-node": "workspace:*",
-    "cabaret-views": "workspace:*"
+    "cabaret-views": "workspace:*",
+    "zod": "^4.4.3"
   },
   "scripts": {
-    "build": "tsc -b && esbuild src/extension.ts --bundle --conditions=source --external:vscode --platform=node --format=cjs --outfile=dist/extension.cjs"
+    "build": "tsc -b && esbuild src/extension.ts --bundle --conditions=source --external:vscode --platform=node --format=cjs --outfile=dist/extension.cjs && node scripts/seed-grammar.mjs"
   },
   "devDependencies": {
     "@types/vscode": "~1.120.0",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

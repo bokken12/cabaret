@@ -9,6 +9,7 @@ export type Page =
   | { readonly kind: "todo" }
   | { readonly kind: "show"; readonly change: ChangeName }
   | { readonly kind: "review"; readonly change: ChangeName; readonly as?: UserName | undefined }
+  | { readonly kind: "diffs"; readonly change: ChangeName; readonly as?: UserName | undefined }
   | { readonly kind: "diff"; readonly change: ChangeName; readonly file: FilePath; readonly as?: UserName | undefined };
 
 /**
@@ -29,6 +30,10 @@ export function pagePath(page: Page): string {
       return page.as === undefined
         ? `/review/${page.change}`
         : `/review-as/${encodeURIComponent(page.as)}/${page.change}`;
+    case "diffs":
+      return page.as === undefined
+        ? `/diffs/${page.change}`
+        : `/diffs-as/${encodeURIComponent(page.as)}/${page.change}`;
     case "diff":
       return page.as === undefined
         ? `/diff/${page.change}:${page.file}`
@@ -52,6 +57,14 @@ export function parsePagePath(path: string): Page {
   const reviewAs = /^\/review-as\/([^/]+)\/(.+)$/.exec(path);
   if (reviewAs?.[1] !== undefined && reviewAs[2] !== undefined) {
     return { kind: "review", change: parseBranchName(reviewAs[2]), as: userName(decodeURIComponent(reviewAs[1])) };
+  }
+  const diffs = /^\/diffs\/(.+)$/.exec(path)?.[1];
+  if (diffs !== undefined) {
+    return { kind: "diffs", change: parseBranchName(diffs) };
+  }
+  const diffsAs = /^\/diffs-as\/([^/]+)\/(.+)$/.exec(path);
+  if (diffsAs?.[1] !== undefined && diffsAs[2] !== undefined) {
+    return { kind: "diffs", change: parseBranchName(diffsAs[2]), as: userName(decodeURIComponent(diffsAs[1])) };
   }
   // `[\s\S]` rather than `.` keeps the parse total: a file path (unlike a
   // ref name) is not barred from containing newlines, even though the doc

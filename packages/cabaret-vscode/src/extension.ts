@@ -66,6 +66,7 @@ import {
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
 import { type Manifest, pageHelp } from "./help.js";
+import { writePageGrammar } from "./language.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
@@ -517,6 +518,38 @@ async function review(provider: PageProvider): Promise<void> {
   const change = shownChange();
   if (change !== undefined) {
     await openPage(provider, { kind: "review", change });
+  }
+}
+
+/** Open every diff of the active page's change, one round in one buffer. */
+async function reviewDiffs(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "todo") {
+    return;
+  }
+  await openPage(provider, { kind: "diffs", change: page.change, as: page.kind === "show" ? undefined : page.as });
+}
+
+/**
+ * Give diff pages the cabaret language, whose grammar embeds each hunk in
+ * its file's own language; other pages are prose and stay as opened. The
+ * page path ends in the file's name, so VS Code first guesses that file's
+ * language for the whole buffer — chrome and all — and the switch here
+ * replaces that guess.
+ */
+function assignPageLanguage(document: vscode.TextDocument): void {
+  if (document.uri.scheme !== SCHEME || document.languageId === "cabaret") {
+    return;
+  }
+  const kind = parsePagePath(document.uri.path).kind;
+  if (kind === "diff" || kind === "diffs") {
+    vscode.languages.setTextDocumentLanguage(document, "cabaret").then(undefined, (error: unknown) => {
+      vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+    });
   }
 }
 
@@ -1240,6 +1273,11 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  try {
+    writePageGrammar(context);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: writing the page grammar failed — ${message(error)}`);
+  }
   const provider = new PageProvider();
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
@@ -1285,6 +1323,7 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.forget(document.uri);
       }
     }),
+    vscode.workspace.onDidOpenTextDocument(assignPageLanguage),
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("cabaret.context")) {
@@ -1298,6 +1337,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
+    vscode.commands.registerCommand("cabaret.reviewDiffs", () => reviewDiffs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
     vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
@@ -1428,6 +1468,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
   updatePageContext(vscode.window.activeTextEditor);
+  // Restored tabs opened their documents before this activation could listen.
+  for (const document of vscode.workspace.textDocuments) {
+    assignPageLanguage(document);
+  }
   // An extension-host restart re-syncs open cabaret editors without a render;
   // painting them misses the cache and so asks for one.
   repaint();

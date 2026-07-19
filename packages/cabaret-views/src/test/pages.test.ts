@@ -32,6 +32,8 @@ function pages(): fc.Arbitrary<Page> {
     refNames().map((change): Page => ({ kind: "show", change })),
     refNames().map((change): Page => ({ kind: "review", change })),
     fc.record({ change: refNames(), as: userNames() }).map(({ change, as }): Page => ({ kind: "review", change, as })),
+    refNames().map((change): Page => ({ kind: "diffs", change })),
+    fc.record({ change: refNames(), as: userNames() }).map(({ change, as }): Page => ({ kind: "diffs", change, as })),
     fc
       .record({ change: refNames(), file: filePaths() })
       .map(({ change, file }): Page => ({ kind: "diff", change, file })),
