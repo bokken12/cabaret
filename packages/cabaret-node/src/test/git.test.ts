@@ -334,7 +334,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
   );
 });
 
-test("recentLandMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
+test("landMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
   const backend = await GitBackend.open(repo);
   // A first-parent chain atop the root: work, a land, more work, another land.
   const work = await plumbCommit("recent work");
@@ -344,7 +344,7 @@ test("recentLandMerges surveys the newest commits, oldest first, noting a longer
   const tip = parseCommitHash(second);
   // A scan wide enough for the whole chain (tip, more, first, work, root) sees
   // both lands and no further history.
-  expect(await backend.recentLandMerges(tip, 5)).toEqual({
+  expect(await backend.landMerges(undefined, tip, 5)).toEqual({
     lands: [
       { change: "first-recent", commit: first, onto: work },
       { change: "second-recent", commit: second, onto: more },
@@ -353,14 +353,27 @@ test("recentLandMerges surveys the newest commits, oldest first, noting a longer
   });
   // A scan of the newest three commits reaches back only to the first land,
   // and notes the chain continuing past it.
-  expect(await backend.recentLandMerges(tip, 3)).toEqual({
+  expect(await backend.landMerges(undefined, tip, 3)).toEqual({
     lands: [
       { change: "first-recent", commit: first, onto: work },
       { change: "second-recent", commit: second, onto: more },
     ],
     more: true,
   });
-  expect(await backend.recentLandMerges(tip, 1)).toEqual({
+  expect(await backend.landMerges(undefined, tip, 1)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
+    more: true,
+  });
+  // A base stops the walk where the change's history ends: the same window
+  // that continued past three commits is exhausted once `work` bounds it.
+  expect(await backend.landMerges(parseCommitHash(work), tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: false,
+  });
+  expect(await backend.landMerges(parseCommitHash(work), tip, 2)).toEqual({
     lands: [{ change: "second-recent", commit: second, onto: more }],
     more: true,
   });

@@ -148,9 +148,9 @@ function repoBackend(opts: {
     },
     async landMerges(base, tip) {
       const path = ancestry(tip);
-      const cut = path.indexOf(base);
+      const cut = base === undefined ? -1 : path.indexOf(base);
       const between = new Set(cut === -1 ? path : path.slice(0, cut));
-      return (opts.merges ?? [])
+      const lands = (opts.merges ?? [])
         .map(({ change, commit, onto }) => ({
           change: parseBranchName(change),
           commit: fake(commit),
@@ -158,6 +158,7 @@ function repoBackend(opts: {
         }))
         .filter(({ commit }) => between.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
+      return { lands, more: false };
     },
     async changedFiles(base, tip) {
       if (base === tip) {

@@ -1023,18 +1023,8 @@ export class GitBackend implements Backend {
     return merges;
   }
 
-  async landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]> {
-    const out = await git(this.root, [
-      "log",
-      "--first-parent",
-      "--reverse",
-      GitBackend.LAND_LOG_FORMAT,
-      `${base}..${tip}`,
-    ]);
-    return GitBackend.parseLandLines(out.split("\n"));
-  }
-
-  async recentLandMerges(
+  async landMerges(
+    base: Revision | undefined,
     tip: Revision,
     scan: number,
   ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }> {
@@ -1046,7 +1036,7 @@ export class GitBackend implements Backend {
       "-n",
       String(scan + 1),
       GitBackend.LAND_LOG_FORMAT,
-      tip,
+      base === undefined ? tip : `${base}..${tip}`,
     ]);
     const lines = out.split("\n").filter((line) => line !== "");
     return { lands: GitBackend.parseLandLines(lines.slice(0, scan).reverse()), more: lines.length > scan };

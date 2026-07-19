@@ -14,6 +14,7 @@ import {
   type ForgeChangeId,
   type ForgeLocator,
   freshestReading,
+  LAND_SCAN,
   type LandMerge,
   type LogEntry,
   landedMerge,
@@ -240,19 +241,12 @@ export interface TrunkSummary {
   readonly truncated: boolean;
 }
 
-/**
- * First-parent commits surveyed for a trunk's recent lands: enough to read
- * as a release log, bounded so a long-lived branch's whole history never
- * loads.
- */
-const TRUNK_LAND_SCAN = 500;
-
 /** Summarize a branch with no log. */
 export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
   const tip = await requireTip(backend, change);
   const [origin, { lands, more }] = await Promise.all([
     originStanding(backend, change, tip),
-    backend.recentLandMerges(tip, TRUNK_LAND_SCAN),
+    backend.landMerges(undefined, tip, LAND_SCAN),
   ]);
   return { kind: "trunk", change, tip, origin, included: lands, truncated: more };
 }
