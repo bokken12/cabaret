@@ -69,13 +69,9 @@ export interface ChangedFile {
   readonly source: FileSource | undefined;
 }
 
-/** `path` alone, `old -> path` for a move, or `path (copied from old)` for a copy. */
+/** `path` alone, or `old -> path` naming a move's source — `=>` a copy's. */
 export function fileLabel(path: FilePath, source: FileSource | undefined): string {
-  return source === undefined
-    ? path
-    : source.copied
-      ? `${path} (copied from ${source.path})`
-      : `${source.path} -> ${path}`;
+  return source === undefined ? path : `${source.path} ${source.copied ? "=>" : "->"} ${path}`;
 }
 
 /** A unix timestamp in milliseconds. Obtain via `timestampMs`. */

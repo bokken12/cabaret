@@ -63,10 +63,10 @@ test("an exact copy still reviews as an entry, with nothing left to read", async
 
     Reviewing up to 621fe81034fb.
 
-      bylaws.txt (copied from charter.txt)
+      charter.txt => bylaws.txt
       charter.txt
 
-    bylaws.txt (copied from charter.txt) in main (up to 621fe81034fb)
+    charter.txt => bylaws.txt in main (up to 621fe81034fb)
 
     No differences left to read; mark the file reviewed to record that.
 

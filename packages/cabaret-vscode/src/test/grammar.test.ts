@@ -150,6 +150,6 @@ test("a 4-way page's hint sentence closes the open hunk region", async () => {
 test("pageGrammar escapes file names into literal patterns", () => {
   const grammar = pageGrammar([{ id: "cpp", scope: "source.cpp", suffixes: [".c++"], basenames: ["c++.cfg"] }]);
   expect(grammar.repository["file-cpp"]?.begin).toBe(
-    "^(?:@+ )?(?:\\S+ -> )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg)(?: \\(copied from \\S+\\))?(?: @+| in \\S.*)$",
+    "^(?:@+ )?(?:\\S+ [-=]> )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg)(?: @+| in \\S.*)$",
   );
 });

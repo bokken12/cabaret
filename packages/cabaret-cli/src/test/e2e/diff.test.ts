@@ -152,7 +152,7 @@ test("a file copied from one modified alongside it diffs from its source", async
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "bylaws.txt (copied from charter.txt) in main
+      "stdout": "charter.txt => bylaws.txt in main
 
     -1,4 +1,4
       preamble
