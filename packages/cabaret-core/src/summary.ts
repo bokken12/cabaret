@@ -13,6 +13,7 @@ import {
   currentReviewers,
   currentReviewing,
   type FilePath,
+  type FileSource,
   type ForgeChangeId,
   type ForgeLocator,
   freshestReading,
@@ -122,7 +123,7 @@ export interface ChangeSummary {
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
   readonly conflicts: readonly FilePath[];
-  /** Files with review left for the user, sorted by name; a moved file names both sides. */
+  /** Files with review left for the user, sorted by name; a moved or copied file names its source. */
   readonly reviewLeft: readonly ChangedFile[];
   readonly nextStep: NextStep;
 }
@@ -348,15 +349,15 @@ async function nextStep(
 
 /**
  * The files `rounds` still owe, one entry per path, sorted by name. A file
- * whose earliest pending view moves it names both sides — that view is the
- * first thing its reviewer will read.
+ * whose earliest pending view moves or copies it names its source — that
+ * view is the first thing its reviewer will read.
  */
 export function reviewLeftFiles(rounds: readonly ReviewRound[]): readonly ChangedFile[] {
   const left = new Map<FilePath, ChangedFile>();
   for (const { files } of rounds) {
     for (const [path, view] of files) {
       if (!left.has(path)) {
-        left.set(path, { path, movedFrom: view.kind === "span" ? view.movedFrom : undefined });
+        left.set(path, { path, source: view.kind === "span" ? view.source : undefined });
       }
     }
   }
@@ -365,8 +366,8 @@ export function reviewLeftFiles(rounds: readonly ReviewRound[]): readonly Change
 
 /** What a reviewer looks at to review a file in a round. */
 export type FileView =
-  /** The plain diff from `start` to the round's end — from the file's `movedFrom` path when the span moves it. */
-  | { readonly kind: "span"; readonly start: Revision; readonly movedFrom: FilePath | undefined }
+  /** The plain diff from `start` to the round's end — from the file's `source` path when the span moves or copies it. */
+  | { readonly kind: "span"; readonly start: Revision; readonly source: FileSource | undefined }
   /** The base moved under the review: compare the reviewed diff with the current one. */
   | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
   /** The reviewed tip left the change's history: diff from its contents. */
@@ -461,7 +462,7 @@ export async function reviewRounds(
         const changed = span.start === round.start ? round.changed : await resumedFiles(reviewed.tip);
         const entry = changed.get(file);
         if (entry !== undefined) {
-          round.files.set(file, { kind: "span", start: span.start, movedFrom: entry.movedFrom });
+          round.files.set(file, { kind: "span", start: span.start, source: entry.source });
         }
       }
       continue;
@@ -481,7 +482,7 @@ export async function reviewRounds(
       }
       const view: FileView =
         !first || reviewed === undefined
-          ? { kind: "span", start: round.start, movedFrom: entry.movedFrom }
+          ? { kind: "span", start: round.start, source: entry.source }
           : reviewed.base !== base
             ? { kind: "rebased", reviewed }
             : { kind: "rewritten", from: reviewed.tip };

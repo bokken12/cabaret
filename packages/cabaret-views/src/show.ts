@@ -7,6 +7,7 @@ import {
   changeDiff,
   currentComments,
   type FilePath,
+  fileLabel,
   forgeChangeUrl,
   isSatisfied,
   type LandMerge,
@@ -124,13 +125,8 @@ function filesToReview(files: readonly ChangedFile[], target?: (file: FilePath) 
   }
   return section(
     { spans: [span("Files to review:", { style: "heading" })] },
-    files.map(({ path, movedFrom }) => ({
-      spans: [
-        span("  "),
-        span(movedFrom === undefined ? path : `${movedFrom} -> ${path}`, {
-          ...(target === undefined ? {} : { target: target(path) }),
-        }),
-      ],
+    files.map(({ path, source }) => ({
+      spans: [span("  "), span(fileLabel(path, source), { ...(target === undefined ? {} : { target: target(path) }) })],
     })),
   );
 }

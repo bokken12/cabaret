@@ -734,12 +734,38 @@ test("changedFiles pairs moved files with their old paths", async () => {
   // An exact move pairs by hash and an edited one by similarity, both named
   // by their new path; everything else stays a single-path entry.
   expect(await backend.changedFiles(prev, next)).toEqual([
-    { path: "docs/guide.txt", movedFrom: "moved/guide.txt" },
-    { path: "dropped.txt", movedFrom: undefined },
-    { path: "edited.txt", movedFrom: undefined },
-    { path: "fresh.txt", movedFrom: undefined },
-    { path: "journal.txt", movedFrom: "notes.txt" },
+    { path: "docs/guide.txt", source: { path: "moved/guide.txt", copied: false } },
+    { path: "dropped.txt", source: undefined },
+    { path: "edited.txt", source: undefined },
+    { path: "fresh.txt", source: undefined },
+    { path: "journal.txt", source: { path: "notes.txt", copied: false } },
   ]);
+});
+
+test("changedFiles pairs a copy with its source when the source changed too", async () => {
+  const backend = await GitBackend.open(repo);
+  const charter = `a preamble\n${"a steady article of the charter\n".repeat(30)}a closing article\n`;
+  const prev = parseCommitHash(await plumbTree({ "charter.txt": charter }));
+  const next = parseCommitHash(
+    await plumbTree({
+      "charter.txt": charter.replace("a preamble", "an amended preamble"),
+      "bylaws.txt": charter.replace("a closing article", "a bylaws-specific article"),
+    }),
+  );
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "bylaws.txt", source: { path: "charter.txt", copied: true } },
+    { path: "charter.txt", source: undefined },
+  ]);
+});
+
+test("changedFiles leaves a copy of an untouched file unpaired", async () => {
+  // Only sources modified in the same diff are copy candidates; scanning the
+  // whole tree costs too much in a large repository.
+  const backend = await GitBackend.open(repo);
+  const template = `a header\n${"a boilerplate line\n".repeat(30)}a footer\n`;
+  const prev = parseCommitHash(await plumbTree({ "template.txt": template }));
+  const next = parseCommitHash(await plumbTree({ "template.txt": template, "instance.txt": template }));
+  expect(await backend.changedFiles(prev, next)).toEqual([{ path: "instance.txt", source: undefined }]);
 });
 
 test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () => {
@@ -747,8 +773,8 @@ test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () 
   const prev = parseCommitHash(await plumbTree({ "config.old": "alpha\nbeta\ngamma\n" }));
   const next = parseCommitHash(await plumbTree({ "config.new": "one\ntwo\nthree\nfour\n" }));
   expect(await backend.changedFiles(prev, next)).toEqual([
-    { path: "config.new", movedFrom: undefined },
-    { path: "config.old", movedFrom: undefined },
+    { path: "config.new", source: undefined },
+    { path: "config.old", source: undefined },
   ]);
 });
 

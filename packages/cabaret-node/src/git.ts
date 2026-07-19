@@ -800,19 +800,25 @@ export class GitBackend implements Backend {
   async changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]> {
     // -z delimits with NULs and disables path quoting. --find-renames pairs
     // a moved file's two sides into one entry — an unchanged move by hash
-    // alone, an edited one by content similarity. Submodules are dropped: a
-    // gitlink is not a file, so readFile could not serve it.
+    // alone, an edited one by content similarity — and --find-copies does
+    // the same for a file copied from one modified in the same diff; sources
+    // elsewhere in the tree go unrecognized, as scanning them all
+    // (--find-copies-harder) costs too much in a large repository.
+    // Submodules are dropped: a gitlink is not a file, so readFile could not
+    // serve it.
     const out = await git(this.root, [
       "diff",
       "--name-status",
       "--find-renames",
+      "--find-copies",
       "--ignore-submodules=all",
       "-z",
       base,
       tip,
     ]);
-    // Each record is a status token, then one path — or two for a rename,
-    // old before new. The trailing NUL leaves one empty token at the end.
+    // Each record is a status token, then one path — or two for a rename or
+    // copy, source before destination. The trailing NUL leaves one empty
+    // token at the end.
     const tokens = out.split("\0");
     const files: ChangedFile[] = [];
     for (let i = 0; ; ) {
@@ -825,14 +831,19 @@ export class GitBackend implements Backend {
         throw new Error(`diff status ${JSON.stringify(status)} names no path`);
       }
       if (/^[ADMT]$/.test(status)) {
-        files.push({ path: parseFilePath(path), movedFrom: undefined });
+        files.push({ path: parseFilePath(path), source: undefined });
         i += 2;
-      } else if (/^R\d+$/.test(status)) {
+      } else if (/^[RC]\d+$/.test(status)) {
         const to = tokens[i + 2];
         if (to === undefined) {
-          throw new Error(`rename of ${JSON.stringify(path)} names no destination`);
+          throw new Error(
+            `${status.startsWith("R") ? "rename" : "copy"} of ${JSON.stringify(path)} names no destination`,
+          );
         }
-        files.push({ path: parseFilePath(to), movedFrom: parseFilePath(path) });
+        files.push({
+          path: parseFilePath(to),
+          source: { path: parseFilePath(path), copied: status.startsWith("C") },
+        });
         i += 3;
       } else {
         throw new Error(`unexpected diff status ${JSON.stringify(status)} for ${JSON.stringify(path)}`);
