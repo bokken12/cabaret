@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo } from "./fixture.js";
 
 test("rename moves the branch, the log, and HEAD to the new name", async () => {
   const repo = await makeRepo();
@@ -58,6 +58,26 @@ test("rename refuses a name already taken by a change or a branch", async () => 
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/gizmo");
   expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
   expect((await repo.cabaret("log", "gizmo")).stdout).not.toBe("");
+});
+
+test("rename refuses a name origin holds, even with no local branch", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "gizmo");
+  // A second machine publishes the coveted name; this clone only fetches it.
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-qb", "doodad");
+  await other.write("doodad.txt", "doodad work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "doodad work");
+  await other.git("push", "-q", "origin", "doodad");
+  await repo.git("fetch", "-q", "origin");
+  expect(await repo.cabaret("rename", "gizmo", "doodad")).toEqual({
+    stdout: "",
+    stderr: 'branch already exists: "doodad"\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
 });
 
 test("rename refuses a name that is not a change", async () => {
