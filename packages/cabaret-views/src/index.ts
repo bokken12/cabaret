@@ -5,4 +5,5 @@ export * from "./pages.js";
 export * from "./render.js";
 export * from "./review.js";
 export * from "./show.js";
+export * from "./steps.js";
 export * from "./workspaces.js";

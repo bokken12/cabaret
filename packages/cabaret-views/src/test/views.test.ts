@@ -86,21 +86,21 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      2 │ review    │
-    │ widgets  │        │ land      │
-    ╰──────────┴────────┴───────────╯"
+    ╭──────────┬───────────╮
+    │ change   │ next step │
+    ├──────────┼───────────┤
+    │ gadget   │ landed    │
+    │ └─ gizmo │ review    │
+    │ widgets  │ land      │
+    ╰──────────┴───────────╯"
   `);
   // Each section folds down to its heading, and within each table gadget's
   // subtree folds down to gadget's own row.
   expect(foldTexts(doc)).toEqual([
     ["Changes to review:", "╰──────────┴────────╯"],
     ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
-    ["Changes you own:", "╰──────────┴────────┴───────────╯"],
-    ["│ gadget   │        │ landed    │", "│ └─ gizmo │      2 │ review    │"],
+    ["Changes you own:", "╰──────────┴───────────╯"],
+    ["│ gadget   │ landed    │", "│ └─ gizmo │ review    │"],
   ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -119,9 +119,8 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
   ]);
   expect(styled("│ └─ gizmo │      2 │")).toEqual([]);
-  expect(styled("│ gadget   │        │ landed    │")).toEqual([
+  expect(styled("│ gadget   │ landed    │")).toEqual([
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
-    { text: "", style: "context", target: undefined, tier: undefined },
     { text: "landed", style: "context", target: undefined, tier: undefined },
   ]);
 });
@@ -140,10 +139,10 @@ test("homeDoc with nothing to do keeps both sections, empty", () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯"
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯"
   `);
 });
 
@@ -183,32 +182,29 @@ test("homeDoc lists the changes checked out on this device in their own section"
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────────────────┬───────────────╮
-    │ change │ workspace        │ note          │
-    ├────────┼──────────────────┼───────────────┤
-    │ gadget │ .                │               │
-    │ relic  │ ../widgets-relic │ dirty, landed │
-    ╰────────┴──────────────────┴───────────────╯"
+    ╭────────┬───────────────╮
+    │ change │ note          │
+    ├────────┼───────────────┤
+    │ gadget │               │
+    │ relic  │ dirty, landed │
+    ╰────────┴───────────────╯"
   `);
   // The section folds like the others.
-  expect(foldTexts(doc).at(-1)).toEqual([
-    "Workspaces on this device:",
-    "╰────────┴──────────────────┴───────────────╯",
-  ]);
-  // The change links to its page and the path to the workspace's directory.
+  expect(foldTexts(doc).at(-1)).toEqual(["Workspaces on this device:", "╰────────┴───────────────╯"]);
+  // The change links to its page; the workspace's directory stays off this
+  // table, left to the workspaces page.
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("relic"));
   expect(doc.lines[line]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
     { kind: "change", change: "relic" },
-    { kind: "workspace", path: "/src/widgets-relic" },
   ]);
 });
 
@@ -234,15 +230,15 @@ test("homeDoc as another user names them and keeps their identity on every chang
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯"
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("│ gadget │      1 │ review"));
+    .findIndex((text) => text.includes("│ gadget │ review"));
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
 });
 
@@ -274,11 +270,11 @@ test("homeDoc carries broken changes as doc errors, named for their change", () 
     ╰────────┴────────╯
 
     Changes you own:
-    ╭─────────┬────────┬───────────╮
-    │ change  │ review │ next step │
-    ├─────────┼────────┼───────────┤
-    │ widgets │        │ review    │
-    ╰─────────┴────────┴───────────╯"
+    ╭─────────┬───────────╮
+    │ change  │ next step │
+    ├─────────┼───────────┤
+    │ widgets │ review    │
+    ╰─────────┴───────────╯"
   `);
 });
 
@@ -690,10 +686,10 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     fetched 08:04, 2026-07-19"
   `);
@@ -708,4 +704,57 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
   });
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
+});
+
+test("next steps an action performs link to running it, the rest staying bare", () => {
+  const doc = homeDoc({
+    as: undefined,
+    review: [],
+    owned: [
+      { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
+      { summary: summary("widgets", { nextStep: "fix conflicts" }), context: false, children: [] },
+    ],
+    broken: [],
+    workspaces: [],
+    fetched: undefined,
+  });
+  const rows = docText(doc).split("\n");
+  const targeted = (text: string) =>
+    doc.lines[rows.findIndex((row) => row.includes(text))]?.spans.filter(({ target }) => target !== undefined);
+  // The row's change opens its page as ever; the step is its own link.
+  expect(targeted("rebase")).toEqual([
+    { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
+    { text: "rebase", style: undefined, target: { kind: "action", change: "gizmo", action: "rebase" }, tier: "link" },
+  ]);
+  // Fixing conflicts is work done by hand, so the step offers nothing to run.
+  expect(targeted("fix conflicts")).toEqual([
+    { text: "widgets", style: undefined, target: { kind: "change", change: "widgets" }, tier: "link" },
+  ]);
+  const show = showDoc({
+    as: undefined,
+    summary: summary("gadget", { nextStep: "sync" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const stepLine = docText(show)
+    .split("\n")
+    .findIndex((text) => text.includes("next step"));
+  expect(targetAt(show, stepLine)).toEqual({ kind: "action", change: "gadget", action: "sync" });
+});
+
+test("a review next step opens the change's review, keeping a borrowed identity", () => {
+  const doc = showDoc({
+    as: userName("bob@example.com"),
+    summary: summary("gizmo", { nextStep: "review" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const stepLine = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("next step"));
+  expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "gizmo", as: "bob@example.com" });
 });
