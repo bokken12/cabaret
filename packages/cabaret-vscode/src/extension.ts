@@ -200,9 +200,11 @@ class PageProvider
                 ? `Open ${target.file}:${target.line}`
                 : target.kind === "workspace"
                   ? `Open ${target.path}`
-                  : target.kind === "review"
-                    ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
-                    : `Open ${target.change}`;
+                  : target.kind === "url"
+                    ? `Open ${target.url}`
+                    : target.kind === "review"
+                      ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
+                      : `Open ${target.change}`;
           return link;
         });
   }
@@ -476,6 +478,9 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
       break;
     case "workspace":
       await openWorkspaceWindow(target.path);
+      break;
+    case "url":
+      await vscode.env.openExternal(vscode.Uri.parse(target.url));
       break;
   }
 }

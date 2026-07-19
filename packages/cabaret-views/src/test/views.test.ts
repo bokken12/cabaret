@@ -327,6 +327,11 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  // The forge change row opens the change's page on the forge.
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toEqual({ kind: "url", url: "https://github.com/test-org/widgets/pull/7" });
   // A remaining-review row opens that reviewer's own review page.
   const tally = docText(doc)
     .split("\n")
@@ -334,6 +339,26 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, tally)).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
+});
+
+test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: summary("widgets", {
+      forgeChange: {
+        forge: parseForgeLocator("forge.example.com/test-org/widgets"),
+        id: forgeChangeId(7),
+        staleParent: undefined,
+      },
+    }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+  });
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toBeUndefined();
 });
 
 test("showDoc as another user names them and keeps their identity on file and change links", () => {

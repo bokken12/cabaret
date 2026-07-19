@@ -41,7 +41,9 @@ export type Target =
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */
-  | { readonly kind: "workspace"; readonly path: string };
+  | { readonly kind: "workspace"; readonly path: string }
+  /** A web page outside cabaret, e.g. a change's page on its forge. */
+  | { readonly kind: "url"; readonly url: string };
 
 /**
  * How hosts offer a span's target: a link is advertised as clickable, while a
