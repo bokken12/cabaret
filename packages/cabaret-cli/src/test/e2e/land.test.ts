@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -340,6 +340,62 @@ test("land into a plain branch that is not a change", async () => {
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // All fixture commits share one pinned date, so pin the order too.
   expect(await repo.git("log", "--topo-order", "--format=%s", "main")).toBe("Land feature\nfeature work\nroot");
+});
+
+test("land stands on origin's copy of a parent that is merely behind, and publishes", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "feature");
+  // A second machine advances origin's main; this clone fetches the news but
+  // its own main stays put.
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-q", "main");
+  await other.write("trunk.txt", "trunk work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "trunk work");
+  await other.git("push", "-q", "origin", "main");
+  await repo.git("fetch", "-q", "origin");
+  const originMain = await repo.git("rev-parse", "origin/main");
+  const featureTip = await repo.git("rev-parse", "feature");
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  // The merge stands on the freshest reading — origin's trunk work included —
+  // and origin accepts the push as a plain advance.
+  expect(await repo.git("rev-parse", "main^1", "main^2")).toBe(`${originMain}\n${featureTip}`);
+  expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
+  expect(await repo.git("rev-parse", "origin/main")).toBe(await repo.git("rev-parse", "main"));
+});
+
+test("land refuses a diverged parent, moving nothing", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "feature");
+  // The readings part ways: origin's main gains trunk work while this
+  // clone's main takes local work, so no freshest reading exists.
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-q", "main");
+  await other.write("trunk.txt", "trunk work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "trunk work");
+  await other.git("push", "-q", "origin", "main");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("local.txt", "local work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "local work");
+  await repo.git("checkout", "-q", "feature");
+  await repo.git("fetch", "-q", "origin");
+  const mainBefore = await repo.git("rev-parse", "main");
+  const logBefore = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: 'local "main" has diverged from origin\'s copy; sync it first\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("rev-parse", "main")).toBe(mainBefore);
+  expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
 });
 
 test("land after an out-of-band rebase pins the base it validated", async () => {

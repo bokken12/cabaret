@@ -480,6 +480,13 @@ export interface Backend {
   create(change: ChangeName, at: Revision): Promise<void>;
 
   /**
+   * Fast-forward branch `change` to `to`, which must descend from its tip;
+   * fails on a concurrent move rather than dropping work. Carries a
+   * checked-out `change`'s working tree along.
+   */
+  advance(change: ChangeName, to: Revision): Promise<void>;
+
+  /**
    * Every workspace of the repository, the primary working tree first. A
    * workspace whose directory is gone is not a working tree anymore and is
    * dropped.

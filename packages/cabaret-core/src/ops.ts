@@ -437,10 +437,17 @@ export async function prepareLand(
   const parentEntries = await backend.readLog(parent);
   assertNotLanded(parent, parentEntries);
   assertNotArchived(parent, parentEntries);
-  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
-  if (onto === undefined) {
+  // The land stands on the parent's freshest reading, like a rebase, and
+  // diverged readings fail until synced — a land onto the local reading
+  // alone could never publish.
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const onto = parentReading.tip;
   const base = await changeBase(backend, target, entries);
   const tip = await requireTip(backend, target);
   if (tip === base) {
@@ -496,8 +503,6 @@ export type LandPublication =
   | "published"
   /** Origin was unreachable; the parent keeps the land locally until pushed. */
   | "origin-unreachable"
-  /** The local parent does not descend from origin's reading, so pushing could drop origin's work; the land stays local. */
-  | "parent-stale"
   /** Origin never held the parent (or there is no origin): the land is local by nature. */
   | "no-origin";
 
@@ -520,9 +525,13 @@ export async function landChange(
 ): Promise<LandPublication> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
-  // The landing commit goes onto the parent's branch, so one held only at
-  // origin materializes; the target's own branch is only read.
-  await ensureBranch(backend, parent);
+  // The landing commit goes onto the parent's branch, which the merge
+  // advances from `onto` — the freshest reading — so one held only at origin
+  // materializes and a merely-behind local copy fast-forwards first. The
+  // target's own branch is only read.
+  if ((await ensureBranch(backend, parent)) !== onto) {
+    await backend.advance(parent, onto);
+  }
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, landMessage(target))
@@ -531,15 +540,8 @@ export async function landChange(
     commit: merge,
     parents: method === "merge" ? 2 : 1,
   });
-  const originTip = await backend.originTip(parent);
-  if (originTip === undefined) {
+  if ((await backend.originTip(parent)) === undefined) {
     return "no-origin";
-  }
-  // Only a strict advance of origin's reading pushes: the lease alone would
-  // let a land onto a stale local parent replace origin work this clone has
-  // fetched but never absorbed.
-  if (originTip !== merge && !(await backend.isAncestor(originTip, merge))) {
-    return "parent-stale";
   }
   try {
     await backend.push(parent);

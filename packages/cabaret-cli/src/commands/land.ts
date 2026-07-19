@@ -79,10 +79,6 @@ export const land = buildCommand({
         this.process.stderr.write(
           `warning: origin unreachable; ${JSON.stringify(parent)} keeps the land locally — push it when back online\n`,
         );
-      } else if (publication === "parent-stale") {
-        this.process.stderr.write(
-          `warning: local ${JSON.stringify(parent)} is not current with origin's copy; the land stays local\n`,
-        );
       }
       if (reparented !== undefined) {
         for (const child of reparented.children) {
