@@ -342,7 +342,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, 0)).toBeUndefined();
 });
 
-test("showDoc renders a trunk from its history alone, an ellipsis marking older lands", () => {
+test("showDoc renders a trunk from its history alone, newest lands first, an ellipsis marking older ones", () => {
   const doc = showDoc({
     as: undefined,
     summary: {
@@ -372,9 +372,9 @@ test("showDoc renders a trunk from its history alone, an ellipsis marking older 
     ╰───────────┴──────────────────────────────╯
 
     Included changes:
-      …
+      gizmo
       gadget
-      gizmo"
+      …"
   `);
   // An included row opens the landed change's page; the ellipsis goes nowhere.
   const lines = docText(doc).split("\n");
@@ -472,8 +472,8 @@ test("showDoc lists included changes above the review, each linking to its page"
     ╰───────────┴───────────────────╯
 
     Included changes:
-      widgets-api
       widgets-ui
+      widgets-api
 
     Remaining review:
       alice@example.com: 1 file
@@ -483,9 +483,9 @@ test("showDoc lists included changes above the review, each linking to its page"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("widgets-api"));
-  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-api" });
-  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-ui" });
+    .findIndex((text) => text.includes("widgets-ui"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-ui" });
+  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-api" });
 });
 
 test("showDoc notes disagreeing readings on their own rows", () => {

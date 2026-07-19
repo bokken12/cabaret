@@ -123,8 +123,9 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
 
 /**
  * The included changes section: one row per change landed into this one,
- * oldest first, linking to its page. `truncated` opens the section with an
- * ellipsis: the history holds more than the bounded survey read.
+ * newest first — the recent lands are the ones worth a look — linking to its
+ * page. `truncated` closes the section with an ellipsis: the history holds
+ * more than the bounded survey read.
  */
 function includedChanges(
   included: readonly LandMerge[],
@@ -135,10 +136,10 @@ function includedChanges(
     return undefined;
   }
   return section({ spans: [span("Included changes:", { style: "heading" })] }, [
-    ...(truncated ? [{ spans: [span("  …", { style: "context" })] }] : []),
-    ...included.map(({ change }) => ({
+    ...[...included].reverse().map(({ change }) => ({
       spans: [span("  "), span(change, { target: { kind: "change", change, as } })],
     })),
+    ...(truncated ? [{ spans: [span("  …", { style: "context" })] }] : []),
   ]);
 }
 
