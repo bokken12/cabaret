@@ -70,7 +70,7 @@ import {
 } from "cabaret-views";
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
-import { type Manifest, pageHelp } from "./help.js";
+import { type Manifest, pageHelp, pageHints } from "./help.js";
 import { writePageGrammar } from "./language.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
@@ -121,6 +121,10 @@ async function openForge(): Promise<Forge> {
 
 function backgroundSyncEnabled(): boolean {
   return vscode.workspace.getConfiguration("cabaret").get<boolean>("backgroundSync") ?? true;
+}
+
+function hintsEnabled(): boolean {
+  return vscode.workspace.getConfiguration("cabaret").get<boolean>("hints") ?? true;
 }
 
 /**
@@ -175,6 +179,8 @@ function showBackgroundSyncError(error: unknown): void {
 class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
+  constructor(private readonly manifest: Manifest) {}
+
   private readonly docs = new Map<string, Doc>();
   /** Per displayed diff, the revision it reviewed up to: the evidence `markPageReviewed`'s asked-first check reads. */
   readonly displayedEnds = new Map<string, Revision>();
@@ -235,8 +241,10 @@ class PageProvider
     // of step with the buffer; the next render resolves it, so no guard.
     let doc: Doc;
     try {
-      doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
+      const page = parsePagePath(uri.path);
+      doc = await renderPage(await openBackend(), page, {
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+        hints: hintsEnabled() ? pageHints(this.manifest, page.kind) : undefined,
         onViewed: (viewed) => {
           for (const [file, end] of viewed.files) {
             this.displayedEnds.set(displayedKey(viewed.change, viewed.user, viewed.base, file), end);
@@ -1367,7 +1375,7 @@ export function activate(context: vscode.ExtensionContext): void {
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: writing the page grammar failed — ${message(error)}`);
   }
-  const provider = new PageProvider();
+  const provider = new PageProvider(context.extension.packageJSON as Manifest);
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
   const forgePollLoop = createForgePollLoop(provider);
@@ -1431,7 +1439,7 @@ export function activate(context: vscode.ExtensionContext): void {
       updateActingStatus(editor);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("cabaret.context")) {
+      if (event.affectsConfiguration("cabaret.context") || event.affectsConfiguration("cabaret.hints")) {
         provider.refreshAll();
       }
     }),

@@ -1,5 +1,6 @@
 import type { Backend, ChangeName, FilePath, Revision, UserName } from "cabaret-core";
 import type { Doc } from "./doc.js";
+import { type Hints, hintFooter } from "./hints.js";
 import type { Page } from "./pages.js";
 import { changeSnapshot, diffDoc, diffPage, diffsDoc, diffsPage, reviewDoc, reviewPage } from "./review.js";
 import { showDoc, showPage } from "./show.js";
@@ -23,6 +24,8 @@ export interface ViewedDiffs {
 export interface RenderOptions {
   /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
   readonly context?: number | undefined;
+  /** Key hints to show on the page, for a host whose keys are still unfamiliar. */
+  readonly hints?: Hints | undefined;
   /** Called when the render displayed diffs, with what they showed. */
   readonly onViewed?: ((viewed: ViewedDiffs) => void) | undefined;
 }
@@ -33,11 +36,17 @@ export interface RenderOptions {
  * calls the forge.
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
+  const doc = await pageDoc(backend, page, options);
+  const footer = hintFooter(options.hints);
+  return footer.length === 0 ? doc : { ...doc, lines: [...doc.lines, ...footer] };
+}
+
+async function pageDoc(backend: Backend, page: Page, options: RenderOptions): Promise<Doc> {
   switch (page.kind) {
     case "todo":
-      return todoDoc(await todoPage(backend, page.as));
+      return todoDoc(await todoPage(backend, page.as), options.hints);
     case "show":
-      return showDoc(await showPage(backend, page.change, page.as));
+      return showDoc(await showPage(backend, page.change, page.as), options.hints);
     case "review":
       return reviewDoc(reviewPage(await changeSnapshot(backend, page.change, page.as)));
     case "diffs": {

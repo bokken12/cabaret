@@ -23,6 +23,7 @@ import {
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
+import { type Hints, hinted } from "./hints.js";
 import { type Cell, table } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -183,13 +184,13 @@ function commentsSection(comments: readonly ChangeComment[]): Section | undefine
   return section({ spans: [span("Comments:", { style: "heading" })] }, body);
 }
 
-export function showDoc(page: ShowPage): Doc {
+export function showDoc(page: ShowPage, hints?: Hints): Doc {
   const summary = page.summary;
   // Each row notes how its own reading disagrees with what it should track.
   // A trunk's log never declared anything, so only its history's rows appear.
   const attributes: [string, string | Cell][] = [];
   if (summary.kind === "change") {
-    attributes.push(["next step", summary.nextStep], ["owner", summary.owner]);
+    attributes.push(["next step", hinted(summary.nextStep, hints)], ["owner", summary.owner]);
     if (summary.reviewers.length > 0) {
       attributes.push(["reviewers", summary.reviewers.join(", ")]);
     }

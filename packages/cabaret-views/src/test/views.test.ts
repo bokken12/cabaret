@@ -1,6 +1,7 @@
 import {
   type ChangeSummary,
   forgeChangeId,
+  type NextStep,
   parseBranchName,
   parseCommitHash,
   parseFilePath,
@@ -708,4 +709,72 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
   });
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
+});
+
+test("hints annotate next steps with their keys, steps without keys staying bare", () => {
+  const hints = {
+    steps: new Map<NextStep, string>([
+      ["rebase", "! r b"],
+      ["land", "! l a"],
+    ]),
+    help: "?",
+  };
+  const doc = todoDoc(
+    {
+      as: undefined,
+      review: [],
+      owned: [
+        { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
+        { summary: summary("widgets", { nextStep: "add code" }), context: false, children: [] },
+      ],
+      broken: [],
+      workspaces: [],
+      fetched: undefined,
+    },
+    hints,
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭─────────┬────────┬────────────────╮
+    │ change  │ review │ next step      │
+    ├─────────┼────────┼────────────────┤
+    │ gizmo   │        │ rebase (! r b) │
+    │ widgets │        │ add code       │
+    ╰─────────┴────────┴────────────────╯"
+  `);
+  const show = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { nextStep: "land" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    hints,
+  );
+  expect(docText(show)).toMatchInlineSnapshot(`
+    "gizmo
+    =====
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ land (! l a)      │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯"
+  `);
 });
