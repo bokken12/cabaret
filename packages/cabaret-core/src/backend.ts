@@ -510,6 +510,14 @@ export interface Backend {
    */
   rename(from: ChangeName, to: ChangeName): Promise<void>;
 
+  /**
+   * Commit this workspace's edits — modified, added, and deleted files alike
+   * — to the checked-out branch with `message`. `paths`, each a path or one
+   * of the backend's native patterns, restrict what is committed; empty
+   * commits everything. Fails when there is nothing to commit.
+   */
+  commit(message: string, paths: readonly FilePath[]): Promise<void>;
+
   /** Whether this clone holds `revision`'s objects. */
   hasRevision(revision: Revision): Promise<boolean>;
 
