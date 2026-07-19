@@ -32,19 +32,19 @@ test("todo shows review work and owned changes as a tree", async () => {
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │      1 │ review    │
-    │ └─ gizmo │      1 │ review    │
-    ╰──────────┴────────┴───────────╯
+    ╭──────────┬───────────╮
+    │ change   │ next step │
+    ├──────────┼───────────┤
+    │ gadget   │ review    │
+    │ └─ gizmo │ review    │
+    ╰──────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gizmo  │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -66,18 +66,18 @@ test("a change with conflict markers asks no review, only its fix", async () => 
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────────╮
-    │ change │ review │ next step     │
-    ├────────┼────────┼───────────────┤
-    │ gadget │      1 │ fix conflicts │
-    ╰────────┴────────┴───────────────╯
+    ╭────────┬───────────────╮
+    │ change │ next step     │
+    ├────────┼───────────────┤
+    │ gadget │ fix conflicts │
+    ╰────────┴───────────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gadget │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gadget │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -100,17 +100,17 @@ test("todo counts an alias's changes among the user's own", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gizmo  │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
   // Declared an alias, the agent's change is alice's own, and its owner
@@ -128,18 +128,18 @@ test("todo counts an alias's changes among the user's own", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gizmo  │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gizmo  │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gizmo  │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -168,17 +168,17 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ master │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ master │      │
+    ╰────────┴──────╯
 
     fetched 00:00, 2025-01-01
     "
@@ -197,17 +197,17 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ master │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ master │      │
+    ╰────────┴──────╯
 
     fetched 00:00, 2025-01-01
     "
@@ -244,18 +244,18 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gizmo  │      1 │ reparent  │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gizmo  │ reparent  │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gizmo  │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -273,17 +273,17 @@ test("todo with no changes shows both sections empty", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ main   │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -319,18 +319,18 @@ test("fetch imports an open forge change, and todo lists it when review is owed"
     ╰───────────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gadget │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gadget │      │
+    ╰────────┴──────╯
 
     fetched 00:00, 2025-01-01
     "
@@ -360,18 +360,18 @@ test("your own forge change joins the changes you own through the recorded alias
     ╰──────────────┴────────╯
 
     Changes you own:
-    ╭──────────────┬────────┬───────────╮
-    │ change       │ review │ next step │
-    ├──────────────┼────────┼───────────┤
-    │ solo-feature │      1 │ review    │
-    ╰──────────────┴────────┴───────────╯
+    ╭──────────────┬───────────╮
+    │ change       │ next step │
+    ├──────────────┼───────────┤
+    │ solo-feature │ review    │
+    ╰──────────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ main   │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -393,17 +393,17 @@ test("a merged forge change is not imported", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ main   │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -430,19 +430,19 @@ test("a landed change stays only while children hang from it", async () => {
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      1 │ reparent  │
-    ╰──────────┴────────┴───────────╯
+    ╭──────────┬───────────╮
+    │ change   │ next step │
+    ├──────────┼───────────┤
+    │ gadget   │ landed    │
+    │ └─ gizmo │ reparent  │
+    ╰──────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gizmo  │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gizmo  │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -463,17 +463,17 @@ test("someone else's change obliging nothing of the user is not review work", as
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gadget │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gadget │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -498,17 +498,17 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     ╰─────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭─────────┬───────────┬──────╮
-    │ change  │ workspace │ note │
-    ├─────────┼───────────┼──────┤
-    │ feature │ .         │      │
-    ╰─────────┴───────────┴──────╯
+    ╭─────────┬──────╮
+    │ change  │ note │
+    ├─────────┼──────┤
+    │ feature │      │
+    ╰─────────┴──────╯
     "
   `);
   await repo.git("config", "user.email", "bob@example.com");
@@ -525,17 +525,17 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭─────────┬───────────┬──────╮
-    │ change  │ workspace │ note │
-    ├─────────┼───────────┼──────┤
-    │ feature │ .         │      │
-    ╰─────────┴───────────┴──────╯
+    ╭─────────┬──────╮
+    │ change  │ note │
+    ├─────────┼──────┤
+    │ feature │      │
+    ╰─────────┴──────╯
     "
   `);
 });
@@ -556,17 +556,17 @@ test("a landed change with no children drops out entirely", async () => {
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬────────╮
-    │ change │ workspace │ note   │
-    ├────────┼───────────┼────────┤
-    │ gadget │ .         │ landed │
-    ╰────────┴───────────┴────────╯
+    ╭────────┬────────╮
+    │ change │ note   │
+    ├────────┼────────┤
+    │ gadget │ landed │
+    ╰────────┴────────╯
     "
   `);
 });

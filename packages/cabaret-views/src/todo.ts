@@ -266,7 +266,6 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | undefined): Node {
   const rows = entries.map(({ change, workspace, landed, archived }): readonly Cell[] => [
     span(change, { target: { kind: "change", change, as } }),
-    span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
     span(
       [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : []), ...(archived ? ["archived"] : [])].join(
         ", ",
@@ -278,7 +277,6 @@ function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | un
     table(
       [
         { header: "change", align: "left" },
-        { header: "workspace", align: "left" },
         { header: "note", align: "left" },
       ],
       rows,
@@ -293,11 +291,7 @@ export function todoDoc(page: TodoPage): Doc {
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
-    return [
-      changeCell(summary, guide, page.as, style),
-      span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
-      span(summary.nextStep, { style }),
-    ];
+    return [changeCell(summary, guide, page.as, style), span(summary.nextStep, { style })];
   });
   const title = page.as === undefined ? "Todo" : `Todo as ${page.as}`;
   return layout(
@@ -320,7 +314,6 @@ export function todoDoc(page: TodoPage): Doc {
         page.owned,
         [
           { header: "change", align: "left" },
-          { header: "review", align: "right" },
           { header: "next step", align: "left" },
         ],
         ownedRows,
