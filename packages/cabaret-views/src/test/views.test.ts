@@ -252,7 +252,10 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 2 files", "bob@example.com: 1 file"],
+    remaining: [
+      { user: userName("alice@example.com"), files: 2 },
+      { user: userName("bob@example.com"), files: 1 },
+    ],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -287,6 +290,11 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  // A remaining-review row opens that reviewer's own review page.
+  const tally = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("bob@example.com: 1 file"));
+  expect(targetAt(doc, tally)).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
 });
@@ -302,7 +310,7 @@ test("showDoc lists included changes above the review, each linking to its page"
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 1 file"],
+    remaining: [{ user: alice, files: 1 }],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -346,7 +354,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 1 file"],
+    remaining: [{ user: alice, files: 1 }],
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -407,7 +415,7 @@ test("showDoc words each note by its reading", () => {
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
-    remaining: ["bob@example.com: 1 file"],
+    remaining: [{ user: userName("bob@example.com"), files: 1 }],
     workspace: undefined,
     comments: [
       {

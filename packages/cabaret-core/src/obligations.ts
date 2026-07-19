@@ -347,14 +347,20 @@ export class UnsatisfiedObligationsError extends UserError {
   }
 }
 
+/** One reviewer's tally of unsatisfied obligations: how many files await them. */
+export interface ReviewerTally {
+  readonly user: UserName;
+  readonly files: number;
+}
+
 /**
- * One line per user whose review could satisfy some of `unsatisfied`, sorted
+ * One tally per user whose review could satisfy some of `unsatisfied`, sorted
  * by name: how many files await them. A per-reviewer digest of the per-file
  * `details`, for surfaces too small to show every obligation. Deliberately
  * vague about who must act: a requirement satisfiable by any of several users
  * tallies the file under each of them.
  */
-export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+export function reviewerTallies(unsatisfied: readonly ObligationStatus[]): readonly ReviewerTally[] {
   const due = new Map<UserName, Set<FilePath>>();
   for (const status of unsatisfied) {
     for (const user of outstanding(status)) {
@@ -368,7 +374,17 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   }
   return [...due]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
+    .map(([user, files]) => ({ user, files: files.size }));
+}
+
+/** A tally as prose: `bob@example.com: 2 files`. */
+export function tallyText({ user, files }: ReviewerTally): string {
+  return `${user}: ${files} ${files === 1 ? "file" : "files"}`;
+}
+
+/** The tallies of `unsatisfied` as prose lines, as `reviewerTallies` orders them. */
+export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return reviewerTallies(unsatisfied).map(tallyText);
 }
 
 /** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */

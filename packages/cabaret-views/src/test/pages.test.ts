@@ -1,4 +1,4 @@
-import { type ChangeName, type FilePath, parseBranchName, parseFilePath } from "cabaret-core";
+import { type ChangeName, type FilePath, parseBranchName, parseFilePath, type UserName, userName } from "cabaret-core";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 import { type Page, pagePath, parsePagePath } from "../pages.js";
@@ -22,14 +22,22 @@ function filePaths(): fc.Arbitrary<FilePath> {
     .map(parseFilePath);
 }
 
+function userNames(): fc.Arbitrary<UserName> {
+  return fc.string({ minLength: 1, maxLength: 30 }).map(userName);
+}
+
 function pages(): fc.Arbitrary<Page> {
   return fc.oneof(
     fc.constant<Page>({ kind: "todo" }),
     refNames().map((change): Page => ({ kind: "show", change })),
     refNames().map((change): Page => ({ kind: "review", change })),
+    fc.record({ change: refNames(), as: userNames() }).map(({ change, as }): Page => ({ kind: "review", change, as })),
     fc
       .record({ change: refNames(), file: filePaths() })
       .map(({ change, file }): Page => ({ kind: "diff", change, file })),
+    fc
+      .record({ change: refNames(), file: filePaths(), as: userNames() })
+      .map(({ change, file, as }): Page => ({ kind: "diff", change, file, as })),
   );
 }
 
@@ -57,8 +65,37 @@ test("diff page paths round-trip for files with colons and slashes", () => {
   }
 });
 
+test("as-page paths round-trip for user names full of path and encoding characters", () => {
+  // The user's own segment is percent-encoded, so its slashes and colons
+  // cannot bleed into the change or file.
+  for (const raw of ["github:alice", "a/b@example.com", "100%", "café@example.com"]) {
+    const change = parseBranchName("feature/x");
+    const as = userName(raw);
+    const review: Page = { kind: "review", change, as };
+    expect(parsePagePath(pagePath(review))).toEqual(review);
+    const diff: Page = { kind: "diff", change, file: parseFilePath("src/with:colon.ts"), as };
+    expect(parsePagePath(pagePath(diff))).toEqual(diff);
+  }
+});
+
 test("paths that name no page are refused", () => {
-  for (const path of ["", "/", "todo", "/todos", "/show", "/show/", "/review/", "/diff/x", "/diff/x:", "/diff/:y"]) {
+  for (const path of [
+    "",
+    "/",
+    "todo",
+    "/todos",
+    "/show",
+    "/show/",
+    "/review/",
+    "/diff/x",
+    "/diff/x:",
+    "/diff/:y",
+    "/review-as/",
+    "/review-as/u",
+    "/review-as//x",
+    "/diff-as/u/x",
+    "/diff-as/u/x:",
+  ]) {
     expect(() => parsePagePath(path)).toThrowError(/not a cabaret page/);
   }
 });

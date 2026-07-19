@@ -29,6 +29,7 @@ const widgets = parseBranchName("widgets");
 test("reviewDoc lists the round's files and what follows", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 2 },
   });
@@ -46,6 +47,7 @@ test("reviewDoc lists the round's files and what follows", () => {
 test("reviewDoc targets the round's first file from every line but a file's own", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
   });
@@ -71,9 +73,32 @@ test("reviewDoc targets the round's first file from every line but a file's own"
   ]);
 });
 
+test("reviewDoc as another user says so and routes files to their diffs", () => {
+  const doc = reviewDoc({
+    change: widgets,
+    as: userName("bob@example.com"),
+    conflicts: [],
+    round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets as bob@example.com
+    =================================
+
+    Reviewing up to 333333333333.
+
+      api.ts
+      ui.ts"
+  `);
+  const asBob = (file: string) => ({ kind: "file", change: "widgets", file, as: "bob@example.com" });
+  expect(targetAt(doc, 0)).toEqual(asBob("api.ts"));
+  expect(targetAt(doc, 5)).toEqual(asBob("api.ts"));
+  expect(targetAt(doc, 6)).toEqual(asBob("ui.ts"));
+});
+
 test("reviewDoc of the last round drops the indicator", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts")], later: 0 },
   });
@@ -90,6 +115,7 @@ test("reviewDoc of the last round drops the indicator", () => {
 test("reviewDoc with conflicts asks for the fix instead of offering files", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [parseFilePath("api.ts"), parseFilePath("ui.ts")],
     round: undefined,
   });
@@ -103,7 +129,7 @@ test("reviewDoc with conflicts asks for the fix instead of offering files", () =
 });
 
 test("reviewDoc with nothing left says so, targeting nothing", () => {
-  const doc = reviewDoc({ change: widgets, conflicts: [], round: undefined });
+  const doc = reviewDoc({ change: widgets, as: undefined, conflicts: [], round: undefined });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
@@ -114,7 +140,7 @@ test("reviewDoc with nothing left says so, targeting nothing", () => {
 });
 
 function diffPageWith(round: DiffPage["round"]): DiffPage {
-  return { change: widgets, file: parseFilePath("api.ts"), round };
+  return { change: widgets, file: parseFilePath("api.ts"), as: undefined, round };
 }
 
 test("diffDoc renders a two-way diff bare of marks, styling its added and removed lines", () => {
@@ -624,6 +650,20 @@ test("diffDoc with no review left says so", () => {
   `);
 });
 
+test("diffDoc as another user names them in the title", () => {
+  const doc = diffDoc({
+    ...diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "gone\n", next: "here\n" } }),
+    as: userName("bob@example.com"),
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets as bob@example.com (up to 333333333333)
+
+    -1,1 +1,1
+    gone
+    here"
+  `);
+});
+
 function snapshotWith(
   files: readonly string[],
   secondRound: readonly string[] = [],
@@ -636,6 +676,7 @@ function snapshotWith(
   return {
     change: widgets,
     user: userName("alice@example.com"),
+    as: undefined,
     reviewing: "everyone",
     asked: true,
     base: fake("1"),
@@ -709,6 +750,15 @@ test("a conflicted snapshot drops its round and refuses to mark, even asked", ()
   const appended: LogEntry[][] = [];
   expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"), true)).toThrow(
     '"widgets" has unresolved conflicts in a.ts; fix the markers and amend',
+  );
+  expect(appended).toEqual([]);
+});
+
+test("markReviewed refuses a snapshot taken as another user, even asked", () => {
+  const appended: LogEntry[][] = [];
+  const snapshot = { ...snapshotWith(["a.ts"]), as: userName("bob@example.com") };
+  expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("a.ts"), true)).toThrow(
+    'review as "bob@example.com" is read-only',
   );
   expect(appended).toEqual([]);
 });
