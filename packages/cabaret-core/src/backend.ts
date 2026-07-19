@@ -469,6 +469,13 @@ export interface Backend {
    */
   originTip(change: ChangeName): Promise<Revision | undefined>;
 
+  /**
+   * When this workspace last fetched from origin successfully — cabaret's
+   * fetch or anyone's — or undefined when none is known. A fetch that fails
+   * loses the reading until the next success.
+   */
+  originFetched(): Promise<TimestampMs | undefined>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
 

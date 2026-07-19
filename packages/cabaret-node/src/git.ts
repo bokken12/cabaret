@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -18,6 +18,8 @@ import {
   parseLog,
   type Recommendation,
   type Revision,
+  type TimestampMs,
+  timestampMs,
   UserError,
   type UserName,
   userName,
@@ -266,6 +268,8 @@ export class GitBackend implements Backend {
     readonly root: string,
     /** The repository's common git dir, shared by all its worktrees. */
     private readonly gitDir: string,
+    /** This workspace's own git dir — the common one in the primary worktree. */
+    private readonly worktreeGitDir: string,
     /**
      * Repo-relative path of the directory the backend was opened from: "" at
      * the root, "src/" below it. Asked of git rather than computed from the
@@ -278,12 +282,13 @@ export class GitBackend implements Backend {
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const [root, gitDir, prefix] = await Promise.all([
+    const [root, gitDir, worktreeGitDir, prefix] = await Promise.all([
       git(dir, ["rev-parse", "--show-toplevel"]),
       git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      git(dir, ["rev-parse", "--absolute-git-dir"]),
       git(dir, ["rev-parse", "--show-prefix"]),
     ]);
-    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), prefix.trimEnd());
+    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), worktreeGitDir.trimEnd(), prefix.trimEnd());
   }
 
   resolveFile(raw: string): FilePath {
@@ -482,6 +487,25 @@ export class GitBackend implements Backend {
 
   async fetchOrigin(): Promise<void> {
     await git(this.root, ["fetch", "--quiet", "origin"]);
+  }
+
+  async originFetched(): Promise<TimestampMs | undefined> {
+    // Git rewrites this workspace's FETCH_HEAD on every fetch — whoever ran
+    // it — so its mtime dates the last one, except that a failed fetch
+    // truncates the file empty: only a ref-bearing file dates a success.
+    // Fetches in other worktrees go unseen; the reading only understates.
+    const file = join(this.worktreeGitDir, "FETCH_HEAD");
+    try {
+      const { mtimeMs } = await stat(file);
+      // mtimes carry fractional milliseconds; a timestamp is whole ones.
+      return (await readFile(file, "utf8")) === "" ? undefined : timestampMs(Math.round(mtimeMs));
+    } catch (error) {
+      // ENOENT means exactly "never fetched"; anything else is a real failure.
+      if ((error as { code?: unknown }).code !== "ENOENT") {
+        throw error;
+      }
+      return undefined;
+    }
   }
 
   async advanceBranches(): Promise<readonly ChangeName[]> {

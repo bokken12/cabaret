@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -66,10 +66,36 @@ export async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
+// Pages' fetched footers date FETCH_HEAD mtimes, so stable snapshots need
+// those pinned like commit timestamps.
+const FETCHED_AT = new Date("2025-01-01T00:00:00Z");
+
+/** Set every FETCH_HEAD under `dir`'s repo — the primary's and each worktree's — to `FETCHED_AT`. */
+async function pinFetched(dir: string): Promise<void> {
+  const gitDir = join(dir, ".git");
+  const files = [join(gitDir, "FETCH_HEAD")];
+  try {
+    const worktrees = join(gitDir, "worktrees");
+    files.push(...(await readdir(worktrees)).map((name) => join(worktrees, name, "FETCH_HEAD")));
+  } catch {
+    // No worktrees directory.
+  }
+  await Promise.all(
+    files.map(async (file) => {
+      try {
+        await utimes(file, FETCHED_AT, FETCHED_AT);
+      } catch {
+        // Never fetched there.
+      }
+    }),
+  );
+}
+
 /** A `TestRepo` over an initialized repo at `dir`, its clock starting at `clockStart`. */
 function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): TestRepo {
   const git = async (...args: string[]) => {
     const { stdout } = await execFileAsync("git", args, { cwd: dir });
+    await pinFetched(dir);
     return stdout.trimEnd();
   };
 
@@ -95,6 +121,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
       now: () => timestampMs(clock++),
     };
     await run(app, argv, context);
+    await pinFetched(dir);
     return { ...captured, exitCode: proc.exitCode ?? 0 };
   };
   const cabaret = (...argv: string[]) => cabaretIn("", ...argv);

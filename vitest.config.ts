@@ -11,5 +11,7 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/src/**/*.test.ts"],
+    // Pages date fetches in wall-clock time; snapshots need one wall.
+    env: { TZ: "UTC" },
   },
 });

@@ -179,6 +179,8 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     ├────────┼───────────┼──────┤
     │ master │ .         │      │
     ╰────────┴───────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
@@ -206,6 +208,8 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     ├────────┼───────────┼──────┤
     │ master │ .         │      │
     ╰────────┴───────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
   // An operation that moves the branch creates it from origin's copy.
@@ -327,6 +331,8 @@ test("fetch imports an open forge change, and todo lists it when review is owed"
     ├────────┼───────────┼──────┤
     │ gadget │ .         │      │
     ╰────────┴───────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });

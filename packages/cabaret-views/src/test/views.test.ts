@@ -71,6 +71,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     ],
     broken: [],
     workspaces: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
@@ -126,7 +127,9 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 });
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
-  expect(docText(todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [] }))).toMatchInlineSnapshot(`
+  expect(
+    docText(todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined })),
+  ).toMatchInlineSnapshot(`
     "Todo
     ====
 
@@ -166,6 +169,7 @@ test("todoDoc lists the changes checked out on this device in their own section"
         archived: false,
       },
     ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
@@ -216,6 +220,7 @@ test("todoDoc as another user names them and keeps their identity on every chang
     owned: [{ summary: gadget, context: false, children: [] }],
     broken: [],
     workspaces: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo as bob@example.com
@@ -251,6 +256,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
       { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
     ],
     workspaces: [],
+    fetched: undefined,
   });
   expect(doc.errors).toEqual([
     'gizmo: unknown revision: "refs/heads/gizmo"',
@@ -294,6 +300,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       { user: userName("alice@example.com"), files: 2 },
       { user: userName("bob@example.com"), files: 1 },
     ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -359,6 +366,7 @@ test("showDoc renders a trunk from its history alone, newest lands first, an ell
     comments: [],
     workspace: { path: "/src/widgets", display: ".", dirty: false },
     remaining: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "main
@@ -408,6 +416,7 @@ test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
     comments: [],
     workspace: undefined,
     remaining: [],
+    fetched: undefined,
   });
   const forge = docText(doc)
     .split("\n")
@@ -426,6 +435,7 @@ test("showDoc as another user names them and keeps their identity on file and ch
     comments: [],
     workspace: undefined,
     remaining: [{ user: bob, files: 1 }],
+    fetched: undefined,
   });
   expect(docText(doc).split("\n").slice(0, 2).join("\n")).toMatchInlineSnapshot(`
     "widgets as bob@example.com
@@ -455,6 +465,7 @@ test("showDoc lists included changes above the review, each linking to its page"
     comments: [],
     workspace: undefined,
     remaining: [{ user: alice, files: 1 }],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -500,6 +511,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     comments: [],
     workspace: undefined,
     remaining: [{ user: alice, files: 1 }],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -532,6 +544,7 @@ test("showDoc words each note by its reading", () => {
       comments: [],
       workspace: undefined,
       remaining: [],
+      fetched: undefined,
     });
     return docText(doc)
       .split("\n")
@@ -576,6 +589,7 @@ test("showDoc renders comments between the remaining review and the files, multi
         text: "second thoughts:\n\nthe flag name reads oddly",
       },
     ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "gadget
@@ -624,6 +638,7 @@ test("showDoc rows the change's workspace, noting dirtiness", () => {
       comments: [],
       workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
       remaining: [],
+      fetched: undefined,
     });
     return docText(doc)
       .split("\n")
@@ -640,6 +655,7 @@ test("showDoc renders a landed change without a files section", () => {
     comments: [],
     workspace: undefined,
     remaining: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -657,4 +673,39 @@ test("showDoc renders a landed change without a files section", () => {
     ╰───────────┴───────────────────╯"
   `);
   expect(doc.folds).toEqual([]);
+});
+
+test("each doc closes with a dimmed line dating the last fetch, when one is known", () => {
+  const fetched = timestampMs(Date.UTC(2026, 6, 19, 8, 4, 5, 678));
+  const footer = [{ text: "fetched 08:04, 2026-07-19", style: "context", target: undefined, tier: undefined }];
+  const todo = todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
+  expect(docText(todo)).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+
+    fetched 08:04, 2026-07-19"
+  `);
+  expect(todo.lines.at(-1)?.spans).toEqual(footer);
+  const show = showDoc({
+    as: undefined,
+    summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched,
+  });
+  expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
+  expect(show.lines.at(-1)?.spans).toEqual(footer);
 });

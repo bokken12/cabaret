@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -481,6 +481,36 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
       expect(await backend.tip(branch)).toBeUndefined();
     }
   } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("originFetched dates this workspace's last successful fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  const worktree = `${dir}-worktree`;
+  try {
+    const backend = await GitBackend.open(dir);
+    expect(await backend.originFetched()).toBeUndefined();
+    await backend.fetchOrigin();
+    const fetchedAt = new Date(5_000);
+    await utimes(join(dir, ".git", "FETCH_HEAD"), fetchedAt, fetchedAt);
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // Each workspace's reading is its own: a linked worktree starts without
+    // one, and its fetch leaves the primary's reading alone.
+    await gitIn(dir, "branch", "main", "refs/remotes/origin/main");
+    await gitIn(dir, "worktree", "add", "-q", worktree, "main");
+    const inWorktree = await GitBackend.open(worktree);
+    expect(await inWorktree.originFetched()).toBeUndefined();
+    await inWorktree.fetchOrigin();
+    expect(await inWorktree.originFetched()).toBeDefined();
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // A failed fetch loses the reading until the next success.
+    await rm(origin, { recursive: true, force: true });
+    await expect(backend.fetchOrigin()).rejects.toThrow();
+    expect(await backend.originFetched()).toBeUndefined();
+  } finally {
+    await rm(worktree, { recursive: true, force: true });
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
   }
