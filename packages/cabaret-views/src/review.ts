@@ -18,8 +18,10 @@ import {
   rebasedView,
   reviewRounds,
   shortHash,
+  soleUser,
   structuredDiff4,
   type TimestampMs,
+  UserError,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
@@ -55,11 +57,13 @@ function moreRounds(later: number): string {
  */
 export interface ChangeSnapshot {
   readonly change: ChangeName;
-  /** Whose review state this is: the backend's current user. */
+  /** Whose review state this is: `as` when set, else the backend's current user. */
   readonly user: UserName;
+  /** Set when the snapshot reads a named user's review rather than the current user's own. */
+  readonly as: UserName | undefined;
   /** Who the change asks to review right now. */
   readonly reviewing: Reviewing;
-  /** Whether the user may record review without a nudge, as `mayRecordReview`. */
+  /** Whether `user` may record review without a nudge, as `mayRecordReview`. */
   readonly asked: boolean;
   readonly base: Revision;
   readonly tip: Revision;
@@ -68,24 +72,34 @@ export interface ChangeSnapshot {
   readonly rounds: readonly ReviewRound[];
 }
 
-export async function changeSnapshot(backend: Backend, change: ChangeName): Promise<ChangeSnapshot> {
+export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
   const [diff, self] = await Promise.all([changeDiff(backend, change, entries), currentSelf(backend)]);
+  // Reading as one's own writing identity is just reading one's own review,
+  // markable as ever. An alias stays borrowed: obligations are per identity,
+  // so its rounds are its own and recording under it is not offered.
+  const borrowed = as === self.user ? undefined : as;
+  const user = borrowed ?? self.user;
   return {
     change,
-    user: self.user,
+    user,
+    as: borrowed,
     reviewing: currentReviewing(entries),
-    asked: mayRecordReview(self, change, entries),
+    // A borrowed identity's own aliases are unknown here, so its standing may
+    // read narrower than that user would see it themselves.
+    asked: mayRecordReview(borrowed === undefined ? self : soleUser(borrowed), change, entries),
     base: diff.base,
     tip: diff.tip,
     conflicts: await changeConflicts(backend, diff),
-    rounds: await reviewRounds(backend, entries, self.user, diff),
+    rounds: await reviewRounds(backend, entries, user, diff),
   };
 }
 
 /** A change's current round of review: what to read before any newer round opens. */
 export interface ReviewPage {
   readonly change: ChangeName;
+  /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
+  readonly as: UserName | undefined;
   /** Files with conflict markers to fix; nonempty exactly when they preempt the round. */
   readonly conflicts: readonly FilePath[];
   /** Undefined when nothing is left to review, or while conflicts block it. */
@@ -103,6 +117,7 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
   const first = snapshot.rounds[0];
   return {
     change: snapshot.change,
+    as: snapshot.as,
     conflicts: snapshot.conflicts,
     round:
       snapshot.conflicts.length > 0
@@ -112,14 +127,15 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
 }
 
 export function reviewDoc(page: ReviewPage): Doc {
-  const title = `Review ${page.change}`;
+  const title = page.as === undefined ? `Review ${page.change}` : `Review ${page.change} as ${page.as}`;
   // The page's whole target is proceeding with review: every line resolves
   // to the round's first file, on the jump tier so only the file names read
   // as links, and a file's own line resolves to that file instead. The title
   // offers no way back to the change — here, going deeper means reviewing.
+  const fileTarget = (file: FilePath): Target => ({ kind: "file", change: page.change, file, as: page.as });
   const first = page.round?.files[0];
   const proceed: { target: Target; tier: TargetTier } | undefined =
-    first === undefined ? undefined : { target: { kind: "file", change: page.change, file: first }, tier: "jump" };
+    first === undefined ? undefined : { target: fileTarget(first), tier: "jump" };
   const lines: Line[] = [
     { spans: [span(title, { style: "heading", ...proceed })] },
     { spans: [span("=".repeat(title.length), proceed)] },
@@ -138,7 +154,7 @@ export function reviewDoc(page: ReviewPage): Doc {
     { spans: [span("", proceed)] },
   );
   for (const file of page.round.files) {
-    lines.push({ spans: [span("  "), span(file, { target: { kind: "file", change: page.change, file } })] });
+    lines.push({ spans: [span("  "), span(file, { target: fileTarget(file) })] });
   }
   return layout(lines);
 }
@@ -164,10 +180,10 @@ export type MarkReviewedResult =
 /**
  * Mark `file` reviewed at the end of its earliest pending round in
  * `snapshot` — exactly the round the caller's page displayed. A snapshot
- * with conflict markers refuses outright: fixing them, not review, is the
- * change's next step. One whose reviewing set does not ask the user fails
- * with `NotReviewingError` unless `evenThoughNotReviewing`; hosts attach
- * their own override remedy.
+ * taken as another user refuses outright, as does one with conflict markers:
+ * fixing them, not review, is the change's next step. One whose reviewing
+ * set does not ask the user fails with `NotReviewingError` unless
+ * `evenThoughNotReviewing`; hosts attach their own override remedy.
  *
  * The plan costs no queries, and the append rides behind `recorded`: a host
  * may open `next`'s diff immediately, because a review entry only changes
@@ -183,6 +199,11 @@ export function markReviewed(
   file: FilePath,
   evenThoughNotReviewing = false,
 ): MarkReviewedResult {
+  // Recording would append an entry under their name; their review is theirs
+  // to record.
+  if (snapshot.as !== undefined) {
+    throw new UserError(`review as ${JSON.stringify(snapshot.as)} is read-only`);
+  }
   assertNoConflict(snapshot.change, snapshot.conflicts);
   if (!snapshot.asked && !evenThoughNotReviewing) {
     throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);
@@ -215,6 +236,8 @@ export function markReviewed(
 export interface DiffPage {
   readonly change: ChangeName;
   readonly file: FilePath;
+  /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
+  readonly as: UserName | undefined;
   /** Undefined when the file has no review left. */
   readonly round:
     | {
@@ -229,7 +252,7 @@ export interface DiffPage {
 
 /** Query the diff page for `file`: `snapshot`'s rounds locate the diff, and only the file contents are read. */
 export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
-  const { change, base } = snapshot;
+  const { change, as, base } = snapshot;
   let found: { end: Revision; view: FileView } | undefined;
   let later = 0;
   for (const { end, files } of snapshot.rounds) {
@@ -244,7 +267,7 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
     }
   }
   if (found === undefined) {
-    return { change, file, round: undefined };
+    return { change, file, as, round: undefined };
   }
   const { end, view } = found;
   const two = async (from: Revision): Promise<DiffView> => {
@@ -253,11 +276,16 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
   };
   switch (view.kind) {
     case "span":
-      return { change, file, round: { end, later, view: await two(view.start) } };
+      return { change, file, as, round: { end, later, view: await two(view.start) } };
     case "rewritten":
-      return { change, file, round: { end, later, view: await two(view.from) } };
+      return { change, file, as, round: { end, later, view: await two(view.from) } };
     case "rebased":
-      return { change, file, round: { end, later, view: await rebasedView(backend, file, view.reviewed, base, end) } };
+      return {
+        change,
+        file,
+        as,
+        round: { end, later, view: await rebasedView(backend, file, view.reviewed, base, end) },
+      };
   }
 }
 
@@ -550,7 +578,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
   const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
-  const title = `${page.file} in ${page.change}${round}`;
+  const title = `${page.file} in ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
   const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },

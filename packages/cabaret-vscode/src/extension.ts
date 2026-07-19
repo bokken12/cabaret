@@ -198,7 +198,9 @@ class PageProvider
                 ? `Open ${target.file}:${target.line}`
                 : target.kind === "workspace"
                   ? `Open ${target.path}`
-                  : `Open ${target.change}`;
+                  : target.kind === "review"
+                    ? `Review ${target.change} as ${target.as}`
+                    : `Open ${target.change}`;
           return link;
         });
   }
@@ -407,8 +409,11 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "change":
       await openPage(provider, { kind: "show", change: target.change });
       break;
+    case "review":
+      await openPage(provider, { kind: "review", change: target.change, as: target.as });
+      break;
     case "file":
-      await openPage(provider, { kind: "diff", change: target.change, file: target.file });
+      await openPage(provider, { kind: "diff", change: target.change, file: target.file, as: target.as });
       break;
     case "location":
       await visitLocation(provider, target);
@@ -527,6 +532,10 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   const page = parsePagePath(editor.document.uri.path);
   if (page.kind !== "diff") {
+    return;
+  }
+  if (page.as !== undefined) {
+    vscode.window.showInformationMessage(`cabaret: reviewing as ${page.as} is read-only`);
     return;
   }
   try {

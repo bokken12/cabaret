@@ -9,9 +9,11 @@ import {
   isSatisfied,
   type LandMerge,
   obligationStatuses,
-  reviewerSummary,
+  type ReviewerTally,
+  reviewerTallies,
   shortHash,
   summarizeChange,
+  tallyText,
   type UserName,
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
@@ -23,7 +25,7 @@ export interface ShowPage {
   readonly summary: ChangeSummary;
   readonly comments: readonly ChangeComment[];
   /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
-  readonly remaining: readonly string[];
+  readonly remaining: readonly ReviewerTally[];
   /** The change's workspace on this device, when it has one. */
   readonly workspace: WorkspaceNote | undefined;
 }
@@ -37,7 +39,7 @@ export async function showPage(backend: Backend, user: UserName, change: ChangeN
   // an archived one asks nothing while set aside.
   const remaining =
     summary.landed === undefined && !summary.archived
-      ? reviewerSummary(
+      ? reviewerTallies(
           (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
         )
       : [];
@@ -112,14 +114,16 @@ function includedChanges(included: readonly LandMerge[]): Section | undefined {
   );
 }
 
-/** The remaining review section: one tally row per reviewer with files left. */
-function remainingReview(remaining: readonly string[]): Section | undefined {
+/** The remaining review section: one tally row per reviewer with files left, opening their review. */
+function remainingReview(change: ChangeName, remaining: readonly ReviewerTally[]): Section | undefined {
   if (remaining.length === 0) {
     return undefined;
   }
   return section(
     { spans: [span("Remaining review:", { style: "heading" })] },
-    remaining.map((row) => ({ spans: [span(`  ${row}`)] })),
+    remaining.map((tally) => ({
+      spans: [span("  "), span(tallyText(tally), { target: { kind: "review", change, as: tally.user } })],
+    })),
   );
 }
 
@@ -190,7 +194,7 @@ export function showDoc(page: ShowPage): Doc {
   // Each section stands off from what precedes it with a blank line.
   for (const s of [
     includedChanges(summary.included),
-    remainingReview(page.remaining),
+    remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
     filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
   ]) {

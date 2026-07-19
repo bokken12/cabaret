@@ -1,4 +1,4 @@
-import type { ChangeName, FilePath } from "cabaret-core";
+import type { ChangeName, FilePath, UserName } from "cabaret-core";
 
 /**
  * Semantic paint for a span; each host maps styles to its own palette. The
@@ -30,7 +30,10 @@ export type Style =
 /** What a span denotes, for hosts to dispatch on at the cursor. */
 export type Target =
   | { readonly kind: "change"; readonly change: ChangeName }
-  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath }
+  /** A user's review of `change`: the files they have left to read. */
+  | { readonly kind: "review"; readonly change: ChangeName; readonly as: UserName }
+  /** A file's diff in `change` — `as` names whose review it shows when not the current user's. */
+  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath; readonly as?: UserName | undefined }
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */

@@ -22,8 +22,11 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
     case "show":
       return showDoc(await showPage(backend, await backend.currentUser(), page.change));
     case "review":
-      return reviewDoc(reviewPage(await changeSnapshot(backend, page.change)));
+      return reviewDoc(reviewPage(await changeSnapshot(backend, page.change, page.as)));
     case "diff":
-      return diffDoc(await diffPage(backend, await changeSnapshot(backend, page.change), page.file), options.context);
+      return diffDoc(
+        await diffPage(backend, await changeSnapshot(backend, page.change, page.as), page.file),
+        options.context,
+      );
   }
 }
