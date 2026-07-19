@@ -481,7 +481,9 @@ test("currentArchived takes the set-archived with the greatest timestamp, and as
   expect(currentArchived(revived)).toBe(false);
   const archived = [entry(5, false), entry(9, true)];
   expect(currentArchived(archived)).toBe(true);
-  expect(() => assertNotArchived(change, archived)).toThrow('change is archived: "feature"; run `cabaret unarchive`');
+  expect(() => assertNotArchived(change, archived)).toThrow(
+    'change is archived: "feature"; run `cabaret archive --undo`',
+  );
 });
 
 test("observedForgeArchived reads only entries sourced from the forge", () => {

@@ -570,7 +570,7 @@ export async function landChain(
       if (currentArchived(parentEntries)) {
         throw new UserError(
           `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
-            "run `cabaret unarchive` or `cabaret reparent` first",
+            "run `cabaret archive --undo` or `cabaret reparent` first",
         );
       }
     }

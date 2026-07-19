@@ -127,7 +127,7 @@ What should one call setting a change aside without landing it?
 
 "Close" reads as final and says nothing about what happens to the work; "abandon" is accurate but harsh, and both undersell that the operation is reversible. "Archive" says exactly what Cabaret does: nothing is deleted, the change is set aside and can be brought back.
 
-Tentative: I'm going to call this "archive" (undone by "unarchive"). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
+Tentative: I'm going to call this "archive" (undone by "archive --undo" — a separate "unarchive" command was tried and felt like clutter). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
 
 ## Exchanging with origin
 
