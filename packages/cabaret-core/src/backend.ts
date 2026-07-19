@@ -470,9 +470,9 @@ export interface Backend {
   originTip(change: ChangeName): Promise<Revision | undefined>;
 
   /**
-   * When this clone last fetched from origin successfully — the freshest
-   * fetch from any of its workspaces, cabaret's or not — or undefined when
-   * none is known.
+   * When this workspace last fetched from origin successfully — cabaret's
+   * fetch or anyone's — or undefined when none is known. A fetch that fails
+   * loses the reading until the next success.
    */
   originFetched(): Promise<TimestampMs | undefined>;
 

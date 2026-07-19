@@ -486,31 +486,28 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
   }
 });
 
-test("originFetched dates the freshest successful fetch across workspaces", async () => {
+test("originFetched dates this workspace's last successful fetch", async () => {
   const { dir, origin } = await makeRemotePair();
   const worktree = `${dir}-worktree`;
   try {
     const backend = await GitBackend.open(dir);
     expect(await backend.originFetched()).toBeUndefined();
     await backend.fetchOrigin();
-    expect(await backend.originFetched()).toBeDefined();
-    // A linked worktree fetches into its own FETCH_HEAD; pinning both mtimes
-    // makes the freshest-copy-wins reading exact.
+    const fetchedAt = new Date(5_000);
+    await utimes(join(dir, ".git", "FETCH_HEAD"), fetchedAt, fetchedAt);
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // Each workspace's reading is its own: a linked worktree starts without
+    // one, and its fetch leaves the primary's reading alone.
     await gitIn(dir, "branch", "main", "refs/remotes/origin/main");
     await gitIn(dir, "worktree", "add", "-q", worktree, "main");
-    await gitIn(worktree, "fetch", "-q", "origin");
-    await utimes(join(dir, ".git", "FETCH_HEAD"), new Date(3_000), new Date(3_000));
-    const freshest = new Date(5_000);
-    const worktreeGitDir = await gitIn(worktree, "rev-parse", "--path-format=absolute", "--git-dir");
-    await utimes(join(worktreeGitDir, "FETCH_HEAD"), freshest, freshest);
-    expect(await backend.originFetched()).toBe(timestampMs(freshest.getTime()));
-    // A failed fetch truncates its own copy, which stops counting; the
-    // worktree's successful reading stands.
+    const inWorktree = await GitBackend.open(worktree);
+    expect(await inWorktree.originFetched()).toBeUndefined();
+    await inWorktree.fetchOrigin();
+    expect(await inWorktree.originFetched()).toBeDefined();
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // A failed fetch loses the reading until the next success.
     await rm(origin, { recursive: true, force: true });
     await expect(backend.fetchOrigin()).rejects.toThrow();
-    expect(await backend.originFetched()).toBe(timestampMs(freshest.getTime()));
-    // With every copy truncated by a failure, no success is known anymore.
-    await expect(gitIn(worktree, "fetch", "-q", "origin")).rejects.toThrow();
     expect(await backend.originFetched()).toBeUndefined();
   } finally {
     await rm(worktree, { recursive: true, force: true });

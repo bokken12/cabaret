@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -268,6 +268,8 @@ export class GitBackend implements Backend {
     readonly root: string,
     /** The repository's common git dir, shared by all its worktrees. */
     private readonly gitDir: string,
+    /** This workspace's own git dir — the common one in the primary worktree. */
+    private readonly worktreeGitDir: string,
     /**
      * Repo-relative path of the directory the backend was opened from: "" at
      * the root, "src/" below it. Asked of git rather than computed from the
@@ -280,12 +282,13 @@ export class GitBackend implements Backend {
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const [root, gitDir, prefix] = await Promise.all([
+    const [root, gitDir, worktreeGitDir, prefix] = await Promise.all([
       git(dir, ["rev-parse", "--show-toplevel"]),
       git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      git(dir, ["rev-parse", "--absolute-git-dir"]),
       git(dir, ["rev-parse", "--show-prefix"]),
     ]);
-    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), prefix.trimEnd());
+    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), worktreeGitDir.trimEnd(), prefix.trimEnd());
   }
 
   resolveFile(raw: string): FilePath {
@@ -487,38 +490,22 @@ export class GitBackend implements Backend {
   }
 
   async originFetched(): Promise<TimestampMs | undefined> {
-    // Git rewrites FETCH_HEAD on every fetch — including fetches run outside
-    // cabaret — but a failed one truncates it empty before connecting, so
-    // only a copy still holding ref lines has a mtime dating a success. The
-    // file is per-worktree while the refs a fetch updates are shared, so the
-    // freshest copy across the clone counts.
-    const dirs = [this.gitDir];
+    // Git rewrites this workspace's FETCH_HEAD on every fetch — whoever ran
+    // it — so its mtime dates the last one, except that a failed fetch
+    // truncates the file empty: only a ref-bearing file dates a success.
+    // Fetches in other worktrees go unseen; the reading only understates.
+    const file = join(this.worktreeGitDir, "FETCH_HEAD");
     try {
-      const worktrees = join(this.gitDir, "worktrees");
-      dirs.push(...(await readdir(worktrees)).map((name) => join(worktrees, name)));
+      const { mtimeMs } = await stat(file);
+      // mtimes carry fractional milliseconds; a timestamp is whole ones.
+      return (await readFile(file, "utf8")) === "" ? undefined : timestampMs(Math.round(mtimeMs));
     } catch (error) {
-      // ENOENT means exactly "no linked worktrees"; anything else is a real failure.
+      // ENOENT means exactly "never fetched"; anything else is a real failure.
       if ((error as { code?: unknown }).code !== "ENOENT") {
         throw error;
       }
+      return undefined;
     }
-    const times = await Promise.all(
-      dirs.map(async (dir) => {
-        const file = join(dir, "FETCH_HEAD");
-        try {
-          const { mtimeMs } = await stat(file);
-          return (await readFile(file, "utf8")).length === 0 ? undefined : mtimeMs;
-        } catch (error) {
-          if ((error as { code?: unknown }).code !== "ENOENT") {
-            throw error;
-          }
-          return undefined;
-        }
-      }),
-    );
-    const known = times.filter((time) => time !== undefined);
-    // mtimes carry fractional milliseconds; a timestamp is whole ones.
-    return known.length === 0 ? undefined : timestampMs(Math.round(Math.max(...known)));
   }
 
   async advanceBranches(): Promise<readonly ChangeName[]> {
