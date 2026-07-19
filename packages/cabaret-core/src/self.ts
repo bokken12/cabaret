@@ -41,3 +41,18 @@ export async function currentSelf(backend: Backend): Promise<Self> {
   aliases.delete(user);
   return { user, aliases };
 }
+
+/**
+ * The identity a page reads and acts as: the current user's own `Self`, or
+ * `as` borrowed as a `soleUser`. Naming one's own writing identity is no
+ * borrow at all — the resolved `as` clears, leaving a plain reading of one's
+ * own. An alias stays borrowed: obligations are per identity, so an alias's
+ * review state is its own, not its holder's.
+ */
+export async function selfAs(
+  backend: Backend,
+  as?: UserName,
+): Promise<{ readonly self: Self; readonly as: UserName | undefined }> {
+  const self = await currentSelf(backend);
+  return as === undefined || as === self.user ? { self, as: undefined } : { self: soleUser(as), as };
+}

@@ -11,8 +11,10 @@ import {
   isSelf,
   reviewOwed,
   type Self,
+  selfAs,
   summarizeChange,
   UserError,
+  type UserName,
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
@@ -43,6 +45,8 @@ export interface BrokenChange {
 
 /** What awaits one user's attention, each section a forest along parent links. */
 export interface TodoPage {
+  /** Whose todo this is when not the current user's own, as `selfAs` resolves it. */
+  readonly as: UserName | undefined;
   /**
    * Unlanded changes with an unsatisfied obligation the user's review can
    * still count toward. A change nobody asked the user to review stays off
@@ -117,7 +121,9 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   };
 }
 
-export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> {
+export async function todoPage(backend: Backend, as?: UserName): Promise<TodoPage> {
+  const acting = await selfAs(backend, as);
+  const self = acting.self;
   const workspaces = await workspaceNotes(backend);
   const changes = [...(await backend.listChanges())].sort();
   // Each change reads independently; assembling in `changes` order afterwards
@@ -181,7 +187,7 @@ export async function todoPage(backend: Backend, self: Self): Promise<TodoPage> 
       ? []
       : [{ change, workspace, landed: found.landed !== undefined, archived: found.archived }];
   });
-  return { review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
+  return { as: acting.as, review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
 }
 
 /** Flatten a forest depth-first, pairing each node with its tree guide. */
@@ -204,8 +210,8 @@ function treeRows<N extends { readonly children: readonly N[] }>(
  * A cell naming `summary`'s change. The tree guide rides alongside untargeted,
  * keeping the link on exactly the name.
  */
-function changeCell(summary: ChangeSummary, guide: string, style?: "context"): Cell {
-  const name = span(summary.change, { style, target: { kind: "change", change: summary.change } });
+function changeCell(summary: ChangeSummary, guide: string, as: UserName | undefined, style?: "context"): Cell {
+  const name = span(summary.change, { style, target: { kind: "change", change: summary.change, as } });
   return guide === "" ? name : [span(guide, { style }), name];
 }
 
@@ -243,9 +249,9 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 }
 
 /** The workspaces section: one row per change checked out on this device. */
-function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
+function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | undefined): Node {
   const rows = entries.map(({ change, workspace, landed, archived }): readonly Cell[] => [
-    span(change, { target: { kind: "change", change } }),
+    span(change, { target: { kind: "change", change, as } }),
     span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
     span(
       [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : []), ...(archived ? ["archived"] : [])].join(
@@ -269,17 +275,17 @@ function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
-    return [changeCell(summary, guide, style), span(owed.length === 0 ? "" : String(owed.length))];
+    return [changeCell(summary, guide, page.as, style), span(owed.length === 0 ? "" : String(owed.length))];
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
     return [
-      changeCell(summary, guide, style),
+      changeCell(summary, guide, page.as, style),
       span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
       span(summary.nextStep, { style }),
     ];
   });
-  const title = "Todo";
+  const title = page.as === undefined ? "Todo" : `Todo as ${page.as}`;
   return layout(
     [
       { spans: [span(title, { style: "heading" })] },
@@ -307,7 +313,7 @@ export function todoDoc(page: TodoPage): Doc {
       ),
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
-      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces)]),
+      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as)]),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

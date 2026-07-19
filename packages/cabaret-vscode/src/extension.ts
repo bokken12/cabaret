@@ -7,6 +7,7 @@ import {
   checkoutChange,
   createChange,
   currentParent,
+  currentSelf,
   DirtyWorkspaceError,
   DivergedParentError,
   declinedScopes,
@@ -44,6 +45,7 @@ import {
   transferChange,
   UnsatisfiedObligationsError,
   UserError,
+  type UserName,
   userName,
   VcsUnavailableError,
   widenReviewing,
@@ -199,7 +201,7 @@ class PageProvider
                 : target.kind === "workspace"
                   ? `Open ${target.path}`
                   : target.kind === "review"
-                    ? `Review ${target.change} as ${target.as}`
+                    ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
                     : `Open ${target.change}`;
           return link;
         });
@@ -304,31 +306,29 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
-  let onTodo = false;
-  if (editor !== undefined && editor.document.uri.scheme === SCHEME) {
-    const page = parsePagePath(editor.document.uri.path);
-    if (page.kind !== "todo") {
-      await openPage(provider, { kind: "show", change: page.change });
-      return;
-    }
-    onTodo = true;
+  const active =
+    editor !== undefined && editor.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path) : undefined;
+  if (active !== undefined && active.kind !== "todo") {
+    await openPage(provider, { kind: "show", change: active.change, as: active.as });
+    return;
   }
   const backend = await openBackend();
   const changes = await backend.listChanges();
-  const branch = onTodo
-    ? undefined
-    : await backend.currentChange().catch((error: unknown) => {
-        if (error instanceof UserError) {
-          return undefined;
-        }
-        throw error;
-      });
+  const branch =
+    active !== undefined
+      ? undefined
+      : await backend.currentChange().catch((error: unknown) => {
+          if (error instanceof UserError) {
+            return undefined;
+          }
+          throw error;
+        });
   const change =
     branch !== undefined && changes.includes(branch)
       ? branch
       : await vscode.window.showQuickPick(changes, { placeHolder: "Change to show" });
   if (change !== undefined) {
-    await openPage(provider, { kind: "show", change: backend.parseName(change) });
+    await openPage(provider, { kind: "show", change: backend.parseName(change), as: active?.as });
   }
 }
 
@@ -338,51 +338,107 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
 }
 
-/** The change shown by the active editor, when it is a show page. */
-function shownChange(): ChangeName | undefined {
+/**
+ * Pick a user and reopen the active page as them — the todo page when no
+ * cabaret page is active. The list opens on the current user, so swapping
+ * back to oneself is a bare confirm; one's aliases follow, and anyone else
+ * can be typed in.
+ */
+// TODO: suggest more identities — the change's owner, reviewers, and
+// remaining-review users are all cheap from the page at hand; a full
+// directory needs an index, not a sweep of every change log.
+async function actAs(provider: PageProvider): Promise<void> {
+  try {
+    const backend = await openBackend();
+    const editor = vscode.window.activeTextEditor;
+    const active =
+      editor !== undefined && editor.document.uri.scheme === SCHEME
+        ? parsePagePath(editor.document.uri.path)
+        : undefined;
+    const page: Page = active ?? { kind: "todo" };
+    const self = await currentSelf(backend);
+    type Item = vscode.QuickPickItem & { readonly user: UserName | undefined };
+    const items: Item[] = [
+      { label: self.user, description: "yourself", user: self.user },
+      ...[...self.aliases].sort().map((alias): Item => ({ label: alias, description: "your alias", user: alias })),
+      { label: "someone else…", user: undefined },
+    ];
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: `Act as (currently ${page.as ?? self.user})`,
+    });
+    if (picked === undefined) {
+      return;
+    }
+    let user = picked.user;
+    if (user === undefined) {
+      const raw = await vscode.window.showInputBox({
+        prompt: "User to act as",
+        validateInput: (value) => (value === "" ? "user must be nonempty" : undefined),
+      });
+      if (raw === undefined) {
+        return;
+      }
+      user = userName(raw);
+    }
+    const swapped: Page = { ...page, as: user === self.user ? undefined : user };
+    // A swap replaces the page rather than piling identities up in tabs.
+    if (editor !== undefined && active !== undefined && pagePath(swapped) !== pagePath(active)) {
+      await closeTabs(editor.document.uri);
+    }
+    await openPage(provider, swapped);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  }
+}
+
+/** The show page the active editor displays, when it is one. */
+function shownPage(): Extract<Page, { kind: "show" }> | undefined {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return undefined;
   }
   const page = parsePagePath(editor.document.uri.path);
-  return page.kind === "show" ? page.change : undefined;
+  return page.kind === "show" ? page : undefined;
 }
 
 /** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
 async function showParent(provider: PageProvider): Promise<void> {
-  const change = shownChange();
-  if (change === undefined) {
+  const page = shownPage();
+  if (page === undefined) {
     return;
   }
   const backend = await openBackend();
-  const parent = currentParent(change, await backend.readLog(change));
+  const parent = currentParent(page.change, await backend.readLog(page.change));
   const parentIsChange = (await backend.listChanges()).includes(parent);
-  await openPage(provider, parentIsChange ? { kind: "show", change: parent } : { kind: "todo" });
+  await openPage(
+    provider,
+    parentIsChange ? { kind: "show", change: parent, as: page.as } : { kind: "todo", as: page.as },
+  );
 }
 
 /** Descend from a show page to a child's show page, picking one when the change has several children. */
 async function showChild(provider: PageProvider): Promise<void> {
-  const change = shownChange();
-  if (change === undefined) {
+  const page = shownPage();
+  if (page === undefined) {
     return;
   }
   const backend = await openBackend();
   const children: ChangeName[] = [];
   for (const other of await backend.listChanges()) {
-    if (currentParent(other, await backend.readLog(other)) === change) {
+    if (currentParent(other, await backend.readLog(other)) === page.change) {
       children.push(other);
     }
   }
   if (children.length === 0) {
-    vscode.window.showInformationMessage(`cabaret: ${change} has no children`);
+    vscode.window.showInformationMessage(`cabaret: ${page.change} has no children`);
     return;
   }
   const child =
     children.length === 1
       ? children[0]
-      : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${change}` });
+      : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${page.change}` });
   if (child !== undefined) {
-    await openPage(provider, { kind: "show", change: backend.parseName(child) });
+    await openPage(provider, { kind: "show", change: backend.parseName(child), as: page.as });
   }
 }
 
@@ -407,7 +463,7 @@ async function openTarget(provider: PageProvider): Promise<void> {
 async function followTarget(provider: PageProvider, target: Target): Promise<void> {
   switch (target.kind) {
     case "change":
-      await openPage(provider, { kind: "show", change: target.change });
+      await openPage(provider, { kind: "show", change: target.change, as: target.as });
       break;
     case "review":
       await openPage(provider, { kind: "review", change: target.change, as: target.as });
@@ -514,9 +570,9 @@ async function showHelp(manifest: Manifest): Promise<void> {
 
 /** Enter review of the shown change: open its list of files to review. */
 async function review(provider: PageProvider): Promise<void> {
-  const change = shownChange();
-  if (change !== undefined) {
-    await openPage(provider, { kind: "review", change });
+  const page = shownPage();
+  if (page !== undefined) {
+    await openPage(provider, { kind: "review", change: page.change, as: page.as });
   }
 }
 
@@ -534,13 +590,21 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   if (page.kind !== "diff") {
     return;
   }
+  // The entry will carry the borrowed identity's name, so nothing here may
+  // happen on muscle memory alone.
   if (page.as !== undefined) {
-    vscode.window.showInformationMessage(`cabaret: reviewing as ${page.as} is read-only`);
-    return;
+    const choice = await vscode.window.showWarningMessage(
+      `Mark ${page.file} reviewed as ${page.as}?`,
+      { modal: true },
+      "Mark Reviewed",
+    );
+    if (choice === undefined) {
+      return;
+    }
   }
   try {
     const backend = await openBackend();
-    const snapshot = await changeSnapshot(backend, page.change);
+    const snapshot = await changeSnapshot(backend, page.change, page.as);
     let result: MarkReviewedResult;
     try {
       result = markReviewed(backend, now, snapshot, page.file);
@@ -549,7 +613,9 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
         throw error;
       }
       const choice = await vscode.window.showWarningMessage(
-        `${page.change} is reviewing ${error.reviewing}, which does not include you.`,
+        `${page.change} is reviewing ${error.reviewing}, which does not include ${
+          page.as === undefined ? "you" : error.user
+        }.`,
         { modal: true },
         "Mark Reviewed Anyway",
       );
@@ -567,8 +633,8 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     await openPage(
       provider,
       result.next === undefined
-        ? { kind: "review", change: page.change }
-        : { kind: "diff", change: page.change, file: result.next },
+        ? { kind: "review", change: page.change, as: page.as }
+        : { kind: "diff", change: page.change, file: result.next, as: page.as },
     );
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
@@ -1103,10 +1169,11 @@ async function rename(
   // A show page's URI names the change, so the old page cannot re-render;
   // forget it before the post-action refresh and replace it with the page
   // under the new name.
-  if (parsePagePath(editor.document.uri.path).kind === "show") {
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "show") {
     provider.forget(editor.document.uri);
     await closeTabs(editor.document.uri);
-    await openPage(provider, { kind: "show", change: to });
+    await openPage(provider, { kind: "show", change: to, as: page.as });
   }
 }
 
@@ -1244,6 +1311,19 @@ export function activate(context: vscode.ExtensionContext): void {
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
   const forgePollLoop = createForgePollLoop(provider);
+  // A borrowed identity announces itself beside the page, where it cannot be
+  // scrolled away; clicking it offers the swap.
+  const actingStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  actingStatus.command = "cabaret.actAs";
+  const updateActingStatus = (editor: vscode.TextEditor | undefined): void => {
+    const as = editor?.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path).as : undefined;
+    if (as === undefined) {
+      actingStatus.hide();
+    } else {
+      actingStatus.text = `cabaret: as ${as}`;
+      actingStatus.show();
+    }
+  };
   localSyncLoop.start();
   forgePollLoop.start();
   // Tabbing back in is a good moment to catch up sooner than the next
@@ -1285,7 +1365,11 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.forget(document.uri);
       }
     }),
-    vscode.window.onDidChangeActiveTextEditor(updatePageContext),
+    actingStatus,
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      updatePageContext(editor);
+      updateActingStatus(editor);
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("cabaret.context")) {
         provider.refreshAll();
@@ -1298,6 +1382,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
+    vscode.commands.registerCommand("cabaret.actAs", () => actAs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
     vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
@@ -1428,6 +1513,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
   updatePageContext(vscode.window.activeTextEditor);
+  updateActingStatus(vscode.window.activeTextEditor);
   // An extension-host restart re-syncs open cabaret editors without a render;
   // painting them misses the cache and so asks for one.
   repaint();
