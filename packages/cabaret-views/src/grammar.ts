@@ -38,8 +38,8 @@ function literal(text: string): string {
 /** A diff page's hunk header: `-1,5 +1,6`, with a 4-way header's trailing role names allowed. */
 const hunkHeader = "-\\d+,\\d+ \\+\\d+,\\d+";
 
-/** A multi-file page's bar naming a file — or a moved or copied file's source and destination — as `fileBar` renders it. */
-const fileBarLine = "@+ \\S+(?: [-=]> \\S+)? @+$";
+/** A multi-file page's bar naming a file — or a moved or copied file's source too — as `fileBar` renders it. */
+const fileBarLine = "@+ \\S+(?: -> \\S+| \\(copied from \\S+\\))? @+$";
 
 /**
  * A 4-way page's hint sentences sit between hunks, so they too must close an
@@ -74,7 +74,7 @@ export function pageGrammar(languages: readonly EmbeddedLanguage[]): PageGrammar
     patterns.push({ include: `#file-${id}` });
     repository[`file-${id}`] = {
       // A moved or copied file's header names its source too; the destination claims the language.
-      begin: `^(?:@+ )?(?:\\S+ [-=]> )?(?:${names.join("|")})(?: @+| in \\S.*)$`,
+      begin: `^(?:@+ )?(?:\\S+ -> )?(?:${names.join("|")})(?: \\(copied from \\S+\\))?(?: @+| in \\S.*)$`,
       end: `(?=^${fileBarLine})`,
       patterns: [{ include: `#hunks-${id}` }],
     };

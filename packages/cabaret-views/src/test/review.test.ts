@@ -73,7 +73,7 @@ test("reviewDoc names a moved or copied file with its source, targeting its new 
 
     Reviewing up to 333333333333.
 
-      charter.ts => bylaws.ts
+      bylaws.ts (copied from charter.ts)
       old/api.ts -> new/api.ts
       ui.ts"
   `);
@@ -206,7 +206,7 @@ test("diffDoc titles a copied file with its source and shows only the delta", ()
     }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "charter.ts => api.ts in widgets (up to 333333333333)
+    "api.ts (copied from charter.ts) in widgets (up to 333333333333)
 
     -1,2 +1,2
     shared
