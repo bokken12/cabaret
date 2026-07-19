@@ -854,6 +854,17 @@ export class GitBackend implements Backend {
     await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);
   }
 
+  async advance(change: ChangeName, to: Revision): Promise<void> {
+    const tip = await this.resolveCommit(`refs/heads/${change}`);
+    if (tip === to) {
+      return;
+    }
+    if (!(await this.isAncestor(tip, to))) {
+      throw new Error(`cannot advance ${JSON.stringify(change)}: ${to} does not descend from its tip ${tip}`);
+    }
+    await this.advanceBranch(change, to, tip);
+  }
+
   async workspaces(): Promise<readonly Workspace[]> {
     const out = await git(this.root, ["worktree", "list", "--porcelain"]);
     // One attribute-line block per working tree, blank-line separated, the

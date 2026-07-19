@@ -411,6 +411,24 @@ test("create creates at the given commit and refuses to overwrite", async () => 
   await expect(backend.create(parseBranchName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
+test("advance fast-forwards to a descendant and refuses anything else", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("advance start"));
+  const next = parseCommitHash(await plumbCommit("advance next", start));
+  const stray = parseCommitHash(await plumbCommit("advance stray", start));
+  await backend.create(parseBranchName("advancing"), start);
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // Already there: nothing to move.
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // A sibling does not descend from the tip, so moving there would drop work.
+  await expect(backend.advance(parseBranchName("advancing"), stray)).rejects.toThrow(
+    `cannot advance "advancing": ${stray} does not descend from its tip ${next}`,
+  );
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+});
+
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
