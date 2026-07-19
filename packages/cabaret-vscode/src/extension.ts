@@ -111,12 +111,31 @@ function openBackend(): Promise<Backend> {
 }
 
 /** Open the supported forge named by the first workspace folder's origin. */
-async function openForge(): Promise<Forge> {
+async function openForge({ signIn = true }: { signIn?: boolean } = {}): Promise<Forge> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
     throw new UserError("cabaret needs an open folder inside a repository");
   }
-  return openRepositoryForge(folder.uri.fsPath);
+  return openRepositoryForge(folder.uri.fsPath, { github: () => githubSession(signIn) });
+}
+
+/**
+ * A token from VS Code's built-in GitHub authentication provider. The
+ * session lives in the account store, so one sign-in outlasts restarts —
+ * rescuing the common case of a GUI-launched VS Code whose environment
+ * carries no token. `signIn` gates the sign-in dialog: commands the user
+ * just ran may prompt, while the background poll only reuses a session
+ * already granted, staying invisible in repositories whose forge the user
+ * never asked cabaret to touch.
+ */
+async function githubSession(signIn: boolean): Promise<string> {
+  const session = signIn
+    ? await vscode.authentication.getSession("github", ["repo"], { createIfNone: true })
+    : await vscode.authentication.getSession("github", ["repo"], { silent: true });
+  if (session === undefined) {
+    throw new UserError("no GitHub session");
+  }
+  return session.accessToken;
 }
 
 function backgroundSyncEnabled(): boolean {
@@ -776,7 +795,7 @@ const fetchListeners = new Set<(event: FetchEvent) => void>();
 async function pollForge(): Promise<{ readonly open: number } | undefined> {
   let forge: Forge;
   try {
-    forge = await openForge();
+    forge = await openForge({ signIn: false });
   } catch {
     return undefined;
   }
