@@ -21,7 +21,7 @@ export const show = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
     const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
-    const page = await showPage(backend, await backend.currentUser(), target);
+    const page = await showPage(backend, target);
     writeDoc(this, showDoc(page));
   },
 });

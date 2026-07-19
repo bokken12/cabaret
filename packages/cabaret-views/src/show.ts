@@ -11,6 +11,7 @@ import {
   obligationStatuses,
   type ReviewerTally,
   reviewerTallies,
+  selfAs,
   shortHash,
   summarizeChange,
   tallyText,
@@ -23,6 +24,8 @@ import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 /** What the show page displays. */
 export interface ShowPage {
   readonly summary: ChangeSummary;
+  /** Whose reading this is when not the current user's own, as `selfAs` resolves it. */
+  readonly as: UserName | undefined;
   readonly comments: readonly ChangeComment[];
   /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
   readonly remaining: readonly ReviewerTally[];
@@ -30,11 +33,11 @@ export interface ShowPage {
   readonly workspace: WorkspaceNote | undefined;
 }
 
-/** Query the show page for `change`. */
-export async function showPage(backend: Backend, user: UserName, change: ChangeName): Promise<ShowPage> {
+/** Query the show page for `change`, read as the current user or as `as`. */
+export async function showPage(backend: Backend, change: ChangeName, as?: UserName): Promise<ShowPage> {
   const entries = await backend.readLog(change);
-  const diff = await changeDiff(backend, change, entries);
-  const summary = await summarizeChange(backend, change, entries, user, diff);
+  const [diff, acting] = await Promise.all([changeDiff(backend, change, entries), selfAs(backend, as)]);
+  const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
   // A landed change has no review to demand, whatever state it landed in;
   // an archived one asks nothing while set aside.
   const remaining =
@@ -45,6 +48,7 @@ export async function showPage(backend: Backend, user: UserName, change: ChangeN
       : [];
   return {
     summary,
+    as: acting.as,
     comments: await currentComments(entries),
     remaining,
     workspace: (await workspaceNotes(backend)).get(change),
@@ -102,14 +106,14 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
 }
 
 /** The included changes section: one row per change landed into this one, linking to its page. */
-function includedChanges(included: readonly LandMerge[]): Section | undefined {
+function includedChanges(included: readonly LandMerge[], as: UserName | undefined): Section | undefined {
   if (included.length === 0) {
     return undefined;
   }
   return section(
     { spans: [span("Included changes:", { style: "heading" })] },
     included.map(({ change }) => ({
-      spans: [span("  "), span(change, { target: { kind: "change", change } })],
+      spans: [span("  "), span(change, { target: { kind: "change", change, as } })],
     })),
   );
 }
@@ -189,14 +193,16 @@ export function showDoc(page: ShowPage): Doc {
     attributes.push(["workspace", noted(page.workspace.display, page.workspace.dirty ? "dirty" : undefined)]);
   }
   // No target: the heading names the page itself.
-  const heading = span(summary.change, { style: "heading" });
+  const heading = span(page.as === undefined ? summary.change : `${summary.change} as ${page.as}`, {
+    style: "heading",
+  });
   const nodes: Node[] = header(heading, attributes);
   // Each section stands off from what precedes it with a blank line.
   for (const s of [
-    includedChanges(summary.included),
+    includedChanges(summary.included, page.as),
     remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
-    filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file })),
+    filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as })),
   ]) {
     if (s !== undefined) {
       nodes.push({ spans: [] }, s);

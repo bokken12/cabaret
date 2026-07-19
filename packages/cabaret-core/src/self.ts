@@ -1,3 +1,4 @@
+import { mapConcurrent } from "cabaret-util";
 import { type Backend, type UserName, userName } from "./backend.js";
 import { UserError } from "./error.js";
 
@@ -40,4 +41,35 @@ export async function currentSelf(backend: Backend): Promise<Self> {
   }
   aliases.delete(user);
   return { user, aliases };
+}
+
+/**
+ * The identity a page reads and acts as: the current user's own `Self`, or
+ * `as` borrowed as a `soleUser`. Naming one's own writing identity is no
+ * borrow at all — the resolved `as` clears, leaving a plain reading of one's
+ * own. An alias stays borrowed: obligations are per identity, so an alias's
+ * review state is its own, not its holder's.
+ */
+export async function selfAs(
+  backend: Backend,
+  as?: UserName,
+): Promise<{ readonly self: Self; readonly as: UserName | undefined }> {
+  const self = await currentSelf(backend);
+  return as === undefined || as === self.user ? { self, as: undefined } : { self: soleUser(as), as };
+}
+
+/** Change logs read at once: each costs a git process. */
+const LOG_CONCURRENCY = 8;
+
+/** Every identity the change logs mention — entry writers, and the owners and reviewers entries name — sorted by name. */
+export async function knownUsers(backend: Backend): Promise<readonly UserName[]> {
+  const changes = await backend.listChanges();
+  const perChange = await mapConcurrent(changes, LOG_CONCURRENCY, async (change) =>
+    (await backend.readLog(change)).flatMap((entry) => [
+      entry.user,
+      ...(entry.action.kind === "set-owner" ? [entry.action.owner] : []),
+      ...(entry.action.kind === "add-reviewer" ? [entry.action.reviewer] : []),
+    ]),
+  );
+  return [...new Set(perChange.flat())].sort();
 }
