@@ -22,24 +22,17 @@ test("commit records every edit under the change's name: no message to compose",
   `);
 });
 
-test("--message overrides the default", async () => {
-  const repo = await makeRepo();
-  await repo.write("work.txt", "work\n");
-  expect(await repo.cabaret("commit", "-m", "spelled out")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.git("log", "--format=%s", "-1")).toBe("spelled out");
-});
-
 test("arguments narrow the commit, leaving other edits in the workspace", async () => {
   const repo = await makeRepo();
   await repo.write("wanted.txt", "wanted\n");
   await repo.write("unwanted.txt", "unwanted\n");
-  expect(await repo.cabaret("commit", "-m", "just one", "wanted.txt")).toEqual({
+  expect(await repo.cabaret("commit", "wanted.txt")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
   expect(await repo.git("show", "--stat", "--format=%s", "HEAD")).toMatchInlineSnapshot(`
-    "just one
+    "main
 
      wanted.txt | 1 +
      1 file changed, 1 insertion(+)"
@@ -52,7 +45,7 @@ test("a pattern argument commits the files it matches", async () => {
   await repo.write("src/a.ts", "a\n");
   await repo.write("src/b.ts", "b\n");
   await repo.write("notes.md", "notes\n");
-  expect(await repo.cabaret("commit", "-m", "sources", "src/*.ts")).toEqual({
+  expect(await repo.cabaret("commit", "src/*.ts")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
@@ -64,7 +57,7 @@ test("paths resolve relative to the invoking directory", async () => {
   const repo = await makeRepo();
   await repo.write("src/a.ts", "a\n");
   await repo.write("other.txt", "other\n");
-  expect(await repo.cabaretIn("src", "commit", "-m", "from inside", "a.ts")).toEqual({
+  expect(await repo.cabaretIn("src", "commit", "a.ts")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
@@ -74,7 +67,7 @@ test("paths resolve relative to the invoking directory", async () => {
 
 test("a clean workspace has nothing to commit", async () => {
   const repo = await makeRepo();
-  expect(await repo.cabaret("commit", "-m", "empty")).toEqual({
+  expect(await repo.cabaret("commit")).toEqual({
     stdout: "",
     stderr: "nothing to commit\n",
     exitCode: 1,
@@ -84,7 +77,7 @@ test("a clean workspace has nothing to commit", async () => {
 test("a path matching no files is a mistake worth stopping on", async () => {
   const repo = await makeRepo();
   await repo.write("real.txt", "real\n");
-  expect(await repo.cabaret("commit", "-m", "typo", "unreal.txt")).toEqual({
+  expect(await repo.cabaret("commit", "unreal.txt")).toEqual({
     stdout: "",
     stderr: "pathspec 'unreal.txt' did not match any files\n",
     exitCode: 1,
@@ -101,12 +94,4 @@ test("a detached workspace refuses to commit", async () => {
     stderr: "HEAD is detached; check out a branch or name the change explicitly\n",
     exitCode: 1,
   });
-});
-
-test("an empty message is rejected", async () => {
-  const repo = await makeRepo();
-  await repo.write("work.txt", "work\n");
-  const result = await repo.cabaret("commit", "-m", "");
-  expect(result.exitCode).not.toBe(0);
-  expect(result.stderr).toContain("message must be nonempty");
 });
