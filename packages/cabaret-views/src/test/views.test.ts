@@ -230,15 +230,15 @@ test("todoDoc as another user names them and keeps their identity on every chang
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯"
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("│ gadget │      1 │ review"));
+    .findIndex((text) => text.includes("│ gadget │ review"));
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
 });
 
@@ -686,10 +686,10 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     fetched 08:04, 2026-07-19"
   `);
