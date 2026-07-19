@@ -349,8 +349,8 @@
       },
       {
         "command": "cabaret.markReviewed",
-        "key": "shift+1 r",
-        "when": "editorTextFocus && cabaret.page == 'diff' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "key": "shift+1 m",
+        "when": "editorTextFocus && (cabaret.page == 'diff' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.showParent",

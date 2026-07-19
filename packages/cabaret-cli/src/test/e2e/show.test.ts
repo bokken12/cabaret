@@ -163,7 +163,7 @@ test("show tallies the remaining review per user", async () => {
   await repo.git("commit", "-qm", "policy");
   await addChange(repo, "feature");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "feature
     =======
@@ -190,7 +190,7 @@ test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   const { stdout } = await repo.cabaret("show", "gadget");
   expect(stdout).toMatchInlineSnapshot(`
     "gadget
@@ -282,7 +282,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "gadget");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: 'reparented "gizmo" onto "main"\n',
     stderr: "",
@@ -418,7 +418,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
   await repo.cabaret("reviewing", "everyone");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -445,7 +445,7 @@ test("show notes the forge change's stale target and makes sync the step", async
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
   await repo.cabaret("reviewing", "everyone");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
   await repo.cabaret("reparent", "gadget", "trunk");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`

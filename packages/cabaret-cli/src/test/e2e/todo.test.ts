@@ -175,7 +175,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     "
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
-  await clone.cabaret("review", "gadget.txt", "--change", "gadget");
+  await clone.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
   expect((await clone.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -184,6 +184,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
+    │ gadget │      1 │
     ╰────────┴────────╯
 
     Changes you own:
@@ -371,7 +372,7 @@ test("a landed change stays only while children hang from it", async () => {
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "gadget.txt", "--change", "gadget");
+  await repo.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
   // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
   await repo.cabaret("reparent", "gizmo", "gadget");
@@ -470,7 +471,7 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     "
   `);
   await repo.git("config", "user.email", "bob@example.com");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
@@ -501,7 +502,7 @@ test("review is owed only while an obligation is unsatisfied", async () => {
 test("a landed change with no children drops out entirely", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo

@@ -98,7 +98,7 @@ async function readObligations(
  * depth; one with `/` matches the whole relative path, where `*` stops at
  * separators and `**` does not. Dotfiles match like any other file.
  */
-function patternMatches(pattern: string, path: string): boolean {
+export function patternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.startsWith("/") ? pattern.slice(1) : pattern;
   const target = anchored.includes("/") ? path : path.slice(path.lastIndexOf("/") + 1);
   return picomatch(anchored, { dot: true })(target);

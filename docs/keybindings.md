@@ -79,7 +79,7 @@ character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
 | `r`     | review: open the change's review page           | show         |
 | `^`     | show parent                                     | show         |
 | `$`     | show child                                      | show         |
-| `! r`   | mark file reviewed, advance to the next         | diff         |
+| `! m`   | mark file reviewed, advance to the next         | review, diff |
 | `! c`   | create child                                    | all          |
 | `! p`   | create parent                                   | all          |
 | `! i`   | import forge change                             | todo, show   |
@@ -103,13 +103,6 @@ Where the current table falls short of the principles:
   binding must not swallow those.
 - **`tab` only folds headed sections.** Diff hunks don't fold yet, though
   they are the other natural thing under the cursor for `tab` to toggle.
-- **`! r` is both a chord and a prefix.** On diff pages it marks the file
-  reviewed; elsewhere it prefixes rebase / rename / reparent. The page gating
-  disambiguates for the machine but not for the user's model — the letter `r`
-  carries four meanings, and the collision is why the `! r *` family is
-  locked out of diff pages at all. Likely fix: move rebase / rename /
-  reparent to letters of their own, keeping the short `! r` for the
-  high-frequency mark-reviewed.
 - **`^` / `$` only work on show pages.** One-meaning says they should work on
   any page with a current change (review, diff), landing on the relative's
   show page.

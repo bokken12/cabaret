@@ -47,7 +47,7 @@ test("widen from a draft skips an owner who already read the whole diff", async 
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   // Self-review of a draft needs no widening: the owner is never nudged.
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   // Nobody is a reviewer either, so the first level with anything to ask is everyone.
   expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
 });
@@ -137,12 +137,20 @@ test("review ahead of the reviewing set nudges, and the flag overrides", async (
   await addChange(repo, "feature");
   await repo.git("config", "user.email", "alice@example.com");
   // Only bob, the owner, may review his draft; alice recording review jumps the set.
-  expect(await repo.cabaret("review", "feature.txt", "--change", "feature")).toEqual({
+  expect(await repo.cabaret("mark", "--tip", "feature", "feature.txt", "--change", "feature")).toEqual({
     stdout: "",
     stderr: '"feature" is reviewing none, not "alice@example.com"; pass --even-though-not-reviewing to override\n',
     exitCode: 1,
   });
-  const forced = await repo.cabaret("review", "feature.txt", "--change", "feature", "--even-though-not-reviewing");
+  const forced = await repo.cabaret(
+    "mark",
+    "--tip",
+    "feature",
+    "feature.txt",
+    "--change",
+    "feature",
+    "--even-though-not-reviewing",
+  );
   expect(forced).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The overridden review is a review: it counts toward obligations.
   expect((await repo.cabaret("log", "feature")).stdout).toContain('"kind":"review","file":"feature.txt"');
@@ -152,11 +160,15 @@ test("the owner and a landed change are never nudged", async () => {
   const repo = await makeRepo();
   await addChange(repo, "feature");
   // Self-review of the owner's own draft is welcome at any stage.
-  expect(await repo.cabaret("review", "feature.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("mark", "--tip", "HEAD", "feature.txt")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
   await repo.cabaret("land");
   // Post-land review is bookkeeping, open as ever — whatever the set was.
   await repo.git("config", "user.email", "bob@example.com");
-  expect(await repo.cabaret("review", "feature.txt", "--change", "feature")).toEqual({
+  expect(await repo.cabaret("mark", "--tip", "feature", "feature.txt", "--change", "feature")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,

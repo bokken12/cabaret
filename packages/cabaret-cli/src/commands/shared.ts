@@ -2,7 +2,10 @@ import {
   assertChangeExists,
   type Backend,
   type ChangeName,
+  type FilePath,
   type LogEntry,
+  patternMatches,
+  type ReviewRound,
   UserError,
   type UserName,
   userName,
@@ -70,6 +73,55 @@ export function parseChangeSpec(raw: string): ChangeSpec {
     throw new UserError(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
   }
   return { kind: "range", ancestor, descendant };
+}
+
+/** Every file with review pending in some round, sorted by name. */
+export function pendingFiles(rounds: readonly ReviewRound[]): readonly FilePath[] {
+  return [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
+}
+
+/**
+ * The files with review pending that `args` select, in `pending`'s order.
+ * No arguments select everything. An argument with a glob character is a
+ * gitignore-style pattern against repo-relative paths, and matching nothing
+ * is a mistake worth stopping on — a typo would otherwise read as reviewed.
+ * Any other argument is a path, resolved the way every command resolves
+ * one; one naming a file with nothing pending is an error under `strict`
+ * (marking it would record nothing) and otherwise appends the file, for a
+ * viewer to answer "nothing left" about.
+ */
+export function selectFiles(
+  backend: Backend,
+  pending: readonly FilePath[],
+  args: readonly string[],
+  strict: boolean,
+): readonly FilePath[] {
+  if (args.length === 0) {
+    return pending;
+  }
+  const selected = new Set<FilePath>();
+  const appended: FilePath[] = [];
+  for (const raw of args) {
+    if (/[*?[]/.test(raw)) {
+      const matches = pending.filter((file) => patternMatches(raw, file));
+      if (matches.length === 0) {
+        throw new UserError(`no file with review left matches ${JSON.stringify(raw)}`);
+      }
+      for (const file of matches) {
+        selected.add(file);
+      }
+    } else {
+      const file = backend.resolveFile(raw);
+      if (pending.includes(file)) {
+        selected.add(file);
+      } else if (strict) {
+        throw new UserError(`no review left in ${file}`);
+      } else if (!appended.includes(file)) {
+        appended.push(file);
+      }
+    }
+  }
+  return [...pending.filter((file) => selected.has(file)), ...appended];
 }
 
 /** The escape hatch for commands that `requireOwner` guards. */

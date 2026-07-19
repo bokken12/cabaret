@@ -397,23 +397,6 @@ FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
   -h  --help     Print help information and exit
 
-## cabaret diff
-
-USAGE
-  cabaret diff [--change value] [--for value] [--context value] <file>
-  cabaret diff --help
-
-Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy — or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review. The diff a land merge brings in was reviewed in the landed change, so it is skipped: what prints is one diff per span of history between land merges.
-
-FLAGS
-     [--change]   Change to diff (defaults to current)
-     [--for]      Show the diff for another user (defaults to self)
-     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
-  -h  --help      Print help information and exit
-
-ARGUMENTS
-  file  file to diff
-
 ## cabaret fetch
 
 USAGE
@@ -470,6 +453,23 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
+## cabaret mark
+
+USAGE
+  cabaret mark [--change value] (--tip value) [--even-though-not-reviewing] <file>...
+  cabaret mark --help
+
+Record review of files: one `review` entry per file, recording the change's base and the tip the diff you read ended at — `review` prints the exact command. Arguments select files the way `review` does.
+
+FLAGS
+     [--change]                     Change to mark (defaults to current)
+      --tip                         The revision the diff you read reviewed up to, as `review` printed it
+     [--even-though-not-reviewing]  Record review even though the reviewing set does not include you      [default = false]
+  -h  --help                        Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to mark reviewed
+
 ## cabaret rebase
 
 USAGE
@@ -521,19 +521,18 @@ ARGUMENTS
 ## cabaret review
 
 USAGE
-  cabaret review [--change value] [--tip value] [--even-though-not-reviewing] <file>...
+  cabaret review [--change value] [--context value] <file>...
   cabaret review --help
 
-Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
+Show the diff of a change left for you to review: the files of the current review round, then each file's remaining diff. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths. What is shown is remembered, and `mark` records review of it.
 
 FLAGS
-     [--change]                     Change to review (defaults to current)
-     [--tip]                        Mark as reviewed at this tip revision (defaults to the change's tip)
-     [--even-though-not-reviewing]  Record review even though the reviewing set does not include you     [default = false]
-  -h  --help                        Print help information and exit
+     [--change]   Change to review (defaults to current)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
+  -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files to mark as reviewed
+  file...  files or patterns to show (defaults to the whole round)
 
 ### cabaret reviewers add
 

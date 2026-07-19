@@ -13,6 +13,7 @@ import {
   declinedScopes,
   declineSetup,
   type FetchEvent,
+  type FilePath,
   type Forge,
   fetchForge,
   fetchLocal,
@@ -28,6 +29,7 @@ import {
   NotOwnerError,
   NotReviewingError,
   type RebaseOverrides,
+  type Revision,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -59,6 +61,7 @@ import {
   type Page,
   pagePath,
   parsePagePath,
+  pendingRound,
   renderPage,
   type Style,
   type Target,
@@ -71,6 +74,11 @@ import { writePageGrammar } from "./language.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
+
+/** The `displayedEnds` key for one file's diff as shown to one user against one base. */
+function displayedKey(change: ChangeName, user: UserName, base: Revision, file: FilePath): string {
+  return [change, user, base, file].join("\u0000");
+}
 
 /**
  * The backend for whichever folder `openBackend` last opened: the root,
@@ -167,6 +175,8 @@ class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
   private readonly docs = new Map<string, Doc>();
+  /** Per displayed diff, the revision it reviewed up to: the evidence `markPageReviewed`'s asked-first check reads. */
+  readonly displayedEnds = new Map<string, Revision>();
   /** What each page last reported, so the re-render after every action does not re-toast it. */
   private readonly reported = new Map<string, string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
@@ -226,6 +236,11 @@ class PageProvider
     try {
       doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+        onViewed: (viewed) => {
+          for (const [file, end] of viewed.files) {
+            this.displayedEnds.set(displayedKey(viewed.change, viewed.user, viewed.base, file), end);
+          }
+        },
       });
     } catch (error) {
       // A rejected render leaves the buffer as it was, with no other sign
@@ -595,9 +610,11 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
 }
 
 /**
- * Mark the active diff page's file as reviewed, then move on to the round's
- * next file, or back to the change's review page when the round is done.
- * Errors surface as notifications, and every open page re-renders afterwards.
+ * Mark a file reviewed: the active diff page's file, or on the review page
+ * the file the cursor's line resolves to. From a diff page, move on to the
+ * round's next file, or back to the change's review page when the round is
+ * done. A mark whose diff this window never displayed asks first. Errors
+ * surface as notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -605,14 +622,25 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind !== "diff") {
+  let file: FilePath;
+  if (page.kind === "diff") {
+    file = page.file;
+  } else if (page.kind === "review") {
+    const doc = provider.renderedDoc(editor.document.uri);
+    const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+    if (target?.kind !== "file") {
+      vscode.window.showInformationMessage("cabaret: no file at the cursor");
+      return;
+    }
+    file = target.file;
+  } else {
     return;
   }
   // The entry will carry the borrowed identity's name, so nothing here may
   // happen on muscle memory alone.
   if (page.as !== undefined) {
     const choice = await vscode.window.showWarningMessage(
-      `Mark ${page.file} reviewed as ${page.as}?`,
+      `Mark ${file} reviewed as ${page.as}?`,
       { modal: true },
       "Mark Reviewed",
     );
@@ -623,9 +651,23 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   try {
     const backend = await openBackend();
     const snapshot = await changeSnapshot(backend, page.change, page.as);
+    const pending = pendingRound(snapshot.rounds, file);
+    if (
+      pending !== undefined &&
+      provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file)) !== pending.end
+    ) {
+      const choice = await vscode.window.showWarningMessage(
+        `The current diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,
+        { modal: true },
+        "Mark Reviewed Anyway",
+      );
+      if (choice === undefined) {
+        return;
+      }
+    }
     let result: MarkReviewedResult;
     try {
-      result = markReviewed(backend, now, snapshot, page.file);
+      result = markReviewed(backend, now, snapshot, file);
     } catch (error) {
       if (!(error instanceof NotReviewingError)) {
         throw error;
@@ -640,20 +682,22 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
       if (choice === undefined) {
         return;
       }
-      result = markReviewed(backend, now, snapshot, page.file, true);
+      result = markReviewed(backend, now, snapshot, file, true);
     }
     if (result.kind === "nothing-left") {
-      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+      vscode.window.showInformationMessage(`cabaret: nothing left to review in ${file}`);
       return;
     }
     await result.recorded;
-    await closeTabs(editor.document.uri);
-    await openPage(
-      provider,
-      result.next === undefined
-        ? { kind: "review", change: page.change, as: page.as }
-        : { kind: "diff", change: page.change, file: result.next, as: page.as },
-    );
+    if (page.kind === "diff") {
+      await closeTabs(editor.document.uri);
+      await openPage(
+        provider,
+        result.next === undefined
+          ? { kind: "review", change: page.change, as: page.as }
+          : { kind: "diff", change: page.change, file: result.next, as: page.as },
+      );
+    }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   } finally {

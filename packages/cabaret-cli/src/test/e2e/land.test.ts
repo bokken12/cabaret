@@ -25,7 +25,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   const repo = await makeStack();
   const childTip = await repo.git("rev-parse", "child");
   const parentTip = await repo.git("rev-parse", "parent");
-  await repo.cabaret("review", "child.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "child.txt");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The land advances the parent by exactly the merge, without moving HEAD.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
@@ -194,8 +194,8 @@ test("the diff a land merge brings into the parent needs no review", async () =>
   const repo = await makeStack();
   await repo.cabaret("land", "--even-though-unreviewed");
   // child.txt arrived through the land merge, reviewed under the child's log.
-  expect(await repo.cabaret("diff", "--change", "parent", "child.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "parent", "child.txt")).toEqual({
+    stdout: "child.txt in parent\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
@@ -203,10 +203,10 @@ test("the diff a land merge brings into the parent needs no review", async () =>
 
 test("a review made before a land still stands after it", async () => {
   const repo = await makeStack();
-  await repo.cabaret("review", "parent.txt", "--change", "parent");
+  await repo.cabaret("mark", "--tip", "parent", "parent.txt", "--change", "parent");
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  expect(await repo.cabaret("diff", "--change", "parent", "parent.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toEqual({
+    stdout: "parent.txt in parent\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
@@ -214,30 +214,61 @@ test("a review made before a land still stands after it", async () => {
 
 test("parent work on both sides of a land renders one diff per span", async () => {
   const repo = await makeStack();
+  const round1End = await repo.git("rev-parse", "parent");
   await repo.cabaret("land", "--even-though-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
   await repo.git("commit", "-qam", "more parent work");
-  expect(await repo.cabaret("diff", "--change", "parent", "parent.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review parent
+    =============
+
+    Reviewing up to 752ee7d4c0d4; 1 more round follows.
+
+      parent.txt
+
+    parent.txt in parent (up to 752ee7d4c0d4; 1 more round follows)
+
+    -1,0 +1,1
     +|parent v1
 
-    -1,1 +1,2
-      parent v1
-    +|parent v2
+    Record review of what you have read:
+      cabaret mark --change parent --tip 752ee7d4c0d4 parent.txt
     ",
     }
   `);
-  // Reviewing marks the whole file, spans and all.
-  await repo.cabaret("review", "parent.txt", "--change", "parent");
-  expect(await repo.cabaret("diff", "--change", "parent", "parent.txt")).toEqual({
+  // A mark at the first round's end leaves the later round open.
+  await repo.cabaret("mark", "--tip", round1End, "parent.txt", "--change", "parent");
+  expect((await repo.cabaret("review", "--change", "parent", "parent.txt")).stdout).toContain("+|parent v2");
+  await repo.cabaret("mark", "--tip", "parent", "parent.txt", "--change", "parent");
+  expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toEqual({
+    stdout: "parent.txt in parent\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("a file changed only after a land marks at its own round's end", async () => {
+  const repo = await makeStack();
+  const base = await repo.git("rev-parse", "main");
+  await repo.cabaret("land", "--even-though-unreviewed");
+  await repo.git("checkout", "-q", "parent");
+  await repo.write("late.txt", "late work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "late work");
+  const tip = await repo.git("rev-parse", "parent");
+  // parent.txt's round is still open, but late.txt is due only past the land.
+  expect(await repo.cabaret("mark", "--tip", "parent", "late.txt", "--change", "parent")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
+  expect((await repo.cabaret("log", "parent")).stdout).toContain(
+    `{"kind":"review","file":"late.txt","base":"${base}","tip":"${tip}"}`,
+  );
 });
 
 test("a review between two lands leaves only the later span", async () => {
@@ -246,7 +277,7 @@ test("a review between two lands leaves only the later span", async () => {
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
   await repo.git("commit", "-qam", "more parent work");
-  await repo.cabaret("review", "parent.txt", "--change", "parent");
+  await repo.cabaret("mark", "--tip", "parent", "parent.txt", "--change", "parent");
   await repo.cabaret("create", "sibling", "--parent", "parent");
   await repo.git("checkout", "-q", "sibling");
   await repo.write("sibling.txt", "sibling work\n");
@@ -256,19 +287,31 @@ test("a review between two lands leaves only the later span", async () => {
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\nparent v3\n");
   await repo.git("commit", "-qam", "even more parent work");
-  expect(await repo.cabaret("diff", "--change", "parent", "sibling.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "parent", "sibling.txt")).toEqual({
+    stdout: "sibling.txt in parent\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("diff", "--change", "parent", "parent.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,2 +1,3
+      "stdout": "Review parent
+    =============
+
+    Reviewing up to 0a5396e9799e.
+
+      parent.txt
+
+    parent.txt in parent (up to 0a5396e9799e)
+
+    -1,2 +1,3
       parent v1
       parent v2
     +|parent v3
+
+    Record review of what you have read:
+      cabaret mark --change parent --tip 0a5396e9799e parent.txt
     ",
     }
   `);
@@ -322,8 +365,8 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
     exitCode: 0,
   });
   // The pinned base keeps the frozen change's diff to its own work.
-  expect(await repo.cabaret("diff", "--change", "child", "parent.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
+    stdout: "parent.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
@@ -338,11 +381,14 @@ test("a cherry-picked land commit is skipped like the land it copies", async () 
   await repo.cabaret("create", "copy", "--parent", "main");
   await repo.git("checkout", "-q", "copy");
   await repo.git("cherry-pick", "-m", "1", "parent");
-  expect(await repo.cabaret("diff", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "",
+      "stdout": "child.txt in copy
+
+    Nothing left to review.
+    ",
     }
   `);
 });
@@ -351,12 +397,24 @@ test("a merge without the land trailer still needs review", async () => {
   const repo = await makeStack();
   await repo.git("checkout", "-q", "parent");
   await repo.git("merge", "--no-ff", "-m", "merge child by hand", "child");
-  expect(await repo.cabaret("diff", "--change", "parent", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "parent", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review parent
+    =============
+
+    Reviewing up to 330b997bc88a.
+
+      child.txt
+
+    child.txt in parent (up to 330b997bc88a)
+
+    -1,0 +1,1
     +|child work
+
+    Record review of what you have read:
+      cabaret mark --change parent --tip 330b997bc88a child.txt
     ",
     }
   `);
@@ -570,13 +628,13 @@ test("a range land carries an outside child down with each landing", async () =>
 test("a landed change can still be reviewed and forgotten", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  expect(await repo.cabaret("review", "child.txt", "--change", "child")).toEqual({
+  expect(await repo.cabaret("mark", "--tip", "child", "child.txt", "--change", "child")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toEqual({
+    stdout: "child.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
@@ -585,12 +643,24 @@ test("a landed change can still be reviewed and forgotten", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review child
+    ============
+
+    Reviewing up to 46080b0eb5bb.
+
+      child.txt
+
+    child.txt in child (up to 46080b0eb5bb)
+
+    -1,0 +1,1
     +|child work
+
+    Record review of what you have read:
+      cabaret mark --change child --tip 46080b0eb5bb child.txt
     ",
     }
   `);
@@ -612,18 +682,30 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
     `{"kind":"land","merge":"${squash}","tip":"${childTip}"}`,
   );
   // The parent's reviewers skip the squash's diff: it was reviewed in the child.
-  expect(await repo.cabaret("diff", "--change", "parent", "child.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "parent", "child.txt")).toEqual({
+    stdout: "child.txt in parent\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
   // The landed change still shows its own diff, frozen at the recorded tip.
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review child
+    ============
+
+    Reviewing up to 46080b0eb5bb.
+
+      child.txt
+
+    child.txt in child (up to 46080b0eb5bb)
+
+    -1,0 +1,1
     +|child work
+
+    Record review of what you have read:
+      cabaret mark --change child --tip 46080b0eb5bb child.txt
     ",
     }
   `);

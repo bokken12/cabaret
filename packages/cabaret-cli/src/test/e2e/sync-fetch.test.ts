@@ -384,7 +384,7 @@ test("fetch archives the change of a closed forge change once someone engaged wi
   await pushTeammateBranch(repo, parseBranchName("their-feature"));
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("fetch");
-  await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
+  await repo.cabaret("mark", "--tip", "origin/their-feature", "their-feature.txt", "--change", "their-feature");
   forge.close(id);
   expect((await repo.cabaret("fetch")).stdout).toBe(
     'github.com/test-org/widgets#1 was closed; archived "their-feature"\n' +
@@ -405,7 +405,7 @@ test("fetch unarchives the change of a reopened forge change", async () => {
   await pushTeammateBranch(repo, parseBranchName("their-feature"));
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   await repo.cabaret("fetch");
-  await repo.cabaret("review", "their-feature.txt", "--change", "their-feature");
+  await repo.cabaret("mark", "--tip", "origin/their-feature", "their-feature.txt", "--change", "their-feature");
   forge.close(id);
   await repo.cabaret("fetch");
   await forge.setState(id, "open");
