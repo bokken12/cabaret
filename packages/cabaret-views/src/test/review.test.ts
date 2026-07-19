@@ -18,6 +18,7 @@ import {
   diffsDoc,
   docText,
   markReviewed,
+  neighborFiles,
   reviewDoc,
   reviewPage,
   targetAt,
@@ -910,6 +911,20 @@ test("markReviewed through a borrowed snapshot records the borrowed user", () =>
       },
     ],
   ]);
+});
+
+test("neighborFiles names the files beside one in the round, ending at its edges", () => {
+  const rounds = snapshotWith(["a.ts", "b.ts", "c.ts"]).rounds;
+  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: "a.ts", next: "c.ts" });
+  expect(neighborFiles(rounds, parseFilePath("a.ts"))).toEqual({ prev: undefined, next: "b.ts" });
+  expect(neighborFiles(rounds, parseFilePath("c.ts"))).toEqual({ prev: "b.ts", next: undefined });
+  expect(neighborFiles(rounds, parseFilePath("other.ts"))).toBeUndefined();
+});
+
+test("neighborFiles reads the earliest round still owing the file", () => {
+  const rounds = snapshotWith(["b.ts", "d.ts"], ["a.ts", "b.ts", "z.ts"]).rounds;
+  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: undefined, next: "d.ts" });
+  expect(neighborFiles(rounds, parseFilePath("z.ts"))).toEqual({ prev: "b.ts", next: undefined });
 });
 
 test("markReviewed of a file with no review pending records nothing", () => {

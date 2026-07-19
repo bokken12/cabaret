@@ -50,21 +50,22 @@ effect. This also keeps the bare-key budget for navigation.
 ## Core vocabulary
 
 The keys every page shares. Pages nest — home → show → review → diff → source
-location — and separately each change sits in a parent/child tree; the two
-axes get distinct keys.
+location — and separately what a page shows has siblings: a change sits in a
+parent/child tree, a diff's file in its round's list. The two axes get
+distinct keys.
 
 | Key     | Meaning                                                              |
 | ------- | -------------------------------------------------------------------- |
 | `enter` | step inside: open the target under the cursor, one page level deeper |
 | `esc`   | step outside: back out one page level                                 |
-| `^`     | go up the change tree: the parent change                              |
-| `$`     | go down the change tree: a child change                               |
+| `^`     | step up: the sibling above — a change's parent, a diff's previous file |
+| `$`     | step down: the sibling below — a change's child, a diff's next file   |
 | `!`     | prefix for state-mutating actions                                     |
 | `tab`   | toggle the thing under the cursor (folding and the like)              |
 | `R`     | refresh the page                                                      |
 
-The vim mnemonics carry over sideways: `^` and `$` move to the "start" and
-"end" of the change's lineage the way they move within a line.
+The vim mnemonics carry over sideways: `^` and `$` move toward the "start"
+and "end" of the sibling axis the way they move within a line.
 
 ## Current bindings
 
@@ -78,12 +79,9 @@ Where the current bindings fall short of the principles:
 
 - **`tab` only folds headed sections.** Diff hunks don't fold yet, though
   they are the other natural thing under the cursor for `tab` to toggle.
-- **`^` / `$` only work on show pages.** One-meaning says they should work on
-  any page with a current change (review, diff), landing on the relative's
-  show page.
 - **`r` (review) is bare but arguably a sibling of `enter`.** It navigates —
-  opens the review page — so bare is right; but it's show-page-only, and the
-  same guessability argument as `^` / `$` applies.
+  opens the review page — so bare is right; but it's show-page-only, where
+  one-meaning would have it work on any page with a current change.
 - **`F` and `S` are bare writes.** Fetch and sync mutate state but sit
   outside the `!` namespace — `F` borrowed whole from magit, `S` following
   its lead — and the muscle memory is worth more than the rule. Both keys

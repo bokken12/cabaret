@@ -178,12 +178,12 @@
         "title": "Cabaret: Create Parent"
       },
       {
-        "command": "cabaret.showParent",
-        "title": "Cabaret: Show Parent"
+        "command": "cabaret.stepUp",
+        "title": "Cabaret: Step Up"
       },
       {
-        "command": "cabaret.showChild",
-        "title": "Cabaret: Show Child"
+        "command": "cabaret.stepDown",
+        "title": "Cabaret: Step Down"
       },
       {
         "command": "cabaret.review",
@@ -281,12 +281,12 @@
           "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.showParent",
-          "when": "cabaret.page == 'show'"
+          "command": "cabaret.stepUp",
+          "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.showChild",
-          "when": "cabaret.page == 'show'"
+          "command": "cabaret.stepDown",
+          "when": "resourceScheme == cabaret"
         },
         {
           "command": "cabaret.review",
@@ -366,14 +366,14 @@
         "when": "editorTextFocus && (cabaret.page == 'diff' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.showParent",
+        "command": "cabaret.stepUp",
         "key": "shift+6",
-        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.showChild",
+        "command": "cabaret.stepDown",
         "key": "shift+4",
-        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rebase",

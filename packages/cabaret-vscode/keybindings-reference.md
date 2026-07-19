@@ -20,8 +20,8 @@ are chosen.
 | `d`     | Review Diffs          | show, review              |
 | `@`     | Act as User           | all                       |
 | `! m`   | Mark Reviewed         | diff, review              |
-| `^`     | Show Parent           | show                      |
-| `$`     | Show Child            | show                      |
+| `^`     | Step Up               | show, review, diffs, diff |
+| `$`     | Step Down             | show, review, diffs, diff |
 | `! r b` | Rebase                | home, show, review        |
 | `! l a` | Land                  | all                       |
 | `! r n` | Rename                | home, show, review        |
