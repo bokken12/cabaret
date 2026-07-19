@@ -19,11 +19,13 @@ text buffers, so search, selection, and vim keybindings work untouched.
   rooted on a trunk — and `$` descends to a child's, picking one when there
   are several. On the review page, `enter` opens the first file left to
   review unless the cursor is on another file's line.
-- Change actions sit behind `!` chords: `!c` creates a child, `!p` splices in
-  a parent, `!o` sets the owner, `!rb` rebases, `!rn` renames, `!rp`
-  reparents, and `!la` lands.
-- Forge sync follows magit: `F` pulls from the forge, `P` pushes the change
-  under the cursor (or the shown change) to it.
+- Change actions sit behind `!` chords: `!c` creates a child, `!m` marks a
+  file reviewed, `!la` lands, and so on.
+- Remote traffic follows magit's `F`: `F` fetches remote activity, and `S`
+  syncs the change under the cursor (or the shown change) with origin.
+- The full binding table lives in
+  [`keybindings-reference.md`](./keybindings-reference.md), generated from
+  this extension's manifest.
 - **Cabaret: Apply Recommended Git Settings** — apply the git configuration
   Cabaret recommends: zdiff3 conflict markers, rerere, and fetching change
   logs with every `git fetch` (the same set as `cabaret setup apply`). The
