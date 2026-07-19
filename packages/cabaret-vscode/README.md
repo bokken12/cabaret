@@ -40,13 +40,16 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f
   t` opens the todo page and `SPC a f s` shows the current change.
 
-## VSCodeVim and tab
+## VSCodeVim, tab, and esc
 
-VSCodeVim also binds `tab` at the extension level, and when two extensions
-claim a key, which one wins is a load-ordering accident. The deterministic
-arrangement — the same one edamagit's setup uses — is to take the binding
-over in your own keybindings.json, since user bindings outrank every
-extension, and carve out the buffers that want `tab` for themselves:
+VSCodeVim also binds `tab` and `esc` at the extension level, and when two
+extensions claim a key, which one wins is a load-ordering accident. The
+deterministic arrangement — the same one edamagit's setup uses — is to take
+the bindings over in your own keybindings.json, since user bindings outrank
+every extension, and carve out the buffers that want each key for
+themselves. `tab` is ceded in every cabaret buffer; `esc` only in normal
+mode, where vim's own `esc` has nothing left to cancel — vim must keep it
+in the other modes, or visual mode would have no way out:
 
 ```jsonc
 {
@@ -57,22 +60,7 @@ extension, and carve out the buffers that want `tab` for themselves:
   "key": "tab",
   "command": "extension.vim_tab",
   "when": "editorTextFocus && vim.active && !inDebugRepl && vim.mode != 'Insert' && resourceScheme != 'cabaret'"
-}
-```
-
-If you already carry this pair from edamagit's instructions, keep its
-`editorLangId != 'magit'` exclusion alongside and just add
-`&& resourceScheme != 'cabaret'` to the `when`.
-
-## VSCodeVim and esc
-
-`esc` has the same extension-versus-extension standoff as `tab`, with one
-twist: vim must keep `esc` even in cabaret buffers whenever it is not in
-normal mode, or visual mode would have no way out. The carve-out therefore
-yields only normal-mode `esc` in cabaret buffers, where vim's own `esc` has
-nothing left to cancel:
-
-```jsonc
+},
 {
   "key": "escape",
   "command": "-extension.vim_escape"
@@ -84,9 +72,14 @@ nothing left to cancel:
 }
 ```
 
-Without VSCodeVim no pair is needed: the binding already yields to `esc`'s
-editor dismissals — closing the find widget, clearing a selection or extra
-cursors — and steps outside only once there is nothing left to dismiss.
+If you already carry the `tab` pair from edamagit's instructions, keep its
+`editorLangId != 'magit'` exclusion alongside and just add
+`&& resourceScheme != 'cabaret'` to the `when`.
+
+Without VSCodeVim no entries are needed: `esc`'s binding already yields to
+the editor's dismissals — closing the find widget, clearing a selection or
+extra cursors — and steps outside only once there is nothing left to
+dismiss.
 
 ## Installing
 
