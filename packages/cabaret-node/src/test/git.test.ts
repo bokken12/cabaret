@@ -429,6 +429,22 @@ test("advance fast-forwards to a descendant and refuses anything else", async ()
   expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
 });
 
+test("advance fast-forwards a branch checked out in a sibling worktree, carrying it along", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("held start"));
+  const next = parseCommitHash(await plumbCommit("held next", start));
+  await backend.create(parseBranchName("sibling-held"), start);
+  const linked = join(repo, "held-worktree");
+  await git("worktree", "add", "-q", linked, "sibling-held");
+  await backend.advance(parseBranchName("sibling-held"), next);
+  // The ref moved and the worktree followed: HEAD at the new tip, nothing
+  // stranded in its index.
+  expect(await git("rev-parse", "refs/heads/sibling-held")).toBe(next);
+  expect(await gitIn(linked, "rev-parse", "HEAD")).toBe(next);
+  expect(await gitIn(linked, "status", "--porcelain")).toBe("");
+  await git("worktree", "remove", linked);
+});
+
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
