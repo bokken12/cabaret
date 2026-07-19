@@ -16,11 +16,12 @@ export type Manifest = {
   };
 };
 
-/** One binding as help presents it: pretty keys and the command's title. */
-export type HelpEntry = {
+/** One binding as help presents it: pretty keys, the command's title, and where it applies. */
+export type Binding = {
   readonly keys: string;
   readonly command: string;
   readonly label: string;
+  readonly scope: Scope;
 };
 
 type PageKind = Page["kind"];
@@ -42,7 +43,7 @@ function parsePageKind(kind: string): PageKind {
 }
 
 /** Where a binding applies: every cabaret page, or the page kinds it names. */
-type Scope = "all" | readonly PageKind[];
+export type Scope = "all" | readonly PageKind[];
 
 /** Every binding guards against vim reading input; scopes sit between this prefix and suffix. */
 const WHEN_PREFIX = "editorTextFocus && ";
@@ -123,21 +124,17 @@ function label(manifest: Manifest, command: string): string {
   return foreign;
 }
 
-/**
- * The bindings that apply on `page`, in manifest order. Every binding is
- * parsed regardless of the page asked about, so one malformed entry fails
- * loudly everywhere.
- */
-export function pageHelp(manifest: Manifest, page: PageKind): HelpEntry[] {
-  return manifest.contributes.keybindings
-    .map((binding) => ({
-      scope: parseScope(binding.when),
-      entry: {
-        keys: binding.key.split(" ").map(prettyChord).join(" "),
-        command: binding.command,
-        label: label(manifest, binding.command),
-      },
-    }))
-    .filter(({ scope }) => applies(scope, page))
-    .map(({ entry }) => entry);
+/** Every manifest binding, in manifest order; one malformed entry fails loudly. */
+export function allBindings(manifest: Manifest): Binding[] {
+  return manifest.contributes.keybindings.map((binding) => ({
+    keys: binding.key.split(" ").map(prettyChord).join(" "),
+    command: binding.command,
+    label: label(manifest, binding.command),
+    scope: parseScope(binding.when),
+  }));
+}
+
+/** The bindings that apply on `page`, in manifest order. */
+export function pageHelp(manifest: Manifest, page: PageKind): Binding[] {
+  return allBindings(manifest).filter(({ scope }) => applies(scope, page));
 }
