@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { makeRepo } from "./fixture.js";
 
-test("commit records every edit: modified, added, and deleted files", async () => {
+test("commit records every edit under the change's name: no message to compose", async () => {
   const repo = await makeRepo();
   await repo.write("kept.txt", "old\n");
   await repo.write("doomed.txt", "doomed\n");
@@ -10,16 +10,23 @@ test("commit records every edit: modified, added, and deleted files", async () =
   await repo.write("kept.txt", "new\n");
   await repo.write("fresh.txt", "fresh\n");
   await repo.git("rm", "-q", "doomed.txt");
-  expect(await repo.cabaret("commit", "-m", "rework")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("commit")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("status", "--porcelain")).toBe("");
   expect(await repo.git("show", "--stat", "--format=%s", "HEAD")).toMatchInlineSnapshot(`
-    "rework
+    "main
 
      doomed.txt | 1 -
      fresh.txt  | 1 +
      kept.txt   | 2 +-
      3 files changed, 2 insertions(+), 2 deletions(-)"
   `);
+});
+
+test("--message overrides the default", async () => {
+  const repo = await makeRepo();
+  await repo.write("work.txt", "work\n");
+  expect(await repo.cabaret("commit", "-m", "spelled out")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("log", "--format=%s", "-1")).toBe("spelled out");
 });
 
 test("arguments narrow the commit, leaving other edits in the workspace", async () => {
@@ -89,7 +96,7 @@ test("a detached workspace refuses to commit", async () => {
   const repo = await makeRepo();
   await repo.git("checkout", "-q", "--detach");
   await repo.write("stray.txt", "stray\n");
-  expect(await repo.cabaret("commit", "-m", "stray")).toEqual({
+  expect(await repo.cabaret("commit")).toEqual({
     stdout: "",
     stderr: "HEAD is detached; check out a branch or name the change explicitly\n",
     exitCode: 1,

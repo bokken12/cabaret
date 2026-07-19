@@ -45,14 +45,14 @@ ARGUMENTS
 ## cabaret commit
 
 USAGE
-  cabaret commit (--message value) <file>...
+  cabaret commit [--message value] <file>...
   cabaret commit --help
 
-Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging. Arguments narrow what is committed to the named files or patterns.
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits carry its name. Arguments narrow what is committed to the named files or patterns.
 
 FLAGS
-  -m --message  Message recorded on the commit
-  -h --help     Print help information and exit
+  -m [--message]  Message recorded on the commit (defaults to the change's name)
+  -h  --help      Print help information and exit
 
 ARGUMENTS
   file...  files or patterns to commit (defaults to every edit)
