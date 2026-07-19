@@ -43,6 +43,49 @@ test("a moved file reviews as one entry named by both sides", async () => {
   `);
 });
 
+test("an exact copy still reviews as an entry, with nothing left to read", async () => {
+  const repo = await makeRepo();
+  await repo.write("charter.txt", "preamble\narticle one\narticle two\nclosing\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.write("charter.txt", "amended preamble\narticle one\narticle two\nclosing\n");
+  await repo.write("bylaws.txt", "preamble\narticle one\narticle two\nclosing\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "duplicate the charter");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to 621fe81034fb.
+
+      bylaws.txt (copied from charter.txt)
+      charter.txt
+
+    bylaws.txt (copied from charter.txt) in main (up to 621fe81034fb)
+
+    No differences left to read; mark the file reviewed to record that.
+
+    charter.txt in main (up to 621fe81034fb)
+
+    -1,4 +1,4
+    -|preamble
+    +|amended preamble
+      article one
+      article two
+      closing
+
+    Record review of what you have read:
+      cabaret mark --tip 621fe81034fb bylaws.txt charter.txt
+    ",
+    }
+  `);
+});
+
 test("review with no arguments shows the whole round", async () => {
   const repo = await makeRepo();
   await repo.git("branch", "trunk");
