@@ -535,25 +535,6 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
 }
 
 /**
- * Give diff pages the cabaret language, whose grammar embeds each hunk in
- * its file's own language; other pages are prose and stay as opened. The
- * page path ends in the file's name, so VS Code first guesses that file's
- * language for the whole buffer — chrome and all — and the switch here
- * replaces that guess.
- */
-function assignPageLanguage(document: vscode.TextDocument): void {
-  if (document.uri.scheme !== SCHEME || document.languageId === "cabaret") {
-    return;
-  }
-  const kind = parsePagePath(document.uri.path).kind;
-  if (kind === "diff" || kind === "diffs") {
-    vscode.languages.setTextDocumentLanguage(document, "cabaret").then(undefined, (error: unknown) => {
-      vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
-    });
-  }
-}
-
-/**
  * Mark the active diff page's file as reviewed, then move on to the round's
  * next file, or back to the change's review page when the round is done.
  * Errors surface as notifications, and every open page re-renders afterwards.
@@ -1323,7 +1304,6 @@ export function activate(context: vscode.ExtensionContext): void {
         provider.forget(document.uri);
       }
     }),
-    vscode.workspace.onDidOpenTextDocument(assignPageLanguage),
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("cabaret.context")) {
@@ -1468,10 +1448,6 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
   updatePageContext(vscode.window.activeTextEditor);
-  // Restored tabs opened their documents before this activation could listen.
-  for (const document of vscode.workspace.textDocuments) {
-    assignPageLanguage(document);
-  }
   // An extension-host restart re-syncs open cabaret editors without a render;
   // painting them misses the cache and so asks for one.
   repaint();

@@ -19,7 +19,10 @@
   "contributes": {
     "languages": [
       {
-        "id": "cabaret"
+        "id": "cabaret",
+        "filenamePatterns": [
+          "**/cabaret/{diff,diffs,diff-as,diffs-as}/**"
+        ]
       }
     ],
     "grammars": [
