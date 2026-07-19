@@ -21,17 +21,17 @@ test("an archived change leaves the home page and unarchive brings it back", asy
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────────╮
-    │ change │ workspace │ note     │
-    ├────────┼───────────┼──────────┤
-    │ gadget │ .         │ archived │
-    ╰────────┴───────────┴──────────╯
+    ╭────────┬──────────╮
+    │ change │ note     │
+    ├────────┼──────────┤
+    │ gadget │ archived │
+    ╰────────┴──────────╯
     "
   `);
   await repo.cabaret("unarchive");
@@ -47,18 +47,18 @@ test("an archived change leaves the home page and unarchive brings it back", asy
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gadget │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ gadget │      │
+    ╰────────┴──────╯
     "
   `);
 });

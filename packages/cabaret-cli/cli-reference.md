@@ -42,6 +42,20 @@ FLAGS
 ARGUMENTS
   text  the comment text
 
+## cabaret commit
+
+USAGE
+  cabaret commit <file>...
+  cabaret commit --help
+
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed to the named files or patterns.
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to commit (defaults to every edit)
+
 ### cabaret config list
 
 USAGE
@@ -396,6 +410,22 @@ Delete the review state this repository holds: every change's log and the fetche
 FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
   -h  --help     Print help information and exit
+
+## cabaret diff
+
+USAGE
+  cabaret diff [--change value] [--context value] <file>...
+  cabaret diff --help
+
+Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
+
+FLAGS
+     [--change]   Change to diff (defaults to current)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
+  -h  --help      Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to show (defaults to every changed file)
 
 ## cabaret fetch
 

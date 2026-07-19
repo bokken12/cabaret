@@ -20,6 +20,7 @@ import {
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
+import { stepSpan } from "./steps.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -266,7 +267,6 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | undefined): Node {
   const rows = entries.map(({ change, workspace, landed, archived }): readonly Cell[] => [
     span(change, { target: { kind: "change", change, as } }),
-    span(workspace.display, { target: { kind: "workspace", path: workspace.path } }),
     span(
       [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : []), ...(archived ? ["archived"] : [])].join(
         ", ",
@@ -278,7 +278,6 @@ function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | un
     table(
       [
         { header: "change", align: "left" },
-        { header: "workspace", align: "left" },
         { header: "note", align: "left" },
       ],
       rows,
@@ -293,11 +292,7 @@ export function homeDoc(page: HomePage): Doc {
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
-    return [
-      changeCell(summary, guide, page.as, style),
-      span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
-      span(summary.nextStep, { style }),
-    ];
+    return [changeCell(summary, guide, page.as, style), stepSpan(summary.nextStep, summary.change, page.as, style)];
   });
   const title = page.as === undefined ? "Home" : `Home as ${page.as}`;
   return layout(
@@ -320,7 +315,6 @@ export function homeDoc(page: HomePage): Doc {
         page.owned,
         [
           { header: "change", align: "left" },
-          { header: "review", align: "right" },
           { header: "next step", align: "left" },
         ],
         ownedRows,

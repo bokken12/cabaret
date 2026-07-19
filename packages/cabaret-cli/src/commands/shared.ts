@@ -2,8 +2,10 @@ import {
   assertChangeExists,
   type Backend,
   type ChangeName,
+  defaultContext,
   type FilePath,
   type LogEntry,
+  parseContext,
   patternMatches,
   type ReviewRound,
   UserError,
@@ -81,38 +83,50 @@ export function pendingFiles(rounds: readonly ReviewRound[]): readonly FilePath[
 }
 
 /**
- * The files with review pending that `args` select, in `pending`'s order.
- * No arguments select everything. An argument with a glob character is a
- * gitignore-style pattern against repo-relative paths, and matching nothing
- * is a mistake worth stopping on — a typo would otherwise read as reviewed.
- * Any other argument is a path, resolved the way every command resolves
- * one; one naming a file with nothing pending is an error under `strict`
- * (marking it would record nothing) and otherwise appends the file, for a
- * viewer to answer "nothing left" about.
+ * The `--context` flag of a command that renders diffs.
+ */
+export const contextFlag = {
+  kind: "parsed",
+  parse: parseContext,
+  brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
+  optional: true,
+} as const;
+
+/**
+ * The files among `candidates` — described by `what` in diagnostics — that
+ * `args` select, in `candidates`' order. No arguments select everything. An
+ * argument with a glob character is a gitignore-style pattern against
+ * repo-relative paths, and matching nothing is a mistake worth stopping on —
+ * a typo would otherwise silently select nothing. Any other argument is a path,
+ * resolved the way every command resolves one; one naming a file outside
+ * `candidates` is an error under `strict` (marking it would record nothing)
+ * and otherwise appends the file, for a viewer to answer "nothing here"
+ * about.
  */
 export function selectFiles(
   backend: Backend,
-  pending: readonly FilePath[],
+  candidates: readonly FilePath[],
   args: readonly string[],
   strict: boolean,
+  what: string,
 ): readonly FilePath[] {
   if (args.length === 0) {
-    return pending;
+    return candidates;
   }
   const selected = new Set<FilePath>();
   const appended: FilePath[] = [];
   for (const raw of args) {
     if (/[*?[]/.test(raw)) {
-      const matches = pending.filter((file) => patternMatches(raw, file));
+      const matches = candidates.filter((file) => patternMatches(raw, file));
       if (matches.length === 0) {
-        throw new UserError(`no file with review left matches ${JSON.stringify(raw)}`);
+        throw new UserError(`no ${what} matches ${JSON.stringify(raw)}`);
       }
       for (const file of matches) {
         selected.add(file);
       }
     } else {
       const file = backend.resolveFile(raw);
-      if (pending.includes(file)) {
+      if (candidates.includes(file)) {
         selected.add(file);
       } else if (strict) {
         throw new UserError(`no review left in ${file}`);
@@ -121,7 +135,7 @@ export function selectFiles(
       }
     }
   }
-  return [...pending.filter((file) => selected.has(file)), ...appended];
+  return [...candidates.filter((file) => selected.has(file)), ...appended];
 }
 
 /** The escape hatch for commands that `requireOwner` guards. */

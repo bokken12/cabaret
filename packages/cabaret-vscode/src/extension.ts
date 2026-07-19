@@ -215,7 +215,9 @@ class PageProvider
                     ? `Open ${target.url}`
                     : target.kind === "review"
                       ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
-                      : `Open ${target.change}`;
+                      : target.kind === "action"
+                        ? `${target.action.charAt(0).toUpperCase()}${target.action.slice(1)} ${target.change}`
+                        : `Open ${target.change}`;
           return link;
         });
   }
@@ -498,6 +500,42 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "url":
       await vscode.env.openExternal(vscode.Uri.parse(target.url));
       break;
+    case "action":
+      await performAction(provider, target);
+      break;
+  }
+}
+
+/**
+ * Run the action a target names on its change, sharing the corresponding
+ * commands' confirmations; errors and re-renders behave as
+ * `actOnSelection`'s do.
+ */
+async function performAction(provider: PageProvider, target: Extract<Target, { kind: "action" }>): Promise<void> {
+  const { change, action } = target;
+  try {
+    const backend = await openBackend();
+    switch (action) {
+      case "sync":
+        await syncSelection(backend, [change]);
+        break;
+      case "rebase":
+        await rebaseSelection(backend, [change]);
+        break;
+      case "reparent":
+        await reparentSelection(backend, change);
+        break;
+      case "widen reviewing":
+        await widenSelection(backend, change);
+        break;
+      case "land":
+        await landSelection(backend, [change]);
+        break;
+    }
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
   }
 }
 
@@ -1100,6 +1138,20 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
   }
 }
 
+/** Reparent `change` onto a picked parent, confirming an ownership override. */
+async function reparentSelection(backend: Backend, change: ChangeName): Promise<void> {
+  const parent = await pickParent(backend, change);
+  if (parent !== undefined) {
+    await confirmNotOwner("Reparent Anyway", (override) => reparentChange(backend, now, change, parent, override));
+  }
+}
+
+/** Widen reviewing of `change` one notch and report where it landed. */
+async function widenSelection(backend: Backend, change: ChangeName): Promise<void> {
+  const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+  vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
+}
+
 /**
  * Bring `change` into a workspace: open the one it has, or materialize one
  * per the workspace-style setting — confirming before a checkout lands in a
@@ -1473,14 +1525,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.reparent", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const change = singleChange(changes, "reparent");
-        if (change === undefined) {
-          return;
-        }
-        const parent = await pickParent(backend, change);
-        if (parent !== undefined) {
-          await confirmNotOwner("Reparent Anyway", (override) =>
-            reparentChange(backend, now, change, parent, override),
-          );
+        if (change !== undefined) {
+          await reparentSelection(backend, change);
         }
       }),
     ),
@@ -1504,11 +1550,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.widenReviewing", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const change = singleChange(changes, "widen reviewing of");
-        if (change === undefined) {
-          return;
+        if (change !== undefined) {
+          await widenSelection(backend, change);
         }
-        const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
-        vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
       }),
     ),
     vscode.commands.registerCommand("cabaret.disableReviewing", () =>
