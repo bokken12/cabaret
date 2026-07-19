@@ -52,8 +52,8 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
     │ ../widgets-probe  │ (detached) │          │
     ╰───────────────────┴────────────┴──────────╯"
   `);
-  // Each row resolves to its workspace's directory; a change name links to
-  // the change, while a branch that is no change goes nowhere.
+  // Each row resolves to its workspace's directory; every named branch links
+  // to its page, change or not, while a detached workspace goes nowhere.
   const lines = docText(doc).split("\n");
   const rowLine = (text: string) => lines.findIndex((line) => line.includes(text));
   expect(targetAt(doc, rowLine("main"))).toEqual({ kind: "workspace", path: "/src/widgets" });
@@ -63,5 +63,9 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
   ]);
   expect(doc.lines[rowLine("main")]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
     { kind: "workspace", path: "/src/widgets" },
+    { kind: "change", change: "main" },
   ]);
+  expect(
+    doc.lines[rowLine("(detached)")]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target])),
+  ).toEqual([{ kind: "workspace", path: "/src/widgets-probe" }]);
 });

@@ -66,14 +66,14 @@ export interface TodoPage {
    */
   readonly broken: readonly BrokenChange[];
   /**
-   * The changes checked out in workspaces on this device, in workspace
-   * order (the primary working tree first). This is where a workspace
-   * whose change has landed gets noticed — and reclaimed.
+   * Every workspace on this device with a name checked out, change or not,
+   * in workspace order (the primary working tree first). This is where a
+   * workspace whose change has landed gets noticed — and reclaimed.
    */
   readonly workspaces: readonly WorkspaceEntry[];
 }
 
-/** A change and the workspace holding it on this device. */
+/** A checked-out name — not necessarily a change — and the workspace holding it on this device. */
 export interface WorkspaceEntry {
   readonly change: ChangeName;
   readonly workspace: WorkspaceNote;
@@ -179,13 +179,16 @@ export async function todoPage(backend: Backend, as?: UserName): Promise<TodoPag
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  const entries = [...workspaces].flatMap(([change, workspace]): WorkspaceEntry[] => {
+  const entries = [...workspaces].map(([change, workspace]): WorkspaceEntry => {
+    // Every workspace shows, even one on a branch that is no change — its
+    // name still opens a page — with the log-borne notes blank.
     const found = summaries.get(change);
-    // A workspace on a branch that is no change, or whose change is broken,
-    // is not this page's business; broken changes already surface as errors.
-    return found === undefined
-      ? []
-      : [{ change, workspace, landed: found.landed !== undefined, archived: found.archived }];
+    return {
+      change,
+      workspace,
+      landed: found !== undefined && found.landed !== undefined,
+      archived: found?.archived ?? false,
+    };
   });
   return { as: acting.as, review: pruneReview(forest), owned: pruneOwned(forest), broken, workspaces: entries };
 }
