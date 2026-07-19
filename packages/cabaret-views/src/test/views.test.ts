@@ -45,6 +45,14 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 }
 
 const files = (...names: string[]) => names.map(parseFilePath);
+/** `reviewLeft` entries; "old.ts -> new.ts" names a move. */
+const left = (...names: string[]) =>
+  names.map((name) => {
+    const [from, to] = name.split(" -> ");
+    return from !== undefined && to !== undefined
+      ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
+      : { path: parseFilePath(name), movedFrom: undefined };
+  });
 
 /** Each fold as the text of the lines it runs from and to. */
 function foldTexts(doc: Doc): (string | undefined)[][] {
@@ -56,7 +64,7 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
   const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const gizmo = summary("gizmo", {
     parent: parseBranchName("gadget"),
-    reviewLeft: files("gizmo.ts", "shared.ts"),
+    reviewLeft: left("gizmo.ts", "shared.ts"),
     base: fake("3"),
     tip: fake("4"),
   });
@@ -148,7 +156,7 @@ test("homeDoc with nothing to do keeps both sections, empty", () => {
 });
 
 test("homeDoc lists the changes checked out on this device in their own section", () => {
-  const gadget = summary("gadget", { reviewLeft: files("gadget.ts") });
+  const gadget = summary("gadget", { reviewLeft: left("gadget.ts") });
   const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const doc = homeDoc({
     as: undefined,
@@ -210,7 +218,7 @@ test("homeDoc lists the changes checked out on this device in their own section"
 });
 
 test("homeDoc as another user names them and keeps their identity on every change link", () => {
-  const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: files("gadget.ts") });
+  const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: left("gadget.ts") });
   const doc = homeDoc({
     as: userName("bob@example.com"),
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
@@ -289,7 +297,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
         id: forgeChangeId(7),
         staleParent: undefined,
       },
-      reviewLeft: files("api.ts", "ui.ts"),
+      reviewLeft: left("lib/api.ts -> api.ts", "ui.ts"),
     }),
     comments: [],
     workspace: undefined,
@@ -321,7 +329,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
       bob@example.com: 1 file
 
     Files to review:
-      api.ts
+      lib/api.ts -> api.ts
       ui.ts"
   `);
   expect(foldTexts(doc)).toEqual([
@@ -426,7 +434,7 @@ test("showDoc as another user names them and keeps their identity on file and ch
   const doc = showDoc({
     summary: summary("widgets", {
       included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
-      reviewLeft: files("api.ts"),
+      reviewLeft: left("api.ts"),
     }),
     as: bob,
     comments: [],
@@ -457,7 +465,7 @@ test("showDoc lists included changes above the review, each linking to its page"
         { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
         { change: parseBranchName("widgets-ui"), commit: fake("5"), onto: fake("3") },
       ],
-      reviewLeft: files("glue.ts"),
+      reviewLeft: left("glue.ts"),
     }),
     comments: [],
     workspace: undefined,
@@ -500,7 +508,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
   const doc = showDoc({
     as: undefined,
     summary: summary("widgets", {
-      reviewLeft: files("api.ts"),
+      reviewLeft: left("api.ts"),
       origin: "behind",
       staleBase: "behind",
       nextStep: "sync",
@@ -596,7 +604,7 @@ test("showDoc links the parent row to its page, except a missing parent", () => 
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
     as: undefined,
-    summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
+    summary: summary("gadget", { reviewLeft: left("gadget.ts") }),
     remaining: [{ user: userName("bob@example.com"), files: 1 }],
     workspace: undefined,
     comments: [

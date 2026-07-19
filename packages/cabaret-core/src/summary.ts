@@ -2,8 +2,10 @@ import {
   type Backend,
   brain,
   type ChangeDiff,
+  type ChangedFile,
   type ChangeName,
   changeConflicts,
+  changedByPath,
   currentArchived,
   currentForgeChange,
   currentOwner,
@@ -120,8 +122,8 @@ export interface ChangeSummary {
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
   readonly conflicts: readonly FilePath[];
-  /** Files with review left for the user, sorted by name. */
-  readonly reviewLeft: readonly FilePath[];
+  /** Files with review left for the user, sorted by name; a moved file names both sides. */
+  readonly reviewLeft: readonly ChangedFile[];
   readonly nextStep: NextStep;
 }
 
@@ -143,7 +145,7 @@ export async function summarizeChange(
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
   const rounds = await reviewRounds(backend, entries, user, diff);
-  const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
+  const reviewLeft = reviewLeftFiles(rounds);
   // A landed change is frozen, so nothing about its surroundings bears on it.
   // These are all local readings — origin's tip is whatever was last fetched
   // — so summarizing never makes a remote query.
@@ -344,10 +346,27 @@ async function nextStep(
     : "land";
 }
 
+/**
+ * The files `rounds` still owe, one entry per path, sorted by name. A file
+ * whose earliest pending view moves it names both sides — that view is the
+ * first thing its reviewer will read.
+ */
+export function reviewLeftFiles(rounds: readonly ReviewRound[]): readonly ChangedFile[] {
+  const left = new Map<FilePath, ChangedFile>();
+  for (const { files } of rounds) {
+    for (const [path, view] of files) {
+      if (!left.has(path)) {
+        left.set(path, { path, movedFrom: view.kind === "span" ? view.movedFrom : undefined });
+      }
+    }
+  }
+  return [...left.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
 /** What a reviewer looks at to review a file in a round. */
 export type FileView =
-  /** The plain diff from `start` to the round's end. */
-  | { readonly kind: "span"; readonly start: Revision }
+  /** The plain diff from `start` to the round's end — from the file's `movedFrom` path when the span moves it. */
+  | { readonly kind: "span"; readonly start: Revision; readonly movedFrom: FilePath | undefined }
   /** The base moved under the review: compare the reviewed diff with the current one. */
   | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
   /** The reviewed tip left the change's history: diff from its contents. */
@@ -396,7 +415,7 @@ export async function reviewRounds(
   const rounds: {
     start: Revision;
     end: Revision;
-    changed: ReadonlySet<FilePath>;
+    changed: ReadonlyMap<FilePath, ChangedFile>;
     files: Map<FilePath, FileView>;
   }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
   // A review recorded against objects this clone lacks — reviewed where the
@@ -418,15 +437,17 @@ export async function reviewRounds(
   const resumedFiles = perRevision(async (reviewedTip) => {
     for (const { start, end } of (await spansPast(reviewedTip)).values()) {
       if (start === reviewedTip) {
-        return new Set(await backend.changedFiles(start, end));
+        return changedByPath(await backend.changedFiles(start, end));
       }
     }
     // Only consulted for a remaining span whose start differs from its whole
     // span's, and such a span always starts at the reviewed tip.
     throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
   });
-  const unseenFiles = perRevision(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
-  for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed]))].sort()) {
+  const unseenFiles = perRevision(
+    async (reviewedTip) => new Set((await backend.changedFiles(reviewedTip, tip)).map(({ path }) => path)),
+  );
+  for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed.keys()]))].sort()) {
     const reviewed = known.get(file);
     if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {
       // A review the history can place: what remains is the spans past the
@@ -438,8 +459,9 @@ export async function reviewRounds(
           continue;
         }
         const changed = span.start === round.start ? round.changed : await resumedFiles(reviewed.tip);
-        if (changed.has(file)) {
-          round.files.set(file, { kind: "span", start: span.start });
+        const entry = changed.get(file);
+        if (entry !== undefined) {
+          round.files.set(file, { kind: "span", start: span.start, movedFrom: entry.movedFrom });
         }
       }
       continue;
@@ -453,12 +475,13 @@ export async function reviewRounds(
     }
     let first = true;
     for (const round of rounds) {
-      if (!round.changed.has(file)) {
+      const entry = round.changed.get(file);
+      if (entry === undefined) {
         continue;
       }
       const view: FileView =
         !first || reviewed === undefined
-          ? { kind: "span", start: round.start }
+          ? { kind: "span", start: round.start, movedFrom: entry.movedFrom }
           : reviewed.base !== base
             ? { kind: "rebased", reviewed }
             : { kind: "rewritten", from: reviewed.tip };

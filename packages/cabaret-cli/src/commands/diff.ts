@@ -33,13 +33,29 @@ export const diff = buildCommand({
     const { change, entries } = await resolveChange(backend, flags.change);
     const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
     const changed = await backend.changedFiles(base, tip);
-    const files = selectFiles(backend, changed, args, false, "changed file");
+    const byPath = new Map(changed.map((file) => [file.path, file]));
+    const moves = new Map(
+      changed.flatMap(({ path, movedFrom }) => (movedFrom === undefined ? [] : [[movedFrom, path] as const])),
+    );
+    const selected = selectFiles(
+      backend,
+      changed.map(({ path }) => path),
+      args,
+      false,
+      "changed file",
+    );
+    // A moved file answers to its old name too, so the diff shown is the
+    // move, not a bare deletion.
+    const files = [...new Set(selected.map((file) => (byPath.has(file) ? file : (moves.get(file) ?? file))))];
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
     let separate = false;
     for (const file of files) {
-      const [prev, next] = await Promise.all([backend.readFile(base, file), backend.readFile(tip, file)]);
-      this.process.stdout.write(`${separate ? "\n" : ""}${file} in ${change}\n\n`);
+      const movedFrom = byPath.get(file)?.movedFrom;
+      const [prev, next] = await Promise.all([backend.readFile(base, movedFrom ?? file), backend.readFile(tip, file)]);
+      this.process.stdout.write(
+        `${separate ? "\n" : ""}${movedFrom === undefined ? file : `${movedFrom} -> ${file}`} in ${change}\n\n`,
+      );
       separate = true;
       const rendered = renderDiff(file, prev, next, color, context);
       this.process.stdout.write(rendered === "" ? "No differences.\n" : rendered);

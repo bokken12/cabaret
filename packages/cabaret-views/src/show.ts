@@ -1,6 +1,7 @@
 import {
   type Backend,
   type ChangeComment,
+  type ChangedFile,
   type ChangeName,
   type ChangeSummary,
   changeDiff,
@@ -117,14 +118,19 @@ function header(heading: Span, attributes: readonly (readonly [string, string | 
 }
 
 /** The files section, each row resolving to `target(file)` when one is given. */
-function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => Target): Section | undefined {
+function filesToReview(files: readonly ChangedFile[], target?: (file: FilePath) => Target): Section | undefined {
   if (files.length === 0) {
     return undefined;
   }
   return section(
     { spans: [span("Files to review:", { style: "heading" })] },
-    files.map((file) => ({
-      spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
+    files.map(({ path, movedFrom }) => ({
+      spans: [
+        span("  "),
+        span(movedFrom === undefined ? path : `${movedFrom} -> ${path}`, {
+          ...(target === undefined ? {} : { target: target(path) }),
+        }),
+      ],
     })),
   );
 }

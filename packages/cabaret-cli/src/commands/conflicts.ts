@@ -29,7 +29,7 @@ export const conflicts = buildCommand({
     const entries = await backend.readLog(target);
     const base = await changeBase(backend, target, entries);
     const tip = await changeTip(backend, target, entries);
-    for (const file of await backend.changedFiles(base, tip)) {
+    for (const { path: file } of await backend.changedFiles(base, tip)) {
       const content = await backend.readFile(tip, file);
       if (content === undefined) {
         continue;

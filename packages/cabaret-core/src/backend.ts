@@ -54,6 +54,14 @@ export function parseFilePath(raw: string): FilePath {
   return raw as FilePath;
 }
 
+/** A file a diff changes, named by its path at the diff's tip side. */
+export interface ChangedFile {
+  /** The file's path at the tip — or at the base for a file the diff deletes. */
+  readonly path: FilePath;
+  /** The base-side path the file moved from, when the diff moves it. */
+  readonly movedFrom: FilePath | undefined;
+}
+
 /** A unix timestamp in milliseconds. Obtain via `timestampMs`. */
 export type TimestampMs = Branded<number, "TimestampMs">;
 
@@ -656,11 +664,12 @@ export interface Backend {
   readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
 
   /**
-   * The file paths that differ between `base` and `tip`. A moved file counts
-   * as a delete plus an add, so each path names the same file on both sides;
+   * The files that differ between `base` and `tip`, each named by its path
+   * at `tip` — or at `base` for a file the diff deletes. A moved file is one
+   * entry naming both sides, whether or not its contents also changed;
    * nested repositories (git submodules) are not files and are never listed.
    */
-  changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]>;
+  changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;
 
   /**
    * The name of every change, sorted by name: one per log ref. Only
@@ -1161,6 +1170,15 @@ export async function conflictedFiles(
   return files.filter((_, index) => marked[index]);
 }
 
+/** The files changed between `base` and `tip` whose contents at `tip` carry conflict markers. */
+export async function conflictsBetween(backend: Backend, base: Revision, tip: Revision): Promise<readonly FilePath[]> {
+  return conflictedFiles(
+    backend,
+    tip,
+    (await backend.changedFiles(base, tip)).map(({ path }) => path),
+  );
+}
+
 /** One contiguous span of a change's history that a reviewer must review. */
 export interface ReviewSpan {
   readonly start: Revision;
@@ -1216,9 +1234,9 @@ export async function remainingSpans(
   return remaining;
 }
 
-/** A review span and the files its diff changes. */
+/** A review span and the files its diff changes, keyed by their `ChangedFile` path. */
 export interface SpanDiff extends ReviewSpan {
-  readonly changed: ReadonlySet<FilePath>;
+  readonly changed: ReadonlyMap<FilePath, ChangedFile>;
 }
 
 /**
@@ -1274,13 +1292,22 @@ export async function diffBetween(backend: Backend, base: Revision, tip: Revisio
   const spans = await Promise.all(
     reviewSpans(lands, base, tip).map(async (span) => ({
       ...span,
-      changed: new Set(await backend.changedFiles(span.start, span.end)),
+      changed: changedByPath(await backend.changedFiles(span.start, span.end)),
     })),
   );
   return { base, tip, lands, spans };
 }
 
+/** Key `files` by path, the identity every diff-derived structure shares. */
+export function changedByPath(files: readonly ChangedFile[]): ReadonlyMap<FilePath, ChangedFile> {
+  return new Map(files.map((file) => [file.path, file]));
+}
+
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
 export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
-  return conflictedFiles(backend, diff.tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort());
+  return conflictedFiles(
+    backend,
+    diff.tip,
+    [...new Set(diff.spans.flatMap(({ changed }) => [...changed.keys()]))].sort(),
+  );
 }

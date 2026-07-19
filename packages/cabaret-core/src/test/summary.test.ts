@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   type Backend,
+  type ChangedFile,
   type ChangeName,
   type ChangeSummary,
   changeDiff,
@@ -168,7 +169,13 @@ function repoBackend(opts: {
       if (files === undefined) {
         throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
       }
-      return files.map(parseFilePath);
+      // "old.ts -> new.ts" names a move; a bare path a plain change.
+      return files.map((name) => {
+        const [from, to] = name.split(" -> ");
+        return from !== undefined && to !== undefined
+          ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
+          : { path: parseFilePath(name), movedFrom: undefined };
+      });
     },
     async readFile(commit, file) {
       return opts.contents?.[commit[0] as string]?.[file as string];
@@ -202,6 +209,16 @@ function created(parent: string, base: string): LogEntry[] {
 
 function review(file: string, base: string, tip: string): LogAction {
   return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
+}
+
+/** Expected `reviewLeft` entries; "old.ts -> new.ts" names a move, as the stub's diffs do. */
+function left(...names: string[]): ChangedFile[] {
+  return names.map((name) => {
+    const [from, to] = name.split(" -> ");
+    return from !== undefined && to !== undefined
+      ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
+      : { path: parseFilePath(name), movedFrom: undefined };
+  });
 }
 
 const feature = parseBranchName("feature");
@@ -252,6 +269,35 @@ test("a change with no commits of its own must add code", async () => {
   });
 });
 
+test("a moved file is one reviewLeft entry naming both sides", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["old/util.ts -> new/util.ts", "readme.md"] },
+  });
+  expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    kind: "change",
+    change: "feature",
+    parent: "main",
+    owner: alice,
+    reviewers: [],
+    reviewing: "everyone",
+    forgeChange: undefined,
+    landed: undefined,
+    included: [],
+    archived: false,
+    base: fake("1"),
+    tip: fake("2"),
+    origin: undefined,
+    deadParent: undefined,
+    parentOrigin: undefined,
+    staleBase: undefined,
+    conflicts: [],
+    reviewLeft: left("old/util.ts -> new/util.ts", "readme.md"),
+    nextStep: "review",
+  });
+});
+
 test("files outside the user's brain are left to review", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
@@ -277,7 +323,7 @@ test("files outside the user's brain are left to review", async () => {
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["b.ts"],
+    reviewLeft: left("b.ts"),
     nextStep: "review",
   });
   // bob has reviewed nothing, so both files are left, sorted by name.
@@ -299,7 +345,7 @@ test("files outside the user's brain are left to review", async () => {
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts", "b.ts"],
+    reviewLeft: left("a.ts", "b.ts"),
     nextStep: "review",
   });
 });
@@ -429,7 +475,7 @@ test("a trailing parent reads through while review remains", async () => {
     parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "review",
   });
 });
@@ -598,7 +644,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts", "b.ts"],
+    reviewLeft: left("a.ts", "b.ts"),
     nextStep: "landed",
   });
 });
@@ -619,11 +665,17 @@ test("reviewRounds splits review at land merges, oldest first", async () => {
   expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual([
     {
       end: fake("1"),
-      files: files({ "a.ts": { kind: "span", start: fake("0") }, "c.ts": { kind: "span", start: fake("0") } }),
+      files: files({
+        "a.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+        "c.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+      }),
     },
     {
       end: fake("3"),
-      files: files({ "b.ts": { kind: "span", start: fake("2") }, "c.ts": { kind: "span", start: fake("2") } }),
+      files: files({
+        "b.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+        "c.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+      }),
     },
   ]);
 });
@@ -637,7 +689,55 @@ test("reviewRounds resumes mid-span from a reviewed tip", async () => {
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("b.ts", "0", "2"))];
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2") } }) },
+    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined } }) },
+  ]);
+});
+
+test("reviewRounds keys a moved file by its new path, its view from the old", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["old/api.ts -> new/api.ts", "b.ts"] },
+  });
+  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
+    {
+      end: fake("2"),
+      files: files({
+        "b.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+        "new/api.ts": { kind: "span", start: fake("0"), movedFrom: parseFilePath("old/api.ts") },
+      }),
+    },
+  ]);
+});
+
+test("reviewRounds resuming past a move takes the resumed diff's reading of it", async () => {
+  // The move happened before the reviewed tip 1, so what remains is a plain
+  // diff of the file under its new name.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["a.ts -> b.ts"], "12": ["b.ts"] },
+  });
+  const entries = [...created("main", "0"), entry(review("b.ts", "0", "1"))];
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
+    { end: fake("2"), files: files({ "b.ts": { kind: "span", start: fake("1"), movedFrom: undefined } }) },
+  ]);
+});
+
+test("reviewRounds does not carry knowledge recorded under a moved file's old path", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["a.ts -> b.ts"] },
+  });
+  // The whole diff moves a.ts to b.ts, and the review names only a.ts: the
+  // move is due in full under its new name.
+  const entries = [...created("main", "0"), entry(review("a.ts", "0", "2"))];
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
+    {
+      end: fake("2"),
+      files: files({ "b.ts": { kind: "span", start: fake("0"), movedFrom: parseFilePath("a.ts") } }),
+    },
   ]);
 });
 
@@ -654,7 +754,10 @@ test("reviewRounds counts a review against absent objects as no review at all", 
   expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
     {
       end: fake("2"),
-      files: files({ "a.ts": { kind: "span", start: fake("0") }, "b.ts": { kind: "span", start: fake("0") } }),
+      files: files({
+        "a.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+        "b.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+      }),
     },
   ]);
 });
@@ -687,7 +790,10 @@ test("reviewRounds carries misplaced reviews into the earliest round's view", as
     },
     {
       end: fake("3"),
-      files: files({ "a.ts": { kind: "span", start: fake("2") }, "c.ts": { kind: "span", start: fake("2") } }),
+      files: files({
+        "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+        "c.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+      }),
     },
   ]);
 });
@@ -775,7 +881,7 @@ test("reviewRounds skips only the round a carried review leaves empty", async ()
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "9", "8"))];
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2") } }) },
+    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined } }) },
   ]);
 });
 
@@ -810,7 +916,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["b.ts", "c.ts"],
+    reviewLeft: left("b.ts", "c.ts"),
     nextStep: "review",
   });
 });
@@ -873,7 +979,7 @@ test("a change diverged from origin's copy must sync, review left or not", async
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "sync",
   });
 });
@@ -904,7 +1010,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "review",
   });
 });
@@ -934,7 +1040,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
     deadParent: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts", "b.ts"],
+    reviewLeft: left("a.ts", "b.ts"),
     nextStep: "review",
   });
 });
@@ -965,7 +1071,7 @@ test("a parent with no local branch reads as origin's copy, review still the ste
     parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "review",
   });
 });
@@ -1124,7 +1230,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["ui.ts"],
+    reviewLeft: left("ui.ts"),
     nextStep: "reparent",
   });
   // A disagreeing origin outranks even the dead parent, but both readings show.
@@ -1162,7 +1268,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["notes.md"],
+    reviewLeft: left("notes.md"),
     nextStep: "reparent",
   });
 });
@@ -1194,7 +1300,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     parentOrigin: undefined,
     staleBase: "diverged",
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "review",
   });
 });
@@ -1251,7 +1357,7 @@ test("an archived change reads as archived until the latest set-archived revives
     deadParent: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: ["a.ts"],
+    reviewLeft: left("a.ts"),
     nextStep: "archived",
   });
   const revived = await summarize(
