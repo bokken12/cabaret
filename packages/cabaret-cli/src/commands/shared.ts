@@ -97,7 +97,7 @@ export const contextFlag = {
  * `args` select, in `candidates`' order. No arguments select everything. An
  * argument with a glob character is a gitignore-style pattern against
  * repo-relative paths, and matching nothing is a mistake worth stopping on —
- * a typo would otherwise read as reviewed. Any other argument is a path,
+ * a typo would otherwise silently select nothing. Any other argument is a path,
  * resolved the way every command resolves one; one naming a file outside
  * `candidates` is an error under `strict` (marking it would record nothing)
  * and otherwise appends the file, for a viewer to answer "nothing here"
