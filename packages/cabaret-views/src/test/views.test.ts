@@ -230,15 +230,15 @@ test("todoDoc as another user names them and keeps their identity on every chang
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯"
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("│ gadget │      1 │ review"));
+    .findIndex((text) => text.includes("│ gadget │ review"));
   expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
 });
 
@@ -686,10 +686,10 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     fetched 08:04, 2026-07-19"
   `);
@@ -704,4 +704,57 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
   });
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
+});
+
+test("next steps an action performs link to running it, the rest staying bare", () => {
+  const doc = todoDoc({
+    as: undefined,
+    review: [],
+    owned: [
+      { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
+      { summary: summary("widgets", { nextStep: "fix conflicts" }), context: false, children: [] },
+    ],
+    broken: [],
+    workspaces: [],
+    fetched: undefined,
+  });
+  const rows = docText(doc).split("\n");
+  const targeted = (text: string) =>
+    doc.lines[rows.findIndex((row) => row.includes(text))]?.spans.filter(({ target }) => target !== undefined);
+  // The row's change opens its page as ever; the step is its own link.
+  expect(targeted("rebase")).toEqual([
+    { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
+    { text: "rebase", style: undefined, target: { kind: "action", change: "gizmo", action: "rebase" }, tier: "link" },
+  ]);
+  // Fixing conflicts is work done by hand, so the step offers nothing to run.
+  expect(targeted("fix conflicts")).toEqual([
+    { text: "widgets", style: undefined, target: { kind: "change", change: "widgets" }, tier: "link" },
+  ]);
+  const show = showDoc({
+    as: undefined,
+    summary: summary("gadget", { nextStep: "sync" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const stepLine = docText(show)
+    .split("\n")
+    .findIndex((text) => text.includes("next step"));
+  expect(targetAt(show, stepLine)).toEqual({ kind: "action", change: "gadget", action: "sync" });
+});
+
+test("a review next step opens the change's review, keeping a borrowed identity", () => {
+  const doc = showDoc({
+    as: userName("bob@example.com"),
+    summary: summary("gizmo", { nextStep: "review" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const stepLine = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("next step"));
+  expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "gizmo", as: "bob@example.com" });
 });
