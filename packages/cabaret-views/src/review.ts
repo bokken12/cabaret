@@ -1,6 +1,7 @@
 import {
   assertNoConflict,
   type Backend,
+  type ChangedFile,
   type ChangeName,
   changeConflicts,
   changeDiff,
@@ -15,6 +16,7 @@ import {
   type ReviewRound,
   type Revision,
   rebasedView,
+  reviewLeftFiles,
   reviewRounds,
   selfAs,
   shortHash,
@@ -99,7 +101,8 @@ export interface ReviewPage {
   readonly round:
     | {
         readonly end: Revision;
-        readonly files: readonly FilePath[];
+        /** The round's files, sorted by path; a moved file names both sides. */
+        readonly files: readonly ChangedFile[];
         /** Rounds still to come after this one. */
         readonly later: number;
       }
@@ -115,7 +118,7 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
     round:
       snapshot.conflicts.length > 0
         ? undefined
-        : first && { end: first.end, files: [...first.files.keys()], later: snapshot.rounds.length - 1 },
+        : first && { end: first.end, files: reviewLeftFiles([first]), later: snapshot.rounds.length - 1 },
   };
 }
 
@@ -128,7 +131,7 @@ export function reviewDoc(page: ReviewPage): Doc {
   const fileTarget = (file: FilePath): Target => ({ kind: "file", change: page.change, file, as: page.as });
   const first = page.round?.files[0];
   const proceed: { target: Target; tier: TargetTier } | undefined =
-    first === undefined ? undefined : { target: fileTarget(first), tier: "jump" };
+    first === undefined ? undefined : { target: fileTarget(first.path), tier: "jump" };
   const lines: Line[] = [
     { spans: [span(title, { style: "heading", ...proceed })] },
     { spans: [span("=".repeat(title.length), proceed)] },
@@ -146,8 +149,13 @@ export function reviewDoc(page: ReviewPage): Doc {
     { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
     { spans: [span("", proceed)] },
   );
-  for (const file of page.round.files) {
-    lines.push({ spans: [span("  "), span(file, { target: fileTarget(file) })] });
+  for (const { path, movedFrom } of page.round.files) {
+    lines.push({
+      spans: [
+        span("  "),
+        span(movedFrom === undefined ? path : `${movedFrom} -> ${path}`, { target: fileTarget(path) }),
+      ],
+    });
   }
   return layout(lines);
 }
@@ -240,6 +248,8 @@ export interface DiffPage {
         readonly end: Revision;
         /** Rounds after this one that still include the file. */
         readonly later: number;
+        /** The path the round's diff moves the file from, when it moves it. */
+        readonly movedFrom: FilePath | undefined;
         readonly view: DiffView;
       }
     | undefined;
@@ -265,21 +275,26 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
     return { change, file, as, round: undefined };
   }
   const { end, view } = found;
-  const two = async (from: Revision): Promise<DiffView> => {
-    const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(end, file)]);
+  const two = async (from: Revision, prevPath: FilePath): Promise<DiffView> => {
+    const [prev, next] = await Promise.all([backend.readFile(from, prevPath), backend.readFile(end, file)]);
     return { kind: "two", prev, next };
   };
   switch (view.kind) {
     case "span":
-      return { change, file, as, round: { end, later, view: await two(view.start) } };
+      return {
+        change,
+        file,
+        as,
+        round: { end, later, movedFrom: view.movedFrom, view: await two(view.start, view.movedFrom ?? file) },
+      };
     case "rewritten":
-      return { change, file, as, round: { end, later, view: await two(view.from) } };
+      return { change, file, as, round: { end, later, movedFrom: undefined, view: await two(view.from, file) } };
     case "rebased":
       return {
         change,
         file,
         as,
-        round: { end, later, view: await rebasedView(backend, file, view.reviewed, base, end) },
+        round: { end, later, movedFrom: undefined, view: await rebasedView(backend, file, view.reviewed, base, end) },
       };
   }
 }
@@ -586,7 +601,8 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
   const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
-  const title = `${page.file} in ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
+  const name = page.round?.movedFrom === undefined ? page.file : `${page.round.movedFrom} -> ${page.file}`;
+  const title = `${name} in ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
   const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },
@@ -612,7 +628,12 @@ export interface DiffsPage {
         readonly end: Revision;
         /** Rounds still to come after this one. */
         readonly later: number;
-        readonly files: readonly { readonly file: FilePath; readonly view: DiffView }[];
+        readonly files: readonly {
+          readonly file: FilePath;
+          /** The path the round's diff moves the file from, when it moves it. */
+          readonly movedFrom: FilePath | undefined;
+          readonly view: DiffView;
+        }[];
       }
     | undefined;
 }
@@ -630,7 +651,7 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
       if (page.round === undefined) {
         throw new Error(`${file} is in ${change}'s current round but has no diff`);
       }
-      return { file, view: page.round.view };
+      return { file, movedFrom: page.round.movedFrom, view: page.round.view };
     }),
   );
   return { change, as, conflicts, round: { end: first.end, later: snapshot.rounds.length - 1, files } };
@@ -641,8 +662,8 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
  * three @s a side keeps a long path's bar reading as a bar — and matching
  * the page grammar's file-section pattern.
  */
-function fileBar(file: FilePath): string {
-  const padded = ` ${file} `;
+function fileBar(name: string): string {
+  const padded = ` ${name} `;
   const left = Math.max(3, Math.floor((84 - padded.length) / 2));
   const right = Math.max(3, 84 - padded.length - left);
   return "@".repeat(left) + padded + "@".repeat(right);
@@ -663,13 +684,16 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  page.round.files.forEach(({ file, view }, i) => {
+  page.round.files.forEach(({ file, movedFrom, view }, i) => {
     if (i > 0) {
       nodes.push({ spans: [] });
     }
     const heading: Line = {
       spans: [
-        span(fileBar(file), { style: "heading", target: { kind: "file", change: page.change, file, as: page.as } }),
+        span(fileBar(movedFrom === undefined ? file : `${movedFrom} -> ${file}`), {
+          style: "heading",
+          target: { kind: "file", change: page.change, file, as: page.as },
+        }),
       ],
     };
     nodes.push(section(heading, fileBodyNodes(page.change, file, view, context)));

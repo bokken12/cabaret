@@ -4,6 +4,7 @@ import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
+  type ChangedFile,
   type ChangeName,
   type ConfigScope,
   type FilePath,
@@ -796,24 +797,48 @@ export class GitBackend implements Backend {
     return (response.body ?? Buffer.alloc(0)).toString();
   }
 
-  async changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]> {
-    // -z delimits with NULs and disables path quoting; --no-renames keeps a
-    // moved file as a delete plus an add, so each listed path exists under
-    // that name on whichever side has it. Submodules are dropped: a gitlink
-    // is not a file, so readFile could not serve it.
+  async changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]> {
+    // -z delimits with NULs and disables path quoting. --find-renames pairs
+    // a moved file's two sides into one entry — an unchanged move by hash
+    // alone, an edited one by content similarity. Submodules are dropped: a
+    // gitlink is not a file, so readFile could not serve it.
     const out = await git(this.root, [
       "diff",
-      "--name-only",
-      "--no-renames",
+      "--name-status",
+      "--find-renames",
       "--ignore-submodules=all",
       "-z",
       base,
       tip,
     ]);
-    return out
-      .split("\0")
-      .filter((path) => path !== "")
-      .map(parseFilePath);
+    // Each record is a status token, then one path — or two for a rename,
+    // old before new. The trailing NUL leaves one empty token at the end.
+    const tokens = out.split("\0");
+    const files: ChangedFile[] = [];
+    for (let i = 0; ; ) {
+      const status = tokens[i];
+      if (status === undefined || status === "") {
+        break;
+      }
+      const path = tokens[i + 1];
+      if (path === undefined) {
+        throw new Error(`diff status ${JSON.stringify(status)} names no path`);
+      }
+      if (/^[ADMT]$/.test(status)) {
+        files.push({ path: parseFilePath(path), movedFrom: undefined });
+        i += 2;
+      } else if (/^R\d+$/.test(status)) {
+        const to = tokens[i + 2];
+        if (to === undefined) {
+          throw new Error(`rename of ${JSON.stringify(path)} names no destination`);
+        }
+        files.push({ path: parseFilePath(to), movedFrom: parseFilePath(path) });
+        i += 3;
+      } else {
+        throw new Error(`unexpected diff status ${JSON.stringify(status)} for ${JSON.stringify(path)}`);
+      }
+    }
+    return files;
   }
 
   async tip(branch: ChangeName): Promise<Revision | undefined> {

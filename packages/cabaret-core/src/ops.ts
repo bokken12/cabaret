@@ -6,7 +6,7 @@ import {
   type ChangeName,
   changeBase,
   changeDiff,
-  conflictedFiles,
+  conflictsBetween,
   currentArchived,
   currentBase,
   currentOwner,
@@ -343,7 +343,7 @@ export async function rebaseChange(
   const base = await changeBase(backend, target, entries);
   // The merge moves the target's branch, so one held only at origin materializes.
   const tip = await ensureBranch(backend, target);
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   // A tip the base already reaches — the parent trailing where the change
   // was built — offers nothing to move; merging it would reverse-diff the
   // newer history, and pinning to it would slide the base backwards and
@@ -453,7 +453,7 @@ export async function prepareLand(
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   if (base !== onto) {
     const conflicts = await backend.mergeConflicts(base, tip, onto);
     if (conflicts.length > 0) {

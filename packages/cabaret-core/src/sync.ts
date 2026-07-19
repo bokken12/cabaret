@@ -2,7 +2,7 @@ import {
   assertChangeExists,
   type Backend,
   type ChangeName,
-  conflictedFiles,
+  conflictsBetween,
   ensureBranch,
   type FilePath,
   landedMerge,
@@ -81,7 +81,7 @@ async function joinBranch(
     return undefined;
   }
   const base = await backend.mergeBase(tip, origin);
-  assertNoConflict(change, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(change, await conflictsBetween(backend, base, tip));
   const conflicts = await backend.mergeOnto(change, base, origin, `Merge origin's '${change}' into ${change}`);
   return { conflicts };
 }

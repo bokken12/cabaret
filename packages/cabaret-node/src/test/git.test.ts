@@ -727,6 +727,49 @@ async function plumbTree(files: Record<string, string>): Promise<string> {
   return git("commit-tree", tree, "-m", "tree fixture");
 }
 
+test("changedFiles pairs moved files with their old paths", async () => {
+  const backend = await GitBackend.open(repo);
+  const guide = `opening thoughts\n${"a steady middle line\n".repeat(30)}closing thoughts\n`;
+  const notes = `first entry\n${"another ordinary entry\n".repeat(30)}last entry\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "kept.txt": "kept\n",
+      "edited.txt": "before\n",
+      "moved/guide.txt": guide,
+      "notes.txt": notes,
+      "dropped.txt": "dropped\n",
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree({
+      "kept.txt": "kept\n",
+      "edited.txt": "after\n",
+      "docs/guide.txt": guide,
+      "journal.txt": notes.replace("last entry", "final entry"),
+      "fresh.txt": "fresh\n",
+    }),
+  );
+  // An exact move pairs by hash and an edited one by similarity, both named
+  // by their new path; everything else stays a single-path entry.
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "docs/guide.txt", movedFrom: "moved/guide.txt" },
+    { path: "dropped.txt", movedFrom: undefined },
+    { path: "edited.txt", movedFrom: undefined },
+    { path: "fresh.txt", movedFrom: undefined },
+    { path: "journal.txt", movedFrom: "notes.txt" },
+  ]);
+});
+
+test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () => {
+  const backend = await GitBackend.open(repo);
+  const prev = parseCommitHash(await plumbTree({ "config.old": "alpha\nbeta\ngamma\n" }));
+  const next = parseCommitHash(await plumbTree({ "config.new": "one\ntwo\nthree\nfour\n" }));
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "config.new", movedFrom: undefined },
+    { path: "config.old", movedFrom: undefined },
+  ]);
+});
+
 test("readFile round-trips exact contents, keyed by byte-counted sizes", async () => {
   const backend = await GitBackend.open(repo);
   const files = {
