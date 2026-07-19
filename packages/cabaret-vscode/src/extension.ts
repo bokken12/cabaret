@@ -124,12 +124,12 @@ function backgroundSyncEnabled(): boolean {
 }
 
 /**
- * The local half of a fetch -- origin refreshed, idle branches advanced,
- * logs settled; nothing from the forge. Every log entry this can produce was
- * put there by somebody's forge sweep already, published through the shared
- * log refs, so running this often costs nothing beyond git's own traffic and
- * still surfaces a teammate's absorbed comment or land quickly, without this
- * workspace polling the forge itself to get it.
+ * The local half of a fetch -- origin refreshed, branches losing nothing
+ * advanced, logs settled; nothing from the forge. Every log entry this can
+ * produce was put there by somebody's forge sweep already, published through
+ * the shared log refs, so running this often costs nothing beyond git's own
+ * traffic and still surfaces a teammate's absorbed comment or land quickly,
+ * without this workspace polling the forge itself to get it.
  */
 async function fetchLocalHalf(): Promise<void> {
   await fetchLocal(await openBackend());

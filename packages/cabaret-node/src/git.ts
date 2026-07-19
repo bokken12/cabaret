@@ -532,28 +532,51 @@ export class GitBackend implements Backend {
     }
     // Straight from worktree list rather than `workspaces()`, whose
     // dirtiness reading costs a status scan per worktree — too heavy for a
-    // background cadence, and checked-out-ness alone decides here.
+    // background cadence; only the worktrees of branches origin is strictly
+    // ahead of get one below.
     const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-    const checkedOut = new Set(
-      worktrees
-        .split("\n")
-        .filter((line) => line.startsWith("branch refs/heads/"))
-        .map((line) => parseBranchName(line.slice("branch refs/heads/".length))),
-    );
+    const homes = new Map<ChangeName, string>();
+    for (const block of worktrees.trimEnd().split("\n\n")) {
+      const lines = block.split("\n");
+      const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+      const ref = lines.find((line) => line.startsWith("branch refs/heads/"));
+      if (path !== undefined && ref !== undefined) {
+        homes.set(parseBranchName(ref.slice("branch refs/heads/".length)), path);
+      }
+    }
     const advanced: ChangeName[] = [];
     for (const [branch, tip] of heads) {
       const origin = origins.get(branch);
-      if (origin === undefined || origin === tip || checkedOut.has(branch)) {
+      if (origin === undefined || origin === tip) {
         continue;
       }
       if (!(await this.isAncestor(tip, origin))) {
         continue;
       }
-      // CAS on the tip read above: a branch moved concurrently stays put.
-      try {
-        await git(this.root, ["update-ref", `refs/heads/${branch}`, origin, tip]);
-      } catch {
-        continue;
+      const home = homes.get(branch);
+      if (home === undefined) {
+        // CAS on the tip read above: a branch moved concurrently stays put.
+        try {
+          await git(this.root, ["update-ref", `refs/heads/${branch}`, origin, tip]);
+        } catch {
+          continue;
+        }
+      } else {
+        // A worktree holds the branch: a real fast-forward carries its index
+        // and working tree along, so only a clean worktree still on the
+        // branch moves — a dirty one keeps its line of work in place. One
+        // status call reads both; anything it can't say (a pruned worktree's
+        // directory is gone) leaves the branch put too.
+        try {
+          const status = await git(home, ["status", "--porcelain=v2", "--branch"]);
+          const lines = status.split("\n").filter((line) => line !== "");
+          if (!lines.includes(`# branch.head ${branch}`) || lines.some((line) => !line.startsWith("# "))) {
+            continue;
+          }
+          await git(home, ["merge", "--ff-only", origin]);
+        } catch {
+          continue;
+        }
       }
       advanced.push(branch);
     }

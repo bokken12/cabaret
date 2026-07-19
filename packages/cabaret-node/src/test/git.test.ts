@@ -516,33 +516,49 @@ test("originFetched dates this workspace's last successful fetch", async () => {
   }
 });
 
-test("advanceBranches fast-forwards only idle branches with origin strictly ahead", async () => {
+test("advanceBranches fast-forwards idle branches and clean worktrees with origin strictly ahead", async () => {
   const { dir, origin } = await makeRemotePair();
+  const worktree = `${dir}-worktree`;
   try {
     const backend = await GitBackend.open(dir);
     await backend.fetchOrigin();
     const root = await gitIn(dir, "rev-parse", "refs/remotes/origin/main");
-    // A commit origin never sees, to diverge with; then one origin gains.
+    // A commit origin never sees, to diverge with; then one origin gains,
+    // touching a file so a carried working tree is observable.
     await gitIn(dir, "switch", "-qc", "tmp", root);
     await gitIn(dir, "commit", "-qm", "local only", "--allow-empty");
     const local = await gitIn(dir, "rev-parse", "HEAD");
     await gitIn(dir, "update-ref", "refs/heads/diverge", local);
     await gitIn(dir, "reset", "-q", "--hard", root);
-    await gitIn(dir, "commit", "-qm", "landed on origin", "--allow-empty");
+    await writeFile(join(dir, "landed.txt"), "landed\n");
+    await gitIn(dir, "add", "landed.txt");
+    await gitIn(dir, "commit", "-qm", "landed on origin");
     const landed = await gitIn(dir, "rev-parse", "HEAD");
-    await gitIn(dir, "push", "-q", "origin", "tmp:main", "tmp:extra");
+    await gitIn(dir, "push", "-q", "origin", "tmp:main", "tmp:extra", "tmp:held", "tmp:diverge");
     await gitIn(dir, "branch", "main", root);
-    // Checked out and behind: left alone even though the move would be a plain ff.
+    // Checked out here, clean, and behind: advances, the working tree following.
     await gitIn(dir, "switch", "-qc", "extra", root);
+    // Checked out in a dirty worktree and behind: its line of work stays put.
+    await gitIn(dir, "branch", "held", root);
+    await gitIn(dir, "worktree", "add", "-q", worktree, "held");
+    await writeFile(join(worktree, "wip.txt"), "wip\n");
     await backend.fetchOrigin();
 
-    expect(await backend.advanceBranches()).toEqual([parseBranchName("main")]);
+    expect(await backend.advanceBranches()).toEqual([parseBranchName("extra"), parseBranchName("main")]);
     expect(await backend.tip(parseBranchName("main"))).toBe(parseCommitHash(landed));
-    expect(await backend.tip(parseBranchName("extra"))).toBe(parseCommitHash(root));
+    expect(await backend.tip(parseBranchName("extra"))).toBe(parseCommitHash(landed));
+    expect(await readFile(join(dir, "landed.txt"), "utf8")).toBe("landed\n");
+    expect(await backend.tip(parseBranchName("held"))).toBe(parseCommitHash(root));
     expect(await backend.tip(parseBranchName("diverge"))).toBe(parseCommitHash(local));
-    // Nothing left to move: a second pass is a no-op.
+    // The worktree cleaned up, its branch moves like any other.
+    await rm(join(worktree, "wip.txt"));
+    expect(await backend.advanceBranches()).toEqual([parseBranchName("held")]);
+    expect(await backend.tip(parseBranchName("held"))).toBe(parseCommitHash(landed));
+    expect(await readFile(join(worktree, "landed.txt"), "utf8")).toBe("landed\n");
+    // Nothing left to move: another pass is a no-op.
     expect(await backend.advanceBranches()).toEqual([]);
   } finally {
+    await rm(worktree, { recursive: true, force: true });
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
   }

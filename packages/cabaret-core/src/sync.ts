@@ -29,9 +29,10 @@ export interface FetchedLocal {
 
 /**
  * Fetch everything unobtrusive from origin, no forge involved: refresh
- * origin's copies, fast-forward branches no workspace holds open, and merge
- * every change's log with origin's. Never touches a working tree; `fetchForge`
- * runs the same steps and absorbs forge activity besides.
+ * origin's copies, fast-forward branches whose moves lose nothing — a clean
+ * workspace's working tree follows its branch; a dirty one holds it put —
+ * and merge every change's log with origin's. `fetchForge` runs the same
+ * steps and absorbs forge activity besides.
  */
 export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
