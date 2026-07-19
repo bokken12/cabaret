@@ -49,7 +49,7 @@ export const mark = buildCommand({
       throw new UserError(`nothing is left to review in ${JSON.stringify(change)}`);
     }
     const tip = await backend.resolveCommit(flags.tip);
-    const files = selectFiles(backend, pendingFiles(snapshot.rounds), args, true);
+    const files = selectFiles(backend, pendingFiles(snapshot.rounds), args, true, "file with review left");
     await backend.appendLog(
       change,
       files.map((file) => ({

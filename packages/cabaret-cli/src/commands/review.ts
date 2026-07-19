@@ -1,16 +1,8 @@
 import { buildCommand } from "@stricli/core";
-import {
-  defaultContext,
-  parseContext,
-  type Revision,
-  readConfig,
-  renderDiff,
-  renderDiff4,
-  shortHash,
-} from "cabaret-core";
+import { type Revision, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
 import { changeSnapshot, type DiffPage, diffPage, reviewDoc, reviewPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
-import { changeFlag, pendingFiles, resolveChange, selectFiles, writeDoc } from "./shared.js";
+import { changeFlag, contextFlag, pendingFiles, resolveChange, selectFiles, writeDoc } from "./shared.js";
 
 /** One file's heading: where its diff reviews up to, and what still follows. */
 function fileTitle(page: DiffPage): string {
@@ -43,12 +35,7 @@ export const review = buildCommand({
     },
     flags: {
       change: changeFlag("review"),
-      context: {
-        kind: "parsed",
-        parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
-        optional: true,
-      },
+      context: contextFlag,
     },
   },
   async func(this: LocalContext, flags: { change?: string; context?: number }, ...args: string[]) {
@@ -68,7 +55,9 @@ export const review = buildCommand({
     // No arguments show the current round; arguments select among every
     // pending file, so a later round's file can be asked for by name.
     const files =
-      args.length === 0 ? (page.round?.files ?? []) : selectFiles(backend, pendingFiles(snapshot.rounds), args, false);
+      args.length === 0
+        ? (page.round?.files ?? [])
+        : selectFiles(backend, pendingFiles(snapshot.rounds), args, false, "file with review left");
     let separate = false;
     if (page.round !== undefined) {
       const listed = page.round.files.filter((file) => files.includes(file));
