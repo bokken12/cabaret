@@ -197,14 +197,20 @@ export function showDoc(page: ShowPage): Doc {
     if (summary.landed === undefined) {
       attributes.push(["reviewing", summary.reviewing]);
     }
+    const parentNote =
+      summary.deadParent !== undefined
+        ? PARENT_NOTES[summary.deadParent]
+        : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin];
     attributes.push([
       "parent",
-      noted(
-        summary.parent,
-        summary.deadParent !== undefined
-          ? PARENT_NOTES[summary.deadParent]
-          : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin],
-      ),
+      [
+        // A missing parent has no page to link to.
+        span(
+          summary.parent,
+          summary.deadParent === "missing" ? {} : { target: { kind: "change", change: summary.parent, as: page.as } },
+        ),
+        ...(parentNote === undefined ? [] : [span(` (${parentNote})`)]),
+      ],
     ]);
     if (summary.forgeChange !== undefined) {
       const { forge, id, staleParent } = summary.forgeChange;
