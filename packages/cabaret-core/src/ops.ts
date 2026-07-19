@@ -39,9 +39,12 @@ import { reviewRounds } from "./summary.js";
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
- * with the last revision shared with the parent as its base. The change must
- * not already exist. Review starts with nobody asked — the change is a draft
- * until widened — though the owner may record self-review at any stage.
+ * with the last revision shared with the parent as its base. Parent and
+ * adopted branch alike read freshest — the descendant-most of the local tip
+ * and origin's last-fetched copy — and diverged readings fail until synced.
+ * The change must not already exist. Review starts with nobody asked — the
+ * change is a draft until widened — though the owner may record self-review
+ * at any stage.
  */
 export async function createChange(
   backend: Backend,
@@ -56,22 +59,33 @@ export async function createChange(
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
-  const parentTip = await backend.tip(parent);
-  if (parentTip === undefined) {
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  // Not a `DivergedParentError`: frontends attach rebase's override remedy
+  // to that class, and create offers no override — sync is the way forward.
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const parentTip = parentReading.tip;
   // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
-  const existing = await backend.tip(change);
+  const existing = await freshestReading(backend, change);
+  if (existing.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(change)} has diverged from origin's copy; sync it first`);
+  }
   // A fresh branch is created at the parent's tip, which is therefore its
   // base; an adopted branch is based where it last shared with the parent.
-  let base: typeof parentTip;
-  if (existing === undefined) {
+  // One adopted from origin's copy alone stays unmaterialized, like an
+  // imported change: the branch appears on engagement.
+  let base: Revision;
+  if (existing.kind === "none") {
     await backend.create(change, parentTip);
     base = parentTip;
   } else {
-    base = await backend.mergeBase(parentTip, existing);
+    base = await backend.mergeBase(parentTip, existing.tip);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
@@ -634,8 +648,9 @@ export async function reparentChange(
   const entries = await backend.readLog(change);
   assertNotLanded(change, entries);
   await requireOwner(backend, change, entries, override);
-  // The same liveness `create` demands: a parent is a branch, change log or not.
-  if ((await backend.tip(parent)) === undefined) {
+  // The same liveness `create` demands: a parent is a branch — local or
+  // origin's fetched copy — change log or not.
+  if ((await freshestReading(backend, parent)).kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   await backend.appendLog(change, [
@@ -682,7 +697,8 @@ export async function renameChange(
   if ((await backend.readLog(to)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(to)}`);
   }
-  if ((await backend.tip(to)) !== undefined) {
+  // Origin holding the name counts too: the rename would collide there on push.
+  if ((await freshestReading(backend, to)).kind !== "none") {
     throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
   }
   await backend.rename(from, to);
