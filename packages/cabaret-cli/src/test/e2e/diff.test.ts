@@ -137,6 +137,43 @@ test("a moved file answers to its old name", async () => {
   `);
 });
 
+test("a file copied from one modified alongside it diffs from its source", async () => {
+  const repo = await makeRepo();
+  await repo.write("charter.txt", "preamble\narticle one\narticle two\nclosing\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.write("charter.txt", "amended preamble\narticle one\narticle two\nclosing\n");
+  await repo.write("bylaws.txt", "preamble\narticle one\narticle two\nbylaws closing\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "split out bylaws");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("diff")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "charter.txt => bylaws.txt in main
+
+    -1,4 +1,4
+      preamble
+      article one
+      article two
+    -|closing
+    +|bylaws closing
+
+    charter.txt in main
+
+    -1,4 +1,4
+    -|preamble
+    +|amended preamble
+      article one
+      article two
+      closing
+    ",
+    }
+  `);
+});
+
 test("a pattern matching no changed file is an error", async () => {
   const repo = await makeChange({ "greeting.txt": "hello\n" });
   expect(await repo.cabaret("diff", "*.rs")).toEqual({

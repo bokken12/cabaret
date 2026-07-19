@@ -54,12 +54,24 @@ export function parseFilePath(raw: string): FilePath {
   return raw as FilePath;
 }
 
+/** The base-side file a changed file was moved or copied from. */
+export interface FileSource {
+  readonly path: FilePath;
+  /** A copy's source survives at the tip; a move's does not. */
+  readonly copied: boolean;
+}
+
 /** A file a diff changes, named by its path at the diff's tip side. */
 export interface ChangedFile {
   /** The file's path at the tip — or at the base for a file the diff deletes. */
   readonly path: FilePath;
-  /** The base-side path the file moved from, when the diff moves it. */
-  readonly movedFrom: FilePath | undefined;
+  /** The source the diff moved or copied the file from, when it records one. */
+  readonly source: FileSource | undefined;
+}
+
+/** `path` alone, or `old -> path` naming a move's source — `=>` a copy's. */
+export function fileLabel(path: FilePath, source: FileSource | undefined): string {
+  return source === undefined ? path : `${source.path} ${source.copied ? "=>" : "->"} ${path}`;
 }
 
 /** A unix timestamp in milliseconds. Obtain via `timestampMs`. */
@@ -673,7 +685,8 @@ export interface Backend {
   /**
    * The files that differ between `base` and `tip`, each named by its path
    * at `tip` — or at `base` for a file the diff deletes. A moved file is one
-   * entry naming both sides, whether or not its contents also changed;
+   * entry naming its source, whether or not its contents also changed, and a
+   * file recognizably copied from another carries its source the same way;
    * nested repositories (git submodules) are not files and are never listed.
    */
   changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;

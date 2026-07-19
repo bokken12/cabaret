@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type Revision, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
+import { fileLabel, type Revision, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
 import { changeSnapshot, type DiffPage, diffPage, reviewDoc, reviewPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { changeFlag, contextFlag, pendingFiles, resolveChange, selectFiles, writeDoc } from "./shared.js";
@@ -9,8 +9,8 @@ function fileTitle(page: DiffPage): string {
   if (page.round === undefined) {
     return `${page.file} in ${page.change}`;
   }
-  const { end, later, movedFrom } = page.round;
-  const name = movedFrom === undefined ? page.file : `${movedFrom} -> ${page.file}`;
+  const { end, later, source } = page.round;
+  const name = fileLabel(page.file, source);
   const more = later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
   return `${name} in ${page.change} (up to ${shortHash(end)}${more})`;
 }
