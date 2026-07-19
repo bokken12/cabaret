@@ -22,6 +22,7 @@ import {
   type Reviewing,
   type Revision,
   remainingSpans,
+  requireTip,
   type UserName,
 } from "./backend.js";
 import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
@@ -84,6 +85,7 @@ export type NextStep =
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
+  readonly kind: "change";
   readonly change: ChangeName;
   readonly parent: ChangeName;
   readonly owner: UserName;
@@ -156,16 +158,7 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
-    // A change with no local branch reads as origin's copy itself — trivially
-    // in sync, so no reading arises, just as when a local branch matches.
-    const originTip = await backend.originTip(change);
-    if (originTip !== undefined && originTip !== tip) {
-      origin = (await backend.isAncestor(originTip, tip))
-        ? "ahead"
-        : (await backend.isAncestor(tip, originTip))
-          ? "behind"
-          : "diverged";
-    }
+    origin = await originStanding(backend, change, tip);
     if (landedMerge(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
@@ -189,6 +182,7 @@ export async function summarizeChange(
     }
   }
   const readings = {
+    kind: "change" as const,
     change,
     parent,
     owner: currentOwner(change, entries),
@@ -209,6 +203,74 @@ export async function summarizeChange(
     reviewLeft,
   };
   return { ...readings, nextStep: await nextStep(backend, readings, stale) };
+}
+
+/**
+ * How `tip` stands relative to origin's last-fetched copy of `change`, when
+ * they differ. A change with no local branch reads as origin's copy itself —
+ * trivially in sync, so no reading arises, just as when a local branch
+ * matches.
+ */
+async function originStanding(backend: Backend, change: ChangeName, tip: Revision): Promise<ChangeSummary["origin"]> {
+  const originTip = await backend.originTip(change);
+  if (originTip === undefined || originTip === tip) {
+    return undefined;
+  }
+  return (await backend.isAncestor(originTip, tip))
+    ? "ahead"
+    : (await backend.isAncestor(tip, originTip))
+      ? "behind"
+      : "diverged";
+}
+
+/**
+ * A branch with no log, read as a change: a trunk like `main`, or any branch
+ * Cabaret never created. Nothing was ever declared about it — no owner, no
+ * parent, no base — so its status is only what its history shows.
+ */
+export interface TrunkSummary {
+  readonly kind: "trunk";
+  readonly change: ChangeName;
+  readonly tip: Revision;
+  /** How the tip stands relative to origin's last-fetched copy, when they differ. */
+  readonly origin: "ahead" | "behind" | "diverged" | undefined;
+  /** The changes landed into the branch recently, oldest first. */
+  readonly included: readonly LandMerge[];
+  /** Whether the history continues past the bounded scan behind `included`. */
+  readonly truncated: boolean;
+}
+
+/**
+ * First-parent commits surveyed for a trunk's recent lands: enough to read
+ * as a release log, bounded so a long-lived branch's whole history never
+ * loads.
+ */
+const TRUNK_LAND_SCAN = 500;
+
+/** Summarize a branch with no log. */
+export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
+  const tip = await requireTip(backend, change);
+  const [origin, { lands, more }] = await Promise.all([
+    originStanding(backend, change, tip),
+    backend.recentLandMerges(tip, TRUNK_LAND_SCAN),
+  ]);
+  return { kind: "trunk", change, tip, origin, included: lands, truncated: more };
+}
+
+/**
+ * The names the logs speak for: every change, and every trunk — a parent
+ * changes hang from without it being a change itself, which is how a default
+ * branch is acknowledged without a log of its own. These are the names to
+ * offer and to answer for implicitly; a branch no log refers to shows only
+ * when named outright.
+ */
+export async function knownChanges(backend: Backend): Promise<readonly ChangeName[]> {
+  const changes = await backend.listChanges();
+  const names = new Set<ChangeName>(changes);
+  for (const change of changes) {
+    names.add(currentParent(change, await backend.readLog(change)));
+  }
+  return [...names].sort();
 }
 
 /**

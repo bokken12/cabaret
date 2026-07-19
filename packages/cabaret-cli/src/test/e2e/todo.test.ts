@@ -172,6 +172,13 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ master │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
@@ -191,6 +198,13 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ master │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
   // An operation that moves the branch creates it from origin's copy.
@@ -258,6 +272,13 @@ test("todo with no changes shows both sections empty", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ main   │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -337,6 +358,13 @@ test("your own forge change joins the changes you own through the recorded alias
     ├──────────────┼────────┼───────────┤
     │ solo-feature │      1 │ review    │
     ╰──────────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ main   │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });
@@ -362,6 +390,13 @@ test("a merged forge change is not imported", async () => {
     │ change │ review │ next step │
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬───────────┬──────╮
+    │ change │ workspace │ note │
+    ├────────┼───────────┼──────┤
+    │ main   │ .         │      │
+    ╰────────┴───────────┴──────╯
     "
   `);
 });

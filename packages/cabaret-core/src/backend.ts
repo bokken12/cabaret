@@ -571,6 +571,17 @@ export interface Backend {
   landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]>;
 
   /**
+   * The land merges among the newest `scan` commits of `tip`'s first-parent
+   * chain, oldest first, and whether the chain continues past those commits.
+   * Bounds what surveying a long-lived branch's history costs, where
+   * `landMerges` would walk it whole.
+   */
+  recentLandMerges(
+    tip: Revision,
+    scan: number,
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
+
+  /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
    * (changes rebase freely) but refusing to overwrite work this repository
    * has never fetched.

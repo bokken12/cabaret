@@ -334,6 +334,38 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
   );
 });
 
+test("recentLandMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
+  const backend = await GitBackend.open(repo);
+  // A first-parent chain atop the root: work, a land, more work, another land.
+  const work = await plumbCommit("recent work");
+  const first = await plumbCommit("Land first-recent\n\nCabaret-Landed: first-recent", work);
+  const more = await plumbCommit("more recent work", first);
+  const second = await plumbCommit("Land second-recent\n\nCabaret-Landed: second-recent", more);
+  const tip = parseCommitHash(second);
+  // A scan wide enough for the whole chain (tip, more, first, work, root) sees
+  // both lands and no further history.
+  expect(await backend.recentLandMerges(tip, 5)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: false,
+  });
+  // A scan of the newest three commits reaches back only to the first land,
+  // and notes the chain continuing past it.
+  expect(await backend.recentLandMerges(tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: true,
+  });
+  expect(await backend.recentLandMerges(tip, 1)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
+    more: true,
+  });
+});
+
 test("isAncestor distinguishes ancestors from unrelated commits", async () => {
   const backend = await GitBackend.open(repo);
   const rootHash = parseCommitHash(await git("rev-list", "--max-parents=0", "HEAD"));

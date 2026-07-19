@@ -57,6 +57,7 @@ test("workspace add creates a sibling working tree that dir, list, and todo repo
     ╭────────┬───────────────┬──────╮
     │ change │ workspace     │ note │
     ├────────┼───────────────┼──────┤
+    │ main   │ .             │      │
     │ gizmo  │ ../repo-gizmo │      │
     ╰────────┴───────────────┴──────╯
     "
@@ -137,6 +138,7 @@ test("a landed change stays in the todo workspaces section until its workspace i
     ╭────────┬───────────────┬────────╮
     │ change │ workspace     │ note   │
     ├────────┼───────────────┼────────┤
+    │ main   │ .             │        │
     │ gizmo  │ ../repo-gizmo │ landed │
     ╰────────┴───────────────┴────────╯
     "
