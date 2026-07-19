@@ -7,6 +7,7 @@ import {
   parseForgeLocator,
   type Revision,
   timestampMs,
+  type UserName,
   userName,
 } from "cabaret-core";
 import { expect, test } from "vitest";
@@ -565,6 +566,31 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({}, "tip")).toBe("│ tip       │ 222222222222      │");
   expect(attributeRow({}, "parent")).toBe("│ parent    │ gadget            │");
   expect(attributeRow({}, "base")).toBe("│ base      │ 111111111111      │");
+});
+
+test("showDoc links the parent row to its page, except a missing parent", () => {
+  const parentTarget = (opts: Partial<ChangeSummary>, as?: UserName) => {
+    const doc = showDoc({
+      as,
+      summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    });
+    const line = docText(doc)
+      .split("\n")
+      .findIndex((text) => text.startsWith("│ parent"));
+    return targetAt(doc, line);
+  };
+  expect(parentTarget({})).toEqual({ kind: "change", change: "gadget" });
+  expect(parentTarget({ deadParent: "landed" })).toEqual({ kind: "change", change: "gadget" });
+  expect(parentTarget({}, userName("bob@example.com"))).toEqual({
+    kind: "change",
+    change: "gadget",
+    as: "bob@example.com",
+  });
+  expect(parentTarget({ deadParent: "missing" })).toBeUndefined();
 });
 
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
