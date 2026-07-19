@@ -1,7 +1,7 @@
 import type { Backend } from "cabaret-core";
 import type { Doc } from "./doc.js";
 import type { Page } from "./pages.js";
-import { changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
+import { changeSnapshot, diffDoc, diffPage, diffsDoc, diffsPage, reviewDoc, reviewPage } from "./review.js";
 import { showDoc, showPage } from "./show.js";
 import { todoDoc, todoPage } from "./todo.js";
 
@@ -24,6 +24,8 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
       return showDoc(await showPage(backend, page.change, page.as));
     case "review":
       return reviewDoc(reviewPage(await changeSnapshot(backend, page.change, page.as)));
+    case "diffs":
+      return diffsDoc(await diffsPage(backend, await changeSnapshot(backend, page.change, page.as)), options.context);
     case "diff":
       return diffDoc(
         await diffPage(backend, await changeSnapshot(backend, page.change, page.as), page.file),

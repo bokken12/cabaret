@@ -12,7 +12,9 @@ import { expect, test } from "vitest";
 import {
   type ChangeSnapshot,
   type DiffPage,
+  type DiffsPage,
   diffDoc,
+  diffsDoc,
   docText,
   markReviewed,
   reviewDoc,
@@ -776,4 +778,108 @@ test("markReviewed of a file with no review pending records nothing", () => {
   const result = markReviewed(appendOnly(appended), () => at, snapshotWith(["a.ts"]), parseFilePath("other.ts"));
   expect(result).toEqual({ kind: "nothing-left" });
   expect(appended).toEqual([]);
+});
+
+function diffsPageWith(round: DiffsPage["round"], conflicts: DiffsPage["conflicts"] = []): DiffsPage {
+  return { change: widgets, as: undefined, conflicts, round };
+}
+
+test("diffsDoc renders every file of the round under its own bar", () => {
+  const doc = diffsDoc(
+    diffsPageWith({
+      end: fake("3"),
+      later: 1,
+      files: [
+        { file: parseFilePath("api.ts"), view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } },
+        { file: parseFilePath("docs/notes.md"), view: { kind: "two", prev: "old\n", next: "new\n" } },
+        { file: parseFilePath("moved.cfg"), view: { kind: "two", prev: "same\n", next: "same\n" } },
+      ],
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets (up to 333333333333; 1 more round follows)
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    -1,2 +1,2
+    shared
+    gone
+    here
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ docs/notes.md @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    -1,1 +1,1
+    old
+    new
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ moved.cfg @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    No differences left to read; mark the file reviewed to record that."
+  `);
+  // Each file folds down to its bar, each hunk to its header.
+  expect(doc.folds).toEqual([
+    { start: 2, end: 6 },
+    { start: 3, end: 6 },
+    { start: 8, end: 11 },
+    { start: 9, end: 11 },
+    { start: 13, end: 14 },
+  ]);
+});
+
+test("diffsDoc targets the change from its title, files from their bars, and lines from their hunks", () => {
+  const doc = diffsDoc(
+    diffsPageWith({
+      end: fake("3"),
+      later: 0,
+      files: [
+        { file: parseFilePath("api.ts"), view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } },
+        { file: parseFilePath("docs/notes.md"), view: { kind: "two", prev: "old\n", next: "new\n" } },
+      ],
+    }),
+  );
+  const location = (file: string, line: number) => ({ kind: "location", change: "widgets", file, line });
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    { kind: "change", change: "widgets" },
+    undefined, // blank
+    { kind: "file", change: "widgets", file: "api.ts" },
+    location("api.ts", 1), // -1,2 +1,2
+    location("api.ts", 1), // shared
+    location("api.ts", 2), // gone
+    location("api.ts", 2), // here
+    undefined, // blank
+    { kind: "file", change: "widgets", file: "docs/notes.md" },
+    location("docs/notes.md", 1), // -1,1 +1,1
+    location("docs/notes.md", 1), // old
+    location("docs/notes.md", 1), // new
+  ]);
+  // Bars advertise themselves as links; diff lines answer the cursor alone.
+  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual([
+    "link",
+    undefined,
+    "link",
+    "jump",
+    "jump",
+    "jump",
+    "jump",
+    undefined,
+    "link",
+    "jump",
+    "jump",
+    "jump",
+  ]);
+});
+
+test("diffsDoc with conflicts asks for the fix instead of showing diffs", () => {
+  const doc = diffsDoc(diffsPageWith(undefined, [parseFilePath("api.ts")]));
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets
+
+    Unresolved conflicts in api.ts; fix the markers and amend."
+  `);
+});
+
+test("diffsDoc with nothing left says so", () => {
+  const doc = diffsDoc(diffsPageWith(undefined));
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets
+
+    Nothing left to review."
+  `);
 });

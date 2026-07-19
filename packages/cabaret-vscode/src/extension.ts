@@ -67,6 +67,7 @@ import {
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
 import { type Manifest, pageHelp } from "./help.js";
+import { writePageGrammar } from "./language.js";
 import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
@@ -578,6 +579,19 @@ async function review(provider: PageProvider): Promise<void> {
   if (page !== undefined) {
     await openPage(provider, { kind: "review", change: page.change, as: page.as });
   }
+}
+
+/** Open every diff of the active page's change, one round in one buffer. */
+async function reviewDiffs(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "todo") {
+    return;
+  }
+  await openPage(provider, { kind: "diffs", change: page.change, as: page.as });
 }
 
 /**
@@ -1311,6 +1325,11 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  try {
+    writePageGrammar(context);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: writing the page grammar failed — ${message(error)}`);
+  }
   const provider = new PageProvider();
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
@@ -1386,6 +1405,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
+    vscode.commands.registerCommand("cabaret.reviewDiffs", () => reviewDiffs(provider)),
     vscode.commands.registerCommand("cabaret.actAs", () => actAs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
