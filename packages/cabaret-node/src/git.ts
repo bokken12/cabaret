@@ -895,6 +895,34 @@ export class GitBackend implements Backend {
     }
   }
 
+  async commit(message: string, paths: readonly FilePath[]): Promise<void> {
+    try {
+      await git(this.root, ["add", "--all", ...(paths.length === 0 ? [] : ["--", ...paths])]);
+    } catch (error) {
+      const unmatched =
+        error instanceof Error ? /pathspec '.*' did not match any files/.exec(error.message)?.[0] : undefined;
+      if (unmatched !== undefined) {
+        throw new UserError(unmatched);
+      }
+      throw error;
+    }
+    // `diff --cached --quiet` exits 1 exactly when something is staged; any
+    // other failure is real.
+    let staged = false;
+    try {
+      await git(this.root, ["diff", "--cached", "--quiet"]);
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 1) {
+        throw error;
+      }
+      staged = true;
+    }
+    if (!staged) {
+      throw new UserError("nothing to commit");
+    }
+    await git(this.root, ["commit", "--quiet", "--message", message]);
+  }
+
   mergeBase(a: Revision, b: Revision): Promise<Revision> {
     return this.ancestry.mergeBase(a, b, async () => {
       const out = await git(this.root, ["merge-base", a, b]);

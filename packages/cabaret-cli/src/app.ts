@@ -11,6 +11,7 @@ import {
 import { approve } from "./commands/approve.js";
 import { archive, unarchive } from "./commands/archive.js";
 import { comment } from "./commands/comment.js";
+import { commit } from "./commands/commit.js";
 import { config } from "./commands/config.js";
 import { conflicts } from "./commands/conflicts.js";
 import { create } from "./commands/create.js";
@@ -62,6 +63,7 @@ const routes = buildRouteMap({
     approve,
     archive,
     comment,
+    commit,
     config,
     conflicts,
     create,

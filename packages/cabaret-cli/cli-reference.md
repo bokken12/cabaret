@@ -42,6 +42,21 @@ FLAGS
 ARGUMENTS
   text  the comment text
 
+## cabaret commit
+
+USAGE
+  cabaret commit (--message value) <file>...
+  cabaret commit --help
+
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging. Arguments narrow what is committed to the named files or patterns.
+
+FLAGS
+  -m --message  Message recorded on the commit
+  -h --help     Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to commit (defaults to every edit)
+
 ### cabaret config list
 
 USAGE
