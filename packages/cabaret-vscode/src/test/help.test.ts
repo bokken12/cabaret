@@ -35,6 +35,7 @@ test("show page keybindings", () => {
   expect(pageHelp(manifest, "show").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
@@ -66,6 +67,7 @@ test("review page keybindings", () => {
   expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
@@ -95,6 +97,7 @@ test("diff page keybindings", () => {
   expect(pageHelp(manifest, "diff").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
@@ -114,6 +117,7 @@ test("help carries the command, so picking an entry can run it", () => {
   expect(pageHelp(manifest, "diff").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
     [
       "enter  cabaret.openTarget",
+      "esc  cabaret.stepOutside",
       "tab  editor.toggleFold",
       "q  workbench.action.closeActiveEditor",
       "R  cabaret.refresh",

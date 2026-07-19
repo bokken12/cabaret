@@ -10,7 +10,9 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - **Cabaret: Todo** — open the todo page: what awaits your attention.
 - **Cabaret: Show Change** — open the current change's show page, picking
   one when no change is current.
-- In a cabaret buffer, `enter` opens the target under the cursor, `tab`
+- In a cabaret buffer, `enter` opens the target under the cursor, `esc`
+  steps outside to the enclosing page — a file's diff to the review page,
+  the review page to the show page, the show page to home — `tab`
   folds or unfolds the section at the cursor, `R` re-renders the page,
   `q` closes it, and `?` lists the page's keybindings — picking an entry
   runs it.
@@ -34,7 +36,7 @@ text buffers, so search, selection, and vim keybindings work untouched.
   keeps the offer quiet from then on.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
-  `tab` alone needs a hand; see below.
+  `tab` and `esc` need a hand; see below.
 - With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f
   t` opens the todo page and `SPC a f s` shows the current change.
 
@@ -61,6 +63,30 @@ extension, and carve out the buffers that want `tab` for themselves:
 If you already carry this pair from edamagit's instructions, keep its
 `editorLangId != 'magit'` exclusion alongside and just add
 `&& resourceScheme != 'cabaret'` to the `when`.
+
+## VSCodeVim and esc
+
+`esc` has the same extension-versus-extension standoff as `tab`, with one
+twist: vim must keep `esc` even in cabaret buffers whenever it is not in
+normal mode, or visual mode would have no way out. The carve-out therefore
+yields only normal-mode `esc` in cabaret buffers, where vim's own `esc` has
+nothing left to cancel:
+
+```jsonc
+{
+  "key": "escape",
+  "command": "-extension.vim_escape"
+},
+{
+  "key": "escape",
+  "command": "extension.vim_escape",
+  "when": "editorTextFocus && vim.active && !inDebugRepl && (resourceScheme != 'cabaret' || vim.mode != 'Normal')"
+}
+```
+
+Without VSCodeVim no pair is needed: the binding already yields to `esc`'s
+editor dismissals — closing the find widget, clearing a selection or extra
+cursors — and steps outside only once there is nothing left to dismiss.
 
 ## Installing
 

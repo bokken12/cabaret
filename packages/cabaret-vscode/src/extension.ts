@@ -57,6 +57,7 @@ import {
   changeSnapshot,
   type Doc,
   docText,
+  enclosingPage,
   type MarkReviewedResult,
   markReviewed,
   type Page,
@@ -479,6 +480,20 @@ async function showChild(provider: PageProvider): Promise<void> {
   if (child !== undefined) {
     await openPage(provider, { kind: "show", change: backend.parseName(child), as: page.as });
   }
+}
+
+/** Escape: back out to the enclosing page, closing the page left behind. */
+async function stepOutside(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const outer = enclosingPage(parsePagePath(editor.document.uri.path));
+  if (outer === undefined) {
+    return;
+  }
+  await closeTabs(editor.document.uri);
+  await openPage(provider, outer);
 }
 
 /** Enter at the cursor: any of the line's targets answers, links and jumps alike. */
@@ -1509,6 +1524,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.home", () => openPage(provider, { kind: "home" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    vscode.commands.registerCommand("cabaret.stepOutside", () => stepOutside(provider)),
     vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
     vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),

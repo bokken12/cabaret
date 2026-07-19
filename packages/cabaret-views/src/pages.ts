@@ -43,6 +43,25 @@ export function pagePath(page: Page): string {
   return page.as === undefined ? base : `/as/${encodeURIComponent(page.as)}${base}`;
 }
 
+/**
+ * The page one level outside `page` — where stepping outside lands — or
+ * undefined on home, the outermost page. The diff pages both sit inside the
+ * review page: it is their index, whichever page they were opened from.
+ */
+export function enclosingPage(page: Page): Page | undefined {
+  switch (page.kind) {
+    case "home":
+      return undefined;
+    case "show":
+      return { kind: "home", as: page.as };
+    case "review":
+      return { kind: "show", change: page.change, as: page.as };
+    case "diffs":
+    case "diff":
+      return { kind: "review", change: page.change, as: page.as };
+  }
+}
+
 /** The page a `cabaret:` URI path denotes. Inverse of `pagePath`. */
 export function parsePagePath(path: string): Page {
   const as = /^\/as\/([^/]+)(\/[\s\S]+)$/.exec(path);
