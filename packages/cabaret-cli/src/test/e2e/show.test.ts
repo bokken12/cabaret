@@ -505,7 +505,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
     │ workspace    │ .                              │
     ╰──────────────┴────────────────────────────────╯
 
-    fetched 2025-01-01T00:00:00Z
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -536,7 +536,7 @@ test("show notes the forge change's stale target and makes sync the step", async
     │ workspace    │ .                                                │
     ╰──────────────┴──────────────────────────────────────────────────╯
 
-    fetched 2025-01-01T00:00:00Z
+    fetched 00:00, 2025-01-01
     "
   `);
 });

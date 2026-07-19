@@ -677,7 +677,7 @@ test("showDoc renders a landed change without a files section", () => {
 
 test("each doc closes with a dimmed line dating the last fetch, when one is known", () => {
   const fetched = timestampMs(Date.UTC(2026, 6, 19, 8, 4, 5, 678));
-  const footer = [{ text: "fetched 2026-07-19T08:04:05Z", style: "context", target: undefined, tier: undefined }];
+  const footer = [{ text: "fetched 08:04, 2026-07-19", style: "context", target: undefined, tier: undefined }];
   const todo = todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
   expect(docText(todo)).toMatchInlineSnapshot(`
     "Todo
@@ -695,7 +695,7 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     ├────────┼────────┼───────────┤
     ╰────────┴────────┴───────────╯
 
-    fetched 2026-07-19T08:04:05Z"
+    fetched 08:04, 2026-07-19"
   `);
   expect(todo.lines.at(-1)?.spans).toEqual(footer);
   const show = showDoc({
@@ -706,6 +706,6 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     remaining: [],
     fetched,
   });
-  expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 2026-07-19T08:04:05Z"]);
+  expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
 });
