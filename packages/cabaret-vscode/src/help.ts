@@ -49,12 +49,17 @@ export type Scope = "all" | readonly PageKind[];
 const WHEN_PREFIX = "editorTextFocus && ";
 const WHEN_SUFFIX =
   " && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')";
+/** The guards a binding on a dismissal key (`esc`) may carry after its scope, so it never swallows a dismissal. */
+const DISMISS_GUARDS = " && !findWidgetVisible && !editorHasSelection && !editorHasMultipleSelections";
 
 function parseScope(when: string): Scope {
   if (!when.startsWith(WHEN_PREFIX) || !when.endsWith(WHEN_SUFFIX)) {
     throw new Error(`keybinding when clause is missing the standard guards: ${when}`);
   }
-  const scope = when.slice(WHEN_PREFIX.length, when.length - WHEN_SUFFIX.length);
+  let scope = when.slice(WHEN_PREFIX.length, when.length - WHEN_SUFFIX.length);
+  if (scope.endsWith(DISMISS_GUARDS)) {
+    scope = scope.slice(0, -DISMISS_GUARDS.length);
+  }
   if (scope === "resourceScheme == cabaret") {
     return "all";
   }
@@ -88,6 +93,10 @@ const SHIFTED: { readonly [key: string]: string } = {
 };
 
 function prettyChord(chord: string): string {
+  // The keycap's own label, as the docs write it.
+  if (chord === "escape") {
+    return "esc";
+  }
   if (!chord.startsWith("shift+")) {
     return chord;
   }

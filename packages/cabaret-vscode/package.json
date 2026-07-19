@@ -118,6 +118,10 @@
         "title": "Cabaret: Open Target at Cursor"
       },
       {
+        "command": "cabaret.stepOutside",
+        "title": "Cabaret: Step Outside"
+      },
+      {
         "command": "cabaret.refresh",
         "title": "Cabaret: Refresh"
       },
@@ -217,6 +221,10 @@
           "when": "resourceScheme == cabaret"
         },
         {
+          "command": "cabaret.stepOutside",
+          "when": "resourceScheme == cabaret"
+        },
+        {
           "command": "cabaret.refresh",
           "when": "resourceScheme == cabaret"
         },
@@ -311,6 +319,11 @@
         "command": "cabaret.openTarget",
         "key": "enter",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.stepOutside",
+        "key": "escape",
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && !findWidgetVisible && !editorHasSelection && !editorHasMultipleSelections && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "editor.toggleFold",

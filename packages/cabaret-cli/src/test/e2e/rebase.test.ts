@@ -475,9 +475,7 @@ test("rebase carries a change checked out in a sibling workspace along", async (
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The sibling workspace followed the rebase: checked out at the new tip
   // with the trunk work present, and nothing stranded in its index.
-  expect(await repo.git("-C", "../repo-feature", "rev-parse", "HEAD")).toBe(
-    await repo.git("rev-parse", "feature"),
-  );
+  expect(await repo.git("-C", "../repo-feature", "rev-parse", "HEAD")).toBe(await repo.git("rev-parse", "feature"));
   expect(await repo.git("-C", "../repo-feature", "status", "--porcelain")).toBe("");
   expect(await repo.git("show", "feature:trunk.txt")).toBe("trunk work");
 });

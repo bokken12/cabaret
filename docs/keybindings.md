@@ -76,10 +76,6 @@ and `?` on any cabaret page lists the bindings that apply there.
 
 Where the current bindings fall short of the principles:
 
-- **`esc` is unbound.** Step-outside doesn't exist yet. `esc` needs care: VS
-  Code uses it to dismiss find widgets, extra cursors, and peek views, and
-  vim users hit it reflexively to cancel pending input — a step-outside
-  binding must not swallow those.
 - **`tab` only folds headed sections.** Diff hunks don't fold yet, though
   they are the other natural thing under the cursor for `tab` to toggle.
 - **`^` / `$` only work on show pages.** One-meaning says they should work on

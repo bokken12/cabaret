@@ -1,7 +1,7 @@
 import { type ChangeName, type FilePath, parseBranchName, parseFilePath, type UserName, userName } from "cabaret-core";
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import { type Page, pagePath, parsePagePath } from "../pages.js";
+import { enclosingPage, type Page, pagePath, parsePagePath } from "../pages.js";
 
 function refNames(): fc.Arbitrary<ChangeName> {
   const valid = (raw: string): boolean => {
@@ -80,6 +80,35 @@ test("as-page paths round-trip for user names full of path and encoding characte
     const diff: Page = { kind: "diff", change, file: parseFilePath("src/with:colon.ts"), as };
     expect(parsePagePath(pagePath(diff))).toEqual(diff);
   }
+});
+
+test("stepping outside walks diff pages to review to show to home, keeping the identity", () => {
+  const change = parseBranchName("feature/x");
+  const as = userName("alice@example.com");
+  expect(enclosingPage({ kind: "diff", change, file: parseFilePath("src/a.ts"), as })).toEqual({
+    kind: "review",
+    change,
+    as,
+  });
+  expect(enclosingPage({ kind: "diffs", change })).toEqual({ kind: "review", change, as: undefined });
+  expect(enclosingPage({ kind: "review", change, as })).toEqual({ kind: "show", change, as });
+  expect(enclosingPage({ kind: "show", change })).toEqual({ kind: "home", as: undefined });
+  expect(enclosingPage({ kind: "home", as })).toBeUndefined();
+});
+
+test("every page reaches home in a few steps outside", () => {
+  fc.assert(
+    fc.property(pages(), (page) => {
+      let current: Page | undefined = page;
+      let steps = 0;
+      while (current !== undefined && current.kind !== "home") {
+        current = enclosingPage(current);
+        steps++;
+      }
+      expect(current).toEqual({ kind: "home", as: page.as });
+      expect(steps).toBeLessThanOrEqual(3);
+    }),
+  );
 });
 
 test("paths that name no page are refused", () => {
