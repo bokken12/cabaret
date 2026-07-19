@@ -326,6 +326,26 @@ export class GitBackend implements Backend {
     }
   }
 
+  /**
+   * The worktree directory holding each checked-out branch, this workspace's
+   * included. Moving a held branch's ref must go through its home — plumbing
+   * like `update-ref` bypasses git's one-worktree-per-branch protections and
+   * would strand the home's index and working tree on the old commit.
+   */
+  private async branchHomes(): Promise<Map<ChangeName, string>> {
+    const out = await git(this.root, ["worktree", "list", "--porcelain"]);
+    const homes = new Map<ChangeName, string>();
+    for (const block of out.trimEnd().split("\n\n")) {
+      const lines = block.split("\n");
+      const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+      const ref = lines.find((line) => line.startsWith("branch refs/heads/"));
+      if (path !== undefined && ref !== undefined) {
+        homes.set(parseBranchName(ref.slice("branch refs/heads/".length)), path);
+      }
+    }
+    return homes;
+  }
+
   async currentUser(): Promise<UserName> {
     let out: string;
     try {
@@ -471,18 +491,19 @@ export class GitBackend implements Backend {
   async fetch(branch: ChangeName): Promise<void> {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
     // update, so a diverged local branch fails instead of losing work. Git
-    // also refuses to fetch into a checked-out branch, so that case fetches
-    // origin's reading into its remote-tracking ref and fast-forwards onto
-    // that, carrying the index and working tree along — and still failing on
-    // divergence. Merging FETCH_HEAD instead would race: it is one file
-    // shared by every fetch in the worktree, and a concurrent log fetch
-    // rewrites it to name an unrelated-history log commit as the merge
-    // candidate.
-    if ((await this.checkedOutBranch()) === branch) {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
-      await git(this.root, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
-    } else {
+    // also refuses to fetch into a branch any worktree has checked out, so
+    // that case fetches origin's reading into its remote-tracking ref and
+    // fast-forwards onto that in the branch's home worktree, carrying its
+    // index and working tree along — and still failing on divergence.
+    // Merging FETCH_HEAD instead would race: it is one file shared by every
+    // fetch in the worktree, and a concurrent log fetch rewrites it to name
+    // an unrelated-history log commit as the merge candidate.
+    const home = (await this.branchHomes()).get(branch);
+    if (home === undefined) {
       await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+    } else {
+      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+      await git(home, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
     }
   }
 
@@ -531,20 +552,11 @@ export class GitBackend implements Backend {
         origins.set(parseBranchName(ref.slice("refs/remotes/origin/".length)), oid);
       }
     }
-    // Straight from worktree list rather than `workspaces()`, whose
+    // Homes from the worktree list rather than `workspaces()`, whose
     // dirtiness reading costs a status scan per worktree — too heavy for a
     // background cadence; only the worktrees of branches origin is strictly
     // ahead of get one below.
-    const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-    const homes = new Map<ChangeName, string>();
-    for (const block of worktrees.trimEnd().split("\n\n")) {
-      const lines = block.split("\n");
-      const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
-      const ref = lines.find((line) => line.startsWith("branch refs/heads/"));
-      if (path !== undefined && ref !== undefined) {
-        homes.set(parseBranchName(ref.slice("branch refs/heads/".length)), path);
-      }
-    }
+    const homes = await this.branchHomes();
     const advanced: ChangeName[] = [];
     for (const [branch, tip] of heads) {
       const origin = origins.get(branch);
@@ -1042,17 +1054,19 @@ export class GitBackend implements Backend {
   }
 
   /**
-   * Advance `branch` from `expected` to descendant `commit`. A checked-out
-   * `branch` takes a real fast-forward so the index and working tree follow;
-   * otherwise compare-and-swap the ref. Either way a concurrent move of
-   * `branch` fails fast instead of publishing commits the caller never
-   * validated.
+   * Advance `branch` from `expected` to descendant `commit`. A `branch` some
+   * worktree has checked out — this workspace's or a sibling's — takes a real
+   * fast-forward run in that worktree, so its index and working tree follow
+   * (uncommitted edits the move would overwrite fail it); otherwise
+   * compare-and-swap the ref. Either way a concurrent move of `branch` fails
+   * fast instead of publishing commits the caller never validated.
    */
   private async advanceBranch(branch: ChangeName, commit: Revision, expected: Revision): Promise<void> {
-    if ((await this.checkedOutBranch()) === branch) {
-      await git(this.root, ["merge", "--ff-only", commit]);
-    } else {
+    const home = (await this.branchHomes()).get(branch);
+    if (home === undefined) {
       await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, expected]);
+    } else {
+      await git(home, ["merge", "--ff-only", commit]);
     }
   }
 
