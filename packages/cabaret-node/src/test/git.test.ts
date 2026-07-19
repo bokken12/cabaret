@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -467,6 +467,98 @@ test("advanceBranches fast-forwards only idle branches with origin strictly ahea
     expect(await backend.tip(parseBranchName("diverge"))).toBe(parseCommitHash(local));
     // Nothing left to move: a second pass is a no-op.
     expect(await backend.advanceBranches()).toEqual([]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+/** Checks out `main` in `dir` at origin's tip, then advances origin one commit past it. */
+async function checkoutBehindOrigin(dir: string, origin: string): Promise<string> {
+  await gitIn(dir, "fetch", "-q", "origin", "refs/heads/main:refs/heads/main");
+  await gitIn(dir, "checkout", "-q", "main");
+  const tree = await gitIn(origin, "rev-parse", "main^{tree}");
+  const advanced = await gitIn(origin, "commit-tree", tree, "-p", "main", "-m", "advance");
+  await gitIn(origin, "update-ref", "refs/heads/main", advanced);
+  return advanced;
+}
+
+test("fetch fast-forwards the checked-out branch despite a concurrent log fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  const shims = await mkdtemp(join(tmpdir(), "cabaret-node-test-shims-"));
+  const realPath = process.env.PATH;
+  try {
+    const advanced = await checkoutBehindOrigin(dir, origin);
+    // A log ref on origin: a root commit sharing no history with `main`.
+    const emptyTree = await gitIn(dir, "hash-object", "-w", "-t", "tree", devNull);
+    const logCommit = await gitIn(dir, "commit-tree", emptyTree, "-m", "log");
+    await gitIn(dir, "push", "-q", "origin", `${logCommit}:refs/cabaret/log/x`);
+    // A `git` shim replaying the race: a background log sync lands between a
+    // fetch and whatever consumes its FETCH_HEAD, and command-line refspecs
+    // are recorded there as for-merge even with a destination — so FETCH_HEAD
+    // ends up naming the unrelated log commit as the merge candidate.
+    const realGit = (await execFileAsync("sh", ["-c", "command -v git"])).stdout.trim();
+    await writeFile(
+      join(shims, "git"),
+      `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\nif [ "$1" = fetch ]; then\n` +
+        `  "${realGit}" -C "${dir}" fetch --quiet origin "+refs/cabaret/log/*:refs/cabaret/remote-log/*"\nfi\nexit $code\n`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${shims}:${realPath}`;
+    try {
+      const backend = await GitBackend.open(dir);
+      await backend.fetch(parseBranchName("main"));
+    } finally {
+      process.env.PATH = realPath;
+    }
+    expect(await gitIn(dir, "rev-parse", "HEAD")).toBe(advanced);
+    expect(await gitIn(dir, "rev-parse", "refs/remotes/origin/main")).toBe(advanced);
+    // The interleaving really happened: the log commit is FETCH_HEAD's merge candidate.
+    expect(await readFile(join(dir, ".git", "FETCH_HEAD"), "utf8")).toContain(`${logCommit}\t\t`);
+  } finally {
+    process.env.PATH = realPath;
+    await rm(shims, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch refuses a checked-out branch that diverged from origin", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const advanced = await checkoutBehindOrigin(dir, origin);
+    await gitIn(dir, "commit", "-qm", "local", "--allow-empty");
+    const local = await gitIn(dir, "rev-parse", "HEAD");
+    const backend = await GitBackend.open(dir);
+    await expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/fast-forward/);
+    expect(await gitIn(dir, "rev-parse", "main")).toBe(local);
+    expect(await gitIn(dir, "rev-parse", "refs/remotes/origin/main")).toBe(advanced);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch refuses an idle branch that diverged from origin", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    await gitIn(dir, "fetch", "-q", "origin", "refs/heads/main:refs/heads/main");
+    const tree = await gitIn(origin, "rev-parse", "main^{tree}");
+    await gitIn(
+      origin,
+      "update-ref",
+      "refs/heads/main",
+      await gitIn(origin, "commit-tree", tree, "-p", "main", "-m", "remote"),
+    );
+    const local = await gitIn(dir, "commit-tree", tree, "-p", "main", "-m", "local");
+    await gitIn(dir, "update-ref", "refs/heads/main", local);
+    const backend = await GitBackend.open(dir);
+    // `--quiet` swallows git's per-ref "[rejected]" detail; the failure
+    // surfaces as the fetch command itself failing.
+    await expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(
+      "Command failed: git fetch --quiet origin refs/heads/main:refs/heads/main",
+    );
+    expect(await gitIn(dir, "rev-parse", "main")).toBe(local);
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });

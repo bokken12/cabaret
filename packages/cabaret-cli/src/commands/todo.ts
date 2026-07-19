@@ -1,5 +1,4 @@
 import { buildCommand } from "@stricli/core";
-import { currentSelf } from "cabaret-core";
 import { todoDoc, todoPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { writeDoc } from "./shared.js";
@@ -9,7 +8,7 @@ export const todo = buildCommand({
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
-    const page = await todoPage(backend, await currentSelf(backend));
+    const page = await todoPage(backend);
     writeDoc(this, todoDoc(page));
   },
 });

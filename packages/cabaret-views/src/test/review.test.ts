@@ -756,13 +756,21 @@ test("a conflicted snapshot drops its round and refuses to mark, even asked", ()
   expect(appended).toEqual([]);
 });
 
-test("markReviewed refuses a snapshot taken as another user, even asked", () => {
+test("markReviewed through a borrowed snapshot records the borrowed user", () => {
   const appended: LogEntry[][] = [];
-  const snapshot = { ...snapshotWith(["a.ts"]), as: userName("bob@example.com") };
-  expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("a.ts"), true)).toThrow(
-    'review as "bob@example.com" is read-only',
-  );
-  expect(appended).toEqual([]);
+  const bob = userName("bob@example.com");
+  const snapshot = { ...snapshotWith(["a.ts"]), user: bob, as: bob };
+  const result = markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("a.ts"));
+  expect(result.kind).toBe("marked");
+  expect(appended).toEqual([
+    [
+      {
+        timestamp: at,
+        user: bob,
+        action: { kind: "review", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("2") },
+      },
+    ],
+  ]);
 });
 
 test("markReviewed of a file with no review pending records nothing", () => {

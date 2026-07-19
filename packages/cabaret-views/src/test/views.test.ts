@@ -60,6 +60,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
   const doc = todoDoc({
+    as: undefined,
     review: [
       { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
     ],
@@ -124,7 +125,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 });
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
-  expect(docText(todoDoc({ review: [], owned: [], broken: [], workspaces: [] }))).toMatchInlineSnapshot(`
+  expect(docText(todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [] }))).toMatchInlineSnapshot(`
     "Todo
     ====
 
@@ -146,6 +147,7 @@ test("todoDoc lists the changes checked out on this device in their own section"
   const gadget = summary("gadget", { reviewLeft: files("gadget.ts") });
   const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const doc = todoDoc({
+    as: undefined,
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
     owned: [{ summary: gadget, context: false, children: [] }],
     broken: [],
@@ -205,8 +207,42 @@ test("todoDoc lists the changes checked out on this device in their own section"
   ]);
 });
 
+test("todoDoc as another user names them and keeps their identity on every change link", () => {
+  const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: files("gadget.ts") });
+  const doc = todoDoc({
+    as: userName("bob@example.com"),
+    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
+    owned: [{ summary: gadget, context: false, children: [] }],
+    broken: [],
+    workspaces: [],
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Todo as bob@example.com
+    =======================
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gadget │      1 │ review    │
+    ╰────────┴────────┴───────────╯"
+  `);
+  const line = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("│ gadget │      1 │ review"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
+});
+
 test("todoDoc carries broken changes as doc errors, named for their change", () => {
   const doc = todoDoc({
+    as: undefined,
     review: [],
     owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
     broken: [
@@ -241,6 +277,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
 
 test("showDoc renders the attribute table, remaining review, and files left", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       reviewers: [userName("bob@example.com"), userName("carol@example.com")],
       forgeChange: {
@@ -290,6 +327,11 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  // The forge change row opens the change's page on the forge.
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toEqual({ kind: "url", url: "https://github.com/test-org/widgets/pull/7" });
   // A remaining-review row opens that reviewer's own review page.
   const tally = docText(doc)
     .split("\n")
@@ -299,8 +341,56 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, 0)).toBeUndefined();
 });
 
+test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: summary("widgets", {
+      forgeChange: {
+        forge: parseForgeLocator("forge.example.com/test-org/widgets"),
+        id: forgeChangeId(7),
+        staleParent: undefined,
+      },
+    }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+  });
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toBeUndefined();
+});
+
+test("showDoc as another user names them and keeps their identity on file and change links", () => {
+  const bob = userName("bob@example.com");
+  const doc = showDoc({
+    summary: summary("widgets", {
+      included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
+      reviewLeft: files("api.ts"),
+    }),
+    as: bob,
+    comments: [],
+    workspace: undefined,
+    remaining: [{ user: bob, files: 1 }],
+  });
+  expect(docText(doc).split("\n").slice(0, 2).join("\n")).toMatchInlineSnapshot(`
+    "widgets as bob@example.com
+    =========================="
+  `);
+  const rendered = docText(doc).split("\n");
+  const targetOf = (needle: string) =>
+    targetAt(
+      doc,
+      rendered.findIndex((text) => text.includes(needle)),
+    );
+  expect(targetOf("widgets-api")).toEqual({ kind: "change", change: "widgets-api", as: "bob@example.com" });
+  expect(targetOf("api.ts")).toEqual({ kind: "file", change: "widgets", file: "api.ts", as: "bob@example.com" });
+  expect(targetOf("bob@example.com: 1 file")).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
+});
+
 test("showDoc lists included changes above the review, each linking to its page", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       included: [
         { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
@@ -346,6 +436,7 @@ test("showDoc lists included changes above the review, each linking to its page"
 
 test("showDoc notes disagreeing readings on their own rows", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       reviewLeft: files("api.ts"),
       origin: "behind",
@@ -382,6 +473,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 test("showDoc words each note by its reading", () => {
   const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
     const doc = showDoc({
+      as: undefined,
       summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
       comments: [],
       workspace: undefined,
@@ -414,6 +506,7 @@ test("showDoc words each note by its reading", () => {
 
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
     remaining: [{ user: userName("bob@example.com"), files: 1 }],
     workspace: undefined,
@@ -472,6 +565,7 @@ test("showDoc renders comments between the remaining review and the files, multi
 test("showDoc rows the change's workspace, noting dirtiness", () => {
   const workspaceRow = (dirty: boolean) => {
     const doc = showDoc({
+      as: undefined,
       summary: summary("widgets", {}),
       comments: [],
       workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
@@ -487,6 +581,7 @@ test("showDoc rows the change's workspace, noting dirtiness", () => {
 
 test("showDoc renders a landed change without a files section", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
     comments: [],
     workspace: undefined,

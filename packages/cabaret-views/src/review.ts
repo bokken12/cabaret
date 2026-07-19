@@ -5,7 +5,6 @@ import {
   changeConflicts,
   changeDiff,
   currentReviewing,
-  currentSelf,
   type DiffView,
   defaultContext,
   type FilePath,
@@ -17,11 +16,10 @@ import {
   type Revision,
   rebasedView,
   reviewRounds,
+  selfAs,
   shortHash,
-  soleUser,
   structuredDiff4,
   type TimestampMs,
-  UserError,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
@@ -74,24 +72,19 @@ export interface ChangeSnapshot {
 
 export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
   const entries = await backend.readLog(change);
-  const [diff, self] = await Promise.all([changeDiff(backend, change, entries), currentSelf(backend)]);
-  // Reading as one's own writing identity is just reading one's own review,
-  // markable as ever. An alias stays borrowed: obligations are per identity,
-  // so its rounds are its own and recording under it is not offered.
-  const borrowed = as === self.user ? undefined : as;
-  const user = borrowed ?? self.user;
+  const [diff, acting] = await Promise.all([changeDiff(backend, change, entries), selfAs(backend, as)]);
   return {
     change,
-    user,
-    as: borrowed,
+    user: acting.self.user,
+    as: acting.as,
     reviewing: currentReviewing(entries),
     // A borrowed identity's own aliases are unknown here, so its standing may
     // read narrower than that user would see it themselves.
-    asked: mayRecordReview(borrowed === undefined ? self : soleUser(borrowed), change, entries),
+    asked: mayRecordReview(acting.self, change, entries),
     base: diff.base,
     tip: diff.tip,
     conflicts: await changeConflicts(backend, diff),
-    rounds: await reviewRounds(backend, entries, user, diff),
+    rounds: await reviewRounds(backend, entries, acting.self.user, diff),
   };
 }
 
@@ -179,11 +172,13 @@ export type MarkReviewedResult =
 
 /**
  * Mark `file` reviewed at the end of its earliest pending round in
- * `snapshot` — exactly the round the caller's page displayed. A snapshot
- * taken as another user refuses outright, as does one with conflict markers:
- * fixing them, not review, is the change's next step. One whose reviewing
- * set does not ask the user fails with `NotReviewingError` unless
- * `evenThoughNotReviewing`; hosts attach their own override remedy.
+ * `snapshot` — exactly the round the caller's page displayed. The entry
+ * records `snapshot.user`: for a borrowed snapshot that is the borrowed
+ * user, so hosts confirm intent before marking through one. A snapshot with
+ * conflict markers refuses outright: fixing them, not review, is the
+ * change's next step. One whose reviewing set does not ask the user fails
+ * with `NotReviewingError` unless `evenThoughNotReviewing`; hosts attach
+ * their own override remedy.
  *
  * The plan costs no queries, and the append rides behind `recorded`: a host
  * may open `next`'s diff immediately, because a review entry only changes
@@ -199,11 +194,6 @@ export function markReviewed(
   file: FilePath,
   evenThoughNotReviewing = false,
 ): MarkReviewedResult {
-  // Recording would append an entry under their name; their review is theirs
-  // to record.
-  if (snapshot.as !== undefined) {
-    throw new UserError(`review as ${JSON.stringify(snapshot.as)} is read-only`);
-  }
   assertNoConflict(snapshot.change, snapshot.conflicts);
   if (!snapshot.asked && !evenThoughNotReviewing) {
     throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);

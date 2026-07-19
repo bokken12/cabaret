@@ -190,6 +190,10 @@
         "title": "Cabaret: Review Diffs"
       },
       {
+        "command": "cabaret.actAs",
+        "title": "Cabaret: Act as User"
+      },
+      {
         "command": "cabaret.markReviewed",
         "title": "Cabaret: Mark Reviewed"
       },
@@ -285,6 +289,10 @@
           "when": "cabaret.page == 'show' || cabaret.page == 'review'"
         },
         {
+          "command": "cabaret.actAs",
+          "when": "resourceScheme == cabaret"
+        },
+        {
           "command": "cabaret.markReviewed",
           "when": "cabaret.page == 'diff'"
         },
@@ -333,6 +341,11 @@
         "command": "cabaret.reviewDiffs",
         "key": "d",
         "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.actAs",
+        "key": "shift+2",
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.markReviewed",
