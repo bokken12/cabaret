@@ -21,6 +21,7 @@ import {
   gotoChange,
   gotoOffer,
   isConnectivityError,
+  knownChanges,
   type LandOverrides,
   type LogEntry,
   landAsConfigured,
@@ -302,9 +303,9 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
 /**
  * Show the change being worked on — the one the active cabaret page is about,
  * or the one whose branch is checked out — falling back to picking one when
- * neither resolves, as on a detached HEAD or a branch that is not a change.
- * The todo page surveys every change, so it always picks rather than assuming
- * the checked-out branch is the one wanted.
+ * neither resolves, as on a detached HEAD or a branch the logs do not speak
+ * for. The todo page surveys every change, so it always picks rather than
+ * assuming the checked-out branch is the one wanted.
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -315,7 +316,7 @@ async function showChange(provider: PageProvider): Promise<void> {
     return;
   }
   const backend = await openBackend();
-  const changes = await backend.listChanges();
+  const known = await knownChanges(backend);
   const branch =
     active !== undefined
       ? undefined
@@ -326,9 +327,9 @@ async function showChange(provider: PageProvider): Promise<void> {
           throw error;
         });
   const change =
-    branch !== undefined && changes.includes(branch)
+    branch !== undefined && known.includes(branch)
       ? branch
-      : await vscode.window.showQuickPick(changes, { placeHolder: "Change to show" });
+      : await vscode.window.showQuickPick([...known], { placeHolder: "Change to show" });
   if (change !== undefined) {
     await openPage(provider, { kind: "show", change: backend.parseName(change), as: active?.as });
   }
@@ -403,19 +404,19 @@ function shownPage(): Extract<Page, { kind: "show" }> | undefined {
   return page.kind === "show" ? page : undefined;
 }
 
-/** Climb from a show page to the parent's show page, or to the todo page when the parent is a trunk. */
+/** Climb from a show page to the parent's show page; a trunk parent has a page of its own. */
 async function showParent(provider: PageProvider): Promise<void> {
   const page = shownPage();
   if (page === undefined) {
     return;
   }
   const backend = await openBackend();
-  const parent = currentParent(page.change, await backend.readLog(page.change));
-  const parentIsChange = (await backend.listChanges()).includes(parent);
-  await openPage(
-    provider,
-    parentIsChange ? { kind: "show", change: parent, as: page.as } : { kind: "todo", as: page.as },
-  );
+  const entries = await backend.readLog(page.change);
+  if (entries.length === 0) {
+    vscode.window.showInformationMessage(`cabaret: ${page.change} has no parent`);
+    return;
+  }
+  await openPage(provider, { kind: "show", change: currentParent(page.change, entries), as: page.as });
 }
 
 /** Descend from a show page to a child's show page, picking one when the change has several children. */
@@ -1148,18 +1149,10 @@ async function promptCreate(backend: Backend, parent: ChangeName, prompt: string
   return change;
 }
 
-/**
- * Pick a new parent for `change`: any other change, or a branch some change
- * already hangs from, which is how trunks appear without being changes.
- */
+/** Pick a new parent for `change`: any other change, or a trunk. */
 async function pickParent(backend: Backend, change: ChangeName): Promise<ChangeName | undefined> {
-  const changes = await backend.listChanges();
-  const candidates = new Set(changes);
-  for (const other of changes) {
-    candidates.add(currentParent(other, await backend.readLog(other)));
-  }
-  candidates.delete(change);
-  const picked = await vscode.window.showQuickPick([...candidates].sort(), {
+  const candidates = (await knownChanges(backend)).filter((candidate) => candidate !== change);
+  const picked = await vscode.window.showQuickPick([...candidates], {
     placeHolder: `New parent for ${change}`,
   });
   return picked === undefined ? undefined : backend.parseName(picked);

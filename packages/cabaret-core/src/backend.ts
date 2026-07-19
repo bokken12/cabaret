@@ -564,11 +564,18 @@ export interface Backend {
   squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
-   * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain
-   * from `base` to `tip`, oldest first — land merges, whose `onto` is their
-   * first parent, and squash lands, whose `onto` is their sole parent.
+   * The commits carrying the `LAND_TRAILER` trailer among the newest `scan`
+   * commits of `tip`'s first-parent chain, oldest first — land merges, whose
+   * `onto` is their first parent, and squash lands, whose `onto` is their
+   * sole parent — and whether the chain continues past those commits. `base`
+   * stops the walk where a change's history ends; undefined surveys a
+   * long-lived branch, whose history only `scan` bounds.
    */
-  landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]>;
+  landMerges(
+    base: Revision | undefined,
+    tip: Revision,
+    scan: number,
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
@@ -1221,9 +1228,33 @@ export async function changeDiff(
   return diffBetween(backend, base, tip);
 }
 
+/**
+ * First-parent commits a land-merge walk surveys before giving up: far past
+ * any workable change's history, and still cheap for git to scan.
+ */
+export const LAND_SCAN = 10_000;
+
+/**
+ * Every land merge on `base`..`tip`, oldest first. Review spans need the
+ * walk complete — a shortened answer would silently misplace them — so a
+ * history outrunning `LAND_SCAN` commits, which no one could review anyway,
+ * is an error instead.
+ */
+export async function completeLandMerges(
+  backend: Backend,
+  base: Revision,
+  tip: Revision,
+): Promise<readonly LandMerge[]> {
+  const { lands, more } = await backend.landMerges(base, tip, LAND_SCAN);
+  if (more) {
+    throw new UserError(`history spans more than ${LAND_SCAN} commits; rebase onto a fresher parent`);
+  }
+  return lands;
+}
+
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
-  const lands = await backend.landMerges(base, tip);
+  const lands = await completeLandMerges(backend, base, tip);
   const spans = await Promise.all(
     reviewSpans(lands, base, tip).map(async (span) => ({
       ...span,

@@ -995,19 +995,16 @@ export class GitBackend implements Backend {
     return { tree, conflicts: conflicted.map(parseFilePath) };
   }
 
-  async landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]> {
-    // Tab-delimit the fields: %P holds space-separated parents, and the
-    // trailer value is a branch name, so neither can contain a tab. `unfold`
-    // keeps a folded trailer value to one line.
-    const out = await git(this.root, [
-      "log",
-      "--first-parent",
-      "--reverse",
-      `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`,
-      `${base}..${tip}`,
-    ]);
+  // Tab-delimit the fields: %P holds space-separated parents, and the
+  // trailer value is a branch name, so neither can contain a tab. `unfold`
+  // keeps a folded trailer value to one line.
+  private static readonly LAND_LOG_FORMAT =
+    `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`;
+
+  /** The land merges among `LAND_LOG_FORMAT` lines, in line order. */
+  private static parseLandLines(lines: readonly string[]): LandMerge[] {
     const merges: LandMerge[] = [];
-    for (const line of out.split("\n")) {
+    for (const line of lines) {
       const [commit, parentsField, trailer] = line.split("\t");
       if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
         continue;
@@ -1024,6 +1021,25 @@ export class GitBackend implements Backend {
       merges.push({ change: parseBranchName(trailer), commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
     }
     return merges;
+  }
+
+  async landMerges(
+    base: Revision | undefined,
+    tip: Revision,
+    scan: number,
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }> {
+    // One commit past the scan tells whether the chain continues; git lists
+    // newest first, so the surveyed window is the lines before it, reversed.
+    const out = await git(this.root, [
+      "log",
+      "--first-parent",
+      "-n",
+      String(scan + 1),
+      GitBackend.LAND_LOG_FORMAT,
+      base === undefined ? tip : `${base}..${tip}`,
+    ]);
+    const lines = out.split("\n").filter((line) => line !== "");
+    return { lands: GitBackend.parseLandLines(lines.slice(0, scan).reverse()), more: lines.length > scan };
   }
 
   async listChanges(): Promise<readonly ChangeName[]> {

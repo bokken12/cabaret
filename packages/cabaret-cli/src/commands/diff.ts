@@ -2,6 +2,7 @@ import { buildCommand } from "@stricli/core";
 import {
   brain,
   changeBase,
+  completeLandMerges,
   defaultContext,
   parseContext,
   type ReviewSpan,
@@ -89,7 +90,7 @@ export const diff = buildCommand({
       // contents still shows exactly what the reviewer has not seen.
       spans = [{ start: reviewed.tip, end: tip }];
     } else {
-      spans = reviewSpans(await backend.landMerges(base, tip), base, tip);
+      spans = reviewSpans(await completeLandMerges(backend, base, tip), base, tip);
       if (reviewed !== undefined) {
         spans = await remainingSpans(backend, spans, reviewed.tip);
       }

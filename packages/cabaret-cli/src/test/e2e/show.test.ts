@@ -155,6 +155,75 @@ test("show lists the changes landed into a parent, their diffs out of its review
   `);
 });
 
+test("show renders a branch with no log from its history alone", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("land");
+  await repo.git("checkout", "-q", "main");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show", "main");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ df22a5b69709 │
+    │ workspace │ .            │
+    ╰───────────┴──────────────╯
+
+    Included changes:
+      gadget
+    "
+  `);
+});
+
+test("show with no name reads a checked-out trunk once changes acknowledge it", async () => {
+  const repo = await makeRepo();
+  // Standing on a branch no log speaks for keeps the create nudge...
+  await repo.git("checkout", "-qb", "scratch");
+  expect((await repo.cabaret("show")).stderr).toBe(
+    'change does not exist: "scratch"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+  );
+  // ...but a trunk is acknowledged by its children's parent links.
+  await repo.git("checkout", "-q", "main");
+  await repo.cabaret("create", "gadget");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ 1ac0b33426d0 │
+    │ workspace │ .            │
+    ╰───────────┴──────────────╯
+    "
+  `);
+});
+
+test("show names a branch outright even when no log speaks for it", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "-q", "scratch");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show", "scratch");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "scratch
+    =======
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ 1ac0b33426d0 │
+    ╰───────────┴──────────────╯
+    "
+  `);
+});
+
 test("show tallies the remaining review per user", async () => {
   const repo = await makeRepo();
   const policy = { rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }] };

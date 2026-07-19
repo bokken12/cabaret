@@ -15,6 +15,8 @@ import {
   selfAs,
   shortHash,
   summarizeChange,
+  summarizeTrunk,
+  type TrunkSummary,
   tallyText,
   type UserName,
 } from "cabaret-core";
@@ -24,7 +26,8 @@ import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** What the show page displays. */
 export interface ShowPage {
-  readonly summary: ChangeSummary;
+  /** The change's status — read from its log, or from its history alone when it has none. */
+  readonly summary: ChangeSummary | TrunkSummary;
   /** Whose reading this is when not the current user's own, as `selfAs` resolves it. */
   readonly as: UserName | undefined;
   readonly comments: readonly ChangeComment[];
@@ -37,7 +40,19 @@ export interface ShowPage {
 /** Query the show page for `change`, read as the current user or as `as`. */
 export async function showPage(backend: Backend, change: ChangeName, as?: UserName): Promise<ShowPage> {
   const entries = await backend.readLog(change);
-  const [diff, acting] = await Promise.all([changeDiff(backend, change, entries), selfAs(backend, as)]);
+  const acting = await selfAs(backend, as);
+  if (entries.length === 0) {
+    // A branch with no log still names a line of history worth viewing; its
+    // log-borne sections are simply empty.
+    return {
+      summary: await summarizeTrunk(backend, change),
+      as: acting.as,
+      comments: [],
+      remaining: [],
+      workspace: (await workspaceNotes(backend)).get(change),
+    };
+  }
+  const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
   // A landed change has no review to demand, whatever state it landed in;
   // an archived one asks nothing while set aside.
@@ -106,17 +121,26 @@ function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => 
   );
 }
 
-/** The included changes section: one row per change landed into this one, linking to its page. */
-function includedChanges(included: readonly LandMerge[], as: UserName | undefined): Section | undefined {
-  if (included.length === 0) {
+/**
+ * The included changes section: one row per change landed into this one,
+ * newest first — the recent lands are the ones worth a look — linking to its
+ * page. `truncated` closes the section with an ellipsis: the history holds
+ * more than the bounded survey read.
+ */
+function includedChanges(
+  included: readonly LandMerge[],
+  as: UserName | undefined,
+  truncated: boolean,
+): Section | undefined {
+  if (included.length === 0 && !truncated) {
     return undefined;
   }
-  return section(
-    { spans: [span("Included changes:", { style: "heading" })] },
-    included.map(({ change }) => ({
+  return section({ spans: [span("Included changes:", { style: "heading" })] }, [
+    ...[...included].reverse().map(({ change }) => ({
       spans: [span("  "), span(change, { target: { kind: "change", change, as } })],
     })),
-  );
+    ...(truncated ? [{ spans: [span("  …", { style: "context" })] }] : []),
+  ]);
 }
 
 /** The remaining review section: one tally row per reviewer with files left, opening their review. */
@@ -155,43 +179,44 @@ function commentsSection(comments: readonly ChangeComment[]): Section | undefine
 export function showDoc(page: ShowPage): Doc {
   const summary = page.summary;
   // Each row notes how its own reading disagrees with what it should track.
-  const attributes: [string, string | Cell][] = [
-    ["next step", summary.nextStep],
-    ["owner", summary.owner],
-  ];
-  if (summary.reviewers.length > 0) {
-    attributes.push(["reviewers", summary.reviewers.join(", ")]);
-  }
-  if (summary.landed === undefined) {
-    attributes.push(["reviewing", summary.reviewing]);
-  }
-  attributes.push([
-    "parent",
-    noted(
-      summary.parent,
-      summary.deadParent !== undefined
-        ? PARENT_NOTES[summary.deadParent]
-        : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin],
-    ),
-  ]);
-  if (summary.forgeChange !== undefined) {
-    const { forge, id, staleParent } = summary.forgeChange;
-    const url = forgeChangeUrl(forge, id);
+  // A trunk's log never declared anything, so only its history's rows appear.
+  const attributes: [string, string | Cell][] = [];
+  if (summary.kind === "change") {
+    attributes.push(["next step", summary.nextStep], ["owner", summary.owner]);
+    if (summary.reviewers.length > 0) {
+      attributes.push(["reviewers", summary.reviewers.join(", ")]);
+    }
+    if (summary.landed === undefined) {
+      attributes.push(["reviewing", summary.reviewing]);
+    }
     attributes.push([
-      "forge change",
-      [
-        span(`${forge}#${id}`, url === undefined ? {} : { target: { kind: "url", url } }),
-        ...(staleParent === undefined ? [] : [span(` (merges into ${staleParent})`)]),
-      ],
+      "parent",
+      noted(
+        summary.parent,
+        summary.deadParent !== undefined
+          ? PARENT_NOTES[summary.deadParent]
+          : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin],
+      ),
     ]);
+    if (summary.forgeChange !== undefined) {
+      const { forge, id, staleParent } = summary.forgeChange;
+      const url = forgeChangeUrl(forge, id);
+      attributes.push([
+        "forge change",
+        [
+          span(`${forge}#${id}`, url === undefined ? {} : { target: { kind: "url", url } }),
+          ...(staleParent === undefined ? [] : [span(` (merges into ${staleParent})`)]),
+        ],
+      ]);
+    }
+    if (summary.landed !== undefined) {
+      attributes.push(["landed", shortHash(summary.landed)]);
+    }
   }
-  if (summary.landed !== undefined) {
-    attributes.push(["landed", shortHash(summary.landed)]);
+  attributes.push(["tip", noted(shortHash(summary.tip), summary.origin && ORIGIN_NOTES[summary.origin])]);
+  if (summary.kind === "change") {
+    attributes.push(["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])]);
   }
-  attributes.push(
-    ["tip", noted(shortHash(summary.tip), summary.origin && ORIGIN_NOTES[summary.origin])],
-    ["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])],
-  );
   if (page.workspace !== undefined) {
     attributes.push(["workspace", noted(page.workspace.display, page.workspace.dirty ? "dirty" : undefined)]);
   }
@@ -202,10 +227,12 @@ export function showDoc(page: ShowPage): Doc {
   const nodes: Node[] = header(heading, attributes);
   // Each section stands off from what precedes it with a blank line.
   for (const s of [
-    includedChanges(summary.included, page.as),
+    includedChanges(summary.included, page.as, summary.kind === "trunk" && summary.truncated),
     remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
-    filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as })),
+    summary.kind === "change"
+      ? filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as }))
+      : undefined,
   ]) {
     if (s !== undefined) {
       nodes.push({ spans: [] }, s);

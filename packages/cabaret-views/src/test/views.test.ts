@@ -20,6 +20,7 @@ const alice = userName("alice@example.com");
 
 function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
   return {
+    kind: "change",
     change: parseBranchName(change),
     parent: parseBranchName("main"),
     owner: alice,
@@ -341,6 +342,59 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   expect(targetAt(doc, 0)).toBeUndefined();
 });
 
+test("showDoc renders a trunk from its history alone, newest lands first, an ellipsis marking older ones", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: {
+      kind: "trunk",
+      change: parseBranchName("main"),
+      tip: fake("2"),
+      origin: "behind",
+      included: [
+        { change: parseBranchName("gadget"), commit: fake("3"), onto: fake("1") },
+        { change: parseBranchName("gizmo"), commit: fake("5"), onto: fake("4") },
+      ],
+      truncated: true,
+    },
+    comments: [],
+    workspace: { path: "/src/widgets", display: ".", dirty: false },
+    remaining: [],
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────────────────────╮
+    │ attribute │ value                        │
+    ├───────────┼──────────────────────────────┤
+    │ tip       │ 222222222222 (behind origin) │
+    │ workspace │ .                            │
+    ╰───────────┴──────────────────────────────╯
+
+    Included changes:
+      gizmo
+      gadget
+      …"
+  `);
+  // An included row opens the landed change's page; the ellipsis goes nowhere.
+  const lines = docText(doc).split("\n");
+  expect(
+    targetAt(
+      doc,
+      lines.findIndex((text) => text.includes("gadget")),
+    ),
+  ).toEqual({
+    kind: "change",
+    change: "gadget",
+  });
+  expect(
+    targetAt(
+      doc,
+      lines.findIndex((text) => text.includes("…")),
+    ),
+  ).toBeUndefined();
+});
+
 test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
   const doc = showDoc({
     as: undefined,
@@ -418,8 +472,8 @@ test("showDoc lists included changes above the review, each linking to its page"
     ╰───────────┴───────────────────╯
 
     Included changes:
-      widgets-api
       widgets-ui
+      widgets-api
 
     Remaining review:
       alice@example.com: 1 file
@@ -429,9 +483,9 @@ test("showDoc lists included changes above the review, each linking to its page"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("widgets-api"));
-  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-api" });
-  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-ui" });
+    .findIndex((text) => text.includes("widgets-ui"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-ui" });
+  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-api" });
 });
 
 test("showDoc notes disagreeing readings on their own rows", () => {
