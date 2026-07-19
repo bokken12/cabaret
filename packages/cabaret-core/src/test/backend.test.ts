@@ -14,6 +14,7 @@ import {
   currentReviewers,
   type FilePath,
   forgeChangeId,
+  forgeChangeUrl,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -96,6 +97,19 @@ test("rejects malformed ref names", () => {
   ]) {
     expect(() => parseBranchName(bad)).toThrow("not a valid branch name");
   }
+});
+
+test("forgeChangeUrl routes each supported forge, and no other host", () => {
+  expect(forgeChangeUrl(parseForgeLocator("github.com/test-org/widgets"), forgeChangeId(7))).toBe(
+    "https://github.com/test-org/widgets/pull/7",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("gitlab.com/test-group/nested/widgets"), forgeChangeId(31))).toBe(
+    "https://gitlab.com/test-group/nested/widgets/-/merge_requests/31",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("codeberg.org/test-org/widgets"), forgeChangeId(2))).toBe(
+    "https://codeberg.org/test-org/widgets/pulls/2",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("forge.example.com/test-org/widgets"), forgeChangeId(7))).toBeUndefined();
 });
 
 test("formatLogEntry renders one JSON object per line, keys in schema order", () => {
@@ -341,7 +355,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
   });
   const change = parseBranchName("feature");
   expect(() => currentParent(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
     'change has no parent: "feature"',
@@ -368,7 +382,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
   });
   const change = parseBranchName("feature");
   expect(() => currentBase(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no base: "feature"',
@@ -395,7 +409,7 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
   });
   const change = parseBranchName("feature");
   expect(() => currentOwner(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no owner: "feature"',

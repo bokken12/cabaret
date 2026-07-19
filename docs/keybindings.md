@@ -68,34 +68,13 @@ The vim mnemonics carry over sideways: `^` and `$` move to the "start" and
 
 ## Current bindings
 
-VS Code, from `packages/cabaret-vscode/package.json`. Keys are written as the
-character typed (`!` is `shift+1`, `^` is `shift+6`, `$` is `shift+4`).
-
-| Keys    | Action                                          | Pages        |
-| ------- | ----------------------------------------------- | ------------ |
-| `enter` | open the target under the cursor                | all          |
-| `tab`   | toggle folding of the section at the cursor     | all          |
-| `R`     | refresh                                         | all          |
-| `r`     | review: open the change's review page           | show         |
-| `^`     | show parent                                     | show         |
-| `$`     | show child                                      | show         |
-| `! r`   | mark file reviewed, advance to the next         | diff         |
-| `! c`   | create child                                    | all          |
-| `! p`   | create parent                                   | all          |
-| `! i`   | import forge change                             | todo, show   |
-| `F`     | pull from the forge                             | all          |
-| `P`     | push the change to the forge                    | all          |
-| `! l a` | land                                            | all          |
-| `! o`   | set owner                                       | all but diff |
-| `! v`   | widen reviewing                                 | all but diff |
-| `! d`   | disable reviewing (set it to none)              | all but diff |
-| `! r n` | rename                                          | all but diff |
-| `! r p` | reparent                                        | all but diff |
-| `! r b` | rebase                                          | all but diff |
+The binding table is generated from the extension manifest into
+[`packages/cabaret-vscode/keybindings-reference.md`](../packages/cabaret-vscode/keybindings-reference.md),
+and `?` on any cabaret page lists the bindings that apply there.
 
 ## Divergences and open questions
 
-Where the current table falls short of the principles:
+Where the current bindings fall short of the principles:
 
 - **`esc` is unbound.** Step-outside doesn't exist yet. `esc` needs care: VS
   Code uses it to dismiss find widgets, extra cursors, and peek views, and
@@ -103,25 +82,19 @@ Where the current table falls short of the principles:
   binding must not swallow those.
 - **`tab` only folds headed sections.** Diff hunks don't fold yet, though
   they are the other natural thing under the cursor for `tab` to toggle.
-- **`! r` is both a chord and a prefix.** On diff pages it marks the file
-  reviewed; elsewhere it prefixes rebase / rename / reparent. The page gating
-  disambiguates for the machine but not for the user's model — the letter `r`
-  carries four meanings, and the collision is why the `! r *` family is
-  locked out of diff pages at all. Likely fix: move rebase / rename /
-  reparent to letters of their own, keeping the short `! r` for the
-  high-frequency mark-reviewed.
 - **`^` / `$` only work on show pages.** One-meaning says they should work on
   any page with a current change (review, diff), landing on the relative's
   show page.
 - **`r` (review) is bare but arguably a sibling of `enter`.** It navigates —
   opens the review page — so bare is right; but it's show-page-only, and the
   same guessability argument as `^` / `$` applies.
-- **`F` and `P` are bare writes.** Pull and push mutate state but sit outside
-  the `!` namespace, borrowed whole from magit — the muscle memory is worth
-  more than the rule. Both keys clear the vim bar: `F` is a column motion and
-  `P` pastes, neither of which buys anything in a read-only buffer.
-- **Page gates are inconsistent across the `!` family.** Land, pull, and push
-  work everywhere, set-owner excludes diff pages, import is todo/show only — and
-  only some of these gates trace back to the `! r` collision. Pick one rule —
-  probably "mutations that take the current change work anywhere one is
-  shown" — and apply it uniformly.
+- **`F` and `S` are bare writes.** Fetch and sync mutate state but sit
+  outside the `!` namespace — `F` borrowed whole from magit, `S` following
+  its lead — and the muscle memory is worth more than the rule. Both keys
+  clear the vim bar: `F` is a column motion and `S` edits text, neither of
+  which buys anything in a read-only buffer.
+- **Page gates are inconsistent across the `!` family.** Land and
+  create-child/parent work everywhere, mark-reviewed only on review and diff
+  pages, and the rest of the chords everywhere but the diff pages. Pick one
+  rule — probably "mutations that take the current change work anywhere one
+  is shown" — and apply it uniformly.

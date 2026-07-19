@@ -144,7 +144,7 @@ test("todo counts an alias's changes among the user's own", async () => {
   `);
 });
 
-test("an adopted change reads, reviews, and materializes without ever being pulled", async () => {
+test("an adopted change reads, reviews, and materializes without ever running fetch", async () => {
   const repo = await makeRepo();
   await requireReviewers(repo, "bob@example.com");
   await addChange(repo, "gadget");
@@ -172,10 +172,19 @@ test("an adopted change reads, reviews, and materializes without ever being pull
     │ change │ next step │
     ├────────┼───────────┤
     ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ master │      │
+    ╰────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
-  await clone.cabaret("review", "gadget.txt", "--change", "gadget");
+  await clone.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
   expect((await clone.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -184,6 +193,7 @@ test("an adopted change reads, reviews, and materializes without ever being pull
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
+    │ gadget │      1 │
     ╰────────┴────────╯
 
     Changes you own:
@@ -191,6 +201,15 @@ test("an adopted change reads, reviews, and materializes without ever being pull
     │ change │ next step │
     ├────────┼───────────┤
     ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ master │      │
+    ╰────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
   // An operation that moves the branch creates it from origin's copy.
@@ -258,11 +277,18 @@ test("todo with no changes shows both sections empty", async () => {
     │ change │ next step │
     ├────────┼───────────┤
     ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
 
-test("pull imports an open forge change, and todo lists it when review is owed", async () => {
+test("fetch imports an open forge change, and todo lists it when review is owed", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The policy on main is what puts the imported change on this user's plate.
@@ -279,7 +305,7 @@ test("pull imports an open forge change, and todo lists it when review is owed",
   await repo.git("checkout", "-q", "gadget");
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -305,6 +331,8 @@ test("pull imports an open forge change, and todo lists it when review is owed",
     ├────────┼──────┤
     │ gadget │      │
     ╰────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -319,7 +347,7 @@ test("your own forge change joins the changes you own through the recorded alias
   await repo.git("push", "-q", "origin", "solo-feature");
   await repo.git("checkout", "-q", "main");
   forge.openPr("alice", parseBranchName("solo-feature"), parseBranchName("main"), "Solo feature");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -337,6 +365,13 @@ test("your own forge change joins the changes you own through the recorded alias
     ├──────────────┼───────────┤
     │ solo-feature │ review    │
     ╰──────────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -346,7 +381,7 @@ test("a merged forge change is not imported", async () => {
   const repo = await makeRepo(forge);
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.merge(id, parseCommitHash(await repo.git("rev-parse", "main")));
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
     ====
@@ -362,6 +397,13 @@ test("a merged forge change is not imported", async () => {
     │ change │ next step │
     ├────────┼───────────┤
     ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
     "
   `);
 });
@@ -371,7 +413,7 @@ test("a landed change stays only while children hang from it", async () => {
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "gadget.txt", "--change", "gadget");
+  await repo.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
   // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
   await repo.cabaret("reparent", "gizmo", "gadget");
@@ -470,7 +512,7 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     "
   `);
   await repo.git("config", "user.email", "bob@example.com");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo
@@ -501,7 +543,7 @@ test("review is owed only while an obligation is unsatisfied", async () => {
 test("a landed change with no children drops out entirely", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.cabaret("land", "gadget");
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
     "Todo

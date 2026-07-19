@@ -16,6 +16,7 @@ import {
   diffBetween,
   ensureBranch,
   type FilePath,
+  freshestReading,
   type LandedMerge,
   type LogEntry,
   landedMerge,
@@ -28,6 +29,7 @@ import {
   widerReviewing,
 } from "./backend.js";
 import type { LandMethod } from "./config.js";
+import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
 import { assertObligationsSatisfied } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
@@ -241,45 +243,16 @@ export class NotOwnerError extends UserError {
 }
 
 /**
- * The parent's local branch is not current with origin's last-fetched copy:
- * `behind` mends by pulling the parent, `diverged` is the user's to
- * reconcile. As with `NotOwnerError`, the message states only the fact;
- * each frontend attaches its own override remedy before showing it.
+ * The parent's readings have diverged: local and origin's last-fetched copy
+ * each carry work the other lacks, so no freshest reading exists and the
+ * user must join them (syncing the parent does, when it is a change). As
+ * with `NotOwnerError`, the message states only the fact; each frontend
+ * attaches its own override remedy before showing it.
  */
-export class StaleParentError extends UserError {
-  constructor(
-    readonly parent: ChangeName,
-    readonly kind: "behind" | "diverged",
-  ) {
-    super(
-      kind === "behind"
-        ? `local ${JSON.stringify(parent)} is behind origin's copy; pull it first`
-        : `local ${JSON.stringify(parent)} has diverged from origin's copy; reconcile them first`,
-    );
+export class DivergedParentError extends UserError {
+  constructor(readonly parent: ChangeName) {
+    super(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
   }
-}
-
-/**
- * Fail unless the parent's local branch is current with origin's last-fetched
- * copy; `override` skips the check. With no origin copy — no origin, or a
- * branch it never had — there is nothing to be current with, so the local
- * reading stands. A local copy ahead of origin's is current: it already
- * carries everything origin has.
- */
-async function requireFreshParent(
-  backend: Backend,
-  parent: ChangeName,
-  parentTip: Revision,
-  override: boolean,
-): Promise<void> {
-  if (override) {
-    return;
-  }
-  const originTip = await backend.originTip(parent);
-  if (originTip === undefined || originTip === parentTip || (await backend.isAncestor(originTip, parentTip))) {
-    return;
-  }
-  throw new StaleParentError(parent, (await backend.isAncestor(parentTip, originTip)) ? "behind" : "diverged");
 }
 
 /**
@@ -317,17 +290,20 @@ export function assertNoConflict(target: ChangeName, conflicts: readonly FilePat
 export interface RebaseOverrides {
   /** Rebase a change the current user does not own. */
   readonly notOwner: boolean;
-  /** Rebase onto the local parent even though origin's copy has moved on. */
-  readonly staleParent: boolean;
+  /** Rebase onto the parent's local reading even though origin's has diverged from it. */
+  readonly parentDiverged: boolean;
 }
 
 /**
  * Move `target` onto its parent's tip by merging the tip into the change,
- * then record the new base in the log. A conflicting merge still commits,
- * markers in place, for the owner to fix in their own time; the move is
- * complete, so the base is pinned all the same. A change whose files already
- * carry markers must be fixed before it moves again — merging onto them
- * would bake them in as resolved content.
+ * then record the new base in the log. The tip is the parent's freshest
+ * reading — the descendant-most of local and last-fetched origin, since the
+ * merge moves nothing of the parent's — and diverged readings fail until
+ * synced, the override proceeding with the local one. A conflicting merge
+ * still commits, markers in place, for the owner to fix in their own time;
+ * the move is complete, so the base is pinned all the same. A change whose
+ * files already carry markers must be fixed before it moves again — merging
+ * onto them would bake them in as resolved content.
  *
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
@@ -342,20 +318,22 @@ export async function rebaseChange(
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
-  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
-  if (onto === undefined) {
+  const reading = await freshestReading(backend, parent);
+  if (reading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
-  await requireFreshParent(backend, parent, onto, overrides.staleParent);
+  if (reading.kind === "diverged" && !overrides.parentDiverged) {
+    throw new DivergedParentError(parent);
+  }
+  const onto = reading.kind === "fresh" ? reading.tip : reading.local;
   const base = await changeBase(backend, target, entries);
   // The merge moves the target's branch, so one held only at origin materializes.
   const tip = await ensureBranch(backend, target);
   assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
   // A tip the base already reaches — the parent trailing where the change
-  // was built, however the freshness check was satisfied — offers nothing to
-  // move; merging it would reverse-diff the newer history, and pinning to it
-  // would slide the base backwards and pull the parent's commits into the
-  // diff.
+  // was built — offers nothing to move; merging it would reverse-diff the
+  // newer history, and pinning to it would slide the base backwards and
+  // pull the parent's commits into the diff.
   if (onto !== base && (await backend.isAncestor(onto, base))) {
     return;
   }
@@ -498,12 +476,25 @@ export async function recordLand(
   ]);
 }
 
+/** How a local land's parent advance reached origin, if it could. */
+export type LandPublication =
+  /** The parent branch was pushed: origin carries the land. */
+  | "published"
+  /** Origin was unreachable; the parent keeps the land locally until pushed. */
+  | "origin-unreachable"
+  /** The local parent does not descend from origin's reading, so pushing could drop origin's work; the land stays local. */
+  | "parent-stale"
+  /** Origin never held the parent (or there is no origin): the land is local by nature. */
+  | "no-origin";
+
 /**
  * Land `target` into its parent: write it onto the parent branch as a commit
- * marked as landing — a land merge, or one squash commit — and record the
- * landing in the log. A change no longer sitting on its parent's tip lands
- * all the same when it merges cleanly onto it; rebase first when it
- * conflicts.
+ * marked as landing — a land merge, or one squash commit — record the
+ * landing in the log, and push the parent. The land names the parent, so
+ * publishing its advance is within the intent asked; what the push could
+ * not or need not do comes back as the `LandPublication`. A change no
+ * longer sitting on its parent's tip lands all the same when it merges
+ * cleanly onto it; rebase first when it conflicts.
  */
 export async function landChange(
   backend: Backend,
@@ -512,7 +503,7 @@ export async function landChange(
   entries: readonly LogEntry[],
   method: LandMethod,
   overrides: LandOverrides,
-): Promise<void> {
+): Promise<LandPublication> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
   // The landing commit goes onto the parent's branch, so one held only at
@@ -526,6 +517,25 @@ export async function landChange(
     commit: merge,
     parents: method === "merge" ? 2 : 1,
   });
+  const originTip = await backend.originTip(parent);
+  if (originTip === undefined) {
+    return "no-origin";
+  }
+  // Only a strict advance of origin's reading pushes: the lease alone would
+  // let a land onto a stale local parent replace origin work this clone has
+  // fetched but never absorbed.
+  if (originTip !== merge && !(await backend.isAncestor(originTip, merge))) {
+    return "parent-stale";
+  }
+  try {
+    await backend.push(parent);
+  } catch (error) {
+    if (!isConnectivityError(error)) {
+      throw error;
+    }
+    return "origin-unreachable";
+  }
+  return "published";
 }
 
 /**

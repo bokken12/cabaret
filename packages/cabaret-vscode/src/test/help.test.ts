@@ -12,6 +12,7 @@ test("todo page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "@  Act as User",
       "! r b  Rebase",
       "! l a  Land",
       "! r n  Rename",
@@ -24,8 +25,8 @@ test("todo page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -39,6 +40,8 @@ test("show page keybindings", () => {
       "R  Refresh",
       "?  Keybindings",
       "r  Review",
+      "d  Review Diffs",
+      "@  Act as User",
       "^  Show Parent",
       "$  Show Child",
       "! r b  Rebase",
@@ -53,8 +56,8 @@ test("show page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -67,6 +70,9 @@ test("review page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "d  Review Diffs",
+      "@  Act as User",
+      "! m  Mark Reviewed",
       "! r b  Rebase",
       "! l a  Land",
       "! r n  Rename",
@@ -79,8 +85,8 @@ test("review page keybindings", () => {
       "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -93,12 +99,13 @@ test("diff page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
-      "! r  Mark Reviewed",
+      "@  Act as User",
+      "! m  Mark Reviewed",
       "! l a  Land",
       "! c  Create Child",
       "! p  Create Parent",
-      "F  Pull from Forge",
-      "P  Push to Forge",
+      "F  Fetch Remote Activity",
+      "S  Sync Change",
     ]
   `);
 });
@@ -111,12 +118,13 @@ test("help carries the command, so picking an entry can run it", () => {
       "q  workbench.action.closeActiveEditor",
       "R  cabaret.refresh",
       "?  cabaret.help",
-      "! r  cabaret.markReviewed",
+      "@  cabaret.actAs",
+      "! m  cabaret.markReviewed",
       "! l a  cabaret.land",
       "! c  cabaret.createChild",
       "! p  cabaret.createParent",
-      "F  cabaret.pull",
-      "P  cabaret.push",
+      "F  cabaret.fetch",
+      "S  cabaret.sync",
     ]
   `);
 });

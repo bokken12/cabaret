@@ -25,7 +25,7 @@ export function parseCommitHash(raw: string): Revision {
  * The name of a change (or of a parent it builds on, trunk included),
  * obtained only through a backend's `parseName`, which enforces its native
  * grammar. Backends map the name onto whatever they natively point at code
- * with: a git branch, an hg bookmark.
+ * with: a git branch.
  */
 export type ChangeName = Branded<string, "ChangeName">;
 
@@ -100,6 +100,19 @@ export function forgeChangeId(raw: number): ForgeChangeId {
     throw new UserError(`not a forge change number: ${raw}`);
   }
   return raw as ForgeChangeId;
+}
+
+/** The route each supported forge serves a change's page under, keyed by the locator's host. */
+const FORGE_CHANGE_ROUTES: Record<string, string> = {
+  "github.com": "pull",
+  "gitlab.com": "-/merge_requests",
+  "codeberg.org": "pulls",
+};
+
+/** The web page for change `id` on `forge`, or undefined for an unrecognized host. */
+export function forgeChangeUrl(forge: ForgeLocator, id: ForgeChangeId): string | undefined {
+  const route = FORGE_CHANGE_ROUTES[forge.split("/")[0] as string];
+  return route === undefined ? undefined : `https://${forge}/${route}/${id}`;
 }
 
 /**
@@ -372,7 +385,7 @@ export type ConfigScope = "local" | "global";
 export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
-  /** The branch checked out there, or undefined when none is (git: detached HEAD; hg: no active bookmark). */
+  /** The branch checked out there, or undefined when none is (a detached HEAD). */
   readonly change: ChangeName | undefined;
   /** Whether the working tree or index differs from the checkout, untracked files included. */
   readonly dirty: boolean;
@@ -380,21 +393,12 @@ export interface Workspace {
   readonly primary: boolean;
 }
 
-/** The version-control systems a backend can speak for. */
-export type Vcs = "git" | "hg";
-
 /**
  * The operations Cabaret needs from a version-control backend. The
- * implementations (`cabaret-node`) shell out to a local git or hg.
- *
- * Vocabulary maps onto whatever the backend natively has: a "branch" is a git
- * branch or an hg bookmark, and "origin" is the pinned remote every remote
- * operation uses — git's `origin` remote, hg's `default` path.
+ * implementation (`cabaret-node`) shells out to a local git. "origin" is the
+ * one pinned remote every remote operation uses.
  */
 export interface Backend {
-  /** Which version-control system this backend speaks. */
-  readonly vcs: Vcs;
-
   /** Absolute path of the working tree the backend was opened in. */
   readonly root: string;
 
@@ -465,6 +469,13 @@ export interface Backend {
    */
   originTip(change: ChangeName): Promise<Revision | undefined>;
 
+  /**
+   * When this workspace last fetched from origin successfully — cabaret's
+   * fetch or anyone's — or undefined when none is known. A fetch that fails
+   * loses the reading until the next success.
+   */
+  originFetched(): Promise<TimestampMs | undefined>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
 
@@ -526,11 +537,10 @@ export interface Backend {
    * and `onto` committed with parents tip then `onto`, carrying `message` —
    * or a plain fast-forward when the tip has nothing of its own. The merge
    * resolves against `base`, the change's own base: what the change did
-   * since its base applies onto `onto`. Under git the base overrides the
-   * graph's merge-base, so a parent whose history was rewritten merges as
-   * cleanly as one that advanced; hg can only resolve against the graph's
-   * own ancestor, so a `base` the graph disagrees with is refused rather
-   * than misread. Carries a checked-out `change`'s working tree along.
+   * since its base applies onto `onto`. The base overrides the graph's
+   * merge-base, so a parent whose history was rewritten merges as cleanly
+   * as one that advanced. Carries a checked-out `change`'s working tree
+   * along.
    * Conflicts still commit, markers left in the files, and come back as the
    * conflicted paths.
    */
@@ -561,11 +571,18 @@ export interface Backend {
   squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
-   * The commits carrying the `LAND_TRAILER` trailer on the first-parent chain
-   * from `base` to `tip`, oldest first — land merges, whose `onto` is their
-   * first parent, and squash lands, whose `onto` is their sole parent.
+   * The commits carrying the `LAND_TRAILER` trailer among the newest `scan`
+   * commits of `tip`'s first-parent chain, oldest first — land merges, whose
+   * `onto` is their first parent, and squash lands, whose `onto` is their
+   * sole parent — and whether the chain continues past those commits. `base`
+   * stops the walk where a change's history ends; undefined surveys a
+   * long-lived branch, whose history only `scan` bounds.
    */
-  landMerges(base: Revision, tip: Revision): Promise<readonly LandMerge[]>;
+  landMerges(
+    base: Revision | undefined,
+    tip: Revision,
+    scan: number,
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
@@ -583,10 +600,20 @@ export interface Backend {
 
   /**
    * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
-   * Moves no local branch under git; hg's native pull also imports new
-   * remote bookmarks, as any hg pull does, and never overwrites local work.
+   * Moves no local branch.
    */
   fetchOrigin(): Promise<void>;
+
+  /**
+   * Fast-forward local branches onto origin's last-fetched copies where the
+   * move loses nothing: only to a descendant of the branch's tip, and a
+   * branch checked out in a workspace advances only when that workspace is
+   * clean — its working tree follows the branch — so no line of work anyone
+   * holds open moves. Returns the branches advanced, sorted. Reads
+   * last-fetched copies only; `fetchOrigin` first to advance onto fresh
+   * ones.
+   */
+  advanceBranches(): Promise<readonly ChangeName[]>;
 
   /**
    * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
@@ -672,6 +699,34 @@ export async function requireTip(backend: Backend, change: ChangeName): Promise<
 }
 
 /**
+ * The freshest reading of a branch: the descendant-most of its local tip and
+ * origin's last-fetched copy. A local branch is a working position, not
+ * evidence — facts like rebase targets and staleness read the freshest copy
+ * this clone holds, wherever it lives. Diverged readings have no freshest
+ * side: both come back for the caller to arbitrate.
+ */
+export async function freshestReading(
+  backend: Backend,
+  branch: ChangeName,
+): Promise<
+  | { readonly kind: "none" }
+  | { readonly kind: "fresh"; readonly tip: Revision }
+  | { readonly kind: "diverged"; readonly local: Revision; readonly origin: Revision }
+> {
+  const local = await backend.tip(branch);
+  const origin = await backend.originTip(branch);
+  if (local === undefined) {
+    return origin === undefined ? { kind: "none" } : { kind: "fresh", tip: origin };
+  }
+  if (origin === undefined || origin === local || (await backend.isAncestor(origin, local))) {
+    return { kind: "fresh", tip: local };
+  }
+  return (await backend.isAncestor(local, origin))
+    ? { kind: "fresh", tip: origin }
+    : { kind: "diverged", local, origin };
+}
+
+/**
  * The tip of `change`'s local branch, created at origin's copy when only
  * origin holds one. Operations that move the branch call this; creating the
  * branch at origin's tip loses nothing and asks no decision of the user, so
@@ -711,7 +766,7 @@ function latestAction<K extends LogAction["kind"]>(
 export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret pull\` to import open forge changes`,
+      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret fetch\` to import open forge changes`,
     );
   }
 }
@@ -1007,7 +1062,7 @@ export async function changeBase(
       return stored;
     }
     throw landed !== undefined
-      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret pull\``)
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
       : new UserError(
           `parent branch of ${JSON.stringify(change)} does not exist: ` +
             `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
@@ -1061,7 +1116,7 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
   }
   if (!(await backend.hasRevision(landed.merge))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret pull\``,
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret fetch\``,
     );
   }
   return backend.mergedTip(landed.merge);
@@ -1181,9 +1236,33 @@ export async function changeDiff(
   return diffBetween(backend, base, tip);
 }
 
+/**
+ * First-parent commits a land-merge walk surveys before giving up: far past
+ * any workable change's history, and still cheap for git to scan.
+ */
+export const LAND_SCAN = 10_000;
+
+/**
+ * Every land merge on `base`..`tip`, oldest first. Review spans need the
+ * walk complete — a shortened answer would silently misplace them — so a
+ * history outrunning `LAND_SCAN` commits, which no one could review anyway,
+ * is an error instead.
+ */
+export async function completeLandMerges(
+  backend: Backend,
+  base: Revision,
+  tip: Revision,
+): Promise<readonly LandMerge[]> {
+  const { lands, more } = await backend.landMerges(base, tip, LAND_SCAN);
+  if (more) {
+    throw new UserError(`history spans more than ${LAND_SCAN} commits; rebase onto a fresher parent`);
+  }
+  return lands;
+}
+
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
-  const lands = await backend.landMerges(base, tip);
+  const lands = await completeLandMerges(backend, base, tip);
   const spans = await Promise.all(
     reviewSpans(lands, base, tip).map(async (span) => ({
       ...span,

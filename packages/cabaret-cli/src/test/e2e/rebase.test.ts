@@ -33,17 +33,29 @@ test("a parent rewrite stays out of the child's diff until it rebases", async ()
   await amendParent(repo);
   // The stored base still holds parent.txt as the child saw it, so only the
   // child's own work is left to review.
-  expect(await repo.cabaret("diff", "--change", "child", "parent.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
+    stdout: "parent.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review child
+    ============
+
+    Reviewing up to 46080b0eb5bb.
+
+      child.txt
+
+    child.txt in child (up to 46080b0eb5bb)
+
+    -1,0 +1,1
     +|child work
+
+    Record review of what you have read:
+      cabaret mark --change child --tip 46080b0eb5bb child.txt
     ",
     }
   `);
@@ -63,17 +75,29 @@ test("rebase merges the parent's tip in and records the new base", async () => {
   expect(await repo.git("rev-parse", "child^2")).toBe(newBase);
   expect(await repo.git("show", "child:parent.txt")).toBe("parent v2");
   expect((await repo.cabaret("log", "child")).stdout).toContain(`{"kind":"set-base","base":"${newBase}"}`);
-  expect(await repo.cabaret("diff", "--change", "child", "parent.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
+    stdout: "parent.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "-1,0 +1,1
+      "stdout": "Review child
+    ============
+
+    Reviewing up to fb73e7cb3fb0.
+
+      child.txt
+
+    child.txt in child (up to fb73e7cb3fb0)
+
+    -1,0 +1,1
     +|child work
+
+    Record review of what you have read:
+      cabaret mark --change child --tip fb73e7cb3fb0 child.txt
     ",
     }
   `);
@@ -141,7 +165,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'parent' into child");
   expect(await repo.cabaret("conflicts", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  await repo.cabaret("review", "shared.txt", "--change", "child");
+  await repo.cabaret("mark", "--tip", "child", "shared.txt", "--change", "child");
   expect(await repo.cabaret("land", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "parent:shared.txt")).toBe("from both");
 });
@@ -166,13 +190,13 @@ test("a change lands cleanly after a rebase", async () => {
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk work");
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  await repo.cabaret("review", "feature.txt", "--change", "feature");
+  await repo.cabaret("mark", "--tip", "feature", "feature.txt", "--change", "feature");
   expect(await repo.cabaret("land", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "main:feature.txt")).toBe("feature work");
   expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
 });
 
-test("rebase refuses a parent whose origin copy has moved on", async () => {
+test("rebase reads through to origin's copy of a parent that is merely behind", async () => {
   const repo = await makeRepo();
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "feature");
@@ -185,56 +209,68 @@ test("rebase refuses a parent whose origin copy has moved on", async () => {
   await other.git("commit", "-qm", "trunk work");
   await other.git("push", "-q", "origin", "main");
   await repo.git("fetch", "-q", "origin");
-  expect(await repo.cabaret("rebase", "feature")).toEqual({
-    stdout: "",
-    stderr: 'local "main" is behind origin\'s copy; pull it first, or pass --even-though-parent-stale to override\n',
-    exitCode: 1,
-  });
-  await repo.cabaret("reviewing", "everyone", "--change", "feature");
-  await repo.cabaret("review", "feature.txt", "--change", "feature");
+  // The show page already reads staleness through to origin's copy.
   const shown = (await repo.cabaret("show", "feature")).stdout;
-  expect(shown).toContain("pull parent");
-  expect(shown).toContain("main (behind origin)");
-  // Overridden, the rebase stands on the local main as it is: the change
-  // already sits on its tip, so nothing moves.
-  const before = await repo.cabaret("log", "feature");
-  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("log", "feature")).toEqual(before);
-  // Pulling the parent satisfies the check and the rebase carries the trunk work in.
-  await repo.git("fetch", "-q", "origin", "main:main");
+  expect(shown).toContain("(behind parent)");
+  // The local branch is just a working position: the rebase stands on the
+  // parent's freshest reading, carrying the trunk work in without moving
+  // local main.
+  const mainBefore = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("show", "feature:trunk.txt")).toBe("trunk work");
+  expect(await repo.git("rev-parse", "main")).toBe(mainBefore);
 });
 
-test("an overridden rebase onto a parent the base outran moves nothing", async () => {
+test("rebase refuses a diverged parent; overridden, it stands on the local reading", async () => {
   const repo = await makeRepo();
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "feature");
+  // The readings part ways: origin's main gains trunk work while this
+  // clone's main takes local work, so no freshest reading exists.
   const other = await makeClone(repo, "bob@example.com");
   await other.git("checkout", "-q", "main");
   await other.write("trunk.txt", "trunk work\n");
   await other.git("add", "-A");
   await other.git("commit", "-qm", "trunk work");
   await other.git("push", "-q", "origin", "main");
-  await repo.git("fetch", "-q", "origin", "main:main");
-  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  // The local main slides back to the root while the base stays pinned ahead
-  // of it. Merging that tip would reverse-diff the newer history into the
-  // change; even overridden, the rebase must recognize there is nothing to
-  // move.
-  const root = await repo.git("rev-parse", "main~1");
-  await repo.git("update-ref", "refs/heads/main", root);
-  const tipBefore = await repo.git("rev-parse", "feature");
-  const logBefore = await repo.cabaret("log", "feature");
-  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-stale")).toEqual({
+  await repo.git("checkout", "-q", "main");
+  await repo.write("local.txt", "local work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "local work");
+  await repo.git("fetch", "-q", "origin");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      'local "main" has diverged from origin\'s copy; sync it first, ' +
+      "or pass --even-though-parent-diverged to rebase onto the local reading\n",
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("rebase", "feature", "--even-though-parent-diverged")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
+  expect(await repo.git("show", "feature:local.txt")).toBe("local work");
+  await expect(repo.git("show", "feature:trunk.txt")).rejects.toThrow();
+});
+
+test("a rebase onto a parent the base outran moves nothing", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The local main slides back to the root while the base stays pinned ahead
+  // of it. Merging that tip would reverse-diff the newer history into the
+  // change; the rebase must recognize there is nothing to move.
+  await repo.git("checkout", "-q", "feature");
+  const root = await repo.git("rev-parse", "main~1");
+  await repo.git("update-ref", "refs/heads/main", root);
+  const tipBefore = await repo.git("rev-parse", "feature");
+  const logBefore = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("rev-parse", "feature")).toBe(tipBefore);
   expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
 });
@@ -275,8 +311,8 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   await repo.git("checkout", "-q", "parent");
   await repo.write("island.txt", "more parent work, amended\n");
   await repo.git("commit", "-qa", "--amend", "-m", "more parent work, amended");
-  expect(await repo.cabaret("diff", "--change", "child", "island.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "island.txt")).toEqual({
+    stdout: "island.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
@@ -287,7 +323,7 @@ test("rebase fails on a change that does not exist", async () => {
   await repo.git("branch", "orphan");
   expect(await repo.cabaret("rebase", "orphan")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "orphan"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "orphan"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });
@@ -314,8 +350,16 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   const [aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
   expect(await repo.git("rev-parse", "c^2")).toBe(bNew);
   expect(await repo.git("show", "c:trunk.txt")).toBe("trunk work");
-  expect(await repo.cabaret("diff", "--change", "c", "b.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("diff", "--change", "c", "trunk.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("review", "--change", "c", "b.txt")).toEqual({
+    stdout: "b.txt in c\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("review", "--change", "c", "trunk.txt")).toEqual({
+    stdout: "trunk.txt in c\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.cabaret("log", "a")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
@@ -420,19 +464,19 @@ test("a malformed range is rejected", async () => {
 
 test("a review survives the parent being rewritten and the rebase that follows", async () => {
   const repo = await makeStack();
-  await repo.cabaret("review", "child.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "child.txt");
   await amendParent(repo);
   // The base is unchanged by the parent's rewrite, so the review still stands.
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toEqual({
+    stdout: "child.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });
   // The rebase moves the base, but neither base has child.txt, so the
   // reviewed 2-way diff is still sound and the review stands.
   await repo.cabaret("rebase", "child");
-  expect(await repo.cabaret("diff", "--change", "child", "child.txt")).toEqual({
-    stdout: "",
+  expect(await repo.cabaret("review", "--change", "child", "child.txt")).toEqual({
+    stdout: "child.txt in child\n\nNothing left to review.\n",
     stderr: "",
     exitCode: 0,
   });

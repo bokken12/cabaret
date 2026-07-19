@@ -20,6 +20,7 @@ const alice = userName("alice@example.com");
 
 function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
   return {
+    kind: "change",
     change: parseBranchName(change),
     parent: parseBranchName("main"),
     owner: alice,
@@ -60,6 +61,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
   const doc = todoDoc({
+    as: undefined,
     review: [
       { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
     ],
@@ -69,6 +71,7 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     ],
     broken: [],
     workspaces: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
@@ -123,7 +126,9 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
 });
 
 test("todoDoc with nothing to do keeps both sections, empty", () => {
-  expect(docText(todoDoc({ review: [], owned: [], broken: [], workspaces: [] }))).toMatchInlineSnapshot(`
+  expect(
+    docText(todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined })),
+  ).toMatchInlineSnapshot(`
     "Todo
     ====
 
@@ -145,6 +150,7 @@ test("todoDoc lists the changes checked out on this device in their own section"
   const gadget = summary("gadget", { reviewLeft: files("gadget.ts") });
   const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
   const doc = todoDoc({
+    as: undefined,
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
     owned: [{ summary: gadget, context: false, children: [] }],
     broken: [],
@@ -162,6 +168,7 @@ test("todoDoc lists the changes checked out on this device in their own section"
         archived: false,
       },
     ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Todo
@@ -201,8 +208,43 @@ test("todoDoc lists the changes checked out on this device in their own section"
   ]);
 });
 
+test("todoDoc as another user names them and keeps their identity on every change link", () => {
+  const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: files("gadget.ts") });
+  const doc = todoDoc({
+    as: userName("bob@example.com"),
+    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
+    owned: [{ summary: gadget, context: false, children: [] }],
+    broken: [],
+    workspaces: [],
+    fetched: undefined,
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Todo as bob@example.com
+    =======================
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    │ gadget │      1 │ review    │
+    ╰────────┴────────┴───────────╯"
+  `);
+  const line = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("│ gadget │      1 │ review"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "gadget", as: "bob@example.com" });
+});
+
 test("todoDoc carries broken changes as doc errors, named for their change", () => {
   const doc = todoDoc({
+    as: undefined,
     review: [],
     owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
     broken: [
@@ -210,6 +252,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
       { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
     ],
     workspaces: [],
+    fetched: undefined,
   });
   expect(doc.errors).toEqual([
     'gizmo: unknown revision: "refs/heads/gizmo"',
@@ -237,6 +280,7 @@ test("todoDoc carries broken changes as doc errors, named for their change", () 
 
 test("showDoc renders the attribute table, remaining review, and files left", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       reviewers: [userName("bob@example.com"), userName("carol@example.com")],
       forgeChange: {
@@ -248,7 +292,11 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 2 files", "bob@example.com: 1 file"],
+    remaining: [
+      { user: userName("alice@example.com"), files: 2 },
+      { user: userName("bob@example.com"), files: 1 },
+    ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -283,12 +331,126 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
   expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  // The forge change row opens the change's page on the forge.
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toEqual({ kind: "url", url: "https://github.com/test-org/widgets/pull/7" });
+  // A remaining-review row opens that reviewer's own review page.
+  const tally = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("bob@example.com: 1 file"));
+  expect(targetAt(doc, tally)).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
 });
 
+test("showDoc renders a trunk from its history alone, newest lands first, an ellipsis marking older ones", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: {
+      kind: "trunk",
+      change: parseBranchName("main"),
+      tip: fake("2"),
+      origin: "behind",
+      included: [
+        { change: parseBranchName("gadget"), commit: fake("3"), onto: fake("1") },
+        { change: parseBranchName("gizmo"), commit: fake("5"), onto: fake("4") },
+      ],
+      truncated: true,
+    },
+    comments: [],
+    workspace: { path: "/src/widgets", display: ".", dirty: false },
+    remaining: [],
+    fetched: undefined,
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────────────────────╮
+    │ attribute │ value                        │
+    ├───────────┼──────────────────────────────┤
+    │ tip       │ 222222222222 (behind origin) │
+    │ workspace │ .                            │
+    ╰───────────┴──────────────────────────────╯
+
+    Included changes:
+      gizmo
+      gadget
+      …"
+  `);
+  // An included row opens the landed change's page; the ellipsis goes nowhere.
+  const lines = docText(doc).split("\n");
+  expect(
+    targetAt(
+      doc,
+      lines.findIndex((text) => text.includes("gadget")),
+    ),
+  ).toEqual({
+    kind: "change",
+    change: "gadget",
+  });
+  expect(
+    targetAt(
+      doc,
+      lines.findIndex((text) => text.includes("…")),
+    ),
+  ).toBeUndefined();
+});
+
+test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: summary("widgets", {
+      forgeChange: {
+        forge: parseForgeLocator("forge.example.com/test-org/widgets"),
+        id: forgeChangeId(7),
+        staleParent: undefined,
+      },
+    }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const forge = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("forge change"));
+  expect(targetAt(doc, forge)).toBeUndefined();
+});
+
+test("showDoc as another user names them and keeps their identity on file and change links", () => {
+  const bob = userName("bob@example.com");
+  const doc = showDoc({
+    summary: summary("widgets", {
+      included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
+      reviewLeft: files("api.ts"),
+    }),
+    as: bob,
+    comments: [],
+    workspace: undefined,
+    remaining: [{ user: bob, files: 1 }],
+    fetched: undefined,
+  });
+  expect(docText(doc).split("\n").slice(0, 2).join("\n")).toMatchInlineSnapshot(`
+    "widgets as bob@example.com
+    =========================="
+  `);
+  const rendered = docText(doc).split("\n");
+  const targetOf = (needle: string) =>
+    targetAt(
+      doc,
+      rendered.findIndex((text) => text.includes(needle)),
+    );
+  expect(targetOf("widgets-api")).toEqual({ kind: "change", change: "widgets-api", as: "bob@example.com" });
+  expect(targetOf("api.ts")).toEqual({ kind: "file", change: "widgets", file: "api.ts", as: "bob@example.com" });
+  expect(targetOf("bob@example.com: 1 file")).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
+});
+
 test("showDoc lists included changes above the review, each linking to its page", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       included: [
         { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
@@ -298,7 +460,8 @@ test("showDoc lists included changes above the review, each linking to its page"
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 1 file"],
+    remaining: [{ user: alice, files: 1 }],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -316,8 +479,8 @@ test("showDoc lists included changes above the review, each linking to its page"
     ╰───────────┴───────────────────╯
 
     Included changes:
-      widgets-api
       widgets-ui
+      widgets-api
 
     Remaining review:
       alice@example.com: 1 file
@@ -327,22 +490,24 @@ test("showDoc lists included changes above the review, each linking to its page"
   `);
   const line = docText(doc)
     .split("\n")
-    .findIndex((text) => text.includes("widgets-api"));
-  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-api" });
-  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-ui" });
+    .findIndex((text) => text.includes("widgets-ui"));
+  expect(targetAt(doc, line)).toEqual({ kind: "change", change: "widgets-ui" });
+  expect(targetAt(doc, line + 1)).toEqual({ kind: "change", change: "widgets-api" });
 });
 
 test("showDoc notes disagreeing readings on their own rows", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", {
       reviewLeft: files("api.ts"),
       origin: "behind",
       staleBase: "behind",
-      nextStep: "pull",
+      nextStep: "sync",
     }),
     comments: [],
     workspace: undefined,
-    remaining: ["alice@example.com: 1 file"],
+    remaining: [{ user: alice, files: 1 }],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -351,7 +516,7 @@ test("showDoc notes disagreeing readings on their own rows", () => {
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ pull                         │
+    │ next step │ sync                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ everyone                     │
     │ parent    │ main                         │
@@ -370,10 +535,12 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 test("showDoc words each note by its reading", () => {
   const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
     const doc = showDoc({
+      as: undefined,
       summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
       comments: [],
       workspace: undefined,
       remaining: [],
+      fetched: undefined,
     });
     return docText(doc)
       .split("\n")
@@ -384,7 +551,6 @@ test("showDoc words each note by its reading", () => {
   expect(attributeRow({ origin: "diverged" }, "tip")).toBe("│ tip       │ 222222222222 (diverged from origin) │");
   expect(attributeRow({ deadParent: "landed" }, "parent")).toBe("│ parent    │ gadget (landed)   │");
   expect(attributeRow({ deadParent: "missing" }, "parent")).toBe("│ parent    │ gadget (does not exist) │");
-  expect(attributeRow({ parentOrigin: "behind" }, "parent")).toBe("│ parent    │ gadget (behind origin) │");
   expect(attributeRow({ parentOrigin: "diverged" }, "parent")).toBe("│ parent    │ gadget (diverged from origin) │");
   expect(attributeRow({ staleBase: "behind" }, "base")).toBe("│ base      │ 111111111111 (behind parent) │");
   expect(attributeRow({ staleBase: "diverged" }, "base")).toBe("│ base      │ 111111111111 (diverged from parent) │");
@@ -403,8 +569,9 @@ test("showDoc words each note by its reading", () => {
 
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("gadget", { reviewLeft: files("gadget.ts") }),
-    remaining: ["bob@example.com: 1 file"],
+    remaining: [{ user: userName("bob@example.com"), files: 1 }],
     workspace: undefined,
     comments: [
       {
@@ -418,6 +585,7 @@ test("showDoc renders comments between the remaining review and the files, multi
         text: "second thoughts:\n\nthe flag name reads oddly",
       },
     ],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "gadget
@@ -461,10 +629,12 @@ test("showDoc renders comments between the remaining review and the files, multi
 test("showDoc rows the change's workspace, noting dirtiness", () => {
   const workspaceRow = (dirty: boolean) => {
     const doc = showDoc({
+      as: undefined,
       summary: summary("widgets", {}),
       comments: [],
       workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
       remaining: [],
+      fetched: undefined,
     });
     return docText(doc)
       .split("\n")
@@ -476,10 +646,12 @@ test("showDoc rows the change's workspace, noting dirtiness", () => {
 
 test("showDoc renders a landed change without a files section", () => {
   const doc = showDoc({
+    as: undefined,
     summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
     comments: [],
     workspace: undefined,
     remaining: [],
+    fetched: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
@@ -497,4 +669,39 @@ test("showDoc renders a landed change without a files section", () => {
     ╰───────────┴───────────────────╯"
   `);
   expect(doc.folds).toEqual([]);
+});
+
+test("each doc closes with a dimmed line dating the last fetch, when one is known", () => {
+  const fetched = timestampMs(Date.UTC(2026, 6, 19, 8, 4, 5, 678));
+  const footer = [{ text: "fetched 08:04, 2026-07-19", style: "context", target: undefined, tier: undefined }];
+  const todo = todoDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
+  expect(docText(todo)).toMatchInlineSnapshot(`
+    "Todo
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬────────┬───────────╮
+    │ change │ review │ next step │
+    ├────────┼────────┼───────────┤
+    ╰────────┴────────┴───────────╯
+
+    fetched 08:04, 2026-07-19"
+  `);
+  expect(todo.lines.at(-1)?.spans).toEqual(footer);
+  const show = showDoc({
+    as: undefined,
+    summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched,
+  });
+  expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
+  expect(show.lines.at(-1)?.spans).toEqual(footer);
 });

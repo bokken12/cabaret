@@ -13,6 +13,8 @@ import {
   type FilePath,
   type ForgeChangeId,
   type ForgeLocator,
+  freshestReading,
+  LAND_SCAN,
   type LandMerge,
   type LogEntry,
   landedMerge,
@@ -21,6 +23,7 @@ import {
   type Reviewing,
   type Revision,
   remainingSpans,
+  requireTip,
   type UserName,
 } from "./backend.js";
 import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
@@ -68,24 +71,22 @@ export function changeForest(parents: ReadonlyMap<ChangeName, ChangeName>): read
 
 /** What must happen next to move a change toward landing. */
 export type NextStep =
-  | "pull"
-  | "resolve divergence"
+  | "sync"
   | "reparent"
   | "fix conflicts"
   | "add code"
   | "review"
   | "add reviewers"
   | "widen reviewing"
-  | "pull parent"
   | "resolve parent divergence"
   | "rebase"
-  | "push"
   | "land"
   | "landed"
   | "archived";
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {
+  readonly kind: "change";
   readonly change: ChangeName;
   readonly parent: ChangeName;
   readonly owner: UserName;
@@ -113,8 +114,8 @@ export interface ChangeSummary {
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
   readonly deadParent: "landed" | "missing" | undefined;
-  /** How the parent's local tip stands relative to origin's last-fetched copy, when it trails. */
-  readonly parentOrigin: "behind" | "diverged" | undefined;
+  /** Set when the parent's local tip and origin's last-fetched copy have diverged: the user's to join. */
+  readonly parentOrigin: "diverged" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
@@ -158,37 +159,22 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
-    // A change with no local branch reads as origin's copy itself — trivially
-    // in sync, so no reading arises, just as when a local branch matches.
-    const originTip = await backend.originTip(change);
-    if (originTip !== undefined && originTip !== tip) {
-      origin = (await backend.isAncestor(originTip, tip))
-        ? "ahead"
-        : (await backend.isAncestor(tip, originTip))
-          ? "behind"
-          : "diverged";
-    }
+    origin = await originStanding(backend, change, tip);
     if (landedMerge(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
-      const parentTip = await backend.tip(parent);
-      const parentOriginTip = await backend.originTip(parent);
-      if (parentTip === undefined) {
-        // A parent origin holds but this clone lacks is not dead, just unpulled.
-        if (parentOriginTip === undefined) {
-          deadParent = "missing";
-        } else {
-          parentOrigin = "behind";
-        }
+      const reading = await freshestReading(backend, parent);
+      if (reading.kind === "none") {
+        deadParent = "missing";
       } else {
-        // A parent ahead of origin's copy is no reading at all: rebasing onto
-        // it already covers everything origin has.
-        if (
-          parentOriginTip !== undefined &&
-          parentOriginTip !== parentTip &&
-          !(await backend.isAncestor(parentOriginTip, parentTip))
-        ) {
-          parentOrigin = (await backend.isAncestor(parentTip, parentOriginTip)) ? "behind" : "diverged";
+        let parentTip: Revision;
+        if (reading.kind === "diverged") {
+          parentOrigin = "diverged";
+          // Arbitrating diverged readings is the user's; meanwhile the local
+          // one is the position they have declared.
+          parentTip = reading.local;
+        } else {
+          parentTip = reading.tip;
         }
         if (parentTip !== base) {
           stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
@@ -197,6 +183,7 @@ export async function summarizeChange(
     }
   }
   const readings = {
+    kind: "change" as const,
     change,
     parent,
     owner: currentOwner(change, entries),
@@ -220,13 +207,74 @@ export async function summarizeChange(
 }
 
 /**
+ * How `tip` stands relative to origin's last-fetched copy of `change`, when
+ * they differ. A change with no local branch reads as origin's copy itself —
+ * trivially in sync, so no reading arises, just as when a local branch
+ * matches.
+ */
+async function originStanding(backend: Backend, change: ChangeName, tip: Revision): Promise<ChangeSummary["origin"]> {
+  const originTip = await backend.originTip(change);
+  if (originTip === undefined || originTip === tip) {
+    return undefined;
+  }
+  return (await backend.isAncestor(originTip, tip))
+    ? "ahead"
+    : (await backend.isAncestor(tip, originTip))
+      ? "behind"
+      : "diverged";
+}
+
+/**
+ * A branch with no log, read as a change: a trunk like `main`, or any branch
+ * Cabaret never created. Nothing was ever declared about it — no owner, no
+ * parent, no base — so its status is only what its history shows.
+ */
+export interface TrunkSummary {
+  readonly kind: "trunk";
+  readonly change: ChangeName;
+  readonly tip: Revision;
+  /** How the tip stands relative to origin's last-fetched copy, when they differ. */
+  readonly origin: "ahead" | "behind" | "diverged" | undefined;
+  /** The changes landed into the branch recently, oldest first. */
+  readonly included: readonly LandMerge[];
+  /** Whether the history continues past the bounded scan behind `included`. */
+  readonly truncated: boolean;
+}
+
+/** Summarize a branch with no log. */
+export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
+  const tip = await requireTip(backend, change);
+  const [origin, { lands, more }] = await Promise.all([
+    originStanding(backend, change, tip),
+    backend.landMerges(undefined, tip, LAND_SCAN),
+  ]);
+  return { kind: "trunk", change, tip, origin, included: lands, truncated: more };
+}
+
+/**
+ * The names the logs speak for: every change, and every trunk — a parent
+ * changes hang from without it being a change itself, which is how a default
+ * branch is acknowledged without a log of its own. These are the names to
+ * offer and to answer for implicitly; a branch no log refers to shows only
+ * when named outright.
+ */
+export async function knownChanges(backend: Backend): Promise<readonly ChangeName[]> {
+  const changes = await backend.listChanges();
+  const names = new Set<ChangeName>(changes);
+  for (const change of changes) {
+    names.add(currentParent(change, await backend.readLog(change)));
+  }
+  return [...names].sort();
+}
+
+/**
  * What must happen next, from the summary's other readings. A landed change
  * is done and an archived one is set aside, so both read as their terminal
  * step before anything else. An origin the
- * tip trails outranks everything: each reading below is a question about
- * revisions this clone may lack. Behind mends by fast-forwarding — a pull —
- * while divergence is the owner's to resolve: an intentional rewrite pushes
- * with lease, an accidental one resets to origin. A change with no local
+ * tip trails or diverged from outranks everything: each reading below is a
+ * question about revisions this clone may lack, and either way syncing
+ * mends it — the join absorbs origin's copy, committing any conflicts for
+ * fixing. A change with no local
  * branch gates nothing: its readings are origin's copy already, and
  * operations that move the branch create it from that copy themselves. A
  * dead parent comes next: nothing can land until the change hangs somewhere
@@ -241,9 +289,9 @@ export async function summarizeChange(
  * only when every earlier step is settled; a land that skips a step anyway
  * (`--even-though-unreviewed`) is still safe, since `prepareLand` makes its
  * own check. The dry-run, like the rebase and land it stands for, is a
- * question about the parent's tip, so a parent whose local copy is not
- * current outranks them all: one that trails origin pulls first, and one
- * that diverged is the user's to reconcile. Last, a forge-tracked change pushes before landing when the
+ * question about the parent's tip — its freshest reading — so a parent
+ * whose readings diverged outranks them: no freshest reading exists until
+ * the user joins them. Last, a forge-tracked change syncs before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
  * forge change's target has yet to follow — since the forge refuses to land
  * state it has not seen, while a local land reads nothing from origin and
@@ -260,11 +308,8 @@ async function nextStep(
   if (readings.archived) {
     return "archived";
   }
-  if (readings.origin === "behind") {
-    return "pull";
-  }
-  if (readings.origin === "diverged") {
-    return "resolve divergence";
+  if (readings.origin === "behind" || readings.origin === "diverged") {
+    return "sync";
   }
   if (readings.deadParent !== undefined) {
     return "reparent";
@@ -287,9 +332,6 @@ async function nextStep(
   if (readings.reviewing !== "everyone") {
     return "widen reviewing";
   }
-  if (readings.parentOrigin === "behind") {
-    return "pull parent";
-  }
   if (readings.parentOrigin === "diverged") {
     return "resolve parent divergence";
   }
@@ -298,7 +340,7 @@ async function nextStep(
   }
   const { forgeChange } = readings;
   return forgeChange !== undefined && (readings.origin === "ahead" || forgeChange.staleParent !== undefined)
-    ? "push"
+    ? "sync"
     : "land";
 }
 

@@ -148,9 +148,9 @@ function repoBackend(opts: {
     },
     async landMerges(base, tip) {
       const path = ancestry(tip);
-      const cut = path.indexOf(base);
+      const cut = base === undefined ? -1 : path.indexOf(base);
       const between = new Set(cut === -1 ? path : path.slice(0, cut));
-      return (opts.merges ?? [])
+      const lands = (opts.merges ?? [])
         .map(({ change, commit, onto }) => ({
           change: parseBranchName(change),
           commit: fake(commit),
@@ -158,6 +158,7 @@ function repoBackend(opts: {
         }))
         .filter(({ commit }) => between.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
+      return { lands, more: false };
     },
     async changedFiles(base, tip) {
       if (base === tip) {
@@ -229,6 +230,7 @@ async function rounds(
 test("a change with no commits of its own must add code", async () => {
   const backend = repoBackend({ history: { "1": "0" }, branches: { main: "1", feature: "1" } });
   expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -258,6 +260,7 @@ test("files outside the user's brain are left to review", async () => {
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "3"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -279,6 +282,7 @@ test("files outside the user's brain are left to review", async () => {
   });
   // bob has reviewed nothing, so both files are left, sorted by name.
   expect(await summarize(backend, feature, entries, bob)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -311,6 +315,7 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -332,17 +337,20 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
   });
 });
 
-test("a reviewed change whose parent trails origin's copy must pull the parent", async () => {
+test("a reviewed change whose parent trails origin reads through to origin's copy", async () => {
   // Origin's main moved to 5 while the local branch still sits at 2; the
-  // conflict dry-run against the stale local tip is never trusted.
+  // local branch is a working position, so staleness and the conflict
+  // dry-run read origin's fresher copy.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3", "5": "2" },
     branches: { main: "2", feature: "4" },
     origin: { main: "5" },
     changed: { "14": ["a.ts"] },
+    conflicting: { "145": [] },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -356,11 +364,11 @@ test("a reviewed change whose parent trails origin's copy must pull the parent",
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
+    parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull parent",
+    nextStep: "land",
   });
 });
 
@@ -374,6 +382,7 @@ test("a parent diverged from origin's copy is the user's to reconcile", async ()
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -395,7 +404,7 @@ test("a parent diverged from origin's copy is the user's to reconcile", async ()
   });
 });
 
-test("review outranks a parent that trails origin: pulling it can wait", async () => {
+test("a trailing parent reads through while review remains", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3", "5": "2" },
     branches: { main: "2", feature: "4" },
@@ -403,6 +412,7 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
     changed: { "14": ["a.ts"] },
   });
   expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -416,7 +426,7 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
+    parentOrigin: undefined,
     staleBase: "behind",
     conflicts: [],
     reviewLeft: ["a.ts"],
@@ -424,15 +434,17 @@ test("review outranks a parent that trails origin: pulling it can wait", async (
   });
 });
 
-test("a parent absent locally but held by origin is unpulled, not dead", async () => {
+test("a parent absent locally reads as origin's copy, not dead", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1", "4": "3" },
     branches: { feature: "4" },
     origin: { main: "2" },
     changed: { "14": ["a.ts"] },
+    conflicting: { "142": [] },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -446,11 +458,11 @@ test("a parent absent locally but held by origin is unpulled, not dead", async (
     tip: fake("4"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
-    staleBase: undefined,
+    parentOrigin: undefined,
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull parent",
+    nextStep: "land",
   });
 });
 
@@ -464,6 +476,7 @@ test("a parent ahead of origin's copy is current: rebase proceeds on it", async 
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -494,6 +507,7 @@ test("a reviewed change behind a parent it merges cleanly onto may land", async 
   });
   const entries = [...created("main", "1"), entry(review("b.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -523,6 +537,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "1", "4"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -566,6 +581,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     entry({ kind: "land", merge: fake("5") }),
   ];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -777,6 +793,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("c.ts", "0", "9"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -798,7 +815,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
   });
 });
 
-test("a change behind origin's copy must pull, before anything else", async () => {
+test("a change behind origin's copy must sync, before anything else", async () => {
   // Origin's widgets moved to 2 while the local branch still sits at 1.
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
@@ -807,6 +824,7 @@ test("a change behind origin's copy must pull, before anything else", async () =
   });
   const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "widgets",
     parent: "main",
     owner: alice,
@@ -824,11 +842,11 @@ test("a change behind origin's copy must pull, before anything else", async () =
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "pull",
+    nextStep: "sync",
   });
 });
 
-test("a change diverged from origin's copy must resolve divergence, review left or not", async () => {
+test("a change diverged from origin's copy must sync, review left or not", async () => {
   // The local branch was rewritten to 3 while origin still holds the old 2.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "1" },
@@ -838,6 +856,7 @@ test("a change diverged from origin's copy must resolve divergence, review left 
   });
   const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "widgets",
     parent: "main",
     owner: alice,
@@ -855,7 +874,7 @@ test("a change diverged from origin's copy must resolve divergence, review left 
     staleBase: undefined,
     conflicts: [],
     reviewLeft: ["a.ts"],
-    nextStep: "resolve divergence",
+    nextStep: "sync",
   });
 });
 
@@ -868,6 +887,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
   });
   const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "widgets",
     parent: "main",
     owner: alice,
@@ -898,6 +918,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
   });
   const widgets = parseBranchName("widgets");
   expect(await summarize(backend, widgets, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "widgets",
     parent: "main",
     owner: alice,
@@ -918,7 +939,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
   });
 });
 
-test("a parent with no local branch is unpulled, but review outranks it", async () => {
+test("a parent with no local branch reads as origin's copy, review still the step", async () => {
   // Origin's main moved to 2 under the change; no local main exists at all.
   const backend = repoBackend({
     history: { "2": "1", "3": "1" },
@@ -927,6 +948,7 @@ test("a parent with no local branch is unpulled, but review outranks it", async 
     changed: { "13": ["a.ts"] },
   });
   expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -940,8 +962,8 @@ test("a parent with no local branch is unpulled, but review outranks it", async 
     tip: fake("3"),
     origin: undefined,
     deadParent: undefined,
-    parentOrigin: "behind",
-    staleBase: undefined,
+    parentOrigin: undefined,
+    staleBase: "behind",
     conflicts: [],
     reviewLeft: ["a.ts"],
     nextStep: "review",
@@ -955,7 +977,7 @@ test("a stored base this clone lacks asks a reparent instead of failing the read
   );
 });
 
-test("a reviewed forge-tracked change ahead of origin pushes before landing", async () => {
+test("a reviewed forge-tracked change ahead of origin syncs before landing", async () => {
   // The tip moved to 3 locally while origin still holds 2: the forge cannot
   // land a tip it has not seen.
   const backend = repoBackend({
@@ -971,6 +993,7 @@ test("a reviewed forge-tracked change ahead of origin pushes before landing", as
     entry(review("gadget.ts", "1", "3")),
   ];
   expect(await summarize(backend, gadget, entries, alice)).toEqual({
+    kind: "change",
     change: "gadget",
     parent: "main",
     owner: alice,
@@ -988,7 +1011,7 @@ test("a reviewed forge-tracked change ahead of origin pushes before landing", as
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "push",
+    nextStep: "sync",
   });
 });
 
@@ -1010,7 +1033,7 @@ test("a reviewed change ahead of origin with no forge change may land", async ()
   });
 });
 
-test("a forge-tracked change ahead of origin rebases before pushing when its parent conflicts", async () => {
+test("a forge-tracked change ahead of origin rebases before syncing when its parent conflicts", async () => {
   // main moved under the change and the merge conflicts: rewriting the tip
   // comes before publishing it.
   const backend = repoBackend({
@@ -1034,9 +1057,9 @@ test("a forge-tracked change ahead of origin rebases before pushing when its par
   });
 });
 
-test("a reviewed change whose forge change targets its old parent pushes to retarget", async () => {
+test("a reviewed change whose forge change targets its old parent syncs to retarget", async () => {
   // Reparented from relic to main locally; the forge was last seen merging
-  // into relic, and only a push moves its target.
+  // into relic, and only publishing moves its target.
   const forge = parseForgeLocator("github.com/test-org/gizmos");
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
@@ -1053,6 +1076,7 @@ test("a reviewed change whose forge change targets its old parent pushes to reta
     entry(review("gizmo.ts", "1", "2")),
   ];
   expect(await summarize(backend, gizmo, entries, alice)).toEqual({
+    kind: "change",
     change: "gizmo",
     parent: "main",
     owner: alice,
@@ -1070,7 +1094,7 @@ test("a reviewed change whose forge change targets its old parent pushes to reta
     staleBase: undefined,
     conflicts: [],
     reviewLeft: [],
-    nextStep: "push",
+    nextStep: "sync",
   });
 });
 
@@ -1083,6 +1107,7 @@ test("a change whose parent has landed must reparent, review left or not", async
   };
   const ui = parseBranchName("gadget-ui");
   expect(await summarize(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({
+    kind: "change",
     change: "gadget-ui",
     parent: "gadget",
     owner: alice,
@@ -1108,8 +1133,7 @@ test("a change whose parent has landed must reparent, review left or not", async
   expect({ origin: summary.origin, deadParent: summary.deadParent, nextStep: summary.nextStep }).toEqual({
     origin: "behind",
     deadParent: "landed",
-    parentOrigin: undefined,
-    nextStep: "pull",
+    nextStep: "sync",
   });
 });
 
@@ -1121,6 +1145,7 @@ test("a change whose parent branch is gone must reparent", async () => {
   });
   const docs = parseBranchName("docs");
   expect(await summarize(backend, docs, created("gone", "1"), alice)).toEqual({
+    kind: "change",
     change: "docs",
     parent: "gone",
     owner: alice,
@@ -1152,6 +1177,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     changed: { "12": ["a.ts"] },
   });
   expect(await summarize(backend, feature, created("main", "1"), alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,
@@ -1209,6 +1235,7 @@ test("an archived change reads as archived until the latest set-archived revives
     action: { kind: "set-archived", archived },
   });
   expect(await summarize(backend, feature, [...created("main", "1"), archive(1, true)], alice)).toEqual({
+    kind: "change",
     change: "feature",
     parent: "main",
     owner: alice,

@@ -4,18 +4,22 @@ import { makeRepo } from "./fixture.js";
 
 test("forget appends a forget entry after a review", async () => {
   const repo = await makeRepo();
-  const head = await repo.git("rev-parse", "main");
+  const base = await repo.git("rev-parse", "main");
   await repo.git("branch", "trunk");
+  await repo.write("src/a.ts", "a\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "a");
+  const tip = await repo.git("rev-parse", "main");
   await repo.cabaret("create", "main", "--parent", "trunk");
-  await repo.cabaret("review", "src/a.ts");
+  await repo.cabaret("mark", "--tip", "HEAD", "src/a.ts");
   expect(await repo.cabaret("forget", "src/a.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("log")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${head}"}}\n` +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${head}","tip":"${head}"}}\n` +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
       '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
@@ -24,19 +28,22 @@ test("forget appends a forget entry after a review", async () => {
 
 test("forget from a subdirectory records repo-relative paths", async () => {
   const repo = await makeRepo();
-  const head = await repo.git("rev-parse", "main");
+  const base = await repo.git("rev-parse", "main");
   await repo.git("branch", "trunk");
-  await repo.cabaret("create", "main", "--parent", "trunk");
-  await repo.cabaret("review", "src/a.ts");
   await repo.write("src/a.ts", "a\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "a");
+  const tip = await repo.git("rev-parse", "main");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  await repo.cabaret("mark", "--tip", "HEAD", "src/a.ts");
   expect(await repo.cabaretIn("src", "forget", "a.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("log")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${head}"}}\n` +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${head}","tip":"${head}"}}\n` +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
       '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
@@ -70,7 +77,7 @@ test("forget fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("forget", "--change", "gadget", "lib/core.ts")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "gadget"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "gadget"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

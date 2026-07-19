@@ -84,12 +84,14 @@ export function workspacesDoc(page: WorkspacesPage): Doc {
       ...(landed ? ["landed"] : []),
       ...(archived ? ["archived"] : []),
     ];
+    // A branch that is no change still opens a page, dimmed to say no log
+    // stands behind it.
     const name =
       workspace.change === undefined
         ? span("(detached)", { style: "context" })
         : span(workspace.change, {
             style: isChange ? undefined : "context",
-            ...(isChange ? { target: { kind: "change", change: workspace.change } } : {}),
+            target: { kind: "change", change: workspace.change },
           });
     return [span(display, { target: { kind: "workspace", path: workspace.path } }), name, span(notes.join(", "))];
   });

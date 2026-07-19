@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { type Backend, currentSelf, userName } from "../index.js";
+import { type Backend, currentSelf, selfAs, userName } from "../index.js";
 
 /** A backend of just an identity and its `cabaret.alias` config values. */
 function configBackend(user: string, aliases: readonly string[]): Backend {
@@ -30,4 +30,19 @@ test("currentSelf collects aliases, dropping duplicates and the user themselves"
 test("currentSelf rejects an empty alias", async () => {
   const backend = configBackend("alice@example.com", [""]);
   await expect(currentSelf(backend)).rejects.toThrow("config cabaret.alias must be nonempty");
+});
+
+test("selfAs borrows another identity but resolves one's own to a plain self", async () => {
+  const backend = configBackend("alice@example.com", ["agent@example.com"]);
+  const own = await currentSelf(backend);
+  expect(await selfAs(backend)).toEqual({ self: own, as: undefined });
+  expect(await selfAs(backend, userName("alice@example.com"))).toEqual({ self: own, as: undefined });
+  // An alias is borrowed like any other user: its obligations are its own.
+  for (const raw of ["agent@example.com", "bob@example.com"]) {
+    const borrowed = userName(raw);
+    expect(await selfAs(backend, borrowed)).toEqual({
+      self: { user: borrowed, aliases: new Set() },
+      as: borrowed,
+    });
+  }
 });

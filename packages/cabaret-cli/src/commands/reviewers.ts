@@ -28,7 +28,7 @@ export const reviewers = buildRouteMap({
         fullDescription:
           "Add a reviewer to a change. A reviewer owes review of the change's " +
           "whole diff, as the owner does; `show` displays the reviewers, and " +
-          "`pull`/`push` sync them with the forge.",
+          "`sync` settles them with the forge.",
       },
       parameters: {
         positional: {

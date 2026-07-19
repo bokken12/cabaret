@@ -12,7 +12,9 @@ import { expect, test } from "vitest";
 import {
   type ChangeSnapshot,
   type DiffPage,
+  type DiffsPage,
   diffDoc,
+  diffsDoc,
   docText,
   markReviewed,
   reviewDoc,
@@ -29,6 +31,7 @@ const widgets = parseBranchName("widgets");
 test("reviewDoc lists the round's files and what follows", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 2 },
   });
@@ -46,6 +49,7 @@ test("reviewDoc lists the round's files and what follows", () => {
 test("reviewDoc targets the round's first file from every line but a file's own", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
   });
@@ -71,9 +75,32 @@ test("reviewDoc targets the round's first file from every line but a file's own"
   ]);
 });
 
+test("reviewDoc as another user says so and routes files to their diffs", () => {
+  const doc = reviewDoc({
+    change: widgets,
+    as: userName("bob@example.com"),
+    conflicts: [],
+    round: { end: fake("3"), files: [parseFilePath("api.ts"), parseFilePath("ui.ts")], later: 0 },
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets as bob@example.com
+    =================================
+
+    Reviewing up to 333333333333.
+
+      api.ts
+      ui.ts"
+  `);
+  const asBob = (file: string) => ({ kind: "file", change: "widgets", file, as: "bob@example.com" });
+  expect(targetAt(doc, 0)).toEqual(asBob("api.ts"));
+  expect(targetAt(doc, 5)).toEqual(asBob("api.ts"));
+  expect(targetAt(doc, 6)).toEqual(asBob("ui.ts"));
+});
+
 test("reviewDoc of the last round drops the indicator", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [],
     round: { end: fake("3"), files: [parseFilePath("api.ts")], later: 0 },
   });
@@ -90,6 +117,7 @@ test("reviewDoc of the last round drops the indicator", () => {
 test("reviewDoc with conflicts asks for the fix instead of offering files", () => {
   const doc = reviewDoc({
     change: widgets,
+    as: undefined,
     conflicts: [parseFilePath("api.ts"), parseFilePath("ui.ts")],
     round: undefined,
   });
@@ -103,7 +131,7 @@ test("reviewDoc with conflicts asks for the fix instead of offering files", () =
 });
 
 test("reviewDoc with nothing left says so, targeting nothing", () => {
-  const doc = reviewDoc({ change: widgets, conflicts: [], round: undefined });
+  const doc = reviewDoc({ change: widgets, as: undefined, conflicts: [], round: undefined });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
@@ -114,7 +142,7 @@ test("reviewDoc with nothing left says so, targeting nothing", () => {
 });
 
 function diffPageWith(round: DiffPage["round"]): DiffPage {
-  return { change: widgets, file: parseFilePath("api.ts"), round };
+  return { change: widgets, file: parseFilePath("api.ts"), as: undefined, round };
 }
 
 test("diffDoc renders a two-way diff bare of marks, styling its added and removed lines", () => {
@@ -624,6 +652,20 @@ test("diffDoc with no review left says so", () => {
   `);
 });
 
+test("diffDoc as another user names them in the title", () => {
+  const doc = diffDoc({
+    ...diffPageWith({ end: fake("3"), later: 0, view: { kind: "two", prev: "gone\n", next: "here\n" } }),
+    as: userName("bob@example.com"),
+  });
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets as bob@example.com (up to 333333333333)
+
+    -1,1 +1,1
+    gone
+    here"
+  `);
+});
+
 function snapshotWith(
   files: readonly string[],
   secondRound: readonly string[] = [],
@@ -636,6 +678,7 @@ function snapshotWith(
   return {
     change: widgets,
     user: userName("alice@example.com"),
+    as: undefined,
     reviewing: "everyone",
     asked: true,
     base: fake("1"),
@@ -713,9 +756,130 @@ test("a conflicted snapshot drops its round and refuses to mark, even asked", ()
   expect(appended).toEqual([]);
 });
 
+test("markReviewed through a borrowed snapshot records the borrowed user", () => {
+  const appended: LogEntry[][] = [];
+  const bob = userName("bob@example.com");
+  const snapshot = { ...snapshotWith(["a.ts"]), user: bob, as: bob };
+  const result = markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("a.ts"));
+  expect(result.kind).toBe("marked");
+  expect(appended).toEqual([
+    [
+      {
+        timestamp: at,
+        user: bob,
+        action: { kind: "review", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("2") },
+      },
+    ],
+  ]);
+});
+
 test("markReviewed of a file with no review pending records nothing", () => {
   const appended: LogEntry[][] = [];
   const result = markReviewed(appendOnly(appended), () => at, snapshotWith(["a.ts"]), parseFilePath("other.ts"));
   expect(result).toEqual({ kind: "nothing-left" });
   expect(appended).toEqual([]);
+});
+
+function diffsPageWith(round: DiffsPage["round"], conflicts: DiffsPage["conflicts"] = []): DiffsPage {
+  return { change: widgets, as: undefined, conflicts, round };
+}
+
+test("diffsDoc renders every file of the round under its own bar", () => {
+  const doc = diffsDoc(
+    diffsPageWith({
+      end: fake("3"),
+      later: 1,
+      files: [
+        { file: parseFilePath("api.ts"), view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } },
+        { file: parseFilePath("docs/notes.md"), view: { kind: "two", prev: "old\n", next: "new\n" } },
+        { file: parseFilePath("moved.cfg"), view: { kind: "two", prev: "same\n", next: "same\n" } },
+      ],
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets (up to 333333333333; 1 more round follows)
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    -1,2 +1,2
+    shared
+    gone
+    here
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ docs/notes.md @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    -1,1 +1,1
+    old
+    new
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ moved.cfg @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    No differences left to read; mark the file reviewed to record that."
+  `);
+  // Each file folds down to its bar, each hunk to its header.
+  expect(doc.folds).toEqual([
+    { start: 2, end: 6 },
+    { start: 3, end: 6 },
+    { start: 8, end: 11 },
+    { start: 9, end: 11 },
+    { start: 13, end: 14 },
+  ]);
+});
+
+test("diffsDoc targets the change from its title, files from their bars, and lines from their hunks", () => {
+  const doc = diffsDoc(
+    diffsPageWith({
+      end: fake("3"),
+      later: 0,
+      files: [
+        { file: parseFilePath("api.ts"), view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" } },
+        { file: parseFilePath("docs/notes.md"), view: { kind: "two", prev: "old\n", next: "new\n" } },
+      ],
+    }),
+  );
+  const location = (file: string, line: number) => ({ kind: "location", change: "widgets", file, line });
+  expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
+    { kind: "change", change: "widgets" },
+    undefined, // blank
+    { kind: "file", change: "widgets", file: "api.ts" },
+    location("api.ts", 1), // -1,2 +1,2
+    location("api.ts", 1), // shared
+    location("api.ts", 2), // gone
+    location("api.ts", 2), // here
+    undefined, // blank
+    { kind: "file", change: "widgets", file: "docs/notes.md" },
+    location("docs/notes.md", 1), // -1,1 +1,1
+    location("docs/notes.md", 1), // old
+    location("docs/notes.md", 1), // new
+  ]);
+  // Bars advertise themselves as links; diff lines answer the cursor alone.
+  expect(doc.lines.map(({ spans }) => spans[0]?.tier)).toEqual([
+    "link",
+    undefined,
+    "link",
+    "jump",
+    "jump",
+    "jump",
+    "jump",
+    undefined,
+    "link",
+    "jump",
+    "jump",
+    "jump",
+  ]);
+});
+
+test("diffsDoc with conflicts asks for the fix instead of showing diffs", () => {
+  const doc = diffsDoc(diffsPageWith(undefined, [parseFilePath("api.ts")]));
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets
+
+    Unresolved conflicts in api.ts; fix the markers and amend."
+  `);
+});
+
+test("diffsDoc with nothing left says so", () => {
+  const doc = diffsDoc(diffsPageWith(undefined));
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "Review widgets
+
+    Nothing left to review."
+  `);
 });

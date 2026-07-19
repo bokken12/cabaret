@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { FakeForge } from "./fake-forge.js";
 import { makeRepo } from "./fixture.js";
 
 // What each kind of failure looks like to the user. Messages themselves are
@@ -9,7 +10,7 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
   const repo = await makeRepo();
   expect(await repo.cabaret("show")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });
@@ -42,11 +43,14 @@ test("an unknown command suggests the nearest registered one", async () => {
 });
 
 test("a bug keeps its stack trace", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("create", "feature");
-  // The fixture's forge-less context throws a plain Error, standing in for
-  // any exception that is not a UserError.
-  const result = await repo.cabaret("pull", "--change", "feature");
+  // A forge whose credentials check explodes stands in for any exception
+  // that is not a UserError.
+  const forge = new FakeForge();
+  forge.currentSelf = async () => {
+    throw new Error("forge exploded");
+  };
+  const repo = await makeRepo(forge);
+  const result = await repo.cabaret("fetch");
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toMatch(/^Command failed, Error: this test repo has no forge\n {4}at /);
+  expect(result.stderr).toMatch(/^Command failed, Error: forge exploded\n {4}at /);
 });

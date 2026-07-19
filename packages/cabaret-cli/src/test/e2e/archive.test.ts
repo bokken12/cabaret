@@ -132,44 +132,44 @@ test("archive refuses a landed change", async () => {
   });
 });
 
-test("push closes the forge change of an archived change, and reopens on unarchive", async () => {
+test("sync closes the forge change of an archived change, and reopens on unarchive", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   await repo.cabaret("archive");
-  expect((await repo.cabaret("push")).stdout).toBe(
-    "closed github.com/test-org/widgets#1\npushed 0 comments to github.com/test-org/widgets#1\n",
+  expect((await repo.cabaret("sync")).stdout).toBe(
+    'closed github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
   );
   expect((await forge.getChange(PR)).state).toBe("closed");
-  // The push was observed; pushing again moves nothing, and a pull mirrors
+  // The close was observed; syncing again moves nothing, and a fetch mirrors
   // nothing back.
-  expect((await repo.cabaret("push")).stdout).toBe("pushed 0 comments to github.com/test-org/widgets#1\n");
-  expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded github:alice as an alias\nsynced github.com/test-org/widgets: 0 open forge changes\n",
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "recorded github:alice as an alias\nfetched github.com/test-org/widgets: 0 open forge changes\n",
   );
-  // A reparent recorded while archived reaches the forge in the same push
+  // A reparent recorded while archived reaches the forge in the same sync
   // that reopens it.
   await repo.git("branch", "develop", "main");
   await repo.cabaret("reparent", "gadget", "develop");
   await repo.cabaret("unarchive");
-  expect((await repo.cabaret("push")).stdout).toBe(
-    "reopened github.com/test-org/widgets#1\npushed 0 comments to github.com/test-org/widgets#1\n",
+  expect((await repo.cabaret("sync")).stdout).toBe(
+    'reopened github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
   );
   const reopened = await forge.getChange(PR);
   expect({ state: reopened.state, parent: reopened.parent }).toEqual({ state: "open", parent: "develop" });
 });
 
-test("push absorbs a forge-side close as an archive instead of reopening", async () => {
+test("sync absorbs a forge-side close as an archive instead of reopening", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   forge.close(PR);
-  expect(await repo.cabaret("push")).toEqual({
+  expect(await repo.cabaret("sync")).toEqual({
     stdout:
       "github.com/test-org/widgets#1 was closed; archived the change\n" +
-      "pushed 0 comments to github.com/test-org/widgets#1\n",
+      'synced "gadget" with github.com/test-org/widgets#1\n',
     stderr: "",
     exitCode: 0,
   });
@@ -179,14 +179,15 @@ test("push absorbs a forge-side close as an archive instead of reopening", async
   );
 });
 
-test("push refuses to open a forge change for an archived change", async () => {
+test("sync opens no forge change for an archived change", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("archive");
-  expect(await repo.cabaret("push")).toEqual({
-    stdout: "",
-    stderr: 'change is archived: "gadget"; run `cabaret unarchive` to open a forge change\n',
-    exitCode: 1,
+  expect(await repo.cabaret("sync")).toEqual({
+    stdout: 'synced "gadget" with origin\n',
+    stderr: "",
+    exitCode: 0,
   });
+  expect(await forge.fetchOpenChanges()).toEqual([]);
 });

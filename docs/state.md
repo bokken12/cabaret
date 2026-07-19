@@ -14,5 +14,3 @@ Our principle operation is conditional `set` on a single file's review state, wi
 The lack of any log will be treated as equivalent to an empty log so that there is no separate initialization step required.
 
 Each change stores its log under a dedicated ref (`refs/cabaret/log/<change>`) with name mirroring the name of the branch it tracks. Syncing fetches the remote's logs, merges each into the local ref, and pushes the result without forcing, so a concurrent push is never overwritten — it fails and merges on retry. In the future we may swap to a UUID-based system to better permit distributed renaming, but this will simplify our system for now.
-
-

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -307,7 +307,7 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
   await plumbChange("squashed-unplaceable", tip, "trunk-squash-gone", "deadbeef".repeat(5));
   await plumbLand("squashed-unplaceable", "cafe".repeat(10), tip);
   await expect(changeBaseOf("squashed-unplaceable")).rejects.toThrow(
-    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret pull\``,
+    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret fetch\``,
   );
 });
 
@@ -315,7 +315,7 @@ test("changeTip fails when the land merge is absent from the clone", async () =>
   const backend = await GitBackend.open(repo);
   const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
   await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
-    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret pull\``,
+    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret fetch\``,
   );
 });
 
@@ -332,6 +332,51 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
   await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
     `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,
   );
+});
+
+test("landMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
+  const backend = await GitBackend.open(repo);
+  // A first-parent chain atop the root: work, a land, more work, another land.
+  const work = await plumbCommit("recent work");
+  const first = await plumbCommit("Land first-recent\n\nCabaret-Landed: first-recent", work);
+  const more = await plumbCommit("more recent work", first);
+  const second = await plumbCommit("Land second-recent\n\nCabaret-Landed: second-recent", more);
+  const tip = parseCommitHash(second);
+  // A scan wide enough for the whole chain (tip, more, first, work, root) sees
+  // both lands and no further history.
+  expect(await backend.landMerges(undefined, tip, 5)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: false,
+  });
+  // A scan of the newest three commits reaches back only to the first land,
+  // and notes the chain continuing past it.
+  expect(await backend.landMerges(undefined, tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: true,
+  });
+  expect(await backend.landMerges(undefined, tip, 1)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
+    more: true,
+  });
+  // A base stops the walk where the change's history ends: the same window
+  // that continued past three commits is exhausted once `work` bounds it.
+  expect(await backend.landMerges(parseCommitHash(work), tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
+    more: false,
+  });
+  expect(await backend.landMerges(parseCommitHash(work), tip, 2)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
+    more: true,
+  });
 });
 
 test("isAncestor distinguishes ancestors from unrelated commits", async () => {
@@ -435,6 +480,176 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
       expect(await backend.originTip(branch)).toBeDefined();
       expect(await backend.tip(branch)).toBeUndefined();
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("originFetched dates this workspace's last successful fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  const worktree = `${dir}-worktree`;
+  try {
+    const backend = await GitBackend.open(dir);
+    expect(await backend.originFetched()).toBeUndefined();
+    await backend.fetchOrigin();
+    const fetchedAt = new Date(5_000);
+    await utimes(join(dir, ".git", "FETCH_HEAD"), fetchedAt, fetchedAt);
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // Each workspace's reading is its own: a linked worktree starts without
+    // one, and its fetch leaves the primary's reading alone.
+    await gitIn(dir, "branch", "main", "refs/remotes/origin/main");
+    await gitIn(dir, "worktree", "add", "-q", worktree, "main");
+    const inWorktree = await GitBackend.open(worktree);
+    expect(await inWorktree.originFetched()).toBeUndefined();
+    await inWorktree.fetchOrigin();
+    expect(await inWorktree.originFetched()).toBeDefined();
+    expect(await backend.originFetched()).toBe(timestampMs(fetchedAt.getTime()));
+    // A failed fetch loses the reading until the next success.
+    await rm(origin, { recursive: true, force: true });
+    await expect(backend.fetchOrigin()).rejects.toThrow();
+    expect(await backend.originFetched()).toBeUndefined();
+  } finally {
+    await rm(worktree, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("advanceBranches fast-forwards idle branches and clean worktrees with origin strictly ahead", async () => {
+  const { dir, origin } = await makeRemotePair();
+  const worktree = `${dir}-worktree`;
+  try {
+    const backend = await GitBackend.open(dir);
+    await backend.fetchOrigin();
+    const root = await gitIn(dir, "rev-parse", "refs/remotes/origin/main");
+    // A commit origin never sees, to diverge with; then one origin gains,
+    // touching a file so a carried working tree is observable.
+    await gitIn(dir, "switch", "-qc", "tmp", root);
+    await gitIn(dir, "commit", "-qm", "local only", "--allow-empty");
+    const local = await gitIn(dir, "rev-parse", "HEAD");
+    await gitIn(dir, "update-ref", "refs/heads/diverge", local);
+    await gitIn(dir, "reset", "-q", "--hard", root);
+    await writeFile(join(dir, "landed.txt"), "landed\n");
+    await gitIn(dir, "add", "landed.txt");
+    await gitIn(dir, "commit", "-qm", "landed on origin");
+    const landed = await gitIn(dir, "rev-parse", "HEAD");
+    await gitIn(dir, "push", "-q", "origin", "tmp:main", "tmp:extra", "tmp:held", "tmp:diverge");
+    await gitIn(dir, "branch", "main", root);
+    // Checked out here, clean, and behind: advances, the working tree following.
+    await gitIn(dir, "switch", "-qc", "extra", root);
+    // Checked out in a dirty worktree and behind: its line of work stays put.
+    await gitIn(dir, "branch", "held", root);
+    await gitIn(dir, "worktree", "add", "-q", worktree, "held");
+    await writeFile(join(worktree, "wip.txt"), "wip\n");
+    await backend.fetchOrigin();
+
+    expect(await backend.advanceBranches()).toEqual([parseBranchName("extra"), parseBranchName("main")]);
+    expect(await backend.tip(parseBranchName("main"))).toBe(parseCommitHash(landed));
+    expect(await backend.tip(parseBranchName("extra"))).toBe(parseCommitHash(landed));
+    expect(await readFile(join(dir, "landed.txt"), "utf8")).toBe("landed\n");
+    expect(await backend.tip(parseBranchName("held"))).toBe(parseCommitHash(root));
+    expect(await backend.tip(parseBranchName("diverge"))).toBe(parseCommitHash(local));
+    // The worktree cleaned up, its branch moves like any other.
+    await rm(join(worktree, "wip.txt"));
+    expect(await backend.advanceBranches()).toEqual([parseBranchName("held")]);
+    expect(await backend.tip(parseBranchName("held"))).toBe(parseCommitHash(landed));
+    expect(await readFile(join(worktree, "landed.txt"), "utf8")).toBe("landed\n");
+    // Nothing left to move: another pass is a no-op.
+    expect(await backend.advanceBranches()).toEqual([]);
+  } finally {
+    await rm(worktree, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+/** Checks out `main` in `dir` at origin's tip, then advances origin one commit past it. */
+async function checkoutBehindOrigin(dir: string, origin: string): Promise<string> {
+  await gitIn(dir, "fetch", "-q", "origin", "refs/heads/main:refs/heads/main");
+  await gitIn(dir, "checkout", "-q", "main");
+  const tree = await gitIn(origin, "rev-parse", "main^{tree}");
+  const advanced = await gitIn(origin, "commit-tree", tree, "-p", "main", "-m", "advance");
+  await gitIn(origin, "update-ref", "refs/heads/main", advanced);
+  return advanced;
+}
+
+test("fetch fast-forwards the checked-out branch despite a concurrent log fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  const shims = await mkdtemp(join(tmpdir(), "cabaret-node-test-shims-"));
+  const realPath = process.env.PATH;
+  try {
+    const advanced = await checkoutBehindOrigin(dir, origin);
+    // A log ref on origin: a root commit sharing no history with `main`.
+    const emptyTree = await gitIn(dir, "hash-object", "-w", "-t", "tree", devNull);
+    const logCommit = await gitIn(dir, "commit-tree", emptyTree, "-m", "log");
+    await gitIn(dir, "push", "-q", "origin", `${logCommit}:refs/cabaret/log/x`);
+    // A `git` shim replaying the race: a background log sync lands between a
+    // fetch and whatever consumes its FETCH_HEAD, and command-line refspecs
+    // are recorded there as for-merge even with a destination — so FETCH_HEAD
+    // ends up naming the unrelated log commit as the merge candidate.
+    const realGit = (await execFileAsync("sh", ["-c", "command -v git"])).stdout.trim();
+    await writeFile(
+      join(shims, "git"),
+      `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\nif [ "$1" = fetch ]; then\n` +
+        `  "${realGit}" -C "${dir}" fetch --quiet origin "+refs/cabaret/log/*:refs/cabaret/remote-log/*"\nfi\nexit $code\n`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${shims}:${realPath}`;
+    try {
+      const backend = await GitBackend.open(dir);
+      await backend.fetch(parseBranchName("main"));
+    } finally {
+      process.env.PATH = realPath;
+    }
+    expect(await gitIn(dir, "rev-parse", "HEAD")).toBe(advanced);
+    expect(await gitIn(dir, "rev-parse", "refs/remotes/origin/main")).toBe(advanced);
+    // The interleaving really happened: the log commit is FETCH_HEAD's merge candidate.
+    expect(await readFile(join(dir, ".git", "FETCH_HEAD"), "utf8")).toContain(`${logCommit}\t\t`);
+  } finally {
+    process.env.PATH = realPath;
+    await rm(shims, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch refuses a checked-out branch that diverged from origin", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const advanced = await checkoutBehindOrigin(dir, origin);
+    await gitIn(dir, "commit", "-qm", "local", "--allow-empty");
+    const local = await gitIn(dir, "rev-parse", "HEAD");
+    const backend = await GitBackend.open(dir);
+    await expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/fast-forward/);
+    expect(await gitIn(dir, "rev-parse", "main")).toBe(local);
+    expect(await gitIn(dir, "rev-parse", "refs/remotes/origin/main")).toBe(advanced);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch refuses an idle branch that diverged from origin", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    await gitIn(dir, "fetch", "-q", "origin", "refs/heads/main:refs/heads/main");
+    const tree = await gitIn(origin, "rev-parse", "main^{tree}");
+    await gitIn(
+      origin,
+      "update-ref",
+      "refs/heads/main",
+      await gitIn(origin, "commit-tree", tree, "-p", "main", "-m", "remote"),
+    );
+    const local = await gitIn(dir, "commit-tree", tree, "-p", "main", "-m", "local");
+    await gitIn(dir, "update-ref", "refs/heads/main", local);
+    const backend = await GitBackend.open(dir);
+    // `--quiet` swallows git's per-ref "[rejected]" detail; the failure
+    // surfaces as the fetch command itself failing.
+    await expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(
+      "Command failed: git fetch --quiet origin refs/heads/main:refs/heads/main",
+    );
+    expect(await gitIn(dir, "rev-parse", "main")).toBe(local);
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });

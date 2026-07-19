@@ -57,6 +57,7 @@ test("workspace add creates a sibling working tree that dir, list, and todo repo
     ╭────────┬──────╮
     │ change │ note │
     ├────────┼──────┤
+    │ main   │      │
     │ gizmo  │      │
     ╰────────┴──────╯
     "
@@ -77,7 +78,7 @@ test("workspace add refuses a second workspace, a missing change, and a landed o
     exitCode: 1,
   });
   expect((await repo.cabaret("workspace", "add", "phantom")).stderr).toContain("change does not exist");
-  await repo.cabaret("review", "--change", "relic", "relic.txt");
+  await repo.cabaret("mark", "--tip", "relic", "--change", "relic", "relic.txt");
   await repo.cabaret("land", "relic");
   expect((await repo.cabaret("workspace", "add", "relic")).stderr).toContain("change has landed");
 });
@@ -114,7 +115,7 @@ test("a landed change stays in the todo workspaces section until its workspace i
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "main");
   await repo.cabaret("workspace", "add", "gizmo");
-  await repo.cabaret("review", "--change", "gizmo", "gizmo.txt");
+  await repo.cabaret("mark", "--tip", "gizmo", "--change", "gizmo", "gizmo.txt");
   await repo.cabaret("land", "gizmo");
 
   expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
@@ -137,6 +138,7 @@ test("a landed change stays in the todo workspaces section until its workspace i
     ╭────────┬────────╮
     │ change │ note   │
     ├────────┼────────┤
+    │ main   │        │
     │ gizmo  │ landed │
     ╰────────┴────────╯
     "

@@ -14,8 +14,8 @@ async function makePr(forge: FakeForge): Promise<TestRepo> {
   const repo = await makeRepo(forge);
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "gadget");
-  await repo.cabaret("review", "gadget.txt");
-  await repo.cabaret("push");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
+  await repo.cabaret("sync");
   return repo;
 }
 
@@ -69,15 +69,15 @@ test("land squashes the change's forge change when configured", async () => {
   expect((await repo.cabaret("log")).stdout).toContain(`{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
 });
 
-test("land stays local when cabaret.landVia is local, forge change or not", async () => {
+test("land stays off the forge when cabaret.landVia is local, forge change or not", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);
   await repo.git("config", "cabaret.landVia", "local");
-  const mainOnForge = await repo.git("ls-remote", "origin", "main");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  // Local main took the land merge; the forge saw nothing.
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
+  // Local main took the land merge and pushed it; the forge change itself was
+  // never merged.
   expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
-  expect(await repo.git("ls-remote", "origin", "main")).toBe(mainOnForge);
+  expect((await repo.git("ls-remote", "origin", "main")).split("\t")[0]).toBe(await repo.git("rev-parse", "main"));
   expect((await forge.getChange(PR)).state).toBe("open");
 });
 
@@ -89,7 +89,7 @@ test("land via forge without a forge change fails", async () => {
   await repo.git("config", "cabaret.landVia", "forge");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: 'no forge change for "gadget" on github.com/test-org/widgets; run `cabaret push` first\n',
+    stderr: 'no forge change for "gadget" on github.com/test-org/widgets; run `cabaret sync` first\n',
     exitCode: 1,
   });
 });
@@ -99,24 +99,24 @@ test("land via forge refuses a forge change behind the local tip", async () => {
   const repo = await makePr(forge);
   await repo.write("gadget.txt", "gadget work, more\n");
   await repo.git("commit", "-qam", "more gadget work");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: 'github.com/test-org/widgets#1 is not at "gadget"\'s tip; run `cabaret push` first\n',
+    stderr: 'github.com/test-org/widgets#1 is not at "gadget"\'s tip; run `cabaret sync` first\n',
     exitCode: 1,
   });
   expect((await forge.getChange(PR)).state).toBe("open");
 });
 
-test("land via forge records the land another machine can pull", async () => {
+test("land via forge records the land another machine can fetch", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);
   await repo.cabaret("land");
   const merge = parseCommitHash(await repo.git("rev-parse", "main"));
-  // A rerun of pull adds nothing: the land is already recorded, so the
+  // A rerun of fetch adds nothing: the land is already recorded, so the
   // sweep passes the change by.
-  expect((await repo.cabaret("pull")).stdout).toBe(
-    "recorded github:alice as an alias\n" + "synced github.com/test-org/widgets: 0 open forge changes\n",
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
   );
   expect((await repo.cabaret("log")).stdout.split("\n").filter((line) => line.includes('"kind":"land"'))).toHaveLength(
     1,
