@@ -102,6 +102,19 @@ export function forgeChangeId(raw: number): ForgeChangeId {
   return raw as ForgeChangeId;
 }
 
+/** The route each supported forge serves a change's page under, keyed by the locator's host. */
+const FORGE_CHANGE_ROUTES: Record<string, string> = {
+  "github.com": "pull",
+  "gitlab.com": "-/merge_requests",
+  "codeberg.org": "pulls",
+};
+
+/** The web page for change `id` on `forge`, or undefined for an unrecognized host. */
+export function forgeChangeUrl(forge: ForgeLocator, id: ForgeChangeId): string | undefined {
+  const route = FORGE_CHANGE_ROUTES[forge.split("/")[0] as string];
+  return route === undefined ? undefined : `https://${forge}/${route}/${id}`;
+}
+
 /**
  * Where a forge-synced entry came from. An entry with a source mirrors the
  * forge — an import, or an observation a push records — while one without

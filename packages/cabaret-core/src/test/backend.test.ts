@@ -14,6 +14,7 @@ import {
   currentReviewers,
   type FilePath,
   forgeChangeId,
+  forgeChangeUrl,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -96,6 +97,19 @@ test("rejects malformed ref names", () => {
   ]) {
     expect(() => parseBranchName(bad)).toThrow("not a valid branch name");
   }
+});
+
+test("forgeChangeUrl routes each supported forge, and no other host", () => {
+  expect(forgeChangeUrl(parseForgeLocator("github.com/test-org/widgets"), forgeChangeId(7))).toBe(
+    "https://github.com/test-org/widgets/pull/7",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("gitlab.com/test-group/nested/widgets"), forgeChangeId(31))).toBe(
+    "https://gitlab.com/test-group/nested/widgets/-/merge_requests/31",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("codeberg.org/test-org/widgets"), forgeChangeId(2))).toBe(
+    "https://codeberg.org/test-org/widgets/pulls/2",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("forge.example.com/test-org/widgets"), forgeChangeId(7))).toBeUndefined();
 });
 
 test("formatLogEntry renders one JSON object per line, keys in schema order", () => {

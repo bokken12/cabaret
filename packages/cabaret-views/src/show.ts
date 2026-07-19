@@ -6,6 +6,7 @@ import {
   changeDiff,
   currentComments,
   type FilePath,
+  forgeChangeUrl,
   isSatisfied,
   type LandMerge,
   obligationStatuses,
@@ -18,7 +19,7 @@ import {
   type UserName,
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
-import { table } from "./table.js";
+import { type Cell, table } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** What the show page displays. */
@@ -77,7 +78,7 @@ const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>, string> = {
 };
 
 /** The heading, its rule, and the attribute table every show page opens with. */
-function header(heading: Span, attributes: readonly (readonly [string, string])[]): Line[] {
+function header(heading: Span, attributes: readonly (readonly [string, string | Cell])[]): Line[] {
   return [
     { spans: [heading] },
     { spans: [span("=".repeat(heading.text.length))] },
@@ -87,7 +88,7 @@ function header(heading: Span, attributes: readonly (readonly [string, string])[
         { header: "attribute", align: "left" },
         { header: "value", align: "left" },
       ],
-      attributes.map(([attribute, value]) => [span(attribute), span(value)]),
+      attributes.map(([attribute, value]) => [span(attribute), typeof value === "string" ? span(value) : value]),
     ),
   ];
 }
@@ -154,7 +155,7 @@ function commentsSection(comments: readonly ChangeComment[]): Section | undefine
 export function showDoc(page: ShowPage): Doc {
   const summary = page.summary;
   // Each row notes how its own reading disagrees with what it should track.
-  const attributes: [string, string][] = [
+  const attributes: [string, string | Cell][] = [
     ["next step", summary.nextStep],
     ["owner", summary.owner],
   ];
@@ -174,12 +175,14 @@ export function showDoc(page: ShowPage): Doc {
     ),
   ]);
   if (summary.forgeChange !== undefined) {
+    const { forge, id, staleParent } = summary.forgeChange;
+    const url = forgeChangeUrl(forge, id);
     attributes.push([
       "forge change",
-      noted(
-        `${summary.forgeChange.forge}#${summary.forgeChange.id}`,
-        summary.forgeChange.staleParent && `merges into ${summary.forgeChange.staleParent}`,
-      ),
+      [
+        span(`${forge}#${id}`, url === undefined ? {} : { target: { kind: "url", url } }),
+        ...(staleParent === undefined ? [] : [span(` (merges into ${staleParent})`)]),
+      ],
     ]);
   }
   if (summary.landed !== undefined) {
