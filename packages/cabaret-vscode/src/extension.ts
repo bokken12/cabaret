@@ -16,7 +16,6 @@ import {
   type Forge,
   fetchForge,
   fetchLocal,
-  forgeBackend,
   type GotoOption,
   type GotoResult,
   gotoChange,
@@ -684,7 +683,7 @@ async function pollForge(): Promise<{ readonly open: number } | undefined> {
   } catch {
     return undefined;
   }
-  return fetchForge(forgeBackend(await openBackend()), now, forge, (event) => {
+  return fetchForge(await openBackend(), now, forge, (event) => {
     for (const listener of fetchListeners) {
       listener(event);
     }

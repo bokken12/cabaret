@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type FetchEvent, type Forge, fetchForge, fetchLocal, forgeBackend } from "cabaret-core";
+import { type FetchEvent, type Forge, fetchForge, fetchLocal } from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
 
@@ -95,9 +95,7 @@ export const fetch = buildCommand({
       return;
     }
     const locator = forge.locator;
-    const { open } = await fetchForge(forgeBackend(backend), this.now, forge, (event) =>
-      reportFetchEvent(this, locator, event),
-    );
+    const { open } = await fetchForge(backend, this.now, forge, (event) => reportFetchEvent(this, locator, event));
     this.process.stdout.write(`fetched ${locator}: ${open} open forge change${open === 1 ? "" : "s"}\n`);
   },
 });

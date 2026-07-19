@@ -9,7 +9,7 @@ export const create = buildCommand({
     fullDescription:
       "Create a change, initializing its log with a parent, a base, and an " +
       "owner. A change with no code yet starts at the parent's " +
-      "tip; an existing branch or bookmark is adopted with the last revision shared with " +
+      "tip; an existing branch is adopted with the last revision shared with " +
       "the parent as its base. The change must not already exist.",
   },
   parameters: {
