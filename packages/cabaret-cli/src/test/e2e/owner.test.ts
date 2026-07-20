@@ -72,6 +72,7 @@ test("a change owned by an alias is the user's own to operate", async () => {
     stderr: "",
     exitCode: 0,
   });
+<<<<<<< 1cf8a2a63d8aa05604362de96142cb43bb1dfbcf
   expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain(
     '{"kind":"set-owner","owner":"bob@example.com"}',
   );
@@ -111,6 +112,49 @@ test("only the owner may rebase a change", async () => {
     stderr: "",
     exitCode: 0,
   });
+||||||| a99b4f054449e0bab91342c8339f8407efa6ff7e
+  expect((await repo.cabaret("log", "feature")).stdout).toContain('{"kind":"set-owner","owner":"bob@example.com"}');
+});
+
+test("only the owner may reparent a change", async () => {
+  const repo = await makeOwnedChange();
+  await repo.git("config", "user.email", "bob@example.com");
+  const before = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("reparent", "feature", "main")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
+  expect(await repo.cabaret("reparent", "feature", "main", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("only the owner may rebase a change", async () => {
+  const repo = await makeOwnedChange();
+  await repo.git("config", "user.email", "bob@example.com");
+  const before = await repo.cabaret("log", "feature");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("log", "feature")).toEqual(before);
+  expect(await repo.cabaret("rebase", "feature", "--even-though-not-owner")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+=======
+  expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain(
+    '{"kind":"set-owner","owner":"bob@example.com"}',
+  );
+>>>>>>> c7918cf238dc2a90e0dc1c917524c3b9fbfd59d0
 });
 
 test("guarded commands fail on a change that does not exist, even with the override", async () => {
