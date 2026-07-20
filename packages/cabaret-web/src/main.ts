@@ -17,6 +17,7 @@ import {
   takeNotice,
   takeOauthState,
 } from "./config.js";
+import { codeHighlighter } from "./highlight.js";
 
 const root = document.getElementById("app");
 if (root === null) {
@@ -169,6 +170,10 @@ function startApp(shellRoot: HTMLElement, config: Config): void {
   };
   shellRoot.replaceChildren(shell.content, shell.status, shell.overlay);
   const now = (): ReturnType<typeof timestampMs> => timestampMs(Date.now());
+  // The highlighter paints grammars in as they arrive; the app exists by the
+  // time any could load.
+  let loaded = (): void => {};
+  const highlighter = codeHighlighter(() => loaded());
   const app = new App(
     async (page): Promise<Rendered> => {
       await seeded;
@@ -199,7 +204,9 @@ function startApp(shellRoot: HTMLElement, config: Config): void {
       mark: (snapshot, file, evenThoughNotReviewing) =>
         Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
     },
+    highlighter,
   );
+  loaded = () => app.repaint();
   app.start();
 }
 

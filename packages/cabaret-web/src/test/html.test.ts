@@ -1,17 +1,30 @@
 import { parseBranchName, parseFilePath, userName } from "cabaret-core";
 import { layout, section, span } from "cabaret-views";
 import { expect, test } from "vitest";
-import { foldAt, renderContent, visibleLines } from "../html.js";
+import type { CodeHighlighter } from "../highlight.js";
+import { foldAt, lineFiles, renderContent, visibleLines } from "../html.js";
 
 const widgets = { kind: "change", change: parseBranchName("widgets") } as const;
 const location = { kind: "location", change: widgets.change, file: parseFilePath("api.ts"), line: 3 } as const;
 
+// Body lines carry their location anchor on the first span, as hunk body
+// lines really do.
 const diffish = layout([
   { spans: [span("api.ts", { style: "heading" })] },
   section({ spans: [span("-1,2 +1,2", { style: "hunk", target: location, tier: "jump" })] }, [
-    { spans: [span("const a = 1;", { style: "removed" }), span("", { style: "removed-word" })] },
-    { spans: [span("const b = 2;", { style: "added" }), span("!", { style: "added-word" })] },
-    { spans: [span("const c = 3;", { style: "context" })] },
+    {
+      spans: [
+        span("const a = 1;", { style: "removed", target: location, tier: "jump" }),
+        span("", { style: "removed-word" }),
+      ],
+    },
+    {
+      spans: [
+        span("const b = 2;", { style: "added", target: location, tier: "jump" }),
+        span("!", { style: "added-word" }),
+      ],
+    },
+    { spans: [span("const c = 3;", { style: "context", target: location, tier: "jump" })] },
   ]),
 ]);
 
@@ -75,6 +88,49 @@ test("a folded section renders as its heading wearing an ellipsis", () => {
   expect(renderContent(diffish, new Set([1]))).toMatchInlineSnapshot(`
     "<div class="line" data-line="0"><span class="gutter">   </span><span class="s-heading">api.ts</span></div>
     <div class="line w-hunk" data-line="1"><span class="fold-mark" title="toggle fold">▸</span><span class="gutter">   </span><span class="s-hunk">-1,2 +1,2</span><span class="dim"> …</span></div>"
+  `);
+});
+
+test("lineFiles attributes fold bodies to the file their heading names, innermost fold winning", () => {
+  const other = { kind: "location", change: widgets.change, file: parseFilePath("deep.py"), line: 1 } as const;
+  const doc = layout([
+    { spans: [span("title", { style: "heading" })] },
+    section({ spans: [span("api.ts", { style: "heading", target: location, tier: "jump" })] }, [
+      { spans: [span("outer body", { style: "context" })] },
+      section({ spans: [span("deep.py", { target: other, tier: "jump" })] }, [
+        { spans: [span("inner body", { style: "context" })] },
+      ]),
+    ]),
+    { spans: [span("tail")] },
+  ]);
+  expect(lineFiles(doc)).toEqual(
+    new Map([
+      [2, "api.ts"],
+      [3, "api.ts"],
+      [4, "deep.py"],
+    ]),
+  );
+});
+
+test("renderContent colors code lines with the highlighter's tokens, split across word washes", () => {
+  // Tokens split "const b = 2;!" as "const"/" b = 2;!": the color boundary
+  // falls inside the added span, and the trailing token crosses into the
+  // added-word span.
+  const highlighter: CodeHighlighter = {
+    tokens: (file, text) =>
+      file === "api.ts"
+        ? [
+            { text: text.slice(0, 5), color: "#ff0000" },
+            { text: text.slice(5), color: undefined },
+          ]
+        : undefined,
+  };
+  expect(renderContent(diffish, new Set(), highlighter)).toMatchInlineSnapshot(`
+    "<div class="line" data-line="0"><span class="gutter">   </span><span class="s-heading">api.ts</span></div>
+    <div class="line w-hunk" data-line="1"><span class="fold-mark" title="toggle fold">▾</span><span class="gutter">   </span><span class="s-hunk">-1,2 +1,2</span></div>
+    <div class="line w-removed" data-line="2"><span class="gutter">-  </span><span class="s-removed"><span style="color:#ff0000">const</span> a = 1;</span><span class="s-removed-word"></span></div>
+    <div class="line w-added" data-line="3"><span class="gutter">+  </span><span class="s-added"><span style="color:#ff0000">const</span> b = 2;</span><span class="s-added-word">!</span></div>
+    <div class="line" data-line="4"><span class="gutter">   </span><span class="s-context"><span style="color:#ff0000">const</span> c = 3;</span></div>"
   `);
 });
 
