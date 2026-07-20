@@ -275,7 +275,8 @@ class PageProvider
             const key = displayedKey(viewed.change, viewed.user, viewed.base, file);
             let ends = this.displayedEnds.get(key);
             if (ends === undefined) {
-              this.displayedEnds.set(key, (ends = new Set()));
+              ends = new Set();
+              this.displayedEnds.set(key, ends);
             }
             ends.add(end);
           }
