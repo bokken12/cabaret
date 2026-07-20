@@ -368,12 +368,12 @@
       {
         "command": "cabaret.stepUp",
         "key": "shift+6",
-        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.stepDown",
         "key": "shift+4",
-        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rebase",

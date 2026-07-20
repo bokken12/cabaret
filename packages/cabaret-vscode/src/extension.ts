@@ -443,9 +443,9 @@ function shownPage(): Extract<Page, { kind: "show" }> | undefined {
 }
 
 /**
- * Step up from a page to the sibling above what it shows: a change's page to
- * the parent's page of the same kind — a trunk parent has pages of its own —
- * or a file's diff to the round's previous file.
+ * Step up to the sibling above: from a show page to the parent's show page
+ * — a trunk parent has a page of its own — or from a file's diff to the
+ * round's previous file.
  */
 async function stepUp(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -453,11 +453,11 @@ async function stepUp(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "home") {
-    return;
-  }
   if (page.kind === "diff") {
     await stepToFile(provider, editor.document.uri, page, "prev");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -466,13 +466,13 @@ async function stepUp(provider: PageProvider): Promise<void> {
     vscode.window.showInformationMessage(`cabaret: ${page.change} has no parent`);
     return;
   }
-  await openPage(provider, { ...page, change: currentParent(page.change, entries) });
+  await openPage(provider, { kind: "show", change: currentParent(page.change, entries), as: page.as });
 }
 
 /**
- * Step down from a page to the sibling below what it shows: a change's page
- * to a child's page of the same kind — picking one when the change has
- * several children — or a file's diff to the round's next file.
+ * Step down to the sibling below: from a show page to a child's show page —
+ * picking one when the change has several children — or from a file's diff
+ * to the round's next file.
  */
 async function stepDown(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -480,11 +480,11 @@ async function stepDown(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "home") {
-    return;
-  }
   if (page.kind === "diff") {
     await stepToFile(provider, editor.document.uri, page, "next");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -503,7 +503,7 @@ async function stepDown(provider: PageProvider): Promise<void> {
       ? children[0]
       : await vscode.window.showQuickPick(children.sort(), { placeHolder: `Child of ${page.change}` });
   if (child !== undefined) {
-    await openPage(provider, { ...page, change: backend.parseName(child) });
+    await openPage(provider, { kind: "show", change: backend.parseName(child), as: page.as });
   }
 }
 

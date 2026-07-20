@@ -75,8 +75,6 @@ test("review page keybindings", () => {
       "d  Review Diffs",
       "@  Act as User",
       "! m  Mark Reviewed",
-      "^  Step Up",
-      "$  Step Down",
       "! r b  Rebase",
       "! l a  Land",
       "! r n  Rename",
