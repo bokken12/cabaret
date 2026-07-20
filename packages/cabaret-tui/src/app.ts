@@ -33,13 +33,19 @@ import { bindingsFor, type Command } from "./keymap.js";
 import type { MouseEvent } from "./keys.js";
 import { type ColorDepth, foldAt, gutterWidth, paintPage, paintStatus, visibleLines } from "./paint.js";
 
+/** Where the terminal's own cursor sits after a frame, in zero-based viewport cells. */
+export interface CursorCell {
+  readonly row: number;
+  readonly column: number;
+}
+
 /** What the app draws frames on. */
 export interface Terminal {
   columns(): number;
   rows(): number;
   readonly depth: ColorDepth;
-  /** Display a full frame: content rows then the status row. */
-  render(rows: readonly string[]): void;
+  /** Display a full frame — content rows then the status row — parking the cursor at `cursor`. */
+  render(rows: readonly string[], cursor: CursorCell): void;
 }
 
 /** What a render of one page produced. */
@@ -108,6 +114,12 @@ interface View {
   stale: boolean;
   readonly folded: Set<number>;
   cursor: number;
+  /**
+   * The column the cursor aims for, in code points of the line's text; a
+   * shorter line shows it clamped without losing the aim, as editors keep a
+   * goal column across vertical moves.
+   */
+  column: number;
   /** The selection's other end, a visible-line index; unset selects the cursor alone. */
   anchor: number | undefined;
   top: number;
@@ -174,7 +186,17 @@ export class App {
     try {
       const { doc, snapshot, viewed } = await this.source(page);
       this.recordViewed(viewed);
-      this.stack.push({ page, doc, snapshot, stale: false, folded: new Set(), cursor: 0, anchor: undefined, top: 0 });
+      this.stack.push({
+        page,
+        doc,
+        snapshot,
+        stale: false,
+        folded: new Set(),
+        cursor: 0,
+        column: 0,
+        anchor: undefined,
+        top: 0,
+      });
       this.noteErrors(doc);
     } catch (error) {
       if (this.stack.length === 0) {
@@ -314,6 +336,7 @@ export class App {
           return;
         }
         view.cursor = row;
+        view.column = Math.max(0, event.x - 1 - gutterWidth(view.doc));
         view.anchor = undefined;
         this.press = { row, column: event.x - 1 - gutterWidth(view.doc), dragged: false };
         this.scrollIntoView(view);
@@ -395,7 +418,7 @@ export class App {
     // quiet moments.
     const status =
       this.input !== undefined
-        ? paintStatus(`${this.input.prompt}: ${this.input.buffer}\u2590`, width)
+        ? paintStatus(`${this.input.prompt}: ${this.input.buffer}`, width)
         : this.question !== undefined
           ? paintStatus(`${this.question.text} y/n`, width, "ask")
           : this.pending.length > 0
@@ -403,7 +426,27 @@ export class App {
             : this.note !== undefined
               ? paintStatus(this.note, width)
               : paintStatus(pagePath(current.page), width);
-    this.terminal.render([...content, status]);
+    // The terminal's own cursor is the cursor: in the minibuffer while one
+    // is open, at the page position otherwise.
+    const cursor =
+      this.input !== undefined
+        ? {
+            row: height,
+            column: Math.min(width - 1, 1 + [...`${this.input.prompt}: ${this.input.buffer}`].length),
+          }
+        : {
+            row: current.cursor - current.top,
+            column: Math.min(width - 1, gutterWidth(current.doc) + this.cursorColumn(current)),
+          };
+    this.terminal.render([...content, status], cursor);
+  }
+
+  /** The column the cursor shows at: its aim, clamped to the cursor line's text. */
+  private cursorColumn(view: View): number {
+    const line = visibleLines(view.doc, view.folded)[view.cursor];
+    const text = view.doc.lines[line ?? -1];
+    const length = text === undefined ? 0 : text.spans.reduce((sum, span) => sum + [...span.text].length, 0);
+    return Math.min(view.column, length);
   }
 
   private current(): View {
@@ -662,6 +705,12 @@ export class App {
         return "continue";
       case "down":
         this.moveCursor(view, 1);
+        return "continue";
+      case "left":
+        view.column = Math.max(0, this.cursorColumn(view) - 1);
+        return "continue";
+      case "right":
+        view.column = this.cursorColumn(view) + 1;
         return "continue";
       case "half-up":
         this.moveCursor(view, -Math.floor(this.contentHeight() / 2));

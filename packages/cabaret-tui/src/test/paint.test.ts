@@ -25,24 +25,24 @@ test("paintPage washes lines, underlines links, and marks the cursor", () => {
   expect(
     visible(paintPage({ doc: diffish, folded: new Set(), cursor: 0, top: 0 }, 24, 10, "truecolor")),
   ).toMatchInlineSnapshot(`
-    "«0;1;36¦❯«0¦   «0;1¦widgets«0¦
-    «0¦ «0¦   «0;48;2;42;46;54¦-1,2 +1,2«0;48;2;42;46;54¦           «0¦
-    «0¦ «0;48;2;70;26;26¦- «0¦ «0;48;2;70;26;26¦const a = 1;«0;48;2;70;26;26¦        «0¦
-    «0¦ «0¦   «0¦const b = 2;«0¦
-    «0¦ «0¦   «0¦see «0;4¦widgets«0¦"
+    "«0¦   «0;1¦widgets«0¦
+    «0¦   «0;48;2;42;46;54¦-1,2 +1,2«0;48;2;42;46;54¦            «0¦
+    «0;48;2;70;26;26¦- «0¦ «0;48;2;70;26;26¦const a = 1;«0;48;2;70;26;26¦         «0¦
+    «0¦   «0¦const b = 2;«0¦
+    «0¦   «0¦see «0;4¦widgets«0¦"
   `);
 });
 
 test("paintPage at ansi256 depth falls back to the 256-color palette", () => {
   expect(
     visible(paintPage({ doc: diffish, folded: new Set(), cursor: 2, top: 2 }, 20, 1, "ansi256")),
-  ).toMatchInlineSnapshot(`"«0;1;36¦❯«0;48;5;52¦- «0¦ «0;48;5;52¦const a = 1;«0;48;5;52¦    «0¦"`);
+  ).toMatchInlineSnapshot(`"«0;48;5;52¦- «0¦ «0;48;5;52¦const a = 1;«0;48;5;52¦     «0¦"`);
 });
 
 test("paintPage truncates long lines under an ellipsis", () => {
   const doc = layout([{ spans: [span("abcdefgh", { style: "added" })] }]);
   expect(visible(paintPage({ doc, folded: new Set(), cursor: 0, top: 0 }, 8, 5, "truecolor"))).toMatchInlineSnapshot(
-    `"«0;1;36¦❯«0;48;2;16;56;28¦+ «0¦ «0;48;2;16;56;28¦abc«0;2¦…«0¦"`,
+    `"«0;48;2;16;56;28¦+ «0¦ «0;48;2;16;56;28¦abcd«0;2¦…«0¦"`,
   );
 });
 
@@ -50,9 +50,9 @@ test("paintPage shows a folded section as its heading wearing an ellipsis", () =
   expect(
     visible(paintPage({ doc: diffish, folded: new Set([1]), cursor: 1, top: 0 }, 24, 10, "truecolor")),
   ).toMatchInlineSnapshot(`
-    "«0¦ «0¦   «0;1¦widgets«0¦
-    «0;1;36¦❯«0¦   «0;48;2;42;46;54¦-1,2 +1,2«0;2¦ …«0;48;2;42;46;54¦         «0¦
-    «0¦ «0¦   «0¦see «0;4¦widgets«0¦"
+    "«0¦   «0;1¦widgets«0¦
+    «0¦   «0;48;2;42;46;54¦-1,2 +1,2«0;2¦ …«0;48;2;42;46;54¦          «0¦
+    «0¦   «0¦see «0;4¦widgets«0¦"
   `);
 });
 

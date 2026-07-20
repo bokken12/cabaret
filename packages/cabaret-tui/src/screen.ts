@@ -1,4 +1,4 @@
-import type { Terminal } from "./app.js";
+import type { CursorCell, Terminal } from "./app.js";
 import type { ColorDepth } from "./paint.js";
 
 /** The terminal's color depth, read from the environment. */
@@ -8,11 +8,12 @@ export function colorDepth(env: NodeJS.ProcessEnv): ColorDepth {
 }
 
 /**
- * The real terminal behind the app: frames paint on the alternate screen
- * with the hardware cursor hidden, so quitting restores the shell exactly as
- * it was. Each render homes the cursor and rewrites every row, erasing to
- * the right of each and below the last — simple full-frame paint, cheap at
- * viewport size.
+ * The real terminal behind the app: frames paint on the alternate screen,
+ * so quitting restores the shell exactly as it was. Each render hides the
+ * terminal's cursor, homes, rewrites every row — erasing to the right of
+ * each and below the last, simple full-frame paint, cheap at viewport size —
+ * then parks the cursor where the app says and shows it: the terminal's own
+ * cursor is the app's.
  */
 export class Screen implements Terminal {
   readonly depth: ColorDepth;
@@ -44,12 +45,15 @@ export class Screen implements Terminal {
     this.out.write("\x1b[?1002;1006l\x1b[0m\x1b[?25h\x1b[?1049l");
   }
 
-  render(rows: readonly string[]): void {
+  render(rows: readonly string[], cursor: CursorCell): void {
     // A frame from work still in flight when the alternate screen closed
     // must not spill onto the shell.
     if (!this.active) {
       return;
     }
-    this.out.write(`\x1b[H${rows.map((row) => `${row}\x1b[K`).join("\r\n")}\x1b[0J`);
+    this.out.write(
+      `\x1b[?25l\x1b[H${rows.map((row) => `${row}\x1b[K`).join("\r\n")}\x1b[0J` +
+        `\x1b[${cursor.row + 1};${cursor.column + 1}H\x1b[?25h`,
+    );
   }
 }
