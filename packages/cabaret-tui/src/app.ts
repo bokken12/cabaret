@@ -8,14 +8,19 @@ import {
   NotReviewingError,
   type RebaseOverrides,
   type Revision,
+  type Self,
   UnreviewedParentError,
   UnsatisfiedObligationsError,
+  type UserName,
+  userName,
 } from "cabaret-core";
 import {
   type ChangeSnapshot,
   type Doc,
   displayedKey,
+  enclosingPage,
   type MarkReviewedResult,
+  neighborFiles,
   type Page,
   pagePath,
   pendingRound,
@@ -62,6 +67,8 @@ export interface Effects {
   parent(change: ChangeName): Promise<ChangeName | undefined>;
   /** The changes whose current parent is `change`, sorted. */
   children(change: ChangeName): Promise<readonly ChangeName[]>;
+  /** The current user and their aliases. */
+  self(): Promise<Self>;
   /** Rebase the change onto its parent's current tip. */
   rebase(change: ChangeName, overrides: RebaseOverrides): Promise<void>;
   /** Land the change into its parent as configured. */
@@ -234,7 +241,7 @@ export class App {
       this.repaint();
       return "continue";
     }
-    if (key === "esc") {
+    if (key === "esc" && this.pending.length > 0) {
       this.pending = [];
       this.repaint();
       return "continue";
@@ -254,7 +261,10 @@ export class App {
       this.pending = attempt;
     } else {
       this.pending = [];
-      this.note = `${attempt.join(" ")} is undefined`;
+      // A bare escape with nothing to answer it dissolves without complaint.
+      if (key !== "esc" || attempt.length > 1) {
+        this.note = `${attempt.join(" ")} is undefined`;
+      }
     }
     this.repaint();
     return "continue";
@@ -497,11 +507,29 @@ export class App {
         }
         return "continue";
       }
-      case "show-parent":
-        await this.showParent(view);
+      case "step-up":
+        if (view.page.kind === "diff") {
+          await this.stepToFile(view, "prev");
+        } else {
+          await this.showParent(view);
+        }
         return "continue";
-      case "show-child":
-        await this.showChild(view);
+      case "step-down":
+        if (view.page.kind === "diff") {
+          await this.stepToFile(view, "next");
+        } else {
+          await this.showChild(view);
+        }
+        return "continue";
+      case "step-outside": {
+        const outer = enclosingPage(view.page);
+        if (outer !== undefined) {
+          await this.replace(view, outer);
+        }
+        return "continue";
+      }
+      case "act-as":
+        await this.actAsPick(view);
         return "continue";
       case "toggle-fold": {
         const line = visibleLines(view.doc, view.folded)[view.cursor];
@@ -958,6 +986,66 @@ export class App {
     this.note = `syncing ${change}\u2026`;
     this.repaint();
     await this.attempt(() => this.effects.sync(change));
+  }
+
+  /** Step a diff page to the file beside it in its round — how a reviewer walks the round. */
+  private async stepToFile(view: View, side: "prev" | "next"): Promise<void> {
+    if (view.page.kind !== "diff") {
+      return;
+    }
+    const page = view.page;
+    if (view.snapshot === undefined) {
+      this.note = "the page rendered without its review state; refresh first";
+      return;
+    }
+    const neighbors = neighborFiles(view.snapshot.rounds, page.file);
+    if (neighbors === undefined) {
+      this.note = `nothing left to review in ${page.file}`;
+      return;
+    }
+    const file = neighbors[side];
+    if (file === undefined) {
+      this.note = `${page.file} is the round's ${side === "prev" ? "first" : "last"} file`;
+      return;
+    }
+    await this.replace(view, { kind: "diff", change: page.change, file, as: page.as });
+  }
+
+  /**
+   * Pick a user and reopen the page as them. The list opens on the current
+   * user, so swapping back to oneself is a bare pick; aliases follow, and
+   * anyone else can be typed in.
+   */
+  private async actAsPick(view: View): Promise<void> {
+    const self = await this.effects.self();
+    const aliases = [...self.aliases].sort();
+    const swap = (user: UserName): Promise<void> =>
+      this.replace(view, { ...view.page, as: user === self.user ? undefined : user });
+    this.choice = {
+      text: `Act as (currently ${view.page.as ?? self.user})`,
+      options: [`${self.user} (yourself)`, ...aliases, "someone else\u2026"],
+      proceed: (index) => {
+        if (index === 0) {
+          return swap(self.user);
+        }
+        const alias = aliases[index - 1];
+        if (alias !== undefined) {
+          return swap(alias);
+        }
+        this.input = {
+          prompt: "User to act as",
+          buffer: "",
+          submit: (raw) => {
+            if (raw === "") {
+              this.note = "user must be nonempty";
+              return;
+            }
+            return swap(userName(raw));
+          },
+        };
+        return undefined;
+      },
+    };
   }
 
   /** Climb to the parent's show page; a trunk parent has a page of its own. */

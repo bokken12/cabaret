@@ -56,6 +56,7 @@ for (const argv of [
     expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
     expect(await repo.cabaret(...argv, "--even-though-not-owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
+}
 
 test("a change owned by an alias is the user's own to operate", async () => {
   const repo = await makeOwnedChange();
