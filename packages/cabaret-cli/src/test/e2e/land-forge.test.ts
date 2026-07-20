@@ -36,7 +36,7 @@ test("land merges the change's forge change and fetches the result", async () =>
   expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   expect((await repo.git("ls-remote", "origin", "main")).split("\t")[0]).toBe(merge);
   expect((await forge.getChange(PR)).state).toBe("merged");
-  expect((await repo.cabaret("log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
 });
 
 test("a forge land reparents the landed change's children", async () => {
@@ -48,7 +48,9 @@ test("a forge land reparents the landed change's children", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log", "doodad")).stdout).toContain('"action":{"kind":"set-parent","parent":"main"}');
+  expect((await repo.cabaret("dev", "log", "doodad")).stdout).toContain(
+    '"action":{"kind":"set-parent","parent":"main"}',
+  );
 });
 
 test("land squashes the change's forge change when configured", async () => {
@@ -66,7 +68,7 @@ test("land squashes the change's forge change when configured", async () => {
   expect(await repo.git("show", "--no-patch", "--format=%P", "main")).toBe(mainBefore);
   expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   expect(await repo.git("show", "main:gadget.txt")).toBe("gadget work");
-  expect((await repo.cabaret("log")).stdout).toContain(`{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(`{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
 });
 
 test("land stays off the forge when cabaret.landVia is local, forge change or not", async () => {
@@ -118,10 +120,10 @@ test("land via forge records the land another machine can fetch", async () => {
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
   );
-  expect((await repo.cabaret("log")).stdout.split("\n").filter((line) => line.includes('"kind":"land"'))).toHaveLength(
-    1,
-  );
-  expect((await repo.cabaret("log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
+  expect(
+    (await repo.cabaret("dev", "log")).stdout.split("\n").filter((line) => line.includes('"kind":"land"')),
+  ).toHaveLength(1);
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
 });
 
 test("land via forge from the parent's checkout fast-forwards it, working tree included", async () => {

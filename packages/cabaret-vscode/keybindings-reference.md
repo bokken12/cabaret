@@ -23,7 +23,7 @@ are chosen.
 | `^`     | Step Up               | show, diff                |
 | `$`     | Step Down             | show, diff                |
 | `! r b` | Rebase                | home, show, review        |
-| `! l a` | Land                  | all                       |
+| `! l`   | Land                  | all                       |
 | `! r n` | Rename                | home, show, review        |
 | `! r p` | Reparent              | home, show, review        |
 | `! o`   | Set Owner             | home, show, review        |

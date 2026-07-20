@@ -37,7 +37,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${parentTip}\n${childTip}`);
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
@@ -69,7 +69,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   // The base stays where the reviewed diff was computed, not the tip landed onto.
   const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
@@ -270,7 +270,7 @@ test("a file changed only after a land marks at its own round's end", async () =
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log", "parent")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log", "parent")).stdout).toContain(
     `{"kind":"review","file":"late.txt","base":"${base}","tip":"${tip}"}`,
   );
 });
@@ -392,14 +392,14 @@ test("land refuses a diverged parent, moving nothing", async () => {
   await repo.git("checkout", "-q", "feature");
   await repo.git("fetch", "-q", "origin");
   const mainBefore = await repo.git("rev-parse", "main");
-  const logBefore = await repo.cabaret("log", "feature");
+  const logBefore = await repo.cabaret("dev", "log", "feature");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: 'local "main" has diverged from origin\'s copy; sync it first\n',
     exitCode: 1,
   });
   expect(await repo.git("rev-parse", "main")).toBe(mainBefore);
-  expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual(logBefore);
 });
 
 test("land after an out-of-band rebase pins the base it validated", async () => {
@@ -417,7 +417,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
     exitCode: 0,
   });
   const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
@@ -507,7 +507,7 @@ test("a range lands the whole chain, deepest first", async () => {
     await repo.git("rev-parse", "a"),
     await repo.git("rev-parse", "b"),
   ];
-  expect(await repo.cabaret("log", "a")).toEqual({
+  expect(await repo.cabaret("dev", "log", "a")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -517,7 +517,7 @@ test("a range lands the whole chain, deepest first", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "b")).toEqual({
+  expect(await repo.cabaret("dev", "log", "b")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
@@ -527,7 +527,7 @@ test("a range lands the whole chain, deepest first", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "c")).toEqual({
+  expect(await repo.cabaret("dev", "log", "c")).toEqual({
     stdout:
       '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
@@ -599,7 +599,7 @@ test("landing a change reparents its children onto where it landed", async () =>
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "gizmo")).toEqual({
+  expect(await repo.cabaret("dev", "log", "gizmo")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
@@ -609,7 +609,7 @@ test("landing a change reparents its children onto where it landed", async () =>
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "widget")).toEqual({
+  expect(await repo.cabaret("dev", "log", "widget")).toEqual({
     stdout:
       '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
@@ -632,7 +632,7 @@ test("landing leaves landed children where they landed", async () => {
     exitCode: 0,
   });
   // The landed child's parent stays the frozen history it landed into.
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
@@ -661,7 +661,7 @@ test("landing into its own child leaves the cycle for a manual reparent", async 
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "inner")).toEqual({
+  expect(await repo.cabaret("dev", "log", "inner")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${outerTip}"}}\n` +
@@ -684,7 +684,7 @@ test("a range land carries an outside child down with each landing", async () =>
     exitCode: 0,
   });
   // d followed its code: onto a when b landed there, onto main when a landed.
-  expect(await repo.cabaret("log", "d")).toEqual({
+  expect(await repo.cabaret("dev", "log", "d")).toEqual({
     stdout:
       '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
@@ -750,7 +750,7 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
   expect(await repo.git("show", "--no-patch", "--format=%P", "parent")).toBe(parentTip);
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
-  expect((await repo.cabaret("log", "child")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log", "child")).stdout).toContain(
     `{"kind":"land","merge":"${squash}","tip":"${childTip}"}`,
   );
   // The parent's reviewers skip the squash's diff: it was reviewed in the child.

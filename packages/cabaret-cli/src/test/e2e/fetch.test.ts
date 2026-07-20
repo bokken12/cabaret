@@ -30,8 +30,8 @@ test("fetch carries a change's log to a fresh machine verbatim", async () => {
     stderr: "",
     exitCode: 0,
   };
-  expect(await bob.cabaret("log", "widgets")).toEqual(log);
-  expect(await alice.cabaret("log", "widgets")).toEqual(log);
+  expect(await bob.cabaret("dev", "log", "widgets")).toEqual(log);
+  expect(await alice.cabaret("dev", "log", "widgets")).toEqual(log);
 });
 
 test("concurrent work on two machines merges into one identical log", async () => {
@@ -49,8 +49,8 @@ test("concurrent work on two machines merges into one identical log", async () =
   await bob.cabaret("fetch");
   await alice.cabaret("fetch");
 
-  const aliceLog = await alice.cabaret("log", "widgets");
-  expect(await bob.cabaret("log", "widgets")).toEqual(aliceLog);
+  const aliceLog = await alice.cabaret("dev", "log", "widgets");
+  expect(await bob.cabaret("dev", "log", "widgets")).toEqual(aliceLog);
   expect(await shownComments(alice, "widgets")).toBe(
     "Comments:\n  2025-05-23T11:33:20.004Z alice@example.com\n    does this handle empty diffs?\n\n" +
       "  2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",

@@ -390,7 +390,7 @@
       },
       {
         "command": "cabaret.land",
-        "key": "shift+1 l a",
+        "key": "shift+1 l",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {

@@ -20,7 +20,7 @@ test("reviewing shows the current set and records a new one", async () => {
   expect(await repo.cabaret("reviewing")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("reviewing", "owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("reviewing")).toEqual({ stdout: "owner\n", stderr: "", exitCode: 0 });
-  expect((await repo.cabaret("log")).stdout).toContain('"action":{"kind":"set-reviewing","reviewing":"owner"}');
+  expect((await repo.cabaret("dev", "log")).stdout).toContain('"action":{"kind":"set-reviewing","reviewing":"owner"}');
 });
 
 test("reviewing rejects a value outside the set", async () => {
@@ -153,7 +153,7 @@ test("review ahead of the reviewing set nudges, and the flag overrides", async (
   );
   expect(forced).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The overridden review is a review: it counts toward obligations.
-  expect((await repo.cabaret("log", "feature")).stdout).toContain('"kind":"review","file":"feature.txt"');
+  expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain('"kind":"review","file":"feature.txt"');
 });
 
 test("the owner and a landed change are never nudged", async () => {

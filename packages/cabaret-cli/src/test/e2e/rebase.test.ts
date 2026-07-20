@@ -74,7 +74,7 @@ test("rebase merges the parent's tip in and records the new base", async () => {
   );
   expect(await repo.git("rev-parse", "child^2")).toBe(newBase);
   expect(await repo.git("show", "child:parent.txt")).toBe("parent v2");
-  expect((await repo.cabaret("log", "child")).stdout).toContain(`{"kind":"set-base","base":"${newBase}"}`);
+  expect((await repo.cabaret("dev", "log", "child")).stdout).toContain(`{"kind":"set-base","base":"${newBase}"}`);
   expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
     stdout: "parent.txt in child\n\nNothing left to review.\n",
     stderr: "",
@@ -132,7 +132,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   expect(await repo.git("show", "child:shared.txt")).toBe(
     `<<<<<<< ${tipBefore}\nfrom child\n=======\nfrom parent, amended\n>>>>>>> ${onto}`,
   );
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
@@ -273,17 +273,17 @@ test("a rebase onto a parent the base outran moves nothing", async () => {
   const root = await repo.git("rev-parse", "main~1");
   await repo.git("update-ref", "refs/heads/main", root);
   const tipBefore = await repo.git("rev-parse", "feature");
-  const logBefore = await repo.cabaret("log", "feature");
+  const logBefore = await repo.cabaret("dev", "log", "feature");
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("rev-parse", "feature")).toBe(tipBefore);
-  expect(await repo.cabaret("log", "feature")).toEqual(logBefore);
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual(logBefore);
 });
 
 test("rebase is a no-op when the change already sits on the parent's tip", async () => {
   const repo = await makeStack();
-  const before = await repo.cabaret("log", "child");
+  const before = await repo.cabaret("dev", "log", "child");
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("log", "child")).toEqual(before);
+  expect(await repo.cabaret("dev", "log", "child")).toEqual(before);
 });
 
 test("rebase pins the base after an out-of-band rebase, surviving a later parent rewrite", async () => {
@@ -300,7 +300,7 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   // rebase must still pin the base there, since the merge-base alone would
   // slide back once the parent is rewritten.
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("log", "child")).toEqual({
+  expect(await repo.cabaret("dev", "log", "child")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
@@ -364,7 +364,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "a")).toEqual({
+  expect(await repo.cabaret("dev", "log", "a")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -374,7 +374,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "b")).toEqual({
+  expect(await repo.cabaret("dev", "log", "b")).toEqual({
     stdout:
       '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aOld}"}}\n` +
@@ -384,7 +384,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "c")).toEqual({
+  expect(await repo.cabaret("dev", "log", "c")).toEqual({
     stdout:
       '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bOld}"}}\n` +
@@ -437,9 +437,9 @@ test("a range stops at a conflicted change and a rerun resumes once fixed", asyn
 test("a range skips a landed change instead of failing", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "parent");
-  const before = await repo.cabaret("log", "child");
+  const before = await repo.cabaret("dev", "log", "child");
   expect(await repo.cabaret("rebase", "main..child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("log", "child")).toEqual(before);
+  expect(await repo.cabaret("dev", "log", "child")).toEqual(before);
 });
 
 test("a range whose left endpoint is not an ancestor fails", async () => {

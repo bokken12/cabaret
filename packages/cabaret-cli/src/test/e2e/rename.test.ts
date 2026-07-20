@@ -20,7 +20,7 @@ test("rename moves the branch, the log, and HEAD to the new name", async () => {
   );
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/better-feature");
   expect(await repo.git("status", "--porcelain")).toBe(" M feature.txt");
-  expect(await repo.cabaret("log", "better-feature")).toEqual({
+  expect(await repo.cabaret("dev", "log", "better-feature")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -57,7 +57,7 @@ test("rename refuses a name already taken by a change or a branch", async () => 
   // The refused renames moved nothing: branch, log, and HEAD all stand.
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/gizmo");
   expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
-  expect((await repo.cabaret("log", "gizmo")).stdout).not.toBe("");
+  expect((await repo.cabaret("dev", "log", "gizmo")).stdout).not.toBe("");
 });
 
 test("rename refuses a name origin holds, even with no local branch", async () => {
@@ -117,7 +117,7 @@ test("only the owner may rename, unless overridden", async () => {
     exitCode: 0,
   });
   // The rename moved the log, owner and all.
-  expect((await repo.cabaret("log", "mine")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log", "mine")).stdout).toContain(
     '"action":{"kind":"set-owner","owner":"bob@example.com"}',
   );
 });
