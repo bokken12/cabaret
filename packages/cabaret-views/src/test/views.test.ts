@@ -45,13 +45,14 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
 }
 
 const files = (...names: string[]) => names.map(parseFilePath);
-/** `reviewLeft` entries; "old.ts -> new.ts" names a move. */
+/** `reviewLeft` entries; "old.ts -> new.ts" names a move, "old.ts => new.ts" a copy. */
 const left = (...names: string[]) =>
   names.map((name) => {
-    const [from, to] = name.split(" -> ");
+    const arrow = name.includes(" => ") ? " => " : " -> ";
+    const [from, to] = name.split(arrow);
     return from !== undefined && to !== undefined
-      ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
-      : { path: parseFilePath(name), movedFrom: undefined };
+      ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " } }
+      : { path: parseFilePath(name), source: undefined };
   });
 
 /** Each fold as the text of the lines it runs from and to. */

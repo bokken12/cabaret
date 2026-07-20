@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, changeTip, readConfig, renderDiff } from "cabaret-core";
+import { changeBase, changeTip, fileLabel, readConfig, renderDiff } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, contextFlag, resolveChange, selectFiles } from "./shared.js";
 
@@ -35,7 +35,9 @@ export const diff = buildCommand({
     const changed = await backend.changedFiles(base, tip);
     const byPath = new Map(changed.map((file) => [file.path, file]));
     const moves = new Map(
-      changed.flatMap(({ path, movedFrom }) => (movedFrom === undefined ? [] : [[movedFrom, path] as const])),
+      changed.flatMap(({ path, source }) =>
+        source === undefined || source.copied ? [] : [[source.path, path] as const],
+      ),
     );
     const selected = selectFiles(
       backend,
@@ -51,11 +53,12 @@ export const diff = buildCommand({
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
     let separate = false;
     for (const file of files) {
-      const movedFrom = byPath.get(file)?.movedFrom;
-      const [prev, next] = await Promise.all([backend.readFile(base, movedFrom ?? file), backend.readFile(tip, file)]);
-      this.process.stdout.write(
-        `${separate ? "\n" : ""}${movedFrom === undefined ? file : `${movedFrom} -> ${file}`} in ${change}\n\n`,
-      );
+      const source = byPath.get(file)?.source;
+      const [prev, next] = await Promise.all([
+        backend.readFile(base, source?.path ?? file),
+        backend.readFile(tip, file),
+      ]);
+      this.process.stdout.write(`${separate ? "\n" : ""}${fileLabel(file, source)} in ${change}\n\n`);
       separate = true;
       const rendered = renderDiff(file, prev, next, color, context);
       this.process.stdout.write(rendered === "" ? "No differences.\n" : rendered);

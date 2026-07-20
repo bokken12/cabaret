@@ -462,6 +462,24 @@ test("a malformed range is rejected", async () => {
   }
 });
 
+test("rebase carries a change checked out in a sibling workspace along", async () => {
+  const repo = await makeRepo(undefined, "repo");
+  await addChange(repo, "feature");
+  // The primary returns to main and advances it; feature moves to a sibling
+  // workspace of its own.
+  await repo.git("checkout", "-q", "main");
+  await repo.write("trunk.txt", "trunk work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "trunk work");
+  await repo.cabaret("workspace", "add", "feature");
+  expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // The sibling workspace followed the rebase: checked out at the new tip
+  // with the trunk work present, and nothing stranded in its index.
+  expect(await repo.git("-C", "../repo-feature", "rev-parse", "HEAD")).toBe(await repo.git("rev-parse", "feature"));
+  expect(await repo.git("-C", "../repo-feature", "status", "--porcelain")).toBe("");
+  expect(await repo.git("show", "feature:trunk.txt")).toBe("trunk work");
+});
+
 test("a review survives the parent being rewritten and the rebase that follows", async () => {
   const repo = await makeStack();
   await repo.cabaret("mark", "--tip", "HEAD", "child.txt");

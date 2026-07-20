@@ -9,7 +9,9 @@ import {
   type DiffView,
   defaultContext,
   type FilePath,
+  type FileSource,
   type FileView,
+  fileLabel,
   mayRecordReview,
   NotReviewingError,
   type Reviewing,
@@ -101,7 +103,7 @@ export interface ReviewPage {
   readonly round:
     | {
         readonly end: Revision;
-        /** The round's files, sorted by path; a moved file names both sides. */
+        /** The round's files, sorted by path; a moved or copied file names its source. */
         readonly files: readonly ChangedFile[];
         /** Rounds still to come after this one. */
         readonly later: number;
@@ -149,13 +151,8 @@ export function reviewDoc(page: ReviewPage): Doc {
     { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
     { spans: [span("", proceed)] },
   );
-  for (const { path, movedFrom } of page.round.files) {
-    lines.push({
-      spans: [
-        span("  "),
-        span(movedFrom === undefined ? path : `${movedFrom} -> ${path}`, { target: fileTarget(path) }),
-      ],
-    });
+  for (const { path, source } of page.round.files) {
+    lines.push({ spans: [span("  "), span(fileLabel(path, source), { target: fileTarget(path) })] });
   }
   return layout(lines);
 }
@@ -163,6 +160,24 @@ export function reviewDoc(page: ReviewPage): Doc {
 /** The earliest round with review of `file` left, or undefined with none: what a mark of it records. */
 export function pendingRound(rounds: readonly ReviewRound[], file: FilePath): ReviewRound | undefined {
   return rounds.find(({ files }) => files.has(file));
+}
+
+/**
+ * The files beside `file` in its earliest pending round, in the round's
+ * order — where stepping up and down from its diff lands. Undefined with no
+ * review of the file left; a missing side means the file ends the round.
+ */
+export function neighborFiles(
+  rounds: readonly ReviewRound[],
+  file: FilePath,
+): { readonly prev: FilePath | undefined; readonly next: FilePath | undefined } | undefined {
+  const round = pendingRound(rounds, file);
+  if (round === undefined) {
+    return undefined;
+  }
+  const files = [...round.files.keys()];
+  const at = files.indexOf(file);
+  return { prev: files[at - 1], next: files[at + 1] };
 }
 
 /** What marking a file reviewed did, and where review continues. */
@@ -248,8 +263,8 @@ export interface DiffPage {
         readonly end: Revision;
         /** Rounds after this one that still include the file. */
         readonly later: number;
-        /** The path the round's diff moves the file from, when it moves it. */
-        readonly movedFrom: FilePath | undefined;
+        /** The source the round's diff moves or copies the file from, when it records one. */
+        readonly source: FileSource | undefined;
         readonly view: DiffView;
       }
     | undefined;
@@ -285,16 +300,16 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
         change,
         file,
         as,
-        round: { end, later, movedFrom: view.movedFrom, view: await two(view.start, view.movedFrom ?? file) },
+        round: { end, later, source: view.source, view: await two(view.start, view.source?.path ?? file) },
       };
     case "rewritten":
-      return { change, file, as, round: { end, later, movedFrom: undefined, view: await two(view.from, file) } };
+      return { change, file, as, round: { end, later, source: undefined, view: await two(view.from, file) } };
     case "rebased":
       return {
         change,
         file,
         as,
-        round: { end, later, movedFrom: undefined, view: await rebasedView(backend, file, view.reviewed, base, end) },
+        round: { end, later, source: undefined, view: await rebasedView(backend, file, view.reviewed, base, end) },
       };
   }
 }
@@ -601,7 +616,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
   const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
-  const name = page.round?.movedFrom === undefined ? page.file : `${page.round.movedFrom} -> ${page.file}`;
+  const name = fileLabel(page.file, page.round?.source);
   const title = `${name} in ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
   const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
@@ -630,8 +645,8 @@ export interface DiffsPage {
         readonly later: number;
         readonly files: readonly {
           readonly file: FilePath;
-          /** The path the round's diff moves the file from, when it moves it. */
-          readonly movedFrom: FilePath | undefined;
+          /** The source the round's diff moves or copies the file from, when it records one. */
+          readonly source: FileSource | undefined;
           readonly view: DiffView;
         }[];
       }
@@ -651,7 +666,7 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
       if (page.round === undefined) {
         throw new Error(`${file} is in ${change}'s current round but has no diff`);
       }
-      return { file, movedFrom: page.round.movedFrom, view: page.round.view };
+      return { file, source: page.round.source, view: page.round.view };
     }),
   );
   return { change, as, conflicts, round: { end: first.end, later: snapshot.rounds.length - 1, files } };
@@ -684,13 +699,13 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  page.round.files.forEach(({ file, movedFrom, view }, i) => {
+  page.round.files.forEach(({ file, source, view }, i) => {
     if (i > 0) {
       nodes.push({ spans: [] });
     }
     const heading: Line = {
       spans: [
-        span(fileBar(movedFrom === undefined ? file : `${movedFrom} -> ${file}`), {
+        span(fileBar(fileLabel(file, source)), {
           style: "heading",
           target: { kind: "file", change: page.change, file, as: page.as },
         }),

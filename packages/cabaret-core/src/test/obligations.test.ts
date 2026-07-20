@@ -129,7 +129,7 @@ function repoBackend(opts: {
       if (files === undefined) {
         throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
       }
-      return files.map((name) => ({ path: parseFilePath(name), movedFrom: undefined }));
+      return files.map((name) => ({ path: parseFilePath(name), source: undefined }));
     },
     async landMerges(base, tip) {
       const path = ancestry(tip);

@@ -35,6 +35,7 @@ test("show page keybindings", () => {
   expect(pageHelp(manifest, "show").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
@@ -42,8 +43,8 @@ test("show page keybindings", () => {
       "r  Review",
       "d  Review Diffs",
       "@  Act as User",
-      "^  Show Parent",
-      "$  Show Child",
+      "^  Step Up",
+      "$  Step Down",
       "! r b  Rebase",
       "! l a  Land",
       "! r n  Rename",
@@ -66,6 +67,7 @@ test("review page keybindings", () => {
   expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
@@ -95,12 +97,15 @@ test("diff page keybindings", () => {
   expect(pageHelp(manifest, "diff").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
       "@  Act as User",
       "! m  Mark Reviewed",
+      "^  Step Up",
+      "$  Step Down",
       "! l a  Land",
       "! c  Create Child",
       "! p  Create Parent",
@@ -114,12 +119,15 @@ test("help carries the command, so picking an entry can run it", () => {
   expect(pageHelp(manifest, "diff").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
     [
       "enter  cabaret.openTarget",
+      "esc  cabaret.stepOutside",
       "tab  editor.toggleFold",
       "q  workbench.action.closeActiveEditor",
       "R  cabaret.refresh",
       "?  cabaret.help",
       "@  cabaret.actAs",
       "! m  cabaret.markReviewed",
+      "^  cabaret.stepUp",
+      "$  cabaret.stepDown",
       "! l a  cabaret.land",
       "! c  cabaret.createChild",
       "! p  cabaret.createParent",

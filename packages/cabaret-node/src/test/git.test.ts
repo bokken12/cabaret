@@ -411,6 +411,40 @@ test("create creates at the given commit and refuses to overwrite", async () => 
   await expect(backend.create(parseBranchName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
+test("advance fast-forwards to a descendant and refuses anything else", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("advance start"));
+  const next = parseCommitHash(await plumbCommit("advance next", start));
+  const stray = parseCommitHash(await plumbCommit("advance stray", start));
+  await backend.create(parseBranchName("advancing"), start);
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // Already there: nothing to move.
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // A sibling does not descend from the tip, so moving there would drop work.
+  await expect(backend.advance(parseBranchName("advancing"), stray)).rejects.toThrow(
+    `cannot advance "advancing": ${stray} does not descend from its tip ${next}`,
+  );
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+});
+
+test("advance fast-forwards a branch checked out in a sibling worktree, carrying it along", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("held start"));
+  const next = parseCommitHash(await plumbCommit("held next", start));
+  await backend.create(parseBranchName("sibling-held"), start);
+  const linked = join(repo, "held-worktree");
+  await git("worktree", "add", "-q", linked, "sibling-held");
+  await backend.advance(parseBranchName("sibling-held"), next);
+  // The ref moved and the worktree followed: HEAD at the new tip, nothing
+  // stranded in its index.
+  expect(await git("rev-parse", "refs/heads/sibling-held")).toBe(next);
+  expect(await gitIn(linked, "rev-parse", "HEAD")).toBe(next);
+  expect(await gitIn(linked, "status", "--porcelain")).toBe("");
+  await git("worktree", "remove", linked);
+});
+
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
@@ -734,12 +768,38 @@ test("changedFiles pairs moved files with their old paths", async () => {
   // An exact move pairs by hash and an edited one by similarity, both named
   // by their new path; everything else stays a single-path entry.
   expect(await backend.changedFiles(prev, next)).toEqual([
-    { path: "docs/guide.txt", movedFrom: "moved/guide.txt" },
-    { path: "dropped.txt", movedFrom: undefined },
-    { path: "edited.txt", movedFrom: undefined },
-    { path: "fresh.txt", movedFrom: undefined },
-    { path: "journal.txt", movedFrom: "notes.txt" },
+    { path: "docs/guide.txt", source: { path: "moved/guide.txt", copied: false } },
+    { path: "dropped.txt", source: undefined },
+    { path: "edited.txt", source: undefined },
+    { path: "fresh.txt", source: undefined },
+    { path: "journal.txt", source: { path: "notes.txt", copied: false } },
   ]);
+});
+
+test("changedFiles pairs a copy with its source when the source changed too", async () => {
+  const backend = await GitBackend.open(repo);
+  const charter = `a preamble\n${"a steady article of the charter\n".repeat(30)}a closing article\n`;
+  const prev = parseCommitHash(await plumbTree({ "charter.txt": charter }));
+  const next = parseCommitHash(
+    await plumbTree({
+      "charter.txt": charter.replace("a preamble", "an amended preamble"),
+      "bylaws.txt": charter.replace("a closing article", "a bylaws-specific article"),
+    }),
+  );
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "bylaws.txt", source: { path: "charter.txt", copied: true } },
+    { path: "charter.txt", source: undefined },
+  ]);
+});
+
+test("changedFiles leaves a copy of an untouched file unpaired", async () => {
+  // Only sources modified in the same diff are copy candidates; scanning the
+  // whole tree costs too much in a large repository.
+  const backend = await GitBackend.open(repo);
+  const template = `a header\n${"a boilerplate line\n".repeat(30)}a footer\n`;
+  const prev = parseCommitHash(await plumbTree({ "template.txt": template }));
+  const next = parseCommitHash(await plumbTree({ "template.txt": template, "instance.txt": template }));
+  expect(await backend.changedFiles(prev, next)).toEqual([{ path: "instance.txt", source: undefined }]);
 });
 
 test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () => {
@@ -747,8 +807,8 @@ test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () 
   const prev = parseCommitHash(await plumbTree({ "config.old": "alpha\nbeta\ngamma\n" }));
   const next = parseCommitHash(await plumbTree({ "config.new": "one\ntwo\nthree\nfour\n" }));
   expect(await backend.changedFiles(prev, next)).toEqual([
-    { path: "config.new", movedFrom: undefined },
-    { path: "config.old", movedFrom: undefined },
+    { path: "config.new", source: undefined },
+    { path: "config.old", source: undefined },
   ]);
 });
 

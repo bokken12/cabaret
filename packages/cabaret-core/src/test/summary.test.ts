@@ -61,6 +61,15 @@ function fake(digit: string): Revision {
   return parseCommitHash(digit.repeat(40));
 }
 
+/** A `ChangedFile` from "old -> new" (a move), "old => new" (a copy), or a bare path. */
+function sourced(name: string): ChangedFile {
+  const arrow = name.includes(" => ") ? " => " : " -> ";
+  const [from, to] = name.split(arrow);
+  return from !== undefined && to !== undefined
+    ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " } }
+    : { path: parseFilePath(name), source: undefined };
+}
+
 /**
  * A backend over fake one-digit commits. `history` maps each commit to its
  * first parent; `branches` maps branch names to commits; `changed` maps
@@ -169,13 +178,9 @@ function repoBackend(opts: {
       if (files === undefined) {
         throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
       }
-      // "old.ts -> new.ts" names a move; a bare path a plain change.
-      return files.map((name) => {
-        const [from, to] = name.split(" -> ");
-        return from !== undefined && to !== undefined
-          ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
-          : { path: parseFilePath(name), movedFrom: undefined };
-      });
+      // "old.ts -> new.ts" names a move and "old.ts => new.ts" a copy; a
+      // bare path a plain change.
+      return files.map(sourced);
     },
     async readFile(commit, file) {
       return opts.contents?.[commit[0] as string]?.[file as string];
@@ -211,14 +216,9 @@ function review(file: string, base: string, tip: string): LogAction {
   return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
 }
 
-/** Expected `reviewLeft` entries; "old.ts -> new.ts" names a move, as the stub's diffs do. */
+/** Expected `reviewLeft` entries, spelled as the stub's diffs are. */
 function left(...names: string[]): ChangedFile[] {
-  return names.map((name) => {
-    const [from, to] = name.split(" -> ");
-    return from !== undefined && to !== undefined
-      ? { path: parseFilePath(to), movedFrom: parseFilePath(from) }
-      : { path: parseFilePath(name), movedFrom: undefined };
-  });
+  return names.map(sourced);
 }
 
 const feature = parseBranchName("feature");
@@ -666,15 +666,15 @@ test("reviewRounds splits review at land merges, oldest first", async () => {
     {
       end: fake("1"),
       files: files({
-        "a.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
-        "c.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+        "a.ts": { kind: "span", start: fake("0"), source: undefined },
+        "c.ts": { kind: "span", start: fake("0"), source: undefined },
       }),
     },
     {
       end: fake("3"),
       files: files({
-        "b.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
-        "c.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+        "b.ts": { kind: "span", start: fake("2"), source: undefined },
+        "c.ts": { kind: "span", start: fake("2"), source: undefined },
       }),
     },
   ]);
@@ -689,7 +689,7 @@ test("reviewRounds resumes mid-span from a reviewed tip", async () => {
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("b.ts", "0", "2"))];
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined } }) },
+    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
   ]);
 });
 
@@ -703,8 +703,25 @@ test("reviewRounds keys a moved file by its new path, its view from the old", as
     {
       end: fake("2"),
       files: files({
-        "b.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
-        "new/api.ts": { kind: "span", start: fake("0"), movedFrom: parseFilePath("old/api.ts") },
+        "b.ts": { kind: "span", start: fake("0"), source: undefined },
+        "new/api.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("old/api.ts"), copied: false } },
+      }),
+    },
+  ]);
+});
+
+test("reviewRounds views a copied file from its source, which stays its own entry", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["charter.ts => bylaws.ts", "charter.ts"] },
+  });
+  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
+    {
+      end: fake("2"),
+      files: files({
+        "bylaws.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("charter.ts"), copied: true } },
+        "charter.ts": { kind: "span", start: fake("0"), source: undefined },
       }),
     },
   ]);
@@ -720,7 +737,7 @@ test("reviewRounds resuming past a move takes the resumed diff's reading of it",
   });
   const entries = [...created("main", "0"), entry(review("b.ts", "0", "1"))];
   expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    { end: fake("2"), files: files({ "b.ts": { kind: "span", start: fake("1"), movedFrom: undefined } }) },
+    { end: fake("2"), files: files({ "b.ts": { kind: "span", start: fake("1"), source: undefined } }) },
   ]);
 });
 
@@ -736,7 +753,9 @@ test("reviewRounds does not carry knowledge recorded under a moved file's old pa
   expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
     {
       end: fake("2"),
-      files: files({ "b.ts": { kind: "span", start: fake("0"), movedFrom: parseFilePath("a.ts") } }),
+      files: files({
+        "b.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("a.ts"), copied: false } },
+      }),
     },
   ]);
 });
@@ -755,8 +774,8 @@ test("reviewRounds counts a review against absent objects as no review at all", 
     {
       end: fake("2"),
       files: files({
-        "a.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
-        "b.ts": { kind: "span", start: fake("0"), movedFrom: undefined },
+        "a.ts": { kind: "span", start: fake("0"), source: undefined },
+        "b.ts": { kind: "span", start: fake("0"), source: undefined },
       }),
     },
   ]);
@@ -791,8 +810,8 @@ test("reviewRounds carries misplaced reviews into the earliest round's view", as
     {
       end: fake("3"),
       files: files({
-        "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
-        "c.ts": { kind: "span", start: fake("2"), movedFrom: undefined },
+        "a.ts": { kind: "span", start: fake("2"), source: undefined },
+        "c.ts": { kind: "span", start: fake("2"), source: undefined },
       }),
     },
   ]);
@@ -881,7 +900,7 @@ test("reviewRounds skips only the round a carried review leaves empty", async ()
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "9", "8"))];
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), movedFrom: undefined } }) },
+    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
   ]);
 });
 
