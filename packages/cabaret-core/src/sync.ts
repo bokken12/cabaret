@@ -5,7 +5,7 @@ import {
   conflictsBetween,
   ensureBranch,
   type FilePath,
-  landedMerge,
+  landedRevision,
   type TimestampMs,
 } from "./backend.js";
 import { isConnectivityError } from "./connectivity.js";
@@ -125,7 +125,7 @@ export async function syncChange(
   let absorbed: AbsorbResult | undefined;
   let published: PublishResult | undefined;
   const current = await backend.readLog(change);
-  if (forge !== undefined && landedMerge(current) === undefined) {
+  if (forge !== undefined && landedRevision(current) === undefined) {
     const user = await backend.currentUser();
     const found = await syncedForgeChange(backend, now, user, forge, change, current);
     if (found !== undefined) {

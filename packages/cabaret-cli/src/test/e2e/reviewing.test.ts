@@ -153,7 +153,7 @@ test("review ahead of the reviewing set nudges, and the flag overrides", async (
   );
   expect(forced).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The overridden review is a review: it counts toward obligations.
-  expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain('"kind":"review","file":"feature.txt"');
+  expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain('"kind":"mark-reviewed","file":"feature.txt"');
 });
 
 test("the owner and a landed change are never nudged", async () => {

@@ -831,7 +831,7 @@ test("markReviewed records the snapshot's round end and marks the file off", () 
       {
         timestamp: at,
         user: userName("alice@example.com"),
-        action: { kind: "review", file: parseFilePath("b.ts"), base: fake("1"), tip: fake("2") },
+        action: { kind: "mark-reviewed", file: parseFilePath("b.ts"), base: fake("1"), tip: fake("2") },
       },
     ],
   ]);
@@ -885,7 +885,7 @@ test("markReviewed through a borrowed snapshot records the borrowed user", () =>
       {
         timestamp: at,
         user: bob,
-        action: { kind: "review", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("2") },
+        action: { kind: "mark-reviewed", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("2") },
       },
     ],
   ]);

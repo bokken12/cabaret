@@ -48,7 +48,7 @@ describe.skipIf(FIXTURE === undefined)("GitHubForge reads the live fixture", () 
       title: "seeded",
       author: expect.stringMatching(/^github:/),
       state: "merged",
-      merge: { commit: expect.stringMatching(/^[0-9a-f]{40}$/), parents: expect.any(Number) },
+      merge: { revision: expect.stringMatching(/^[0-9a-f]{40}$/), parents: expect.any(Number) },
     });
   }, 60000);
 

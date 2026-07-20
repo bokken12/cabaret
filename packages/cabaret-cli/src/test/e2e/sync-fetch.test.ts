@@ -145,7 +145,7 @@ test("fetch records a merged forge change as landing the change, once", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("dev", "log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(`"action":{"kind":"land","revision":"${merge}"}`);
   // The landed change is done: the next sweep passes it by.
   expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 open forge changes\n");
 });
@@ -162,7 +162,7 @@ test("fetch records a squash-merged forge change with the tip that merged", asyn
   forge.merge(PR, squash, 1);
   expect((await repo.cabaret("fetch")).stdout).toContain("was merged; recorded the land");
   expect((await repo.cabaret("dev", "log")).stdout).toContain(
-    `"action":{"kind":"land","merge":"${squash}","tip":"${tip}"}`,
+    `"action":{"kind":"land","revision":"${squash}","tip":"${tip}"}`,
   );
 });
 
@@ -180,7 +180,7 @@ test("sync records an observed merge as the land", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("dev", "log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(`"action":{"kind":"land","revision":"${merge}"}`);
 });
 
 test("fetch adopts the branch's open forge change when the log names none", async () => {
@@ -393,7 +393,7 @@ test("fetch archives the change of a closed forge change once someone engaged wi
       "fetched github.com/test-org/widgets: 0 open forge changes\n",
   );
   const log = (await repo.cabaret("dev", "log", "their-feature")).stdout;
-  expect(log).toContain('"kind":"review"');
+  expect(log).toContain('"kind":"mark-reviewed"');
   expect(log).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
   );

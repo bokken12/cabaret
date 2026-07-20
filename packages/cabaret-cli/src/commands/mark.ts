@@ -8,8 +8,8 @@ export const mark = buildCommand({
   docs: {
     brief: "Record review of files up to a revision you read",
     fullDescription:
-      "Record review of files: one `review` entry per file, recording the " +
-      "change's base and the tip the diff you read ended at — `review` " +
+      "Record review of files: one `mark-reviewed` entry per file, recording " +
+      "the change's base and the tip the diff you read ended at — `review` " +
       "prints the exact command. Arguments select files the way `review` " +
       "does.",
   },
@@ -55,7 +55,7 @@ export const mark = buildCommand({
       files.map((file) => ({
         timestamp: this.now(),
         user: snapshot.user,
-        action: { kind: "review" as const, file, base: snapshot.base, tip },
+        action: { kind: "mark-reviewed" as const, file, base: snapshot.base, tip },
       })),
     );
   },

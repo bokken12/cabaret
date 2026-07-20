@@ -172,7 +172,7 @@ describe("ForgejoForge", () => {
       state: "merged",
       draft: false,
       reviewers: [],
-      merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
+      merge: { revision: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
   });
 
@@ -198,7 +198,7 @@ describe("ForgejoForge", () => {
       },
     });
     expect((await forge().getChange(forgeChangeId(9))).merge).toEqual({
-      commit: "2222222222222222222222222222222222222222",
+      revision: "2222222222222222222222222222222222222222",
       parents: 1,
     });
   });
@@ -232,7 +232,7 @@ describe("ForgejoForge", () => {
       },
     });
     expect((await forge().getChange(forgeChangeId(10))).merge).toEqual({
-      commit: "2222222222222222222222222222222222222222",
+      revision: "2222222222222222222222222222222222222222",
       parents: 1,
     });
   });
@@ -259,7 +259,7 @@ describe("ForgejoForge", () => {
       },
     });
     expect((await forge().getChange(forgeChangeId(15))).merge).toEqual({
-      commit: "8899aabbccddeeff001122334455667788990011",
+      revision: "8899aabbccddeeff001122334455667788990011",
       parents: 1,
     });
   });
@@ -482,7 +482,7 @@ describe("ForgejoForge", () => {
       },
     });
     expect(await forge().landChange(forgeChangeId(7), "merge", tip, "land: add-tables", "Cabaret-Landed: yes")).toEqual(
-      { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
+      { revision: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     );
     expect(calls[0]?.body).toBe(
       JSON.stringify({
@@ -504,7 +504,7 @@ describe("ForgejoForge", () => {
       },
     });
     expect(await forge().landChange(forgeChangeId(8), "squash", tip, "land: fix-crash", "body")).toEqual({
-      commit: "3333333333333333333333333333333333333333",
+      revision: "3333333333333333333333333333333333333333",
       parents: 1,
     });
     expect((JSON.parse(calls[0]?.body ?? "{}") as { Do: string }).Do).toBe("squash");

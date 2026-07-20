@@ -149,7 +149,7 @@ describe("GitHubForge", () => {
       state: "merged",
       draft: false,
       reviewers: [],
-      merge: { commit: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
+      merge: { revision: "89e6c98d92887913cadf06b2adb97f26cde4849b", parents: 2 },
     });
   });
 

@@ -1,4 +1,4 @@
-import { type Backend, type ChangeName, currentArchived, landedMerge, type Workspace } from "cabaret-core";
+import { type Backend, type ChangeName, currentArchived, landedRevision, type Workspace } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
@@ -70,7 +70,7 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
       workspace,
       display: displayPath(backend.root, workspace.path),
       isChange: change !== undefined,
-      landed: landedMerge(entries) !== undefined,
+      landed: landedRevision(entries) !== undefined,
       archived: currentArchived(entries),
     });
   }

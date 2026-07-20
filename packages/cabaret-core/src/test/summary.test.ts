@@ -216,7 +216,7 @@ function created(parent: string, base: string): LogEntry[] {
 }
 
 function review(file: string, base: string, tip: string): LogAction {
-  return { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
+  return { kind: "mark-reviewed", file: parseFilePath(file), base: fake(base), tip: fake(tip) };
 }
 
 /** Expected `reviewLeft` entries, spelled as the stub's diffs are. */
@@ -627,7 +627,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     entry({ kind: "set-forge", forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) }),
     // Reviewed against base 0, but the change's base is 1: stale outright.
     entry(review("a.ts", "0", "4")),
-    entry({ kind: "land", merge: fake("5") }),
+    entry({ kind: "land", revision: fake("5") }),
   ];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
     kind: "change",
@@ -929,7 +929,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     reviewing: "everyone",
     forgeChange: undefined,
     landed: undefined,
-    included: [{ change: "gizmo", commit: fake("2"), onto: fake("1") }],
+    included: [{ change: "gizmo", revision: fake("2"), onto: fake("1") }],
     archived: false,
     base: fake("0"),
     tip: fake("3"),
@@ -1231,7 +1231,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     history: { "1": "0", "2": "1" },
     branches: { main: "1", gadget: "1", "gadget-ui": "2" },
     changed: { "12": ["ui.ts"] },
-    logs: { gadget: [...created("main", "0"), entry({ kind: "land", merge: fake("9") })] },
+    logs: { gadget: [...created("main", "0"), entry({ kind: "land", revision: fake("9") })] },
   };
   const ui = parseBranchName("gadget-ui");
   expect(await summarize(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({

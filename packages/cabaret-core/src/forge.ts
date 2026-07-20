@@ -14,7 +14,7 @@ import {
   type ForgeMerge,
   formatLogEntry,
   type LogEntry,
-  landedMerge,
+  landedRevision,
   landTitle,
   landTrailer,
   observedForgeArchived,
@@ -458,15 +458,15 @@ export function observedLand(
   forgeChange: ForgeChange,
   entries: readonly LogEntry[],
 ): LogEntry | undefined {
-  if (forgeChange.state !== "merged" || forgeChange.merge === undefined || landedMerge(entries) !== undefined) {
+  if (forgeChange.state !== "merged" || forgeChange.merge === undefined || landedRevision(entries) !== undefined) {
     return undefined;
   }
-  const { commit, parents } = forgeChange.merge;
+  const { revision, parents } = forgeChange.merge;
   return {
     timestamp: now(),
     user,
     source: { forge },
-    action: { kind: "land", merge: commit, ...(parents > 1 ? {} : { tip: forgeChange.tip }) },
+    action: { kind: "land", revision, ...(parents > 1 ? {} : { tip: forgeChange.tip }) },
   };
 }
 
@@ -580,10 +580,10 @@ export async function landOnForge(
       `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret sync\` first`,
     );
   }
-  const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
-  await recordLand(backend, now, change, entries, prepared, merge);
+  const land = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
+  await recordLand(backend, now, change, entries, prepared, land);
   await backend.fetch(parent);
-  return merge.commit;
+  return land.revision;
 }
 
 /** What a land did beyond the landing itself, for hosts to narrate. */
@@ -915,7 +915,7 @@ export async function fetchForge(
   const refreshed = await Promise.all(
     tracked.map(async (change): Promise<PruneCandidate | undefined> => {
       const entries = await backend.readLog(change);
-      if (landedMerge(entries) !== undefined) {
+      if (landedRevision(entries) !== undefined) {
         return undefined;
       }
       const recorded = currentForgeChange(entries);

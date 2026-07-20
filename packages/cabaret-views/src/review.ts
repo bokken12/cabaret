@@ -231,7 +231,11 @@ export function markReviewed(
     return { kind: "nothing-left" };
   }
   const recorded = backend.appendLog(snapshot.change, [
-    { timestamp: now(), user: snapshot.user, action: { kind: "review", file, base: snapshot.base, tip: round.end } },
+    {
+      timestamp: now(),
+      user: snapshot.user,
+      action: { kind: "mark-reviewed", file, base: snapshot.base, tip: round.end },
+    },
   ]);
   const rounds = snapshot.rounds.flatMap((other) => {
     if (other !== round) {

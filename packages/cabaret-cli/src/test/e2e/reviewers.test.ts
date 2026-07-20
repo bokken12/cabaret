@@ -49,8 +49,8 @@ test("reviewers add fails on a change that does not exist, and on a landed chang
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.cabaret("land");
   const { stderr, exitCode } = await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature");
-  expect({ stderr: stderr.replace(/merge [0-9a-f]{40}/, "merge <hash>"), exitCode }).toEqual({
-    stderr: 'change has landed: "feature" (merge <hash>)\n',
+  expect({ stderr: stderr.replace(/land [0-9a-f]{40}/, "land <hash>"), exitCode }).toEqual({
+    stderr: 'change has landed: "feature" (land <hash>)\n',
     exitCode: 1,
   });
 });

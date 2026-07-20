@@ -9,7 +9,7 @@ import {
   currentReviewing,
   type FilePath,
   type LogEntry,
-  landedMerge,
+  landedRevision,
   parseFilePath,
   type Reviewing,
   type Revision,
@@ -210,7 +210,7 @@ export class NotReviewingError extends UserError {
  */
 export function mayRecordReview(self: Self, change: ChangeName, entries: readonly LogEntry[]): boolean {
   return (
-    landedMerge(entries) !== undefined ||
+    landedRevision(entries) !== undefined ||
     isReviewing(self, change, entries) ||
     isSelf(self, currentOwner(change, entries))
   );

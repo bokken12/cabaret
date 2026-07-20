@@ -17,9 +17,9 @@ import {
   ensureBranch,
   type FilePath,
   freshestReading,
-  type LandedMerge,
+  type Land,
   type LogEntry,
-  landedMerge,
+  landedRevision,
   landMessage,
   type Reviewing,
   type Revision,
@@ -388,7 +388,7 @@ export async function rebaseChain(
   overrides: RebaseOverrides,
 ): Promise<void> {
   for (const { change, entries } of chain) {
-    if (landedMerge(entries) !== undefined) {
+    if (landedRevision(entries) !== undefined) {
       continue;
     }
     await rebaseChange(backend, now, change, entries, overrides);
@@ -499,13 +499,13 @@ export async function recordLand(
   target: ChangeName,
   entries: readonly LogEntry[],
   { base, tip, user }: PreparedLand,
-  merge: LandedMerge,
+  land: Land,
 ): Promise<void> {
   const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
   await backend.appendLog(target, [
     ...pin,
-    { timestamp: now(), user, action: { kind: "land", merge: merge.commit, ...(merge.parents > 1 ? {} : { tip }) } },
+    { timestamp: now(), user, action: { kind: "land", revision: land.revision, ...(land.parents > 1 ? {} : { tip }) } },
   ]);
 }
 
@@ -549,7 +549,7 @@ export async function landChange(
       ? await backend.merge(parent, base, onto, tip, landMessage(target))
       : await backend.squash(parent, base, onto, tip, landMessage(target));
   await recordLand(backend, now, target, entries, prepared, {
-    commit: merge,
+    revision: merge,
     parents: method === "merge" ? 2 : 1,
   });
   if ((await backend.originTip(parent)) === undefined) {
@@ -587,9 +587,9 @@ export async function landChain(
   let parent = currentParent(first.change, first.entries);
   let parentEntries = await backend.readLog(parent);
   for (const { change, entries } of chain) {
-    const changeLanded = landedMerge(entries) !== undefined;
+    const changeLanded = landedRevision(entries) !== undefined;
     if (!changeLanded) {
-      if (landedMerge(parentEntries) !== undefined) {
+      if (landedRevision(parentEntries) !== undefined) {
         throw new UserError(
           `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
             "run `cabaret reparent` first",
@@ -606,7 +606,7 @@ export async function landChain(
     parentEntries = entries;
   }
   for (const { change, entries } of chain.toReversed()) {
-    if (landedMerge(entries) !== undefined) {
+    if (landedRevision(entries) !== undefined) {
       continue;
     }
     await land(change, entries);
@@ -636,7 +636,7 @@ export async function reparentLandedChildren(
       continue;
     }
     const entries = await backend.readLog(change);
-    if (currentParent(change, entries) !== landed || landedMerge(entries) !== undefined) {
+    if (currentParent(change, entries) !== landed || landedRevision(entries) !== undefined) {
       continue;
     }
     await backend.appendLog(change, [{ timestamp: now(), user, action: { kind: "set-parent", parent } }]);

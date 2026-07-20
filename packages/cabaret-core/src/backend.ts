@@ -175,9 +175,9 @@ export type LogAction =
   | { readonly kind: "set-archived"; readonly archived: boolean }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
-  | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
+  | { readonly kind: "mark-reviewed"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
   | { readonly kind: "forget"; readonly file: FilePath }
-  | { readonly kind: "land"; readonly merge: Revision; readonly tip?: Revision | undefined }
+  | { readonly kind: "land"; readonly revision: Revision; readonly tip?: Revision | undefined }
   /** `edits` names the `commentHash` of the entry this comment supersedes: versions of one comment group through it, and the greatest timestamp is displayed. */
   | { readonly kind: "comment"; readonly text: string; readonly edits?: string | undefined };
 
@@ -224,13 +224,13 @@ function logEntrySchema(
     z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({
-      kind: z.literal("review"),
+      kind: z.literal("mark-reviewed"),
       file: z.string().transform(parseFilePath),
       base: revision,
       tip: revision,
     }),
     z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
-    z.object({ kind: z.literal("land"), merge: revision, tip: revision.optional() }),
+    z.object({ kind: z.literal("land"), revision, tip: revision.optional() }),
     z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
   ]) satisfies z.ZodType<LogAction>;
   return z.object({
@@ -350,11 +350,11 @@ export function landMessage(change: ChangeName): string {
   return `${landTitle(change)}\n\n${landTrailer(change)}\n`;
 }
 
-/** A commit that landed a change, and the parent tip it landed onto. */
-export interface LandMerge {
+/** A land on a first-parent chain: the change it landed, and what it landed onto. */
+export interface ChainLand {
   /** The landed change, as the commit's trailer names it. */
   readonly change: ChangeName;
-  readonly commit: Revision;
+  readonly revision: Revision;
   readonly onto: Revision;
 }
 
@@ -369,20 +369,22 @@ export interface ChainMerge {
   readonly landed: ChangeName | undefined;
 }
 
-/** The land merges among `merges`, in the same order. */
-export function landsAmong(merges: readonly ChainMerge[]): readonly LandMerge[] {
-  return merges.flatMap(({ commit, onto, landed }) => (landed === undefined ? [] : [{ change: landed, commit, onto }]));
+/** The lands among `merges`, in the same order. */
+export function landsAmong(merges: readonly ChainMerge[]): readonly ChainLand[] {
+  return merges.flatMap(({ commit, onto, landed }) =>
+    landed === undefined ? [] : [{ change: landed, revision: commit, onto }],
+  );
 }
 
-/** The commit that landed a change on its parent branch, however it was written. */
-export interface LandedMerge {
-  readonly commit: Revision;
+/** The revision that landed a change on its parent branch, however it was written. */
+export interface Land {
+  readonly revision: Revision;
   /** 2 for a true merge, whose second parent is the reviewed head; 1 for a squash or rebase, whose commit descends from no reviewed history. */
   readonly parents: number;
 }
 
-/** The commit that landed a merged forge change on its parent branch. */
-export type ForgeMerge = LandedMerge;
+/** The revision that landed a merged forge change on its parent branch. */
+export type ForgeMerge = Land;
 
 /** A change as a forge holds it: a pull request (GitHub) or merge request (GitLab). */
 export interface ForgeChange {
@@ -998,9 +1000,9 @@ export function observedForgeReviewers(entries: readonly LogEntry[], forge: Forg
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
-/** The merge that landed the change, or undefined if it has not landed. */
-export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
-  return latestAction(entries, "land")?.merge;
+/** The revision that landed the change, or undefined if it has not landed. */
+export function landedRevision(entries: readonly LogEntry[]): Revision | undefined {
+  return latestAction(entries, "land")?.revision;
 }
 
 /**
@@ -1010,9 +1012,9 @@ export function landedMerge(entries: readonly LogEntry[]): Revision | undefined 
  * allowed and do not call this.
  */
 export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
-  const merge = landedMerge(entries);
-  if (merge !== undefined) {
-    throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
+  const landed = landedRevision(entries);
+  if (landed !== undefined) {
+    throw new UserError(`change has landed: ${JSON.stringify(change)} (land ${landed})`);
   }
 }
 
@@ -1042,7 +1044,7 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
   const latest = new Map<FilePath, { entry: LogEntry; reviewed?: ReviewedDiff }>();
   for (const entry of entries) {
     const { action } = entry;
-    if (entry.user !== user || (action.kind !== "review" && action.kind !== "forget")) {
+    if (entry.user !== user || (action.kind !== "mark-reviewed" && action.kind !== "forget")) {
       continue;
     }
     const prev = latest.get(action.file);
@@ -1051,7 +1053,7 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
     }
     latest.set(
       action.file,
-      action.kind === "review" ? { entry, reviewed: { base: action.base, tip: action.tip } } : { entry },
+      action.kind === "mark-reviewed" ? { entry, reviewed: { base: action.base, tip: action.tip } } : { entry },
     );
   }
   const known = new Map<FilePath, ReviewedDiff>();
@@ -1088,8 +1090,8 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   change's own ancestry arbitrates between diverged readings.
  * - Once the change lands, its parent's history contains the change itself,
  *   so a parent reading's merge-base would slide to the change's own tip and
- *   erase its diff. The land merge freezes the history the change landed
- *   onto as its first parent, so that becomes the one reading instead.
+ *   erase its diff. The land freezes the history the change landed onto as
+ *   its first parent, so that becomes the one reading instead.
  *
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
@@ -1101,7 +1103,7 @@ export async function changeBase(
 ): Promise<Revision> {
   const stored = currentBase(change, entries);
   const tip = await changeTip(backend, change, entries);
-  const landed = landedMerge(entries);
+  const landed = landedRevision(entries);
   let readings: readonly Revision[];
   if (landed !== undefined) {
     readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
@@ -1119,7 +1121,7 @@ export async function changeBase(
       return stored;
     }
     throw landed !== undefined
-      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
+      ? new UserError(`land of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
       : new UserError(
           `parent branch of ${JSON.stringify(change)} does not exist: ` +
             `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
@@ -1171,12 +1173,12 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
     }
     return landed.tip;
   }
-  if (!(await backend.hasRevision(landed.merge))) {
+  if (!(await backend.hasRevision(landed.revision))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret fetch\``,
+      `land of ${JSON.stringify(change)} is not in this clone: ${landed.revision}; run \`cabaret fetch\``,
     );
   }
-  return backend.mergedTip(landed.merge);
+  return backend.mergedTip(landed.revision);
 }
 
 /**
@@ -1290,8 +1292,8 @@ export interface SpanDiff extends ReviewSpan {
 export interface ChangeDiff {
   readonly base: Revision;
   readonly tip: Revision;
-  /** The land merges on the first-parent chain, oldest first. */
-  readonly lands: readonly LandMerge[];
+  /** The lands on the first-parent chain, oldest first. */
+  readonly lands: readonly ChainLand[];
   readonly spans: readonly SpanDiff[];
 }
 

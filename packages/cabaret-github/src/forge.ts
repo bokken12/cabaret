@@ -196,7 +196,7 @@ export class GitHubForge implements Forge {
       reviewers: [...logins].map(accountUser).sort(),
       ...(pr.mergeCommit === null
         ? {}
-        : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
+        : { merge: { revision: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
     };
   }
 
@@ -324,7 +324,7 @@ export class GitHubForge implements Forge {
     // GitHub honors `merge_method` exactly — anything it cannot do 405s
     // above — so the requested shape is the landed shape.
     return {
-      commit: z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha,
+      revision: z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha,
       parents: method === "merge" ? 2 : 1,
     };
   }

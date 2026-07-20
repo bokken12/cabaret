@@ -268,7 +268,7 @@ export class GitLabForge implements Forge {
    */
   private async landingShape(commit: Revision, tip: Revision): Promise<ForgeMerge> {
     const { parent_ids } = CommitSchema.parse(await this.client.get(`${this.api}/repository/commits/${commit}`));
-    return { commit, parents: parent_ids.length === 2 && parent_ids[1] === tip ? 2 : 1 };
+    return { revision: commit, parents: parent_ids.length === 2 && parent_ids[1] === tip ? 2 : 1 };
   }
 
   private toComment(note: z.infer<typeof NoteSchema>): ForgeComment {

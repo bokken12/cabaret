@@ -364,8 +364,8 @@ test("showDoc renders a trunk from its history alone, newest lands first, an ell
       tip: fake("2"),
       origin: "behind",
       included: [
-        { change: parseBranchName("gadget"), commit: fake("3"), onto: fake("1") },
-        { change: parseBranchName("gizmo"), commit: fake("5"), onto: fake("4") },
+        { change: parseBranchName("gadget"), revision: fake("3"), onto: fake("1") },
+        { change: parseBranchName("gizmo"), revision: fake("5"), onto: fake("4") },
       ],
       truncated: true,
     },
@@ -434,7 +434,7 @@ test("showDoc as another user names them and keeps their identity on file and ch
   const bob = userName("bob@example.com");
   const doc = showDoc({
     summary: summary("widgets", {
-      included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
+      included: [{ change: parseBranchName("widgets-api"), revision: fake("3"), onto: fake("1") }],
       reviewLeft: left("api.ts"),
     }),
     as: bob,
@@ -463,8 +463,8 @@ test("showDoc lists included changes above the review, each linking to its page"
     as: undefined,
     summary: summary("widgets", {
       included: [
-        { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
-        { change: parseBranchName("widgets-ui"), commit: fake("5"), onto: fake("3") },
+        { change: parseBranchName("widgets-api"), revision: fake("3"), onto: fake("1") },
+        { change: parseBranchName("widgets-ui"), revision: fake("5"), onto: fake("3") },
       ],
       reviewLeft: left("glue.ts"),
     }),

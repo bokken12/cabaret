@@ -43,8 +43,8 @@ test("land merges the child into its parent with a marked merge commit", async (
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"mark-reviewed","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","revision":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -75,7 +75,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","revision":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -131,7 +131,7 @@ test("land refuses a change that already landed", async () => {
   const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
-    stderr: `change has landed: "child" (merge ${merge})\n`,
+    stderr: `change has landed: "child" (land ${merge})\n`,
     exitCode: 1,
   });
 });
@@ -148,7 +148,7 @@ test("land refuses a parent that itself landed", async () => {
   await repo.git("commit", "-qm", "late work");
   expect(await repo.cabaret("land", "late")).toEqual({
     stdout: "",
-    stderr: `change has landed: "parent" (merge ${merge})\n`,
+    stderr: `change has landed: "parent" (land ${merge})\n`,
     exitCode: 1,
   });
 });
@@ -188,7 +188,7 @@ test("a landed change refuses rebase, reparent, and set-owner", async () => {
   ]) {
     expect(await repo.cabaret(...argv)).toEqual({
       stdout: "",
-      stderr: `change has landed: "child" (merge ${merge})\n`,
+      stderr: `change has landed: "child" (land ${merge})\n`,
       exitCode: 1,
     });
   }
@@ -271,7 +271,7 @@ test("a file changed only after a land marks at its own round's end", async () =
     exitCode: 0,
   });
   expect((await repo.cabaret("dev", "log", "parent")).stdout).toContain(
-    `{"kind":"review","file":"late.txt","base":"${base}","tip":"${tip}"}`,
+    `{"kind":"mark-reviewed","file":"late.txt","base":"${base}","tip":"${tip}"}`,
   );
 });
 
@@ -424,7 +424,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","revision":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -513,7 +513,7 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
+      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"land","revision":"${mergeA}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -523,7 +523,7 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
+      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","revision":"${mergeB}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -533,7 +533,7 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
       '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
+      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","revision":"${mergeC}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -638,7 +638,7 @@ test("landing leaves landed children where they landed", async () => {
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${childMerge}"}}\n`,
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","revision":"${childMerge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -751,7 +751,7 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   expect((await repo.cabaret("dev", "log", "child")).stdout).toContain(
-    `{"kind":"land","merge":"${squash}","tip":"${childTip}"}`,
+    `{"kind":"land","revision":"${squash}","tip":"${childTip}"}`,
   );
   // The parent's reviewers skip the squash's diff: it was reviewed in the child.
   expect(await repo.cabaret("review", "--change", "parent", "child.txt")).toEqual({

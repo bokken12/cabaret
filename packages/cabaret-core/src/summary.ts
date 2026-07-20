@@ -1,6 +1,7 @@
 import {
   type Backend,
   brain,
+  type ChainLand,
   type ChangeDiff,
   type ChangedFile,
   type ChangeName,
@@ -18,9 +19,8 @@ import {
   type ForgeLocator,
   freshestReading,
   LAND_SCAN,
-  type LandMerge,
   type LogEntry,
-  landedMerge,
+  landedRevision,
   landsAmong,
   observedForgeParent,
   type ReviewedDiff,
@@ -106,10 +106,10 @@ export interface ChangeSummary {
         readonly staleParent: ChangeName | undefined;
       }
     | undefined;
-  /** The merge that landed the change, or undefined if it has not landed. */
+  /** The revision that landed the change, or undefined if it has not landed. */
   readonly landed: Revision | undefined;
   /** The changes landed into this one, oldest first. */
-  readonly included: readonly LandMerge[];
+  readonly included: readonly ChainLand[];
   /** Whether the change is archived: set aside as not landing, reversibly. */
   readonly archived: boolean;
   readonly base: Revision;
@@ -143,7 +143,7 @@ export async function summarizeChange(
   diff: ChangeDiff,
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
-  const landed = landedMerge(entries);
+  const landed = landedRevision(entries);
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
   const rounds = await reviewRounds(backend, entries, user, diff);
@@ -164,7 +164,7 @@ export async function summarizeChange(
       }
     }
     origin = await originStanding(backend, change, tip);
-    if (landedMerge(await backend.readLog(parent)) !== undefined) {
+    if (landedRevision(await backend.readLog(parent)) !== undefined) {
       deadParent = "landed";
     } else {
       const reading = await freshestReading(backend, parent);
@@ -240,7 +240,7 @@ export interface TrunkSummary {
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** The changes landed into the branch recently, oldest first. */
-  readonly included: readonly LandMerge[];
+  readonly included: readonly ChainLand[];
   /** Whether the history continues past the bounded scan behind `included`. */
   readonly truncated: boolean;
 }

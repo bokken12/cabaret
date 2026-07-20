@@ -256,7 +256,7 @@ function review(user: UserName, file: string, base: string, tip: string): LogEnt
   return {
     timestamp: timestampMs(1748000000000),
     user,
-    action: { kind: "review", file: parseFilePath(file), base: fake(base), tip: fake(tip) },
+    action: { kind: "mark-reviewed", file: parseFilePath(file), base: fake(base), tip: fake(tip) },
   };
 }
 
@@ -351,7 +351,7 @@ test("a land cut pins the windows of rebase merges behind it to the chain", asyn
     changed: { "01": ["a.rs"] },
   });
   const diff = await diffOf(backend, "9", "4");
-  expect(diff.lands).toEqual([{ change: "gizmo", commit: fake("2"), onto: fake("1") }]);
+  expect(diff.lands).toEqual([{ change: "gizmo", revision: fake("2"), onto: fake("1") }]);
   expect(diff.spans.map(({ start, end }) => [start[0], end[0]])).toEqual([["0", "1"]]);
   const statuses = await obligationStatuses(backend, [], alice, diff);
   expect(statuses).toEqual([

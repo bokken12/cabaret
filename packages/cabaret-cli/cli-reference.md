@@ -502,7 +502,7 @@ USAGE
   cabaret mark [--change value] (--tip value) [--even-though-not-reviewing] <file>...
   cabaret mark --help
 
-Record review of files: one `review` entry per file, recording the change's base and the tip the diff you read ended at — `review` prints the exact command. Arguments select files the way `review` does.
+Record review of files: one `mark-reviewed` entry per file, recording the change's base and the tip the diff you read ended at — `review` prints the exact command. Arguments select files the way `review` does.
 
 FLAGS
      [--change]                     Change to mark (defaults to current)

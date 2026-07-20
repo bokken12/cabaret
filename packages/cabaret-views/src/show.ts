@@ -1,5 +1,6 @@
 import {
   type Backend,
+  type ChainLand,
   type ChangeComment,
   type ChangedFile,
   type ChangeName,
@@ -10,7 +11,6 @@ import {
   fileLabel,
   forgeChangeUrl,
   isSatisfied,
-  type LandMerge,
   obligationStatuses,
   type ReviewerTally,
   reviewerTallies,
@@ -138,7 +138,7 @@ function filesToReview(files: readonly ChangedFile[], target?: (file: FilePath) 
  * more than the bounded survey read.
  */
 function includedChanges(
-  included: readonly LandMerge[],
+  included: readonly ChainLand[],
   as: UserName | undefined,
   truncated: boolean,
 ): Section | undefined {

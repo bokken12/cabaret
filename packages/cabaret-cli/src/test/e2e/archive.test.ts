@@ -127,7 +127,7 @@ test("archive refuses a landed change", async () => {
   const merge = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("archive")).toEqual({
     stdout: "",
-    stderr: `change has landed: "gadget" (merge ${merge})\n`,
+    stderr: `change has landed: "gadget" (land ${merge})\n`,
     exitCode: 1,
   });
 });

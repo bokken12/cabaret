@@ -19,7 +19,7 @@ test("forget appends a forget entry after a review", async () => {
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"mark-reviewed","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
       '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
@@ -43,7 +43,7 @@ test("forget from a subdirectory records repo-relative paths", async () => {
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"mark-reviewed","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
       '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,

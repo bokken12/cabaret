@@ -180,7 +180,7 @@ export class FakeForge implements Forge {
     const commit = parseCommitHash(await this.git("commit-tree", tree, "-m", `${title}\n\n${message}`, ...parents));
     await this.git("update-ref", `refs/heads/${pr.base}`, commit, onto);
     pr.state = "merged";
-    pr.merge = { commit, parents: method === "merge" ? 2 : 1 };
+    pr.merge = { revision: commit, parents: method === "merge" ? 2 : 1 };
     pr.tip = tip;
     return pr.merge;
   }
@@ -275,7 +275,7 @@ export class FakeForge implements Forge {
   merge(id: ForgeChangeId, mergeCommit: Revision, parents = 2): void {
     const pr = this.pr(id);
     pr.state = "merged";
-    pr.merge = { commit: mergeCommit, parents };
+    pr.merge = { revision: mergeCommit, parents };
   }
 
   private pr(id: ForgeChangeId): FakePr {

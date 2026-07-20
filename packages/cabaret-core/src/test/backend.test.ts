@@ -6,6 +6,7 @@ import {
   assertNotLanded,
   type Backend,
   brain,
+  type ChainMerge,
   type ChangeName,
   currentArchived,
   currentBase,
@@ -16,10 +17,9 @@ import {
   forgeChangeId,
   forgeChangeUrl,
   formatLogEntry,
-  type LandMerge,
   type LogAction,
   type LogEntry,
-  landedMerge,
+  landedRevision,
   mergeLogs,
   observedForgeArchived,
   observedForgeReviewers,
@@ -133,11 +133,11 @@ test("formatLogEntry renders review and forget actions", () => {
         tip: parseCommitHash(SHA256),
         base: parseCommitHash(SHA1),
         file: parseFilePath("src/backend.ts"),
-        kind: "review",
+        kind: "mark-reviewed",
       },
     }),
   ).toBe(
-    `{"timestamp":1748000000001,"user":"bob@example.com","action":{"kind":"review","file":"src/backend.ts","base":"${SHA1}","tip":"${SHA256}"}}\n`,
+    `{"timestamp":1748000000001,"user":"bob@example.com","action":{"kind":"mark-reviewed","file":"src/backend.ts","base":"${SHA1}","tip":"${SHA256}"}}\n`,
   );
   expect(
     formatLogEntry({
@@ -216,7 +216,7 @@ test("a formatted log parses back to the original entries", () => {
       timestamp: timestampMs(1748000120000),
       user: userName("carol@example.com"),
       action: {
-        kind: "review",
+        kind: "mark-reviewed",
         file: parseFilePath("src/with space.ts"),
         base: parseCommitHash(OTHER_SHA1),
         tip: parseCommitHash(SHA1),
@@ -240,7 +240,7 @@ test("a formatted log parses back to the original entries", () => {
     {
       timestamp: timestampMs(1748000360000),
       user: userName("grace@example.com"),
-      action: { kind: "land", merge: parseCommitHash(SHA256) },
+      action: { kind: "land", revision: parseCommitHash(SHA256) },
     },
     {
       timestamp: timestampMs(1748000420000),
@@ -291,14 +291,17 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, user: "" }), "malformed log line"],
     [line({ ...entry, action: { kind: "merge", parent: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-parent", parent: "bad..ref" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "review", file: "a.ts", base: SHA1, tip: "HEAD" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "review", file: "a.ts", tip: SHA1 } }), "malformed log line"],
+    [
+      line({ ...entry, action: { kind: "mark-reviewed", file: "a.ts", base: SHA1, tip: "HEAD" } }),
+      "malformed log line",
+    ],
+    [line({ ...entry, action: { kind: "mark-reviewed", file: "a.ts", tip: SHA1 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-base", base: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-base" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-owner", owner: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-owner" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "land", merge: "HEAD" } }), "malformed log line"],
+    [line({ ...entry, action: { kind: "land", revision: "HEAD" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "land" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment", text: "" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "comment" } }), "malformed log line"],
@@ -333,7 +336,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
       entry(9, { kind: "set-parent", parent: parseBranchName("newest") }),
       entry(3, { kind: "set-parent", parent: parseBranchName("oldest") }),
       entry(12, {
-        kind: "review",
+        kind: "mark-reviewed",
         file: parseFilePath("a.ts"),
         base: parseCommitHash(OTHER_SHA1),
         tip: parseCommitHash(SHA1),
@@ -360,7 +363,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
       entry(9, { kind: "set-base", base: parseCommitHash(SHA256) }),
       entry(3, { kind: "set-base", base: parseCommitHash(SHA1) }),
       entry(12, {
-        kind: "review",
+        kind: "mark-reviewed",
         file: parseFilePath("a.ts"),
         base: parseCommitHash(OTHER_SHA1),
         tip: parseCommitHash(SHA1),
@@ -419,7 +422,7 @@ test("currentReviewers folds each user's latest add/remove; observedForgeReviewe
   expect(observedForgeReviewers(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toEqual(new Set());
 });
 
-test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
+test("landedRevision finds the land entry, and assertNotLanded rejects it", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
@@ -427,11 +430,11 @@ test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
   });
   const change = parseBranchName("feature");
   const unlanded = [entry(5, { kind: "set-parent", parent: parseBranchName("main") })];
-  expect(landedMerge(unlanded)).toBeUndefined();
+  expect(landedRevision(unlanded)).toBeUndefined();
   expect(() => assertNotLanded(change, unlanded)).not.toThrow();
-  const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
-  expect(landedMerge(landed)).toBe(SHA1);
-  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
+  const landed = [...unlanded, entry(9, { kind: "land", revision: parseCommitHash(SHA1) })];
+  expect(landedRevision(landed)).toBe(SHA1);
+  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (land ${SHA1})`);
 });
 
 test("currentArchived takes the set-archived with the greatest timestamp, and assertNotArchived rejects it", () => {
@@ -490,9 +493,9 @@ function chainBackend(digits: string): Backend {
   return stub as Backend;
 }
 
-/** A land of a change named for its commit, for terse span fixtures. */
-function landAt(commit: string, onto: string): LandMerge {
-  return { change: parseBranchName(`child-${commit}`), commit: fake(commit), onto: fake(onto) };
+/** A land cutting the chain at its commit, for terse span fixtures. */
+function landAt(commit: string, onto: string): Pick<ChainMerge, "commit" | "onto"> {
+  return { commit: fake(commit), onto: fake(onto) };
 }
 
 test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
@@ -528,7 +531,7 @@ test("brain keeps each file's latest review per user and honors forgets by times
     action,
   });
   const review = (file: string, base: string, tip: string): LogAction => ({
-    kind: "review",
+    kind: "mark-reviewed",
     file: parseFilePath(file),
     base: parseCommitHash(base),
     tip: parseCommitHash(tip),
@@ -544,7 +547,7 @@ test("brain keeps each file's latest review per user and honors forgets by times
     at(5, alice, { kind: "set-parent", parent: parseBranchName("main") }),
     at(10, alice, { kind: "set-base", base: parseCommitHash(SHA256) }),
     // Equal timestamps: the serialized entry, not log position, breaks the
-    // tie, and `"kind":"review"` sorts after `"kind":"forget"`.
+    // tie, and `"kind":"mark-reviewed"` sorts after `"kind":"forget"`.
     at(6, alice, review("d.ts", SHA1, OTHER_SHA1)),
     at(6, alice, { kind: "forget", file: parseFilePath("d.ts") }),
     at(7, alice, { kind: "forget", file: parseFilePath("e.ts") }),
@@ -601,9 +604,14 @@ function logActions(): fc.Arbitrary<LogAction> {
     fc.record({ kind: fc.constant("set-archived" as const), archived: fc.boolean() }),
     fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
-    fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),
+    fc.record({
+      kind: fc.constant("mark-reviewed" as const),
+      file: filePaths(),
+      base: commitHashes(),
+      tip: commitHashes(),
+    }),
     fc.record({ kind: fc.constant("forget" as const), file: filePaths() }),
-    fc.record({ kind: fc.constant("land" as const), merge: commitHashes() }),
+    fc.record({ kind: fc.constant("land" as const), revision: commitHashes() }),
     fc.record(
       {
         kind: fc.constant("comment" as const),
@@ -694,7 +702,7 @@ test("log reads agree on any interleaving of the same entries", () => {
       expect(currentParent(change, shuffled)).toBe(currentParent(change, log));
       expect(currentBase(change, shuffled)).toBe(currentBase(change, log));
       expect(currentOwner(change, shuffled)).toBe(currentOwner(change, log));
-      expect(landedMerge(shuffled)).toBe(landedMerge(log));
+      expect(landedRevision(shuffled)).toBe(landedRevision(log));
       expect(brain(shuffled, alice)).toEqual(brain(log, alice));
       expect(brain(shuffled, bob)).toEqual(brain(log, bob));
     }),

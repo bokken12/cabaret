@@ -170,7 +170,7 @@ export class ForgejoForge implements Forge {
     const { parents } = CommitSchema.parse(
       await this.client.get(`${this.api}/git/commits/${commit}`, { stat: false, verification: false, files: false }),
     );
-    return { commit, parents: parents.length === 2 && parents[1]?.sha === tip ? 2 : 1 };
+    return { revision: commit, parents: parents.length === 2 && parents[1]?.sha === tip ? 2 : 1 };
   }
 
   private toComment(comment: z.infer<typeof CommentSchema>): ForgeComment {
