@@ -283,13 +283,20 @@ export class GitBackend implements Backend {
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const [root, gitDir, worktreeGitDir, prefix] = await Promise.all([
-      git(dir, ["rev-parse", "--show-toplevel"]),
-      git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      git(dir, ["rev-parse", "--absolute-git-dir"]),
-      git(dir, ["rev-parse", "--show-prefix"]),
+    // One spawn answers all four queries, a line each in argument order.
+    const out = await git(dir, [
+      "rev-parse",
+      "--show-toplevel",
+      "--path-format=absolute",
+      "--git-common-dir",
+      "--absolute-git-dir",
+      "--show-prefix",
     ]);
-    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), worktreeGitDir.trimEnd(), prefix.trimEnd());
+    const [root, gitDir, worktreeGitDir, prefix] = out.split("\n");
+    if (root === undefined || gitDir === undefined || worktreeGitDir === undefined || prefix === undefined) {
+      throw new Error(`rev-parse answered ${JSON.stringify(out)}`);
+    }
+    return new GitBackend(root, gitDir, worktreeGitDir, prefix);
   }
 
   resolveFile(raw: string): FilePath {
