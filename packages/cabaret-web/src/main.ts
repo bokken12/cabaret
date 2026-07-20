@@ -161,7 +161,14 @@ async function seedAliases(backend: GitHubBackend, forge: GitHubForge, aliases: 
 
 function startApp(shellRoot: HTMLElement, config: Config): void {
   const client = githubClient(config.token);
-  const backend = new GitHubBackend(client, config.repo, objectStore(config.repo));
+  const backend = new GitHubBackend(
+    client,
+    config.repo,
+    objectStore(config.repo),
+    // Unthrottled: the backend's GraphQL reads batch into a handful of
+    // queries that must not queue behind the mutation pacing.
+    githubClient(config.token, { throttled: false }),
+  );
   const seeded = seedAliases(backend, new GitHubForge(client, config.repo), config.aliases);
   const shell: Shell = {
     content: el("div", { className: "content" }),

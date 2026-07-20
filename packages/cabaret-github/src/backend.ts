@@ -70,6 +70,134 @@ const TreeSchema = z.object({
 /** Changes per aliased-lookup GraphQL query when sweeping logs and tips. */
 const SWEEP_QUERY_BATCH = 100;
 
+/** Blob texts per batched read; commits batch at `SWEEP_QUERY_BATCH`. */
+const BLOB_QUERY_BATCH = 50;
+
+/** Parents fetched per batched commit; a wider octopus falls back to REST. */
+const PARENTS_FETCHED = 15;
+
+// Provided by browsers and Node alike; absent from the bare es2025 lib this
+// platform-agnostic package compiles against.
+declare const queueMicrotask: (callback: () => void) => void;
+
+interface Deferred<V> {
+  readonly promise: Promise<V>;
+  readonly resolve: (value: V) => void;
+  readonly reject: (error: unknown) => void;
+}
+
+function deferred<V>(): Deferred<V> {
+  let resolve!: (value: V) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<V>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Flushes one coalescer may run at once: enough to overlap latency without a request burst. */
+const FLUSH_PARALLELISM = 2;
+
+/**
+ * Coalesces asks into batched flushes: everything asked while the current
+ * tick runs — or while every flush slot is busy — rides the next batch
+ * together, so batches size themselves to the flush latency. Concurrent
+ * readers each awaiting single objects thus share round-trips instead of
+ * paying one each. Answers align with keys.
+ */
+class Coalescer<K, V> {
+  private pending = new Map<K, Deferred<V>>();
+  private scheduled = false;
+  private flushing = 0;
+
+  constructor(
+    private readonly limit: number,
+    private readonly flush: (keys: readonly K[]) => Promise<readonly V[]>,
+  ) {}
+
+  ask(key: K): Promise<V> {
+    let held = this.pending.get(key);
+    if (held === undefined) {
+      held = deferred<V>();
+      this.pending.set(key, held);
+      if (!this.scheduled) {
+        this.scheduled = true;
+        queueMicrotask(() => {
+          this.scheduled = false;
+          this.drain();
+        });
+      }
+    }
+    return held.promise;
+  }
+
+  private drain(): void {
+    while (this.flushing < FLUSH_PARALLELISM && this.pending.size > 0) {
+      const batch = [...this.pending].slice(0, this.limit);
+      for (const [key] of batch) {
+        this.pending.delete(key);
+      }
+      this.flushing += 1;
+      this.flush(batch.map(([key]) => key))
+        .then(
+          (answers) => {
+            if (answers.length !== batch.length) {
+              throw new Error(`flush answered ${answers.length} of ${batch.length} keys`);
+            }
+            batch.forEach(([, ask], index) => {
+              ask.resolve(answers[index] as V);
+            });
+          },
+          (error: unknown) => {
+            for (const [, ask] of batch) {
+              ask.reject(error);
+            }
+          },
+        )
+        .catch((error: unknown) => {
+          for (const [, ask] of batch) {
+            ask.reject(error);
+          }
+        })
+        .finally(() => {
+          this.flushing -= 1;
+          this.drain();
+        });
+    }
+  }
+}
+
+/** A batched commit lookup's outcome; `raw` sends the caller to the REST path. */
+type BatchedCommit =
+  | { readonly kind: "commit"; readonly commit: z.infer<typeof CommitSchema> }
+  | { readonly kind: "missing" }
+  | { readonly kind: "raw" };
+
+/** A batched blob read's outcome; `raw` sends the caller to the REST path. */
+type BatchedBlob =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "absent" }
+  | { readonly kind: "raw" };
+
+const BatchedCommitSchema = z.object({
+  oid: z.string().transform(parseCommitHash),
+  message: z.string(),
+  tree: z.object({ oid: z.string() }),
+  parents: z.object({
+    totalCount: z.number(),
+    nodes: z.array(z.object({ oid: z.string().transform(parseCommitHash) })),
+  }),
+});
+
+const BatchedBlobSchema = z.object({
+  file: z
+    .object({
+      object: z.object({ isTruncated: z.boolean().optional(), text: z.string().nullable().optional() }).nullable(),
+    })
+    .nullable(),
+});
+
 /**
  * Ceiling on one stored value; a giant file's text is cheaper to re-fetch
  * than to crowd everything else out of a bounded store.
@@ -95,7 +223,9 @@ export interface ObjectStore {
 
 const GraphQLEnvelope = z.object({
   data: z.unknown(),
-  errors: z.array(z.object({ message: z.string() })).optional(),
+  errors: z
+    .array(z.object({ message: z.string(), path: z.array(z.union([z.string(), z.number()])).optional() }))
+    .optional(),
 });
 
 const SweepBatchSchema = z.object({ repository: z.record(z.string(), z.unknown()) });
@@ -206,11 +336,23 @@ export class GitHubBackend implements Backend {
   private readonly waiting = new Map<ChangeName, { entries: LogEntry[]; done: Promise<void> }>();
   private readonly running = new Map<ChangeName, Promise<void>>();
   private sweep: Promise<Sweep> | undefined;
+  // Single-object asks coalesce into aliased GraphQL batches: pages read
+  // many changes concurrently, and each round-trip should carry a batch,
+  // not one object.
+  private readonly commitReads = new Coalescer<Revision, BatchedCommit>(SWEEP_QUERY_BATCH, (shas) =>
+    this.fetchCommits(shas),
+  );
+  private readonly blobReads = new Coalescer<string, BatchedBlob>(BLOB_QUERY_BATCH, (keys) => this.fetchBlobs(keys));
 
   constructor(
     private readonly client: GitHubClient,
     private readonly repo: GitHubRepo,
     private readonly store?: ObjectStore,
+    // The throttling plugin paces every GraphQL request on its one-a-second
+    // mutation limiter, which would serialize the batched reads; a host
+    // passes an unthrottled client to carry them — a handful of bulky
+    // queries, far under the limits the pacing guards.
+    private readonly graphqlClient: GitHubClient = client,
   ) {}
 
   /** The cached promise for `key`, computing and remembering it on the first ask; a rejection is not cached. */
@@ -425,12 +567,18 @@ export class GitHubBackend implements Backend {
     }
   }
 
-  /** One GraphQL request, failing loudly on any reported error. */
+  /**
+   * One GraphQL request. A field-scoped error — one carrying a `path` into
+   * the data, like a `file` lookup on a path the commit lacks — leaves its
+   * field null with the rest of the answer intact, and the caller reads the
+   * null; an error without a path failed the request, and throws.
+   */
   private async graphql(query: string, variables: Readonly<Record<string, unknown>>): Promise<unknown> {
-    const { data } = await this.client.request("POST /graphql", { query, variables });
+    const { data } = await this.graphqlClient.request("POST /graphql", { query, variables });
     const { data: payload, errors } = GraphQLEnvelope.parse(data);
-    if (errors !== undefined && errors.length > 0) {
-      throw new Error(`GraphQL: ${errors.map(({ message }) => message).join("; ")}`);
+    const fatal = (errors ?? []).filter(({ path }) => path === undefined || path.length === 0);
+    if (fatal.length > 0) {
+      throw new Error(`GraphQL: ${fatal.map(({ message }) => message).join("; ")}`);
     }
     return payload;
   }
@@ -523,14 +671,114 @@ export class GitHubBackend implements Backend {
     }
   }
 
-  /** The Git-database commit object at `sha`. */
+  /** The Git-database commit object at `sha`, batched with concurrent asks. */
   private commitObject(sha: Revision): Promise<z.infer<typeof CommitSchema>> {
     return this.durable(this.commits, "commit", sha, async () => {
-      const { data } = await this.client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
-        ...this.repo,
-        commit_sha: sha,
-      });
-      return CommitSchema.parse(data);
+      const answer = await this.commitReads.ask(sha);
+      switch (answer.kind) {
+        case "commit":
+          return answer.commit;
+        case "raw":
+          return this.commitUncached(sha);
+        case "missing":
+          // The shape isStatus reads, matching REST's answer for a commit
+          // the repository lacks.
+          throw Object.assign(new Error(`commit does not exist: ${sha}`), { status: 404 });
+      }
+    });
+  }
+
+  /** The REST path for what a batch cannot carry: a commit with more parents than it fetches. */
+  private async commitUncached(sha: Revision): Promise<z.infer<typeof CommitSchema>> {
+    const { data } = await this.client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
+      ...this.repo,
+      commit_sha: sha,
+    });
+    return CommitSchema.parse(data);
+  }
+
+  /** One aliased query answering a batch of commit-object asks. */
+  private async fetchCommits(shas: readonly Revision[]): Promise<readonly BatchedCommit[]> {
+    const lookups = shas
+      .map(
+        (sha, i) =>
+          `c${i}: object(oid: ${JSON.stringify(sha)}) { ... on Commit {` +
+          ` oid message tree { oid } parents(first: ${PARENTS_FETCHED}) { totalCount nodes { oid } } } }`,
+      )
+      .join(" ");
+    const { repository } = SweepBatchSchema.parse(
+      await this.graphql(
+        `query ($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${lookups} } }`,
+        { owner: this.repo.owner, name: this.repo.repo },
+      ),
+    );
+    return shas.map((_, i): BatchedCommit => {
+      const node = repository[`c${i}`];
+      if (node === null) {
+        return { kind: "missing" };
+      }
+      // A non-commit object answers empty under the Commit fragment; the
+      // REST path gives it its precise failure.
+      if (typeof node !== "object" || node === undefined || !("oid" in node)) {
+        return { kind: "raw" };
+      }
+      const parsed = BatchedCommitSchema.parse(node);
+      if (parsed.parents.totalCount > parsed.parents.nodes.length) {
+        return { kind: "raw" };
+      }
+      return {
+        kind: "commit",
+        commit: {
+          sha: parsed.oid,
+          message: parsed.message,
+          tree: { sha: parsed.tree.oid },
+          parents: parsed.parents.nodes.map(({ oid }) => ({ sha: oid })),
+        },
+      };
+    });
+  }
+
+  /** One aliased query answering a batch of blob-text asks, keyed `<commit>:<path>`. */
+  private async fetchBlobs(keys: readonly string[]): Promise<readonly BatchedBlob[]> {
+    const lookups = keys
+      .map((key, i) => {
+        const commit = key.slice(0, 40);
+        const path = key.slice(41);
+        return (
+          `b${i}: object(oid: ${JSON.stringify(commit)}) { ... on Commit {` +
+          ` file(path: ${JSON.stringify(path)}) { object { ... on Blob { isTruncated text } } } } }`
+        );
+      })
+      .join(" ");
+    const { repository } = SweepBatchSchema.parse(
+      await this.graphql(
+        `query ($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${lookups} } }`,
+        { owner: this.repo.owner, name: this.repo.repo },
+      ),
+    );
+    return keys.map((_, i): BatchedBlob => {
+      const node = repository[`b${i}`];
+      // A missing or non-commit object: the REST path answers precisely.
+      if (node === null || typeof node !== "object" || node === undefined || !("file" in node)) {
+        return { kind: "raw" };
+      }
+      const { file } = BatchedBlobSchema.parse(node);
+      if (file === null) {
+        return { kind: "absent" };
+      }
+      const object = file.object;
+      if (object === null) {
+        return { kind: "raw" };
+      }
+      // A directory answers empty under the Blob fragment: no file text.
+      if (object.text === undefined && object.isTruncated === undefined) {
+        return { kind: "absent" };
+      }
+      // Binary or oversized text is the REST path's to read raw.
+      if (object.text === null || object.text === undefined || object.isTruncated !== false) {
+        return { kind: "raw" };
+      }
+      return { kind: "text", text: object.text };
     });
   }
 
@@ -883,9 +1131,20 @@ export class GitHubBackend implements Backend {
   }
 
   readFile(commit: Revision, file: FilePath): Promise<string | undefined> {
-    return this.durable(this.contents, "file", `${commit}:${file}`, () => this.readFileUncached(commit, file));
+    return this.durable(this.contents, "file", `${commit}:${file}`, async () => {
+      const answer = await this.blobReads.ask(`${commit}:${file}`);
+      switch (answer.kind) {
+        case "text":
+          return answer.text;
+        case "absent":
+          return undefined;
+        case "raw":
+          return this.readFileUncached(commit, file);
+      }
+    });
   }
 
+  /** The REST path for what a batch cannot carry: binary or oversized blobs, and odd objects. */
   private async readFileUncached(commit: Revision, file: FilePath): Promise<string | undefined> {
     try {
       const { data } = await this.client.request("GET /repos/{owner}/{repo}/contents/{path}", {

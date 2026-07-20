@@ -73,6 +73,26 @@ function listed(commit: string, parents: readonly string[], message = "work") {
   return { sha: commit, commit: { message }, parents: parents.map((parent) => ({ sha: parent })) };
 }
 
+/** One batched commit-object alias value; route null for a commit the repository lacks. */
+function commitNode(commit: string, parents: readonly string[], message = "work", tree = "f".repeat(40)) {
+  return {
+    oid: commit,
+    message,
+    tree: { oid: tree },
+    parents: { totalCount: parents.length, nodes: parents.map((oid) => ({ oid })) },
+  };
+}
+
+/** One flush of coalesced asks: alias values in ask order, `c` for commits, `b` for blobs. */
+function batched(prefix: "b" | "c", nodes: readonly unknown[]): Route {
+  return { json: { data: { repository: Object.fromEntries(nodes.map((node, i) => [`${prefix}${i}`, node])) } } };
+}
+
+/** A batched blob answer carrying `text`. */
+function blobNode(text: string) {
+  return { file: { object: { isTruncated: false, text } } };
+}
+
 describe("currentUser", () => {
   test("is the token account under the github: scheme, looked up once", async () => {
     const calls = stubGitHub({
@@ -115,7 +135,7 @@ describe("resolveCommit", () => {
   test("^2 selects a merge's second parent", async () => {
     stubGitHub({
       [`GET ${REPOS}/commits/${sha("3")}`]: { json: { sha: sha("3") } },
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4"), sha("5")]) },
+      [`POST ${API}/graphql`]: batched("c", [commitNode(sha("3"), [sha("4"), sha("5")])]),
     });
     expect(await backend().resolveCommit(`${sha("3")}^2`)).toBe(sha("5"));
   });
@@ -123,8 +143,10 @@ describe("resolveCommit", () => {
   test("~2 walks two first parents", async () => {
     stubGitHub({
       [`GET ${REPOS}/commits/${sha("3")}`]: { json: { sha: sha("3") } },
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4")]) },
-      [`GET ${REPOS}/git/commits/${sha("4")}`]: { json: commitJson(sha("4"), [sha("5")]) },
+      [`POST ${API}/graphql`]: [
+        batched("c", [commitNode(sha("3"), [sha("4")])]),
+        batched("c", [commitNode(sha("4"), [sha("5")])]),
+      ],
     });
     expect(await backend().resolveCommit(`${sha("3")}~2`)).toBe(sha("5"));
   });
@@ -132,8 +154,10 @@ describe("resolveCommit", () => {
   test("~1^2 composes: first parent, then that merge's second parent", async () => {
     stubGitHub({
       [`GET ${REPOS}/commits/${sha("3")}`]: { json: { sha: sha("3") } },
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4")]) },
-      [`GET ${REPOS}/git/commits/${sha("4")}`]: { json: commitJson(sha("4"), [sha("5"), sha("6")]) },
+      [`POST ${API}/graphql`]: [
+        batched("c", [commitNode(sha("3"), [sha("4")])]),
+        batched("c", [commitNode(sha("4"), [sha("5"), sha("6")])]),
+      ],
     });
     expect(await backend().resolveCommit(`${sha("3")}~1^2`)).toBe(sha("6"));
   });
@@ -148,7 +172,7 @@ describe("resolveCommit", () => {
   test("a parent past the end is a UserError", async () => {
     stubGitHub({
       [`GET ${REPOS}/commits/${sha("3")}`]: { json: { sha: sha("3") } },
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4")]) },
+      [`POST ${API}/graphql`]: batched("c", [commitNode(sha("3"), [sha("4")])]),
     });
     await expect(backend().resolveCommit(`${sha("3")}^2`)).rejects.toThrow(UserError);
   });
@@ -271,7 +295,7 @@ describe("comparisons", () => {
 describe("commit facts", () => {
   test("mergedTip and mergedOnto read a merge's parents from one cached commit", async () => {
     const calls = stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4"), sha("5")]) },
+      [`POST ${API}/graphql`]: batched("c", [commitNode(sha("3"), [sha("4"), sha("5")])]),
     });
     const github = backend();
     expect(await github.mergedTip(sha("3"))).toBe(sha("5"));
@@ -281,19 +305,34 @@ describe("commit facts", () => {
 
   test("mergedTip of a single-parent commit is a UserError", async () => {
     stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4")]) },
+      [`POST ${API}/graphql`]: batched("c", [commitNode(sha("3"), [sha("4")])]),
     });
     await expect(backend().mergedTip(sha("3"))).rejects.toThrow(UserError);
   });
 
-  test("hasRevision is whether the commit exists", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), []) },
-      [`GET ${REPOS}/git/commits/${sha("4")}`]: { status: 404, json: { message: "Not Found" } },
+  test("hasRevision is whether the commit exists, asked in one batch", async () => {
+    const calls = stubGitHub({
+      [`POST ${API}/graphql`]: batched("c", [commitNode(sha("3"), []), null]),
     });
     const github = backend();
-    expect(await github.hasRevision(sha("3"))).toBe(true);
-    expect(await github.hasRevision(sha("4"))).toBe(false);
+    const [held, gone] = await Promise.all([github.hasRevision(sha("3")), github.hasRevision(sha("4"))]);
+    expect(held).toBe(true);
+    expect(gone).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a commit with more parents than a batch carries falls back to the raw read", async () => {
+    const parents = Array.from({ length: 16 }, (_, i) => parseCommitHash(String(i % 10).repeat(40)));
+    stubGitHub({
+      [`POST ${API}/graphql`]: batched("c", [
+        {
+          ...commitNode(sha("3"), parents.slice(0, 15)),
+          parents: { totalCount: 16, nodes: parents.slice(0, 15).map((oid) => ({ oid })) },
+        },
+      ]),
+      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), parents) },
+    });
+    expect(await backend().mergedTip(sha("3"))).toBe(parents[1]);
   });
 });
 
@@ -445,30 +484,45 @@ describe("chainMerges", () => {
 });
 
 describe("files", () => {
-  test("readFile returns the raw contents at a commit", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/contents/src%2Fapp.ts?ref=${sha("1")}`]: { json: "export const x = 1;\n" },
+  test("readFile answers from one batch, absences and directories included", async () => {
+    const batch = batched("b", [
+      blobNode("export const x = 1;\n"),
+      // No file at the path: the field nulls out under a path-scoped error.
+      { file: null },
+      // A directory answers empty under the Blob fragment.
+      { file: { object: {} } },
+    ]);
+    const calls = stubGitHub({
+      [`POST ${API}/graphql`]: {
+        json: {
+          ...(batch.json as object),
+          errors: [{ message: "Could not resolve file for path 'missing.ts'.", path: ["repository", "b1", "file"] }],
+        },
+      },
     });
-    expect(await backend().readFile(sha("1"), parseFilePath("src/app.ts"))).toBe("export const x = 1;\n");
+    const github = backend();
+    const [text, missing, directory] = await Promise.all([
+      github.readFile(sha("1"), parseFilePath("src/app.ts")),
+      github.readFile(sha("1"), parseFilePath("missing.ts")),
+      github.readFile(sha("1"), parseFilePath("src")),
+    ]);
+    expect(text).toBe("export const x = 1;\n");
+    expect(missing).toBeUndefined();
+    expect(directory).toBeUndefined();
+    expect(calls).toHaveLength(1);
   });
 
-  test("readFile is undefined for a path absent at the commit", async () => {
+  test("a binary or oversized blob rereads raw over REST", async () => {
     stubGitHub({
-      [`GET ${REPOS}/contents/missing.ts?ref=${sha("1")}`]: { status: 404, json: { message: "Not Found" } },
+      [`POST ${API}/graphql`]: batched("b", [{ file: { object: { isTruncated: true, text: null } } }]),
+      [`GET ${REPOS}/contents/big.bin?ref=${sha("1")}`]: { json: "raw bytes" },
     });
-    expect(await backend().readFile(sha("1"), parseFilePath("missing.ts"))).toBeUndefined();
-  });
-
-  test("readFile is undefined for a directory, which answers a JSON listing", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/contents/src?ref=${sha("1")}`]: { json: [{ name: "app.ts", type: "file" }] },
-    });
-    expect(await backend().readFile(sha("1"), parseFilePath("src"))).toBeUndefined();
+    expect(await backend().readFile(sha("1"), parseFilePath("big.bin"))).toBe("raw bytes");
   });
 
   test("hash-keyed queries cache: repeat asks cost no further requests", async () => {
     const calls = stubGitHub({
-      [`GET ${REPOS}/contents/a.ts?ref=${sha("1")}`]: { json: "one\n" },
+      [`POST ${API}/graphql`]: batched("b", [blobNode("one\n")]),
       [`GET ${REPOS}/compare/${sha("1")}...${sha("2")}?per_page=1`]: {
         json: { status: "ahead", merge_base_commit: { sha: sha("1") } },
       },
@@ -483,9 +537,9 @@ describe("files", () => {
 
   test("a failed query is not cached: the next ask goes back to the API", async () => {
     const calls = stubGitHub({
-      [`GET ${REPOS}/contents/a.ts?ref=${sha("1")}`]: [
+      [`POST ${API}/graphql`]: [
         { status: 401, json: { message: "Bad credentials" } },
-        { json: "one\n" },
+        batched("b", [blobNode("one\n")]),
       ],
     });
     const github = backend();
@@ -496,8 +550,10 @@ describe("files", () => {
 
   test("changedFiles diffs the trees: edits, chmods, moves, copies, and no submodules", async () => {
     stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("1")}`]: { json: commitJson(sha("1"), [], "base", "1a".repeat(20)) },
-      [`GET ${REPOS}/git/commits/${sha("2")}`]: { json: commitJson(sha("2"), [sha("1")], "tip", "2b".repeat(20)) },
+      [`POST ${API}/graphql`]: batched("c", [
+        commitNode(sha("1"), [], "base", "1a".repeat(20)),
+        commitNode(sha("2"), [sha("1")], "tip", "2b".repeat(20)),
+      ]),
       [`GET ${REPOS}/git/trees/${"1a".repeat(20)}?recursive=1`]: {
         json: {
           truncated: false,
@@ -548,8 +604,10 @@ describe("files", () => {
 
   test("changedFiles refuses a truncated tree listing rather than misreporting", async () => {
     stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("1")}`]: { json: commitJson(sha("1"), [], "base", "1a".repeat(20)) },
-      [`GET ${REPOS}/git/commits/${sha("2")}`]: { json: commitJson(sha("2"), [], "tip", "2b".repeat(20)) },
+      [`POST ${API}/graphql`]: batched("c", [
+        commitNode(sha("1"), [], "base", "1a".repeat(20)),
+        commitNode(sha("2"), [], "tip", "2b".repeat(20)),
+      ]),
       [`GET ${REPOS}/git/trees/${"1a".repeat(20)}?recursive=1`]: { json: { truncated: true, tree: [] } },
       [`GET ${REPOS}/git/trees/${"2b".repeat(20)}?recursive=1`]: { json: { truncated: false, tree: [] } },
     });
@@ -661,8 +719,14 @@ describe("logs", () => {
   });
 
   test("a truncated log blob rereads raw rather than serving a partial log", async () => {
+    const swept = sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: "", head: sha("6"), truncated: true }]);
     stubGitHub({
-      ...sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: "", head: sha("6"), truncated: true }]),
+      ...swept,
+      [`POST ${API}/graphql`]: [
+        ...(swept[`POST ${API}/graphql`] ?? []),
+        // The batched reread sees the same truncation and goes raw.
+        batched("b", [{ file: { object: { isTruncated: true, text: null } } }]),
+      ],
       [`GET ${REPOS}/contents/log?ref=${sha("8")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
     });
     expect(await backend().readLog(parseBranchName("add-tables"))).toEqual([entry, other]);
@@ -689,9 +753,11 @@ describe("logs", () => {
         { json: { object: { type: "commit", sha: sha("1") } } },
         { json: { object: { type: "commit", sha: sha("2") } } },
       ],
-      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
-      // The concurrent append that won the first swap added `other`.
-      [`GET ${REPOS}/contents/log?ref=${sha("2")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
+      [`POST ${API}/graphql`]: [
+        batched("b", [blobNode(formatLogEntry(entry))]),
+        // The concurrent append that won the first swap added `other`.
+        batched("b", [blobNode(formatLogEntry(entry) + formatLogEntry(other))]),
+      ],
       [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
       [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
       [`POST ${REPOS}/git/commits`]: [
@@ -730,8 +796,10 @@ describe("logs", () => {
         { json: { object: { type: "commit", sha: sha("1") } } },
         { json: { object: { type: "commit", sha: sha("3") } } },
       ],
-      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
-      [`GET ${REPOS}/contents/log?ref=${sha("3")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
+      [`POST ${API}/graphql`]: [
+        batched("b", [blobNode(formatLogEntry(entry))]),
+        batched("b", [blobNode(formatLogEntry(entry) + formatLogEntry(other))]),
+      ],
       [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
       [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
       [`POST ${REPOS}/git/commits`]: [
@@ -770,7 +838,7 @@ describe("logs", () => {
         { status: 401, json: { message: "Bad credentials" } },
         { json: { object: { type: "commit", sha: sha("1") } } },
       ],
-      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`POST ${API}/graphql`]: batched("b", [blobNode(formatLogEntry(entry))]),
       [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
       [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
       [`POST ${REPOS}/git/commits`]: { status: 201, json: { sha: sha("3") } },
@@ -799,10 +867,14 @@ describe("logs", () => {
   });
 
   test("an append folds into the held epoch: rereads see it without a fetch", async () => {
+    const swept = sweepRoutes([{ change: "busy", logTip: sha("1"), log: formatLogEntry(entry), head: sha("5") }]);
     stubGitHub({
-      ...sweepRoutes([{ change: "busy", logTip: sha("1"), log: formatLogEntry(entry), head: sha("5") }]),
+      ...swept,
+      [`POST ${API}/graphql`]: [
+        ...(swept[`POST ${API}/graphql`] ?? []),
+        batched("b", [blobNode(formatLogEntry(entry))]),
+      ],
       [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: { json: { object: { type: "commit", sha: sha("1") } } },
-      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
       [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
       [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
       [`POST ${REPOS}/git/commits`]: { status: 201, json: { sha: sha("9") } },
@@ -826,8 +898,10 @@ describe("durable store", () => {
     const stored = (): GitHubBackend =>
       new GitHubBackend(githubClient("token-123", { throttled: false }), { owner: "test-org", repo: "widgets" }, store);
     const calls = stubGitHub({
-      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4"), sha("5")]) },
-      [`GET ${REPOS}/contents/gone.ts?ref=${sha("3")}`]: { status: 404, json: { message: "Not Found" } },
+      [`POST ${API}/graphql`]: [
+        batched("c", [commitNode(sha("3"), [sha("4"), sha("5")])]),
+        batched("b", [{ file: null }]),
+      ],
     });
     const first = stored();
     expect(await first.mergedTip(sha("3"))).toBe(sha("5"));

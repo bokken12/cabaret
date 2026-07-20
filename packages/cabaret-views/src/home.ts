@@ -5,10 +5,13 @@ import {
   type ChangeSummary,
   changeDiff,
   changeForest,
+  currentArchived,
   currentParent,
   type FilePath,
   isReviewing,
   isSelf,
+  type LogEntry,
+  landedMerge,
   reviewOwed,
   type Self,
   selfAs,
@@ -88,21 +91,32 @@ export interface WorkspaceEntry {
   readonly archived: boolean;
 }
 
-/** Changes read at once: each reading costs several git processes. */
-const READ_CONCURRENCY = 8;
+/** Changes read at once: a local backend spawns a process per query, a network one pays a round-trip. */
+const READ_CONCURRENCY = 32;
 
 /** One change's readings for the page, or what broke reading them. */
 type ChangeReading =
   | {
       readonly kind: "read";
       readonly summary: ChangeSummary;
-      readonly parent: ChangeName;
       readonly owed: readonly FilePath[];
     }
   | { readonly kind: "broken"; readonly message: string };
 
-async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
-  const entries = await backend.readLog(change);
+/** What a change's log alone tells the page, before any derivation. */
+type LogReading = {
+  readonly entries: readonly LogEntry[];
+  readonly parent: ChangeName;
+  readonly landed: boolean;
+  readonly archived: boolean;
+};
+
+async function readChange(
+  backend: Backend,
+  self: Self,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<ChangeReading> {
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, self.user, diff);
   // Obligations ask nothing of a user outside the reviewing set — a
@@ -121,7 +135,6 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   return {
     kind: "read",
     summary,
-    parent: currentParent(change, entries),
     owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
   };
 }
@@ -131,13 +144,64 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const self = acting.self;
   const workspaces = await workspaceNotes(backend);
   const changes = [...(await backend.listChanges())].sort();
-  // Each change reads independently; assembling in `changes` order afterwards
-  // keeps the page deterministic whatever order the readings finish in.
-  const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
+  // Two passes: the logs alone say which changes are set aside, and only the
+  // live ones — with the ancestors their trees hang from — earn the full
+  // reading, whose derivations dominate the page's cost. A landed or
+  // archived leaf contributes its parent link and workspace note straight
+  // from the log; it renders nowhere else on the page.
+  const brokenBy = new Map<ChangeName, string>();
+  const logReadings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<LogReading | string> => {
     try {
-      return await readChange(backend, self, change);
+      const entries = await backend.readLog(change);
+      return {
+        entries,
+        parent: currentParent(change, entries),
+        landed: landedMerge(entries) !== undefined,
+        archived: currentArchived(entries),
+      };
     } catch (error) {
       // Only state problems isolate to their change; a bug still throws.
+      if (!(error instanceof UserError)) {
+        throw error;
+      }
+      return error.message;
+    }
+  });
+  const logs = new Map<ChangeName, LogReading>();
+  changes.forEach((change, index) => {
+    const reading = logReadings[index];
+    if (reading === undefined) {
+      throw new Error(`change read no log reading: ${change}`);
+    }
+    if (typeof reading === "string") {
+      brokenBy.set(change, reading);
+    } else {
+      logs.set(change, reading);
+    }
+  });
+  const parents = new Map([...logs].map(([change, { parent }]) => [change, parent] as const));
+  const wanted = new Set<ChangeName>();
+  for (const [change, { landed, archived }] of logs) {
+    if (landed || archived) {
+      continue;
+    }
+    let at: ChangeName | undefined = change;
+    while (at !== undefined && !wanted.has(at) && logs.has(at)) {
+      wanted.add(at);
+      at = parents.get(at);
+    }
+  }
+  const kept = changes.filter((change) => wanted.has(change));
+  // Each change reads independently; assembling in `changes` order afterwards
+  // keeps the page deterministic whatever order the readings finish in.
+  const readings = await mapConcurrent(kept, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
+    try {
+      const log = logs.get(change);
+      if (log === undefined) {
+        throw new Error(`kept change has no log reading: ${change}`);
+      }
+      return await readChange(backend, self, change, log.entries);
+    } catch (error) {
       if (!(error instanceof UserError)) {
         throw error;
       }
@@ -145,23 +209,28 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
     }
   });
   const summaries = new Map<ChangeName, ChangeSummary>();
-  const parents = new Map<ChangeName, ChangeName>();
   const owedFiles = new Map<ChangeName, readonly FilePath[]>();
-  const broken: BrokenChange[] = [];
-  changes.forEach((change, index) => {
+  kept.forEach((change, index) => {
     const reading = readings[index];
     if (reading === undefined) {
       throw new Error(`change read no reading: ${change}`);
     }
     if (reading.kind === "broken") {
-      broken.push({ change, message: reading.message });
+      brokenBy.set(change, reading.message);
+      // A broken change leaves the forest, as one broken at the log does;
+      // its children stand as roots.
+      parents.delete(change);
+      logs.delete(change);
       return;
     }
     summaries.set(change, reading.summary);
-    parents.set(change, reading.parent);
     if (reading.owed.length > 0) {
       owedFiles.set(change, reading.owed);
     }
+  });
+  const broken: BrokenChange[] = changes.flatMap((change) => {
+    const message = brokenBy.get(change);
+    return message === undefined ? [] : [{ change, message }];
   });
   const summary = (change: ChangeName): ChangeSummary => {
     const found = summaries.get(change);
@@ -172,10 +241,16 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   };
   const pruneOwned = (nodes: readonly ChangeNode[]): OwnedNode[] =>
     nodes.flatMap((node) => {
-      const candidate = summary(node.change);
+      // A change outside the full reading — set aside, with nothing live
+      // stacked on it — is nobody's to act on.
+      const candidate = summaries.get(node.change);
       const children = pruneOwned(node.children);
-      const mine = candidate.landed === undefined && !candidate.archived && isSelf(self, candidate.owner);
-      return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
+      const mine =
+        candidate !== undefined &&
+        candidate.landed === undefined &&
+        !candidate.archived &&
+        isSelf(self, candidate.owner);
+      return mine || children.length > 0 ? [{ summary: summary(node.change), context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
     nodes.flatMap((node) => {
@@ -187,11 +262,11 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const entries = [...workspaces].map(([change, workspace]): WorkspaceEntry => {
     // Every workspace shows, even one on a branch that is no change — its
     // name still opens a page — with the log-borne notes blank.
-    const found = summaries.get(change);
+    const found = logs.get(change);
     return {
       change,
       workspace,
-      landed: found !== undefined && found.landed !== undefined,
+      landed: found?.landed ?? false,
       archived: found?.archived ?? false,
     };
   });
