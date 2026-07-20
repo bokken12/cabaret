@@ -1,6 +1,7 @@
-import { GitHubBackend, githubClient, isStatus, type ObjectStore } from "cabaret-github";
-import { renderPage } from "cabaret-views";
-import { App, type Shell } from "./app.js";
+import { timestampMs } from "cabaret-core";
+import { GitHubBackend, GitHubForge, githubClient, isStatus, type ObjectStore } from "cabaret-github";
+import { markReviewed, renderPage } from "cabaret-views";
+import { App, type Rendered, type Shell } from "./app.js";
 import {
   type Config,
   clearToken,
@@ -8,6 +9,8 @@ import {
   mintOauthState,
   parseRepo,
   postNotice,
+  saveAliases,
+  savedAliases,
   savedRepo,
   saveRepo,
   saveToken,
@@ -59,6 +62,11 @@ function showSetup(shellRoot: HTMLElement, notice?: string): void {
     spellcheck: false,
   });
   const tokenInput = el("input", { type: "password", placeholder: "personal access token", spellcheck: false });
+  const aliasInput = el("input", {
+    placeholder: "you@example.com, …",
+    value: savedAliases(),
+    spellcheck: false,
+  });
   const complain = (error: unknown): void => {
     noticeRow.textContent = error instanceof Error ? error.message : String(error);
     noticeRow.hidden = false;
@@ -70,6 +78,7 @@ function showSetup(shellRoot: HTMLElement, notice?: string): void {
     el("label", {}, "repository", repoInput),
     oauthButton,
     el("label", {}, "token", tokenInput),
+    el("label", {}, "review identities (optional, comma-separated)", aliasInput),
     el("button", { type: "submit" }, "Start"),
   );
   form.addEventListener("submit", (event) => {
@@ -81,6 +90,7 @@ function showSetup(shellRoot: HTMLElement, notice?: string): void {
       }
       saveRepo(repo);
       saveToken(tokenInput.value);
+      saveAliases(aliasInput.value);
       const config = loadConfig();
       if (config === undefined) {
         throw new Error("saved settings did not load back");
@@ -102,6 +112,7 @@ function showSetup(shellRoot: HTMLElement, notice?: string): void {
       oauthButton.addEventListener("click", () => {
         try {
           saveRepo(parseRepo(repoInput.value));
+          saveAliases(aliasInput.value);
         } catch (error) {
           complain(error);
           return;
@@ -129,18 +140,50 @@ function objectStore(repo: Config["repo"]): ObjectStore {
   };
 }
 
+/**
+ * Declare the identities the logs may speak of the user by: their saved
+ * aliases, plus the account's public email, mirroring what `cabaret fetch`
+ * records in a checkout.
+ */
+async function seedAliases(backend: GitHubBackend, forge: GitHubForge, aliases: readonly string[]): Promise<void> {
+  for (const alias of aliases) {
+    await backend.configAdd("cabaret.alias", alias, "global");
+  }
+  try {
+    for (const alias of (await forge.currentSelf()).aliases) {
+      await backend.configAdd("cabaret.alias", alias, "global");
+    }
+  } catch {
+    // The first render surfaces auth problems; profile aliases are best-effort.
+  }
+}
+
 function startApp(shellRoot: HTMLElement, config: Config): void {
-  const backend = new GitHubBackend(githubClient(config.token), config.repo, objectStore(config.repo));
+  const client = githubClient(config.token);
+  const backend = new GitHubBackend(client, config.repo, objectStore(config.repo));
+  const seeded = seedAliases(backend, new GitHubForge(client, config.repo), config.aliases);
   const shell: Shell = {
     content: el("div", { className: "content" }),
     status: el("div", { className: "status" }),
     overlay: el("div", { className: "overlay", hidden: true }),
   };
   shellRoot.replaceChildren(shell.content, shell.status, shell.overlay);
+  const now = (): ReturnType<typeof timestampMs> => timestampMs(Date.now());
   const app = new App(
-    async (page) => {
+    async (page): Promise<Rendered> => {
+      await seeded;
       try {
-        return await renderPage(backend, page);
+        let snapshot: Rendered["snapshot"];
+        let viewed: Rendered["viewed"];
+        const doc = await renderPage(backend, page, {
+          onSnapshot: (held) => {
+            snapshot = held;
+          },
+          onViewed: (diffs) => {
+            viewed = diffs;
+          },
+        });
+        return { doc, snapshot, viewed };
       } catch (error) {
         if (isStatus(error, 401)) {
           clearToken();
@@ -151,7 +194,11 @@ function startApp(shellRoot: HTMLElement, config: Config): void {
       }
     },
     shell,
-    () => backend.fetchOrigin(),
+    {
+      fetchOrigin: () => backend.fetchOrigin(),
+      mark: (snapshot, file, evenThoughNotReviewing) =>
+        Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
+    },
   );
   app.start();
 }

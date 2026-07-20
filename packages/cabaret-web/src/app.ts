@@ -1,4 +1,16 @@
-import { type Doc, enclosingPage, type Page, pagePath, targetAt } from "cabaret-views";
+import { type FilePath, NotReviewingError, type Revision } from "cabaret-core";
+import {
+  type ChangeSnapshot,
+  type Doc,
+  displayedKey,
+  enclosingPage,
+  type MarkReviewedResult,
+  type Page,
+  pagePath,
+  pendingRound,
+  targetAt,
+  type ViewedDiffs,
+} from "cabaret-views";
 import { type Followed, followTarget } from "./follow.js";
 import { foldAt, renderContent, visibleLines } from "./html.js";
 import { bindingsFor, type Command } from "./keymap.js";
@@ -12,9 +24,30 @@ export interface Shell {
   readonly overlay: HTMLElement;
 }
 
+/** What a render of one page produced. */
+export interface Rendered {
+  readonly doc: Doc;
+  /**
+   * The snapshot a review, diffs, or diff render read, held beside the page
+   * so a mark records what was displayed rather than whatever the change
+   * holds by then.
+   */
+  readonly snapshot?: ChangeSnapshot | undefined;
+  /** The diffs the render displayed: evidence for mark's viewed check. */
+  readonly viewed?: ViewedDiffs | undefined;
+}
+
+/** Effects behind actions the app cannot serve from docs alone. */
+export interface Effects {
+  fetchOrigin(): Promise<void>;
+  /** Record `file` of `snapshot`'s change reviewed. */
+  mark(snapshot: ChangeSnapshot, file: FilePath, evenThoughNotReviewing: boolean): Promise<MarkReviewedResult>;
+}
+
 interface View {
   readonly page: Page;
   doc: Doc;
+  snapshot: ChangeSnapshot | undefined;
   readonly folded: Set<number>;
   /** The cursor, as an index into the visible-line list. */
   cursor: number;
@@ -39,11 +72,13 @@ export class App {
   private pending: string[] = [];
   /** Stamps each show; a render landing after a newer one started is dropped. */
   private epoch = 0;
+  /** Per displayed diff, the revisions it was rendered up to — mark's viewed evidence. */
+  private readonly displayedEnds = new Map<string, Set<Revision>>();
 
   constructor(
-    private readonly source: (page: Page) => Promise<Doc>,
+    private readonly source: (page: Page) => Promise<Rendered>,
     private readonly shell: Shell,
-    private readonly fetchOrigin: () => Promise<void>,
+    private readonly effects: Effects,
   ) {}
 
   start(): void {
@@ -65,13 +100,25 @@ export class App {
     await this.show(page);
   }
 
+  private recordViewed(viewed: ViewedDiffs | undefined): void {
+    if (viewed === undefined) {
+      return;
+    }
+    for (const [file, end] of viewed.files) {
+      const key = displayedKey(viewed.change, viewed.user, viewed.base, file);
+      const ends = this.displayedEnds.get(key) ?? new Set<Revision>();
+      ends.add(end);
+      this.displayedEnds.set(key, ends);
+    }
+  }
+
   private async show(page: Page): Promise<void> {
     const epoch = ++this.epoch;
     this.pending = [];
     this.setNote("loading…");
-    let doc: Doc;
+    let rendered: Rendered;
     try {
-      doc = await this.source(page);
+      rendered = await this.source(page);
     } catch (error) {
       if (epoch === this.epoch) {
         this.setNote(message(error), true);
@@ -81,8 +128,9 @@ export class App {
     if (epoch !== this.epoch) {
       return;
     }
-    this.view = { page, doc, folded: new Set(), cursor: 0 };
-    this.noteErrors(doc);
+    this.recordViewed(rendered.viewed);
+    this.view = { page, doc: rendered.doc, snapshot: rendered.snapshot, folded: new Set(), cursor: 0 };
+    this.noteErrors(rendered.doc);
     this.paint();
   }
 
@@ -94,9 +142,9 @@ export class App {
     }
     const epoch = ++this.epoch;
     this.setNote("loading…");
-    let doc: Doc;
+    let rendered: Rendered;
     try {
-      doc = await this.source(view.page);
+      rendered = await this.source(view.page);
     } catch (error) {
       if (epoch === this.epoch) {
         this.setNote(message(error), true);
@@ -106,7 +154,10 @@ export class App {
     if (epoch !== this.epoch) {
       return;
     }
+    this.recordViewed(rendered.viewed);
+    const doc = rendered.doc;
     view.doc = doc;
+    view.snapshot = rendered.snapshot;
     const starts = new Set(doc.folds.map(({ start }) => start));
     for (const start of view.folded) {
       if (!starts.has(start)) {
@@ -265,12 +316,15 @@ export class App {
       case "fetch":
         this.setNote("fetching…");
         try {
-          await this.fetchOrigin();
+          await this.effects.fetchOrigin();
         } catch (error) {
           this.setNote(message(error), true);
           return;
         }
         await this.refresh("fetched");
+        return;
+      case "mark":
+        await this.markAtCursor(view);
         return;
       case "help":
         this.showOverlay(view);
@@ -317,6 +371,100 @@ export class App {
         this.moveCursor(view, Number.MAX_SAFE_INTEGER);
         return;
     }
+  }
+
+  /**
+   * Mark reviewed: on a diff page the file shown, on the review page the
+   * file the cursor's line resolves to. Marking as a borrowed identity, a
+   * never-displayed diff, and reviewing that excludes the user each confirm
+   * first, mirroring the mark command's overrides.
+   */
+  private async markAtCursor(view: View): Promise<void> {
+    const page = view.page;
+    let file: FilePath;
+    if (page.kind === "diff") {
+      file = page.file;
+    } else if (page.kind === "review") {
+      const line = visibleLines(view.doc, view.folded)[view.cursor];
+      const target = line === undefined ? undefined : targetAt(view.doc, line);
+      if (target?.kind !== "file") {
+        this.setNote("no file at the cursor");
+        return;
+      }
+      file = target.file;
+    } else {
+      return;
+    }
+    const snapshot = view.snapshot;
+    if (snapshot === undefined) {
+      this.setNote("the page rendered without its review state; refresh first");
+      return;
+    }
+    // The entry will carry the borrowed identity's name, so nothing here
+    // may happen on muscle memory alone.
+    if (page.as !== undefined && !confirm(`Mark ${file} reviewed as ${page.as}?`)) {
+      return;
+    }
+    const pending = pendingRound(snapshot.rounds, file);
+    if (
+      pending !== undefined &&
+      !this.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end) &&
+      !confirm(`The diff of ${file} has not been displayed to ${page.as ?? "you"}. Mark anyway?`)
+    ) {
+      return;
+    }
+    await this.recordMark(view, snapshot, file, false);
+  }
+
+  private async recordMark(
+    view: View,
+    snapshot: ChangeSnapshot,
+    file: FilePath,
+    evenThoughNotReviewing: boolean,
+  ): Promise<void> {
+    let result: MarkReviewedResult;
+    try {
+      result = await this.effects.mark(snapshot, file, evenThoughNotReviewing);
+    } catch (error) {
+      if (error instanceof NotReviewingError) {
+        const whom = view.page.as === undefined ? "you" : error.user;
+        if (
+          confirm(`${snapshot.change} is reviewing ${error.reviewing}, which does not include ${whom}. Mark anyway?`)
+        ) {
+          await this.recordMark(view, snapshot, file, true);
+        }
+        return;
+      }
+      this.setNote(message(error), true);
+      return;
+    }
+    if (result.kind === "nothing-left") {
+      this.setNote(`nothing left to review in ${file}`);
+      return;
+    }
+    try {
+      await result.recorded;
+    } catch (error) {
+      this.setNote(message(error), true);
+      return;
+    }
+    if (view.page.kind === "diff") {
+      // The marked page has served its purpose: move on to the round's next
+      // file, or back to the review page when the round is done.
+      const outer: Page = { kind: "review", change: snapshot.change, as: view.page.as };
+      const next: Page =
+        result.next === undefined
+          ? outer
+          : { kind: "diff", change: snapshot.change, file: result.next, as: view.page.as };
+      const hash = pageHash(next);
+      if (currentHash(location.href) === hash) {
+        await this.refresh(`marked ${file}`);
+      } else {
+        location.hash = hash;
+      }
+      return;
+    }
+    await this.refresh(`marked ${file}`);
   }
 
   private toggleFold(view: View, start: number): void {
@@ -376,7 +524,7 @@ export class App {
     const rows = bindings.map(({ keys, label }) => `<tr><td>${keys.join(" ")}</td><td>${label}</td></tr>`).join("\n");
     this.shell.overlay.innerHTML =
       `<div class="help"><p>Keys on this page (any key dismisses)</p><table>${rows}</table>` +
-      `<p class="dim">Marks and change actions run from a host with a checkout: the CLI, VS Code, or the TUI.</p></div>`;
+      `<p class="dim">Change actions (rebase, land, …) run from a host with a checkout: the CLI, VS Code, or the TUI.</p></div>`;
     this.shell.overlay.hidden = false;
   }
 
