@@ -19,7 +19,7 @@ function stepAction(step: NextStep): ChangeAction | undefined {
  * Paint for the steps where immediate action matters most: a change ready to
  * land, or one whose conflicts block the work stacked on it.
  */
-function stepStyle(step: NextStep): Style | undefined {
+export function stepStyle(step: NextStep): Style | undefined {
   switch (step) {
     case "land":
       return "ready";

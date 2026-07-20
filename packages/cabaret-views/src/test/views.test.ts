@@ -136,12 +136,15 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
     { text: "landed", style: "context", target: undefined, tier: undefined },
   ]);
-  // The steps where action matters most catch the eye: a change ready to
-  // land, and conflicts blocking the work stacked on it.
+  // The steps where action matters most catch the eye — the change's name
+  // in the same paint as its step: a change ready to land, and conflicts
+  // blocking the work stacked on it.
   expect(styled("│ widgets  │ land          │")).toEqual([
+    { text: "widgets", style: "ready", target: { kind: "change", change: "widgets" }, tier: "link" },
     { text: "land", style: "ready", target: { kind: "action", change: "widgets", action: "land" }, tier: "link" },
   ]);
   expect(styled("│ rusty    │ fix conflicts │")).toEqual([
+    { text: "rusty", style: "blocked", target: { kind: "change", change: "rusty" }, tier: "link" },
     { text: "fix conflicts", style: "blocked", target: undefined, tier: undefined },
   ]);
 });
@@ -772,9 +775,10 @@ test("next steps an action performs link to running it, the rest staying bare", 
     { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
     { text: "rebase", style: undefined, target: { kind: "action", change: "gizmo", action: "rebase" }, tier: "link" },
   ]);
-  // Fixing conflicts is work done by hand, so the step offers nothing to run.
+  // Fixing conflicts is work done by hand, so the step offers nothing to run;
+  // the name still wears the step's blocked paint.
   expect(targeted("fix conflicts")).toEqual([
-    { text: "widgets", style: undefined, target: { kind: "change", change: "widgets" }, tier: "link" },
+    { text: "widgets", style: "blocked", target: { kind: "change", change: "widgets" }, tier: "link" },
   ]);
   const show = showDoc({
     as: undefined,

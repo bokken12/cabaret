@@ -20,7 +20,7 @@ import {
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
-import { stepSpan } from "./steps.js";
+import { stepSpan, stepStyle } from "./steps.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -226,7 +226,12 @@ function treeRows<N extends { readonly children: readonly N[] }>(
  * keeping the link on exactly the name.
  */
 function changeCell(summary: ChangeSummary, guide: string, as: UserName | undefined, style?: "context"): Cell {
-  const name = span(summary.change, { style, target: { kind: "change", change: summary.change, as } });
+  // The name wears its change's status paint; the guide is structure, like
+  // the table chrome, so only context's whole-row dimming reaches it.
+  const name = span(summary.change, {
+    style: style ?? stepStyle(summary.nextStep),
+    target: { kind: "change", change: summary.change, as },
+  });
   return guide === "" ? name : [span(guide, { style }), name];
 }
 
