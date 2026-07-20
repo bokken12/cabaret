@@ -54,6 +54,7 @@ import {
 } from "cabaret-core";
 import { NoForgeError, openBackend as openRepositoryBackend, openForge as openRepositoryForge } from "cabaret-node";
 import {
+  type ChangeSnapshot,
   changeSnapshot,
   type Doc,
   docText,
@@ -197,8 +198,10 @@ class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
   private readonly docs = new Map<string, Doc>();
-  /** Per displayed diff, the revision it reviewed up to: the evidence `markPageReviewed`'s asked-first check reads. */
-  readonly displayedEnds = new Map<string, Revision>();
+  /** Per page, the snapshot its doc rendered from: what a mark of the page records. */
+  private readonly snapshots = new Map<string, ChangeSnapshot>();
+  /** Per displayed diff, the revisions it was shown up to: the evidence `markPageReviewed`'s asked-first check reads. */
+  readonly displayedEnds = new Map<string, Set<Revision>>();
   /** What each page last reported, so the re-render after every action does not re-toast it. */
   private readonly reported = new Map<string, string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
@@ -257,12 +260,21 @@ class PageProvider
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
     let doc: Doc;
+    let snapshot: ChangeSnapshot | undefined;
     try {
       doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+        onSnapshot: (rendered) => {
+          snapshot = rendered;
+        },
         onViewed: (viewed) => {
           for (const [file, end] of viewed.files) {
-            this.displayedEnds.set(displayedKey(viewed.change, viewed.user, viewed.base, file), end);
+            const key = displayedKey(viewed.change, viewed.user, viewed.base, file);
+            let ends = this.displayedEnds.get(key);
+            if (ends === undefined) {
+              this.displayedEnds.set(key, (ends = new Set()));
+            }
+            ends.add(end);
           }
         },
       });
@@ -273,6 +285,9 @@ class PageProvider
       throw error;
     }
     this.docs.set(uri.toString(), doc);
+    if (snapshot !== undefined) {
+      this.snapshots.set(uri.toString(), snapshot);
+    }
     this.reportErrors(uri, doc.errors);
     // A render whose text matches the buffer emits no document change, so
     // repainting only on document changes would leave pre-render paint stale.
@@ -294,6 +309,11 @@ class PageProvider
 
   doc(uri: vscode.Uri): Doc | undefined {
     return this.docs.get(uri.toString());
+  }
+
+  /** The snapshot behind `uri`'s buffer, when its page renders from one. */
+  snapshot(uri: vscode.Uri): ChangeSnapshot | undefined {
+    return this.snapshots.get(uri.toString());
   }
 
   /**
@@ -322,6 +342,7 @@ class PageProvider
 
   forget(uri: vscode.Uri): void {
     this.docs.delete(uri.toString());
+    this.snapshots.delete(uri.toString());
     // A reopened page's problems are news again.
     this.reported.delete(uri.toString());
   }
@@ -736,10 +757,12 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
 
 /**
  * Mark a file reviewed: the active diff page's file, or on the review page
- * the file the cursor's line resolves to. From a diff page, move on to the
- * round's next file, or back to the change's review page when the round is
- * done. A mark whose diff this window never displayed asks first. Errors
- * surface as notifications, and every open page re-renders afterwards.
+ * the file the cursor's line resolves to. The mark records the page's own
+ * snapshot — a change that moved on since the render just leaves the rest
+ * pending — so only a mark whose diff this window never displayed asks
+ * first. From a diff page, move on to the round's next file, or back to the
+ * change's review page when the round is done. Errors surface as
+ * notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -775,14 +798,17 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   try {
     const backend = await openBackend();
-    const snapshot = await changeSnapshot(backend, page.change, page.as);
+    // An extension-host restart re-syncs the buffer without a render, so a
+    // page can lack its snapshot; the fresh one then read falls under the
+    // never-displayed ask below.
+    const snapshot = provider.snapshot(editor.document.uri) ?? (await changeSnapshot(backend, page.change, page.as));
     const pending = pendingRound(snapshot.rounds, file);
     if (
       pending !== undefined &&
-      provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file)) !== pending.end
+      !provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end)
     ) {
       const choice = await vscode.window.showWarningMessage(
-        `The current diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,
+        `The diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,
         { modal: true },
         "Mark Reviewed Anyway",
       );
