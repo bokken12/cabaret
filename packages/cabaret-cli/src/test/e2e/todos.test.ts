@@ -153,7 +153,7 @@ test("todos fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("todos", "phantom")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "phantom"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "phantom"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });

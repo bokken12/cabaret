@@ -33,7 +33,7 @@ test("set-owner fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("set-owner", "bob@example.com")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });
@@ -82,13 +82,13 @@ test("guarded commands fail on a change that does not exist, even with the overr
   const repo = await makeRepo();
   expect(await repo.cabaret("reparent", "main", "trunk")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
   // The override excuses not being the owner, not a nonexistent change.
   expect(await repo.cabaret("reparent", "main", "trunk", "--even-though-not-owner")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("dev", "log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

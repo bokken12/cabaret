@@ -1101,7 +1101,7 @@ test("a parent with no local branch reads as origin's copy, review still the ste
 test("a stored base this clone lacks asks a reparent instead of failing the read", async () => {
   const backend = repoBackend({ history: { "3": "1" }, branches: { feature: "3" }, absent: ["1"] });
   await expect(summarize(backend, feature, created("main", "1"), alice)).rejects.toThrow(
-    'parent branch of "feature" does not exist: "main"; run `cabaret reparent`',
+    'parent branch of "feature" does not exist: "main"; run `cab reparent`',
   );
 });
 

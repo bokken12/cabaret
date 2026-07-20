@@ -109,7 +109,7 @@ test("land refuses a change that conflicts with its parent's tip", async () => {
   const parentTip = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
-    stderr: '"child" conflicts with the tip of "parent" in child.txt; run `cabaret rebase` first\n',
+    stderr: '"child" conflicts with the tip of "parent" in child.txt; run `cab rebase` first\n',
     exitCode: 1,
   });
   expect(await repo.git("rev-parse", "parent")).toBe(parentTip);
@@ -581,7 +581,7 @@ test("a range that would land into a landed change refuses before landing anythi
   await repo.cabaret("reparent", "b", "a");
   expect(await repo.cabaret("land", "main..c")).toEqual({
     stdout: "",
-    stderr: '"b" would land into "a", which has landed; run `cabaret reparent` first\n',
+    stderr: '"b" would land into "a", which has landed; run `cab reparent` first\n',
     exitCode: 1,
   });
   // Nothing moved: landing c first would only bury it in the jammed chain.

@@ -55,10 +55,10 @@ type Target =
 
 Iron's surfaces, under Iron's names:
 
-- **home** — the landing page: what needs your attention. A section of changes owing your review — those with an unsatisfied review obligation you can still count toward, not everything you have yet to read — and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. Open forge changes (PRs/MRs) become changes when `cabaret fetch` imports them, so the page reads change logs alone and never calls the forge.
+- **home** — the landing page: what needs your attention. A section of changes owing your review — those with an unsatisfied review obligation you can still count toward, not everything you have yet to read — and a section of changes you own, with the parent/child tree drawn as indentation in the name column, plus columns for work remaining and **next step** — a verdict computed from the log (`add code`, `review`, `land`, `rebase`) rather than raw state. Open forge changes (PRs/MRs) become changes when `cab fetch` imports them, so the page reads change logs alone and never calls the forge.
 - **show** — one change: an attribute table (next step, owner, tip, base, forge change), the changes landed into it (each linking to its own page), files with per-file review state, comments. A branch with no log — a trunk like `main`, or any branch Cabaret never created — shows too, reading as a degenerate change with the log-borne attributes absent: its tip, and a bounded survey of the changes recently landed into it, so a trunk's page reads as a release log. Only true changes carry the rest — owner, next step, forge change — and only they map to forge changes. What show offers stays log-determined: the changes and the trunks their parent links acknowledge; a branch no log speaks for shows only when named outright, and a name with no branch at all errors.
 
-Both render through the same view functions in every host, including the CLI (`cabaret home`, `cabaret show`), which is the cheapest place to exercise them first.
+Both render through the same view functions in every host, including the CLI (`cab home`, `cab show`), which is the cheapest place to exercise them first.
 
 ## Packages and hosts
 

@@ -33,7 +33,7 @@ export interface TestRepo {
   git(...args: string[]): Promise<string>;
   /** Write `content` to `path` in the working tree, creating directories as needed. */
   write(path: string, content: string): Promise<void>;
-  /** Run `cabaret <argv>` against this repo in-process, capturing all output. */
+  /** Run `cab <argv>` against this repo in-process, capturing all output. */
   cabaret(...argv: string[]): Promise<Invocation>;
   /** Like `cabaret`, but invoked from `subdir` of the working tree. */
   cabaretIn(subdir: string, ...argv: string[]): Promise<Invocation>;

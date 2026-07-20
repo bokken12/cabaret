@@ -823,7 +823,7 @@ function latestAction<K extends LogAction["kind"]>(
 export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret fetch\` to import open forge changes`,
+      `change does not exist: ${JSON.stringify(change)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
     );
   }
 }
@@ -1022,7 +1022,7 @@ export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]
  */
 export function assertNotArchived(change: ChangeName, entries: readonly LogEntry[]): void {
   if (currentArchived(entries)) {
-    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cabaret archive --undo\``);
+    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cab archive --undo\``);
   }
 }
 
@@ -1119,10 +1119,10 @@ export async function changeBase(
       return stored;
     }
     throw landed !== undefined
-      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cab fetch\``)
       : new UserError(
           `parent branch of ${JSON.stringify(change)} does not exist: ` +
-            `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
+            `${JSON.stringify(currentParent(change, entries))}; run \`cab reparent\``,
         );
   }
   const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
@@ -1173,7 +1173,7 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
   }
   if (!(await backend.hasRevision(landed.merge))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret fetch\``,
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cab fetch\``,
     );
   }
   return backend.mergedTip(landed.merge);

@@ -9,7 +9,7 @@ export const archive = buildCommand({
     fullDescription:
       "Set a change aside without landing it: the change leaves the home " +
       "page and refuses to land, but its branch and log stay. A push closes " +
-      "its forge change. `cabaret archive --undo` brings it back.",
+      "its forge change. `cab archive --undo` brings it back.",
   },
   parameters: {
     positional: { kind: "tuple", parameters: [] },

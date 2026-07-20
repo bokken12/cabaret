@@ -134,7 +134,7 @@ test("land via forge without a forge change fails", async () => {
   await repo.git("config", "cabaret.landVia", "forge");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: 'no forge change for "gadget" on github.com/test-org/widgets; run `cabaret sync` first\n',
+    stderr: 'no forge change for "gadget" on github.com/test-org/widgets; run `cab sync` first\n',
     exitCode: 1,
   });
 });
@@ -147,7 +147,7 @@ test("land via forge refuses a forge change behind the local tip", async () => {
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
-    stderr: 'github.com/test-org/widgets#1 is not at "gadget"\'s tip; run `cabaret sync` first\n',
+    stderr: 'github.com/test-org/widgets#1 is not at "gadget"\'s tip; run `cab sync` first\n',
     exitCode: 1,
   });
   expect((await forge.getChange(PR)).state).toBe("open");

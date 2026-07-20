@@ -327,7 +327,7 @@ test("rebase fails on a change that does not exist", async () => {
   await repo.git("branch", "orphan");
   expect(await repo.cabaret("rebase", "orphan")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "orphan"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "orphan"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });
