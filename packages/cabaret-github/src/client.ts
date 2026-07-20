@@ -64,9 +64,12 @@ export function githubClient(token: string, { throttled = true }: { readonly thr
       // The API answers GETs with `Cache-Control: private, max-age=60`, and a
       // browser honors that: for a minute after a write, rereads of a ref
       // would come from the HTTP cache and serve the pre-write state — a
-      // review mark that appears to not stick. Node's fetch never caches, so
+      // review mark that appears to not stick. `no-cache` revalidates every
+      // read with the API instead, while still letting an unchanged answer
+      // come back as a 304 that reuses the cached body — and GitHub does not
+      // count 304s against the rate limit. Node's fetch never caches, so
       // this only disciplines browsers.
-      fetch: (url: unknown, init: object) => fetch(url, { ...init, cache: "no-store" }),
+      fetch: (url: unknown, init: object) => fetch(url, { ...init, cache: "no-cache" }),
     },
     throttle: {
       enabled: throttled,
