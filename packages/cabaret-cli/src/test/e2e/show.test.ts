@@ -127,7 +127,7 @@ test("show lists the changes landed into a parent, their diffs out of its review
   await repo.write("child.txt", "child work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "child work");
-  await repo.cabaret("land", "--even-though-unreviewed");
+  await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   expect((await repo.cabaret("show", "parent")).stdout).toMatchInlineSnapshot(`
     "parent
     ======

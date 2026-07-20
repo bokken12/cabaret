@@ -166,7 +166,11 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   expect(await repo.cabaret("conflicts", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   await repo.cabaret("mark", "--tip", "child", "shared.txt", "--change", "child");
-  expect(await repo.cabaret("land", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "child", "--even-though-parent-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.git("show", "parent:shared.txt")).toBe("from both");
 });
 
@@ -520,7 +524,7 @@ async function makeRebasedFeature(repo: TestRepo): Promise<void> {
   await repo.git("commit", "-qm", "feature work");
   await repo.cabaret("mark", "--change", "feature", "--tip", "HEAD", "feature.txt", "both.txt");
   await addChange(repo, "gadget");
-  await repo.cabaret("land", "gadget", "--even-though-unreviewed");
+  await repo.cabaret("land", "gadget", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   await repo.git("checkout", "-q", "main");
   await repo.cabaret("create", "mainline");
   await repo.git("checkout", "-q", "mainline");

@@ -4,6 +4,7 @@ import {
   DivergedParentError,
   NotOwnerError,
   NotReviewingError,
+  UnreviewedParentError,
   UnsatisfiedObligationsError,
   UserError,
   VERSION,
@@ -50,6 +51,12 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
+  }
+  if (error instanceof UnreviewedParentError) {
+    return (
+      `parent ${JSON.stringify(error.parent)} has unsatisfied review obligations; ` +
+      `pass --even-though-parent-unreviewed to override:\n${error.details.join("\n")}`
+    );
   }
   if (error instanceof DirtyWorkspaceError) {
     return `${error.message}; pass --even-though-dirty to override`;

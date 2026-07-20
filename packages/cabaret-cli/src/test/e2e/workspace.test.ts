@@ -79,7 +79,7 @@ test("workspace add refuses a second workspace, a missing change, and a landed o
   });
   expect((await repo.cabaret("workspace", "add", "phantom")).stderr).toContain("change does not exist");
   await repo.cabaret("mark", "--tip", "relic", "--change", "relic", "relic.txt");
-  await repo.cabaret("land", "relic");
+  await repo.cabaret("land", "relic", "--even-though-parent-unreviewed");
   expect((await repo.cabaret("workspace", "add", "relic")).stderr).toContain("change has landed");
 });
 

@@ -18,6 +18,13 @@ const evenThoughUnreviewed = {
   default: false,
 } as const;
 
+/** The escape hatch for the parent-obligations check on `land`. */
+const evenThoughParentUnreviewed = {
+  kind: "boolean",
+  brief: "Land even though the parent's review obligations are unsatisfied",
+  default: false,
+} as const;
+
 export const land = buildCommand({
   docs: {
     brief: "Land a change into its parent",
@@ -50,11 +57,11 @@ export const land = buildCommand({
         },
       ],
     },
-    flags: { evenThoughNotOwner, evenThoughUnreviewed },
+    flags: { evenThoughNotOwner, evenThoughUnreviewed, evenThoughParentUnreviewed },
   },
   async func(
     this: LocalContext,
-    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean },
+    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean; evenThoughParentUnreviewed: boolean },
     spec?: ChangeSpec,
   ) {
     const backend = await this.backend();
@@ -67,7 +74,11 @@ export const land = buildCommand({
         config,
         change,
         entries,
-        { notOwner: flags.evenThoughNotOwner, unreviewed: flags.evenThoughUnreviewed },
+        {
+          notOwner: flags.evenThoughNotOwner,
+          unreviewed: flags.evenThoughUnreviewed,
+          parentUnreviewed: flags.evenThoughParentUnreviewed,
+        },
       );
       const parent = currentParent(change, entries);
       if (merged !== undefined) {
