@@ -326,6 +326,15 @@ export async function reviewOwed(
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
 }
 
+/** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+function obligationDetails(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return unsatisfied.map((status) => {
+    const { file, source, require } = status.obligation;
+    const missing = require.atLeast - status.reviewedBy.length;
+    return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
+  });
+}
+
 /**
  * Review obligations block the land. Each detail line names one unsatisfied
  * requirement: how many reviews are missing and who can still provide them.
@@ -333,16 +342,32 @@ export async function reviewOwed(
  * remedy — a flag, a confirmation dialog — before showing it.
  */
 export class UnsatisfiedObligationsError extends UserError {
-  /** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
   readonly details: readonly string[];
 
   constructor(readonly unsatisfied: readonly ObligationStatus[]) {
-    const details = unsatisfied.map((status) => {
-      const { file, source, require } = status.obligation;
-      const missing = require.atLeast - status.reviewedBy.length;
-      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
-    });
+    const details = obligationDetails(unsatisfied);
     super(`review obligations are unsatisfied:\n${details.join("\n")}`);
+    this.details = details;
+  }
+}
+
+/**
+ * The parent's review obligations block the land: a land absorbs the child
+ * into the parent's diff and advances what its reviewers are asked to hold,
+ * so the parent settles its own pending review first. The message states
+ * only the facts; each frontend attaches its own override remedy.
+ */
+export class UnreviewedParentError extends UserError {
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
+  readonly details: readonly string[];
+
+  constructor(
+    readonly parent: ChangeName,
+    readonly unsatisfied: readonly ObligationStatus[],
+  ) {
+    const details = obligationDetails(unsatisfied);
+    super(`parent ${JSON.stringify(parent)} has unsatisfied review obligations:\n${details.join("\n")}`);
     this.details = details;
   }
 }

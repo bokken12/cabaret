@@ -468,15 +468,16 @@ FLAGS
 ## cabaret land
 
 USAGE
-  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [<change>]
+  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [--even-though-parent-unreviewed] [<change>]
   cabaret land --help
 
 Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cabaret config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cabaret config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
-     [--even-though-not-owner]   Proceed even though you do not own the change       [default = false]
-     [--even-though-unreviewed]  Land even though review obligations are unsatisfied [default = false]
-  -h  --help                     Print help information and exit
+     [--even-though-not-owner]          Proceed even though you do not own the change                    [default = false]
+     [--even-though-unreviewed]         Land even though review obligations are unsatisfied              [default = false]
+     [--even-though-parent-unreviewed]  Land even though the parent's review obligations are unsatisfied [default = false]
+  -h  --help                            Print help information and exit
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to land (defaults to current)

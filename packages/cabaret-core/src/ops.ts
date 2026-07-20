@@ -31,7 +31,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { assertObligationsSatisfied } from "./obligations.js";
+import { assertObligationsSatisfied, isSatisfied, obligationStatuses, UnreviewedParentError } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
 import { reviewRounds } from "./summary.js";
 
@@ -411,6 +411,8 @@ export interface LandOverrides {
   readonly notOwner: boolean;
   /** Land with review obligations unsatisfied. */
   readonly unreviewed: boolean;
+  /** Land into a parent whose own review obligations are unsatisfied. */
+  readonly parentUnreviewed: boolean;
 }
 
 /**
@@ -466,6 +468,16 @@ export async function prepareLand(
   if (!overrides.unreviewed) {
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
+  }
+  // A trunk parent has no log and owes nothing. The parent's diff is
+  // measured to `onto`, the freshest reading the land merges onto.
+  if (!overrides.parentUnreviewed && parentEntries.length > 0) {
+    const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
+    const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
+    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
+    if (unsatisfied.length > 0) {
+      throw new UnreviewedParentError(parent, unsatisfied);
+    }
   }
   // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.

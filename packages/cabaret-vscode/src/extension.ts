@@ -47,6 +47,7 @@ import {
   type TimestampMs,
   timestampMs,
   transferChange,
+  UnreviewedParentError,
   UnsatisfiedObligationsError,
   UserError,
   type UserName,
@@ -1226,7 +1227,7 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
       await landChain(backend, await resolveChain(backend, changes), landOne);
     }
   };
-  let overrides: LandOverrides = { notOwner: false, unreviewed: false };
+  let overrides: LandOverrides = { notOwner: false, unreviewed: false, parentUnreviewed: false };
   for (;;) {
     try {
       return await landAll(overrides);
@@ -1241,6 +1242,10 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
         message = "Review obligations are unsatisfied.";
         options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
         overrides = { ...overrides, unreviewed: true };
+      } else if (error instanceof UnreviewedParentError && !overrides.parentUnreviewed) {
+        message = `Parent ${error.parent} has unsatisfied review obligations.`;
+        options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
+        overrides = { ...overrides, parentUnreviewed: true };
       } else {
         throw error;
       }
