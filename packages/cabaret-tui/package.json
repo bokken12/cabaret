@@ -1,0 +1,20 @@
+{
+  "name": "cabaret-tui",
+  "description": "Terminal user interface to Cabaret",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "cabaret-core": "workspace:*",
+    "cabaret-views": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}
