@@ -50,6 +50,8 @@ export interface PageState {
   readonly folded: ReadonlySet<number>;
   /** The cursor, as an index into the visible-line list. */
   readonly cursor: number;
+  /** The selection's other end, a visible-line index; unset selects the cursor alone. */
+  readonly anchor?: number | undefined;
   /** Visible-line index of the first row on screen. */
   readonly top: number;
 }
@@ -85,6 +87,8 @@ export function foldAt(doc: Doc, line: number): Fold | undefined {
 
 interface LinePaint {
   readonly cursor: boolean;
+  /** The line sits in the selection without carrying the cursor. */
+  readonly selected: boolean;
   /** The line heads a folded fold, so it wears an ellipsis for its hidden body. */
   readonly folded: boolean;
   /** Whether the page carries signed lines, earning every line a sign column. */
@@ -112,7 +116,7 @@ function lineWash(line: Line): Style | undefined {
  */
 function paintLine(line: Line, paint: LinePaint): string {
   const wash = lineWash(line);
-  let out = paint.cursor ? `${sgr("1;36")}❯` : `${RESET} `;
+  let out = paint.cursor ? `${sgr("1;36")}❯` : paint.selected ? `${sgr("1;36")}▎` : `${RESET} `;
   if (paint.signs) {
     const sign = wash === undefined ? undefined : PAINT[wash].sign;
     out +=
@@ -174,9 +178,12 @@ export function paintPage(state: PageState, width: number, height: number, depth
     if (spans === undefined) {
       break;
     }
+    const anchor = state.anchor;
     rows.push(
       paintLine(spans, {
         cursor: row === state.cursor,
+        selected:
+          anchor !== undefined && Math.min(anchor, state.cursor) <= row && row <= Math.max(anchor, state.cursor),
         folded: state.folded.has(line),
         signs,
         width,

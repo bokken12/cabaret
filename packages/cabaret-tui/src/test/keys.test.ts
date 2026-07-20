@@ -22,12 +22,12 @@ test("keyName declines what the keymap cannot spell", () => {
   expect(keyName({ sequence: "ab" })).toBeUndefined();
 });
 
-test("mouseEvent reads SGR clicks and wheels, declining the rest", () => {
-  expect(mouseEvent("\x1b[<0;12;3M")).toEqual({ kind: "click", x: 12, y: 3 });
+test("mouseEvent reads SGR presses, drags, releases, and wheels, declining the rest", () => {
+  expect(mouseEvent("\x1b[<0;12;3M")).toEqual({ kind: "press", x: 12, y: 3 });
+  expect(mouseEvent("\x1b[<32;12;4M")).toEqual({ kind: "drag", x: 12, y: 4 });
+  expect(mouseEvent("\x1b[<0;12;4m")).toEqual({ kind: "release", x: 12, y: 4 });
   expect(mouseEvent("\x1b[<64;5;5M")).toEqual({ kind: "wheel", delta: -1 });
   expect(mouseEvent("\x1b[<65;5;5M")).toEqual({ kind: "wheel", delta: 1 });
-  expect(mouseEvent("\x1b[<0;12;3m")).toBeUndefined();
   expect(mouseEvent("\x1b[<2;12;3M")).toBeUndefined();
-  expect(mouseEvent("\x1b[<32;12;3M")).toBeUndefined();
   expect(mouseEvent("q")).toBeUndefined();
 });

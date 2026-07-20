@@ -11,6 +11,7 @@ export type Command =
   | "review"
   | "diffs"
   | "mark"
+  | "select"
   | "step-up"
   | "step-down"
   | "step-outside"
@@ -71,6 +72,7 @@ export const KEYMAP: readonly Binding[] = [
     pages: ["diff", "review"],
     counterpart: "cabaret.markReviewed",
   },
+  { keys: ["V"], command: "select", label: "Select Changes", pages: ["home"] },
   { keys: ["^"], command: "step-up", label: "Step Up", pages: ["diff", "show"], counterpart: "cabaret.stepUp" },
   { keys: ["$"], command: "step-down", label: "Step Down", pages: ["diff", "show"], counterpart: "cabaret.stepDown" },
   {
