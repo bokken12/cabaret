@@ -610,14 +610,14 @@ export class GitBackend implements Backend {
 
   async syncLogs(): Promise<readonly ChangeName[]> {
     await this.fetchLogs();
+    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
     const names = new Set<ChangeName>();
-    for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
-      const out = await git(this.root, ["for-each-ref", "--format=%(refname)", prefix]);
-      for (const line of out.split("\n")) {
-        if (line !== "") {
-          names.add(parseBranchName(line.slice(prefix.length)));
-        }
+    for (const line of out.split("\n")) {
+      if (line === "") {
+        continue;
       }
+      const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
+      names.add(parseBranchName(line.slice(prefix.length)));
     }
     const changes = [...names].sort();
     await this.publishLogs(changes);
