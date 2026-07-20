@@ -17,7 +17,7 @@ test("a user error prints its message bare: no prefix, no stack trace", async ()
 
 test("a name the repository's grammar rejects names the reason", async () => {
   const repo = await makeRepo();
-  expect(await repo.cabaret("log", "bad..name")).toEqual({
+  expect(await repo.cabaret("dev", "log", "bad..name")).toEqual({
     stdout: "",
     stderr: 'not a valid branch name: "bad..name"\n',
     exitCode: 1,

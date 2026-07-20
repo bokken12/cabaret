@@ -19,7 +19,7 @@ test("create makes a new branch at the parent's tip and initializes its log", as
   expect(await repo.git("rev-parse", "feature")).toBe(tip);
   // The current branch is adopted as the parent, not switched away from.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("main");
-  expect(await repo.cabaret("log", "feature")).toEqual({
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
@@ -38,7 +38,7 @@ test("create adopts an existing branch, based where it left the parent", async (
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "feature work");
   expect(await repo.cabaret("create", "main", "--parent", "trunk")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("log", "main")).toEqual({
+  expect(await repo.cabaret("dev", "log", "main")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -57,7 +57,7 @@ test("create --owner records the given owner instead of the creator", async () =
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log", "feature")).toEqual({
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
@@ -71,13 +71,13 @@ test("create --owner records the given owner instead of the creator", async () =
 test("create fails when the change already exists", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature");
-  const before = await repo.cabaret("log", "feature");
+  const before = await repo.cabaret("dev", "log", "feature");
   expect(await repo.cabaret("create", "feature")).toEqual({
     stdout: "",
     stderr: 'change already exists: "feature"\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log", "feature")).toEqual(before);
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
 });
 
 test("create fails when the parent branch does not exist, creating nothing", async () => {
@@ -88,7 +88,7 @@ test("create fails when the parent branch does not exist, creating nothing", asy
     exitCode: 1,
   });
   expect(await repo.git("branch", "--list", "feature")).toBe("");
-  expect(await repo.cabaret("log", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("create fails without a git identity, leaving no branch behind", async () => {
@@ -126,7 +126,7 @@ test("create bases a new change on origin's copy of a parent that is merely behi
   // position and stays put.
   expect(await repo.git("rev-parse", "widgets")).toBe(originMain);
   expect(await repo.git("rev-parse", "main")).toBe(localMain);
-  expect(await repo.cabaret("log", "widgets")).toEqual({
+  expect(await repo.cabaret("dev", "log", "widgets")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${originMain}"}}\n` +
@@ -154,7 +154,7 @@ test("create refuses a diverged parent, creating nothing", async () => {
     exitCode: 1,
   });
   expect(await repo.git("branch", "--list", "widgets")).toBe("");
-  expect(await repo.cabaret("log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("create accepts a parent held only at origin", async () => {
@@ -184,7 +184,7 @@ test("create adopts a branch held only at origin, leaving it unmaterialized", as
   // Adopted reading origin's copy — based where it left main — with the
   // branch appearing only on engagement, like an imported change.
   expect(await repo.git("branch", "--list", "gadget")).toBe("");
-  expect(await repo.cabaret("log", "gadget")).toEqual({
+  expect(await repo.cabaret("dev", "log", "gadget")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -212,5 +212,5 @@ test("create refuses adopting a branch whose readings have diverged", async () =
     stderr: 'local "gadget" has diverged from origin\'s copy; sync it first\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

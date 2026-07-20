@@ -400,6 +400,20 @@ FLAGS
 ARGUMENTS
   change  name for the new change
 
+### cabaret dev log
+
+USAGE
+  cabaret dev log [<change>]
+  cabaret dev log --help
+
+Dump a change's raw log
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to inspect (defaults to current)
+
 ### cabaret dev wipe
 
 USAGE
@@ -480,20 +494,6 @@ FLAGS
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to land (defaults to current)
-
-## cabaret log
-
-USAGE
-  cabaret log [<change>]
-  cabaret log --help
-
-Show a log of actions on a change
-
-FLAGS
-  -h --help  Print help information and exit
-
-ARGUMENTS
-  [change]  change to inspect (defaults to current)
 
 ## cabaret mark
 

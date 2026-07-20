@@ -21,7 +21,6 @@ import { fetch } from "./commands/fetch.js";
 import { forget } from "./commands/forget.js";
 import { home } from "./commands/home.js";
 import { land } from "./commands/land.js";
-import { log } from "./commands/log.js";
 import { mark } from "./commands/mark.js";
 import { rebase } from "./commands/rebase.js";
 import { rename } from "./commands/rename.js";
@@ -74,7 +73,6 @@ const routes = buildRouteMap({
     forget,
     home,
     land,
-    log,
     mark,
     rebase,
     rename,

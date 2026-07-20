@@ -21,7 +21,7 @@ test("reviewers add and remove append entries, latest per user winning", async (
   });
   await repo.cabaret("reviewers", "add", "carol@example.com", "--change", "feature");
   await repo.cabaret("reviewers", "remove", "bob@example.com", "--change", "feature");
-  expect(await repo.cabaret("log", "feature")).toMatchInlineSnapshot(`
+  expect(await repo.cabaret("dev", "log", "feature")).toMatchInlineSnapshot(`
     {
       "exitCode": 0,
       "stderr": "",
@@ -114,7 +114,7 @@ test("sync requests local reviewers on the forge and records the observation", a
     exitCode: 0,
   });
   expect((await forge.getChange(PR)).reviewers).toEqual(["github:bob"]);
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"add-reviewer","reviewer":"github:bob"}',
   );
   // The request was observed once: syncing again moves nothing.

@@ -174,7 +174,7 @@ test("sync absorbs a forge-side close as an archive instead of reopening", async
     exitCode: 0,
   });
   expect((await forge.getChange(PR)).state).toBe("closed");
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
   );
 });
