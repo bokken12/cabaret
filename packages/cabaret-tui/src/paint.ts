@@ -28,6 +28,8 @@ const PAINT: { readonly [S in Style]: StylePaint } = {
   "removed-word": { tc: "48;2;120;40;40", lo: "48;5;88", wash: false },
   hunk: { tc: "48;2;42;46;54", lo: "48;5;237", wash: true },
   context: { tc: "2", lo: "2", wash: false },
+  ready: { tc: "38;2;63;185;80", lo: "32", wash: false },
+  blocked: { tc: "38;2;248;81;73", lo: "31", wash: false },
   "old-diff-removed": { tc: "48;2;84;46;22", lo: "48;5;94", wash: true, sign: "--" },
   "old-diff-added": { tc: "48;2;64;70;20", lo: "48;5;58", wash: true, sign: "-+" },
   "old-diff-context": { tc: "48;2;52;48;30", lo: "48;5;239", wash: true, sign: "- " },

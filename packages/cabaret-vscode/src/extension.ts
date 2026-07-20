@@ -1474,6 +1474,13 @@ function createDecorations(): StyleDecorations {
       isWholeLine: true,
     }),
     context: vscode.window.createTextEditorDecorationType({ opacity: "0.6" }),
+    // Status foregrounds recolor the text itself: a table cell, not a wash.
+    ready: vscode.window.createTextEditorDecorationType({
+      color: new vscode.ThemeColor("cabaret.readyForeground"),
+    }),
+    blocked: vscode.window.createTextEditorDecorationType({
+      color: new vscode.ThemeColor("cabaret.blockedForeground"),
+    }),
     // Non-breaking spaces keep the outer sign in its column when the inner
     // position is blank (a context line of just one diff).
     "old-diff-removed": ddiff("removed", "old", "--"),
@@ -1508,6 +1515,8 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
       "removed-word": [],
       hunk: [],
       context: [],
+      ready: [],
+      blocked: [],
       "old-diff-removed": [],
       "old-diff-added": [],
       "old-diff-context": [],

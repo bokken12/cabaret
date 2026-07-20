@@ -70,6 +70,7 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
+  const rusty = summary("rusty", { conflicts: files("rusty.ts"), nextStep: "fix conflicts" });
   const doc = homeDoc({
     as: undefined,
     review: [
@@ -77,6 +78,7 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     ],
     owned: [
       { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
+      { summary: rusty, context: false, children: [] },
       { summary: widgets, context: false, children: [] },
     ],
     broken: [],
@@ -96,21 +98,22 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬───────────╮
-    │ change   │ next step │
-    ├──────────┼───────────┤
-    │ gadget   │ landed    │
-    │ └─ gizmo │ review    │
-    │ widgets  │ land      │
-    ╰──────────┴───────────╯"
+    ╭──────────┬───────────────╮
+    │ change   │ next step     │
+    ├──────────┼───────────────┤
+    │ gadget   │ landed        │
+    │ └─ gizmo │ review        │
+    │ rusty    │ fix conflicts │
+    │ widgets  │ land          │
+    ╰──────────┴───────────────╯"
   `);
   // Each section folds down to its heading, and within each table gadget's
   // subtree folds down to gadget's own row.
   expect(foldTexts(doc)).toEqual([
     ["Changes to review:", "╰──────────┴────────╯"],
     ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
-    ["Changes you own:", "╰──────────┴───────────╯"],
-    ["│ gadget   │ landed    │", "│ └─ gizmo │ review    │"],
+    ["Changes you own:", "╰──────────┴───────────────╯"],
+    ["│ gadget   │ landed        │", "│ └─ gizmo │ review        │"],
   ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -129,9 +132,20 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
   ]);
   expect(styled("│ └─ gizmo │      2 │")).toEqual([]);
-  expect(styled("│ gadget   │ landed    │")).toEqual([
+  expect(styled("│ gadget   │ landed        │")).toEqual([
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
     { text: "landed", style: "context", target: undefined, tier: undefined },
+  ]);
+  // The steps where action matters most catch the eye — the change's name
+  // in the same paint as its step: a change ready to land, and conflicts
+  // blocking the work stacked on it.
+  expect(styled("│ widgets  │ land          │")).toEqual([
+    { text: "widgets", style: "ready", target: { kind: "change", change: "widgets" }, tier: "link" },
+    { text: "land", style: "ready", target: { kind: "action", change: "widgets", action: "land" }, tier: "link" },
+  ]);
+  expect(styled("│ rusty    │ fix conflicts │")).toEqual([
+    { text: "rusty", style: "blocked", target: { kind: "change", change: "rusty" }, tier: "link" },
+    { text: "fix conflicts", style: "blocked", target: undefined, tier: undefined },
   ]);
 });
 
@@ -761,9 +775,10 @@ test("next steps an action performs link to running it, the rest staying bare", 
     { text: "gizmo", style: undefined, target: { kind: "change", change: "gizmo" }, tier: "link" },
     { text: "rebase", style: undefined, target: { kind: "action", change: "gizmo", action: "rebase" }, tier: "link" },
   ]);
-  // Fixing conflicts is work done by hand, so the step offers nothing to run.
+  // Fixing conflicts is work done by hand, so the step offers nothing to run;
+  // the name still wears the step's blocked paint.
   expect(targeted("fix conflicts")).toEqual([
-    { text: "widgets", style: undefined, target: { kind: "change", change: "widgets" }, tier: "link" },
+    { text: "widgets", style: "blocked", target: { kind: "change", change: "widgets" }, tier: "link" },
   ]);
   const show = showDoc({
     as: undefined,

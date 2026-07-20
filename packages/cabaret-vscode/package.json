@@ -102,6 +102,26 @@
           "highContrast": "#76e3ea",
           "highContrastLight": "#1b7c83"
         }
+      },
+      {
+        "id": "cabaret.readyForeground",
+        "description": "Text of a status whose obligations are all met, like a change ready to land",
+        "defaults": {
+          "dark": "#3fb950",
+          "light": "#1a7f37",
+          "highContrast": "#3fb950",
+          "highContrastLight": "#1a7f37"
+        }
+      },
+      {
+        "id": "cabaret.blockedForeground",
+        "description": "Text of a status gating work until mended, like unresolved conflicts",
+        "defaults": {
+          "dark": "#f85149",
+          "light": "#cf222e",
+          "highContrast": "#f85149",
+          "highContrastLight": "#cf222e"
+        }
       }
     ],
     "commands": [
