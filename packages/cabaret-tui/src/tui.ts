@@ -7,6 +7,7 @@ import {
   createChange,
   currentArchived,
   currentParent,
+  currentSelf,
   type Forge,
   fetchForge,
   fetchLocal,
@@ -117,6 +118,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
       const entries = await backend.readLog(change);
       return entries.length === 0 ? undefined : currentParent(change, entries);
     },
+    self: () => currentSelf(backend),
     children: async (change) => {
       const all = await backend.listChanges();
       const parents = await mapConcurrent(all, READ_CONCURRENCY, async (other) => ({

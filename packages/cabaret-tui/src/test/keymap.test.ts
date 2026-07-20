@@ -13,7 +13,7 @@ const manifest = JSON.parse(
 ) as Manifest;
 
 /** VS Code commands the TUI does not answer yet; drift past this list fails the test. */
-const PENDING = new Set(["cabaret.stepOutside", "cabaret.stepUp", "cabaret.stepDown", "cabaret.actAs"]);
+const PENDING = new Set<string>([]);
 
 /** `shift+<key>` chords, spelled as the character the shift produces on a US layout. */
 const SHIFTED: Readonly<Record<string, string>> = {
@@ -27,6 +27,9 @@ const SHIFTED: Readonly<Record<string, string>> = {
 /** A VS Code chord as the TUI names its keys: `shift+1 r b` becomes `! r b`. */
 function tuiKeys(key: string): readonly string[] {
   return key.split(" ").map((stroke) => {
+    if (stroke === "escape") {
+      return "esc";
+    }
     const shifted = /^shift\+(.+)$/.exec(stroke)?.[1];
     if (shifted === undefined) {
       return stroke;

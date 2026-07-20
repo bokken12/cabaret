@@ -11,8 +11,10 @@ export type Command =
   | "review"
   | "diffs"
   | "mark"
-  | "show-parent"
-  | "show-child"
+  | "step-up"
+  | "step-down"
+  | "step-outside"
+  | "act-as"
   | "rebase"
   | "land"
   | "rename"
@@ -69,10 +71,18 @@ export const KEYMAP: readonly Binding[] = [
     pages: ["diff", "review"],
     counterpart: "cabaret.markReviewed",
   },
-  { keys: ["^"], command: "show-parent", label: "Show Parent", pages: ["show"] },
-  { keys: ["$"], command: "show-child", label: "Show Child", pages: ["show"] },
+  { keys: ["^"], command: "step-up", label: "Step Up", pages: ["diff", "show"], counterpart: "cabaret.stepUp" },
+  { keys: ["$"], command: "step-down", label: "Step Down", pages: ["diff", "show"], counterpart: "cabaret.stepDown" },
+  {
+    keys: ["esc"],
+    command: "step-outside",
+    label: "Step Outside",
+    pages: ["diff", "diffs", "review", "show"],
+    counterpart: "cabaret.stepOutside",
+  },
+  { keys: ["@"], command: "act-as", label: "Act as User", counterpart: "cabaret.actAs" },
   { keys: ["!", "r", "b"], command: "rebase", label: "Rebase", pages: ACTION_PAGES, counterpart: "cabaret.rebase" },
-  { keys: ["!", "l", "a"], command: "land", label: "Land", counterpart: "cabaret.land" },
+  { keys: ["!", "l"], command: "land", label: "Land", counterpart: "cabaret.land" },
   { keys: ["!", "r", "n"], command: "rename", label: "Rename", pages: ACTION_PAGES, counterpart: "cabaret.rename" },
   {
     keys: ["!", "r", "p"],

@@ -7,6 +7,7 @@ import {
   parseCommitHash,
   parseFilePath,
   UnsatisfiedObligationsError,
+  type UserName,
   userName,
 } from "cabaret-core";
 import { type ChangeSnapshot, type Doc, layout, type Page, pagePath, section, span } from "cabaret-views";
@@ -103,6 +104,7 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
     mark: unavailable("marking"),
     parent: () => Promise.resolve(undefined),
     children: () => Promise.resolve([]),
+    self: () => Promise.resolve({ user: userName("alice@example.com"), aliases: new Set<UserName>() }),
     rebase: unavailable("rebasing"),
     land: unavailable("landing"),
     rename: unavailable("renaming"),
@@ -480,7 +482,7 @@ test("landing past unsatisfied obligations asks once and reports the land", asyn
     },
   });
   await app.open({ kind: "show", change: widgets });
-  await keys("!", "l", "a");
+  await keys("!", "l");
   expect(screen()).toContain("Review obligations are unsatisfied. Land anyway? y/n");
   await keys("y");
   expect(calls).toEqual([
@@ -488,4 +490,43 @@ test("landing past unsatisfied obligations asks once and reports the land", asyn
     { change: widgets, notOwner: false, unreviewed: true, parentUnreviewed: false },
   ]);
   expect(screen()).toContain("landed widgets");
+});
+
+test("$ and ^ step a diff page along its round; the ends report", async () => {
+  const snapshot = reviewState([api, ui]);
+  const { app, keys, screen } = harness({}, (page) => (page.kind === "diff" ? { snapshot } : {}));
+  await app.open({ kind: "diff", change: widgets, file: api });
+  await keys("^");
+  expect(screen()).toContain("api.ts is the round's first file");
+  await keys("$");
+  expect(screen()).toContain("/cabaret/diff/widgets:ui.ts");
+  await keys("^");
+  expect(screen()).toContain("/cabaret/diff/widgets:api.ts");
+});
+
+test("esc steps outside: diff to review to show to home, then dissolves", async () => {
+  const snapshot = reviewState([api]);
+  const { app, keys, screen } = harness({}, (page) => (page.kind === "diff" ? { snapshot } : {}));
+  await app.open({ kind: "diff", change: widgets, file: api });
+  await keys("esc");
+  expect(screen()).toContain("/cabaret/review/widgets");
+  await keys("esc");
+  expect(screen()).toContain("/cabaret/show/widgets");
+  await keys("esc", "esc");
+  expect(screen()).toContain("/cabaret/home");
+  expect(screen()).not.toContain("undefined");
+});
+
+test("@ swaps the page to a typed identity and back to oneself", async () => {
+  const { app, keys, screen } = harness();
+  await app.open({ kind: "show", change: widgets });
+  await keys("@");
+  expect(screen()).toContain("Act as (currently alice@example.com)");
+  // Option 2 is "someone else": type bob in.
+  await keys("2");
+  await keys("b", "o", "b", "enter");
+  expect(screen()).toContain("/as/bob/cabaret/show/widgets");
+  await keys("@", "1");
+  expect(screen()).toContain("/cabaret/show/widgets");
+  expect(screen()).not.toContain("/as/");
 });
