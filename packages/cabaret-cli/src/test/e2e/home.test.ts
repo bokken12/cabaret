@@ -372,6 +372,8 @@ test("your own forge change joins the changes you own through the recorded alias
     ├────────┼──────┤
     │ main   │      │
     ╰────────┴──────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });

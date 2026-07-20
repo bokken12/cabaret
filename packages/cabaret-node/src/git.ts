@@ -515,7 +515,10 @@ export class GitBackend implements Backend {
   }
 
   async fetchOrigin(): Promise<void> {
-    await git(this.root, ["fetch", "--quiet", "origin"]);
+    // One fetch brings branches and logs alike. The log refspec goes in as
+    // config because a command-line refspec would replace the configured
+    // ones; `-c` adds a value to the multi-valued key instead.
+    await git(this.root, ["-c", `remote.origin.fetch=${LOG_FETCH_REFSPEC}`, "fetch", "--quiet", "origin"]);
   }
 
   async originFetched(): Promise<TimestampMs | undefined> {
@@ -604,12 +607,10 @@ export class GitBackend implements Backend {
   }
 
   async syncLog(change: ChangeName): Promise<void> {
-    await this.fetchLogs();
     await this.publishLogs([change]);
   }
 
   async syncLogs(): Promise<readonly ChangeName[]> {
-    await this.fetchLogs();
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
     const names = new Set<ChangeName>();
     for (const line of out.split("\n")) {

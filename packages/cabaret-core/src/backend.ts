@@ -651,8 +651,8 @@ export interface Backend {
   fetch(change: ChangeName): Promise<void>;
 
   /**
-   * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
-   * Moves no local branch.
+   * Refresh origin's last-fetched copies wholesale — branches (what
+   * `originTip` reads) and change logs alike. Moves no local branch.
    */
   fetchOrigin(): Promise<void>;
 
@@ -668,16 +668,19 @@ export interface Backend {
   advanceBranches(): Promise<readonly ChangeName[]>;
 
   /**
-   * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
-   * it with the local log as `mergeLogs` does, and push the result. Either
+   * Sync `change`'s log with the `origin` remote: merge origin's last-fetched
+   * log with the local one as `mergeLogs` does, and push the result. Either
    * side may be missing; syncing is how a change's review state reaches other
-   * machines.
+   * machines. Reads last-fetched logs; `fetchOrigin` first to absorb fresh
+   * entries — a push landing on a ref origin moved re-fetches and converges,
+   * so no appended entry is ever lost to staleness.
    */
   syncLog(change: ChangeName): Promise<void>;
 
   /**
-   * Sync every log with the `origin` remote — every change with a log here,
-   * there, or both — and return their names, sorted.
+   * Sync every log with the `origin` remote — every change with a log here or
+   * fetched from there — and return their names, sorted. Reads last-fetched
+   * logs, as `syncLog` does.
    */
   syncLogs(): Promise<readonly ChangeName[]>;
 
