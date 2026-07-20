@@ -1,4 +1,16 @@
-import { type ChangeName, type FilePath, NotReviewingError, type Revision } from "cabaret-core";
+import {
+  type ChangeName,
+  DirtyWorkspaceError,
+  DivergedParentError,
+  type FilePath,
+  type LandOverrides,
+  NotOwnerError,
+  NotReviewingError,
+  type RebaseOverrides,
+  type Revision,
+  UnreviewedParentError,
+  UnsatisfiedObligationsError,
+} from "cabaret-core";
 import {
   type ChangeSnapshot,
   type Doc,
@@ -50,6 +62,33 @@ export interface Effects {
   parent(change: ChangeName): Promise<ChangeName | undefined>;
   /** The changes whose current parent is `change`, sorted. */
   children(change: ChangeName): Promise<readonly ChangeName[]>;
+  /** Rebase the change onto its parent's current tip. */
+  rebase(change: ChangeName, overrides: RebaseOverrides): Promise<void>;
+  /** Land the change into its parent as configured. */
+  land(change: ChangeName, overrides: LandOverrides): Promise<void>;
+  rename(from: ChangeName, to: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
+  reparent(change: ChangeName, parent: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
+  setOwner(change: ChangeName, owner: string, evenThoughNotOwner: boolean): Promise<void>;
+  /** Widen reviewing one notch; resolves to the set it landed on. */
+  widenReviewing(change: ChangeName): Promise<string>;
+  disableReviewing(change: ChangeName): Promise<void>;
+  /** Flip the change's archived state; resolves to whether it is archived now. */
+  toggleArchived(change: ChangeName): Promise<boolean>;
+  /** Bring the change into a workspace; resolves to a report for the status row. */
+  gotoWorkspace(change: ChangeName, evenThoughDirty: boolean): Promise<string>;
+  /** Create a workspace for the change; resolves to its path. */
+  addWorkspace(change: ChangeName): Promise<string>;
+  /** Remove the change's workspace; resolves to the removed path. */
+  removeWorkspace(change: ChangeName, evenThoughDirty: boolean): Promise<string>;
+  create(name: ChangeName, parent: ChangeName): Promise<void>;
+  /** Every change a reparent could target. */
+  changes(): Promise<readonly ChangeName[]>;
+  /** Parse a change name, throwing the grammar's complaint. */
+  parseName(raw: string): ChangeName;
+  /** Fetch remote activity; resolves to a report for the status row. */
+  fetch(): Promise<string>;
+  /** Sync the change with origin and the forge; resolves to a report. */
+  sync(change: ChangeName): Promise<string>;
 }
 
 interface View {
@@ -79,6 +118,13 @@ interface Choice {
   readonly proceed: (index: number) => Promise<void> | void;
 }
 
+/** A line of text pending on the status row; enter submits, esc abandons. */
+interface Input {
+  readonly prompt: string;
+  buffer: string;
+  readonly submit: (raw: string) => Promise<void> | void;
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -96,6 +142,7 @@ export class App {
   private overlay: readonly string[] | undefined;
   private question: Question | undefined;
   private choice: Choice | undefined;
+  private input: Input | undefined;
   /** Per displayed diff, the round ends it was shown up to: evidence for mark's viewed check. */
   private readonly displayedEnds = new Map<string, Set<Revision>>();
 
@@ -125,6 +172,18 @@ export class App {
     this.repaint();
   }
 
+  /** Replace `view` with `page`: the new page renders first, so a failed render keeps the old one. */
+  private async replace(view: View, page: Page): Promise<void> {
+    const size = this.stack.length;
+    await this.open(page);
+    if (this.stack.length > size) {
+      const index = this.stack.indexOf(view);
+      if (index !== -1) {
+        this.stack.splice(index, 1);
+      }
+    }
+  }
+
   /** Feed one named key; resolves to whether the TUI lives on. */
   async handleKey(key: string): Promise<"continue" | "quit"> {
     const current = this.current();
@@ -132,6 +191,7 @@ export class App {
     if (this.question !== undefined) {
       const question = this.question;
       this.question = undefined;
+      this.overlay = undefined;
       if (key === "y" || key === "Y") {
         await question.proceed();
       }
@@ -144,6 +204,27 @@ export class App {
       const index = CHOICE_KEYS.indexOf(key);
       if (index !== -1 && index < choice.options.length) {
         await choice.proceed(index);
+      }
+      this.repaint();
+      return "continue";
+    }
+    if (this.input !== undefined) {
+      const input = this.input;
+      if (key === "esc") {
+        this.input = undefined;
+      } else if (key === "enter") {
+        this.input = undefined;
+        try {
+          await input.submit(input.buffer);
+        } catch (error) {
+          this.note = message(error);
+        }
+      } else if (key === "backspace") {
+        input.buffer = input.buffer.slice(0, -1);
+      } else if (key === "space") {
+        input.buffer += " ";
+      } else if ([...key].length === 1) {
+        input.buffer += key;
       }
       this.repaint();
       return "continue";
@@ -198,11 +279,13 @@ export class App {
       content.splice(height - shown.length, shown.length, ...shown);
     }
     const right =
-      this.question !== undefined
-        ? `${this.question.text} y/n`
-        : this.pending.length > 0
-          ? this.pending.join(" ")
-          : (this.note ?? "");
+      this.input !== undefined
+        ? `${this.input.prompt}: ${this.input.buffer}\u2590`
+        : this.question !== undefined
+          ? `${this.question.text} y/n`
+          : this.pending.length > 0
+            ? this.pending.join(" ")
+            : (this.note ?? "");
     this.terminal.render([...content, paintStatus(pagePath(current.page), right, width)]);
   }
 
@@ -291,6 +374,129 @@ export class App {
       case "mark":
         await this.markAtCursor(view);
         return "continue";
+      case "rebase": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.rebaseFlow(change, { notOwner: false, parentDiverged: false });
+        }
+        return "continue";
+      }
+      case "land": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.landFlow(change, { notOwner: false, unreviewed: false, parentUnreviewed: false });
+        }
+        return "continue";
+      }
+      case "rename": {
+        const from = this.actionChange(view);
+        if (from !== undefined) {
+          this.input = { prompt: `Rename ${from}`, buffer: from, submit: (raw) => this.renameFlow(view, from, raw) };
+        }
+        return "continue";
+      }
+      case "reparent": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.reparentPick(change);
+        }
+        return "continue";
+      }
+      case "set-owner": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          this.input = {
+            prompt: `New owner for ${change}`,
+            buffer: "",
+            submit: (raw) => {
+              if (raw === "") {
+                this.note = "owner must be nonempty";
+                return;
+              }
+              return this.ownedFlow("Set owner", (override) => this.effects.setOwner(change, raw, override));
+            },
+          };
+        }
+        return "continue";
+      }
+      case "widen-reviewing": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.widenFlow(change);
+        }
+        return "continue";
+      }
+      case "disable-reviewing": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.attempt(async () => {
+            await this.effects.disableReviewing(change);
+            return `${change} reviewing none`;
+          });
+        }
+        return "continue";
+      }
+      case "toggle-archived": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.attempt(async () => {
+            const archived = await this.effects.toggleArchived(change);
+            return `${change} ${archived ? "archived" : "unarchived"}`;
+          });
+        }
+        return "continue";
+      }
+      case "goto-workspace": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.gotoFlow(change, false);
+        }
+        return "continue";
+      }
+      case "add-workspace": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.attempt(async () => `workspace at ${await this.effects.addWorkspace(change)}`);
+        }
+        return "continue";
+      }
+      case "remove-workspace": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.removeWorkspaceFlow(change, false);
+        }
+        return "continue";
+      }
+      case "create-child": {
+        const parent = this.actionChange(view);
+        if (parent !== undefined) {
+          this.input = {
+            prompt: `Name for a child of ${parent}`,
+            buffer: "",
+            submit: (raw) => this.createFlow(raw, parent),
+          };
+        }
+        return "continue";
+      }
+      case "create-parent": {
+        const child = this.actionChange(view);
+        if (child !== undefined) {
+          await this.createParentPrompt(child);
+        }
+        return "continue";
+      }
+      case "fetch":
+        this.note = "fetching\u2026";
+        this.repaint();
+        await this.attempt(() => this.effects.fetch());
+        return "continue";
+      case "sync": {
+        const change = this.actionChange(view);
+        if (change !== undefined) {
+          await this.syncFlow(change);
+        }
+        return "continue";
+      }
       case "show-parent":
         await this.showParent(view);
         return "continue";
@@ -360,7 +566,23 @@ export class App {
         this.note = await this.effects.openUrl(target.url);
         break;
       case "action":
-        this.note = `${target.action} is not yet available here; run it from the CLI`;
+        switch (target.action) {
+          case "sync":
+            await this.syncFlow(target.change);
+            break;
+          case "rebase":
+            await this.rebaseFlow(target.change, { notOwner: false, parentDiverged: false });
+            break;
+          case "reparent":
+            await this.reparentPick(target.change);
+            break;
+          case "widen reviewing":
+            await this.widenFlow(target.change);
+            break;
+          case "land":
+            await this.landFlow(target.change, { notOwner: false, unreviewed: false, parentUnreviewed: false });
+            break;
+        }
         break;
     }
   }
@@ -456,8 +678,8 @@ export class App {
     if (view.page.kind === "diff") {
       // The marked page has served its purpose: move on to the round's
       // next file, or back to the review page when the round is done.
-      this.stack.pop();
-      await this.open(
+      await this.replace(
+        view,
         result.next === undefined
           ? { kind: "review", change: view.page.change, as: view.page.as }
           : { kind: "diff", change: view.page.change, file: result.next, as: view.page.as },
@@ -465,6 +687,277 @@ export class App {
     } else {
       await this.refresh(view);
     }
+  }
+
+  /**
+   * The change an action at the cursor applies to: the page's own change on
+   * change-scoped pages, the cursor line's on home. Reports when there is
+   * none.
+   */
+  private actionChange(view: View): ChangeName | undefined {
+    if (view.page.kind !== "home") {
+      return view.page.change;
+    }
+    const target = this.cursorTarget(view);
+    if (target?.kind === "change") {
+      return target.change;
+    }
+    this.note = "no change at the cursor";
+    return undefined;
+  }
+
+  /**
+   * Run an action to completion: re-render, then report its note — or, when
+   * `overridable` recognizes the failure, ask and leave the retry to the
+   * answer, mirroring the CLI's --even-though-* flags.
+   */
+  private async attempt(
+    op: () => Promise<string | undefined>,
+    overridable?: (error: unknown) => { readonly question: string; readonly retry: () => Promise<void> } | undefined,
+  ): Promise<void> {
+    let note: string | undefined;
+    try {
+      note = await op();
+    } catch (error) {
+      const override = overridable?.(error);
+      if (override !== undefined) {
+        this.ask(override.question, override.retry);
+        return;
+      }
+      await this.refreshAll();
+      this.note = message(error);
+      return;
+    }
+    await this.refreshAll();
+    if (note !== undefined) {
+      this.note = note;
+    }
+  }
+
+  /** Run an owner-guarded action, asking past ownership like --even-though-not-owner. */
+  private ownedFlow(verb: string, op: (override: boolean) => Promise<void>, overridden = false): Promise<void> {
+    return this.attempt(
+      async () => {
+        await op(overridden);
+        return undefined;
+      },
+      (error) =>
+        error instanceof NotOwnerError && !overridden
+          ? {
+              question: `${error.change} is owned by ${error.owner}, not you. ${verb} anyway?`,
+              retry: () => this.ownedFlow(verb, op, true),
+            }
+          : undefined,
+    );
+  }
+
+  /** Rebase, asking past each overridable check it trips. */
+  private rebaseFlow(change: ChangeName, overrides: RebaseOverrides): Promise<void> {
+    return this.attempt(
+      async () => {
+        await this.effects.rebase(change, overrides);
+        return undefined;
+      },
+      (error) => {
+        if (error instanceof NotOwnerError && !overrides.notOwner) {
+          return {
+            question: `${error.change} is owned by ${error.owner}, not you. Rebase anyway?`,
+            retry: () => this.rebaseFlow(change, { ...overrides, notOwner: true }),
+          };
+        }
+        if (error instanceof DivergedParentError && !overrides.parentDiverged) {
+          return {
+            question: `Local ${error.parent} has diverged from origin's copy. Rebase onto the local reading?`,
+            retry: () => this.rebaseFlow(change, { ...overrides, parentDiverged: true }),
+          };
+        }
+        return undefined;
+      },
+    );
+  }
+
+  /** Land, asking past each overridable check it trips. */
+  private landFlow(change: ChangeName, overrides: LandOverrides): Promise<void> {
+    return this.attempt(
+      async () => {
+        await this.effects.land(change, overrides);
+        return `landed ${change}`;
+      },
+      (error) => {
+        if (error instanceof NotOwnerError && !overrides.notOwner) {
+          return {
+            question: `${error.change} is owned by ${error.owner}, not you. Land anyway?`,
+            retry: () => this.landFlow(change, { ...overrides, notOwner: true }),
+          };
+        }
+        if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
+          this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
+          return {
+            question: "Review obligations are unsatisfied. Land anyway?",
+            retry: () => this.landFlow(change, { ...overrides, unreviewed: true }),
+          };
+        }
+        if (error instanceof UnreviewedParentError && !overrides.parentUnreviewed) {
+          this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
+          return {
+            question: `Parent ${error.parent} has unsatisfied review obligations. Land anyway?`,
+            retry: () => this.landFlow(change, { ...overrides, parentUnreviewed: true }),
+          };
+        }
+        return undefined;
+      },
+    );
+  }
+
+  private async renameFlow(view: View, from: ChangeName, raw: string): Promise<void> {
+    if (raw === from) {
+      return;
+    }
+    let to: ChangeName;
+    try {
+      to = this.effects.parseName(raw);
+    } catch (error) {
+      this.note = message(error);
+      return;
+    }
+    await this.ownedFlow("Rename", async (override) => {
+      await this.effects.rename(from, to, override);
+      // A show page names its change, so the renamed one cannot re-render;
+      // replace it with the page under the new name.
+      if (view.page.kind === "show" && view.page.change === from) {
+        await this.replace(view, { kind: "show", change: to, as: view.page.as });
+      }
+    });
+  }
+
+  /**
+   * Pick a new parent for `change` — any other change — then reparent onto
+   * it. A set past the choice alphabet asks for the name by minibuffer
+   * instead.
+   */
+  private async reparentPick(change: ChangeName): Promise<void> {
+    const candidates = (await this.effects.changes()).filter((candidate) => candidate !== change);
+    if (candidates.length === 0) {
+      this.note = "no other change to reparent onto";
+      return;
+    }
+    const onto = (parent: ChangeName): Promise<void> =>
+      this.ownedFlow("Reparent", (override) => this.effects.reparent(change, parent, override));
+    if (candidates.length > CHOICE_KEYS.length) {
+      this.input = {
+        prompt: `New parent for ${change}`,
+        buffer: "",
+        submit: (raw) => {
+          let parent: ChangeName;
+          try {
+            parent = this.effects.parseName(raw);
+          } catch (error) {
+            this.note = message(error);
+            return;
+          }
+          if (!candidates.includes(parent)) {
+            this.note = `${parent} is not another change here`;
+            return;
+          }
+          return onto(parent);
+        },
+      };
+      return;
+    }
+    this.choice = {
+      text: `New parent for ${change}`,
+      options: candidates,
+      proceed: (index) => {
+        const parent = candidates[index];
+        return parent === undefined ? undefined : onto(parent);
+      },
+    };
+  }
+
+  private widenFlow(change: ChangeName): Promise<void> {
+    return this.attempt(async () => `${change} reviewing ${await this.effects.widenReviewing(change)}`);
+  }
+
+  /** Bring the change into a workspace, asking before a checkout lands in a dirty one. */
+  private gotoFlow(change: ChangeName, overridden: boolean): Promise<void> {
+    return this.attempt(
+      () => this.effects.gotoWorkspace(change, overridden),
+      (error) =>
+        error instanceof DirtyWorkspaceError && !overridden
+          ? {
+              question: "This workspace has uncommitted changes. Check out anyway?",
+              retry: () => this.gotoFlow(change, true),
+            }
+          : undefined,
+    );
+  }
+
+  /** Remove the change's workspace, asking before uncommitted changes are discarded. */
+  private removeWorkspaceFlow(change: ChangeName, overridden: boolean): Promise<void> {
+    return this.attempt(
+      async () => `removed ${await this.effects.removeWorkspace(change, overridden)}`,
+      (error) =>
+        error instanceof DirtyWorkspaceError && !overridden
+          ? {
+              question: `The workspace at ${error.path} has uncommitted changes. Discard and remove?`,
+              retry: () => this.removeWorkspaceFlow(change, true),
+            }
+          : undefined,
+    );
+  }
+
+  private async createFlow(raw: string, parent: ChangeName): Promise<void> {
+    let name: ChangeName;
+    try {
+      name = this.effects.parseName(raw);
+    } catch (error) {
+      this.note = message(error);
+      return;
+    }
+    await this.attempt(async () => {
+      await this.effects.create(name, parent);
+      return `created ${name}`;
+    });
+  }
+
+  /**
+   * Splice a new parent in: it takes the child's parent, and the child hangs
+   * from it. Its branch starts at the grandparent's tip, so the child's next
+   * rebase lands where a rebase onto the grandparent would have.
+   */
+  private async createParentPrompt(child: ChangeName): Promise<void> {
+    const grandparent = await this.effects.parent(child);
+    if (grandparent === undefined) {
+      this.note = `${child} has no parent`;
+      return;
+    }
+    this.input = {
+      prompt: `Name for a parent of ${child}`,
+      buffer: "",
+      submit: async (raw) => {
+        let name: ChangeName;
+        try {
+          name = this.effects.parseName(raw);
+        } catch (error) {
+          this.note = message(error);
+          return;
+        }
+        // TODO: check ownership of `child` before creating the parent, so a
+        // declined ownership confirmation does not leave the new change
+        // created but never spliced in.
+        await this.attempt(async () => {
+          await this.effects.create(name, grandparent);
+          return undefined;
+        });
+        await this.ownedFlow("Reparent", (override) => this.effects.reparent(child, name, override));
+      },
+    };
+  }
+
+  private async syncFlow(change: ChangeName): Promise<void> {
+    this.note = `syncing ${change}\u2026`;
+    this.repaint();
+    await this.attempt(() => this.effects.sync(change));
   }
 
   /** Climb to the parent's show page; a trunk parent has a page of its own. */

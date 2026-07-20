@@ -1,7 +1,34 @@
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { emitKeypressEvents } from "node:readline";
-import { type Backend, currentParent, readConfig, type TimestampMs, timestampMs, UserError } from "cabaret-core";
+import {
+  addChangeWorkspace,
+  type Backend,
+  createChange,
+  currentArchived,
+  currentParent,
+  type Forge,
+  fetchForge,
+  fetchLocal,
+  gotoChange,
+  knownChanges,
+  landAsConfigured,
+  readConfig,
+  rebaseChange,
+  removeChangeWorkspace,
+  renameChange,
+  reparentChange,
+  setArchived,
+  setReviewing,
+  syncChange,
+  type TimestampMs,
+  timestampMs,
+  transferChange,
+  UserError,
+  userName,
+  widenReviewing,
+} from "cabaret-core";
+import { NoForgeError, openForge as openRepositoryForge } from "cabaret-node";
 import { mapConcurrent } from "cabaret-util";
 import {
   type ChangeSnapshot,
@@ -69,6 +96,18 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     throw new UserError("the TUI needs an interactive terminal");
   }
   const screen = new Screen(process.stdout);
+  const openForge = (): Promise<Forge> => openRepositoryForge(backend.root);
+  /** The forge when one is configured here; plenty of repositories have none. */
+  const forgeIfAny = async (): Promise<Forge | undefined> => {
+    try {
+      return await openForge();
+    } catch (error) {
+      if (error instanceof NoForgeError) {
+        return undefined;
+      }
+      throw error;
+    }
+  };
   const effects: Effects = {
     visitLocation: (target) => visitLocation(backend, screen, target),
     openUrl,
@@ -88,6 +127,73 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         .filter(({ parent }) => parent === change)
         .map(({ other }) => other)
         .sort();
+    },
+    rebase: async (change, overrides) => {
+      await rebaseChange(backend, now, change, await backend.readLog(change), overrides);
+    },
+    land: async (change, overrides) => {
+      const config = await readConfig(backend);
+      await landAsConfigured(backend, now, openForge, config, change, await backend.readLog(change), overrides);
+    },
+    rename: (from, to, evenThoughNotOwner) => renameChange(backend, from, to, evenThoughNotOwner),
+    reparent: async (change, parent, evenThoughNotOwner) => {
+      await reparentChange(backend, now, change, parent, evenThoughNotOwner);
+    },
+    setOwner: (change, owner, evenThoughNotOwner) =>
+      transferChange(backend, now, change, userName(owner), evenThoughNotOwner),
+    widenReviewing: async (change) => {
+      const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+      return to;
+    },
+    disableReviewing: async (change) => {
+      await setReviewing(backend, now, change, await backend.readLog(change), "none");
+    },
+    toggleArchived: async (change) => {
+      const entries = await backend.readLog(change);
+      const archived = !currentArchived(entries);
+      await setArchived(backend, now, change, entries, archived);
+      return archived;
+    },
+    gotoWorkspace: async (change, evenThoughDirty) => {
+      const config = await readConfig(backend);
+      const result = await gotoChange(backend, config, change, evenThoughDirty);
+      return result.kind === "checked-out"
+        ? `checked out ${change}`
+        : result.path === backend.root
+          ? `${change} is checked out in this workspace`
+          : `${change} is checked out at ${result.path}`;
+    },
+    addWorkspace: (change) => addChangeWorkspace(backend, change),
+    removeWorkspace: (change, evenThoughDirty) => removeChangeWorkspace(backend, change, evenThoughDirty),
+    create: async (name, parent) => {
+      await createChange(backend, now, name, parent);
+    },
+    changes: () => knownChanges(backend),
+    parseName: (raw) => backend.parseName(raw),
+    fetch: async () => {
+      const forge = await forgeIfAny();
+      // Without a forge, the origin half still runs.
+      if (forge === undefined) {
+        const { synced } = await fetchLocal(backend);
+        return `synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin`;
+      }
+      const { open } = await fetchForge(backend, now, forge, () => {});
+      return `fetched ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`;
+    },
+    sync: async (change) => {
+      const forge = await forgeIfAny();
+      const result = await syncChange(backend, now, forge, change);
+      const conflicts = result.joined?.conflicts ?? [];
+      const offline = result.offline ? "; origin unreachable \u2014 sync again online to publish" : "";
+      if (conflicts.length > 0) {
+        return `merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and amend${offline}`;
+      }
+      if (result.offline) {
+        return "origin unreachable; synced locally \u2014 sync again online to publish";
+      }
+      return result.published === undefined
+        ? `synced ${change}`
+        : `synced ${change} to ${forge?.locator}#${result.published.id}`;
     },
   };
   const source: Source = async (target) => {

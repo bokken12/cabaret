@@ -1,10 +1,12 @@
 import {
+  DivergedParentError,
   type FilePath,
   type FileView,
   NotReviewingError,
   parseBranchName,
   parseCommitHash,
   parseFilePath,
+  UnsatisfiedObligationsError,
   userName,
 } from "cabaret-core";
 import { type ChangeSnapshot, type Doc, layout, type Page, pagePath, section, span } from "cabaret-views";
@@ -63,6 +65,10 @@ const pages = new Map<string, Doc>([
   [pagePath({ kind: "show", change: widgets }), show],
   [pagePath({ kind: "show", change: gadgets }), layout([{ spans: [span("gadgets", { style: "heading" })] }])],
   [pagePath({ kind: "show", change: sprockets }), layout([{ spans: [span("sprockets", { style: "heading" })] }])],
+  [
+    pagePath({ kind: "show", change: parseBranchName("widget2") }),
+    layout([{ spans: [span("widget2", { style: "heading" })] }]),
+  ],
   [pagePath({ kind: "review", change: widgets }), reviewList],
   [
     pagePath({ kind: "diff", change: widgets, file: api }),
@@ -90,12 +96,29 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
     depth: "ansi256",
     render: (rows) => frames.push([...rows]),
   };
+  const unavailable = (what: string) => () => Promise.reject(new Error(`no ${what} in this harness`));
   const effects: Effects = {
     visitLocation: () => Promise.resolve("visited"),
     openUrl: () => Promise.resolve(undefined),
-    mark: () => Promise.reject(new Error("no marking in this harness")),
+    mark: unavailable("marking"),
     parent: () => Promise.resolve(undefined),
     children: () => Promise.resolve([]),
+    rebase: unavailable("rebasing"),
+    land: unavailable("landing"),
+    rename: unavailable("renaming"),
+    reparent: unavailable("reparenting"),
+    setOwner: unavailable("owner transfer"),
+    widenReviewing: unavailable("widening"),
+    disableReviewing: unavailable("reviewing"),
+    toggleArchived: unavailable("archiving"),
+    gotoWorkspace: unavailable("workspaces"),
+    addWorkspace: unavailable("workspaces"),
+    removeWorkspace: unavailable("workspaces"),
+    create: unavailable("creating"),
+    changes: () => Promise.resolve([widgets, gadgets, sprockets]),
+    parseName: (raw) => parseBranchName(raw),
+    fetch: unavailable("fetching"),
+    sync: unavailable("syncing"),
     ...overrides,
   };
   const source = (page: Page): Promise<Rendered> => {
@@ -356,4 +379,113 @@ test("$ with several children asks which; a digit picks", async () => {
   expect(screen()).toContain("2  sprockets");
   await keys("2");
   expect(screen()).toContain("/cabaret/show/sprockets");
+});
+
+test("! r b rebases the cursor's change; a stale parent asks and retries with the override", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    rebase: (change, overrides) => {
+      calls.push({ change, ...overrides });
+      return overrides.parentDiverged
+        ? Promise.resolve()
+        : Promise.reject(new DivergedParentError(parseBranchName("main")));
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "!", "r", "b");
+  expect(screen()).toContain("has diverged from origin's copy. Rebase onto the local reading? y/n");
+  await keys("y");
+  expect(calls).toEqual([
+    { change: widgets, notOwner: false, parentDiverged: false },
+    { change: widgets, notOwner: false, parentDiverged: true },
+  ]);
+});
+
+test("! r n renames through the minibuffer, editing the old name in place", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    rename: (from, to, evenThoughNotOwner) => {
+      calls.push({ from, to, evenThoughNotOwner });
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "r", "n");
+  expect(screen()).toContain("Rename widgets: widgets");
+  await keys("backspace", "2", "enter");
+  expect(calls).toEqual([{ from: widgets, to: parseBranchName("widget2"), evenThoughNotOwner: false }]);
+  // The show page follows the change to its new name.
+  expect(screen()).toContain("/cabaret/show/widget2");
+});
+
+test("esc abandons a minibuffer input without acting", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    rename: (from, to) => {
+      calls.push({ from, to });
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "r", "n", "x", "esc", "enter");
+  expect(calls).toEqual([]);
+  expect(screen()).toContain("/cabaret/show/widgets");
+});
+
+test("! r p offers the other changes and reparents onto the pick", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    reparent: (change, parent, evenThoughNotOwner) => {
+      calls.push({ change, parent, evenThoughNotOwner });
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "r", "p");
+  expect(screen()).toContain("New parent for widgets");
+  expect(screen()).toContain("1  gadgets");
+  await keys("2");
+  expect(calls).toEqual([{ change: widgets, parent: sprockets, evenThoughNotOwner: false }]);
+});
+
+test("enter on a rebase action target runs the rebase", async () => {
+  const calls: string[] = [];
+  const actions: Doc = layout([
+    {
+      spans: [span("rebase", { target: { kind: "action", change: widgets, action: "rebase" } })],
+    },
+  ]);
+  pages.set(pagePath({ kind: "home" }), actions);
+  try {
+    const { app, keys } = harness({
+      rebase: (change) => {
+        calls.push(change);
+        return Promise.resolve();
+      },
+    });
+    await app.open({ kind: "home" });
+    await keys("enter");
+    expect(calls).toEqual([widgets]);
+  } finally {
+    pages.set(pagePath({ kind: "home" }), home);
+  }
+});
+
+test("landing past unsatisfied obligations asks once and reports the land", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    land: (change, overrides) => {
+      calls.push({ change, ...overrides });
+      return overrides.unreviewed ? Promise.resolve() : Promise.reject(new UnsatisfiedObligationsError([]));
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "l", "a");
+  expect(screen()).toContain("Review obligations are unsatisfied. Land anyway? y/n");
+  await keys("y");
+  expect(calls).toEqual([
+    { change: widgets, notOwner: false, unreviewed: false, parentUnreviewed: false },
+    { change: widgets, notOwner: false, unreviewed: true, parentUnreviewed: false },
+  ]);
+  expect(screen()).toContain("landed widgets");
 });
