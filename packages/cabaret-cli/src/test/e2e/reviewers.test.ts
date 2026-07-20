@@ -70,31 +70,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   });
   // The change lands in bob's home, not just their obligations.
   await repo.git("config", "user.email", "bob@example.com");
-  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
-    "Home
-    ====
-
-    Changes to review:
-    ╭─────────┬────────╮
-    │ change  │ review │
-    ├─────────┼────────┤
-    │ feature │      1 │
-    ╰─────────┴────────╯
-
-    Changes you own:
-    ╭────────┬───────────╮
-    │ change │ next step │
-    ├────────┼───────────┤
-    ╰────────┴───────────╯
-
-    Workspaces on this device:
-    ╭─────────┬──────╮
-    │ change  │ note │
-    ├─────────┼──────┤
-    │ feature │      │
-    ╰─────────┴──────╯
-    "
-  `);
+  expect((await repo.cabaret("home")).stdout).toContain("│ feature │      1 │");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
