@@ -43,11 +43,6 @@ import {
   type TargetTier,
 } from "./doc.js";
 
-/** The trailing note that `later` more rounds follow, or "" for the last round. */
-function moreRounds(later: number): string {
-  return later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
-}
-
 /**
  * One reading of a change's review state: everything the review and diff
  * pages derive their content from, queried once. Pages rendered from one
@@ -105,8 +100,6 @@ export interface ReviewPage {
         readonly end: Revision;
         /** The round's files, sorted by path; a moved or copied file names its source. */
         readonly files: readonly ChangedFile[];
-        /** Rounds still to come after this one. */
-        readonly later: number;
       }
     | undefined;
 }
@@ -117,10 +110,7 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
     change: snapshot.change,
     as: snapshot.as,
     conflicts: snapshot.conflicts,
-    round:
-      snapshot.conflicts.length > 0
-        ? undefined
-        : first && { end: first.end, files: reviewLeftFiles([first]), later: snapshot.rounds.length - 1 },
+    round: snapshot.conflicts.length > 0 ? undefined : first && { end: first.end, files: reviewLeftFiles([first]) },
   };
 }
 
@@ -148,7 +138,7 @@ export function reviewDoc(page: ReviewPage): Doc {
     return layout(lines);
   }
   lines.push(
-    { spans: [span(`Reviewing up to ${shortHash(page.round.end)}${moreRounds(page.round.later)}.`, proceed)] },
+    { spans: [span(`Reviewing up to ${shortHash(page.round.end)}.`, proceed)] },
     { spans: [span("", proceed)] },
   );
   for (const { path, source } of page.round.files) {
@@ -261,8 +251,6 @@ export interface DiffPage {
     | {
         /** The revision the round reviews up to: marking the file reviewed records `{base, tip: end}`. */
         readonly end: Revision;
-        /** Rounds after this one that still include the file. */
-        readonly later: number;
         /** The source the round's diff moves or copies the file from, when it records one. */
         readonly source: FileSource | undefined;
         readonly view: DiffView;
@@ -274,16 +262,11 @@ export interface DiffPage {
 export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
   const { change, as, base } = snapshot;
   let found: { end: Revision; view: FileView } | undefined;
-  let later = 0;
   for (const { end, files } of snapshot.rounds) {
     const view = files.get(file);
-    if (view === undefined) {
-      continue;
-    }
-    if (found === undefined) {
+    if (view !== undefined) {
       found = { end, view };
-    } else {
-      later++;
+      break;
     }
   }
   if (found === undefined) {
@@ -300,16 +283,16 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
         change,
         file,
         as,
-        round: { end, later, source: view.source, view: await two(view.start, view.source?.path ?? file) },
+        round: { end, source: view.source, view: await two(view.start, view.source?.path ?? file) },
       };
     case "rewritten":
-      return { change, file, as, round: { end, later, source: undefined, view: await two(view.from, file) } };
+      return { change, file, as, round: { end, source: undefined, view: await two(view.from, file) } };
     case "rebased":
       return {
         change,
         file,
         as,
-        round: { end, later, source: undefined, view: await rebasedView(backend, file, view.reviewed, base, end) },
+        round: { end, source: undefined, view: await rebasedView(backend, file, view.reviewed, base, end) },
       };
   }
 }
@@ -615,7 +598,7 @@ function fileBodyNodes(change: ChangeName, file: FilePath, view: DiffView, conte
 export function diffDoc(page: DiffPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
-  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)})`;
   const name = fileLabel(page.file, page.round?.source);
   const title = `${name} in ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
   const nodes: Node[] = [
@@ -641,8 +624,6 @@ export interface DiffsPage {
   readonly round:
     | {
         readonly end: Revision;
-        /** Rounds still to come after this one. */
-        readonly later: number;
         readonly files: readonly {
           readonly file: FilePath;
           /** The source the round's diff moves or copies the file from, when it records one. */
@@ -669,7 +650,7 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
       return { file, source: page.round.source, view: page.round.view };
     }),
   );
-  return { change, as, conflicts, round: { end: first.end, later: snapshot.rounds.length - 1, files } };
+  return { change, as, conflicts, round: { end: first.end, files } };
 }
 
 /**
@@ -685,7 +666,7 @@ function fileBar(name: string): string {
 }
 
 export function diffsDoc(page: DiffsPage, context?: number): Doc {
-  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)}${moreRounds(page.round.later)})`;
+  const round = page.round === undefined ? "" : ` (up to ${shortHash(page.round.end)})`;
   const title = `Review ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${round}`;
   const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },

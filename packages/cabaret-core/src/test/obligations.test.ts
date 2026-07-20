@@ -308,24 +308,24 @@ test("a review that stops short of the tip does not count", async () => {
   expect(statuses.map(isSatisfied)).toEqual([true, true, false]);
 });
 
-test("files changed only by a land merge carry no obligations", async () => {
-  // 2 is a land merge (onto 1): whatever it brought in was reviewed in the
-  // landed child, so only the spans 0-1 and 2-3 are governed here.
+test("files a land merge brought in are already reviewed", async () => {
+  // 2 is a land merge (onto 1) that brought b.rs in: the land counts as its
+  // review, so its obligations are satisfied while a.rs still waits.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.rs"], "23": [] },
+    changed: { "03": ["a.rs", "b.rs"], "12": ["b.rs"] },
     trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
   });
   const statuses = await obligationStatuses(backend, [], alice, await diffOf(backend, "0", "3"));
-  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
-  expect(statuses.map(isSatisfied)).toEqual([false, false]);
+  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "b.rs", "a.rs", "b.rs"]);
+  expect(statuses.map(isSatisfied)).toEqual([false, true, false, true]);
 });
 
-test("a rebase merge restarts the review window at the base it merged in", async () => {
-  // The chain is work 1 then merge 2, which brought in 8 — the base, off the
-  // chain since the parent moved 0 -> 8 under the change. The one span is the
-  // current diff 8-2, resolutions included, not the stale window 0-1.
+test("a plain merge grants no review: the diff is base to tip", async () => {
+  // Merge 2 brought in 8 — the base, off the chain since the parent moved
+  // 0 -> 8 under the change. No land, so nothing is excused: the diff is
+  // simply the current one.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "8": "0" },
     merges: [{ commit: "2", onto: "1", merged: "8" }],
@@ -333,14 +333,14 @@ test("a rebase merge restarts the review window at the base it merged in", async
   });
   const diff = await diffOf(backend, "8", "2");
   expect(diff.lands).toEqual([]);
-  expect(diff.spans.map(({ start, end }) => [start[0], end[0]])).toEqual([["8", "2"]]);
+  expect([...diff.changed.keys()]).toEqual(["a.rs"]);
+  expect(diff.landed.size).toBe(0);
 });
 
-test("a land cut pins the windows of rebase merges behind it to the chain", async () => {
-  // Work 1, land 2, then rebase merges 3 and 4 as the parent moved 0 -> 8 -> 9.
-  // Re-anchoring on the moved base would re-open the landed diff, so the one
-  // governed span is the original window 0-1: neither the landed child's
-  // files nor the parent's own movement owe review here.
+test("a land's review survives later rebase merges", async () => {
+  // Work 1, land 2 bringing g.rs in, then rebase merges 3 and 4 as the
+  // parent moved 0 -> 8 -> 9. The diff is the current one, 9-4; g.rs still
+  // matches what the land reviewed, so only a.rs owes review.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2", "4": "3", "8": "0", "9": "8" },
     merges: [
@@ -348,14 +348,15 @@ test("a land cut pins the windows of rebase merges behind it to the chain", asyn
       { commit: "3", onto: "2", merged: "8" },
       { commit: "4", onto: "3", merged: "9" },
     ],
-    changed: { "01": ["a.rs"] },
+    changed: { "94": ["a.rs", "g.rs"], "12": ["g.rs"] },
   });
   const diff = await diffOf(backend, "9", "4");
   expect(diff.lands).toEqual([{ change: "gizmo", commit: fake("2"), onto: fake("1") }]);
-  expect(diff.spans.map(({ start, end }) => [start[0], end[0]])).toEqual([["0", "1"]]);
+  expect(diff.landed).toEqual(new Map([[parseFilePath("g.rs"), { base: fake("1"), tip: fake("2") }]]));
   const statuses = await obligationStatuses(backend, [], alice, diff);
   expect(statuses).toEqual([
     { obligation: { file: "a.rs", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    { obligation: { file: "g.rs", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
   ]);
 });
 

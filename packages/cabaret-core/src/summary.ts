@@ -5,7 +5,6 @@ import {
   type ChangedFile,
   type ChangeName,
   changeConflicts,
-  changedByPath,
   currentArchived,
   currentForgeChange,
   currentOwner,
@@ -26,7 +25,6 @@ import {
   type ReviewedDiff,
   type Reviewing,
   type Revision,
-  remainingSpans,
   requireTip,
   type UserName,
 } from "./backend.js";
@@ -396,16 +394,14 @@ function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision:
 }
 
 /**
- * The rounds of review left for `user` in `diff`, oldest first. Land merges
- * on the first-parent chain order review: everything before a land merge is
- * reviewed — and marked, at the round's end — before anything after it, so a
- * reviewer never reads code newer than a landing they have not absorbed. A
- * file is due in every round whose span it changes and that the user has not
- * reviewed past; a review the spans cannot place (its base moved, or its tip
- * was rewritten out of the history) puts the file's stale knowledge in its
- * earliest round's view, and later rounds assume the earlier ones get
- * recorded. When that view renders empty — the rebase carried the reviewed
- * change cleanly — the file is not due in the round at all.
+ * The rounds of review left for `user` in `diff`: one round at the tip, or
+ * none. Each changed file is judged by the latest review that speaks for it
+ * — the user's own record, or the implicit review of the land merge that
+ * brought the file in, whichever reaches further — against the current
+ * diff. A review at the current base leaves the plain diff past its tip; one
+ * whose base has moved leaves the 4-way comparison of the reviewed diff with
+ * the current one, and nothing at all when that comparison renders empty —
+ * the change carried cleanly over whatever moved.
  */
 export async function reviewRounds(
   backend: Backend,
@@ -414,12 +410,6 @@ export async function reviewRounds(
   diff: ChangeDiff,
 ): Promise<readonly ReviewRound[]> {
   const { base, tip } = diff;
-  const rounds: {
-    start: Revision;
-    end: Revision;
-    changed: ReadonlyMap<FilePath, ChangedFile>;
-    files: Map<FilePath, FileView>;
-  }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
   // A review recorded against objects this clone lacks — reviewed where the
   // commits were never pushed — can be neither placed in the history nor
   // diffed from, so the file counts as unreviewed.
@@ -431,70 +421,59 @@ export async function reviewRounds(
     }
   }
   const tipKept = perRevision((reviewedTip) => backend.isAncestor(reviewedTip, tip));
-  const spansPast = perRevision(
-    async (reviewedTip) =>
-      new Map((await remainingSpans(backend, diff.spans, reviewedTip)).map((span) => [span.end, span])),
-  );
-  // The files of the one span that resumes mid-span from the reviewed tip.
-  const resumedFiles = perRevision(async (reviewedTip) => {
-    for (const { start, end } of (await spansPast(reviewedTip)).values()) {
-      if (start === reviewedTip) {
-        return changedByPath(await backend.changedFiles(start, end));
-      }
-    }
-    // Only consulted for a remaining span whose start differs from its whole
-    // span's, and such a span always starts at the reviewed tip.
-    throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
-  });
   const unseenFiles = perRevision(
     async (reviewedTip) => new Set((await backend.changedFiles(reviewedTip, tip)).map(({ path }) => path)),
   );
-  for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed.keys()]))].sort()) {
-    const reviewed = known.get(file);
-    if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {
-      // A review the history can place: what remains is the spans past the
-      // reviewed tip, resuming mid-span when the tip falls inside one.
-      const spans = await spansPast(reviewed.tip);
-      for (const round of rounds) {
-        const span = spans.get(round.end);
-        if (span === undefined) {
-          continue;
-        }
-        const changed = span.start === round.start ? round.changed : await resumedFiles(reviewed.tip);
-        const entry = changed.get(file);
-        if (entry !== undefined) {
-          round.files.set(file, { kind: "span", start: span.start, source: entry.source });
-        }
-      }
-      continue;
+  const files = new Map<FilePath, FileView>();
+  for (const file of [...diff.changed.keys()].sort()) {
+    const entry = diff.changed.get(file);
+    if (entry === undefined) {
+      throw new Error(`diff lost track of ${JSON.stringify(file)}`);
     }
-    // A reviewed tip rewritten out of the change's history cannot be placed
-    // among the first-parent spans, but what the user has not seen is exactly
-    // the diff from its contents — nothing at all when the file comes out
-    // unchanged.
-    if (reviewed !== undefined && reviewed.base === base && !(await unseenFiles(reviewed.tip)).has(file)) {
-      continue;
-    }
-    let first = true;
-    for (const round of rounds) {
-      const entry = round.changed.get(file);
-      if (entry === undefined) {
+    const reviewed = await freshestReview(backend, file, known.get(file), diff.landed.get(file));
+    let view: FileView;
+    if (reviewed === undefined) {
+      view = { kind: "span", start: base, source: entry.source };
+    } else if (reviewed.base === base) {
+      if (!(await unseenFiles(reviewed.tip)).has(file)) {
         continue;
       }
-      const view: FileView =
-        !first || reviewed === undefined
-          ? { kind: "span", start: round.start, source: entry.source }
-          : reviewed.base !== base
-            ? { kind: "rebased", reviewed }
-            : { kind: "rewritten", from: reviewed.tip };
-      first = false;
-      if (view.kind !== "span" && (await carriedCleanly(backend, file, view, base, round.end))) {
-        continue;
-      }
-      round.files.set(file, view);
+      view = (await tipKept(reviewed.tip))
+        ? { kind: "span", start: reviewed.tip, source: entry.source }
+        : { kind: "rewritten", from: reviewed.tip };
+    } else {
+      view = { kind: "rebased", reviewed };
     }
+    if (view.kind !== "span" && (await carriedCleanly(backend, file, view, base, tip))) {
+      continue;
+    }
+    files.set(file, view);
   }
-  return rounds.filter(({ files }) => files.size > 0).map(({ end, files }) => ({ end, files }));
+  return files.size > 0 ? [{ end: tip, files }] : [];
+}
+
+/**
+ * The review that reaches furthest for `file`: the user's own record, or the
+ * land's implicit review. The land wins when the record predates it and owed
+ * nothing between its tip and the landed window's start — the usual shapes
+ * being no record at all, or one from before the land. A record the land
+ * cannot be compared against (its tip rewritten out of the history) stands
+ * on its own: at worst the user re-reads landed content, never skips.
+ */
+async function freshestReview(
+  backend: Backend,
+  file: FilePath,
+  own: ReviewedDiff | undefined,
+  landed: ReviewedDiff | undefined,
+): Promise<ReviewedDiff | undefined> {
+  if (own === undefined || landed === undefined) {
+    return own ?? landed;
+  }
+  if (!(await backend.isAncestor(own.tip, landed.tip))) {
+    return own;
+  }
+  const gap = await backend.changedFiles(own.tip, landed.base);
+  return gap.some(({ path }) => path === file) ? own : landed;
 }
 
 /**

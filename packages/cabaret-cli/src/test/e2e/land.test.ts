@@ -216,9 +216,9 @@ test("a review made before a land still stands after it", async () => {
   });
 });
 
-test("parent work on both sides of a land renders one diff per span", async () => {
+test("parent work on both sides of a land reviews as one diff, resumable mid-chain", async () => {
   const repo = await makeStack(false);
-  const round1End = await repo.git("rev-parse", "parent");
+  const preLand = await repo.git("rev-parse", "parent");
   await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
@@ -230,22 +230,23 @@ test("parent work on both sides of a land renders one diff per span", async () =
       "stdout": "Review parent
     =============
 
-    Reviewing up to 752ee7d4c0d4; 1 more round follows.
+    Reviewing up to b51dcf25203e.
 
       parent.txt
 
-    parent.txt in parent (up to 752ee7d4c0d4; 1 more round follows)
+    parent.txt in parent (up to b51dcf25203e)
 
-    -1,0 +1,1
+    -1,0 +1,2
     +|parent v1
+    +|parent v2
 
     Record review of what you have read:
-      cabaret mark --change parent --tip 752ee7d4c0d4 parent.txt
+      cabaret mark --change parent --tip b51dcf25203e parent.txt
     ",
     }
   `);
-  // A mark at the first round's end leaves the later round open.
-  await repo.cabaret("mark", "--tip", round1End, "parent.txt", "--change", "parent");
+  // A mark at a mid-chain commit resumes review from it.
+  await repo.cabaret("mark", "--tip", preLand, "parent.txt", "--change", "parent");
   expect((await repo.cabaret("review", "--change", "parent", "parent.txt")).stdout).toContain("+|parent v2");
   await repo.cabaret("mark", "--tip", "parent", "parent.txt", "--change", "parent");
   expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toEqual({

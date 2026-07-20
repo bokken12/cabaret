@@ -657,27 +657,21 @@ function files(views: Record<string, FileView>): ReadonlyMap<FilePath, FileView>
   return new Map(Object.entries(views).map(([file, view]) => [parseFilePath(file), view]));
 }
 
-test("reviewRounds splits review at land merges, oldest first", async () => {
-  // 2 is a land merge (onto 1), so review spans 0-1 and 2-3.
+test("reviewRounds asks one round of the whole diff, its landed files excused", async () => {
+  // 2 is a land merge (onto 1): d.ts arrived through it, reviewed in the
+  // landed child, so only the change's own files are due.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"] },
+    changed: { "03": ["a.ts", "c.ts", "d.ts"], "12": ["d.ts"] },
   });
   expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual([
     {
-      end: fake("1"),
+      end: fake("3"),
       files: files({
         "a.ts": { kind: "span", start: fake("0"), source: undefined },
         "c.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-    {
-      end: fake("3"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("2"), source: undefined },
-        "c.ts": { kind: "span", start: fake("2"), source: undefined },
       }),
     },
   ]);
@@ -730,9 +724,9 @@ test("reviewRounds views a copied file from its source, which stays its own entr
   ]);
 });
 
-test("reviewRounds resuming past a move takes the resumed diff's reading of it", async () => {
-  // The move happened before the reviewed tip 1, so what remains is a plain
-  // diff of the file under its new name.
+test("reviewRounds resumes past a move under the file's new name", async () => {
+  // The move happened before the reviewed tip 1, so what remains is the diff
+  // from that tip, still labeled with the whole diff's source.
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "0", feature: "2" },
@@ -740,7 +734,12 @@ test("reviewRounds resuming past a move takes the resumed diff's reading of it",
   });
   const entries = [...created("main", "0"), entry(review("b.ts", "0", "1"))];
   expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    { end: fake("2"), files: files({ "b.ts": { kind: "span", start: fake("1"), source: undefined } }) },
+    {
+      end: fake("2"),
+      files: files({
+        "b.ts": { kind: "span", start: fake("1"), source: { path: parseFilePath("a.ts"), copied: false } },
+      }),
+    },
   ]);
 });
 
@@ -784,37 +783,29 @@ test("reviewRounds counts a review against absent objects as no review at all", 
   ]);
 });
 
-test("reviewRounds carries misplaced reviews into the earliest round's view", async () => {
-  // 2 is a land merge (onto 1). alice's review of a.ts predates the current
-  // base, and her review of c.ts names a tip 9 that a rewrite removed from
-  // history; both changed in both spans.
+test("reviewRounds views misplaced reviews against the current diff", async () => {
+  // alice's review of a.ts predates the current base, and her review of
+  // c.ts names a tip 9 that a rewrite removed from history; each view
+  // compares her stale knowledge with the diff as it now stands.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["a.ts", "c.ts"], "93": ["c.ts"] },
-    // Every version distinct, so neither carried view renders empty.
+    changed: { "03": ["a.ts", "c.ts"], "93": ["c.ts"] },
+    // Every version distinct, so neither view renders empty.
     contents: {
       "0": { "a.ts": "zero\n" },
-      "1": { "a.ts": "one\n", "c.ts": "one\n" },
       "2": { "a.ts": "two\n" },
+      "3": { "a.ts": "three\n", "c.ts": "three\n" },
       "9": { "a.ts": "nine\n", "c.ts": "nine\n" },
     },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "9", "2")), entry(review("c.ts", "0", "9"))];
   expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
     {
-      end: fake("1"),
+      end: fake("3"),
       files: files({
         "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
         "c.ts": { kind: "rewritten", from: fake("9") },
-      }),
-    },
-    {
-      end: fake("3"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("2"), source: undefined },
-        "c.ts": { kind: "span", start: fake("2"), source: undefined },
       }),
     },
   ]);
@@ -886,38 +877,16 @@ test("reviewRounds keeps a rebased review whose diff the rebase changed", async 
   ]);
 });
 
-test("reviewRounds skips only the round a carried review leaves empty", async () => {
-  // 2 is a land merge (onto 1). The rebase carried a.ts cleanly through the
-  // first span, but the second span changed it again: only that span is due.
+test("review left excuses landed files and keeps a rewritten reviewed tip's diff", async () => {
+  // 2 is a land merge (onto 1) that brought b.ts in. alice reviewed a.ts
+  // through 2, and c.ts to a tip 9 that a rewrite removed from history.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts"], "23": ["a.ts"] },
-    contents: {
-      "0": { "a.ts": "base\n" },
-      "1": { "a.ts": "base\nplus\n" },
-      "8": { "a.ts": "base\nplus\n" },
-      "9": { "a.ts": "base\n" },
-    },
-  });
-  const entries = [...created("main", "0"), entry(review("a.ts", "9", "8"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
-  ]);
-});
-
-test("review left skips land merges and diffs from a rewritten reviewed tip", async () => {
-  // 2 is a land merge (onto 1), so review spans 0-1 and 2-3. alice reviewed
-  // a.ts through 2 (covering 0-1), and c.ts to a tip 9 that a rewrite removed
-  // from history.
-  const backend = repoBackend({
-    history: { "1": "0", "2": "1", "3": "2" },
-    branches: { main: "0", feature: "3" },
-    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"], "93": ["c.ts"] },
+    changed: { "03": ["a.ts", "b.ts", "c.ts"], "12": ["b.ts"], "23": [], "93": ["c.ts"] },
     // c.ts differs from the rewritten reviewed tip, so its view stays due.
-    contents: { "1": { "c.ts": "one\n" }, "9": { "c.ts": "nine\n" } },
+    contents: { "3": { "c.ts": "three\n" }, "9": { "c.ts": "nine\n" } },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("c.ts", "0", "9"))];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
@@ -938,7 +907,7 @@ test("review left skips land merges and diffs from a rewritten reviewed tip", as
     parentOrigin: undefined,
     staleBase: undefined,
     conflicts: [],
-    reviewLeft: left("b.ts", "c.ts"),
+    reviewLeft: left("c.ts"),
     nextStep: "review",
   });
 });

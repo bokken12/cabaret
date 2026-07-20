@@ -540,10 +540,11 @@ async function makeRebasedFeature(repo: TestRepo): Promise<void> {
 test("a rebase keeps main's own movement out of review", async () => {
   const repo = await makeRepo();
   await makeRebasedFeature(repo);
-  // Only the change's own work is owed: both.txt because main also moved it
-  // since the review, plain.txt because it was never reviewed. What the
-  // rebase merged in (mainline.txt) and what the landed child brought
-  // (gadget.txt) owe nothing, and feature.txt's review carried cleanly.
+  // Only plain.txt, never reviewed, is owed. What the rebase merged in
+  // (mainline.txt) and what the landed child brought (gadget.txt) owe
+  // nothing, and the feature.txt and both.txt reviews carried cleanly —
+  // both.txt's because the merge absorbed main's edit without changing the
+  // reviewed diff.
   expect((await repo.cabaret("show", "feature")).stdout).toMatchInlineSnapshot(`
     "feature
     =======
@@ -564,68 +565,111 @@ test("a rebase keeps main's own movement out of review", async () => {
       gadget
 
     Remaining review:
-      alice@example.com: 2 files
+      alice@example.com: 1 file
 
     Files to review:
-      both.txt
       plain.txt
     "
   `);
-  for (const settled of ["feature.txt", "gadget.txt", "mainline.txt"]) {
+  for (const settled of ["both.txt", "feature.txt", "gadget.txt", "mainline.txt"]) {
     expect(await repo.cabaret("review", "--change", "feature", settled)).toEqual({
       stdout: `${settled} in feature\n\nNothing left to review.\n`,
       stderr: "",
       exitCode: 0,
     });
   }
-  expect((await repo.cabaret("review", "--change", "feature", "both.txt")).stdout).toMatchInlineSnapshot(`
-    "Review feature
-    ==============
-
-    Reviewing up to 97b57f3b06b5.
-
-      both.txt
-
-    both.txt in feature (up to 97b57f3b06b5)
-
-    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ both.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 879cfc4b1ce7 | new base 5e19fa6beaa9 | old & new tip 97b57f3b06b5
-    _
-    | @@@@@@@@ This base change was dropped... : @@@@@@@@
-    | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-    |   top
-    |   middle
-    | -|bottom
-    | +|bottom (mainline)
-    |_
-    _
-    | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
-    | @@@@@@@@ old base 1,4 tip 1,4 @@@@@@@@
-    | -|top
-    | +|top (feature)
-    |   middle
-    |   bottom
-    |_
-
-    Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 both.txt
-    "
-  `);
   expect((await repo.cabaret("review", "--change", "feature", "plain.txt")).stdout).toMatchInlineSnapshot(`
     "Review feature
     ==============
 
-    Reviewing up to 97b57f3b06b5.
+    Reviewing up to 244470f9ef1a.
 
       plain.txt
 
-    plain.txt in feature (up to 97b57f3b06b5)
+    plain.txt in feature (up to 244470f9ef1a)
 
     -1,0 +1,1
     +|plain work
 
     Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 plain.txt
+      cabaret mark --change feature --tip 244470f9ef1a plain.txt
     "
   `);
+});
+
+test("a rebase resurfaces a landed file whose resolution moved past the child's review", async () => {
+  const repo = await makeRepo();
+  await repo.write("shared.txt", "s1\ns2\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "seed shared.txt");
+  await repo.cabaret("create", "feature");
+  await repo.git("checkout", "-q", "feature");
+  await repo.write("feature.txt", "feature work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "feature work");
+  await repo.cabaret("mark", "--change", "feature", "--tip", "HEAD", "feature.txt");
+  await repo.cabaret("create", "gadget");
+  await repo.git("checkout", "-q", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.write("shared.txt", "s1\ns2 (gadget)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
+  await repo.cabaret("mark", "--change", "gadget", "--tip", "HEAD", "gadget.txt", "shared.txt");
+  await repo.cabaret("land", "gadget");
+  await repo.git("checkout", "-q", "main");
+  await repo.cabaret("create", "mainline");
+  await repo.git("checkout", "-q", "mainline");
+  await repo.write("shared.txt", "s1\ns2 (mainline)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "mainline work");
+  await repo.cabaret("mark", "--change", "mainline", "--tip", "HEAD", "shared.txt");
+  await repo.cabaret("land", "mainline");
+  // Both sides moved s2, so the rebase commits markers; the resolution is
+  // amended into the merge, which no review has covered.
+  await repo.git("checkout", "-q", "feature");
+  expect((await repo.cabaret("rebase")).exitCode).toBe(1);
+  await repo.write("shared.txt", "s1\ns2 (gadget) (mainline)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'main' into feature");
+  // gadget.txt is untouched since the child reviewed it, so the land still
+  // covers it; shared.txt's diff moved past the land's review, so it owes
+  // another look, shown against what the land stood for.
+  expect(await repo.cabaret("review", "gadget.txt")).toEqual({
+    stdout: "gadget.txt in feature\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("review", "shared.txt")).stdout).toMatchInlineSnapshot(`
+    "Review feature
+    ==============
+
+    Reviewing up to 861b20a25592.
+
+      shared.txt
+
+    shared.txt in feature (up to 861b20a25592)
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base cdcbba82e2fc | old tip 591d97a36ba8 | new base f6bfa77459e1 | new tip 861b20a25592
+    @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+    @@@@@@@@ -- old base 1,7 old tip 1,7 @@@@@@@@
+    @@@@@@@@ ++ new base 1,7 new tip 1,7 @@@@@@@@
+        s1
+    ---|s2
+    --+|s2 (gadget)
+    ++-|s2 (mainline)
+    +++|s2 (gadget) (mainline)
+        s3
+        s4
+        s5
+
+    Record review of what you have read:
+      cabaret mark --tip 861b20a25592 shared.txt
+    "
+  `);
+  await repo.cabaret("mark", "--tip", "feature", "shared.txt");
+  expect(await repo.cabaret("review", "shared.txt")).toEqual({
+    stdout: "shared.txt in feature\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
 });

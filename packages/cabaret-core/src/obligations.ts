@@ -262,13 +262,7 @@ export async function obligationStatuses(
   owner: UserName,
   diff: ChangeDiff,
 ): Promise<readonly ObligationStatus[]> {
-  const files = new Set<FilePath>();
-  for (const { changed } of diff.spans) {
-    for (const file of changed.keys()) {
-      files.add(file);
-    }
-  }
-  const sorted = [...files].sort();
+  const sorted = [...diff.changed.keys()].sort();
   // An owning reviewer already owes every file as owner; a second identical
   // requirement would only double the noise.
   const standings: readonly (readonly [UserName, "owner" | "reviewer"])[] = [

@@ -9,10 +9,9 @@ function fileTitle(page: DiffPage): string {
   if (page.round === undefined) {
     return `${page.file} in ${page.change}`;
   }
-  const { end, later, source } = page.round;
+  const { end, source } = page.round;
   const name = fileLabel(page.file, source);
-  const more = later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
-  return `${name} in ${page.change} (up to ${shortHash(end)}${more})`;
+  return `${name} in ${page.change} (up to ${shortHash(end)})`;
 }
 
 export const review = buildCommand({
