@@ -38,27 +38,6 @@ test("set-owner fails on a change that does not exist", async () => {
   });
 });
 
-<<<<<<< 144ee88f9d4a5c05336ad5a6750c2811d9a4245c
-test("only the owner may transfer ownership", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  const before = await repo.cabaret("dev", "log", "feature");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
-    stdout: "",
-    stderr:
-      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
-    exitCode: 1,
-||||||| b64a5173ca6b50f2b9ca3975ee38908aa453b034
-test("only the owner may transfer ownership", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  const before = await repo.cabaret("log", "feature");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
-    stdout: "",
-    stderr:
-      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
-    exitCode: 1,
-=======
 for (const argv of [
   ["set-owner", "bob@example.com", "--change", "feature"],
   ["reparent", "feature", "main"],
@@ -67,50 +46,16 @@ for (const argv of [
   test(`only the owner may ${argv[0]}, until the override excuses it`, async () => {
     const repo = await makeOwnedChange();
     await repo.git("config", "user.email", "bob@example.com");
-    const before = await repo.cabaret("log", "feature");
+    const before = await repo.cabaret("dev", "log", "feature");
     expect(await repo.cabaret(...argv)).toEqual({
       stdout: "",
       stderr:
         '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
       exitCode: 1,
     });
-    expect(await repo.cabaret("log", "feature")).toEqual(before);
+    expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
     expect(await repo.cabaret(...argv, "--even-though-not-owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
->>>>>>> a99b4f054449e0bab91342c8339f8407efa6ff7e
   });
-<<<<<<< 144ee88f9d4a5c05336ad5a6750c2811d9a4245c
-  expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
-});
-
-test("--even-though-not-owner lets a non-owner transfer ownership", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature", "--even-though-not-owner")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect((await repo.cabaret("dev", "log", "feature")).stdout).toContain(
-    '{"kind":"set-owner","owner":"bob@example.com"}',
-  );
-});
-||||||| b64a5173ca6b50f2b9ca3975ee38908aa453b034
-  expect(await repo.cabaret("log", "feature")).toEqual(before);
-});
-
-test("--even-though-not-owner lets a non-owner transfer ownership", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature", "--even-though-not-owner")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect((await repo.cabaret("log", "feature")).stdout).toContain('{"kind":"set-owner","owner":"bob@example.com"}');
-});
-=======
-}
->>>>>>> a99b4f054449e0bab91342c8339f8407efa6ff7e
 
 test("a change owned by an alias is the user's own to operate", async () => {
   const repo = await makeOwnedChange();
