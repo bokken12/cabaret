@@ -11,6 +11,9 @@
       "path": "../cabaret-core"
     },
     {
+      "path": "../cabaret-node"
+    },
+    {
       "path": "../cabaret-util"
     },
     {
