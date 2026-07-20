@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { emitKeypressEvents } from "node:readline";
+import { PassThrough } from "node:stream";
 import {
   addChangeWorkspace,
   type Backend,
@@ -41,7 +42,7 @@ import {
   workspaceNotes,
 } from "cabaret-views";
 import { App, type Effects, type Source } from "./app.js";
-import { type KeyEvent, keyName } from "./keys.js";
+import { type KeyEvent, keyName, mouseEvent } from "./keys.js";
 import { Screen } from "./screen.js";
 
 const now = (): TimestampMs => timestampMs(Date.now());
@@ -213,12 +214,17 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     return { doc, snapshot, viewed };
   };
   const app = new App(source, screen, effects);
-  emitKeypressEvents(process.stdin);
+  // Mouse tracking sequences would reach the keypress decoder as fragments
+  // it types back as stray keys, so they are cut from the byte stream first
+  // and only the remainder feeds the decoder.
+  const keyStream = new PassThrough();
+  emitKeypressEvents(keyStream);
   process.stdin.setRawMode(true);
   process.stdin.resume();
   screen.enter();
   const onResize = (): void => app.repaint();
   process.stdout.on("resize", onResize);
+  let onData: ((chunk: Buffer) => void) | undefined;
   try {
     await app.open(page);
     await new Promise<void>((resolve, reject) => {
@@ -227,31 +233,68 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         done = true;
         finish();
       };
-      // Keys queue behind one another: a render in flight finishes before
-      // the next key acts, so frames never interleave. Ctrl+c skips the
-      // queue — it must answer even when a render hangs.
+      // Keys and clicks queue behind one another: a render in flight
+      // finishes before the next one acts, so frames never interleave.
+      // Ctrl+c skips the queue — it must answer even when a render hangs.
       let turn = Promise.resolve();
-      process.stdin.on("keypress", (_data: string | undefined, event: KeyEvent) => {
-        if (event.ctrl === true && event.name === "c") {
-          settle(resolve);
-          return;
-        }
+      const enqueue = (act: () => Promise<void>): void => {
         turn = turn.then(async () => {
           if (done) {
             return;
           }
           try {
-            const key = keyName(event);
-            if (key !== undefined && (await app.handleKey(key)) === "quit") {
-              settle(resolve);
-            }
+            await act();
           } catch (error) {
             settle(() => reject(error));
+          }
+        });
+      };
+      let carry = "";
+      onData = (chunk: Buffer): void => {
+        const data = carry + chunk.toString("utf8");
+        carry = "";
+        let keys = "";
+        let last = 0;
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape introduces the sequence
+        for (const match of data.matchAll(/\x1b\[<\d+;\d+;\d+[Mm]/g)) {
+          keys += data.slice(last, match.index);
+          last = match.index + match[0].length;
+          const mouse = mouseEvent(match[0]);
+          if (mouse !== undefined) {
+            enqueue(() => app.handleMouse(mouse));
+          }
+        }
+        keys += data.slice(last);
+        // A sequence split across reads waits for its remainder; only a
+        // mouse prefix holds back, so a lone escape still types.
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape introduces the sequence
+        const partial = /\x1b\[<[\d;]*$/.exec(keys);
+        if (partial !== null) {
+          carry = keys.slice(partial.index);
+          keys = keys.slice(0, partial.index);
+        }
+        if (keys.length > 0) {
+          keyStream.write(keys);
+        }
+      };
+      process.stdin.on("data", onData);
+      keyStream.on("keypress", (_data: string | undefined, event: KeyEvent) => {
+        if (event.ctrl === true && event.name === "c") {
+          settle(resolve);
+          return;
+        }
+        enqueue(async () => {
+          const key = keyName(event);
+          if (key !== undefined && (await app.handleKey(key)) === "quit") {
+            settle(resolve);
           }
         });
       });
     });
   } finally {
+    if (onData !== undefined) {
+      process.stdin.off("data", onData);
+    }
     process.stdout.off("resize", onResize);
     screen.leave();
     process.stdin.setRawMode(false);

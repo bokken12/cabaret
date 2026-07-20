@@ -151,13 +151,19 @@ function paintLine(line: Line, paint: LinePaint): string {
   return out + RESET;
 }
 
-/** The page's content rows for a `width` x `height` viewport, at most `height` of them. */
-export function paintPage(state: PageState, width: number, height: number, depth: ColorDepth): readonly string[] {
-  const visible = visibleLines(state.doc, state.folded);
-  const signs = state.doc.lines.some((line) => {
+/** Columns the gutter takes before a line's text: the cursor column, plus signs on pages that wear them. */
+export function gutterWidth(doc: Doc): number {
+  const signed = doc.lines.some((line) => {
     const wash = lineWash(line);
     return wash !== undefined && PAINT[wash].sign !== undefined;
   });
+  return signed ? 4 : 2;
+}
+
+/** The page's content rows for a `width` x `height` viewport, at most `height` of them. */
+export function paintPage(state: PageState, width: number, height: number, depth: ColorDepth): readonly string[] {
+  const visible = visibleLines(state.doc, state.folded);
+  const signs = gutterWidth(state.doc) === 4;
   const rows: string[] = [];
   for (let row = state.top; row < visible.length && rows.length < height; row++) {
     const line = visible[row];

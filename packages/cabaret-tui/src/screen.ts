@@ -32,14 +32,16 @@ export class Screen implements Terminal {
     return this.out.rows > 0 ? this.out.rows : 24;
   }
 
+  // Click tracking with SGR encoding rides along with the alternate screen;
+  // the terminal's own drag-selection stays available behind shift.
   enter(): void {
     this.active = true;
-    this.out.write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H");
+    this.out.write("\x1b[?1049h\x1b[?25l\x1b[?1000;1006h\x1b[2J\x1b[H");
   }
 
   leave(): void {
     this.active = false;
-    this.out.write("\x1b[0m\x1b[?25h\x1b[?1049l");
+    this.out.write("\x1b[?1000;1006l\x1b[0m\x1b[?25h\x1b[?1049l");
   }
 
   render(rows: readonly string[]): void {

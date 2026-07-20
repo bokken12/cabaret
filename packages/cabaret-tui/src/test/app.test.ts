@@ -530,3 +530,81 @@ test("@ swaps the page to a typed identity and back to oneself", async () => {
   expect(screen()).toContain("/cabaret/show/widgets");
   expect(screen()).not.toContain("/as/");
 });
+
+test("a click on a link follows it; a click on plain text just moves the cursor", async () => {
+  const { app, screen } = harness();
+  await app.open({ kind: "home" });
+  // Row 2 is "\u251c\u2500 widgets": columns 0-2 are the tree guide, the link starts at column 3.
+  // The gutter is 2 wide, so terminal column 6 (1-based) lands on the link's first character.
+  await app.handleMouse({ kind: "click", x: 6, y: 2 });
+  expect(screen()).toContain("/cabaret/show/widgets");
+});
+
+test("a click short of the link moves the cursor without following", async () => {
+  const { app, screen } = harness();
+  await app.open({ kind: "home" });
+  await app.handleMouse({ kind: "click", x: 3, y: 2 });
+  expect(screen()).toContain("/cabaret/home");
+  expect(screen()).toMatchInlineSnapshot(`
+    "  Changes
+    ❯ ├─ widgets
+      ├─ gadgets
+      ╰─ cogs
+
+
+     /cabaret/home                                                                                      "
+  `);
+});
+
+test("a click past the content rows is ignored", async () => {
+  const { app, frames, screen } = harness();
+  await app.open({ kind: "home" });
+  const before = frames.length;
+  await app.handleMouse({ kind: "click", x: 1, y: 6 });
+  expect(frames.length).toBe(before);
+  expect(screen()).toContain("/cabaret/home");
+});
+
+test("the wheel scrolls the viewport and drags the cursor along", async () => {
+  const tall: Doc = layout(Array.from({ length: 12 }, (_, i) => ({ spans: [span(`line ${i}`)] })));
+  pages.set(pagePath({ kind: "home" }), tall);
+  try {
+    const { app, screen } = harness();
+    await app.open({ kind: "home" });
+    await app.handleMouse({ kind: "wheel", delta: 1 });
+    expect(screen()).toMatchInlineSnapshot(`
+      "❯ line 3
+        line 4
+        line 5
+        line 6
+        line 7
+        line 8
+       /cabaret/home                                                                                      "
+    `);
+    await app.handleMouse({ kind: "wheel", delta: -1 });
+    expect(screen()).toContain("line 0");
+  } finally {
+    pages.set(pagePath({ kind: "home" }), home);
+  }
+});
+
+test("a click while a question waits is not an answer", async () => {
+  const calls: FilePath[] = [];
+  const snapshot = reviewState([api]);
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, file) => {
+        calls.push(file);
+        return Promise.resolve({ kind: "marked", next: undefined, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) => (page.kind === "review" ? { snapshot } : {}),
+  );
+  await app.open({ kind: "review", change: widgets });
+  await keys("j", "!", "m");
+  expect(screen()).toContain("Mark anyway? y/n");
+  await app.handleMouse({ kind: "click", x: 3, y: 1 });
+  expect(calls).toEqual([]);
+  await keys("y");
+  expect(calls).toEqual([api]);
+});

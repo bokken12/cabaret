@@ -51,3 +51,31 @@ export function keyName(event: KeyEvent): string | undefined {
   }
   return undefined;
 }
+
+/** A mouse event the terminal reports under SGR tracking; releases and drags are not events the TUI acts on. */
+export type MouseEvent =
+  | { readonly kind: "click"; readonly x: number; readonly y: number }
+  | { readonly kind: "wheel"; readonly delta: -1 | 1 };
+
+/**
+ * The mouse event an SGR tracking sequence reports: `ESC [ < b ; x ; y M`.
+ * Left presses click; wheel buttons scroll; everything else — releases,
+ * drags, other buttons — is undefined. `x` and `y` are 1-based cells.
+ */
+export function mouseEvent(sequence: string): MouseEvent | undefined {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape introduces the sequence
+  const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(sequence);
+  if (match === null) {
+    return undefined;
+  }
+  const button = Number(match[1]);
+  const x = Number(match[2]);
+  const y = Number(match[3]);
+  if (button === 64 || button === 65) {
+    return { kind: "wheel", delta: button === 64 ? -1 : 1 };
+  }
+  if (match[4] === "M" && (button & 3) === 0 && (button & 32) === 0) {
+    return { kind: "click", x, y };
+  }
+  return undefined;
+}
