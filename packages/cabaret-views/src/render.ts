@@ -2,7 +2,16 @@ import type { Backend, ChangeName, FilePath, Revision, UserName } from "cabaret-
 import type { Doc } from "./doc.js";
 import { homeDoc, homePage } from "./home.js";
 import type { Page } from "./pages.js";
-import { changeSnapshot, diffDoc, diffPage, diffsDoc, diffsPage, reviewDoc, reviewPage } from "./review.js";
+import {
+  type ChangeSnapshot,
+  changeSnapshot,
+  diffDoc,
+  diffPage,
+  diffsDoc,
+  diffsPage,
+  reviewDoc,
+  reviewPage,
+} from "./review.js";
 import { showDoc, showPage } from "./show.js";
 
 /**
@@ -25,6 +34,12 @@ export interface RenderOptions {
   readonly context?: number | undefined;
   /** Called when the render displayed diffs, with what they showed. */
   readonly onViewed?: ((viewed: ViewedDiffs) => void) | undefined;
+  /**
+   * Called with the snapshot a review, diffs, or diff page rendered from. A
+   * host holds it beside the page, so a mark of the page records what it
+   * displayed rather than whatever the change holds by then.
+   */
+  readonly onSnapshot?: ((snapshot: ChangeSnapshot) => void) | undefined;
 }
 
 /**
@@ -38,10 +53,14 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
       return homeDoc(await homePage(backend, page.as));
     case "show":
       return showDoc(await showPage(backend, page.change, page.as));
-    case "review":
-      return reviewDoc(reviewPage(await changeSnapshot(backend, page.change, page.as)));
+    case "review": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      return reviewDoc(reviewPage(snapshot));
+    }
     case "diffs": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
       const diffs = await diffsPage(backend, snapshot);
       if (diffs.round !== undefined) {
         const { end, files } = diffs.round;
@@ -56,6 +75,7 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
     }
     case "diff": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
       const file = await diffPage(backend, snapshot, page.file);
       if (file.round !== undefined) {
         options.onViewed?.({
