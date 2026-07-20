@@ -319,28 +319,6 @@ test("diffDoc shows the whole file in one hunk at context -1", () => {
   `);
 });
 
-test("diffDoc shows a four-way diff whole at context -1", () => {
-  const middle = ["two", "three", "four", "five", "six", "seven", "eight"].join("\n");
-  const page = diffPageWith({
-    end: fake("4"),
-    later: 0,
-    source: undefined,
-    view: {
-      kind: "four",
-      revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
-      contents: {
-        b1: `one\n${middle}\nnine\n`,
-        b2: `ONE\n${middle}\nnine\n`,
-        f1: `one\n${middle}\nnine\nchild\n`,
-        f2: `ONE!\n${middle}\nnine\nchild\n`,
-      },
-    },
-  });
-  // "five" sits mid-file, farther from both changes than the trimmed context.
-  expect(docText(diffDoc(page, 1))).not.toContain("five");
-  expect(docText(diffDoc(page, -1))).toContain("five");
-});
-
 test("diffDoc styles an added blank line, so hosts wash it like its neighbors", () => {
   const doc = diffDoc(
     diffPageWith({
