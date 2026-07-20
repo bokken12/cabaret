@@ -2,12 +2,15 @@ import { type GitHubRepo, parseGitHubRemote } from "cabaret-github";
 
 const TOKEN_KEY = "cabaret-web.token";
 const REPO_KEY = "cabaret-web.repo";
+const ALIAS_KEY = "cabaret-web.aliases";
 const STATE_KEY = "cabaret-web.oauth-state";
 const NOTICE_KEY = "cabaret-web.notice";
 
 export interface Config {
   readonly token: string;
   readonly repo: GitHubRepo;
+  /** Identities the logs may speak of the user by, beyond the signed-in account. */
+  readonly aliases: readonly string[];
 }
 
 /**
@@ -30,13 +33,21 @@ export function formatRepo({ owner, repo }: GitHubRepo): string {
   return `${owner}/${repo}`;
 }
 
+/** Split a comma-separated alias spelling into the identities it names. */
+export function parseAliases(raw: string): readonly string[] {
+  return raw
+    .split(",")
+    .map((alias) => alias.trim())
+    .filter((alias) => alias !== "");
+}
+
 export function loadConfig(): Config | undefined {
   const token = localStorage.getItem(TOKEN_KEY);
   const raw = localStorage.getItem(REPO_KEY);
   if (token === null || raw === null) {
     return undefined;
   }
-  return { token, repo: parseRepo(raw) };
+  return { token, repo: parseRepo(raw), aliases: parseAliases(savedAliases()) };
 }
 
 export function saveToken(token: string): void {
@@ -49,6 +60,14 @@ export function saveRepo(repo: GitHubRepo): void {
 
 export function savedRepo(): string | undefined {
   return localStorage.getItem(REPO_KEY) ?? undefined;
+}
+
+export function saveAliases(raw: string): void {
+  localStorage.setItem(ALIAS_KEY, raw);
+}
+
+export function savedAliases(): string {
+  return localStorage.getItem(ALIAS_KEY) ?? "";
 }
 
 export function clearToken(): void {
