@@ -71,7 +71,7 @@ test("a forge land retargets the children's forge changes", async () => {
   expect((await forge.getChange(forgeChangeId(2))).parent).toBe("main");
   // The new parent is recorded as an observation, so the child stops reading
   // its forge change as targeting the landed branch and needing a sync.
-  expect((await repo.cabaret("log", "doodad")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log", "doodad")).stdout).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"main"}',
   );
   expect((await repo.cabaret("show", "doodad")).stdout).toMatchInlineSnapshot(`
