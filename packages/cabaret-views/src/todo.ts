@@ -9,13 +9,14 @@ import {
   type FilePath,
   isReviewing,
   isSelf,
+  type NextStep,
   reviewOwed,
   type Self,
   summarizeChange,
   UserError,
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
-import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
+import { type Doc, type Line, layout, type Node, type Style, section, span } from "./doc.js";
 import { type Cell, type Column, table, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
@@ -266,6 +267,21 @@ function workspacesSection(entries: readonly WorkspaceEntry[]): Node {
   );
 }
 
+/**
+ * Paint for the steps where immediate action matters most: a change ready to
+ * land, or one whose conflicts block the work stacked on it.
+ */
+function stepStyle(step: NextStep): Style | undefined {
+  switch (step) {
+    case "land":
+      return "ready";
+    case "fix conflicts":
+      return "blocked";
+    default:
+      return undefined;
+  }
+}
+
 export function todoDoc(page: TodoPage): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
@@ -276,7 +292,7 @@ export function todoDoc(page: TodoPage): Doc {
     return [
       changeCell(summary, guide, style),
       span(summary.reviewLeft.length === 0 ? "" : String(summary.reviewLeft.length), { style }),
-      span(summary.nextStep, { style }),
+      span(summary.nextStep, { style: style ?? stepStyle(summary.nextStep) }),
     ];
   });
   const title = "Todo";

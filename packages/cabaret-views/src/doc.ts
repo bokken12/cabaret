@@ -5,7 +5,8 @@ import type { ChangeName, FilePath } from "cabaret-core";
  * word styles mark the words that actually changed within a line — over the
  * line's own style on an added or removed line, and alone on a unified line
  * whose kept text is plain. Context marks material shown only to situate its
- * neighbors, for hosts to dim.
+ * neighbors, for hosts to dim. Ready and blocked pull the eye to a status:
+ * a step whose obligations are all met, or one gating work until mended.
  *
  * The diff-of-diffs styles carry a 4-way conflict's second channel: a line
  * present in only the reviewed diff (old) or only the current diff (new),
@@ -20,6 +21,8 @@ export type Style =
   | "removed-word"
   | "hunk"
   | "context"
+  | "ready"
+  | "blocked"
   | "old-diff-removed"
   | "old-diff-added"
   | "old-diff-context"

@@ -59,12 +59,14 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     tip: fake("4"),
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
+  const rusty = summary("rusty", { conflicts: files("rusty.ts"), nextStep: "fix conflicts" });
   const doc = todoDoc({
     review: [
       { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
     ],
     owned: [
       { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
+      { summary: rusty, context: false, children: [] },
       { summary: widgets, context: false, children: [] },
     ],
     broken: [],
@@ -83,21 +85,22 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬────────┬───────────╮
-    │ change   │ review │ next step │
-    ├──────────┼────────┼───────────┤
-    │ gadget   │        │ landed    │
-    │ └─ gizmo │      2 │ review    │
-    │ widgets  │        │ land      │
-    ╰──────────┴────────┴───────────╯"
+    ╭──────────┬────────┬───────────────╮
+    │ change   │ review │ next step     │
+    ├──────────┼────────┼───────────────┤
+    │ gadget   │        │ landed        │
+    │ └─ gizmo │      2 │ review        │
+    │ rusty    │        │ fix conflicts │
+    │ widgets  │        │ land          │
+    ╰──────────┴────────┴───────────────╯"
   `);
   // Each section folds down to its heading, and within each table gadget's
   // subtree folds down to gadget's own row.
   expect(foldTexts(doc)).toEqual([
     ["Changes to review:", "╰──────────┴────────╯"],
     ["│ gadget   │        │", "│ └─ gizmo │      2 │"],
-    ["Changes you own:", "╰──────────┴────────┴───────────╯"],
-    ["│ gadget   │        │ landed    │", "│ └─ gizmo │      2 │ review    │"],
+    ["Changes you own:", "╰──────────┴────────┴───────────────╯"],
+    ["│ gadget   │        │ landed        │", "│ └─ gizmo │      2 │ review        │"],
   ]);
   // A tree entry's row resolves to that change, with the link on exactly the
   // name: the guide and the table chrome stay plain.
@@ -116,10 +119,18 @@ test("todoDoc lays out both sections as trees, ancestors kept for context", () =
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
   ]);
   expect(styled("│ └─ gizmo │      2 │")).toEqual([]);
-  expect(styled("│ gadget   │        │ landed    │")).toEqual([
+  expect(styled("│ gadget   │        │ landed        │")).toEqual([
     { text: "gadget", style: "context", target: { kind: "change", change: "gadget" }, tier: "link" },
     { text: "", style: "context", target: undefined, tier: undefined },
     { text: "landed", style: "context", target: undefined, tier: undefined },
+  ]);
+  // The steps where action matters most catch the eye: a change ready to
+  // land, and conflicts blocking the work stacked on it.
+  expect(styled("│ widgets  │        │ land          │")).toEqual([
+    { text: "land", style: "ready", target: undefined, tier: undefined },
+  ]);
+  expect(styled("│ rusty    │        │ fix conflicts │")).toEqual([
+    { text: "fix conflicts", style: "blocked", target: undefined, tier: undefined },
   ]);
 });
 
