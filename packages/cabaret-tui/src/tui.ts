@@ -1,11 +1,25 @@
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { emitKeypressEvents } from "node:readline";
-import { type Backend, readConfig, UserError } from "cabaret-core";
-import { type Page, renderPage, type Target, workspaceNotes } from "cabaret-views";
-import { App, type Effects } from "./app.js";
+import { type Backend, currentParent, readConfig, type TimestampMs, timestampMs, UserError } from "cabaret-core";
+import { mapConcurrent } from "cabaret-util";
+import {
+  type ChangeSnapshot,
+  markReviewed,
+  type Page,
+  renderPage,
+  type Target,
+  type ViewedDiffs,
+  workspaceNotes,
+} from "cabaret-views";
+import { App, type Effects, type Source } from "./app.js";
 import { type KeyEvent, keyName } from "./keys.js";
 import { Screen } from "./screen.js";
+
+const now = (): TimestampMs => timestampMs(Date.now());
+
+/** Concurrent change-log reads, matching the home page's fan-out. */
+const READ_CONCURRENCY = 8;
 
 /**
  * Visit a location target by suspending the TUI and opening `$EDITOR` on the
@@ -58,12 +72,39 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
   const effects: Effects = {
     visitLocation: (target) => visitLocation(backend, screen, target),
     openUrl,
+    mark: (snapshot, file, evenThoughNotReviewing) =>
+      Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
+    parent: async (change) => {
+      const entries = await backend.readLog(change);
+      return entries.length === 0 ? undefined : currentParent(change, entries);
+    },
+    children: async (change) => {
+      const all = await backend.listChanges();
+      const parents = await mapConcurrent(all, READ_CONCURRENCY, async (other) => ({
+        other,
+        parent: currentParent(other, await backend.readLog(other)),
+      }));
+      return parents
+        .filter(({ parent }) => parent === change)
+        .map(({ other }) => other)
+        .sort();
+    },
   };
-  const app = new App(
-    async (target) => renderPage(backend, target, { context: (await readConfig(backend)).context }),
-    screen,
-    effects,
-  );
+  const source: Source = async (target) => {
+    let snapshot: ChangeSnapshot | undefined;
+    let viewed: ViewedDiffs | undefined;
+    const doc = await renderPage(backend, target, {
+      context: (await readConfig(backend)).context,
+      onSnapshot: (read) => {
+        snapshot = read;
+      },
+      onViewed: (shown) => {
+        viewed = shown;
+      },
+    });
+    return { doc, snapshot, viewed };
+  };
+  const app = new App(source, screen, effects);
   emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
   process.stdin.resume();

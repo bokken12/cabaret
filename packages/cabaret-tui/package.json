@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cabaret-core": "workspace:*",
+    "cabaret-util": "workspace:*",
     "cabaret-views": "workspace:*"
   },
   "scripts": {

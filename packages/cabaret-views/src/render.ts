@@ -28,6 +28,11 @@ export interface ViewedDiffs {
   readonly files: ReadonlyMap<FilePath, Revision>;
 }
 
+/** The key under which hosts record one file's diff as displayed to one user against one base. */
+export function displayedKey(change: ChangeName, user: UserName, base: Revision, file: FilePath): string {
+  return [change, user, base, file].join("\u0000");
+}
+
 /** What a host brings to a render beyond the page itself. */
 export interface RenderOptions {
   /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */

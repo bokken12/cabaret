@@ -9,30 +9,31 @@ interface StylePaint {
   readonly lo: string;
   /** Whether the style's background washes on to the viewport's right edge. */
   readonly wash: boolean;
+  /** The line's gutter sign; diff-of-diffs signs pair the channel's sign with the inner one. */
+  readonly sign?: string | undefined;
 }
 
 /**
  * Styles paint as SGR attributes: backgrounds wash whole lines like a
  * highlighter pen while the text keeps its own colors, so a future syntax
  * highlighter can layer foregrounds over them untouched. The diff-of-diffs
- * channels tell which diff carries a line by hue — the reviewed (old) diff
- * warms toward amber, the current (new) diff cools toward cyan — standing in
- * for a gutter sign.
+ * channels also tell which diff carries a line by hue — the reviewed (old)
+ * diff warms toward amber, the current (new) diff cools toward cyan.
  */
 const PAINT: { readonly [S in Style]: StylePaint } = {
   heading: { tc: "1", lo: "1", wash: false },
-  added: { tc: "48;2;16;56;28", lo: "48;5;22", wash: true },
-  removed: { tc: "48;2;70;26;26", lo: "48;5;52", wash: true },
+  added: { tc: "48;2;16;56;28", lo: "48;5;22", wash: true, sign: "+" },
+  removed: { tc: "48;2;70;26;26", lo: "48;5;52", wash: true, sign: "-" },
   "added-word": { tc: "48;2;24;92;44", lo: "48;5;28", wash: false },
   "removed-word": { tc: "48;2;120;40;40", lo: "48;5;88", wash: false },
   hunk: { tc: "48;2;42;46;54", lo: "48;5;237", wash: true },
   context: { tc: "2", lo: "2", wash: false },
-  "old-diff-removed": { tc: "48;2;84;46;22", lo: "48;5;94", wash: true },
-  "old-diff-added": { tc: "48;2;64;70;20", lo: "48;5;58", wash: true },
-  "old-diff-context": { tc: "48;2;52;48;30", lo: "48;5;239", wash: true },
-  "new-diff-removed": { tc: "48;2;80;28;56", lo: "48;5;89", wash: true },
-  "new-diff-added": { tc: "48;2;18;66;66", lo: "48;5;23", wash: true },
-  "new-diff-context": { tc: "48;2;28;44;58", lo: "48;5;238", wash: true },
+  "old-diff-removed": { tc: "48;2;84;46;22", lo: "48;5;94", wash: true, sign: "--" },
+  "old-diff-added": { tc: "48;2;64;70;20", lo: "48;5;58", wash: true, sign: "-+" },
+  "old-diff-context": { tc: "48;2;52;48;30", lo: "48;5;239", wash: true, sign: "- " },
+  "new-diff-removed": { tc: "48;2;80;28;56", lo: "48;5;89", wash: true, sign: "+-" },
+  "new-diff-added": { tc: "48;2;18;66;66", lo: "48;5;23", wash: true, sign: "++" },
+  "new-diff-context": { tc: "48;2;28;44;58", lo: "48;5;238", wash: true, sign: "+ " },
 };
 
 const ESC = "\x1b[";
@@ -86,6 +87,8 @@ interface LinePaint {
   readonly cursor: boolean;
   /** The line heads a folded fold, so it wears an ellipsis for its hidden body. */
   readonly folded: boolean;
+  /** Whether the page carries signed lines, earning every line a sign column. */
+  readonly signs: boolean;
   readonly width: number;
   readonly depth: ColorDepth;
 }
@@ -95,21 +98,32 @@ function params(style: Style, depth: ColorDepth): string {
   return depth === "truecolor" ? paint.tc : paint.lo;
 }
 
+/** The style washing the whole line, if any: the first span style that washes. */
+function lineWash(line: Line): Style | undefined {
+  return line.spans.find(({ style }) => style !== undefined && PAINT[style].wash)?.style;
+}
+
 /**
- * One line as ANSI text: a two-column cursor gutter, then the spans, then the
- * line's wash padded to the right edge. Text past the width truncates under a
- * trailing ellipsis. Width counts code points, not terminal cells, so
- * double-width characters overrun; a cell-width measure can replace it if
- * that bites.
+ * One line as ANSI text: the cursor gutter — grown by a sign column on pages
+ * whose lines wear signs — then the spans, then the line's wash padded to
+ * the right edge. Text past the width truncates under a trailing ellipsis.
+ * Width counts code points, not terminal cells, so double-width characters
+ * overrun; a cell-width measure can replace it if that bites.
  */
 function paintLine(line: Line, paint: LinePaint): string {
-  let out = paint.cursor ? `${sgr("1;36")}❯ ` : `${RESET}  `;
-  let remaining = paint.width - 2;
-  let wash: Style | undefined;
+  const wash = lineWash(line);
+  let out = paint.cursor ? `${sgr("1;36")}❯` : `${RESET} `;
+  if (paint.signs) {
+    const sign = wash === undefined ? undefined : PAINT[wash].sign;
+    out +=
+      sign === undefined || wash === undefined
+        ? `${RESET}   `
+        : `${sgr(params(wash, paint.depth))}${sign.padEnd(2)}${RESET} `;
+  } else {
+    out += `${RESET} `;
+  }
+  let remaining = paint.width - (paint.signs ? 4 : 2);
   for (const span of line.spans) {
-    if (span.style !== undefined && wash === undefined && PAINT[span.style].wash) {
-      wash = span.style;
-    }
     if (remaining <= 0 || span.text.length === 0) {
       continue;
     }
@@ -140,6 +154,10 @@ function paintLine(line: Line, paint: LinePaint): string {
 /** The page's content rows for a `width` x `height` viewport, at most `height` of them. */
 export function paintPage(state: PageState, width: number, height: number, depth: ColorDepth): readonly string[] {
   const visible = visibleLines(state.doc, state.folded);
+  const signs = state.doc.lines.some((line) => {
+    const wash = lineWash(line);
+    return wash !== undefined && PAINT[wash].sign !== undefined;
+  });
   const rows: string[] = [];
   for (let row = state.top; row < visible.length && rows.length < height; row++) {
     const line = visible[row];
@@ -154,6 +172,7 @@ export function paintPage(state: PageState, width: number, height: number, depth
       paintLine(spans, {
         cursor: row === state.cursor,
         folded: state.folded.has(line),
+        signs,
         width,
         depth,
       }),
@@ -165,7 +184,7 @@ export function paintPage(state: PageState, width: number, height: number, depth
 /** The inverse-video status row: `left` anchored at the left edge, `right` at the right. */
 export function paintStatus(left: string, right: string, width: number): string {
   const leftText = Array.from(` ${left}`);
-  const rightText = Array.from(right.length === 0 ? "" : `${right} `).slice(0, width);
+  const rightText = Array.from(right.length === 0 ? "" : `${right} `).slice(-width);
   const room = width - rightText.length;
   const leftShown =
     leftText.length <= room

@@ -1,16 +1,48 @@
-import { parseBranchName, parseFilePath } from "cabaret-core";
-import { type Doc, layout, type Page, pagePath, section, span } from "cabaret-views";
+import {
+  type FilePath,
+  type FileView,
+  NotReviewingError,
+  parseBranchName,
+  parseCommitHash,
+  parseFilePath,
+  userName,
+} from "cabaret-core";
+import { type ChangeSnapshot, type Doc, layout, type Page, pagePath, section, span } from "cabaret-views";
 import { expect, test } from "vitest";
-import { App, type Effects, type Terminal } from "../app.js";
+import { App, type Effects, type Rendered, type Terminal } from "../app.js";
 
 const widgets = parseBranchName("widgets");
 const gadgets = parseBranchName("gadgets");
+const sprockets = parseBranchName("sprockets");
 const api = parseFilePath("api.ts");
+const ui = parseFilePath("ui.ts");
+const base = parseCommitHash("1".repeat(40));
+const roundEnd = parseCommitHash("3".repeat(40));
+
+function fileView(): FileView {
+  return { kind: "span", start: base, source: undefined };
+}
+
+/** A snapshot with one round pending over `files`, reviewed by alice. */
+function reviewState(files: readonly FilePath[]): ChangeSnapshot {
+  return {
+    change: widgets,
+    user: userName("alice@example.com"),
+    as: undefined,
+    reviewing: "everyone",
+    asked: true,
+    base,
+    tip: roundEnd,
+    conflicts: [],
+    rounds: [{ end: roundEnd, files: new Map(files.map((file) => [file, fileView()])) }],
+  };
+}
 
 const home: Doc = layout([
   { spans: [span("Changes", { style: "heading" })] },
   { spans: [span("├─ "), span("widgets", { target: { kind: "change", change: widgets } })] },
-  { spans: [span("╰─ "), span("gadgets", { target: { kind: "change", change: gadgets } })] },
+  { spans: [span("├─ "), span("gadgets", { target: { kind: "change", change: gadgets } })] },
+  { spans: [span("╰─ "), span("cogs", { target: { kind: "change", change: parseBranchName("cogs") } })] },
 ]);
 
 const show: Doc = layout([
@@ -20,9 +52,26 @@ const show: Doc = layout([
   ]),
 ]);
 
+const reviewList: Doc = layout([
+  { spans: [span("Review widgets", { style: "heading" })] },
+  { spans: [span("api.ts", { target: { kind: "file", change: widgets, file: api } })] },
+  { spans: [span("ui.ts", { target: { kind: "file", change: widgets, file: ui } })] },
+]);
+
 const pages = new Map<string, Doc>([
   [pagePath({ kind: "home" }), home],
   [pagePath({ kind: "show", change: widgets }), show],
+  [pagePath({ kind: "show", change: gadgets }), layout([{ spans: [span("gadgets", { style: "heading" })] }])],
+  [pagePath({ kind: "show", change: sprockets }), layout([{ spans: [span("sprockets", { style: "heading" })] }])],
+  [pagePath({ kind: "review", change: widgets }), reviewList],
+  [
+    pagePath({ kind: "diff", change: widgets, file: api }),
+    layout([{ spans: [span("const a = 1;", { style: "removed" })] }]),
+  ],
+  [
+    pagePath({ kind: "diff", change: widgets, file: ui }),
+    layout([{ spans: [span("const b = 2;", { style: "added" })] }]),
+  ],
 ]);
 
 interface Harness {
@@ -33,10 +82,10 @@ interface Harness {
   readonly keys: (...keys: readonly string[]) => Promise<readonly ("continue" | "quit")[]>;
 }
 
-function harness(overrides?: Partial<Effects>): Harness {
+function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partial<Rendered>): Harness {
   const frames: string[][] = [];
   const terminal: Terminal = {
-    columns: () => 60,
+    columns: () => 100,
     rows: () => 7,
     depth: "ansi256",
     render: (rows) => frames.push([...rows]),
@@ -44,11 +93,16 @@ function harness(overrides?: Partial<Effects>): Harness {
   const effects: Effects = {
     visitLocation: () => Promise.resolve("visited"),
     openUrl: () => Promise.resolve(undefined),
+    mark: () => Promise.reject(new Error("no marking in this harness")),
+    parent: () => Promise.resolve(undefined),
+    children: () => Promise.resolve([]),
     ...overrides,
   };
-  const source = (page: Page): Promise<Doc> => {
+  const source = (page: Page): Promise<Rendered> => {
     const doc = pages.get(pagePath(page));
-    return doc === undefined ? Promise.reject(new Error(`no page at ${pagePath(page)}`)) : Promise.resolve(doc);
+    return doc === undefined
+      ? Promise.reject(new Error(`no page at ${pagePath(page)}`))
+      : Promise.resolve({ doc, ...rendered?.(page) });
   };
   const app = new App(source, terminal, effects);
   return {
@@ -78,11 +132,11 @@ test("opening home paints the page with a status row", async () => {
   expect(screen()).toMatchInlineSnapshot(`
     "❯ Changes
       ├─ widgets
-      ╰─ gadgets
+      ├─ gadgets
+      ╰─ cogs
 
 
-
-     /cabaret/home                                              "
+     /cabaret/home                                                                                      "
   `);
 });
 
@@ -97,7 +151,7 @@ test("enter on a change line pushes its show page; q pops back home", async () =
 
 
 
-     /cabaret/show/widgets                                      "
+     /cabaret/show/widgets                                                                              "
   `);
   expect(await keys("q")).toEqual(["continue"]);
   expect(screen()).toContain("/cabaret/home");
@@ -129,7 +183,7 @@ test("tab folds the section at the cursor down to its heading", async () => {
 
 
 
-     /cabaret/show/widgets                                      "
+     /cabaret/show/widgets                                                                              "
   `);
   await keys("tab");
   expect(screen()).toContain("api.ts");
@@ -146,8 +200,8 @@ test("enter on a location-less action-less plain line does nothing", async () =>
 test("a failed render reports on the status row instead of pushing a page", async () => {
   const { app, keys, screen } = harness();
   await app.open({ kind: "home" });
-  await keys("j", "j", "enter");
-  expect(screen()).toContain("no page at /cabaret/show/gadgets");
+  await keys("j", "j", "j", "enter");
+  expect(screen()).toContain("no page at /cabaret/show/cogs");
   expect(screen()).toContain("/cabaret/home");
 });
 
@@ -164,7 +218,142 @@ test("enter on a file line routes to its diff page", async () => {
   const { app, keys, screen } = harness();
   await app.open({ kind: "show", change: widgets });
   await keys("j", "j", "enter");
-  // The fake source lacks the diff page; the report naming the diff path
-  // proves the file target routed there.
-  expect(screen()).toContain("no page at /cabaret/diff/widgets:api.ts");
+  expect(screen()).toContain("/cabaret/diff/widgets:api.ts");
+});
+
+test("! m on a displayed diff page marks and moves to the round's next file", async () => {
+  const calls: [FilePath, boolean][] = [];
+  const snapshot = reviewState([api, ui]);
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, file, evenThoughNotReviewing) => {
+        calls.push([file, evenThoughNotReviewing]);
+        return Promise.resolve({ kind: "marked", next: ui, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) =>
+      page.kind === "diff"
+        ? {
+            snapshot,
+            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, roundEnd]]) },
+          }
+        : {},
+  );
+  await app.open({ kind: "diff", change: widgets, file: api });
+  await keys("!", "m");
+  expect(calls).toEqual([[api, false]]);
+  expect(screen()).toContain("/cabaret/diff/widgets:ui.ts");
+});
+
+test("! m on a never-displayed file asks first; y proceeds", async () => {
+  const calls: FilePath[] = [];
+  const snapshot = reviewState([api, ui]);
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, file) => {
+        calls.push(file);
+        return Promise.resolve({ kind: "marked", next: undefined, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) => (page.kind === "review" ? { snapshot } : {}),
+  );
+  await app.open({ kind: "review", change: widgets });
+  await keys("j", "!", "m");
+  expect(calls).toEqual([]);
+  expect(screen()).toContain("The diff of api.ts has not been displayed to you. Mark anyway? y/n");
+  await keys("y");
+  expect(calls).toEqual([api]);
+});
+
+test("! m outside the reviewing set asks, then retries with the override", async () => {
+  const calls: boolean[] = [];
+  const snapshot = { ...reviewState([api]), reviewing: "owner", asked: false } as const satisfies ChangeSnapshot;
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, _file, evenThoughNotReviewing) => {
+        calls.push(evenThoughNotReviewing);
+        if (!evenThoughNotReviewing) {
+          return Promise.reject(new NotReviewingError(snap.change, snap.reviewing, snap.user));
+        }
+        return Promise.resolve({ kind: "marked", next: undefined, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) =>
+      page.kind === "diff"
+        ? {
+            snapshot,
+            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, roundEnd]]) },
+          }
+        : {},
+  );
+  await app.open({ kind: "diff", change: widgets, file: api });
+  await keys("!", "m");
+  expect(screen()).toContain("does not include you. Mark anyway? y/n");
+  await keys("y");
+  expect(calls).toEqual([false, true]);
+  // The round is done, so the diff page gives way to the review page.
+  expect(screen()).toContain("/cabaret/review/widgets");
+});
+
+test("declining a question marks nothing and swallows the key", async () => {
+  const calls: FilePath[] = [];
+  const snapshot = reviewState([api]);
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, file) => {
+        calls.push(file);
+        return Promise.resolve({ kind: "marked", next: undefined, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) => (page.kind === "review" ? { snapshot } : {}),
+  );
+  await app.open({ kind: "review", change: widgets });
+  await keys("j", "!", "m");
+  expect(screen()).toContain("Mark anyway? y/n");
+  // q would close the page were it not answering the question.
+  await keys("q");
+  expect(calls).toEqual([]);
+  expect(screen()).toContain("/cabaret/review/widgets");
+});
+
+test("a chained ask survives: never-displayed then not-reviewing, each answered y", async () => {
+  const calls: boolean[] = [];
+  const snapshot = { ...reviewState([api]), reviewing: "owner", asked: false } as const satisfies ChangeSnapshot;
+  const { app, keys, screen } = harness(
+    {
+      mark: (snap, _file, evenThoughNotReviewing) => {
+        calls.push(evenThoughNotReviewing);
+        if (!evenThoughNotReviewing) {
+          return Promise.reject(new NotReviewingError(snap.change, snap.reviewing, snap.user));
+        }
+        return Promise.resolve({ kind: "marked", next: undefined, snapshot: snap, recorded: Promise.resolve() });
+      },
+    },
+    (page) => (page.kind === "diff" ? { snapshot } : {}),
+  );
+  await app.open({ kind: "diff", change: widgets, file: api });
+  await keys("!", "m");
+  expect(screen()).toContain("has not been displayed to you. Mark anyway? y/n");
+  await keys("y");
+  expect(screen()).toContain("does not include you. Mark anyway? y/n");
+  await keys("y");
+  expect(calls).toEqual([false, true]);
+  expect(screen()).toContain("/cabaret/review/widgets");
+});
+
+test("^ climbs to the parent's show page", async () => {
+  const { app, keys, screen } = harness({ parent: () => Promise.resolve(gadgets) });
+  await app.open({ kind: "show", change: widgets });
+  await keys("^");
+  expect(screen()).toContain("/cabaret/show/gadgets");
+});
+
+test("$ with several children asks which; a digit picks", async () => {
+  const { app, keys, screen } = harness({ children: () => Promise.resolve([gadgets, sprockets]) });
+  await app.open({ kind: "show", change: widgets });
+  await keys("$");
+  expect(screen()).toContain("Child of widgets");
+  expect(screen()).toContain("2  sprockets");
+  await keys("2");
+  expect(screen()).toContain("/cabaret/show/sprockets");
 });
