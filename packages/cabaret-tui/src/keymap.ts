@@ -74,6 +74,9 @@ export const KEYMAP: readonly Binding[] = [
     pages: ["diff", "review"],
     counterpart: "cabaret.markReviewed",
   },
+  // v stands beside V while every selection is line-wise; it takes the
+  // character-wise half of vim's split when something consumes ranges.
+  { keys: ["v"], command: "select", label: "Select Changes", pages: ["home"] },
   { keys: ["V"], command: "select", label: "Select Changes", pages: ["home"] },
   { keys: ["^"], command: "step-up", label: "Step Up", pages: ["diff", "show"], counterpart: "cabaret.stepUp" },
   { keys: ["$"], command: "step-down", label: "Step Down", pages: ["diff", "show"], counterpart: "cabaret.stepDown" },

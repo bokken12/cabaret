@@ -756,3 +756,16 @@ test("the minibuffer parks the cursor after the typed text on the status row", a
   // " Rename widgets: widgets" is 24 code points; the cursor sits after it.
   expect(cursors[cursors.length - 1]).toEqual({ row: 6, column: 24 });
 });
+
+test("v selects as V does while every selection is line-wise", async () => {
+  const calls: (readonly string[])[] = [];
+  const { app, keys } = harness({
+    rebase: (changes) => {
+      calls.push(changes);
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "v", "j", "!", "r", "b");
+  expect(calls).toEqual([[widgets, gadgets]]);
+});
