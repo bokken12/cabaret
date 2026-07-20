@@ -105,7 +105,7 @@ function repoBackend(opts: {
   trees?: Record<string, Record<string, string>>;
   history?: Record<string, string>;
   changed?: Record<string, readonly string[]>;
-  merges?: readonly { change: string; commit: string; onto: string }[];
+  merges?: readonly { change?: string; commit: string; onto: string; merged?: string }[];
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
@@ -114,7 +114,7 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor" | "hasRevision"> = {
+  const stub: Pick<Backend, "readFile" | "changedFiles" | "chainMerges" | "isAncestor" | "hasRevision"> = {
     async hasRevision() {
       return true;
     },
@@ -131,19 +131,22 @@ function repoBackend(opts: {
       }
       return files.map((name) => ({ path: parseFilePath(name), source: undefined }));
     },
-    async landMerges(base, tip) {
+    async chainMerges(base, tip) {
       const path = ancestry(tip);
-      const cut = base === undefined ? -1 : path.indexOf(base);
-      const between = new Set(cut === -1 ? path : path.slice(0, cut));
-      const lands = (opts.merges ?? [])
-        .map(({ change, commit, onto }) => ({
-          change: parseBranchName(change),
+      const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
+      const chain = path.filter((commit) => !settled.has(commit));
+      const merges = (opts.merges ?? [])
+        .map(({ change, commit, onto, merged }) => ({
           commit: fake(commit),
           onto: fake(onto),
+          merged: merged === undefined ? undefined : fake(merged),
+          landed: change === undefined ? undefined : parseBranchName(change),
         }))
-        .filter(({ commit }) => between.has(commit))
+        .filter(({ commit }) => chain.includes(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
-      return { lands, more: false };
+      const oldest = chain.at(-1);
+      const up = oldest === undefined ? undefined : opts.history?.[oldest[0] as string];
+      return { merges, root: up === undefined ? undefined : fake(up), more: false };
     },
     async isAncestor(ancestor, descendant) {
       return ancestry(descendant).includes(ancestor);
@@ -317,6 +320,43 @@ test("files changed only by a land merge carry no obligations", async () => {
   const statuses = await obligationStatuses(backend, [], alice, await diffOf(backend, "0", "3"));
   expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
   expect(statuses.map(isSatisfied)).toEqual([false, false]);
+});
+
+test("a rebase merge restarts the review window at the base it merged in", async () => {
+  // The chain is work 1 then merge 2, which brought in 8 — the base, off the
+  // chain since the parent moved 0 -> 8 under the change. The one span is the
+  // current diff 8-2, resolutions included, not the stale window 0-1.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "8": "0" },
+    merges: [{ commit: "2", onto: "1", merged: "8" }],
+    changed: { "82": ["a.rs"] },
+  });
+  const diff = await diffOf(backend, "8", "2");
+  expect(diff.lands).toEqual([]);
+  expect(diff.spans.map(({ start, end }) => [start[0], end[0]])).toEqual([["8", "2"]]);
+});
+
+test("a land cut pins the windows of rebase merges behind it to the chain", async () => {
+  // Work 1, land 2, then rebase merges 3 and 4 as the parent moved 0 -> 8 -> 9.
+  // Re-anchoring on the moved base would re-open the landed diff, so the one
+  // governed span is the original window 0-1: neither the landed child's
+  // files nor the parent's own movement owe review here.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2", "4": "3", "8": "0", "9": "8" },
+    merges: [
+      { change: "gizmo", commit: "2", onto: "1", merged: "c" },
+      { commit: "3", onto: "2", merged: "8" },
+      { commit: "4", onto: "3", merged: "9" },
+    ],
+    changed: { "01": ["a.rs"] },
+  });
+  const diff = await diffOf(backend, "9", "4");
+  expect(diff.lands).toEqual([{ change: "gizmo", commit: fake("2"), onto: fake("1") }]);
+  expect(diff.spans.map(({ start, end }) => [start[0], end[0]])).toEqual([["0", "1"]]);
+  const statuses = await obligationStatuses(backend, [], alice, diff);
+  expect(statuses).toEqual([
+    { obligation: { file: "a.rs", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+  ]);
 });
 
 test("reviewerSummary counts each outstanding reviewer's distinct files", () => {
