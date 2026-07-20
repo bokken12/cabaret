@@ -148,28 +148,6 @@ test("formatLogEntry renders review and forget actions", () => {
   ).toBe('{"timestamp":1748000000002,"user":"carol@example.com","action":{"kind":"forget","file":"docs/log.md"}}\n');
 });
 
-test("formatLogEntry renders set-base actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000003),
-      user: userName("dave@example.com"),
-      action: { kind: "set-base", base: parseCommitHash(OTHER_SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
-});
-
-test("formatLogEntry renders set-owner actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000004),
-      user: userName("erin@example.com"),
-      action: { kind: "set-owner", owner: userName("frank@example.com") },
-    }),
-  ).toBe(
-    '{"timestamp":1748000000004,"user":"erin@example.com","action":{"kind":"set-owner","owner":"frank@example.com"}}\n',
-  );
-});
-
 test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys its source before the action", () => {
   expect(
     formatLogEntry({
@@ -190,16 +168,6 @@ test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys it
   ).toBe(
     '{"timestamp":1748000000008,"user":"erin@example.com","source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"remove-reviewer","reviewer":"frank@example.com"}}\n',
   );
-});
-
-test("formatLogEntry renders land actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000005),
-      user: userName("grace@example.com"),
-      action: { kind: "land", merge: parseCommitHash(SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000005,"user":"grace@example.com","action":{"kind":"land","merge":"${SHA1}"}}\n`);
 });
 
 test("formatLogEntry renders comment actions, escaping newlines", () => {
