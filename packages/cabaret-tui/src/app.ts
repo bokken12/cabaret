@@ -566,17 +566,25 @@ export class App {
         return "continue";
       }
       case "set-owner": {
-        const change = this.singleChange(view, "set the owner of");
-        if (change !== undefined) {
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
           this.input = {
-            prompt: `New owner for ${change}`,
+            prompt: `New owner for ${changes.join(", ")}`,
             buffer: "",
             submit: (raw) => {
               if (raw === "") {
                 this.note = "owner must be nonempty";
                 return;
               }
-              return this.ownedFlow("Set owner", (override) => this.effects.setOwner(change, raw, override));
+              const done = new Set<ChangeName>();
+              return this.ownedFlow("Set owner", async (override) => {
+                for (const change of changes) {
+                  if (!done.has(change)) {
+                    await this.effects.setOwner(change, raw, override);
+                    done.add(change);
+                  }
+                }
+              });
             },
           };
         }
@@ -590,21 +598,30 @@ export class App {
         return "continue";
       }
       case "disable-reviewing": {
-        const change = this.singleChange(view, "disable reviewing of");
-        if (change !== undefined) {
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
           await this.attempt(async () => {
-            await this.effects.disableReviewing(change);
-            return `${change} reviewing none`;
+            for (const change of changes) {
+              await this.effects.disableReviewing(change);
+            }
+            return `${changes.join(", ")} reviewing none`;
           });
         }
         return "continue";
       }
       case "toggle-archived": {
-        const change = this.singleChange(view, "archive");
-        if (change !== undefined) {
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
           await this.attempt(async () => {
-            const archived = await this.effects.toggleArchived(change);
-            return `${change} ${archived ? "archived" : "unarchived"}`;
+            const archived: ChangeName[] = [];
+            const unarchived: ChangeName[] = [];
+            for (const change of changes) {
+              ((await this.effects.toggleArchived(change)) ? archived : unarchived).push(change);
+            }
+            return [
+              ...(archived.length > 0 ? [`${archived.join(", ")} archived`] : []),
+              ...(unarchived.length > 0 ? [`${unarchived.join(", ")} unarchived`] : []),
+            ].join("; ");
           });
         }
         return "continue";

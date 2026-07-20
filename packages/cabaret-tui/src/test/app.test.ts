@@ -2,6 +2,7 @@ import {
   DivergedParentError,
   type FilePath,
   type FileView,
+  NotOwnerError,
   NotReviewingError,
   parseBranchName,
   parseCommitHash,
@@ -678,6 +679,43 @@ test("a single-change action over a selection asks for a single change", async (
   await keys("j", "V", "j", "!", "r", "n");
   expect(calls).toEqual([]);
   expect(screen()).toContain("select a single change to rename");
+});
+
+test("! a toggles each selected change and reports both directions", async () => {
+  const calls: string[] = [];
+  const { app, keys, screen } = harness({
+    toggleArchived: (change) => {
+      calls.push(change);
+      return Promise.resolve(change === widgets);
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "V", "j", "!", "a");
+  expect(calls).toEqual([widgets, gadgets]);
+  expect(screen()).toContain("widgets archived; gadgets unarchived");
+});
+
+test("! o sets one owner across a selection; a retry past ownership skips the applied", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    setOwner: (change, owner, evenThoughNotOwner) => {
+      calls.push({ change, owner, evenThoughNotOwner });
+      return change === gadgets && !evenThoughNotOwner
+        ? Promise.reject(new NotOwnerError(gadgets, userName("bob@example.com"), userName("alice@example.com")))
+        : Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "V", "j", "!", "o");
+  expect(screen()).toContain("New owner for widgets, gadgets");
+  await keys("b", "o", "b", "enter");
+  expect(screen()).toContain("gadgets is owned by bob@example.com, not you. Set owner anyway? y/n");
+  await keys("y");
+  expect(calls).toEqual([
+    { change: widgets, owner: "bob", evenThoughNotOwner: false },
+    { change: gadgets, owner: "bob", evenThoughNotOwner: false },
+    { change: gadgets, owner: "bob", evenThoughNotOwner: true },
+  ]);
 });
 
 test("esc drops a selection before anything else answers it", async () => {

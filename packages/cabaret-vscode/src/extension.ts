@@ -1659,19 +1659,22 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("cabaret.setOwner", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
-        const change = singleChange(changes, "set the owner of");
-        if (change === undefined) {
-          return;
-        }
         const raw = await vscode.window.showInputBox({
-          prompt: `New owner for ${change}`,
+          prompt: `New owner for ${changes.join(", ")}`,
           validateInput: (value) => (value === "" ? "owner must be nonempty" : undefined),
         });
-        if (raw !== undefined) {
-          await confirmNotOwner("Set Owner Anyway", (override) =>
-            transferChange(backend, now, change, userName(raw), override),
-          );
+        if (raw === undefined) {
+          return;
         }
+        const done = new Set<ChangeName>();
+        await confirmNotOwner("Set Owner Anyway", async (override) => {
+          for (const change of changes) {
+            if (!done.has(change)) {
+              await transferChange(backend, now, change, userName(raw), override);
+              done.add(change);
+            }
+          }
+        });
       }),
     ),
     vscode.commands.registerCommand("cabaret.widenReviewing", () =>
@@ -1684,23 +1687,26 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("cabaret.disableReviewing", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
-        const change = singleChange(changes, "disable reviewing of");
-        if (change === undefined) {
-          return;
+        for (const change of changes) {
+          await setReviewing(backend, now, change, await backend.readLog(change), "none");
         }
-        await setReviewing(backend, now, change, await backend.readLog(change), "none");
       }),
     ),
     vscode.commands.registerCommand("cabaret.toggleArchived", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
-        const change = singleChange(changes, "archive");
-        if (change === undefined) {
-          return;
+        const archived: ChangeName[] = [];
+        const unarchived: ChangeName[] = [];
+        for (const change of changes) {
+          const entries = await backend.readLog(change);
+          const target = !currentArchived(entries);
+          await setArchived(backend, now, change, entries, target);
+          (target ? archived : unarchived).push(change);
         }
-        const entries = await backend.readLog(change);
-        const archived = !currentArchived(entries);
-        await setArchived(backend, now, change, entries, archived);
-        vscode.window.showInformationMessage(`cabaret: ${change} ${archived ? "archived" : "unarchived"}`);
+        const report = [
+          ...(archived.length > 0 ? [`${archived.join(", ")} archived`] : []),
+          ...(unarchived.length > 0 ? [`${unarchived.join(", ")} unarchived`] : []),
+        ].join("; ");
+        vscode.window.showInformationMessage(`cabaret: ${report}`);
       }),
     ),
     vscode.commands.registerCommand("cabaret.gotoWorkspace", () =>
