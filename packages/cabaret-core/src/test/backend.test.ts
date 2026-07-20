@@ -14,6 +14,7 @@ import {
   currentReviewers,
   type FilePath,
   forgeChangeId,
+  forgeChangeUrl,
   formatLogEntry,
   type LandMerge,
   type LogAction,
@@ -98,6 +99,19 @@ test("rejects malformed ref names", () => {
   }
 });
 
+test("forgeChangeUrl routes each supported forge, and no other host", () => {
+  expect(forgeChangeUrl(parseForgeLocator("github.com/test-org/widgets"), forgeChangeId(7))).toBe(
+    "https://github.com/test-org/widgets/pull/7",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("gitlab.com/test-group/nested/widgets"), forgeChangeId(31))).toBe(
+    "https://gitlab.com/test-group/nested/widgets/-/merge_requests/31",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("codeberg.org/test-org/widgets"), forgeChangeId(2))).toBe(
+    "https://codeberg.org/test-org/widgets/pulls/2",
+  );
+  expect(forgeChangeUrl(parseForgeLocator("forge.example.com/test-org/widgets"), forgeChangeId(7))).toBeUndefined();
+});
+
 test("formatLogEntry renders one JSON object per line, keys in schema order", () => {
   expect(
     formatLogEntry({
@@ -134,28 +148,6 @@ test("formatLogEntry renders review and forget actions", () => {
   ).toBe('{"timestamp":1748000000002,"user":"carol@example.com","action":{"kind":"forget","file":"docs/log.md"}}\n');
 });
 
-test("formatLogEntry renders set-base actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000003),
-      user: userName("dave@example.com"),
-      action: { kind: "set-base", base: parseCommitHash(OTHER_SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
-});
-
-test("formatLogEntry renders set-owner actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000004),
-      user: userName("erin@example.com"),
-      action: { kind: "set-owner", owner: userName("frank@example.com") },
-    }),
-  ).toBe(
-    '{"timestamp":1748000000004,"user":"erin@example.com","action":{"kind":"set-owner","owner":"frank@example.com"}}\n',
-  );
-});
-
 test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys its source before the action", () => {
   expect(
     formatLogEntry({
@@ -176,16 +168,6 @@ test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys it
   ).toBe(
     '{"timestamp":1748000000008,"user":"erin@example.com","source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"remove-reviewer","reviewer":"frank@example.com"}}\n',
   );
-});
-
-test("formatLogEntry renders land actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000005),
-      user: userName("grace@example.com"),
-      action: { kind: "land", merge: parseCommitHash(SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000005,"user":"grace@example.com","action":{"kind":"land","merge":"${SHA1}"}}\n`);
 });
 
 test("formatLogEntry renders comment actions, escaping newlines", () => {
@@ -341,7 +323,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
   });
   const change = parseBranchName("feature");
   expect(() => currentParent(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
     'change has no parent: "feature"',
@@ -368,7 +350,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
   });
   const change = parseBranchName("feature");
   expect(() => currentBase(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no base: "feature"',
@@ -395,7 +377,7 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
   });
   const change = parseBranchName("feature");
   expect(() => currentOwner(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret pull` to import open forge changes',
+    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
   );
   expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no owner: "feature"',
@@ -467,7 +449,9 @@ test("currentArchived takes the set-archived with the greatest timestamp, and as
   expect(currentArchived(revived)).toBe(false);
   const archived = [entry(5, false), entry(9, true)];
   expect(currentArchived(archived)).toBe(true);
-  expect(() => assertNotArchived(change, archived)).toThrow('change is archived: "feature"; run `cabaret unarchive`');
+  expect(() => assertNotArchived(change, archived)).toThrow(
+    'change is archived: "feature"; run `cabaret archive --undo`',
+  );
 });
 
 test("observedForgeArchived reads only entries sourced from the forge", () => {

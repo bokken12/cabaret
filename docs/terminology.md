@@ -74,6 +74,18 @@ What should signify a comment needing to be addressed?
 
 honestly I kind of like "TODO"? It's longer, but feels more universally acknowledged - and in general I prefer to avoid acronyms?
 
+## The landing page
+
+What should one call the page surveying your reviews, changes, and workspaces?
+
+- Iron calls this "todo"
+- Graphite calls this "inbox"
+- Gerrit has a "dashboard" with an "attention set"
+
+Iron's "todo" sat one letter from `todos` (the code TODOs a change adds — Iron's CRs), a clash Iron never had: a typo in either direction silently ran the other command. And the page holds more than obligations — your own changes and this device's workspaces live there too, so "todo" over-promised that every row was actionable. "Inbox" has the same problem from the other side: your own changes and workspaces don't arrive from anyone.
+
+Decided: "home". Names the page by its role (where you start, where you return) rather than its contents, so it stays right as sections are added.
+
 ## Working trees
 
 What should one call a working tree of the repository, each holding a checked-out change?
@@ -94,7 +106,7 @@ What should one call the named, movable pointer to a line of code — what a cha
 - hg calls this a "bookmark" (its "branch" is a different, permanent thing)
 - JJ calls this a "bookmark" too
 
-Decided: there is no third word — everything is referred to by its change name (`ChangeName`, per-backend grammar), and the `Backend` interface speaks of changes even for parents that are not changes themselves. "Branch" and "bookmark" appear only in the code that shells out to git or hg, and in messages those backends emit, where the native word is what the user can act on.
+Decided: there is no third word — everything is referred to by its change name (`ChangeName`, per-backend grammar), and the `Backend` interface speaks of changes even for parents that are not changes themselves. "Branch" appears only in the code that shells out to git, and in messages it emits, where the native word is what the user can act on.
 
 ## The remote
 
@@ -103,7 +115,7 @@ What should one call the repository changes are shared through — where fetches
 - git calls it a "remote", conventionally named "origin"
 - hg calls it a "path", conventionally named "default"
 
-Decided: "origin", everywhere — Cabaret pins a single remote, so the conventional git name doubles as the concept's name. hg's "default" path appears only in the code that shells out to hg (`ORIGIN_PATH` maps it) and in messages that tell the user which hg path to configure.
+Decided: "origin", everywhere — Cabaret pins a single remote, so the conventional git name doubles as the concept's name.
 
 ## Abandoning
 
@@ -115,7 +127,32 @@ What should one call setting a change aside without landing it?
 
 "Close" reads as final and says nothing about what happens to the work; "abandon" is accurate but harsh, and both undersell that the operation is reversible. "Archive" says exactly what Cabaret does: nothing is deleted, the change is set aside and can be brought back.
 
-Tentative: I'm going to call this "archive" (undone by "unarchive"). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
+Tentative: I'm going to call this "archive" (undone by "archive --undo" — a separate "unarchive" command was tried and felt like clutter). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
+
+## Exchanging with origin
+
+What should one call moving state between this clone and origin?
+
+- git splits it by direction: "fetch"/"pull" inbound, "push" outbound
+- fossil has one word, "sync", and autosyncs by default
+- hg has symmetric but manual "pull"/"push"
+
+Everything cabaret shares is append-only (logs union; branches only gain
+descendants, since rebase and land are merges), so the two copies of
+anything always have a join and direction carries no meaning. Directional
+verbs earn their keep when direction changes whose work wins (rewrites) or
+when publication is itself a speech act; cabaret has neither — attention is
+gated by the reviewing state, and release is `land`.
+
+Decided: "sync" for the explicit per-change join (merge origin's copy,
+conflicts committed; push; reconcile the forge change both ways), and
+"fetch" for the ambient unobtrusive sweep (refresh origin readings,
+fast-forward branches losing nothing — dirty workspaces hold theirs put —
+union logs, absorb forge activity). "Fetch" is git's word with a wider
+meaning here, adopted like "origin" because the instinct it imports — gets
+remote state, never disturbs my work — is exactly right. "Merge" was
+rejected for sync: GitHub-reared users read "merge" as landing, and it
+already names a land method.
 
 # Versions
 

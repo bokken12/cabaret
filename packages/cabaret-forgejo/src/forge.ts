@@ -189,7 +189,7 @@ export class ForgejoForge implements Forge {
   async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {
     // The API cannot filter by head branch, so the open PRs are listed and
     // matched here; several on one branch collapse to the lowest number, the
-    // one `pullForge` would import.
+    // one `fetchForge` would import.
     const found = (await this.listOpenPrs())
       .filter((pr) => pr.head.ref === branch)
       .sort((a, b) => a.number - b.number)[0];

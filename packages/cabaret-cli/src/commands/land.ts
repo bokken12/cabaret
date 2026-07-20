@@ -1,5 +1,13 @@
 import { buildCommand } from "@stricli/core";
-import { type ChangeName, type LogEntry, landAsConfigured, landChain, readConfig, resolveRange } from "cabaret-core";
+import {
+  type ChangeName,
+  currentParent,
+  type LogEntry,
+  landAsConfigured,
+  landChain,
+  readConfig,
+  resolveRange,
+} from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
 
@@ -7,6 +15,13 @@ import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.j
 const evenThoughUnreviewed = {
   kind: "boolean",
   brief: "Land even though review obligations are unsatisfied",
+  default: false,
+} as const;
+
+/** The escape hatch for the parent-obligations check on `land`. */
+const evenThoughParentUnreviewed = {
+  kind: "boolean",
+  brief: "Land even though the parent's review obligations are unsatisfied",
   default: false,
 } as const;
 
@@ -23,7 +38,8 @@ export const land = buildCommand({
       "unconditionally. A change whose parent moved on lands as it stands " +
       "when it merges cleanly onto the new tip; `cabaret rebase` first when " +
       "it conflicts. Children of the landed change are reparented onto its " +
-      "parent, where their code now lives. A landed change can no longer be " +
+      "parent, where their code now lives, and their forge changes " +
+      "retargeted to match. A landed change can no longer be " +
       "rebased, renamed, reparented, or transferred, though reviewing it is " +
       "still recorded. A range `ancestor..descendant` lands every change " +
       "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
@@ -42,26 +58,50 @@ export const land = buildCommand({
         },
       ],
     },
-    flags: { evenThoughNotOwner, evenThoughUnreviewed },
+    flags: { evenThoughNotOwner, evenThoughUnreviewed, evenThoughParentUnreviewed },
   },
   async func(
     this: LocalContext,
-    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean },
+    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean; evenThoughParentUnreviewed: boolean },
     spec?: ChangeSpec,
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
     const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
-      const { merged, reparented } = await landAsConfigured(backend, this.now, this.forge, config, change, entries, {
-        notOwner: flags.evenThoughNotOwner,
-        unreviewed: flags.evenThoughUnreviewed,
-      });
+      const { merged, reparented, publication } = await landAsConfigured(
+        backend,
+        this.now,
+        this.forge,
+        config,
+        change,
+        entries,
+        {
+          notOwner: flags.evenThoughNotOwner,
+          unreviewed: flags.evenThoughUnreviewed,
+          parentUnreviewed: flags.evenThoughParentUnreviewed,
+        },
+      );
+      const parent = currentParent(change, entries);
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
       }
+      if (publication === "published") {
+        this.process.stdout.write(`pushed ${JSON.stringify(parent)} to origin\n`);
+      } else if (publication === "origin-unreachable") {
+        this.process.stderr.write(
+          `warning: origin unreachable; ${JSON.stringify(parent)} keeps the land locally — push it when back online\n`,
+        );
+      }
       if (reparented !== undefined) {
+        const retargeted = new Map(reparented.retargeted.map((entry) => [entry.change, entry]));
         for (const child of reparented.children) {
           this.process.stdout.write(`reparented ${JSON.stringify(child)} onto ${JSON.stringify(reparented.onto)}\n`);
+          const forgeChange = retargeted.get(child);
+          if (forgeChange !== undefined) {
+            this.process.stdout.write(
+              `retargeted ${forgeChange.forge}#${forgeChange.id} onto ${JSON.stringify(reparented.onto)}\n`,
+            );
+          }
         }
       }
     };

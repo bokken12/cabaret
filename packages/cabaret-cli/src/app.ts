@@ -1,26 +1,28 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import {
   DirtyWorkspaceError,
+  DivergedParentError,
   NotOwnerError,
   NotReviewingError,
-  StaleParentError,
+  UnreviewedParentError,
   UnsatisfiedObligationsError,
   UserError,
   VERSION,
 } from "cabaret-core";
 import { approve } from "./commands/approve.js";
-import { archive, unarchive } from "./commands/archive.js";
+import { archive } from "./commands/archive.js";
 import { comment } from "./commands/comment.js";
+import { commit } from "./commands/commit.js";
 import { config } from "./commands/config.js";
 import { conflicts } from "./commands/conflicts.js";
 import { create } from "./commands/create.js";
 import { dev } from "./commands/dev.js";
 import { diff } from "./commands/diff.js";
+import { fetch } from "./commands/fetch.js";
 import { forget } from "./commands/forget.js";
+import { home } from "./commands/home.js";
 import { land } from "./commands/land.js";
-import { log } from "./commands/log.js";
-import { pull } from "./commands/pull.js";
-import { push } from "./commands/push.js";
+import { mark } from "./commands/mark.js";
 import { rebase } from "./commands/rebase.js";
 import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
@@ -31,8 +33,8 @@ import { setOwner } from "./commands/set-owner.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
-import { todo } from "./commands/todo.js";
 import { todos } from "./commands/todos.js";
+import { tui } from "./commands/tui.js";
 import { workspace } from "./commands/workspace.js";
 
 /** A `UserError`'s message, with this frontend's remedy attached to the overridable checks. */
@@ -43,11 +45,17 @@ function userMessage(error: UserError): string {
   if (error instanceof NotReviewingError) {
     return `${error.message}; pass --even-though-not-reviewing to override`;
   }
-  if (error instanceof StaleParentError) {
-    return `${error.message}, or pass --even-though-parent-stale to override`;
+  if (error instanceof DivergedParentError) {
+    return `${error.message}, or pass --even-though-parent-diverged to rebase onto the local reading`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
+  }
+  if (error instanceof UnreviewedParentError) {
+    return (
+      `parent ${JSON.stringify(error.parent)} has unsatisfied review obligations; ` +
+      `pass --even-though-parent-unreviewed to override:\n${error.details.join("\n")}`
+    );
   }
   if (error instanceof DirtyWorkspaceError) {
     return `${error.message}; pass --even-though-dirty to override`;
@@ -63,16 +71,17 @@ const routes = buildRouteMap({
     approve,
     archive,
     comment,
+    commit,
     config,
     conflicts,
     create,
     dev,
     diff,
+    fetch,
     forget,
+    home,
     land,
-    log,
-    pull,
-    push,
+    mark,
     rebase,
     rename,
     reparent,
@@ -83,9 +92,8 @@ const routes = buildRouteMap({
     setup,
     show,
     sync,
-    todo,
     todos,
-    unarchive,
+    tui,
     widen,
     workspace,
   },

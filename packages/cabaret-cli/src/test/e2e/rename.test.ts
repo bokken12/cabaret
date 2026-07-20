@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo } from "./fixture.js";
 
 test("rename moves the branch, the log, and HEAD to the new name", async () => {
   const repo = await makeRepo();
@@ -20,7 +20,7 @@ test("rename moves the branch, the log, and HEAD to the new name", async () => {
   );
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/better-feature");
   expect(await repo.git("status", "--porcelain")).toBe(" M feature.txt");
-  expect(await repo.cabaret("log", "better-feature")).toEqual({
+  expect(await repo.cabaret("dev", "log", "better-feature")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
@@ -57,14 +57,35 @@ test("rename refuses a name already taken by a change or a branch", async () => 
   // The refused renames moved nothing: branch, log, and HEAD all stand.
   expect(await repo.git("symbolic-ref", "HEAD")).toBe("refs/heads/gizmo");
   expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
-  expect((await repo.cabaret("log", "gizmo")).stdout).not.toBe("");
+  expect((await repo.cabaret("dev", "log", "gizmo")).stdout).not.toBe("");
+});
+
+test("rename refuses a name origin holds, even with no local branch", async () => {
+  const repo = await makeRepo();
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "gizmo");
+  // A second machine publishes the coveted name; this clone only fetches it.
+  const other = await makeClone(repo, "bob@example.com");
+  await other.git("checkout", "-qb", "doodad");
+  await other.write("doodad.txt", "doodad work\n");
+  await other.git("add", "-A");
+  await other.git("commit", "-qm", "doodad work");
+  await other.git("push", "-q", "origin", "doodad");
+  await repo.git("fetch", "-q", "origin");
+  expect(await repo.cabaret("rename", "gizmo", "doodad")).toEqual({
+    stdout: "",
+    stderr: 'branch already exists: "doodad"\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "gizmo")).toBe("* gizmo");
 });
 
 test("rename refuses a name that is not a change", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("rename", "nonesuch", "elsewhere")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "nonesuch"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr:
+      'change does not exist: "nonesuch"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });
@@ -96,7 +117,7 @@ test("only the owner may rename, unless overridden", async () => {
     exitCode: 0,
   });
   // The rename moved the log, owner and all.
-  expect((await repo.cabaret("log", "mine")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log", "mine")).stdout).toContain(
     '"action":{"kind":"set-owner","owner":"bob@example.com"}',
   );
 });

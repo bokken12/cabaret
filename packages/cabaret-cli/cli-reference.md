@@ -18,13 +18,14 @@ FLAGS
 ## cabaret archive
 
 USAGE
-  cabaret archive [--change value]
+  cabaret archive [--change value] [--undo]
   cabaret archive --help
 
-Set a change aside without landing it: the change leaves the todo page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret unarchive` brings it back.
+Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret archive --undo` brings it back.
 
 FLAGS
      [--change]  Change to archive (defaults to current)
+     [--undo]    Bring the change back: it may land again, and a push reopens its forge change [default = false]
   -h  --help     Print help information and exit
 
 ## cabaret comment
@@ -41,6 +42,20 @@ FLAGS
 
 ARGUMENTS
   text  the comment text
+
+## cabaret commit
+
+USAGE
+  cabaret commit <file>...
+  cabaret commit --help
+
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed to the named files or patterns.
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to commit (defaults to every edit)
 
 ### cabaret config list
 
@@ -375,7 +390,7 @@ USAGE
   cabaret create [--parent value] [--owner value] <change>
   cabaret create --help
 
-Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch or bookmark is adopted with the last revision shared with the parent as its base. The change must not already exist.
+Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
      [--parent]  The new change's parent (defaults to what is checked out)
@@ -385,13 +400,27 @@ FLAGS
 ARGUMENTS
   change  name for the new change
 
+### cabaret dev log
+
+USAGE
+  cabaret dev log [<change>]
+  cabaret dev log --help
+
+Dump a change's raw log
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to inspect (defaults to current)
+
 ### cabaret dev wipe
 
 USAGE
   cabaret dev wipe [--remote]
   cabaret dev wipe --help
 
-Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret sync` restores them. --remote deletes origin's logs too, for every user of the repository.
+Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret fetch` restores them. --remote deletes origin's logs too, for every user of the repository.
 
 FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
@@ -400,19 +429,29 @@ FLAGS
 ## cabaret diff
 
 USAGE
-  cabaret diff [--change value] [--for value] [--context value] <file>
+  cabaret diff [--change value] [--context value] <file>...
   cabaret diff --help
 
-Show the diff of a file left to review, given the reviewer's brain: the full base → tip diff when the file is unreviewed, the diff from the previously reviewed tip when that still covers everything left — the file is the same at both bases, or the new base took the reviewed tip's copy — or a 4-way diff of the reviewed and current diffs when the base's copy changed underneath the review. The diff a land merge brings in was reviewed in the landed change, so it is skipped: what prints is one diff per span of history between land merges.
+Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
 
 FLAGS
      [--change]   Change to diff (defaults to current)
-     [--for]      Show the diff for another user (defaults to self)
      [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file  file to diff
+  file...  files or patterns to show (defaults to every changed file)
+
+## cabaret fetch
+
+USAGE
+  cabaret fetch
+  cabaret fetch --help
+
+Fetch remote activity: refresh origin's copies, fast-forward branches origin is strictly ahead of, merge every change's log with origin's, and absorb forge activity — import every open forge change that is not yet a change, refresh tracked ones, record lands, and prune closed imports nobody engaged with. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours. Without a forge, the origin half still runs.
+
+FLAGS
+  -h --help  Print help information and exit
 
 ## cabaret forget
 
@@ -429,72 +468,63 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
-## cabaret land
+## cabaret home
 
 USAGE
-  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [<change>]
-  cabaret land --help
+  cabaret home
+  cabaret home --help
 
-Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cabaret config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cabaret config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
-
-FLAGS
-     [--even-though-not-owner]   Proceed even though you do not own the change       [default = false]
-     [--even-though-unreviewed]  Land even though review obligations are unsatisfied [default = false]
-  -h  --help                     Print help information and exit
-
-ARGUMENTS
-  [change]  change or ancestor..descendant range to land (defaults to current)
-
-## cabaret log
-
-USAGE
-  cabaret log [<change>]
-  cabaret log --help
-
-Show a log of actions on a change
+Show your reviews, changes, and workspaces
 
 FLAGS
   -h --help  Print help information and exit
 
+## cabaret land
+
+USAGE
+  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [--even-though-parent-unreviewed] [<change>]
+  cabaret land --help
+
+Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cabaret config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cabaret config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives, and their forge changes retargeted to match. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
+
+FLAGS
+     [--even-though-not-owner]          Proceed even though you do not own the change                    [default = false]
+     [--even-though-unreviewed]         Land even though review obligations are unsatisfied              [default = false]
+     [--even-though-parent-unreviewed]  Land even though the parent's review obligations are unsatisfied [default = false]
+  -h  --help                            Print help information and exit
+
 ARGUMENTS
-  [change]  change to inspect (defaults to current)
+  [change]  change or ancestor..descendant range to land (defaults to current)
 
-## cabaret pull
-
-USAGE
-  cabaret pull [--change value]
-  cabaret pull --help
-
-Pull activity from the forge: import every open forge change that is not yet a change — owned by its author, parented on the branch it merges into — import forge comments into change logs, and record merged forge changes as landing their changes. Pulls every unlanded change with a forge change; --change restricts it to one. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours.
-
-FLAGS
-     [--change]  Only change to pull
-  -h  --help     Print help information and exit
-
-## cabaret push
+## cabaret mark
 
 USAGE
-  cabaret push [--change value]
-  cabaret push --help
+  cabaret mark [--change value] (--tip value) [--even-though-not-reviewing] <file>...
+  cabaret mark --help
 
-Push activity to the forge: push the change's branch, open its forge change if there is none (merging into the change's parent), retarget it to the parent, and post the change's comments the forge lacks.
+Record review of files: one `review` entry per file, recording the change's base and the tip the diff you read ended at — `review` prints the exact command. Arguments select files the way `review` does.
 
 FLAGS
-     [--change]  Change to push (defaults to current)
-  -h  --help     Print help information and exit
+     [--change]                     Change to mark (defaults to current)
+      --tip                         The revision the diff you read reviewed up to, as `review` printed it
+     [--even-though-not-reviewing]  Record review even though the reviewing set does not include you      [default = false]
+  -h  --help                        Print help information and exit
+
+ARGUMENTS
+  file...  files or patterns to mark reviewed
 
 ## cabaret rebase
 
 USAGE
-  cabaret rebase [--even-though-not-owner] [--even-though-parent-stale] [<change>]
+  cabaret rebase [--even-though-not-owner] [--even-though-parent-diverged] [<change>]
   cabaret rebase --help
 
 Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
 FLAGS
-     [--even-though-not-owner]     Proceed even though you do not own the change                [default = false]
-     [--even-though-parent-stale]  Proceed even though origin's copy of the parent has moved on [default = false]
-  -h  --help                       Print help information and exit
+     [--even-though-not-owner]        Proceed even though you do not own the change                                    [default = false]
+     [--even-though-parent-diverged]  Rebase onto the parent's local reading even though origin's has diverged from it [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   [change]  change or ancestor..descendant range to rebase (defaults to current)
@@ -534,19 +564,18 @@ ARGUMENTS
 ## cabaret review
 
 USAGE
-  cabaret review [--change value] [--tip value] [--even-though-not-reviewing] <file>...
+  cabaret review [--change value] [--context value] <file>...
   cabaret review --help
 
-Mark files of a change as reviewed. Appends one `review` entry per file recording the base and tip of the reviewed diff, where the base is the last revision shared with the change's parent.
+Show the diff of a change left for you to review: the files of the current review round, then each file's remaining diff. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths. What is shown is remembered, and `mark` records review of it.
 
 FLAGS
-     [--change]                     Change to review (defaults to current)
-     [--tip]                        Mark as reviewed at this tip revision (defaults to the change's tip)
-     [--even-though-not-reviewing]  Record review even though the reviewing set does not include you     [default = false]
-  -h  --help                        Print help information and exit
+     [--change]   Change to review (defaults to current)
+     [--context]  Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or 3)
+  -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files to mark as reviewed
+  file...  files or patterns to show (defaults to the whole round)
 
 ### cabaret reviewers add
 
@@ -554,7 +583,7 @@ USAGE
   cabaret reviewers add [--change value] <user>
   cabaret reviewers add --help
 
-Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `pull`/`push` sync them with the forge.
+Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `sync` settles them with the forge.
 
 FLAGS
      [--change]  Change to add the reviewer to (defaults to current)
@@ -648,24 +677,14 @@ ARGUMENTS
 ## cabaret sync
 
 USAGE
-  cabaret sync
+  cabaret sync [--change value]
   cabaret sync --help
 
-Sync review state with origin: fetch every change's log, merge it with the local log, and push the result. Only logs move; branches sync through git or `cabaret pull`/`cabaret push`.
+Sync a change: merge origin's copy of its branch into the local one — a conflicted merge commits its markers, to fix and amend — push the result, reconcile its forge change (opening one if none exists, retargeting it, settling comments, reviewers, draft and archived state both ways), and sync its log. Offline, the merge against origin's last-fetched copy still runs; syncing again online finishes the exchange.
 
 FLAGS
-  -h --help  Print help information and exit
-
-## cabaret todo
-
-USAGE
-  cabaret todo
-  cabaret todo --help
-
-Show the changes awaiting your attention
-
-FLAGS
-  -h --help  Print help information and exit
+     [--change]  Change to sync (defaults to current)
+  -h  --help     Print help information and exit
 
 ## cabaret todos
 
@@ -681,17 +700,19 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-## cabaret unarchive
+## cabaret tui
 
 USAGE
-  cabaret unarchive [--change value]
-  cabaret unarchive --help
+  cabaret tui [<change>]
+  cabaret tui --help
 
-Bring an archived change back: it returns to the todo page and may land again. A push reopens its forge change.
+Browse pages in the terminal
 
 FLAGS
-     [--change]  Change to unarchive (defaults to current)
-  -h  --help     Print help information and exit
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to open (defaults to the home page)
 
 ## cabaret widen
 

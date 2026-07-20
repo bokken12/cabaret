@@ -111,9 +111,8 @@ export async function removeChangeWorkspace(
 
 /**
  * Check `change` out in the current workspace and return that workspace's
- * path, refusing a dirty workspace unless `evenThoughDirty`. Under git a
- * change held by another workspace cannot be checked out — the backend
- * refuses it — while hg tolerates sharing one.
+ * path, refusing a dirty workspace unless `evenThoughDirty`. A change held
+ * by another workspace cannot be checked out — the backend refuses it.
  */
 export async function checkoutChange(backend: Backend, change: ChangeName, evenThoughDirty: boolean): Promise<string> {
   await assertCheckoutable(backend, change);

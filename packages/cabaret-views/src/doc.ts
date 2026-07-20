@@ -1,4 +1,7 @@
-import type { ChangeName, FilePath } from "cabaret-core";
+import type { ChangeName, FilePath, UserName } from "cabaret-core";
+
+/** The operations on a change that hosts run from its pages; each host maps them to its own commands. */
+export type ChangeAction = "sync" | "rebase" | "reparent" | "widen reviewing" | "land";
 
 /**
  * Semantic paint for a span; each host maps styles to its own palette. The
@@ -30,14 +33,25 @@ export type Style =
   | "new-diff-added"
   | "new-diff-context";
 
-/** What a span denotes, for hosts to dispatch on at the cursor. */
+/**
+ * What a span denotes, for hosts to dispatch on at the cursor. Targets that
+ * open pages carry the identity those pages read as: builders stamp their own
+ * page's `as` so navigation stays with the borrowed user, and a target that
+ * jumps to a particular user's view names that user instead.
+ */
 export type Target =
-  | { readonly kind: "change"; readonly change: ChangeName }
-  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath }
+  | { readonly kind: "change"; readonly change: ChangeName; readonly as?: UserName | undefined }
+  /** A user's review of `change`: the files they have left to read. */
+  | { readonly kind: "review"; readonly change: ChangeName; readonly as?: UserName | undefined }
+  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath; readonly as?: UserName | undefined }
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */
-  | { readonly kind: "workspace"; readonly path: string };
+  | { readonly kind: "workspace"; readonly path: string }
+  /** An operation on `change`; following the target runs it. */
+  | { readonly kind: "action"; readonly change: ChangeName; readonly action: ChangeAction }
+  /** A web page outside cabaret, e.g. a change's page on its forge. */
+  | { readonly kind: "url"; readonly url: string };
 
 /**
  * How hosts offer a span's target: a link is advertised as clickable, while a

@@ -7,35 +7,24 @@ export const archive = buildCommand({
   docs: {
     brief: "Set a change aside without landing it",
     fullDescription:
-      "Set a change aside without landing it: the change leaves the todo " +
+      "Set a change aside without landing it: the change leaves the home " +
       "page and refuses to land, but its branch and log stay. A push closes " +
-      "its forge change. `cabaret unarchive` brings it back.",
+      "its forge change. `cabaret archive --undo` brings it back.",
   },
   parameters: {
     positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag("archive") },
+    flags: {
+      change: changeFlag("archive"),
+      undo: {
+        kind: "boolean",
+        brief: "Bring the change back: it may land again, and a push reopens its forge change",
+        default: false,
+      },
+    },
   },
-  async func(this: LocalContext, flags: { change?: string }) {
+  async func(this: LocalContext, flags: { change?: string; undo: boolean }) {
     const backend = await this.backend();
     const { change, entries } = await resolveChange(backend, flags.change);
-    await setArchived(backend, this.now, change, entries, true);
-  },
-});
-
-export const unarchive = buildCommand({
-  docs: {
-    brief: "Bring an archived change back",
-    fullDescription:
-      "Bring an archived change back: it returns to the todo page and may " +
-      "land again. A push reopens its forge change.",
-  },
-  parameters: {
-    positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag("unarchive") },
-  },
-  async func(this: LocalContext, flags: { change?: string }) {
-    const backend = await this.backend();
-    const { change, entries } = await resolveChange(backend, flags.change);
-    await setArchived(backend, this.now, change, entries, false);
+    await setArchived(backend, this.now, change, entries, !flags.undo);
   },
 });

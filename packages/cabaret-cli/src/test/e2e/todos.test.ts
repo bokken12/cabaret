@@ -42,6 +42,18 @@ test("shows the TODOs the change adds, per file and position", async () => {
   `);
 });
 
+test("a moved file's pre-existing TODOs do not appear", async () => {
+  const repo = await makeRepo();
+  await repo.write("src/old.ts", "export const app = 1; // TODO: wire up\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.git("mv", "src/old.ts", "src/new.ts");
+  await repo.git("commit", "-qm", "reorganize");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("todos")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
 test("a pre-existing TODO does not appear, even when edits move it", async () => {
   const repo = await makeChange(
     { "notes.py": "# TODO: an old debt\nstart()\n" },
@@ -141,7 +153,7 @@ test("todos fails on a change that does not exist", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("todos", "phantom")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "phantom"; run `cabaret create`, or `cabaret pull` to import open forge changes\n',
+    stderr: 'change does not exist: "phantom"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
     exitCode: 1,
   });
 });

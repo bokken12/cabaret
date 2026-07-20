@@ -1,114 +1,67 @@
 import { buildCommand } from "@stricli/core";
-import {
-  brain,
-  changeBase,
-  defaultContext,
-  parseContext,
-  type ReviewSpan,
-  readConfig,
-  rebasedView,
-  remainingSpans,
-  renderDiff,
-  renderDiff4,
-  requireTip,
-  reviewSpans,
-  UserError,
-  type UserName,
-} from "cabaret-core";
+import { changeBase, changeTip, fileLabel, readConfig, renderDiff } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, parseUser, resolveChange } from "./shared.js";
+import { changeFlag, contextFlag, resolveChange, selectFiles } from "./shared.js";
 
 export const diff = buildCommand({
   docs: {
-    brief: "Show the diff of a change left to review for a file",
+    brief: "Show a change's diff",
     fullDescription:
-      "Show the diff of a file left to review, given the reviewer's brain: the " +
-      "full base → tip diff when the file is unreviewed, the diff from the " +
-      "previously reviewed tip when that still covers everything left — the " +
-      "file is the same at both bases, or the new base took the reviewed " +
-      "tip's copy — or a 4-way diff of the reviewed and current diffs when " +
-      "the base's copy changed underneath the review. The diff a land merge " +
-      "brings in was reviewed in the landed change, so it is skipped: what " +
-      "prints is one diff per span of history between land merges.",
+      "Show a change's diff: each changed file, base to tip. Arguments " +
+      "narrow what is shown — a path, or a gitignore-style pattern against " +
+      "repo-relative paths.",
   },
   parameters: {
     positional: {
-      kind: "tuple",
-      parameters: [{ brief: "file to diff", placeholder: "file", parse: String }],
+      kind: "array",
+      parameter: {
+        brief: "files or patterns to show (defaults to every changed file)",
+        placeholder: "file",
+        parse: String,
+      },
     },
     flags: {
       change: changeFlag("diff"),
-      for: {
-        kind: "parsed",
-        parse: parseUser,
-        brief: "Show the diff for another user (defaults to self)",
-        optional: true,
-      },
-      context: {
-        kind: "parsed",
-        parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
-        optional: true,
-      },
+      context: contextFlag,
     },
   },
-  async func(this: LocalContext, flags: { change?: string; for?: UserName; context?: number }, rawFile: string) {
+  async func(this: LocalContext, flags: { change?: string; context?: number }, ...args: string[]) {
     const backend = await this.backend();
-    const file = backend.resolveFile(rawFile);
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;
     const { change, entries } = await resolveChange(backend, flags.change);
-    const user = flags.for ?? (await backend.currentUser());
-    const base = await changeBase(backend, change, entries);
-    const tip = await requireTip(backend, change);
-    const known = brain(entries, user).get(file);
-    // A review recorded against objects this clone lacks — reviewed where the
-    // commits were never pushed — can be neither placed nor diffed from, so
-    // the file counts as unreviewed.
-    const reviewed =
-      known !== undefined && (await backend.hasRevision(known.base)) && (await backend.hasRevision(known.tip))
-        ? known
-        : undefined;
+    const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
+    const changed = await backend.changedFiles(base, tip);
+    const byPath = new Map(changed.map((file) => [file.path, file]));
+    const moves = new Map(
+      changed.flatMap(({ path, source }) =>
+        source === undefined || source.copied ? [] : [[source.path, path] as const],
+      ),
+    );
+    const selected = selectFiles(
+      backend,
+      changed.map(({ path }) => path),
+      args,
+      false,
+      "changed file",
+    );
+    // A moved file answers to its old name too, so the diff shown is the
+    // move, not a bare deletion.
+    const files = [...new Set(selected.map((file) => (byPath.has(file) ? file : (moves.get(file) ?? file))))];
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
-    if (reviewed !== undefined && reviewed.base !== base) {
-      const view = await rebasedView(backend, file, reviewed, base, tip);
-      if (view.kind === "two") {
-        this.process.stdout.write(renderDiff(file, view.prev, view.next, color, context));
-      } else {
-        const rendered = renderDiff4({ file, revs: view.revs, contents: view.contents, color, context });
-        this.process.stdout.write(rendered.length === 0 ? "" : `${rendered.map((line) => line.text).join("\n")}\n`);
-      }
-      return;
+    let separate = false;
+    for (const file of files) {
+      const source = byPath.get(file)?.source;
+      const [prev, next] = await Promise.all([
+        backend.readFile(base, source?.path ?? file),
+        backend.readFile(tip, file),
+      ]);
+      this.process.stdout.write(`${separate ? "\n" : ""}${fileLabel(file, source)} in ${change}\n\n`);
+      separate = true;
+      const rendered = renderDiff(file, prev, next, color, context);
+      this.process.stdout.write(rendered === "" ? "No differences.\n" : rendered);
     }
-    let spans: readonly ReviewSpan[];
-    if (reviewed !== undefined && !(await backend.isAncestor(reviewed.tip, tip))) {
-      // The tip was rewritten out from under the review, so the reviewed tip
-      // cannot be placed among the first-parent spans; diffing from its
-      // contents still shows exactly what the reviewer has not seen.
-      spans = [{ start: reviewed.tip, end: tip }];
-    } else {
-      spans = reviewSpans(await backend.landMerges(base, tip), base, tip);
-      if (reviewed !== undefined) {
-        spans = await remainingSpans(backend, spans, reviewed.tip);
-      }
-    }
-    // Base and tip join the existence check even when review or a land merge
-    // drops them from the spans: a file present anywhere in the change is
-    // simply done (empty output), while a name found nowhere is an error.
-    const revs = [...new Set([...spans.flatMap(({ start, end }) => [start, end]), base, tip])];
-    const contents = new Map(
-      await Promise.all(revs.map(async (rev) => [rev, await backend.readFile(rev, file)] as const)),
-    );
-    if (revs.every((rev) => contents.get(rev) === undefined)) {
-      throw new UserError(`${file} exists at none of ${revs.join(", ")}`);
-    }
-    const rendered = spans
-      .map(({ start, end }) => renderDiff(file, contents.get(start), contents.get(end), color, context))
-      .filter((diff) => diff !== "");
-    // A blank line between spans, since consecutive diffs of one file would
-    // otherwise run together.
-    this.process.stdout.write(rendered.join("\n"));
   },
 });

@@ -1,29 +1,96 @@
-import { type Backend, currentSelf } from "cabaret-core";
+import type { Backend, ChangeName, FilePath, Revision, UserName } from "cabaret-core";
 import type { Doc } from "./doc.js";
+import { homeDoc, homePage } from "./home.js";
 import type { Page } from "./pages.js";
-import { changeSnapshot, diffDoc, diffPage, reviewDoc, reviewPage } from "./review.js";
+import {
+  type ChangeSnapshot,
+  changeSnapshot,
+  diffDoc,
+  diffPage,
+  diffsDoc,
+  diffsPage,
+  reviewDoc,
+  reviewPage,
+} from "./review.js";
 import { showDoc, showPage } from "./show.js";
-import { todoDoc, todoPage } from "./todo.js";
+
+/**
+ * The diffs a render displayed: evidence a host records so `mark`'s viewed
+ * check can credit the display. Listing files (the review page) is not
+ * viewing; only rendered diffs report.
+ */
+export interface ViewedDiffs {
+  readonly change: ChangeName;
+  /** Whose review the diffs showed: the snapshot's user, borrowed or not. */
+  readonly user: UserName;
+  readonly base: Revision;
+  /** Per displayed file, the revision its diff was rendered up to. */
+  readonly files: ReadonlyMap<FilePath, Revision>;
+}
+
+/** The key under which hosts record one file's diff as displayed to one user against one base. */
+export function displayedKey(change: ChangeName, user: UserName, base: Revision, file: FilePath): string {
+  return [change, user, base, file].join("\u0000");
+}
 
 /** What a host brings to a render beyond the page itself. */
 export interface RenderOptions {
   /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
   readonly context?: number | undefined;
+  /** Called when the render displayed diffs, with what they showed. */
+  readonly onViewed?: ((viewed: ViewedDiffs) => void) | undefined;
+  /**
+   * Called with the snapshot a review, diffs, or diff page rendered from. A
+   * host holds it beside the page, so a mark of the page records what it
+   * displayed rather than whatever the change holds by then.
+   */
+  readonly onSnapshot?: ((snapshot: ChangeSnapshot) => void) | undefined;
 }
 
 /**
- * Query `backend` and render `page` for its current user. Rendering reads
- * change logs alone — it never calls the forge.
+ * Query `backend` and render `page` for its user — the current one, or the
+ * identity the page borrows. Rendering reads change logs alone — it never
+ * calls the forge.
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions = {}): Promise<Doc> {
   switch (page.kind) {
-    case "todo":
-      return todoDoc(await todoPage(backend, await currentSelf(backend)));
+    case "home":
+      return homeDoc(await homePage(backend, page.as));
     case "show":
-      return showDoc(await showPage(backend, await backend.currentUser(), page.change));
-    case "review":
-      return reviewDoc(reviewPage(await changeSnapshot(backend, page.change)));
-    case "diff":
-      return diffDoc(await diffPage(backend, await changeSnapshot(backend, page.change), page.file), options.context);
+      return showDoc(await showPage(backend, page.change, page.as));
+    case "review": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      return reviewDoc(reviewPage(snapshot));
+    }
+    case "diffs": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      const diffs = await diffsPage(backend, snapshot);
+      if (diffs.round !== undefined) {
+        const { end, files } = diffs.round;
+        options.onViewed?.({
+          change: snapshot.change,
+          user: snapshot.user,
+          base: snapshot.base,
+          files: new Map(files.map(({ file }) => [file, end])),
+        });
+      }
+      return diffsDoc(diffs, options.context);
+    }
+    case "diff": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      const file = await diffPage(backend, snapshot, page.file);
+      if (file.round !== undefined) {
+        options.onViewed?.({
+          change: snapshot.change,
+          user: snapshot.user,
+          base: snapshot.base,
+          files: new Map([[page.file, file.round.end]]),
+        });
+      }
+      return diffDoc(file, options.context);
+    }
   }
 }

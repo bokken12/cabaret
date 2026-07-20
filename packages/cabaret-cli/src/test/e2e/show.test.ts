@@ -72,7 +72,7 @@ test("show renders the comments on a change, oldest first, above the files", asy
   `);
 });
 
-test("show renders a change pull imported like any other", async () => {
+test("show renders an imported change like any other", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   // The teammate's branch lives on origin and in a PR, but not locally.
@@ -85,7 +85,7 @@ test("show renders a change pull imported like any other", async () => {
   await repo.git("branch", "-qD", "their-feature");
   const id = forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature");
   forge.comment(id, "carol", "please take a look");
-  await repo.cabaret("pull");
+  await repo.cabaret("fetch");
   expect((await repo.cabaret("show", "their-feature")).stdout).toMatchInlineSnapshot(`
     "their-feature
     =============
@@ -111,6 +111,8 @@ test("show renders a change pull imported like any other", async () => {
 
     Files to review:
       their.txt
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -127,7 +129,7 @@ test("show lists the changes landed into a parent, their diffs out of its review
   await repo.write("child.txt", "child work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "child work");
-  await repo.cabaret("land", "--even-though-unreviewed");
+  await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   expect((await repo.cabaret("show", "parent")).stdout).toMatchInlineSnapshot(`
     "parent
     ======
@@ -155,6 +157,75 @@ test("show lists the changes landed into a parent, their diffs out of its review
   `);
 });
 
+test("show renders a branch with no log from its history alone", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
+  await repo.cabaret("land");
+  await repo.git("checkout", "-q", "main");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show", "main");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ df22a5b69709 │
+    │ workspace │ .            │
+    ╰───────────┴──────────────╯
+
+    Included changes:
+      gadget
+    "
+  `);
+});
+
+test("show with no name reads a checked-out trunk once changes acknowledge it", async () => {
+  const repo = await makeRepo();
+  // Standing on a branch no log speaks for keeps the create nudge...
+  await repo.git("checkout", "-qb", "scratch");
+  expect((await repo.cabaret("show")).stderr).toBe(
+    'change does not exist: "scratch"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+  );
+  // ...but a trunk is acknowledged by its children's parent links.
+  await repo.git("checkout", "-q", "main");
+  await repo.cabaret("create", "gadget");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "main
+    ====
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ 1ac0b33426d0 │
+    │ workspace │ .            │
+    ╰───────────┴──────────────╯
+    "
+  `);
+});
+
+test("show names a branch outright even when no log speaks for it", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "-q", "scratch");
+  const { stdout, stderr, exitCode } = await repo.cabaret("show", "scratch");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "scratch
+    =======
+
+    ╭───────────┬──────────────╮
+    │ attribute │ value        │
+    ├───────────┼──────────────┤
+    │ tip       │ 1ac0b33426d0 │
+    ╰───────────┴──────────────╯
+    "
+  `);
+});
+
 test("show tallies the remaining review per user", async () => {
   const repo = await makeRepo();
   const policy = { rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }] };
@@ -163,7 +234,7 @@ test("show tallies the remaining review per user", async () => {
   await repo.git("commit", "-qm", "policy");
   await addChange(repo, "feature");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "feature.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "feature
     =======
@@ -190,7 +261,7 @@ test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "owner");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   const { stdout } = await repo.cabaret("show", "gadget");
   expect(stdout).toMatchInlineSnapshot(`
     "gadget
@@ -211,7 +282,7 @@ test("show by name reflects review progress", async () => {
   `);
 });
 
-test("show notes a tip behind origin's copy and makes pull the step", async () => {
+test("show notes a tip behind origin's copy and makes sync the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
@@ -225,7 +296,7 @@ test("show notes a tip behind origin's copy and makes pull the step", async () =
     ╭───────────┬──────────────────────────────╮
     │ attribute │ value                        │
     ├───────────┼──────────────────────────────┤
-    │ next step │ pull                         │
+    │ next step │ sync                         │
     │ owner     │ alice@example.com            │
     │ reviewing │ none                         │
     │ parent    │ main                         │
@@ -282,7 +353,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
   await repo.git("checkout", "-q", "gadget");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: 'reparented "gizmo" onto "main"\n',
     stderr: "",
@@ -348,7 +419,7 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
   `);
 });
 
-test("show notes a tip diverged from origin's copy and makes resolving it the step", async () => {
+test("show notes a tip diverged from origin's copy and makes sync the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.git("push", "-q", "origin", "gadget");
@@ -360,7 +431,7 @@ test("show notes a tip diverged from origin's copy and makes resolving it the st
     ╭───────────┬─────────────────────────────────────╮
     │ attribute │ value                               │
     ├───────────┼─────────────────────────────────────┤
-    │ next step │ resolve divergence                  │
+    │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
     │ reviewing │ none                                │
     │ parent    │ main                                │
@@ -410,15 +481,15 @@ test("show notes a tip ahead of origin's copy without changing the step", async 
   `);
 });
 
-test("show makes push the step when the forge lacks the reviewed tip", async () => {
+test("show makes sync the step when the forge lacks the reviewed tip", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   await repo.cabaret("reviewing", "everyone");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -426,7 +497,7 @@ test("show makes push the step when the forge lacks the reviewed tip", async () 
     ╭──────────────┬────────────────────────────────╮
     │ attribute    │ value                          │
     ├──────────────┼────────────────────────────────┤
-    │ next step    │ push                           │
+    │ next step    │ sync                           │
     │ owner        │ alice@example.com              │
     │ reviewing    │ everyone                       │
     │ parent       │ main                           │
@@ -439,13 +510,13 @@ test("show makes push the step when the forge lacks the reviewed tip", async () 
   `);
 });
 
-test("show notes the forge change's stale target and makes push the step", async () => {
+test("show notes the forge change's stale target and makes sync the step", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("push");
+  await repo.cabaret("sync");
   await repo.cabaret("reviewing", "everyone");
-  await repo.cabaret("review", "gadget.txt");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
   await repo.cabaret("reparent", "gadget", "trunk");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
@@ -455,7 +526,7 @@ test("show notes the forge change's stale target and makes push the step", async
     ╭──────────────┬──────────────────────────────────────────────────╮
     │ attribute    │ value                                            │
     ├──────────────┼──────────────────────────────────────────────────┤
-    │ next step    │ push                                             │
+    │ next step    │ sync                                             │
     │ owner        │ alice@example.com                                │
     │ reviewing    │ everyone                                         │
     │ parent       │ trunk                                            │

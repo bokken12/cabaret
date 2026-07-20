@@ -1,7 +1,6 @@
 import { parseBranchName, parseFilePath } from "cabaret-core";
-import { span } from "cabaret-views";
 import { expect, test } from "vitest";
-import { linkRanges, styledRanges } from "../ranges.js";
+import { linkRanges, span, styledRanges } from "../index.js";
 
 test("styledRanges locates styled spans on the grid, keeping empty ones for whole-line paint", () => {
   const doc = {

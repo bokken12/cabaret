@@ -1,4 +1,4 @@
-import type { Doc, Style, Target } from "cabaret-views";
+import type { Doc, Style, Target } from "./doc.js";
 
 /** A styled span located on the document grid, ready to paint as a decoration. */
 export interface StyledRange {

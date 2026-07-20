@@ -98,7 +98,7 @@ async function readObligations(
  * depth; one with `/` matches the whole relative path, where `*` stops at
  * separators and `**` does not. Dotfiles match like any other file.
  */
-function patternMatches(pattern: string, path: string): boolean {
+export function patternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.startsWith("/") ? pattern.slice(1) : pattern;
   const target = anchored.includes("/") ? path : path.slice(path.lastIndexOf("/") + 1);
   return picomatch(anchored, { dot: true })(target);
@@ -264,7 +264,7 @@ export async function obligationStatuses(
 ): Promise<readonly ObligationStatus[]> {
   const files = new Set<FilePath>();
   for (const { changed } of diff.spans) {
-    for (const file of changed) {
+    for (const file of changed.keys()) {
       files.add(file);
     }
   }
@@ -326,6 +326,15 @@ export async function reviewOwed(
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
 }
 
+/** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+function obligationDetails(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return unsatisfied.map((status) => {
+    const { file, source, require } = status.obligation;
+    const missing = require.atLeast - status.reviewedBy.length;
+    return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
+  });
+}
+
 /**
  * Review obligations block the land. Each detail line names one unsatisfied
  * requirement: how many reviews are missing and who can still provide them.
@@ -333,28 +342,50 @@ export async function reviewOwed(
  * remedy — a flag, a confirmation dialog — before showing it.
  */
 export class UnsatisfiedObligationsError extends UserError {
-  /** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
   readonly details: readonly string[];
 
   constructor(readonly unsatisfied: readonly ObligationStatus[]) {
-    const details = unsatisfied.map((status) => {
-      const { file, source, require } = status.obligation;
-      const missing = require.atLeast - status.reviewedBy.length;
-      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
-    });
+    const details = obligationDetails(unsatisfied);
     super(`review obligations are unsatisfied:\n${details.join("\n")}`);
     this.details = details;
   }
 }
 
 /**
- * One line per user whose review could satisfy some of `unsatisfied`, sorted
+ * The parent's review obligations block the land: a land absorbs the child
+ * into the parent's diff and advances what its reviewers are asked to hold,
+ * so the parent settles its own pending review first. The message states
+ * only the facts; each frontend attaches its own override remedy.
+ */
+export class UnreviewedParentError extends UserError {
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
+  readonly details: readonly string[];
+
+  constructor(
+    readonly parent: ChangeName,
+    readonly unsatisfied: readonly ObligationStatus[],
+  ) {
+    const details = obligationDetails(unsatisfied);
+    super(`parent ${JSON.stringify(parent)} has unsatisfied review obligations:\n${details.join("\n")}`);
+    this.details = details;
+  }
+}
+
+/** One reviewer's tally of unsatisfied obligations: how many files await them. */
+export interface ReviewerTally {
+  readonly user: UserName;
+  readonly files: number;
+}
+
+/**
+ * One tally per user whose review could satisfy some of `unsatisfied`, sorted
  * by name: how many files await them. A per-reviewer digest of the per-file
  * `details`, for surfaces too small to show every obligation. Deliberately
  * vague about who must act: a requirement satisfiable by any of several users
  * tallies the file under each of them.
  */
-export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+export function reviewerTallies(unsatisfied: readonly ObligationStatus[]): readonly ReviewerTally[] {
   const due = new Map<UserName, Set<FilePath>>();
   for (const status of unsatisfied) {
     for (const user of outstanding(status)) {
@@ -368,7 +399,17 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   }
   return [...due]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([user, files]) => `${user}: ${files.size} ${files.size === 1 ? "file" : "files"}`);
+    .map(([user, files]) => ({ user, files: files.size }));
+}
+
+/** A tally as prose: `bob@example.com: 2 files`. */
+export function tallyText({ user, files }: ReviewerTally): string {
+  return `${user}: ${files} ${files === 1 ? "file" : "files"}`;
+}
+
+/** The tallies of `unsatisfied` as prose lines, as `reviewerTallies` orders them. */
+export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return reviewerTallies(unsatisfied).map(tallyText);
 }
 
 /** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */

@@ -6,7 +6,7 @@ import {
   type ChangeName,
   changeBase,
   changeDiff,
-  conflictedFiles,
+  conflictsBetween,
   currentArchived,
   currentBase,
   currentOwner,
@@ -16,6 +16,7 @@ import {
   diffBetween,
   ensureBranch,
   type FilePath,
+  freshestReading,
   type LandedMerge,
   type LogEntry,
   landedMerge,
@@ -28,8 +29,9 @@ import {
   widerReviewing,
 } from "./backend.js";
 import type { LandMethod } from "./config.js";
+import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { assertObligationsSatisfied } from "./obligations.js";
+import { assertObligationsSatisfied, isSatisfied, obligationStatuses, UnreviewedParentError } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
 import { reviewRounds } from "./summary.js";
 
@@ -37,9 +39,12 @@ import { reviewRounds } from "./summary.js";
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
- * with the last revision shared with the parent as its base. The change must
- * not already exist. Review starts with nobody asked — the change is a draft
- * until widened — though the owner may record self-review at any stage.
+ * with the last revision shared with the parent as its base. Parent and
+ * adopted branch alike read freshest — the descendant-most of the local tip
+ * and origin's last-fetched copy — and diverged readings fail until synced.
+ * The change must not already exist. Review starts with nobody asked — the
+ * change is a draft until widened — though the owner may record self-review
+ * at any stage.
  */
 export async function createChange(
   backend: Backend,
@@ -54,22 +59,33 @@ export async function createChange(
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
-  const parentTip = await backend.tip(parent);
-  if (parentTip === undefined) {
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  // Not a `DivergedParentError`: frontends attach rebase's override remedy
+  // to that class, and create offers no override — sync is the way forward.
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const parentTip = parentReading.tip;
   // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
-  const existing = await backend.tip(change);
+  const existing = await freshestReading(backend, change);
+  if (existing.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(change)} has diverged from origin's copy; sync it first`);
+  }
   // A fresh branch is created at the parent's tip, which is therefore its
   // base; an adopted branch is based where it last shared with the parent.
-  let base: typeof parentTip;
-  if (existing === undefined) {
+  // One adopted from origin's copy alone stays unmaterialized, like an
+  // imported change: the branch appears on engagement.
+  let base: Revision;
+  if (existing.kind === "none") {
     await backend.create(change, parentTip);
     base = parentTip;
   } else {
-    base = await backend.mergeBase(parentTip, existing);
+    base = await backend.mergeBase(parentTip, existing.tip);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
@@ -241,45 +257,16 @@ export class NotOwnerError extends UserError {
 }
 
 /**
- * The parent's local branch is not current with origin's last-fetched copy:
- * `behind` mends by pulling the parent, `diverged` is the user's to
- * reconcile. As with `NotOwnerError`, the message states only the fact;
- * each frontend attaches its own override remedy before showing it.
+ * The parent's readings have diverged: local and origin's last-fetched copy
+ * each carry work the other lacks, so no freshest reading exists and the
+ * user must join them (syncing the parent does, when it is a change). As
+ * with `NotOwnerError`, the message states only the fact; each frontend
+ * attaches its own override remedy before showing it.
  */
-export class StaleParentError extends UserError {
-  constructor(
-    readonly parent: ChangeName,
-    readonly kind: "behind" | "diverged",
-  ) {
-    super(
-      kind === "behind"
-        ? `local ${JSON.stringify(parent)} is behind origin's copy; pull it first`
-        : `local ${JSON.stringify(parent)} has diverged from origin's copy; reconcile them first`,
-    );
+export class DivergedParentError extends UserError {
+  constructor(readonly parent: ChangeName) {
+    super(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
   }
-}
-
-/**
- * Fail unless the parent's local branch is current with origin's last-fetched
- * copy; `override` skips the check. With no origin copy — no origin, or a
- * branch it never had — there is nothing to be current with, so the local
- * reading stands. A local copy ahead of origin's is current: it already
- * carries everything origin has.
- */
-async function requireFreshParent(
-  backend: Backend,
-  parent: ChangeName,
-  parentTip: Revision,
-  override: boolean,
-): Promise<void> {
-  if (override) {
-    return;
-  }
-  const originTip = await backend.originTip(parent);
-  if (originTip === undefined || originTip === parentTip || (await backend.isAncestor(originTip, parentTip))) {
-    return;
-  }
-  throw new StaleParentError(parent, (await backend.isAncestor(parentTip, originTip)) ? "behind" : "diverged");
 }
 
 /**
@@ -317,17 +304,20 @@ export function assertNoConflict(target: ChangeName, conflicts: readonly FilePat
 export interface RebaseOverrides {
   /** Rebase a change the current user does not own. */
   readonly notOwner: boolean;
-  /** Rebase onto the local parent even though origin's copy has moved on. */
-  readonly staleParent: boolean;
+  /** Rebase onto the parent's local reading even though origin's has diverged from it. */
+  readonly parentDiverged: boolean;
 }
 
 /**
  * Move `target` onto its parent's tip by merging the tip into the change,
- * then record the new base in the log. A conflicting merge still commits,
- * markers in place, for the owner to fix in their own time; the move is
- * complete, so the base is pinned all the same. A change whose files already
- * carry markers must be fixed before it moves again — merging onto them
- * would bake them in as resolved content.
+ * then record the new base in the log. The tip is the parent's freshest
+ * reading — the descendant-most of local and last-fetched origin, since the
+ * merge moves nothing of the parent's — and diverged readings fail until
+ * synced, the override proceeding with the local one. A conflicting merge
+ * still commits, markers in place, for the owner to fix in their own time;
+ * the move is complete, so the base is pinned all the same. A change whose
+ * files already carry markers must be fixed before it moves again — merging
+ * onto them would bake them in as resolved content.
  *
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
@@ -342,20 +332,22 @@ export async function rebaseChange(
   assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
-  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
-  if (onto === undefined) {
+  const reading = await freshestReading(backend, parent);
+  if (reading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
-  await requireFreshParent(backend, parent, onto, overrides.staleParent);
+  if (reading.kind === "diverged" && !overrides.parentDiverged) {
+    throw new DivergedParentError(parent);
+  }
+  const onto = reading.kind === "fresh" ? reading.tip : reading.local;
   const base = await changeBase(backend, target, entries);
   // The merge moves the target's branch, so one held only at origin materializes.
   const tip = await ensureBranch(backend, target);
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   // A tip the base already reaches — the parent trailing where the change
-  // was built, however the freshness check was satisfied — offers nothing to
-  // move; merging it would reverse-diff the newer history, and pinning to it
-  // would slide the base backwards and pull the parent's commits into the
-  // diff.
+  // was built — offers nothing to move; merging it would reverse-diff the
+  // newer history, and pinning to it would slide the base backwards and
+  // pull the parent's commits into the diff.
   if (onto !== base && (await backend.isAncestor(onto, base))) {
     return;
   }
@@ -419,6 +411,8 @@ export interface LandOverrides {
   readonly notOwner: boolean;
   /** Land with review obligations unsatisfied. */
   readonly unreviewed: boolean;
+  /** Land into a parent whose own review obligations are unsatisfied. */
+  readonly parentUnreviewed: boolean;
 }
 
 /**
@@ -445,16 +439,23 @@ export async function prepareLand(
   const parentEntries = await backend.readLog(parent);
   assertNotLanded(parent, parentEntries);
   assertNotArchived(parent, parentEntries);
-  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
-  if (onto === undefined) {
+  // The land stands on the parent's freshest reading, like a rebase, and
+  // diverged readings fail until synced — a land onto the local reading
+  // alone could never publish.
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const onto = parentReading.tip;
   const base = await changeBase(backend, target, entries);
   const tip = await requireTip(backend, target);
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   if (base !== onto) {
     const conflicts = await backend.mergeConflicts(base, tip, onto);
     if (conflicts.length > 0) {
@@ -467,6 +468,16 @@ export async function prepareLand(
   if (!overrides.unreviewed) {
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
+  }
+  // A trunk parent has no log and owes nothing. The parent's diff is
+  // measured to `onto`, the freshest reading the land merges onto.
+  if (!overrides.parentUnreviewed && parentEntries.length > 0) {
+    const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
+    const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
+    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
+    if (unsatisfied.length > 0) {
+      throw new UnreviewedParentError(parent, unsatisfied);
+    }
   }
   // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.
@@ -498,12 +509,23 @@ export async function recordLand(
   ]);
 }
 
+/** How a local land's parent advance reached origin, if it could. */
+export type LandPublication =
+  /** The parent branch was pushed: origin carries the land. */
+  | "published"
+  /** Origin was unreachable; the parent keeps the land locally until pushed. */
+  | "origin-unreachable"
+  /** Origin never held the parent (or there is no origin): the land is local by nature. */
+  | "no-origin";
+
 /**
  * Land `target` into its parent: write it onto the parent branch as a commit
- * marked as landing — a land merge, or one squash commit — and record the
- * landing in the log. A change no longer sitting on its parent's tip lands
- * all the same when it merges cleanly onto it; rebase first when it
- * conflicts.
+ * marked as landing — a land merge, or one squash commit — record the
+ * landing in the log, and push the parent. The land names the parent, so
+ * publishing its advance is within the intent asked; what the push could
+ * not or need not do comes back as the `LandPublication`. A change no
+ * longer sitting on its parent's tip lands all the same when it merges
+ * cleanly onto it; rebase first when it conflicts.
  */
 export async function landChange(
   backend: Backend,
@@ -512,12 +534,16 @@ export async function landChange(
   entries: readonly LogEntry[],
   method: LandMethod,
   overrides: LandOverrides,
-): Promise<void> {
+): Promise<LandPublication> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
-  // The landing commit goes onto the parent's branch, so one held only at
-  // origin materializes; the target's own branch is only read.
-  await ensureBranch(backend, parent);
+  // The landing commit goes onto the parent's branch, which the merge
+  // advances from `onto` — the freshest reading — so one held only at origin
+  // materializes and a merely-behind local copy fast-forwards first. The
+  // target's own branch is only read.
+  if ((await ensureBranch(backend, parent)) !== onto) {
+    await backend.advance(parent, onto);
+  }
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, landMessage(target))
@@ -526,6 +552,18 @@ export async function landChange(
     commit: merge,
     parents: method === "merge" ? 2 : 1,
   });
+  if ((await backend.originTip(parent)) === undefined) {
+    return "no-origin";
+  }
+  try {
+    await backend.push(parent);
+  } catch (error) {
+    if (!isConnectivityError(error)) {
+      throw error;
+    }
+    return "origin-unreachable";
+  }
+  return "published";
 }
 
 /**
@@ -560,7 +598,7 @@ export async function landChain(
       if (currentArchived(parentEntries)) {
         throw new UserError(
           `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
-            "run `cabaret unarchive` or `cabaret reparent` first",
+            "run `cabaret archive --undo` or `cabaret reparent` first",
         );
       }
     }
@@ -624,8 +662,9 @@ export async function reparentChange(
   const entries = await backend.readLog(change);
   assertNotLanded(change, entries);
   await requireOwner(backend, change, entries, override);
-  // The same liveness `create` demands: a parent is a branch, change log or not.
-  if ((await backend.tip(parent)) === undefined) {
+  // The same liveness `create` demands: a parent is a branch — local or
+  // origin's fetched copy — change log or not.
+  if ((await freshestReading(backend, parent)).kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
   await backend.appendLog(change, [
@@ -672,7 +711,8 @@ export async function renameChange(
   if ((await backend.readLog(to)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(to)}`);
   }
-  if ((await backend.tip(to)) !== undefined) {
+  // Origin holding the name counts too: the rename would collide there on push.
+  if ((await freshestReading(backend, to)).kind !== "none") {
     throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
   }
   await backend.rename(from, to);

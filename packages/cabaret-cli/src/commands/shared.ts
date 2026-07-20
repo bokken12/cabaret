@@ -2,7 +2,12 @@ import {
   assertChangeExists,
   type Backend,
   type ChangeName,
+  defaultContext,
+  type FilePath,
   type LogEntry,
+  parseContext,
+  patternMatches,
+  type ReviewRound,
   UserError,
   type UserName,
   userName,
@@ -70,6 +75,67 @@ export function parseChangeSpec(raw: string): ChangeSpec {
     throw new UserError(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
   }
   return { kind: "range", ancestor, descendant };
+}
+
+/** Every file with review pending in some round, sorted by name. */
+export function pendingFiles(rounds: readonly ReviewRound[]): readonly FilePath[] {
+  return [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
+}
+
+/**
+ * The `--context` flag of a command that renders diffs.
+ */
+export const contextFlag = {
+  kind: "parsed",
+  parse: parseContext,
+  brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
+  optional: true,
+} as const;
+
+/**
+ * The files among `candidates` — described by `what` in diagnostics — that
+ * `args` select, in `candidates`' order. No arguments select everything. An
+ * argument with a glob character is a gitignore-style pattern against
+ * repo-relative paths, and matching nothing is a mistake worth stopping on —
+ * a typo would otherwise silently select nothing. Any other argument is a path,
+ * resolved the way every command resolves one; one naming a file outside
+ * `candidates` is an error under `strict` (marking it would record nothing)
+ * and otherwise appends the file, for a viewer to answer "nothing here"
+ * about.
+ */
+export function selectFiles(
+  backend: Backend,
+  candidates: readonly FilePath[],
+  args: readonly string[],
+  strict: boolean,
+  what: string,
+): readonly FilePath[] {
+  if (args.length === 0) {
+    return candidates;
+  }
+  const selected = new Set<FilePath>();
+  const appended: FilePath[] = [];
+  for (const raw of args) {
+    if (/[*?[]/.test(raw)) {
+      const matches = candidates.filter((file) => patternMatches(raw, file));
+      if (matches.length === 0) {
+        throw new UserError(`no ${what} matches ${JSON.stringify(raw)}`);
+      }
+      for (const file of matches) {
+        selected.add(file);
+      }
+    } else {
+      const file = backend.resolveFile(raw);
+      if (candidates.includes(file)) {
+        selected.add(file);
+      } else if (strict) {
+        throw new UserError(`no review left in ${file}`);
+      } else if (!appended.includes(file)) {
+        appended.push(file);
+      }
+    }
+  }
+  return [...candidates.filter((file) => selected.has(file)), ...appended];
 }
 
 /** The escape hatch for commands that `requireOwner` guards. */
