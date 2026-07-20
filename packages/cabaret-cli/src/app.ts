@@ -34,6 +34,7 @@ import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
 import { todos } from "./commands/todos.js";
+import { tui } from "./commands/tui.js";
 import { workspace } from "./commands/workspace.js";
 
 /** A `UserError`'s message, with this frontend's remedy attached to the overridable checks. */
@@ -87,6 +88,7 @@ const routes = buildRouteMap({
     show,
     sync,
     todos,
+    tui,
     widen,
     workspace,
   },

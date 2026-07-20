@@ -35,6 +35,9 @@ importers:
       cabaret-node:
         specifier: workspace:*
         version: link:../cabaret-node
+      cabaret-tui:
+        specifier: workspace:*
+        version: link:../cabaret-tui
       cabaret-views:
         specifier: workspace:*
         version: link:../cabaret-views
@@ -114,6 +117,15 @@ importers:
       cabaret-gitlab:
         specifier: workspace:*
         version: link:../cabaret-gitlab
+
+  packages/cabaret-tui:
+    dependencies:
+      cabaret-core:
+        specifier: workspace:*
+        version: link:../cabaret-core
+      cabaret-views:
+        specifier: workspace:*
+        version: link:../cabaret-views
 
   packages/cabaret-util:
     devDependencies:

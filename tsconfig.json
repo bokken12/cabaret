@@ -9,6 +9,7 @@
     { "path": "packages/cabaret-gitlab" },
     { "path": "packages/cabaret-views" },
     { "path": "packages/cabaret-node" },
+    { "path": "packages/cabaret-tui" },
     { "path": "packages/cabaret-cli" },
     { "path": "packages/cabaret-vscode" }
   ]
