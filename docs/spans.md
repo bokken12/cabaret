@@ -41,10 +41,21 @@ the record is compared against the current diff file by file — an empty
 comparison (the rebase carried the change cleanly) discharges the review
 silently; a real difference shows as a four-way old-diff/new-diff view.
 
+## Carried reviews
+
+What a land brings in stays excused only while the child's review still
+covers it. Each land carries the child's reviewed `{base, tip}` pair from
+its log; a brought-in file whose current diff has moved past that pair —
+a conflict resolution amended into a rebase merge, trunk work interacting
+with the child's edit — resurfaces in a final round, viewed four-way from
+the pair. A carry that leaves the diff intact discharges silently. A child
+whose log or history this clone lacks vouches for its files
+unconditionally.
+
 ## Known gap
 
-What a land excuses is excused permanently: if the parent branch later moves
-under a file the landed child touched, nothing resurfaces it. The intended
-fix is to derive the child's recorded reviews as carried knowledge and
-compare them against the current diff, rather than excusing files
-unconditionally.
+A rebase merge behind a land cut still hides amended resolutions in files
+only the parent itself touched before the land: those sit in the pinned
+early spans, whose windows end before the merge. Resolutions committed as
+follow-up commits are covered, as are ones in files the child touched,
+which carried reviews resurface.

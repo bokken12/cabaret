@@ -1279,6 +1279,16 @@ export interface SpanDiff extends ReviewSpan {
 }
 
 /**
+ * A file a land merge brought in whose current diff has moved past the
+ * child's review: `reviewed` is the child's landed `{base, tip}` pair, the
+ * knowledge the land carried for the file.
+ */
+export interface CarriedReview {
+  readonly file: FilePath;
+  readonly reviewed: ReviewedDiff;
+}
+
+/**
  * A change's diff, read once: its endpoints and review spans, each with the
  * files its diff changes. Everything derived from the diff — summaries,
  * review rounds, obligations — takes one of these, so a page that computes
@@ -1290,6 +1300,8 @@ export interface ChangeDiff {
   /** The land merges on the first-parent chain, oldest first. */
   readonly lands: readonly LandMerge[];
   readonly spans: readonly SpanDiff[];
+  /** Landed files owing another look, sorted by file. */
+  readonly carried: readonly CarriedReview[];
 }
 
 export async function changeDiff(
@@ -1366,7 +1378,66 @@ export async function diffBetween(backend: Backend, base: Revision, tip: Revisio
       changed: changedByPath(await backend.changedFiles(span.start, span.end)),
     })),
   );
-  return { base, tip, lands: landsAmong(merges), spans };
+  const lands = landsAmong(merges);
+  return { base, tip, lands, spans, carried: await carriedReviews(backend, base, tip, lands, spans) };
+}
+
+/**
+ * The reviews the land merges carry that no longer cover their files: for
+ * each land, the child's log names the `{base, tip}` its review covered, and
+ * a brought-in file counts as reviewed only while its current diff still
+ * matches that pair — the parent rebasing over trunk work that touched the
+ * file moves the diff past it, and the file owes another look. Files a span
+ * already governs are the spans' business. A child whose log or history this
+ * clone lacks vouches for its files unconditionally, as does a land record
+ * that predates the log; overlapping lands trust the latest.
+ */
+async function carriedReviews(
+  backend: Backend,
+  base: Revision,
+  tip: Revision,
+  lands: readonly LandMerge[],
+  spans: readonly SpanDiff[],
+): Promise<readonly CarriedReview[]> {
+  const spanned = new Set(spans.flatMap(({ changed }) => [...changed.keys()]));
+  const brought = new Map<FilePath, ReviewedDiff>();
+  for (const land of lands) {
+    const entries = await backend.readLog(land.change);
+    if (entries.length === 0) {
+      continue;
+    }
+    let reviewed: ReviewedDiff;
+    try {
+      reviewed = {
+        base: await changeBase(backend, land.change, entries),
+        tip: await changeTip(backend, land.change, entries),
+      };
+    } catch (error) {
+      if (error instanceof UserError) {
+        continue;
+      }
+      throw error;
+    }
+    for (const { path } of await backend.changedFiles(land.onto, land.commit)) {
+      if (!spanned.has(path)) {
+        brought.set(path, reviewed);
+      }
+    }
+  }
+  const carried: CarriedReview[] = [];
+  for (const [file, reviewed] of brought) {
+    const [curBase, curTip, oldBase, oldTip] = await Promise.all([
+      backend.readFile(base, file),
+      backend.readFile(tip, file),
+      backend.readFile(reviewed.base, file),
+      backend.readFile(reviewed.tip, file),
+    ]);
+    if (curBase === curTip || (curBase === oldBase && curTip === oldTip)) {
+      continue;
+    }
+    carried.push({ file, reviewed });
+  }
+  return carried.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 }
 
 /** Key `files` by path, the identity every diff-derived structure shares. */
@@ -1376,9 +1447,9 @@ export function changedByPath(files: readonly ChangedFile[]): ReadonlyMap<FilePa
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
 export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
-  return conflictedFiles(
-    backend,
-    diff.tip,
-    [...new Set(diff.spans.flatMap(({ changed }) => [...changed.keys()]))].sort(),
-  );
+  const files = new Set(diff.spans.flatMap(({ changed }) => [...changed.keys()]));
+  for (const { file } of diff.carried) {
+    files.add(file);
+  }
+  return conflictedFiles(backend, diff.tip, [...files].sort());
 }

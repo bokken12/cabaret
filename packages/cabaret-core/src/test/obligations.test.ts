@@ -114,9 +114,12 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "chainMerges" | "isAncestor" | "hasRevision"> = {
+  const stub: Pick<Backend, "readFile" | "changedFiles" | "chainMerges" | "isAncestor" | "hasRevision" | "readLog"> = {
     async hasRevision() {
       return true;
+    },
+    async readLog() {
+      return [];
     },
     async readFile(commit, file) {
       return opts.trees?.[commit[0] as string]?.[file as string];

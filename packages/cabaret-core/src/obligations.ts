@@ -248,13 +248,14 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
- * The status of every obligation on `diff`, owned by `owner`. Only files
- * changed within the change's own review spans are governed: the diff a
- * land merge brings in was reviewed in the landed child, under the child's
- * own obligations. Independent of any rules, every governed file carries the
- * owner's implicit self-review requirement, and one likewise for each of the
- * change's reviewers. A user counts toward a requirement exactly when no
- * round of review is left for them on the file.
+ * The status of every obligation on `diff`, owned by `owner`. Files changed
+ * within the change's own review spans are governed, plus its carried
+ * reviews: the diff a land merge brings in was reviewed in the landed child,
+ * under the child's own obligations, and stays excused while the child's
+ * review still covers it. Independent of any rules, every governed file
+ * carries the owner's implicit self-review requirement, and one likewise for
+ * each of the change's reviewers. A user counts toward a requirement exactly
+ * when no round of review is left for them on the file.
  */
 export async function obligationStatuses(
   backend: Backend,
@@ -267,6 +268,9 @@ export async function obligationStatuses(
     for (const file of changed.keys()) {
       files.add(file);
     }
+  }
+  for (const { file } of diff.carried) {
+    files.add(file);
   }
   const sorted = [...files].sort();
   // An owning reviewer already owes every file as owner; a second identical

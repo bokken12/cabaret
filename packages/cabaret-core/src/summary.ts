@@ -405,7 +405,10 @@ function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision:
  * was rewritten out of the history) puts the file's stale knowledge in its
  * earliest round's view, and later rounds assume the earlier ones get
  * recorded. When that view renders empty — the rebase carried the reviewed
- * change cleanly — the file is not due in the round at all.
+ * change cleanly — the file is not due in the round at all. The diff's
+ * carried reviews close out the reading: each is due in a final round at the
+ * tip, viewed from the user's own review of the file when they have one and
+ * from the landed child's otherwise.
  */
 export async function reviewRounds(
   backend: Backend,
@@ -492,6 +495,36 @@ export async function reviewRounds(
         continue;
       }
       round.files.set(file, view);
+    }
+  }
+  const tail = new Map<FilePath, FileView>();
+  for (const { file, reviewed } of diff.carried) {
+    // The user's own review speaks for them once recorded at the current
+    // base; any older record of theirs is superseded by what the land
+    // vouched, which covers the whole landed diff.
+    const own = known.get(file);
+    let view: FileView;
+    if (own !== undefined && own.base === base) {
+      if (!(await unseenFiles(own.tip)).has(file)) {
+        continue;
+      }
+      view = { kind: "rewritten", from: own.tip };
+    } else {
+      view = { kind: "rebased", reviewed };
+    }
+    if (await carriedCleanly(backend, file, view, base, tip)) {
+      continue;
+    }
+    tail.set(file, view);
+  }
+  if (tail.size > 0) {
+    const last = rounds.at(-1);
+    if (last !== undefined && last.end === tip) {
+      for (const [file, view] of tail) {
+        last.files.set(file, view);
+      }
+    } else {
+      rounds.push({ start: tip, end: tip, changed: new Map(), files: tail });
     }
   }
   return rounds.filter(({ files }) => files.size > 0).map(({ end, files }) => ({ end, files }));

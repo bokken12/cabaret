@@ -506,15 +506,17 @@ test("a review survives the parent being rewritten and the rebase that follows",
 
 /**
  * A history whose base left the tip's first-parent chain: `feature` edits
- * both.txt and adds feature.txt and plain.txt, child `gadget` lands into it,
- * `mainline` (adding mainline.txt and editing both.txt elsewhere) lands into
+ * both.txt and adds feature.txt and plain.txt, child `gadget` (adding
+ * gadget.txt and editing shared.txt) lands into it, `mainline` (adding
+ * mainline.txt and editing both.txt and shared.txt elsewhere) lands into
  * main, and `feature` then rebases, merging the moved main in. feature.txt
  * and both.txt are marked reviewed before the rebase.
  */
 async function makeRebasedFeature(repo: TestRepo): Promise<void> {
   await repo.write("both.txt", "top\nmiddle\nbottom\n");
+  await repo.write("shared.txt", "s1\ns2\ns3\ns4\ns5\ns6\ns7\n");
   await repo.git("add", "-A");
-  await repo.git("commit", "-qm", "seed both.txt");
+  await repo.git("commit", "-qm", "seed both.txt and shared.txt");
   await repo.cabaret("create", "feature");
   await repo.git("checkout", "-q", "feature");
   await repo.write("both.txt", "top (feature)\nmiddle\nbottom\n");
@@ -523,12 +525,18 @@ async function makeRebasedFeature(repo: TestRepo): Promise<void> {
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "feature work");
   await repo.cabaret("mark", "--change", "feature", "--tip", "HEAD", "feature.txt", "both.txt");
-  await addChange(repo, "gadget");
+  await repo.cabaret("create", "gadget");
+  await repo.git("checkout", "-q", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.write("shared.txt", "s1\ns2 (gadget)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
   await repo.cabaret("land", "gadget", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   await repo.git("checkout", "-q", "main");
   await repo.cabaret("create", "mainline");
   await repo.git("checkout", "-q", "mainline");
   await repo.write("both.txt", "top\nmiddle\nbottom (mainline)\n");
+  await repo.write("shared.txt", "s1\ns2\ns3\ns4\ns5 (mainline)\ns6\ns7\n");
   await repo.write("mainline.txt", "mainline work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "mainline work");
@@ -543,7 +551,8 @@ test("a rebase keeps main's own movement out of review", async () => {
   // Only the change's own work is owed: both.txt because main also moved it
   // since the review, plain.txt because it was never reviewed. What the
   // rebase merged in (mainline.txt) and what the landed child brought
-  // (gadget.txt) owe nothing, and feature.txt's review carried cleanly.
+  // (gadget.txt, and shared.txt, whose diff the clean merge kept intact)
+  // owe nothing, and feature.txt's review carried cleanly.
   expect((await repo.cabaret("show", "feature")).stdout).toMatchInlineSnapshot(`
     "feature
     =======
@@ -555,8 +564,8 @@ test("a rebase keeps main's own movement out of review", async () => {
     │ owner     │ alice@example.com │
     │ reviewing │ none              │
     │ parent    │ main              │
-    │ tip       │ 244470f9ef1a      │
-    │ base      │ 5e19fa6beaa9      │
+    │ tip       │ 8c0b5b0d16ff      │
+    │ base      │ 7a5c237e5262      │
     │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
@@ -571,7 +580,7 @@ test("a rebase keeps main's own movement out of review", async () => {
       plain.txt
     "
   `);
-  for (const settled of ["feature.txt", "gadget.txt", "mainline.txt"]) {
+  for (const settled of ["feature.txt", "gadget.txt", "mainline.txt", "shared.txt"]) {
     expect(await repo.cabaret("review", "--change", "feature", settled)).toEqual({
       stdout: `${settled} in feature\n\nNothing left to review.\n`,
       stderr: "",
@@ -582,14 +591,14 @@ test("a rebase keeps main's own movement out of review", async () => {
     "Review feature
     ==============
 
-    Reviewing up to 97b57f3b06b5.
+    Reviewing up to 84a34c3b3789.
 
       both.txt
 
-    both.txt in feature (up to 97b57f3b06b5)
+    both.txt in feature (up to 84a34c3b3789)
 
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ both.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 879cfc4b1ce7 | new base 5e19fa6beaa9 | old & new tip 97b57f3b06b5
+    old base 2a57e198ae6f | new base 7a5c237e5262 | old & new tip 84a34c3b3789
     _
     | @@@@@@@@ This base change was dropped... : @@@@@@@@
     | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
@@ -608,24 +617,101 @@ test("a rebase keeps main's own movement out of review", async () => {
     |_
 
     Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 both.txt
+      cabaret mark --change feature --tip 84a34c3b3789 both.txt
     "
   `);
   expect((await repo.cabaret("review", "--change", "feature", "plain.txt")).stdout).toMatchInlineSnapshot(`
     "Review feature
     ==============
 
-    Reviewing up to 97b57f3b06b5.
+    Reviewing up to 84a34c3b3789.
 
       plain.txt
 
-    plain.txt in feature (up to 97b57f3b06b5)
+    plain.txt in feature (up to 84a34c3b3789)
 
     -1,0 +1,1
     +|plain work
 
     Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 plain.txt
+      cabaret mark --change feature --tip 84a34c3b3789 plain.txt
     "
   `);
+});
+
+test("a rebase resurfaces a landed file whose resolution moved past the child's review", async () => {
+  const repo = await makeRepo();
+  await repo.write("shared.txt", "s1\ns2\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "seed shared.txt");
+  await repo.cabaret("create", "feature");
+  await repo.git("checkout", "-q", "feature");
+  await repo.write("feature.txt", "feature work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "feature work");
+  await repo.cabaret("mark", "--change", "feature", "--tip", "HEAD", "feature.txt");
+  await repo.cabaret("create", "gadget");
+  await repo.git("checkout", "-q", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.write("shared.txt", "s1\ns2 (gadget)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
+  await repo.cabaret("mark", "--change", "gadget", "--tip", "HEAD", "gadget.txt", "shared.txt");
+  await repo.cabaret("land", "gadget");
+  await repo.git("checkout", "-q", "main");
+  await repo.cabaret("create", "mainline");
+  await repo.git("checkout", "-q", "mainline");
+  await repo.write("shared.txt", "s1\ns2 (mainline)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "mainline work");
+  await repo.cabaret("mark", "--change", "mainline", "--tip", "HEAD", "shared.txt");
+  await repo.cabaret("land", "mainline");
+  // Both sides moved s2, so the rebase commits markers; the resolution is
+  // amended into the merge, where no span will ever look.
+  await repo.git("checkout", "-q", "feature");
+  expect((await repo.cabaret("rebase")).exitCode).toBe(1);
+  await repo.write("shared.txt", "s1\ns2 (gadget) (mainline)\ns3\ns4\ns5\ns6\ns7\n");
+  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'main' into feature");
+  // gadget.txt is untouched since the child reviewed it, so the land still
+  // covers it; shared.txt's diff moved past the child's review, so it owes
+  // another look, viewed from the child's reviewed pair.
+  expect(await repo.cabaret("review", "gadget.txt")).toEqual({
+    stdout: "gadget.txt in feature\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("review", "shared.txt")).stdout).toMatchInlineSnapshot(`
+    "Review feature
+    ==============
+
+    Reviewing up to 861b20a25592.
+
+      shared.txt
+
+    shared.txt in feature (up to 861b20a25592)
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ shared.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base cdcbba82e2fc | old tip 9c2ce1bd9297 | new base f6bfa77459e1 | new tip 861b20a25592
+    @@@@@@@@ Conflicting changes: the reviewed diff compared to the current diff @@@@@@@@
+    @@@@@@@@ -- old base 1,7 old tip 1,7 @@@@@@@@
+    @@@@@@@@ ++ new base 1,7 new tip 1,7 @@@@@@@@
+        s1
+    ---|s2
+    --+|s2 (gadget)
+    ++-|s2 (mainline)
+    +++|s2 (gadget) (mainline)
+        s3
+        s4
+        s5
+
+    Record review of what you have read:
+      cabaret mark --tip 861b20a25592 shared.txt
+    "
+  `);
+  await repo.cabaret("mark", "--tip", "feature", "shared.txt");
+  expect(await repo.cabaret("review", "shared.txt")).toEqual({
+    stdout: "shared.txt in feature\n\nNothing left to review.\n",
+    stderr: "",
+    exitCode: 0,
+  });
 });
