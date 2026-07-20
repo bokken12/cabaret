@@ -53,6 +53,49 @@ test("a forge land reparents the landed change's children", async () => {
   );
 });
 
+test("a forge land retargets the children's forge changes", async () => {
+  const forge = new FakeForge();
+  const repo = await makePr(forge);
+  await addChange(repo, "doodad");
+  await repo.cabaret("mark", "--tip", "HEAD", "doodad.txt");
+  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("sync");
+  expect(await repo.cabaret("land", "gadget")).toEqual({
+    stdout:
+      "merged github.com/test-org/widgets#1\n" +
+      'reparented "doodad" onto "main"\n' +
+      'retargeted github.com/test-org/widgets#2 onto "main"\n',
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(forgeChangeId(2))).parent).toBe("main");
+  // The new parent is recorded as an observation, so the child stops reading
+  // its forge change as targeting the landed branch and needing a sync.
+  expect((await repo.cabaret("log", "doodad")).stdout).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"main"}',
+  );
+  expect((await repo.cabaret("show", "doodad")).stdout).toMatchInlineSnapshot(`
+    "doodad
+    ======
+
+    ╭──────────────┬───────────────────────────────╮
+    │ attribute    │ value                         │
+    ├──────────────┼───────────────────────────────┤
+    │ next step    │ land                          │
+    │ owner        │ alice@example.com             │
+    │ reviewing    │ everyone                      │
+    │ parent       │ main                          │
+    │ forge change │ github.com/test-org/widgets#2 │
+    │ tip          │ 377deca3f07c                  │
+    │ base         │ f37230616d25 (behind parent)  │
+    │ workspace    │ .                             │
+    ╰──────────────┴───────────────────────────────╯
+
+    fetched 00:00, 2025-01-01
+    "
+  `);
+});
+
 test("land squashes the change's forge change when configured", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);

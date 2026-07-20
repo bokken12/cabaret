@@ -38,7 +38,8 @@ export const land = buildCommand({
       "unconditionally. A change whose parent moved on lands as it stands " +
       "when it merges cleanly onto the new tip; `cabaret rebase` first when " +
       "it conflicts. Children of the landed change are reparented onto its " +
-      "parent, where their code now lives. A landed change can no longer be " +
+      "parent, where their code now lives, and their forge changes " +
+      "retargeted to match. A landed change can no longer be " +
       "rebased, renamed, reparented, or transferred, though reviewing it is " +
       "still recorded. A range `ancestor..descendant` lands every change " +
       "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
@@ -92,8 +93,15 @@ export const land = buildCommand({
         );
       }
       if (reparented !== undefined) {
+        const retargeted = new Map(reparented.retargeted.map((entry) => [entry.change, entry]));
         for (const child of reparented.children) {
           this.process.stdout.write(`reparented ${JSON.stringify(child)} onto ${JSON.stringify(reparented.onto)}\n`);
+          const forgeChange = retargeted.get(child);
+          if (forgeChange !== undefined) {
+            this.process.stdout.write(
+              `retargeted ${forgeChange.forge}#${forgeChange.id} onto ${JSON.stringify(reparented.onto)}\n`,
+            );
+          }
         }
       }
     };
