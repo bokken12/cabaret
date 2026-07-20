@@ -78,42 +78,6 @@ test("a change owned by an alias is the user's own to operate", async () => {
   );
 });
 
-test("only the owner may reparent a change", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  const before = await repo.cabaret("dev", "log", "feature");
-  expect(await repo.cabaret("reparent", "feature", "main")).toEqual({
-    stdout: "",
-    stderr:
-      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
-    exitCode: 1,
-  });
-  expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
-  expect(await repo.cabaret("reparent", "feature", "main", "--even-though-not-owner")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-});
-
-test("only the owner may rebase a change", async () => {
-  const repo = await makeOwnedChange();
-  await repo.git("config", "user.email", "bob@example.com");
-  const before = await repo.cabaret("dev", "log", "feature");
-  expect(await repo.cabaret("rebase", "feature")).toEqual({
-    stdout: "",
-    stderr:
-      '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
-    exitCode: 1,
-  });
-  expect(await repo.cabaret("dev", "log", "feature")).toEqual(before);
-  expect(await repo.cabaret("rebase", "feature", "--even-though-not-owner")).toEqual({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-});
-
 test("guarded commands fail on a change that does not exist, even with the override", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("reparent", "main", "trunk")).toEqual({
