@@ -391,15 +391,19 @@ export class App {
       const shown = overlay.slice(0, height);
       content.splice(height - shown.length, shown.length, ...shown);
     }
-    const right =
+    // Whatever needs saying takes the whole row; the page path fills the
+    // quiet moments.
+    const status =
       this.input !== undefined
-        ? `${this.input.prompt}: ${this.input.buffer}\u2590`
+        ? paintStatus(`${this.input.prompt}: ${this.input.buffer}\u2590`, width)
         : this.question !== undefined
-          ? `${this.question.text} y/n`
+          ? paintStatus(`${this.question.text} y/n`, width, "ask")
           : this.pending.length > 0
-            ? this.pending.join(" ")
-            : (this.note ?? "");
-    this.terminal.render([...content, paintStatus(pagePath(current.page), right, width)]);
+            ? paintStatus(this.pending.join(" "), width)
+            : this.note !== undefined
+              ? paintStatus(this.note, width)
+              : paintStatus(pagePath(current.page), width);
+    this.terminal.render([...content, status]);
   }
 
   private current(): View {

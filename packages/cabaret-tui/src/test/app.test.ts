@@ -227,6 +227,9 @@ test("a failed render reports on the status row instead of pushing a page", asyn
   await app.open({ kind: "home" });
   await keys("j", "j", "j", "enter");
   expect(screen()).toContain("no page at /cabaret/show/cogs");
+  // The home page is still the one open: the report passes with the next key.
+  expect(screen()).toContain("Changes");
+  await keys("k");
   expect(screen()).toContain("/cabaret/home");
 });
 

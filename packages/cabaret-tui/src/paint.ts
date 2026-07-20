@@ -194,14 +194,22 @@ export function paintPage(state: PageState, width: number, height: number, depth
   return rows;
 }
 
-/** The inverse-video status row: `left` anchored at the left edge, `right` at the right. */
-export function paintStatus(left: string, right: string, width: number): string {
-  const leftText = Array.from(` ${left}`);
-  const rightText = Array.from(right.length === 0 ? "" : `${right} `).slice(-width);
-  const room = width - rightText.length;
-  const leftShown =
-    leftText.length <= room
-      ? `${leftText.join("")}${" ".repeat(room - leftText.length)}`
-      : `${leftText.slice(0, Math.max(0, room - 1)).join("")}${room > 0 ? "…" : ""}`;
-  return `${sgr("7")}${leftShown}${rightText.join("")}${RESET}`;
+/**
+ * How the status row wears its text: quiet inverse video for the page path
+ * and passing reports, a warning band for a question that must not be
+ * missed.
+ */
+export type StatusStyle = "quiet" | "ask";
+
+/**
+ * The status row: `text` alone on the line, left-anchored. Overflow keeps
+ * the tail — a question's answer hint ends it.
+ */
+export function paintStatus(text: string, width: number, style: StatusStyle = "quiet"): string {
+  const shown = Array.from(` ${text}`);
+  const row =
+    shown.length <= width
+      ? `${shown.join("")}${" ".repeat(width - shown.length)}`
+      : `…${shown.slice(shown.length - width + 1).join("")}`;
+  return `${sgr(style === "ask" ? "1;30;43" : "7")}${row}${RESET}`;
 }

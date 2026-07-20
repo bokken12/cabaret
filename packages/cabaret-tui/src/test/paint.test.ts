@@ -83,11 +83,12 @@ test("foldAt answers the innermost fold containing a line", () => {
   expect(foldAt(doc, 4)).toBeUndefined();
 });
 
-test("paintStatus anchors its ends and keeps to the width", () => {
-  expect(visible([paintStatus("/cabaret/home", "! r", 24)])).toMatchInlineSnapshot(
-    `"«0;7¦ /cabaret/home      ! r «0¦"`,
+test("paintStatus fills the row, wears the ask band, and keeps a long text's tail", () => {
+  expect(visible([paintStatus("/cabaret/home", 24)])).toMatchInlineSnapshot(`"«0;7¦ /cabaret/home          «0¦"`);
+  expect(visible([paintStatus("Land anyway? y/n", 24, "ask")])).toMatchInlineSnapshot(
+    `"«0;1;30;43¦ Land anyway? y/n       «0¦"`,
   );
-  expect(visible([paintStatus("/cabaret/show/a-very-long-change-name", "note", 20)])).toMatchInlineSnapshot(
-    `"«0;7¦ /cabaret/show…note «0¦"`,
+  expect(visible([paintStatus("obligations are unsatisfied. Land anyway? y/n", 24, "ask")])).toMatchInlineSnapshot(
+    `"«0;1;30;43¦…sfied. Land anyway? y/n«0¦"`,
   );
 });
