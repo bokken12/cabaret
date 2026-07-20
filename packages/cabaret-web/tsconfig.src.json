@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist/src",
+    "lib": ["es2025", "dom", "dom.iterable"]
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../cabaret-core"
+    },
+    {
+      "path": "../cabaret-github"
+    },
+    {
+      "path": "../cabaret-views"
+    }
+  ]
+}
