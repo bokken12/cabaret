@@ -35,6 +35,39 @@ function commitJson(commit: string, parents: readonly string[], message = "work"
   return { sha: commit, message, tree: { sha: tree }, parents: parents.map((parent) => ({ sha: parent })) };
 }
 
+/** One swept change: its log ref's tip and text, and its branch tip (null for a branch-less log). */
+interface SweptChange {
+  readonly change: string;
+  readonly logTip: string;
+  readonly log: string;
+  readonly head: string | null;
+  /** Serve the log blob truncated, forcing the raw reread. */
+  readonly truncated?: boolean;
+}
+
+/** Routes answering `epochs` sweeps of `changes`: a log-ref listing each, plus a lookup batch when changes exist. */
+function sweepRoutes(changes: readonly SweptChange[], epochs = 1): Readonly<Record<string, readonly Route[]>> {
+  const listing: Route = {
+    json: changes.map(({ change, logTip }) => ({ ref: `refs/cabaret/log/${change}`, object: { sha: logTip } })),
+  };
+  const batch: Route = {
+    json: {
+      data: {
+        repository: Object.fromEntries(
+          changes.flatMap(({ log, head, truncated = false }, i) => [
+            [`l${i}`, { file: { object: { isTruncated: truncated, text: truncated ? null : log } } }],
+            [`h${i}`, head === null ? null : { target: { oid: head } }],
+          ]),
+        ),
+      },
+    },
+  };
+  return {
+    [`GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`]: Array.from({ length: epochs }, () => listing),
+    ...(changes.length === 0 ? {} : { [`POST ${API}/graphql`]: Array.from({ length: epochs }, () => batch) }),
+  };
+}
+
 /** One commit of a compare or commits listing. */
 function listed(commit: string, parents: readonly string[], message = "work") {
   return { sha: commit, commit: { message }, parents: parents.map((parent) => ({ sha: parent })) };
@@ -122,39 +155,66 @@ describe("resolveCommit", () => {
 });
 
 describe("tips", () => {
-  test("tip is the branch's commit", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/git/ref/heads%2Fadd-tables`]: { json: { object: { type: "commit", sha: sha("6") } } },
+  test("tip and originTip answer from one sweep: this backend's branches are origin's", async () => {
+    const calls = stubGitHub(sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: "", head: sha("6") }]));
+    const github = backend();
+    expect(await github.tip(parseBranchName("add-tables"))).toBe(sha("6"));
+    expect(await github.originTip(parseBranchName("add-tables"))).toBe(sha("6"));
+    expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
+      `GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`,
+      `POST ${API}/graphql`,
+    ]);
+  });
+
+  test("a branch outside the sweep reads through live, once per epoch", async () => {
+    const calls = stubGitHub({
+      ...sweepRoutes([]),
+      [`GET ${REPOS}/git/ref/heads%2Fmain`]: { json: { object: { type: "commit", sha: sha("6") } } },
     });
-    expect(await backend().tip(parseBranchName("add-tables"))).toBe(sha("6"));
+    const github = backend();
+    expect(await github.tip(parseBranchName("main"))).toBe(sha("6"));
+    expect(await github.tip(parseBranchName("main"))).toBe(sha("6"));
+    expect(calls.filter(({ url }) => url.includes("/git/ref/"))).toHaveLength(1);
   });
 
   test("tip is undefined for a missing branch", async () => {
     stubGitHub({
+      ...sweepRoutes([]),
       [`GET ${REPOS}/git/ref/heads%2Fgone`]: { status: 404, json: { message: "Not Found" } },
     });
     expect(await backend().tip(parseBranchName("gone"))).toBeUndefined();
   });
 
-  test("originTip reads the same live ref: this backend is origin, and refs are never cached", async () => {
-    const calls = stubGitHub({
-      [`GET ${REPOS}/git/ref/heads%2Fadd-tables`]: { json: { object: { type: "commit", sha: sha("6") } } },
-    });
-    const github = backend();
-    expect(await github.tip(parseBranchName("add-tables"))).toBe(sha("6"));
-    expect(await github.originTip(parseBranchName("add-tables"))).toBe(sha("6"));
-    expect(calls).toHaveLength(2);
-  });
-
-  test("originFetched is the moment of asking: reads are live", async () => {
-    stubGitHub({});
-    vi.useFakeTimers();
+  test("originFetched is the epoch's sweep; fetchOrigin starts a fresh one", async () => {
+    const calls = stubGitHub(sweepRoutes([], 2));
+    // Only the clock: octokit schedules its requests on real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(1700000005000);
     try {
-      expect(await backend().originFetched()).toBe(1700000005000);
+      const github = backend();
+      expect(await github.originFetched()).toBe(1700000005000);
+      vi.setSystemTime(1700000009000);
+      expect(await github.originFetched()).toBe(1700000005000);
+      await github.fetchOrigin();
+      expect(await github.originFetched()).toBe(1700000009000);
+      expect(calls).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("a failed sweep is not held: the next read sweeps again", async () => {
+    const good = sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: "", head: sha("6") }], 2);
+    stubGitHub({
+      ...good,
+      [`POST ${API}/graphql`]: [
+        { json: { data: null, errors: [{ message: "boom" }] } },
+        ...(good[`POST ${API}/graphql`]?.slice(0, 1) ?? []),
+      ],
+    });
+    const github = backend();
+    await expect(github.tip(parseBranchName("add-tables"))).rejects.toThrow("GraphQL: boom");
+    expect(await github.tip(parseBranchName("add-tables"))).toBe(sha("6"));
   });
 });
 
@@ -550,28 +610,29 @@ describe("logs", () => {
     action: { kind: "forget", file: parseFilePath("src/app.ts") },
   };
 
-  test("listChanges strips the log namespace and sorts", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`]: {
-        json: [{ ref: "refs/cabaret/log/zeta" }, { ref: "refs/cabaret/log/alpha" }],
-      },
-    });
+  test("listChanges is the swept changes, sorted", async () => {
+    stubGitHub(
+      sweepRoutes([
+        { change: "zeta", logTip: sha("1"), log: "", head: sha("5") },
+        { change: "alpha", logTip: sha("2"), log: "", head: sha("6") },
+      ]),
+    );
     expect(await backend().listChanges()).toEqual(["alpha", "zeta"]);
   });
 
   test("wipeOriginLogs deletes every log ref", async () => {
     const calls = stubGitHub({
-      [`GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`]: {
-        json: [{ ref: "refs/cabaret/log/zeta" }, { ref: "refs/cabaret/log/alpha" }],
-      },
+      ...sweepRoutes([
+        { change: "zeta", logTip: sha("1"), log: "", head: null },
+        { change: "alpha", logTip: sha("2"), log: "", head: null },
+      ]),
       // GitHub answers 204, but a body-less status cannot carry the stub's
       // json; 200 exercises the same success path.
       [`DELETE ${REPOS}/git/refs/cabaret%2Flog%2Falpha`]: { json: {} },
       [`DELETE ${REPOS}/git/refs/cabaret%2Flog%2Fzeta`]: { json: {} },
     });
     expect(await backend().wipeOriginLogs()).toEqual(["alpha", "zeta"]);
-    expect(calls.map(({ method, url }) => `${method} ${url}`)).toEqual([
-      `GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`,
+    expect(calls.map(({ method, url }) => `${method} ${url}`).slice(2)).toEqual([
       `DELETE ${REPOS}/git/refs/cabaret%2Flog%2Falpha`,
       `DELETE ${REPOS}/git/refs/cabaret%2Flog%2Fzeta`,
     ]);
@@ -584,19 +645,27 @@ describe("logs", () => {
     await expect(backend().deleteLog(parseBranchName("gone"))).resolves.toBeUndefined();
   });
 
-  test("readLog is empty for a change with no log ref", async () => {
-    stubGitHub({
-      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Funknown`]: { status: 404, json: { message: "Not Found" } },
-    });
+  test("readLog is empty for a change outside the sweep", async () => {
+    stubGitHub(sweepRoutes([]));
     expect(await backend().readLog(parseBranchName("unknown"))).toEqual([]);
   });
 
-  test("readLog parses the log blob at the ref's tip", async () => {
+  test("readLog parses the swept log text without further requests", async () => {
+    const calls = stubGitHub(
+      sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: formatLogEntry(entry), head: sha("6") }]),
+    );
+    const github = backend();
+    expect(await github.readLog(parseBranchName("add-tables"))).toEqual([entry]);
+    expect(await github.readLog(parseBranchName("add-tables"))).toEqual([entry]);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a truncated log blob rereads raw rather than serving a partial log", async () => {
     stubGitHub({
-      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fadd-tables`]: { json: { object: { type: "commit", sha: sha("8") } } },
-      [`GET ${REPOS}/contents/log?ref=${sha("8")}`]: { json: formatLogEntry(entry) },
+      ...sweepRoutes([{ change: "add-tables", logTip: sha("8"), log: "", head: sha("6"), truncated: true }]),
+      [`GET ${REPOS}/contents/log?ref=${sha("8")}`]: { json: formatLogEntry(entry) + formatLogEntry(other) },
     });
-    expect(await backend().readLog(parseBranchName("add-tables"))).toEqual([entry]);
+    expect(await backend().readLog(parseBranchName("add-tables"))).toEqual([entry, other]);
   });
 
   test("appendLog creates the log when none exists", async () => {
@@ -728,6 +797,46 @@ describe("logs", () => {
     await backend().appendLog(parseBranchName("idle"), []);
     expect(calls).toEqual([]);
   });
+
+  test("an append folds into the held epoch: rereads see it without a fetch", async () => {
+    stubGitHub({
+      ...sweepRoutes([{ change: "busy", logTip: sha("1"), log: formatLogEntry(entry), head: sha("5") }]),
+      [`GET ${REPOS}/git/ref/cabaret%2Flog%2Fbusy`]: { json: { object: { type: "commit", sha: sha("1") } } },
+      [`GET ${REPOS}/contents/log?ref=${sha("1")}`]: { json: formatLogEntry(entry) },
+      [`POST ${REPOS}/git/blobs`]: { status: 201, json: { sha: "b".repeat(40) } },
+      [`POST ${REPOS}/git/trees`]: { status: 201, json: { sha: "d".repeat(40) } },
+      [`POST ${REPOS}/git/commits`]: { status: 201, json: { sha: sha("9") } },
+      [`PATCH ${REPOS}/git/refs/cabaret%2Flog%2Fbusy`]: { json: {} },
+    });
+    const github = backend();
+    const change = parseBranchName("busy");
+    expect(await github.readLog(change)).toEqual([entry]);
+    await github.appendLog(change, [other]);
+    expect(await github.readLog(change)).toEqual([entry, other]);
+  });
+});
+
+describe("durable store", () => {
+  test("immutable facts answer from the store across backends, undefined included", async () => {
+    const held = new Map<string, string>();
+    const store = {
+      get: (key: string) => held.get(key),
+      set: (key: string, value: string) => void held.set(key, value),
+    };
+    const stored = (): GitHubBackend =>
+      new GitHubBackend(githubClient("token-123", { throttled: false }), { owner: "test-org", repo: "widgets" }, store);
+    const calls = stubGitHub({
+      [`GET ${REPOS}/git/commits/${sha("3")}`]: { json: commitJson(sha("3"), [sha("4"), sha("5")]) },
+      [`GET ${REPOS}/contents/gone.ts?ref=${sha("3")}`]: { status: 404, json: { message: "Not Found" } },
+    });
+    const first = stored();
+    expect(await first.mergedTip(sha("3"))).toBe(sha("5"));
+    expect(await first.readFile(sha("3"), parseFilePath("gone.ts"))).toBeUndefined();
+    const second = stored();
+    expect(await second.mergedTip(sha("3"))).toBe(sha("5"));
+    expect(await second.readFile(sha("3"), parseFilePath("gone.ts"))).toBeUndefined();
+    expect(calls).toHaveLength(2);
+  });
 });
 
 describe("config", () => {
@@ -784,14 +893,11 @@ describe("operations needing a local repository", () => {
   });
 
   test("the sync operations are no-ops with nothing to reconcile", async () => {
-    const calls = stubGitHub({
-      [`GET ${REPOS}/git/matching-refs/cabaret%2Flog%2F?per_page=100`]: { json: [{ ref: "refs/cabaret/log/only" }] },
-    });
+    const calls = stubGitHub(sweepRoutes([{ change: "only", logTip: sha("1"), log: "", head: sha("2") }]));
     const github = backend();
     await github.syncLog();
     await github.push();
     await github.fetch();
-    await github.fetchOrigin();
     expect(await github.advanceBranches()).toEqual([]);
     expect(await github.wipeReviewState()).toEqual([]);
     expect(await github.workspaces()).toEqual([]);
