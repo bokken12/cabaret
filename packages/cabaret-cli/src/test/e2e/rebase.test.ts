@@ -499,3 +499,129 @@ test("a review survives the parent being rewritten and the rebase that follows",
     exitCode: 0,
   });
 });
+
+/**
+ * A history whose base left the tip's first-parent chain: `feature` edits
+ * both.txt and adds feature.txt and plain.txt, child `gadget` lands into it,
+ * `mainline` (adding mainline.txt and editing both.txt elsewhere) lands into
+ * main, and `feature` then rebases, merging the moved main in. feature.txt
+ * and both.txt are marked reviewed before the rebase.
+ */
+async function makeRebasedFeature(repo: TestRepo): Promise<void> {
+  await repo.write("both.txt", "top\nmiddle\nbottom\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "seed both.txt");
+  await repo.cabaret("create", "feature");
+  await repo.git("checkout", "-q", "feature");
+  await repo.write("both.txt", "top (feature)\nmiddle\nbottom\n");
+  await repo.write("feature.txt", "feature work\n");
+  await repo.write("plain.txt", "plain work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "feature work");
+  await repo.cabaret("mark", "--change", "feature", "--tip", "HEAD", "feature.txt", "both.txt");
+  await addChange(repo, "gadget");
+  await repo.cabaret("land", "gadget", "--even-though-unreviewed");
+  await repo.git("checkout", "-q", "main");
+  await repo.cabaret("create", "mainline");
+  await repo.git("checkout", "-q", "mainline");
+  await repo.write("both.txt", "top\nmiddle\nbottom (mainline)\n");
+  await repo.write("mainline.txt", "mainline work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "mainline work");
+  await repo.cabaret("land", "mainline", "--even-though-unreviewed");
+  await repo.git("checkout", "-q", "feature");
+  await repo.cabaret("rebase");
+}
+
+test("a rebase keeps main's own movement out of review", async () => {
+  const repo = await makeRepo();
+  await makeRebasedFeature(repo);
+  // Only the change's own work is owed: both.txt because main also moved it
+  // since the review, plain.txt because it was never reviewed. What the
+  // rebase merged in (mainline.txt) and what the landed child brought
+  // (gadget.txt) owe nothing, and feature.txt's review carried cleanly.
+  expect((await repo.cabaret("show", "feature")).stdout).toMatchInlineSnapshot(`
+    "feature
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ widen reviewing   │
+    │ owner     │ alice@example.com │
+    │ reviewing │ none              │
+    │ parent    │ main              │
+    │ tip       │ 244470f9ef1a      │
+    │ base      │ 5e19fa6beaa9      │
+    │ workspace │ .                 │
+    ╰───────────┴───────────────────╯
+
+    Included changes:
+      gadget
+
+    Remaining review:
+      alice@example.com: 2 files
+
+    Files to review:
+      both.txt
+      plain.txt
+    "
+  `);
+  for (const settled of ["feature.txt", "gadget.txt", "mainline.txt"]) {
+    expect(await repo.cabaret("review", "--change", "feature", settled)).toEqual({
+      stdout: `${settled} in feature\n\nNothing left to review.\n`,
+      stderr: "",
+      exitCode: 0,
+    });
+  }
+  expect((await repo.cabaret("review", "--change", "feature", "both.txt")).stdout).toMatchInlineSnapshot(`
+    "Review feature
+    ==============
+
+    Reviewing up to 97b57f3b06b5.
+
+      both.txt
+
+    both.txt in feature (up to 97b57f3b06b5)
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ both.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    old base 879cfc4b1ce7 | new base 5e19fa6beaa9 | old & new tip 97b57f3b06b5
+    _
+    | @@@@@@@@ This base change was dropped... : @@@@@@@@
+    | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
+    |   top
+    |   middle
+    | -|bottom
+    | +|bottom (mainline)
+    |_
+    _
+    | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
+    | @@@@@@@@ old base 1,4 tip 1,4 @@@@@@@@
+    | -|top
+    | +|top (feature)
+    |   middle
+    |   bottom
+    |_
+
+    Record review of what you have read:
+      cabaret mark --change feature --tip 97b57f3b06b5 both.txt
+    "
+  `);
+  expect((await repo.cabaret("review", "--change", "feature", "plain.txt")).stdout).toMatchInlineSnapshot(`
+    "Review feature
+    ==============
+
+    Reviewing up to 97b57f3b06b5.
+
+      plain.txt
+
+    plain.txt in feature (up to 97b57f3b06b5)
+
+    -1,0 +1,1
+    +|plain work
+
+    Record review of what you have read:
+      cabaret mark --change feature --tip 97b57f3b06b5 plain.txt
+    "
+  `);
+});

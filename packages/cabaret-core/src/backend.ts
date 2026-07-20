@@ -358,6 +358,22 @@ export interface LandMerge {
   readonly onto: Revision;
 }
 
+/** A merge on a change's first-parent chain, or a squash land standing among them. */
+export interface ChainMerge {
+  readonly commit: Revision;
+  /** The first parent: what the chain held before the merge. A squash land's sole parent. */
+  readonly onto: Revision;
+  /** The second parent: what the merge brought in. Undefined for a squash land. */
+  readonly merged: Revision | undefined;
+  /** The change the commit's land trailer names, when it carries one. */
+  readonly landed: ChangeName | undefined;
+}
+
+/** The land merges among `merges`, in the same order. */
+export function landsAmong(merges: readonly ChainMerge[]): readonly LandMerge[] {
+  return merges.flatMap(({ commit, onto, landed }) => (landed === undefined ? [] : [{ change: landed, commit, onto }]));
+}
+
 /** The commit that landed a change on its parent branch, however it was written. */
 export interface LandedMerge {
   readonly commit: Revision;
@@ -606,18 +622,19 @@ export interface Backend {
   squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
-   * The commits carrying the `LAND_TRAILER` trailer among the newest `scan`
-   * commits of `tip`'s first-parent chain, oldest first — land merges, whose
-   * `onto` is their first parent, and squash lands, whose `onto` is their
-   * sole parent — and whether the chain continues past those commits. `base`
-   * stops the walk where a change's history ends; undefined surveys a
-   * long-lived branch, whose history only `scan` bounds.
+   * The merges among the newest `scan` commits of `tip`'s first-parent
+   * chain, oldest first — plus squash lands, single-parent commits carrying
+   * the `LAND_TRAILER` trailer — with `root`, the first parent of the
+   * oldest surveyed commit (undefined at a root commit or an empty survey),
+   * and whether the chain continues past the survey. `base` stops the walk
+   * where the chain enters its ancestry; undefined surveys a long-lived
+   * branch, whose history only `scan` bounds.
    */
-  landMerges(
+  chainMerges(
     base: Revision | undefined,
     tip: Revision,
     scan: number,
-  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
+  ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
@@ -1206,26 +1223,28 @@ export interface ReviewSpan {
 }
 
 /**
- * The spans of `base`..`tip` left for a reviewer to review, oldest first,
- * given the land merges on its first-parent chain.
- *
- * The land merges split the history into spans: the diff each merge brings
- * in was already reviewed in the landed child, so what needs review is base
- * → first land's onto, then each land merge → the next land's onto, and
- * finally the last land merge → tip. A span a land merge jumps over entirely
+ * The spans of a change's history left for a reviewer, oldest first: the
+ * windows of the tip's first-parent chain between `cuts`, the chain's
+ * merges whose diff arrived already reviewed. What needs review is `start`
+ * (the chain's root) → first cut's onto, then each cut → the next cut's
+ * onto, and finally the last cut → tip. A span a cut jumps over entirely
  * (its start is its end) is dropped.
  */
-export function reviewSpans(lands: readonly LandMerge[], base: Revision, tip: Revision): readonly ReviewSpan[] {
+export function reviewSpans(
+  cuts: readonly Pick<ChainMerge, "commit" | "onto">[],
+  start: Revision,
+  tip: Revision,
+): readonly ReviewSpan[] {
   const spans: ReviewSpan[] = [];
-  let start = base;
-  for (const { commit, onto } of lands) {
-    if (start !== onto) {
-      spans.push({ start, end: onto });
+  let at = start;
+  for (const { commit, onto } of cuts) {
+    if (at !== onto) {
+      spans.push({ start: at, end: onto });
     }
-    start = commit;
+    at = commit;
   }
-  if (start !== tip) {
-    spans.push({ start, end: tip });
+  if (at !== tip) {
+    spans.push({ start: at, end: tip });
   }
   return spans;
 }
@@ -1289,33 +1308,65 @@ export async function changeDiff(
 export const LAND_SCAN = 10_000;
 
 /**
- * Every land merge on `base`..`tip`, oldest first. Review spans need the
- * walk complete — a shortened answer would silently misplace them — so a
+ * The complete first-parent chain survey of `base`..`tip`. Review spans need
+ * the walk complete — a shortened answer would silently misplace them — so a
  * history outrunning `LAND_SCAN` commits, which no one could review anyway,
  * is an error instead.
  */
-export async function completeLandMerges(
+export async function completeChainMerges(
   backend: Backend,
   base: Revision,
   tip: Revision,
-): Promise<readonly LandMerge[]> {
-  const { lands, more } = await backend.landMerges(base, tip, LAND_SCAN);
+): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined }> {
+  const { merges, root, more } = await backend.chainMerges(base, tip, LAND_SCAN);
   if (more) {
     throw new UserError(`history spans more than ${LAND_SCAN} commits; rebase onto a fresher parent`);
   }
-  return lands;
+  return { merges, root };
 }
 
-/** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
+/**
+ * The diff of `base`..`tip`, for callers that resolved the endpoints
+ * themselves. Two kinds of merge on the first-parent chain carry a diff that
+ * was reviewed elsewhere: land merges, reviewed in the landed child, and
+ * rebase merges — those merging in commits the base already reaches —
+ * reviewed in whatever landed them on the parent. Land merges cut the chain
+ * into review spans. A rebase merge instead restarts the open window at the
+ * base it merged in, so the span crossing it shows the current diff,
+ * conflict resolutions included — until a land cut pins the window's end to
+ * the chain: spans behind such a cut cannot be re-anchored without
+ * re-opening the landed diff, so a rebase merge behind one cuts like a land
+ * and its own delta goes unreviewed. The walk starts at the chain's root
+ * rather than at `base`, which a rebase merge leaves off the chain,
+ * reachable only through its second parent.
+ */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
-  const lands = await completeLandMerges(backend, base, tip);
+  const { merges, root } = await completeChainMerges(backend, base, tip);
+  const reviewedElsewhere = await Promise.all(
+    merges.map(
+      async ({ landed, merged }) =>
+        landed !== undefined || (merged !== undefined && (await backend.isAncestor(merged, base))),
+    ),
+  );
+  let start = root ?? base;
+  const cuts: Pick<ChainMerge, "commit" | "onto">[] = [];
+  for (const [index, merge] of merges.entries()) {
+    if (!reviewedElsewhere[index]) {
+      continue;
+    }
+    if (merge.landed === undefined && merge.merged !== undefined && cuts.length === 0) {
+      start = merge.merged;
+    } else {
+      cuts.push(merge);
+    }
+  }
   const spans = await Promise.all(
-    reviewSpans(lands, base, tip).map(async (span) => ({
+    reviewSpans(cuts, start, tip).map(async (span) => ({
       ...span,
       changed: changedByPath(await backend.changedFiles(span.start, span.end)),
     })),
   );
-  return { base, tip, lands, spans };
+  return { base, tip, lands: landsAmong(merges), spans };
 }
 
 /** Key `files` by path, the identity every diff-derived structure shares. */
