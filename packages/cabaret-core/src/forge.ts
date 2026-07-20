@@ -591,9 +591,60 @@ export interface LandOutcome {
   /** The forge change merged, or undefined for a local land. */
   readonly merged: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined;
   /** The landed change's children, moved onto `onto` to follow the code; undefined when none moved. */
-  readonly reparented: { readonly onto: ChangeName; readonly children: readonly ChangeName[] } | undefined;
+  readonly reparented:
+    | {
+        readonly onto: ChangeName;
+        readonly children: readonly ChangeName[];
+        /** The children's forge changes now targeting `onto`; empty for a local land. */
+        readonly retargeted: readonly {
+          readonly change: ChangeName;
+          readonly forge: ForgeLocator;
+          readonly id: ForgeChangeId;
+        }[];
+      }
+    | undefined;
   /** How a local land's parent advance reached origin; undefined for a forge land, whose merge origin already holds. */
   readonly publication: LandPublication | undefined;
+}
+
+/**
+ * Retarget the still-open forge changes of `children` — a landed change's
+ * reparented children — onto `onto`, so each child comes out of the land
+ * ready to review or land rather than waiting on a sync to move its forge
+ * change off the landed branch. Each new parent is recorded as an
+ * observation, so a later absorb can tell a forge-side retarget from the
+ * state this side left behind; a forge that already followed the move
+ * records the observation alone. Children tracked on other forges, or whose
+ * forge changes are closed, are left for their own sync. Returns what now
+ * targets `onto`, in `children` order.
+ */
+async function retargetLandedChildren(
+  backend: Backend,
+  now: () => TimestampMs,
+  forge: Forge,
+  children: readonly ChangeName[],
+  onto: ChangeName,
+): Promise<NonNullable<LandOutcome["reparented"]>["retargeted"]> {
+  const user = await backend.currentUser();
+  const retargeted: { change: ChangeName; forge: ForgeLocator; id: ForgeChangeId }[] = [];
+  for (const child of children) {
+    const tracked = currentForgeChange(await backend.readLog(child));
+    if (tracked?.forge !== forge.locator) {
+      continue;
+    }
+    const forgeChange = await forge.getChange(tracked.id);
+    if (forgeChange.state !== "open") {
+      continue;
+    }
+    if (forgeChange.parent !== onto) {
+      await forge.setParent(tracked.id, onto);
+    }
+    await backend.appendLog(child, [
+      { timestamp: now(), user, source: { forge: forge.locator }, action: { kind: "set-parent", parent: onto } },
+    ]);
+    retargeted.push({ change: child, forge: forge.locator, id: tracked.id });
+  }
+  return retargeted;
 }
 
 /**
@@ -601,7 +652,8 @@ export interface LandOutcome {
  * when `landVia` is "forge", or "auto" with a forge change recorded in the
  * log; locally otherwise. `openForge` is consulted only for a forge land, so
  * local lands need no forge at all. Either way the landed change's children
- * are then reparented onto its parent, where their code now lives.
+ * are then reparented onto its parent, where their code now lives; a forge
+ * land also retargets their forge changes to follow.
  */
 export async function landAsConfigured(
   backend: Backend,
@@ -616,10 +668,11 @@ export async function landAsConfigured(
     config.landVia === "forge" || (config.landVia === "auto" && currentForgeChange(entries) !== undefined);
   let merged: LandOutcome["merged"];
   let publication: LandOutcome["publication"];
+  let forge: Forge | undefined;
   if (!viaForge) {
     publication = await landChange(backend, now, change, entries, config.landMethod, overrides);
   } else {
-    const forge = await openForge();
+    forge = await openForge();
     const forgeChange = await syncedForgeChange(backend, now, await backend.currentUser(), forge, change, entries);
     if (forgeChange === undefined) {
       throw new UserError(
@@ -631,7 +684,8 @@ export async function landAsConfigured(
   }
   const onto = currentParent(change, entries);
   const children = await reparentLandedChildren(backend, now, change, onto);
-  return { merged, reparented: children.length > 0 ? { onto, children } : undefined, publication };
+  const retargeted = forge === undefined ? [] : await retargetLandedChildren(backend, now, forge, children, onto);
+  return { merged, reparented: children.length > 0 ? { onto, children, retargeted } : undefined, publication };
 }
 
 /** One thing a fetch did, as it happens, so hosts can narrate in their own voice. */
