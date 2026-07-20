@@ -52,15 +52,18 @@ export function keyName(event: KeyEvent): string | undefined {
   return undefined;
 }
 
-/** A mouse event the terminal reports under SGR tracking; releases and drags are not events the TUI acts on. */
+/** A mouse event the terminal reports under SGR button tracking. */
 export type MouseEvent =
-  | { readonly kind: "click"; readonly x: number; readonly y: number }
+  | { readonly kind: "press"; readonly x: number; readonly y: number }
+  | { readonly kind: "drag"; readonly x: number; readonly y: number }
+  | { readonly kind: "release"; readonly x: number; readonly y: number }
   | { readonly kind: "wheel"; readonly delta: -1 | 1 };
 
 /**
- * The mouse event an SGR tracking sequence reports: `ESC [ < b ; x ; y M`.
- * Left presses click; wheel buttons scroll; everything else — releases,
- * drags, other buttons — is undefined. `x` and `y` are 1-based cells.
+ * The mouse event an SGR tracking sequence reports: `ESC [ < b ; x ; y M`,
+ * final `m` for a release. Left presses, their drags (the motion bit while
+ * held), releases, and wheel turns answer; other buttons are undefined.
+ * `x` and `y` are 1-based cells.
  */
 export function mouseEvent(sequence: string): MouseEvent | undefined {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape introduces the sequence
@@ -74,8 +77,11 @@ export function mouseEvent(sequence: string): MouseEvent | undefined {
   if (button === 64 || button === 65) {
     return { kind: "wheel", delta: button === 64 ? -1 : 1 };
   }
-  if (match[4] === "M" && (button & 3) === 0 && (button & 32) === 0) {
-    return { kind: "click", x, y };
+  if ((button & 3) !== 0) {
+    return undefined;
   }
-  return undefined;
+  if (match[4] === "m") {
+    return { kind: "release", x, y };
+  }
+  return { kind: (button & 32) === 0 ? "press" : "drag", x, y };
 }

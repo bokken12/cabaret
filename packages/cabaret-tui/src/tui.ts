@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import {
   addChangeWorkspace,
   type Backend,
+  type ChangeName,
   createChange,
   currentArchived,
   currentParent,
@@ -14,12 +15,16 @@ import {
   fetchLocal,
   gotoChange,
   knownChanges,
+  type LogEntry,
   landAsConfigured,
+  landChain,
   readConfig,
+  rebaseChain,
   rebaseChange,
   removeChangeWorkspace,
   renameChange,
   reparentChange,
+  resolveChain,
   setArchived,
   setReviewing,
   syncChange,
@@ -131,12 +136,25 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         .map(({ other }) => other)
         .sort();
     },
-    rebase: async (change, overrides) => {
-      await rebaseChange(backend, now, change, await backend.readLog(change), overrides);
+    rebase: async (changes, overrides) => {
+      const only = changes.length === 1 ? changes[0] : undefined;
+      if (only !== undefined) {
+        await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
+      } else {
+        await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
+      }
     },
-    land: async (change, overrides) => {
+    land: async (changes, overrides) => {
       const config = await readConfig(backend);
-      await landAsConfigured(backend, now, openForge, config, change, await backend.readLog(change), overrides);
+      const landOne = async (change: ChangeName, entries: readonly LogEntry[]): Promise<void> => {
+        await landAsConfigured(backend, now, openForge, config, change, entries, overrides);
+      };
+      const only = changes.length === 1 ? changes[0] : undefined;
+      if (only !== undefined) {
+        await landOne(only, await backend.readLog(only));
+      } else {
+        await landChain(backend, await resolveChain(backend, changes), landOne);
+      }
     },
     rename: (from, to, evenThoughNotOwner) => renameChange(backend, from, to, evenThoughNotOwner),
     reparent: async (change, parent, evenThoughNotOwner) => {

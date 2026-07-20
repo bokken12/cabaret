@@ -71,10 +71,10 @@ export interface Effects {
   children(change: ChangeName): Promise<readonly ChangeName[]>;
   /** The current user and their aliases. */
   self(): Promise<Self>;
-  /** Rebase the change onto its parent's current tip. */
-  rebase(change: ChangeName, overrides: RebaseOverrides): Promise<void>;
-  /** Land the change into its parent as configured. */
-  land(change: ChangeName, overrides: LandOverrides): Promise<void>;
+  /** Rebase the changes, one alone or several as a stack, ancestormost first. */
+  rebase(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<void>;
+  /** Land the changes into their parents as configured, with the stack semantics of `rebase`. */
+  land(changes: readonly ChangeName[], overrides: LandOverrides): Promise<void>;
   rename(from: ChangeName, to: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
   reparent(change: ChangeName, parent: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
   setOwner(change: ChangeName, owner: string, evenThoughNotOwner: boolean): Promise<void>;
@@ -108,6 +108,8 @@ interface View {
   stale: boolean;
   readonly folded: Set<number>;
   cursor: number;
+  /** The selection's other end, a visible-line index; unset selects the cursor alone. */
+  anchor: number | undefined;
   top: number;
 }
 
@@ -152,6 +154,8 @@ export class App {
   private question: Question | undefined;
   private choice: Choice | undefined;
   private input: Input | undefined;
+  /** A pressed button not yet released: where it landed, and whether it has dragged rows. */
+  private press: { row: number; column: number; dragged: boolean } | undefined;
   /** Per displayed diff, the round ends it was shown up to: evidence for mark's viewed check. */
   private readonly displayedEnds = new Map<string, Set<Revision>>();
 
@@ -170,7 +174,7 @@ export class App {
     try {
       const { doc, snapshot, viewed } = await this.source(page);
       this.recordViewed(viewed);
-      this.stack.push({ page, doc, snapshot, stale: false, folded: new Set(), cursor: 0, top: 0 });
+      this.stack.push({ page, doc, snapshot, stale: false, folded: new Set(), cursor: 0, anchor: undefined, top: 0 });
       this.noteErrors(doc);
     } catch (error) {
       if (this.stack.length === 0) {
@@ -197,6 +201,7 @@ export class App {
   async handleKey(key: string): Promise<"continue" | "quit"> {
     const current = this.current();
     this.note = undefined;
+    this.press = undefined;
     if (this.question !== undefined) {
       const question = this.question;
       this.question = undefined;
@@ -248,6 +253,11 @@ export class App {
       this.repaint();
       return "continue";
     }
+    if (key === "esc" && current.anchor !== undefined) {
+      current.anchor = undefined;
+      this.repaint();
+      return "continue";
+    }
     const attempt = [...this.pending, key];
     const matches = bindingsFor(current.page.kind).filter((binding) => attempt.every((k, i) => binding.keys[i] === k));
     const exact = matches.find((binding) => binding.keys.length === attempt.length);
@@ -273,17 +283,21 @@ export class App {
   }
 
   /**
-   * Act on a mouse event: the wheel scrolls, a click moves the cursor to the
-   * clicked row and follows a link under it. While a question, choice, or
-   * input waits, clicks are not answers, so they are ignored.
+   * Act on a mouse event: the wheel scrolls; a press moves the cursor to its
+   * row; dragging on extends a selection to the rows crossed; a release that
+   * never dragged is a click, following a link under it. While a question,
+   * choice, or input waits, clicks are not answers, so they are ignored.
    */
   async handleMouse(event: MouseEvent): Promise<void> {
     if (this.question !== undefined || this.choice !== undefined || this.input !== undefined) {
+      this.press = undefined;
       return;
     }
     if (this.overlay !== undefined) {
-      this.overlay = undefined;
-      this.repaint();
+      if (event.kind === "press") {
+        this.overlay = undefined;
+        this.repaint();
+      }
       return;
     }
     const view = this.current();
@@ -294,21 +308,59 @@ export class App {
     }
     const visible = visibleLines(view.doc, view.folded);
     const row = view.top + event.y - 1;
-    if (event.y > this.contentHeight() || row >= visible.length) {
-      return;
-    }
-    view.cursor = row;
-    this.scrollIntoView(view);
-    const line = visible[row];
-    const column = event.x - 1 - gutterWidth(view.doc);
-    const link =
-      line === undefined
-        ? undefined
-        : linkRanges(view.doc).find(
-            (range) => range.line === line && range.start <= column && column < range.start + range.length,
-          );
-    if (link !== undefined) {
-      await this.follow(link.target);
+    switch (event.kind) {
+      case "press":
+        if (event.y > this.contentHeight() || row >= visible.length) {
+          return;
+        }
+        view.cursor = row;
+        view.anchor = undefined;
+        this.press = { row, column: event.x - 1 - gutterWidth(view.doc), dragged: false };
+        this.scrollIntoView(view);
+        break;
+      case "drag": {
+        if (this.press === undefined) {
+          return;
+        }
+        // Dragging at the top edge scrolls the viewport up; the bottom edge
+        // already scrolls by overshooting into the status row.
+        if (event.y <= 1 && view.top > 0) {
+          view.top -= 1;
+        }
+        // A drag past the content clamps to its edge rather than escaping it.
+        const dragged = Math.max(0, Math.min(view.top + event.y - 1, visible.length - 1));
+        if (dragged !== this.press.row) {
+          this.press.dragged = true;
+        }
+        // Selection means changes, so only the home page anchors one; a drag
+        // elsewhere still spoils the release's click.
+        if (view.page.kind !== "home" || !this.press.dragged) {
+          break;
+        }
+        view.anchor = this.press.row;
+        view.cursor = dragged;
+        this.scrollIntoView(view);
+        break;
+      }
+      case "release": {
+        const press = this.press;
+        this.press = undefined;
+        if (press === undefined || press.dragged) {
+          return;
+        }
+        const line = visible[press.row];
+        const link =
+          line === undefined
+            ? undefined
+            : linkRanges(view.doc).find(
+                (range) =>
+                  range.line === line && range.start <= press.column && press.column < range.start + range.length,
+              );
+        if (link !== undefined) {
+          await this.follow(link.target);
+        }
+        break;
+      }
     }
     this.repaint();
   }
@@ -435,36 +487,39 @@ export class App {
       case "mark":
         await this.markAtCursor(view);
         return "continue";
+      case "select":
+        view.anchor = view.anchor === undefined ? view.cursor : undefined;
+        return "continue";
       case "rebase": {
-        const change = this.actionChange(view);
-        if (change !== undefined) {
-          await this.rebaseFlow(change, { notOwner: false, parentDiverged: false });
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
+          await this.rebaseFlow(changes, { notOwner: false, parentDiverged: false });
         }
         return "continue";
       }
       case "land": {
-        const change = this.actionChange(view);
-        if (change !== undefined) {
-          await this.landFlow(change, { notOwner: false, unreviewed: false, parentUnreviewed: false });
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
+          await this.landFlow(changes, { notOwner: false, unreviewed: false, parentUnreviewed: false });
         }
         return "continue";
       }
       case "rename": {
-        const from = this.actionChange(view);
+        const from = this.singleChange(view, "rename");
         if (from !== undefined) {
           this.input = { prompt: `Rename ${from}`, buffer: from, submit: (raw) => this.renameFlow(view, from, raw) };
         }
         return "continue";
       }
       case "reparent": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "reparent");
         if (change !== undefined) {
           await this.reparentPick(change);
         }
         return "continue";
       }
       case "set-owner": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "set the owner of");
         if (change !== undefined) {
           this.input = {
             prompt: `New owner for ${change}`,
@@ -481,14 +536,14 @@ export class App {
         return "continue";
       }
       case "widen-reviewing": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "widen reviewing of");
         if (change !== undefined) {
           await this.widenFlow(change);
         }
         return "continue";
       }
       case "disable-reviewing": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "disable reviewing of");
         if (change !== undefined) {
           await this.attempt(async () => {
             await this.effects.disableReviewing(change);
@@ -498,7 +553,7 @@ export class App {
         return "continue";
       }
       case "toggle-archived": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "archive");
         if (change !== undefined) {
           await this.attempt(async () => {
             const archived = await this.effects.toggleArchived(change);
@@ -508,28 +563,28 @@ export class App {
         return "continue";
       }
       case "goto-workspace": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "go to");
         if (change !== undefined) {
           await this.gotoFlow(change, false);
         }
         return "continue";
       }
       case "add-workspace": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "add a workspace for");
         if (change !== undefined) {
           await this.attempt(async () => `workspace at ${await this.effects.addWorkspace(change)}`);
         }
         return "continue";
       }
       case "remove-workspace": {
-        const change = this.actionChange(view);
+        const change = this.singleChange(view, "remove the workspace of");
         if (change !== undefined) {
           await this.removeWorkspaceFlow(change, false);
         }
         return "continue";
       }
       case "create-child": {
-        const parent = this.actionChange(view);
+        const parent = this.singleChange(view, "create a child of");
         if (parent !== undefined) {
           this.input = {
             prompt: `Name for a child of ${parent}`,
@@ -540,7 +595,7 @@ export class App {
         return "continue";
       }
       case "create-parent": {
-        const child = this.actionChange(view);
+        const child = this.singleChange(view, "create a parent of");
         if (child !== undefined) {
           await this.createParentPrompt(child);
         }
@@ -552,9 +607,9 @@ export class App {
         await this.attempt(() => this.effects.fetch());
         return "continue";
       case "sync": {
-        const change = this.actionChange(view);
-        if (change !== undefined) {
-          await this.syncFlow(change);
+        const changes = this.actionChanges(view);
+        if (changes.length > 0) {
+          await this.syncFlow(changes);
         }
         return "continue";
       }
@@ -583,6 +638,7 @@ export class App {
         await this.actAsPick(view);
         return "continue";
       case "toggle-fold": {
+        view.anchor = undefined;
         const line = visibleLines(view.doc, view.folded)[view.cursor];
         const fold = line === undefined ? undefined : foldAt(view.doc, line);
         if (fold !== undefined) {
@@ -647,10 +703,10 @@ export class App {
       case "action":
         switch (target.action) {
           case "sync":
-            await this.syncFlow(target.change);
+            await this.syncFlow([target.change]);
             break;
           case "rebase":
-            await this.rebaseFlow(target.change, { notOwner: false, parentDiverged: false });
+            await this.rebaseFlow([target.change], { notOwner: false, parentDiverged: false });
             break;
           case "reparent":
             await this.reparentPick(target.change);
@@ -659,7 +715,7 @@ export class App {
             await this.widenFlow(target.change);
             break;
           case "land":
-            await this.landFlow(target.change, { notOwner: false, unreviewed: false, parentUnreviewed: false });
+            await this.landFlow([target.change], { notOwner: false, unreviewed: false, parentUnreviewed: false });
             break;
         }
         break;
@@ -769,20 +825,44 @@ export class App {
   }
 
   /**
-   * The change an action at the cursor applies to: the page's own change on
-   * change-scoped pages, the cursor line's on home. Reports when there is
-   * none.
+   * The changes an action applies to, ancestormost first: the page's own
+   * change on change-scoped pages; on home, the changes named by the lines
+   * the selection covers — just the cursor's line without one. Reports when
+   * there are none.
    */
-  private actionChange(view: View): ChangeName | undefined {
+  private actionChanges(view: View): readonly ChangeName[] {
     if (view.page.kind !== "home") {
-      return view.page.change;
+      return [view.page.change];
     }
-    const target = this.cursorTarget(view);
-    if (target?.kind === "change") {
-      return target.change;
+    const visible = visibleLines(view.doc, view.folded);
+    const from = Math.min(view.anchor ?? view.cursor, view.cursor);
+    const to = Math.max(view.anchor ?? view.cursor, view.cursor);
+    const changes: ChangeName[] = [];
+    for (let row = from; row <= to; row++) {
+      const line = visible[row];
+      const target = line === undefined ? undefined : targetAt(view.doc, line);
+      if (target?.kind === "change") {
+        changes.push(target.change);
+      }
     }
-    this.note = "no change at the cursor";
-    return undefined;
+    if (changes.length === 0) {
+      this.note = "no change at the cursor";
+    }
+    return [...new Set(changes)];
+  }
+
+  /** The lone selected change, or undefined after reporting `action` takes exactly one. */
+  private singleChange(view: View, action: string): ChangeName | undefined {
+    const changes = this.actionChanges(view);
+    if (changes.length === 0) {
+      return undefined;
+    }
+    const [only] = changes;
+    if (changes.length > 1 || only === undefined) {
+      this.note = `select a single change to ${action}`;
+      return undefined;
+    }
+    return only;
   }
 
   /**
@@ -803,10 +883,12 @@ export class App {
         this.ask(override.question, override.retry);
         return;
       }
+      this.current().anchor = undefined;
       await this.refreshAll();
       this.note = message(error);
       return;
     }
+    this.current().anchor = undefined;
     await this.refreshAll();
     if (note !== undefined) {
       this.note = note;
@@ -830,24 +912,24 @@ export class App {
     );
   }
 
-  /** Rebase, asking past each overridable check it trips. */
-  private rebaseFlow(change: ChangeName, overrides: RebaseOverrides): Promise<void> {
+  /** Rebase, asking past each overridable check it trips; a rerun skips the links that already applied. */
+  private rebaseFlow(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<void> {
     return this.attempt(
       async () => {
-        await this.effects.rebase(change, overrides);
+        await this.effects.rebase(changes, overrides);
         return undefined;
       },
       (error) => {
         if (error instanceof NotOwnerError && !overrides.notOwner) {
           return {
             question: `${error.change} is owned by ${error.owner}, not you. Rebase anyway?`,
-            retry: () => this.rebaseFlow(change, { ...overrides, notOwner: true }),
+            retry: () => this.rebaseFlow(changes, { ...overrides, notOwner: true }),
           };
         }
         if (error instanceof DivergedParentError && !overrides.parentDiverged) {
           return {
             question: `Local ${error.parent} has diverged from origin's copy. Rebase onto the local reading?`,
-            retry: () => this.rebaseFlow(change, { ...overrides, parentDiverged: true }),
+            retry: () => this.rebaseFlow(changes, { ...overrides, parentDiverged: true }),
           };
         }
         return undefined;
@@ -855,32 +937,32 @@ export class App {
     );
   }
 
-  /** Land, asking past each overridable check it trips. */
-  private landFlow(change: ChangeName, overrides: LandOverrides): Promise<void> {
+  /** Land, asking past each overridable check it trips; a rerun skips the links that already landed. */
+  private landFlow(changes: readonly ChangeName[], overrides: LandOverrides): Promise<void> {
     return this.attempt(
       async () => {
-        await this.effects.land(change, overrides);
-        return `landed ${change}`;
+        await this.effects.land(changes, overrides);
+        return `landed ${changes.join(", ")}`;
       },
       (error) => {
         if (error instanceof NotOwnerError && !overrides.notOwner) {
           return {
             question: `${error.change} is owned by ${error.owner}, not you. Land anyway?`,
-            retry: () => this.landFlow(change, { ...overrides, notOwner: true }),
+            retry: () => this.landFlow(changes, { ...overrides, notOwner: true }),
           };
         }
         if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
           this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
           return {
             question: "Review obligations are unsatisfied. Land anyway?",
-            retry: () => this.landFlow(change, { ...overrides, unreviewed: true }),
+            retry: () => this.landFlow(changes, { ...overrides, unreviewed: true }),
           };
         }
         if (error instanceof UnreviewedParentError && !overrides.parentUnreviewed) {
           this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
           return {
             question: `Parent ${error.parent} has unsatisfied review obligations. Land anyway?`,
-            retry: () => this.landFlow(change, { ...overrides, parentUnreviewed: true }),
+            retry: () => this.landFlow(changes, { ...overrides, parentUnreviewed: true }),
           };
         }
         return undefined;
@@ -1033,10 +1115,21 @@ export class App {
     };
   }
 
-  private async syncFlow(change: ChangeName): Promise<void> {
-    this.note = `syncing ${change}\u2026`;
+  private async syncFlow(changes: readonly ChangeName[]): Promise<void> {
+    this.note = `syncing ${changes.join(", ")}\u2026`;
     this.repaint();
-    await this.attempt(() => this.effects.sync(change));
+    await this.attempt(async () => {
+      const reports: string[] = [];
+      for (const change of changes) {
+        try {
+          reports.push(await this.effects.sync(change));
+        } catch (error) {
+          // The syncs that finished still report beside the one that failed.
+          throw new Error([...reports, `${change}: ${message(error)}`].join("; "));
+        }
+      }
+      return reports.join("; ");
+    });
   }
 
   /** Step a diff page to the file beside it in its round — how a reviewer walks the round. */
@@ -1153,6 +1246,7 @@ export class App {
       this.note = message(error);
       return;
     }
+    view.anchor = undefined;
     const starts = new Set(view.doc.folds.map(({ start }) => start));
     for (const start of view.folded) {
       if (!starts.has(start)) {

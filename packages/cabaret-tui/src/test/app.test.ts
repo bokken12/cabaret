@@ -386,8 +386,8 @@ test("$ with several children asks which; a digit picks", async () => {
 test("! r b rebases the cursor's change; a stale parent asks and retries with the override", async () => {
   const calls: object[] = [];
   const { app, keys, screen } = harness({
-    rebase: (change, overrides) => {
-      calls.push({ change, ...overrides });
+    rebase: (changes, overrides) => {
+      calls.push({ changes, ...overrides });
       return overrides.parentDiverged
         ? Promise.resolve()
         : Promise.reject(new DivergedParentError(parseBranchName("main")));
@@ -398,8 +398,8 @@ test("! r b rebases the cursor's change; a stale parent asks and retries with th
   expect(screen()).toContain("has diverged from origin's copy. Rebase onto the local reading? y/n");
   await keys("y");
   expect(calls).toEqual([
-    { change: widgets, notOwner: false, parentDiverged: false },
-    { change: widgets, notOwner: false, parentDiverged: true },
+    { changes: [widgets], notOwner: false, parentDiverged: false },
+    { changes: [widgets], notOwner: false, parentDiverged: true },
   ]);
 });
 
@@ -451,7 +451,7 @@ test("! r p offers the other changes and reparents onto the pick", async () => {
 });
 
 test("enter on a rebase action target runs the rebase", async () => {
-  const calls: string[] = [];
+  const calls: (readonly string[])[] = [];
   const actions: Doc = layout([
     {
       spans: [span("rebase", { target: { kind: "action", change: widgets, action: "rebase" } })],
@@ -460,14 +460,14 @@ test("enter on a rebase action target runs the rebase", async () => {
   pages.set(pagePath({ kind: "home" }), actions);
   try {
     const { app, keys } = harness({
-      rebase: (change) => {
-        calls.push(change);
+      rebase: (changes) => {
+        calls.push(changes);
         return Promise.resolve();
       },
     });
     await app.open({ kind: "home" });
     await keys("enter");
-    expect(calls).toEqual([widgets]);
+    expect(calls).toEqual([[widgets]]);
   } finally {
     pages.set(pagePath({ kind: "home" }), home);
   }
@@ -476,8 +476,8 @@ test("enter on a rebase action target runs the rebase", async () => {
 test("landing past unsatisfied obligations asks once and reports the land", async () => {
   const calls: object[] = [];
   const { app, keys, screen } = harness({
-    land: (change, overrides) => {
-      calls.push({ change, ...overrides });
+    land: (changes, overrides) => {
+      calls.push({ changes, ...overrides });
       return overrides.unreviewed ? Promise.resolve() : Promise.reject(new UnsatisfiedObligationsError([]));
     },
   });
@@ -486,8 +486,8 @@ test("landing past unsatisfied obligations asks once and reports the land", asyn
   expect(screen()).toContain("Review obligations are unsatisfied. Land anyway? y/n");
   await keys("y");
   expect(calls).toEqual([
-    { change: widgets, notOwner: false, unreviewed: false, parentUnreviewed: false },
-    { change: widgets, notOwner: false, unreviewed: true, parentUnreviewed: false },
+    { changes: [widgets], notOwner: false, unreviewed: false, parentUnreviewed: false },
+    { changes: [widgets], notOwner: false, unreviewed: true, parentUnreviewed: false },
   ]);
   expect(screen()).toContain("landed widgets");
 });
@@ -531,19 +531,24 @@ test("@ swaps the page to a typed identity and back to oneself", async () => {
   expect(screen()).not.toContain("/as/");
 });
 
+async function click(app: App, x: number, y: number): Promise<void> {
+  await app.handleMouse({ kind: "press", x, y });
+  await app.handleMouse({ kind: "release", x, y });
+}
+
 test("a click on a link follows it; a click on plain text just moves the cursor", async () => {
   const { app, screen } = harness();
   await app.open({ kind: "home" });
   // Row 2 is "\u251c\u2500 widgets": columns 0-2 are the tree guide, the link starts at column 3.
   // The gutter is 2 wide, so terminal column 6 (1-based) lands on the link's first character.
-  await app.handleMouse({ kind: "click", x: 6, y: 2 });
+  await click(app, 6, 2);
   expect(screen()).toContain("/cabaret/show/widgets");
 });
 
 test("a click short of the link moves the cursor without following", async () => {
   const { app, screen } = harness();
   await app.open({ kind: "home" });
-  await app.handleMouse({ kind: "click", x: 3, y: 2 });
+  await click(app, 3, 2);
   expect(screen()).toContain("/cabaret/home");
   expect(screen()).toMatchInlineSnapshot(`
     "  Changes
@@ -560,7 +565,7 @@ test("a click past the content rows is ignored", async () => {
   const { app, frames, screen } = harness();
   await app.open({ kind: "home" });
   const before = frames.length;
-  await app.handleMouse({ kind: "click", x: 1, y: 6 });
+  await app.handleMouse({ kind: "press", x: 1, y: 6 });
   expect(frames.length).toBe(before);
   expect(screen()).toContain("/cabaret/home");
 });
@@ -603,8 +608,113 @@ test("a click while a question waits is not an answer", async () => {
   await app.open({ kind: "review", change: widgets });
   await keys("j", "!", "m");
   expect(screen()).toContain("Mark anyway? y/n");
-  await app.handleMouse({ kind: "click", x: 3, y: 1 });
+  await click(app, 3, 1);
   expect(calls).toEqual([]);
   await keys("y");
   expect(calls).toEqual([api]);
+});
+
+test("V extends a selection the movement keys grow, and a stack rebases together", async () => {
+  const calls: (readonly string[])[] = [];
+  const { app, keys, screen } = harness({
+    rebase: (changes) => {
+      calls.push(changes);
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "V", "j");
+  expect(screen()).toMatchInlineSnapshot(`
+    "  Changes
+    ▎ ├─ widgets
+    ❯ ├─ gadgets
+      ╰─ cogs
+
+
+     /cabaret/home                                                                                      "
+  `);
+  await keys("!", "r", "b");
+  expect(calls).toEqual([[widgets, gadgets]]);
+  // The action consumed the selection.
+  expect(screen()).not.toContain("\u258e");
+});
+
+test("dragging selects the rows crossed and lands them as a stack", async () => {
+  const calls: (readonly string[])[] = [];
+  const { app, keys, screen } = harness({
+    land: (changes) => {
+      calls.push(changes);
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await app.handleMouse({ kind: "press", x: 4, y: 2 });
+  await app.handleMouse({ kind: "drag", x: 4, y: 3 });
+  await app.handleMouse({ kind: "release", x: 4, y: 3 });
+  expect(screen()).toContain("\u258e");
+  await keys("!", "l");
+  expect(calls).toEqual([[widgets, gadgets]]);
+});
+
+test("a single-change action over a selection asks for a single change", async () => {
+  const calls: string[] = [];
+  const { app, keys, screen } = harness({
+    rename: (from) => {
+      calls.push(from);
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "V", "j", "!", "r", "n");
+  expect(calls).toEqual([]);
+  expect(screen()).toContain("select a single change to rename");
+});
+
+test("esc drops a selection before anything else answers it", async () => {
+  const { app, keys, screen } = harness();
+  await app.open({ kind: "home" });
+  await keys("j", "V", "j");
+  expect(screen()).toContain("\u258e");
+  await keys("esc");
+  expect(screen()).not.toContain("\u258e");
+  expect(screen()).toContain("/cabaret/home");
+});
+
+test("dragging back to the press row collapses the selection with it", async () => {
+  const calls: (readonly string[])[] = [];
+  const { app, keys } = harness({
+    rebase: (changes) => {
+      calls.push(changes);
+      return Promise.resolve();
+    },
+  });
+  await app.open({ kind: "home" });
+  await app.handleMouse({ kind: "press", x: 4, y: 2 });
+  await app.handleMouse({ kind: "drag", x: 4, y: 3 });
+  await app.handleMouse({ kind: "drag", x: 4, y: 2 });
+  await app.handleMouse({ kind: "release", x: 4, y: 2 });
+  await keys("!", "r", "b");
+  expect(calls).toEqual([[widgets]]);
+});
+
+test("a drag outside home spoils the click but hijacks nothing", async () => {
+  const { app, keys, screen } = harness();
+  await app.open({ kind: "show", change: widgets });
+  await app.handleMouse({ kind: "press", x: 4, y: 2 });
+  await app.handleMouse({ kind: "drag", x: 4, y: 3 });
+  await app.handleMouse({ kind: "release", x: 4, y: 3 });
+  expect(screen()).not.toContain("\u258e");
+  // Esc still steps outside rather than clearing a phantom selection.
+  await keys("esc");
+  expect(screen()).toContain("/cabaret/home");
+});
+
+test("a key during a held press cancels the pending click", async () => {
+  const { app, keys, screen } = harness();
+  await app.open({ kind: "home" });
+  await app.handleMouse({ kind: "press", x: 6, y: 2 });
+  await keys("j");
+  await app.handleMouse({ kind: "release", x: 6, y: 2 });
+  expect(screen()).toContain("/cabaret/home");
+  expect(screen()).not.toContain("/cabaret/show/widgets");
 });
