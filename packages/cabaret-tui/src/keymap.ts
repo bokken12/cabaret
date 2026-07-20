@@ -33,6 +33,8 @@ export type Command =
   | "sync"
   | "up"
   | "down"
+  | "left"
+  | "right"
   | "half-up"
   | "half-down"
   | "top"
@@ -144,6 +146,10 @@ export const KEYMAP: readonly Binding[] = [
   { keys: ["down"], command: "down", label: "Down" },
   { keys: ["k"], command: "up", label: "Up" },
   { keys: ["up"], command: "up", label: "Up" },
+  { keys: ["h"], command: "left", label: "Left" },
+  { keys: ["left"], command: "left", label: "Left" },
+  { keys: ["l"], command: "right", label: "Right" },
+  { keys: ["right"], command: "right", label: "Right" },
   { keys: ["ctrl+d"], command: "half-down", label: "Half Page Down" },
   { keys: ["pagedown"], command: "half-down", label: "Half Page Down" },
   { keys: ["ctrl+u"], command: "half-up", label: "Half Page Up" },

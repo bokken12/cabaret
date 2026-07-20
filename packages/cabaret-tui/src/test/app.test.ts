@@ -84,18 +84,23 @@ const pages = new Map<string, Doc>([
 interface Harness {
   readonly app: App;
   readonly frames: string[][];
-  /** The last frame with SGR escapes stripped, cursor gutter and all. */
+  readonly cursors: { row: number; column: number }[];
+  /** The last frame with SGR escapes stripped. */
   readonly screen: () => string;
   readonly keys: (...keys: readonly string[]) => Promise<readonly ("continue" | "quit")[]>;
 }
 
 function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partial<Rendered>): Harness {
   const frames: string[][] = [];
+  const cursors: { row: number; column: number }[] = [];
   const terminal: Terminal = {
     columns: () => 100,
     rows: () => 7,
     depth: "ansi256",
-    render: (rows) => frames.push([...rows]),
+    render: (rows, cursor) => {
+      frames.push([...rows]);
+      cursors.push(cursor);
+    },
   };
   const unavailable = (what: string) => () => Promise.reject(new Error(`no ${what} in this harness`));
   const effects: Effects = {
@@ -133,6 +138,7 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
   return {
     app,
     frames,
+    cursors,
     screen: () => {
       const frame = frames[frames.length - 1];
       if (frame === undefined) {
@@ -155,10 +161,10 @@ test("opening home paints the page with a status row", async () => {
   const { app, screen } = harness();
   await app.open({ kind: "home" });
   expect(screen()).toMatchInlineSnapshot(`
-    "❯ Changes
-      ├─ widgets
-      ├─ gadgets
-      ╰─ cogs
+    "Changes
+    ├─ widgets
+    ├─ gadgets
+    ╰─ cogs
 
 
      /cabaret/home                                                                                      "
@@ -170,9 +176,9 @@ test("enter on a change line pushes its show page; q pops back home", async () =
   await app.open({ kind: "home" });
   await keys("j", "enter");
   expect(screen()).toMatchInlineSnapshot(`
-    "❯ widgets
-      Files to review
-      api.ts
+    "widgets
+    Files to review
+    api.ts
 
 
 
@@ -202,8 +208,8 @@ test("tab folds the section at the cursor down to its heading", async () => {
   await app.open({ kind: "show", change: widgets });
   await keys("j", "j", "tab");
   expect(screen()).toMatchInlineSnapshot(`
-    "  widgets
-    ❯ Files to review …
+    "widgets
+    Files to review …
 
 
 
@@ -543,7 +549,7 @@ test("a click on a link follows it; a click on plain text just moves the cursor"
   const { app, screen } = harness();
   await app.open({ kind: "home" });
   // Row 2 is "\u251c\u2500 widgets": columns 0-2 are the tree guide, the link starts at column 3.
-  // The gutter is 2 wide, so terminal column 6 (1-based) lands on the link's first character.
+  // With no gutter, terminal column 6 (1-based) lands inside the link.
   await click(app, 6, 2);
   expect(screen()).toContain("/cabaret/show/widgets");
 });
@@ -554,10 +560,10 @@ test("a click short of the link moves the cursor without following", async () =>
   await click(app, 3, 2);
   expect(screen()).toContain("/cabaret/home");
   expect(screen()).toMatchInlineSnapshot(`
-    "  Changes
-    ❯ ├─ widgets
-      ├─ gadgets
-      ╰─ cogs
+    "Changes
+    ├─ widgets
+    ├─ gadgets
+    ╰─ cogs
 
 
      /cabaret/home                                                                                      "
@@ -581,12 +587,12 @@ test("the wheel scrolls the viewport and drags the cursor along", async () => {
     await app.open({ kind: "home" });
     await app.handleMouse({ kind: "wheel", delta: 1 });
     expect(screen()).toMatchInlineSnapshot(`
-      "❯ line 3
-        line 4
-        line 5
-        line 6
-        line 7
-        line 8
+      "line 3
+      line 4
+      line 5
+      line 6
+      line 7
+      line 8
        /cabaret/home                                                                                      "
     `);
     await app.handleMouse({ kind: "wheel", delta: -1 });
@@ -628,10 +634,10 @@ test("V extends a selection the movement keys grow, and a stack rebases together
   await app.open({ kind: "home" });
   await keys("j", "V", "j");
   expect(screen()).toMatchInlineSnapshot(`
-    "  Changes
-    ▎ ├─ widgets
-    ❯ ├─ gadgets
-      ╰─ cogs
+    "Changes
+    ├─ widgets                                                                                          
+    ├─ gadgets                                                                                          
+    ╰─ cogs
 
 
      /cabaret/home                                                                                      "
@@ -644,7 +650,7 @@ test("V extends a selection the movement keys grow, and a stack rebases together
 
 test("dragging selects the rows crossed and lands them as a stack", async () => {
   const calls: (readonly string[])[] = [];
-  const { app, keys, screen } = harness({
+  const { app, keys, frames } = harness({
     land: (changes) => {
       calls.push(changes);
       return Promise.resolve();
@@ -654,7 +660,8 @@ test("dragging selects the rows crossed and lands them as a stack", async () => 
   await app.handleMouse({ kind: "press", x: 4, y: 2 });
   await app.handleMouse({ kind: "drag", x: 4, y: 3 });
   await app.handleMouse({ kind: "release", x: 4, y: 3 });
-  expect(screen()).toContain("\u258e");
+  // The selection wash paints the dragged rows.
+  expect(frames[frames.length - 1]?.join("\n")).toContain("48;5;238");
   await keys("!", "l");
   expect(calls).toEqual([[widgets, gadgets]]);
 });
@@ -674,13 +681,12 @@ test("a single-change action over a selection asks for a single change", async (
 });
 
 test("esc drops a selection before anything else answers it", async () => {
-  const { app, keys, screen } = harness();
+  const { app, keys, frames } = harness();
   await app.open({ kind: "home" });
   await keys("j", "V", "j");
-  expect(screen()).toContain("\u258e");
+  expect(frames[frames.length - 1]?.join("\n")).toContain("48;5;238");
   await keys("esc");
-  expect(screen()).not.toContain("\u258e");
-  expect(screen()).toContain("/cabaret/home");
+  expect(frames[frames.length - 1]?.join("\n")).not.toContain("48;5;238");
 });
 
 test("dragging back to the press row collapses the selection with it", async () => {
@@ -720,4 +726,33 @@ test("a key during a held press cancels the pending click", async () => {
   await app.handleMouse({ kind: "release", x: 6, y: 2 });
   expect(screen()).toContain("/cabaret/home");
   expect(screen()).not.toContain("/cabaret/show/widgets");
+});
+
+test("the terminal cursor tracks the goal column across lines and h/l moves it", async () => {
+  const { app, keys, cursors } = harness();
+  await app.open({ kind: "home" });
+  expect(cursors[cursors.length - 1]).toEqual({ row: 0, column: 0 });
+  await keys("l", "l", "l");
+  expect(cursors[cursors.length - 1]).toEqual({ row: 0, column: 3 });
+  // "Changes" is 7 wide; the rows below vary, and the aim survives the trip.
+  await keys("G");
+  expect(cursors[cursors.length - 1]?.row).toBe(3);
+  await keys("h");
+  expect(cursors[cursors.length - 1]?.column).toBeLessThanOrEqual(7);
+});
+
+test("a click lands the cursor cell where it fell", async () => {
+  const { app, cursors } = harness();
+  await app.open({ kind: "home" });
+  await click(app, 6, 2);
+  // The click opened the show page; its fresh view starts at the origin.
+  expect(cursors[cursors.length - 1]).toEqual({ row: 0, column: 0 });
+});
+
+test("the minibuffer parks the cursor after the typed text on the status row", async () => {
+  const { app, keys, cursors } = harness();
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "r", "n");
+  // " Rename widgets: widgets" is 24 code points; the cursor sits after it.
+  expect(cursors[cursors.length - 1]).toEqual({ row: 6, column: 24 });
 });

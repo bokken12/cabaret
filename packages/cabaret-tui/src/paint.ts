@@ -39,6 +39,9 @@ const PAINT: { readonly [S in Style]: StylePaint } = {
 const ESC = "\x1b[";
 const RESET = `${ESC}0m`;
 
+/** The selected rows' background; selection lives on the home page, whose lines carry no washes of their own. */
+const SELECTION: StylePaint = { tc: "48;2;46;50;62", lo: "48;5;238", wash: true };
+
 function sgr(params: string): string {
   return `${ESC}0;${params}m`;
 }
@@ -86,8 +89,7 @@ export function foldAt(doc: Doc, line: number): Fold | undefined {
 }
 
 interface LinePaint {
-  readonly cursor: boolean;
-  /** The line sits in the selection without carrying the cursor. */
+  /** The line sits in the selection, wearing its wash. */
   readonly selected: boolean;
   /** The line heads a folded fold, so it wears an ellipsis for its hidden body. */
   readonly folded: boolean;
@@ -108,31 +110,32 @@ function lineWash(line: Line): Style | undefined {
 }
 
 /**
- * One line as ANSI text: the cursor gutter — grown by a sign column on pages
- * whose lines wear signs — then the spans, then the line's wash padded to
- * the right edge. Text past the width truncates under a trailing ellipsis.
- * Width counts code points, not terminal cells, so double-width characters
+ * One line as ANSI text: the sign column on pages that wear signs, then the
+ * spans, then the line's wash padded to the right edge — the selection wash
+ * standing in on selected lines whose spans bring no background of their
+ * own. Text past the width truncates under a trailing ellipsis. Width
+ * counts code points, not terminal cells, so double-width characters
  * overrun; a cell-width measure can replace it if that bites.
  */
 function paintLine(line: Line, paint: LinePaint): string {
   const wash = lineWash(line);
-  let out = paint.cursor ? `${sgr("1;36")}❯` : paint.selected ? `${sgr("1;36")}▎` : `${RESET} `;
+  const selection = paint.selected ? (paint.depth === "truecolor" ? SELECTION.tc : SELECTION.lo) : undefined;
+  let out = "";
   if (paint.signs) {
     const sign = wash === undefined ? undefined : PAINT[wash].sign;
     out +=
       sign === undefined || wash === undefined
-        ? `${RESET}   `
+        ? `${selection === undefined ? RESET : sgr(selection)}   `
         : `${sgr(params(wash, paint.depth))}${sign.padEnd(2)}${RESET} `;
-  } else {
-    out += `${RESET} `;
   }
-  let remaining = paint.width - (paint.signs ? 4 : 2);
+  let remaining = paint.width - (paint.signs ? 3 : 0);
   for (const span of line.spans) {
     if (remaining <= 0 || span.text.length === 0) {
       continue;
     }
     const attrs = [
       ...(span.style === undefined ? [] : [params(span.style, paint.depth)]),
+      ...(selection === undefined || (span.style !== undefined && PAINT[span.style].wash) ? [] : [selection]),
       ...(span.target !== undefined && span.tier === "link" ? ["4"] : []),
     ];
     out += attrs.length === 0 ? RESET : sgr(attrs.join(";"));
@@ -149,25 +152,26 @@ function paintLine(line: Line, paint: LinePaint): string {
     out += `${sgr("2")} …`;
     remaining -= 2;
   }
-  if (wash !== undefined && remaining > 0) {
-    out += `${sgr(params(wash, paint.depth))}${" ".repeat(remaining)}`;
+  const pad = wash === undefined ? selection : params(wash, paint.depth);
+  if (pad !== undefined && remaining > 0) {
+    out += `${sgr(pad)}${" ".repeat(remaining)}`;
   }
   return out + RESET;
 }
 
-/** Columns the gutter takes before a line's text: the cursor column, plus signs on pages that wear them. */
+/** Columns before a line's text: the sign column on pages that wear signs, nothing elsewhere. */
 export function gutterWidth(doc: Doc): number {
   const signed = doc.lines.some((line) => {
     const wash = lineWash(line);
     return wash !== undefined && PAINT[wash].sign !== undefined;
   });
-  return signed ? 4 : 2;
+  return signed ? 3 : 0;
 }
 
 /** The page's content rows for a `width` x `height` viewport, at most `height` of them. */
 export function paintPage(state: PageState, width: number, height: number, depth: ColorDepth): readonly string[] {
   const visible = visibleLines(state.doc, state.folded);
-  const signs = gutterWidth(state.doc) === 4;
+  const signs = gutterWidth(state.doc) === 3;
   const rows: string[] = [];
   for (let row = state.top; row < visible.length && rows.length < height; row++) {
     const line = visible[row];
@@ -181,7 +185,6 @@ export function paintPage(state: PageState, width: number, height: number, depth
     const anchor = state.anchor;
     rows.push(
       paintLine(spans, {
-        cursor: row === state.cursor,
         selected:
           anchor !== undefined && Math.min(anchor, state.cursor) <= row && row <= Math.max(anchor, state.cursor),
         folded: state.folded.has(line),
