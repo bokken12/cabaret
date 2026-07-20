@@ -10,7 +10,7 @@ function announce(ctx: LocalContext, path: string, values: Readonly<Record<strin
     .filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))
     .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
     .join(", ");
-  ctx.process.stdout.write(`cabaret ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`);
+  ctx.process.stdout.write(`cab ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`);
 }
 
 export const approve = buildCommand({

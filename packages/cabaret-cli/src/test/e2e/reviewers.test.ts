@@ -42,7 +42,7 @@ test("reviewers add fails on a change that does not exist, and on a landed chang
   const repo = await makeRepo();
   expect(await repo.cabaret("reviewers", "add", "bob@example.com")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
   await addChange(repo, "feature");

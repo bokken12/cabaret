@@ -14,7 +14,7 @@ export interface Recommendation {
   readonly scope: ConfigScope;
   /** Whether the key accumulates values rather than holding one. */
   readonly multi: boolean;
-  /** What the setting does, phrased to complete "cabaret recommends …". */
+  /** What the setting does, phrased to complete "cab recommends …". */
   readonly brief: string;
   /** Whether the recommendation makes sense in this repository; omitted means always. */
   readonly applies?: (backend: Backend) => Promise<boolean>;

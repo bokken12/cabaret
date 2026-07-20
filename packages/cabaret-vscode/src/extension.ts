@@ -1013,7 +1013,7 @@ async function offerSetup(): Promise<void> {
       return;
     }
     const briefs = pending.map(({ rec }) => rec.brief).join(", ");
-    const choice = await vscode.window.showInformationMessage(`cabaret recommends settings: ${briefs}`, "Apply", "No");
+    const choice = await vscode.window.showInformationMessage(`cab recommends settings: ${briefs}`, "Apply", "No");
     if (choice === "Apply") {
       await applyRecommendations(backend, pending);
     } else if (choice === "No") {

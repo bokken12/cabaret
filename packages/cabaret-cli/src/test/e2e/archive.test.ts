@@ -95,7 +95,7 @@ test("land refuses an archived change until it is unarchived", async () => {
   await repo.cabaret("archive");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "gadget"; run `cabaret archive --undo`\n',
+    stderr: 'change is archived: "gadget"; run `cab archive --undo`\n',
     exitCode: 1,
   });
   await repo.cabaret("archive", "--undo");
@@ -109,13 +109,12 @@ test("land refuses a change whose parent is archived", async () => {
   await repo.cabaret("archive", "--change", "parent");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "parent"; run `cabaret archive --undo`\n',
+    stderr: 'change is archived: "parent"; run `cab archive --undo`\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "main..child", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr:
-      '"child" would land into "parent", which is archived; run `cabaret archive --undo` or `cabaret reparent` first\n',
+    stderr: '"child" would land into "parent", which is archived; run `cab archive --undo` or `cab reparent` first\n',
     exitCode: 1,
   });
 });

@@ -210,7 +210,7 @@ test("mark fails on a change that does not exist, leaving the log untouched", as
   const repo = await makeRepo();
   expect(await repo.cabaret("mark", "--tip", "HEAD", "src/a.ts")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("dev", "log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

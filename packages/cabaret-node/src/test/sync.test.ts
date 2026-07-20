@@ -96,7 +96,7 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", async () 
 
 test("concurrent appends converge to byte-identical logs, ties resolved alike", async () => {
   const [a, b] = await makeMachines();
-  // The same entry recorded independently on both machines (as two `cabaret pull`s
+  // The same entry recorded independently on both machines (as two `cab pull`s
   // of one forge comment would), plus a genuine equal-timestamp conflict.
   const shared = entry(500, "carol@example.com", { kind: "comment", text: "please split this" });
   const aParent = setParent(1000, "alice@example.com", "trunk-a");

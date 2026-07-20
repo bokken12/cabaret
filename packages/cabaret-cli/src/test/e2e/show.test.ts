@@ -187,7 +187,7 @@ test("show with no name reads a checked-out trunk once changes acknowledge it", 
   // Standing on a branch no log speaks for keeps the create nudge...
   await repo.git("checkout", "-qb", "scratch");
   expect((await repo.cabaret("show")).stderr).toBe(
-    'change does not exist: "scratch"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    'change does not exist: "scratch"; run `cab create`, or `cab fetch` to import open forge changes\n',
   );
   // ...but a trunk is acknowledged by its children's parent links.
   await repo.git("checkout", "-q", "main");

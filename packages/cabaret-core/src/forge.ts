@@ -62,7 +62,7 @@ export interface OpenChange {
  * Implementations live in `cabaret-github` and friends.
  *
  * Rendering never calls a forge: it reads change logs, which `fetchForge` —
- * behind `cabaret fetch` — populates from the forge.
+ * behind `cab fetch` — populates from the forge.
  */
 export interface Forge {
   /** Identifies this forge and repository, e.g. "github.com/test-org/widgets". */
@@ -552,13 +552,11 @@ export async function landOnForge(
   overrides: LandOverrides,
 ): Promise<Revision> {
   if (forgeChange.state === "merged") {
-    throw new UserError(
-      `${forge.locator}#${forgeChange.id} was already merged; run \`cabaret sync\` to record the land`,
-    );
+    throw new UserError(`${forge.locator}#${forgeChange.id} was already merged; run \`cab sync\` to record the land`);
   }
   if (forgeChange.state === "closed") {
     throw new UserError(
-      `${forge.locator}#${forgeChange.id} is closed; reopen it, or land locally (cabaret config land-via local)`,
+      `${forge.locator}#${forgeChange.id} is closed; reopen it, or land locally (cab config land-via local)`,
     );
   }
   if (forgeChange.head !== change) {
@@ -570,14 +568,14 @@ export async function landOnForge(
   if (forgeChange.parent !== parent) {
     throw new UserError(
       `${forge.locator}#${forgeChange.id} merges into ${JSON.stringify(forgeChange.parent)}, ` +
-        `not ${JSON.stringify(parent)}; run \`cabaret sync\` to retarget it`,
+        `not ${JSON.stringify(parent)}; run \`cab sync\` to retarget it`,
     );
   }
   await backend.fetch(parent);
   const prepared = await prepareLand(backend, change, entries, overrides);
   if (forgeChange.tip !== prepared.tip) {
     throw new UserError(
-      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cabaret sync\` first`,
+      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change)}'s tip; run \`cab sync\` first`,
     );
   }
   const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
@@ -675,9 +673,7 @@ export async function landAsConfigured(
     forge = await openForge();
     const forgeChange = await syncedForgeChange(backend, now, await backend.currentUser(), forge, change, entries);
     if (forgeChange === undefined) {
-      throw new UserError(
-        `no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cabaret sync\` first`,
-      );
+      throw new UserError(`no forge change for ${JSON.stringify(change)} on ${forge.locator}; run \`cab sync\` first`);
     }
     await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
     merged = { forge: forge.locator, id: forgeChange.id };

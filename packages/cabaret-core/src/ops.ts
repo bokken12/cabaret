@@ -461,7 +461,7 @@ export async function prepareLand(
     if (conflicts.length > 0) {
       throw new UserError(
         `${JSON.stringify(target)} conflicts with the tip of ${JSON.stringify(parent)} ` +
-          `in ${conflicts.join(", ")}; run \`cabaret rebase\` first`,
+          `in ${conflicts.join(", ")}; run \`cab rebase\` first`,
       );
     }
   }
@@ -592,13 +592,13 @@ export async function landChain(
       if (landedMerge(parentEntries) !== undefined) {
         throw new UserError(
           `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
-            "run `cabaret reparent` first",
+            "run `cab reparent` first",
         );
       }
       if (currentArchived(parentEntries)) {
         throw new UserError(
           `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
-            "run `cabaret archive --undo` or `cabaret reparent` first",
+            "run `cab archive --undo` or `cab reparent` first",
         );
       }
     }
@@ -697,7 +697,7 @@ export async function transferChange(
 // their appends target the old log ref — so a distributed rename likely
 // needs to be recorded in the log itself. Children are similarly untouched:
 // their `set-parent` entries keep naming the old change until a manual
-// `cabaret reparent`.
+// `cab reparent`.
 export async function renameChange(
   backend: Backend,
   from: ChangeName,

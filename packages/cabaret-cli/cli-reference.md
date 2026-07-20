@@ -2,11 +2,11 @@
 
 <!-- Generated from the command tree; do not edit by hand. Regenerate with `pnpm test -u`. -->
 
-## cabaret approve
+## cab approve
 
 USAGE
-  cabaret approve [--allow-empty] [--allow-owner]
-  cabaret approve --help
+  cab approve [--allow-empty] [--allow-owner]
+  cab approve --help
 
 Approve a change
 
@@ -15,24 +15,24 @@ FLAGS
      [--allow-owner]  Allow approving a change you own [default = false]
   -h  --help          Print help information and exit
 
-## cabaret archive
+## cab archive
 
 USAGE
-  cabaret archive [--change value] [--undo]
-  cabaret archive --help
+  cab archive [--change value] [--undo]
+  cab archive --help
 
-Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cabaret archive --undo` brings it back.
+Set a change aside without landing it: the change leaves the home page and refuses to land, but its branch and log stay. A push closes its forge change. `cab archive --undo` brings it back.
 
 FLAGS
      [--change]  Change to archive (defaults to current)
      [--undo]    Bring the change back: it may land again, and a push reopens its forge change [default = false]
   -h  --help     Print help information and exit
 
-## cabaret comment
+## cab comment
 
 USAGE
-  cabaret comment [--change value] <text>
-  cabaret comment --help
+  cab comment [--change value] <text>
+  cab comment --help
 
 Add a comment to a change. Appends one `comment` entry to the change's log; `show` displays the comments.
 
@@ -43,11 +43,11 @@ FLAGS
 ARGUMENTS
   text  the comment text
 
-## cabaret commit
+## cab commit
 
 USAGE
-  cabaret commit <file>...
-  cabaret commit --help
+  cab commit <file>...
+  cab commit --help
 
 Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed to the named files or patterns.
 
@@ -57,11 +57,11 @@ FLAGS
 ARGUMENTS
   file...  files or patterns to commit (defaults to every edit)
 
-### cabaret config list
+### cab config list
 
 USAGE
-  cabaret config list [--global] [--local]
-  cabaret config list --help
+  cab config list [--global] [--local]
+  cab config list --help
 
 Show every setting
 
@@ -70,11 +70,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-#### cabaret config alias show
+#### cab config alias show
 
 USAGE
-  cabaret config alias show [--global] [--local]
-  cabaret config alias show --help
+  cab config alias show [--global] [--local]
+  cab config alias show --help
 
 Show the values
 
@@ -83,11 +83,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-#### cabaret config alias add
+#### cab config alias add
 
 USAGE
-  cabaret config alias add [--global] [--local] <value>
-  cabaret config alias add --help
+  cab config alias add [--global] [--local] <value>
+  cab config alias add --help
 
 Add a value
 
@@ -99,11 +99,11 @@ FLAGS
 ARGUMENTS
   value  value to add
 
-#### cabaret config alias remove
+#### cab config alias remove
 
 USAGE
-  cabaret config alias remove [--global] [--local] <value>
-  cabaret config alias remove --help
+  cab config alias remove [--global] [--local] <value>
+  cab config alias remove --help
 
 Remove a value
 
@@ -115,11 +115,11 @@ FLAGS
 ARGUMENTS
   value  value to remove
 
-#### cabaret config alias clear
+#### cab config alias clear
 
 USAGE
-  cabaret config alias clear [--global] [--local]
-  cabaret config alias clear --help
+  cab config alias clear [--global] [--local]
+  cab config alias clear --help
 
 Remove every value
 
@@ -128,11 +128,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias github show
+##### cab config alias github show
 
 USAGE
-  cabaret config alias github show [--global] [--local]
-  cabaret config alias github show --help
+  cab config alias github show [--global] [--local]
+  cab config alias github show --help
 
 Show the accounts
 
@@ -141,11 +141,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias github add
+##### cab config alias github add
 
 USAGE
-  cabaret config alias github add [--global] [--local] <account>
-  cabaret config alias github add --help
+  cab config alias github add [--global] [--local] <account>
+  cab config alias github add --help
 
 Add an account
 
@@ -157,11 +157,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias github remove
+##### cab config alias github remove
 
 USAGE
-  cabaret config alias github remove [--global] [--local] <account>
-  cabaret config alias github remove --help
+  cab config alias github remove [--global] [--local] <account>
+  cab config alias github remove --help
 
 Remove an account
 
@@ -173,11 +173,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias github clear
+##### cab config alias github clear
 
 USAGE
-  cabaret config alias github clear [--global] [--local]
-  cabaret config alias github clear --help
+  cab config alias github clear [--global] [--local]
+  cab config alias github clear --help
 
 Remove every github account
 
@@ -186,11 +186,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias gitlab show
+##### cab config alias gitlab show
 
 USAGE
-  cabaret config alias gitlab show [--global] [--local]
-  cabaret config alias gitlab show --help
+  cab config alias gitlab show [--global] [--local]
+  cab config alias gitlab show --help
 
 Show the accounts
 
@@ -199,11 +199,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias gitlab add
+##### cab config alias gitlab add
 
 USAGE
-  cabaret config alias gitlab add [--global] [--local] <account>
-  cabaret config alias gitlab add --help
+  cab config alias gitlab add [--global] [--local] <account>
+  cab config alias gitlab add --help
 
 Add an account
 
@@ -215,11 +215,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias gitlab remove
+##### cab config alias gitlab remove
 
 USAGE
-  cabaret config alias gitlab remove [--global] [--local] <account>
-  cabaret config alias gitlab remove --help
+  cab config alias gitlab remove [--global] [--local] <account>
+  cab config alias gitlab remove --help
 
 Remove an account
 
@@ -231,11 +231,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias gitlab clear
+##### cab config alias gitlab clear
 
 USAGE
-  cabaret config alias gitlab clear [--global] [--local]
-  cabaret config alias gitlab clear --help
+  cab config alias gitlab clear [--global] [--local]
+  cab config alias gitlab clear --help
 
 Remove every gitlab account
 
@@ -244,11 +244,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias codeberg show
+##### cab config alias codeberg show
 
 USAGE
-  cabaret config alias codeberg show [--global] [--local]
-  cabaret config alias codeberg show --help
+  cab config alias codeberg show [--global] [--local]
+  cab config alias codeberg show --help
 
 Show the accounts
 
@@ -257,11 +257,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-##### cabaret config alias codeberg add
+##### cab config alias codeberg add
 
 USAGE
-  cabaret config alias codeberg add [--global] [--local] <account>
-  cabaret config alias codeberg add --help
+  cab config alias codeberg add [--global] [--local] <account>
+  cab config alias codeberg add --help
 
 Add an account
 
@@ -273,11 +273,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias codeberg remove
+##### cab config alias codeberg remove
 
 USAGE
-  cabaret config alias codeberg remove [--global] [--local] <account>
-  cabaret config alias codeberg remove --help
+  cab config alias codeberg remove [--global] [--local] <account>
+  cab config alias codeberg remove --help
 
 Remove an account
 
@@ -289,11 +289,11 @@ FLAGS
 ARGUMENTS
   account  account name, without the scheme
 
-##### cabaret config alias codeberg clear
+##### cab config alias codeberg clear
 
 USAGE
-  cabaret config alias codeberg clear [--global] [--local]
-  cabaret config alias codeberg clear --help
+  cab config alias codeberg clear [--global] [--local]
+  cab config alias codeberg clear --help
 
 Remove every codeberg account
 
@@ -302,11 +302,11 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
-### cabaret config context
+### cab config context
 
 USAGE
-  cabaret config context [--global] [--local] [--unset] [<value>]
-  cabaret config context --help
+  cab config context [--global] [--local] [--unset] [<value>]
+  cab config context --help
 
 Lines of diff context, -1 for whole files
 
@@ -319,11 +319,11 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-### cabaret config land-method
+### cab config land-method
 
 USAGE
-  cabaret config land-method [--global] [--local] [--unset] [<value>]
-  cabaret config land-method --help
+  cab config land-method [--global] [--local] [--unset] [<value>]
+  cab config land-method --help
 
 How a land writes a change onto its parent: merge or squash
 
@@ -336,11 +336,11 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-### cabaret config land-via
+### cab config land-via
 
 USAGE
-  cabaret config land-via [--global] [--local] [--unset] [<value>]
-  cabaret config land-via --help
+  cab config land-via [--global] [--local] [--unset] [<value>]
+  cab config land-via --help
 
 Where a land executes: local, forge, or auto
 
@@ -353,11 +353,11 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-### cabaret config workspace-style
+### cab config workspace-style
 
 USAGE
-  cabaret config workspace-style [--global] [--local] [--unset] [<value>]
-  cabaret config workspace-style --help
+  cab config workspace-style [--global] [--local] [--unset] [<value>]
+  cab config workspace-style --help
 
 Where going to a change with no workspace checks it out: shared or dedicated
 
@@ -370,11 +370,11 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
-## cabaret conflicts
+## cab conflicts
 
 USAGE
-  cabaret conflicts [<change>]
-  cabaret conflicts --help
+  cab conflicts [<change>]
+  cab conflicts --help
 
 Show each conflict marker left in a change's files, as file:line: text. A rebase that conflicts commits the markers in place; this lists what remains to fix.
 
@@ -384,11 +384,11 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-## cabaret create
+## cab create
 
 USAGE
-  cabaret create [--parent value] [--owner value] <change>
-  cabaret create --help
+  cab create [--parent value] [--owner value] <change>
+  cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
@@ -400,11 +400,11 @@ FLAGS
 ARGUMENTS
   change  name for the new change
 
-### cabaret dev log
+### cab dev log
 
 USAGE
-  cabaret dev log [<change>]
-  cabaret dev log --help
+  cab dev log [<change>]
+  cab dev log --help
 
 Dump a change's raw log
 
@@ -414,23 +414,23 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-### cabaret dev wipe
+### cab dev wipe
 
 USAGE
-  cabaret dev wipe [--remote]
-  cabaret dev wipe --help
+  cab dev wipe [--remote]
+  cab dev wipe --help
 
-Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cabaret fetch` restores them. --remote deletes origin's logs too, for every user of the repository.
+Delete the review state this repository holds: every change's log and the fetched copies of origin's logs. Branches and commits stay, and origin keeps its logs, so `cab fetch` restores them. --remote deletes origin's logs too, for every user of the repository.
 
 FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
   -h  --help     Print help information and exit
 
-## cabaret diff
+## cab diff
 
 USAGE
-  cabaret diff [--change value] [--context value] <file>...
-  cabaret diff --help
+  cab diff [--change value] [--context value] <file>...
+  cab diff --help
 
 Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
 
@@ -442,22 +442,22 @@ FLAGS
 ARGUMENTS
   file...  files or patterns to show (defaults to every changed file)
 
-## cabaret fetch
+## cab fetch
 
 USAGE
-  cabaret fetch
-  cabaret fetch --help
+  cab fetch
+  cab fetch --help
 
 Fetch remote activity: refresh origin's copies, fast-forward branches origin is strictly ahead of, merge every change's log with origin's, and absorb forge activity — import every open forge change that is not yet a change, refresh tracked ones, record lands, and prune closed imports nobody engaged with. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours. Without a forge, the origin half still runs.
 
 FLAGS
   -h --help  Print help information and exit
 
-## cabaret forget
+## cab forget
 
 USAGE
-  cabaret forget [--change value] <file>...
-  cabaret forget --help
+  cab forget [--change value] <file>...
+  cab forget --help
 
 Forget files of a change, so they need review again. Appends one `forget` entry per file to the change's log.
 
@@ -468,24 +468,24 @@ FLAGS
 ARGUMENTS
   file...  files to forget
 
-## cabaret home
+## cab home
 
 USAGE
-  cabaret home
-  cabaret home --help
+  cab home
+  cab home --help
 
 Show your reviews, changes, and workspaces
 
 FLAGS
   -h --help  Print help information and exit
 
-## cabaret land
+## cab land
 
 USAGE
-  cabaret land [--even-though-not-owner] [--even-though-unreviewed] [--even-though-parent-unreviewed] [<change>]
-  cabaret land --help
+  cab land [--even-though-not-owner] [--even-though-unreviewed] [--even-though-parent-unreviewed] [<change>]
+  cab land --help
 
-Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cabaret config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cabaret config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cabaret rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives, and their forge changes retargeted to match. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
+Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cab config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cab config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cab rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives, and their forge changes retargeted to match. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]          Proceed even though you do not own the change                    [default = false]
@@ -496,11 +496,11 @@ FLAGS
 ARGUMENTS
   [change]  change or ancestor..descendant range to land (defaults to current)
 
-## cabaret mark
+## cab mark
 
 USAGE
-  cabaret mark [--change value] (--tip value) [--even-though-not-reviewing] <file>...
-  cabaret mark --help
+  cab mark [--change value] (--tip value) [--even-though-not-reviewing] <file>...
+  cab mark --help
 
 Record review of files: one `review` entry per file, recording the change's base and the tip the diff you read ended at — `review` prints the exact command. Arguments select files the way `review` does.
 
@@ -513,11 +513,11 @@ FLAGS
 ARGUMENTS
   file...  files or patterns to mark reviewed
 
-## cabaret rebase
+## cab rebase
 
 USAGE
-  cabaret rebase [--even-though-not-owner] [--even-though-parent-diverged] [<change>]
-  cabaret rebase --help
+  cab rebase [--even-though-not-owner] [--even-though-parent-diverged] [<change>]
+  cab rebase --help
 
 Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
@@ -529,11 +529,11 @@ FLAGS
 ARGUMENTS
   [change]  change or ancestor..descendant range to rebase (defaults to current)
 
-## cabaret rename
+## cab rename
 
 USAGE
-  cabaret rename [--even-though-not-owner] <old> <new>
-  cabaret rename --help
+  cab rename [--even-though-not-owner] <old> <new>
+  cab rename --help
 
 Rename a change: move its code and its log to the new name together, atomically. Only the change's owner may rename it.
 
@@ -545,11 +545,11 @@ ARGUMENTS
   old  change's old name
   new  change's new name
 
-## cabaret reparent
+## cab reparent
 
 USAGE
-  cabaret reparent [--even-though-not-owner] <change> <parent>
-  cabaret reparent --help
+  cab reparent [--even-though-not-owner] <change> <parent>
+  cab reparent --help
 
 Update a change's parent. This is a metadata/log change only, and does not touch code without a subsequent `rebase`. Only the change's owner may reparent it.
 
@@ -561,11 +561,11 @@ ARGUMENTS
   change  change to reparent
   parent  the new parent
 
-## cabaret review
+## cab review
 
 USAGE
-  cabaret review [--change value] [--context value] <file>...
-  cabaret review --help
+  cab review [--change value] [--context value] <file>...
+  cab review --help
 
 Show the diff of a change left for you to review: the files of the current review round, then each file's remaining diff. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths. What is shown is remembered, and `mark` records review of it.
 
@@ -577,11 +577,11 @@ FLAGS
 ARGUMENTS
   file...  files or patterns to show (defaults to the whole round)
 
-### cabaret reviewers add
+### cab reviewers add
 
 USAGE
-  cabaret reviewers add [--change value] <user>
-  cabaret reviewers add --help
+  cab reviewers add [--change value] <user>
+  cab reviewers add --help
 
 Add a reviewer to a change. A reviewer owes review of the change's whole diff, as the owner does; `show` displays the reviewers, and `sync` settles them with the forge.
 
@@ -592,11 +592,11 @@ FLAGS
 ARGUMENTS
   user  user to add
 
-### cabaret reviewers remove
+### cab reviewers remove
 
 USAGE
-  cabaret reviewers remove [--change value] <user>
-  cabaret reviewers remove --help
+  cab reviewers remove [--change value] <user>
+  cab reviewers remove --help
 
 Remove a reviewer from a change
 
@@ -607,11 +607,11 @@ FLAGS
 ARGUMENTS
   user  user to remove
 
-## cabaret reviewing
+## cab reviewing
 
 USAGE
-  cabaret reviewing [--change value] [<reviewing>]
-  cabaret reviewing --help
+  cab reviewing [--change value] [<reviewing>]
+  cab reviewing --help
 
 Show or set who is asked to review a change: none, the owner, the reviewers, or everyone. The set gates what todos ask of people; landing still requires every obligation. A change whose reviewing is none shows on its forge as a draft.
 
@@ -622,11 +622,11 @@ FLAGS
 ARGUMENTS
   [reviewing]  reviewing set to record (prints the current one when omitted)
 
-## cabaret set-owner
+## cab set-owner
 
 USAGE
-  cabaret set-owner [--change value] [--even-though-not-owner] <user>
-  cabaret set-owner --help
+  cab set-owner [--change value] [--even-though-not-owner] <user>
+  cab set-owner --help
 
 Set a change's owner, replacing the current one. Only the owner may transfer ownership; `show` displays the owner.
 
@@ -638,33 +638,33 @@ FLAGS
 ARGUMENTS
   user  the new owner
 
-### cabaret setup list
+### cab setup list
 
 USAGE
-  cabaret setup list
-  cabaret setup list --help
+  cab setup list
+  cab setup list --help
 
 Show each recommendation and its status
 
 FLAGS
   -h --help  Print help information and exit
 
-### cabaret setup apply
+### cab setup apply
 
 USAGE
-  cabaret setup apply
-  cabaret setup apply --help
+  cab setup apply
+  cab setup apply --help
 
 Apply the recommendations not yet set
 
 FLAGS
   -h --help  Print help information and exit
 
-## cabaret show
+## cab show
 
 USAGE
-  cabaret show [<change>]
-  cabaret show --help
+  cab show [<change>]
+  cab show --help
 
 Show a change's status
 
@@ -674,11 +674,11 @@ FLAGS
 ARGUMENTS
   [change]  change to show (defaults to current)
 
-## cabaret sync
+## cab sync
 
 USAGE
-  cabaret sync [--change value]
-  cabaret sync --help
+  cab sync [--change value]
+  cab sync --help
 
 Sync a change: merge origin's copy of its branch into the local one — a conflicted merge commits its markers, to fix and amend — push the result, reconcile its forge change (opening one if none exists, retargeting it, settling comments, reviewers, draft and archived state both ways), and sync its log. Offline, the merge against origin's last-fetched copy still runs; syncing again online finishes the exchange.
 
@@ -686,11 +686,11 @@ FLAGS
      [--change]  Change to sync (defaults to current)
   -h  --help     Print help information and exit
 
-## cabaret todos
+## cab todos
 
 USAGE
-  cabaret todos [<change>]
-  cabaret todos --help
+  cab todos [<change>]
+  cab todos --help
 
 Show the TODOs a change adds: the TODO comments in the tip's copy of each changed file with no matching TODO in the base's copy. Matching ignores position and whitespace, so a pre-existing TODO that merely moves does not appear.
 
@@ -700,11 +700,11 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
-## cabaret tui
+## cab tui
 
 USAGE
-  cabaret tui [<change>]
-  cabaret tui --help
+  cab tui [<change>]
+  cab tui --help
 
 Browse pages in the terminal
 
@@ -714,11 +714,11 @@ FLAGS
 ARGUMENTS
   [change]  change to open (defaults to the home page)
 
-## cabaret widen
+## cab widen
 
 USAGE
-  cabaret widen [--change value]
-  cabaret widen --help
+  cab widen [--change value]
+  cab widen --help
 
 Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
 
@@ -726,22 +726,22 @@ FLAGS
      [--change]  Change to widen (defaults to current)
   -h  --help     Print help information and exit
 
-### cabaret workspace list
+### cab workspace list
 
 USAGE
-  cabaret workspace list
-  cabaret workspace list --help
+  cab workspace list
+  cab workspace list --help
 
 List this repository's workspaces
 
 FLAGS
   -h --help  Print help information and exit
 
-### cabaret workspace add
+### cab workspace add
 
 USAGE
-  cabaret workspace add [--at value] <change>
-  cabaret workspace add --help
+  cab workspace add [--at value] <change>
+  cab workspace add --help
 
 Create a workspace — a new working tree — with the change checked out, beside the primary workspace. Prints where it went.
 
@@ -752,11 +752,11 @@ FLAGS
 ARGUMENTS
   change  change the workspace holds
 
-### cabaret workspace remove
+### cab workspace remove
 
 USAGE
-  cabaret workspace remove [--even-though-dirty] <change>
-  cabaret workspace remove --help
+  cab workspace remove [--even-though-dirty] <change>
+  cab workspace remove --help
 
 Remove the workspace holding the change. The change itself — its code and its log — is untouched.
 
@@ -767,11 +767,11 @@ FLAGS
 ARGUMENTS
   change  change the workspace holds
 
-### cabaret workspace dir
+### cab workspace dir
 
 USAGE
-  cabaret workspace dir <change>
-  cabaret workspace dir --help
+  cab workspace dir <change>
+  cab workspace dir --help
 
 Print the directory of the workspace holding a change
 

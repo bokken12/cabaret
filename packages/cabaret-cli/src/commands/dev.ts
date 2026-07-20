@@ -34,7 +34,7 @@ export const dev = buildRouteMap({
         fullDescription:
           "Delete the review state this repository holds: every change's log " +
           "and the fetched copies of origin's logs. Branches and commits " +
-          "stay, and origin keeps its logs, so `cabaret fetch` restores them. " +
+          "stay, and origin keeps its logs, so `cab fetch` restores them. " +
           "--remote deletes origin's logs too, for every user of the " +
           "repository.",
       },

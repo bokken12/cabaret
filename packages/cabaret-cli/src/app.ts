@@ -100,7 +100,7 @@ const routes = buildRouteMap({
 });
 
 export const app = buildApplication(routes, {
-  name: "cabaret",
+  name: "cab",
   versionInfo: { currentVersion: VERSION },
   // Display flags as kebab-case (matching the CLI-wide convention) while still
   // accepting the camelCase spelling of each flag name.

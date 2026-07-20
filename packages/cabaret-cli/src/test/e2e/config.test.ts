@@ -189,11 +189,11 @@ test("a forge alias rejects an email, a schemed identity, and a duplicate", asyn
   const repo = await makeRepo();
   expect(await repo.cabaret("config", "alias", "github", "add", "alice@example.com")).toEqual({
     stdout: "",
-    stderr: "pass the bare account name, e.g. `cabaret config alias github add alice`\n",
+    stderr: "pass the bare account name, e.g. `cab config alias github add alice`\n",
     exitCode: 1,
   });
   expect((await repo.cabaret("config", "alias", "gitlab", "add", "gitlab:alice")).stderr).toBe(
-    "pass the bare account name, e.g. `cabaret config alias gitlab add alice`\n",
+    "pass the bare account name, e.g. `cab config alias gitlab add alice`\n",
   );
   await repo.cabaret("config", "alias", "github", "add", "alice");
   expect(await repo.cabaret("config", "alias", "github", "add", "alice")).toEqual({

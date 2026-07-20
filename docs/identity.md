@@ -32,13 +32,13 @@ The identity is minted from the account name alone: the mapping is total and off
 
 Your own account is bridged by an alias rather than by changing what you write under: pulling asks the forge which account its credentials authenticate and records it — and each email the account's profile shows — as a `cabaret.alias` when it does not already count as you. The declarations land in the repository's local config — the association is the repository's, since another repository's credentials may front a different account. From then on, changes those identities authored or were asked to review read as yours.
 
-Declaring an account by hand goes through the same scheme without spelling it: `cabaret config alias github add alice` stores `github:alice`, and each forge has the same `show`, `add`, `remove`, and `clear` under its name.
+Declaring an account by hand goes through the same scheme without spelling it: `cab config alias github add alice` stores `github:alice`, and each forge has the same `show`, `add`, `remove`, and `clear` under its name.
 
 ## Aliases
 
 An identity is one name, but a user may have several: an agent working on their behalf under its own email, another machine, a forge account. The multi-valued git config key `cabaret.alias` names the other identities that count as you:
 
-    cabaret config alias add agent@example.com
+    cab config alias add agent@example.com
 
 Hand-declared aliases are a property of the person, not of any repository — global config is their natural home — and they act only when reading: a change owned by an alias is yours to operate, and its work shows on your home page. Log entries are always written under your own `user.email`, and obligations count each identity's own reviews, so an alias's review never satisfies a demand naming you (nor the reverse).
 
