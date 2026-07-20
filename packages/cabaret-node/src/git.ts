@@ -4,13 +4,13 @@ import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
-  type ChainMerge,
   type ChangedFile,
   type ChangeName,
   type ConfigScope,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
+  type LandMerge,
   type LogEntry,
   mergeLogs,
   parseBranchName,
@@ -1142,20 +1142,15 @@ export class GitBackend implements Backend {
   // Tab-delimit the fields: %P holds space-separated parents, and the
   // trailer value is a branch name, so neither can contain a tab. `unfold`
   // keeps a folded trailer value to one line.
-  private static readonly CHAIN_LOG_FORMAT =
+  private static readonly LAND_LOG_FORMAT =
     `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`;
 
-  /** The parent hashes of a `CHAIN_LOG_FORMAT` line. */
-  private static lineParents(line: string): readonly string[] {
-    return (line.split("\t")[1] ?? "").split(" ").filter((parent) => parent !== "");
-  }
-
-  /** The chain merges among `CHAIN_LOG_FORMAT` lines, in line order. */
-  private static parseChainLines(lines: readonly string[]): ChainMerge[] {
-    const merges: ChainMerge[] = [];
+  /** The land merges among `LAND_LOG_FORMAT` lines, in line order. */
+  private static parseLandLines(lines: readonly string[]): LandMerge[] {
+    const merges: LandMerge[] = [];
     for (const line of lines) {
-      const [commit, , trailer] = line.split("\t");
-      if (commit === undefined || commit === "") {
+      const [commit, parentsField, trailer] = line.split("\t");
+      if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
         continue;
       }
       // A land merge's onto is its first parent; a squash land's, its sole
@@ -1163,26 +1158,20 @@ export class GitBackend implements Backend {
       // cherry-pick of a land commit — which copies the message verbatim —
       // is skipped too, even though its diff (conflict resolutions included)
       // may match nothing that was reviewed.
-      const [onto, merged] = GitBackend.lineParents(line);
-      const landed = trailer === undefined || trailer === "" ? undefined : parseBranchName(trailer);
-      if (onto === undefined || (merged === undefined && landed === undefined)) {
+      const [onto] = (parentsField ?? "").split(" ").filter((parent) => parent !== "");
+      if (onto === undefined) {
         continue;
       }
-      merges.push({
-        commit: parseCommitHash(commit),
-        onto: parseCommitHash(onto),
-        merged: merged === undefined ? undefined : parseCommitHash(merged),
-        landed,
-      });
+      merges.push({ change: parseBranchName(trailer), commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
     }
     return merges;
   }
 
-  async chainMerges(
+  async landMerges(
     base: Revision | undefined,
     tip: Revision,
     scan: number,
-  ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }> {
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }> {
     // One commit past the scan tells whether the chain continues; git lists
     // newest first, so the surveyed window is the lines before it, reversed.
     const out = await git(this.root, [
@@ -1190,17 +1179,11 @@ export class GitBackend implements Backend {
       "--first-parent",
       "-n",
       String(scan + 1),
-      GitBackend.CHAIN_LOG_FORMAT,
+      GitBackend.LAND_LOG_FORMAT,
       base === undefined ? tip : `${base}..${tip}`,
     ]);
     const lines = out.split("\n").filter((line) => line !== "");
-    const surveyed = lines.slice(0, scan).reverse();
-    const [rootHash] = surveyed[0] === undefined ? [] : GitBackend.lineParents(surveyed[0]);
-    return {
-      merges: GitBackend.parseChainLines(surveyed),
-      root: rootHash === undefined ? undefined : parseCommitHash(rootHash),
-      more: lines.length > scan,
-    };
+    return { lands: GitBackend.parseLandLines(lines.slice(0, scan).reverse()), more: lines.length > scan };
   }
 
   async listChanges(): Promise<readonly ChangeName[]> {

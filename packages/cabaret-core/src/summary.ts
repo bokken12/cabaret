@@ -20,7 +20,6 @@ import {
   type LandMerge,
   type LogEntry,
   landedMerge,
-  landsAmong,
   observedForgeParent,
   type ReviewedDiff,
   type Reviewing,
@@ -246,11 +245,11 @@ export interface TrunkSummary {
 /** Summarize a branch with no log. */
 export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
   const tip = await requireTip(backend, change);
-  const [origin, { merges, more }] = await Promise.all([
+  const [origin, { lands, more }] = await Promise.all([
     originStanding(backend, change, tip),
-    backend.chainMerges(undefined, tip, LAND_SCAN),
+    backend.landMerges(undefined, tip, LAND_SCAN),
   ]);
-  return { kind: "trunk", change, tip, origin, included: landsAmong(merges), truncated: more };
+  return { kind: "trunk", change, tip, origin, included: lands, truncated: more };
 }
 
 /**

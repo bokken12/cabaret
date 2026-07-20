@@ -334,7 +334,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
   );
 });
 
-test("chainMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
+test("landMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
   const backend = await GitBackend.open(repo);
   // A first-parent chain atop the root: work, a land, more work, another land.
   const work = await plumbCommit("recent work");
@@ -342,42 +342,39 @@ test("chainMerges surveys the newest commits, oldest first, noting a longer chai
   const more = await plumbCommit("more recent work", first);
   const second = await plumbCommit("Land second-recent\n\nCabaret-Landed: second-recent", more);
   const tip = parseCommitHash(second);
-  const land = (change: string, commit: string, onto: string) => ({
-    commit,
-    onto,
-    merged: undefined,
-    landed: change,
-  });
   // A scan wide enough for the whole chain (tip, more, first, work, root) sees
-  // both lands and no further history; the oldest surveyed commit is the
-  // parentless root, so the survey has no root of its own.
-  expect(await backend.chainMerges(undefined, tip, 5)).toEqual({
-    merges: [land("first-recent", first, work), land("second-recent", second, more)],
-    root: undefined,
+  // both lands and no further history.
+  expect(await backend.landMerges(undefined, tip, 5)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
     more: false,
   });
   // A scan of the newest three commits reaches back only to the first land,
   // and notes the chain continuing past it.
-  expect(await backend.chainMerges(undefined, tip, 3)).toEqual({
-    merges: [land("first-recent", first, work), land("second-recent", second, more)],
-    root: work,
+  expect(await backend.landMerges(undefined, tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
     more: true,
   });
-  expect(await backend.chainMerges(undefined, tip, 1)).toEqual({
-    merges: [land("second-recent", second, more)],
-    root: more,
+  expect(await backend.landMerges(undefined, tip, 1)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
     more: true,
   });
   // A base stops the walk where the change's history ends: the same window
   // that continued past three commits is exhausted once `work` bounds it.
-  expect(await backend.chainMerges(parseCommitHash(work), tip, 3)).toEqual({
-    merges: [land("first-recent", first, work), land("second-recent", second, more)],
-    root: work,
+  expect(await backend.landMerges(parseCommitHash(work), tip, 3)).toEqual({
+    lands: [
+      { change: "first-recent", commit: first, onto: work },
+      { change: "second-recent", commit: second, onto: more },
+    ],
     more: false,
   });
-  expect(await backend.chainMerges(parseCommitHash(work), tip, 2)).toEqual({
-    merges: [land("second-recent", second, more)],
-    root: first,
+  expect(await backend.landMerges(parseCommitHash(work), tip, 2)).toEqual({
+    lands: [{ change: "second-recent", commit: second, onto: more }],
     more: true,
   });
 });

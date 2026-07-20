@@ -105,7 +105,7 @@ function repoBackend(opts: {
   trees?: Record<string, Record<string, string>>;
   history?: Record<string, string>;
   changed?: Record<string, readonly string[]>;
-  merges?: readonly { change?: string; commit: string; onto: string; merged?: string }[];
+  merges?: readonly { change: string; commit: string; onto: string }[];
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
@@ -114,7 +114,7 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "chainMerges" | "isAncestor" | "hasRevision"> = {
+  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor" | "hasRevision"> = {
     async hasRevision() {
       return true;
     },
@@ -131,22 +131,18 @@ function repoBackend(opts: {
       }
       return files.map((name) => ({ path: parseFilePath(name), source: undefined }));
     },
-    async chainMerges(base, tip) {
+    async landMerges(base, tip) {
       const path = ancestry(tip);
       const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
-      const chain = path.filter((commit) => !settled.has(commit));
-      const merges = (opts.merges ?? [])
-        .map(({ change, commit, onto, merged }) => ({
+      const lands = (opts.merges ?? [])
+        .map(({ change, commit, onto }) => ({
+          change: parseBranchName(change),
           commit: fake(commit),
           onto: fake(onto),
-          merged: merged === undefined ? undefined : fake(merged),
-          landed: change === undefined ? undefined : parseBranchName(change),
         }))
-        .filter(({ commit }) => chain.includes(commit))
+        .filter(({ commit }) => path.includes(commit) && !settled.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
-      const oldest = chain.at(-1);
-      const up = oldest === undefined ? undefined : opts.history?.[oldest[0] as string];
-      return { merges, root: up === undefined ? undefined : fake(up), more: false };
+      return { lands, more: false };
     },
     async isAncestor(ancestor, descendant) {
       return ancestry(descendant).includes(ancestor);
@@ -324,11 +320,10 @@ test("files a land merge brought in are already reviewed", async () => {
 
 test("a plain merge grants no review: the diff is base to tip", async () => {
   // Merge 2 brought in 8 — the base, off the chain since the parent moved
-  // 0 -> 8 under the change. No land, so nothing is excused: the diff is
-  // simply the current one.
+  // 0 -> 8 under the change. No land trailer, so nothing is excused: the
+  // diff is simply the current one.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "8": "0" },
-    merges: [{ commit: "2", onto: "1", merged: "8" }],
     changed: { "82": ["a.rs"] },
   });
   const diff = await diffOf(backend, "8", "2");
@@ -338,16 +333,12 @@ test("a plain merge grants no review: the diff is base to tip", async () => {
 });
 
 test("a land's review survives later rebase merges", async () => {
-  // Work 1, land 2 bringing g.rs in, then rebase merges 3 and 4 as the
-  // parent moved 0 -> 8 -> 9. The diff is the current one, 9-4; g.rs still
-  // matches what the land reviewed, so only a.rs owes review.
+  // Work 1, land 2 bringing g.rs in, then merges 3 and 4 as the parent
+  // moved 0 -> 8 -> 9. The diff is the current one, 9-4; g.rs still matches
+  // what the land reviewed, so only a.rs owes review.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2", "4": "3", "8": "0", "9": "8" },
-    merges: [
-      { change: "gizmo", commit: "2", onto: "1", merged: "c" },
-      { commit: "3", onto: "2", merged: "8" },
-      { commit: "4", onto: "3", merged: "9" },
-    ],
+    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "94": ["a.rs", "g.rs"], "12": ["g.rs"] },
   });
   const diff = await diffOf(backend, "9", "4");

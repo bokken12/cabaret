@@ -80,7 +80,7 @@ function sourced(name: string): ChangedFile {
 function repoBackend(opts: {
   history: Record<string, string>;
   branches: Record<string, string>;
-  merges?: readonly { change?: string; commit: string; onto: string; merged?: string }[];
+  merges?: readonly { change: string; commit: string; onto: string }[];
   changed?: Record<string, readonly string[]>;
   /** Conflicting paths by `<base><tip><onto>` digit triple, for `mergeConflicts`; an unanticipated triple is an error. */
   conflicting?: Record<string, readonly string[]>;
@@ -111,7 +111,7 @@ function repoBackend(opts: {
     | "hasRevision"
     | "mergeBase"
     | "isAncestor"
-    | "chainMerges"
+    | "landMerges"
     | "changedFiles"
     | "mergeConflicts"
     | "readFile"
@@ -156,22 +156,18 @@ function repoBackend(opts: {
     async isAncestor(ancestor, descendant) {
       return ancestry(descendant).includes(ancestor);
     },
-    async chainMerges(base, tip) {
+    async landMerges(base, tip) {
       const path = ancestry(tip);
       const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
-      const chain = path.filter((commit) => !settled.has(commit));
-      const merges = (opts.merges ?? [])
-        .map(({ change, commit, onto, merged }) => ({
+      const lands = (opts.merges ?? [])
+        .map(({ change, commit, onto }) => ({
+          change: parseBranchName(change),
           commit: fake(commit),
           onto: fake(onto),
-          merged: merged === undefined ? undefined : fake(merged),
-          landed: change === undefined ? undefined : parseBranchName(change),
         }))
-        .filter(({ commit }) => chain.includes(commit))
+        .filter(({ commit }) => path.includes(commit) && !settled.has(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
-      const oldest = chain.at(-1);
-      const up = oldest === undefined ? undefined : opts.history[oldest[0] as string];
-      return { merges, root: up === undefined ? undefined : fake(up), more: false };
+      return { lands, more: false };
     },
     async changedFiles(base, tip) {
       if (base === tip) {

@@ -358,22 +358,6 @@ export interface LandMerge {
   readonly onto: Revision;
 }
 
-/** A merge on a change's first-parent chain, or a squash land standing among them. */
-export interface ChainMerge {
-  readonly commit: Revision;
-  /** The first parent: what the chain held before the merge. A squash land's sole parent. */
-  readonly onto: Revision;
-  /** The second parent: what the merge brought in. Undefined for a squash land. */
-  readonly merged: Revision | undefined;
-  /** The change the commit's land trailer names, when it carries one. */
-  readonly landed: ChangeName | undefined;
-}
-
-/** The land merges among `merges`, in the same order. */
-export function landsAmong(merges: readonly ChainMerge[]): readonly LandMerge[] {
-  return merges.flatMap(({ commit, onto, landed }) => (landed === undefined ? [] : [{ change: landed, commit, onto }]));
-}
-
 /** The commit that landed a change on its parent branch, however it was written. */
 export interface LandedMerge {
   readonly commit: Revision;
@@ -622,19 +606,18 @@ export interface Backend {
   squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
-   * The merges among the newest `scan` commits of `tip`'s first-parent
-   * chain, oldest first — plus squash lands, single-parent commits carrying
-   * the `LAND_TRAILER` trailer — with `root`, the first parent of the
-   * oldest surveyed commit (undefined at a root commit or an empty survey),
-   * and whether the chain continues past the survey. `base` stops the walk
-   * where the chain enters its ancestry; undefined surveys a long-lived
-   * branch, whose history only `scan` bounds.
+   * The commits carrying the `LAND_TRAILER` trailer among the newest `scan`
+   * commits of `tip`'s first-parent chain, oldest first — land merges, whose
+   * `onto` is their first parent, and squash lands, whose `onto` is their
+   * sole parent — and whether the chain continues past those commits. `base`
+   * stops the walk where a change's history ends; undefined surveys a
+   * long-lived branch, whose history only `scan` bounds.
    */
-  chainMerges(
+  landMerges(
     base: Revision | undefined,
     tip: Revision,
     scan: number,
-  ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }>;
+  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
@@ -1269,11 +1252,11 @@ export async function completeLandMerges(
   base: Revision,
   tip: Revision,
 ): Promise<readonly LandMerge[]> {
-  const { merges, more } = await backend.chainMerges(base, tip, LAND_SCAN);
+  const { lands, more } = await backend.landMerges(base, tip, LAND_SCAN);
   if (more) {
     throw new UserError(`history spans more than ${LAND_SCAN} commits; rebase onto a fresher parent`);
   }
-  return landsAmong(merges);
+  return lands;
 }
 
 /**
