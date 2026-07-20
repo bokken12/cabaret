@@ -6,6 +6,7 @@ import {
   type ChangeName,
   checkoutChange,
   createChange,
+  currentArchived,
   currentParent,
   currentSelf,
   DirtyWorkspaceError,
@@ -40,6 +41,7 @@ import {
   resolveChain,
   reviewerSummary,
   type SetupAudit,
+  setArchived,
   setReviewing,
   syncChange,
   type TimestampMs,
@@ -1650,6 +1652,18 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
         await setReviewing(backend, now, change, await backend.readLog(change), "none");
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.toggleArchived", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const change = singleChange(changes, "archive");
+        if (change === undefined) {
+          return;
+        }
+        const entries = await backend.readLog(change);
+        const archived = !currentArchived(entries);
+        await setArchived(backend, now, change, entries, archived);
+        vscode.window.showInformationMessage(`cabaret: ${change} ${archived ? "archived" : "unarchived"}`);
       }),
     ),
     vscode.commands.registerCommand("cabaret.gotoWorkspace", () =>

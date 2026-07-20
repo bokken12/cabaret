@@ -29,6 +29,7 @@ are chosen.
 | `! o`   | Set Owner             | home, show, review        |
 | `! v`   | Widen Reviewing       | home, show, review        |
 | `! d`   | Disable Reviewing     | home, show, review        |
+| `! a`   | Toggle Archived       | home, show, review        |
 | `! g`   | Go to Workspace       | home, show, review        |
 | `! w a` | Add Workspace         | home, show, review        |
 | `! w d` | Remove Workspace      | home, show, review        |
