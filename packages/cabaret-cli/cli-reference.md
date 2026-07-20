@@ -699,6 +699,20 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
+## cabaret tui
+
+USAGE
+  cabaret tui [<change>]
+  cabaret tui --help
+
+Browse pages in the terminal
+
+FLAGS
+  -h --help  Print help information and exit
+
+ARGUMENTS
+  [change]  change to open (defaults to the home page)
+
 ## cabaret widen
 
 USAGE

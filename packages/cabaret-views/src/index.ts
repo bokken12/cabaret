@@ -2,6 +2,7 @@ export * from "./doc.js";
 export * from "./grammar.js";
 export * from "./home.js";
 export * from "./pages.js";
+export * from "./ranges.js";
 export * from "./render.js";
 export * from "./review.js";
 export * from "./show.js";

@@ -61,6 +61,7 @@ import {
   type Doc,
   docText,
   enclosingPage,
+  linkRanges,
   type MarkReviewedResult,
   markReviewed,
   neighborFiles,
@@ -70,6 +71,7 @@ import {
   pendingRound,
   renderPage,
   type Style,
+  styledRanges,
   type Target,
   targetAt,
 } from "cabaret-views";
@@ -77,7 +79,6 @@ import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
 import { type Manifest, pageHelp } from "./help.js";
 import { writePageGrammar } from "./language.js";
-import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
 
