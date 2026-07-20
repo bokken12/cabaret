@@ -10,6 +10,7 @@
     { "path": "packages/cabaret-views" },
     { "path": "packages/cabaret-node" },
     { "path": "packages/cabaret-tui" },
+    { "path": "packages/cabaret-web" },
     { "path": "packages/cabaret-cli" },
     { "path": "packages/cabaret-vscode" }
   ]

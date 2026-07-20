@@ -1,0 +1,211 @@
+/* Dark monospace theme; wash and status colors mirror the tui's truecolor palette. */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: rgb(13, 17, 23);
+  color: rgb(201, 209, 217);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Page content: a monospace grid; long lines scroll sideways, never wrap. */
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0 4px 2ch;
+}
+
+.line {
+  position: relative;
+  white-space: pre;
+  min-height: 1lh;
+  /* Washes run at least the viewport's width, and the whole line when it overflows. */
+  width: max-content;
+  min-width: 100%;
+}
+
+.line.cursor {
+  background: rgb(46, 50, 62);
+  outline: 1px solid rgb(84, 90, 108);
+  outline-offset: -1px;
+}
+
+/* Whole-line washes; declared after the cursor so a washed row keeps its wash. */
+.line.w-added {
+  background: rgb(16, 56, 28);
+}
+.line.w-removed {
+  background: rgb(70, 26, 26);
+}
+.line.w-hunk {
+  background: rgb(42, 46, 54);
+}
+.line.w-old-diff-removed {
+  background: rgb(84, 46, 22);
+}
+.line.w-old-diff-added {
+  background: rgb(64, 70, 20);
+}
+.line.w-old-diff-context {
+  background: rgb(52, 48, 30);
+}
+.line.w-new-diff-removed {
+  background: rgb(80, 28, 56);
+}
+.line.w-new-diff-added {
+  background: rgb(18, 66, 66);
+}
+.line.w-new-diff-context {
+  background: rgb(28, 44, 58);
+}
+
+.gutter {
+  opacity: 0.8;
+}
+
+.fold-mark {
+  position: absolute;
+  left: -2ch;
+  width: 2ch;
+  cursor: pointer;
+  opacity: 0.7;
+  user-select: none;
+}
+
+.dim {
+  opacity: 0.6;
+}
+
+.s-heading {
+  font-weight: bold;
+}
+.s-context {
+  opacity: 0.6;
+}
+.s-ready {
+  color: #3fb950;
+}
+.s-blocked {
+  color: #f85149;
+}
+/* Changed words within a line: a stronger wash on just those characters. */
+.s-added-word {
+  background: rgb(24, 92, 44);
+}
+.s-removed-word {
+  background: rgb(120, 40, 40);
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The status row: quiet inverse video, whatever needs saying on one line. */
+.status {
+  flex: none;
+  background: rgb(201, 209, 217);
+  color: rgb(13, 17, 23);
+  padding: 2px 8px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status.error {
+  background: rgb(248, 81, 73);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(1, 4, 9, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.help {
+  background: rgb(22, 27, 34);
+  border: 1px solid rgb(48, 54, 61);
+  padding: 16px 24px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.help p {
+  margin-bottom: 8px;
+}
+
+.help td {
+  padding: 1px 16px 1px 0;
+}
+
+.help td:first-child {
+  font-weight: bold;
+}
+
+/* The sign-in / repo picker screen. */
+.setup {
+  max-width: 420px;
+  margin: 15vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.setup form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.setup label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setup input,
+.setup button {
+  font: inherit;
+  padding: 6px 8px;
+  background: rgb(22, 27, 34);
+  color: inherit;
+  border: 1px solid rgb(48, 54, 61);
+  border-radius: 4px;
+}
+
+.setup button {
+  cursor: pointer;
+}
+
+.setup button:hover {
+  background: rgb(33, 38, 45);
+}
+
+.notice {
+  color: #f85149;
+}
