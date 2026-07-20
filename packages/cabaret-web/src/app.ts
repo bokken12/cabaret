@@ -12,6 +12,7 @@ import {
   type ViewedDiffs,
 } from "cabaret-views";
 import { type Followed, followTarget } from "./follow.js";
+import type { CodeHighlighter } from "./highlight.js";
 import { foldAt, renderContent, visibleLines } from "./html.js";
 import { bindingsFor, type Command } from "./keymap.js";
 import { keyName } from "./keys.js";
@@ -79,7 +80,13 @@ export class App {
     private readonly source: (page: Page) => Promise<Rendered>,
     private readonly shell: Shell,
     private readonly effects: Effects,
+    private readonly highlighter?: CodeHighlighter,
   ) {}
+
+  /** Paint the current page again — for a grammar arriving after its first render. */
+  repaint(): void {
+    this.paint();
+  }
 
   start(): void {
     window.addEventListener("hashchange", () => void this.showHash());
@@ -188,7 +195,7 @@ export class App {
     if (view === undefined) {
       return;
     }
-    this.shell.content.innerHTML = renderContent(view.doc, view.folded);
+    this.shell.content.innerHTML = renderContent(view.doc, view.folded, this.highlighter);
     this.placeCursor();
     this.paintStatus();
   }
@@ -472,7 +479,7 @@ export class App {
       view.folded.add(start);
       view.cursor = visibleLines(view.doc, view.folded).indexOf(start);
     }
-    this.shell.content.innerHTML = renderContent(view.doc, view.folded);
+    this.shell.content.innerHTML = renderContent(view.doc, view.folded, this.highlighter);
     this.placeCursor();
   }
 
