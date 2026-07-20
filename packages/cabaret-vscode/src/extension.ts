@@ -60,6 +60,7 @@ import {
   enclosingPage,
   type MarkReviewedResult,
   markReviewed,
+  neighborFiles,
   type Page,
   pagePath,
   parsePagePath,
@@ -441,10 +442,22 @@ function shownPage(): Extract<Page, { kind: "show" }> | undefined {
   return page.kind === "show" ? page : undefined;
 }
 
-/** Climb from a show page to the parent's show page; a trunk parent has a page of its own. */
-async function showParent(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page === undefined) {
+/**
+ * Step up to the sibling above: from a show page to the parent's show page
+ * — a trunk parent has a page of its own — or from a file's diff to the
+ * round's previous file.
+ */
+async function stepUp(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "diff") {
+    await stepToFile(provider, editor.document.uri, page, "prev");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -456,10 +469,22 @@ async function showParent(provider: PageProvider): Promise<void> {
   await openPage(provider, { kind: "show", change: currentParent(page.change, entries), as: page.as });
 }
 
-/** Descend from a show page to a child's show page, picking one when the change has several children. */
-async function showChild(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page === undefined) {
+/**
+ * Step down to the sibling below: from a show page to a child's show page —
+ * picking one when the change has several children — or from a file's diff
+ * to the round's next file.
+ */
+async function stepDown(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "diff") {
+    await stepToFile(provider, editor.document.uri, page, "next");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -480,6 +505,33 @@ async function showChild(provider: PageProvider): Promise<void> {
   if (child !== undefined) {
     await openPage(provider, { kind: "show", change: backend.parseName(child), as: page.as });
   }
+}
+
+/**
+ * Step a diff page to the file beside it in its round, replacing the page as
+ * marking reviewed does — stepping is how a reviewer walks the round.
+ */
+async function stepToFile(
+  provider: PageProvider,
+  uri: vscode.Uri,
+  page: Extract<Page, { kind: "diff" }>,
+  side: "prev" | "next",
+): Promise<void> {
+  const backend = await openBackend();
+  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).rounds, page.file);
+  if (neighbors === undefined) {
+    vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+    return;
+  }
+  const file = neighbors[side];
+  if (file === undefined) {
+    vscode.window.showInformationMessage(
+      `cabaret: ${page.file} is the round's ${side === "prev" ? "first" : "last"} file`,
+    );
+    return;
+  }
+  await closeTabs(uri);
+  await openPage(provider, { kind: "diff", change: page.change, file, as: page.as });
 }
 
 /** Escape: back out to the enclosing page, closing the page left behind. */
@@ -1525,8 +1577,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
     vscode.commands.registerCommand("cabaret.stepOutside", () => stepOutside(provider)),
-    vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
-    vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.stepUp", () => stepUp(provider)),
+    vscode.commands.registerCommand("cabaret.stepDown", () => stepDown(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.reviewDiffs", () => reviewDiffs(provider)),

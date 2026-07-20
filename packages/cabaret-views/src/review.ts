@@ -162,6 +162,24 @@ export function pendingRound(rounds: readonly ReviewRound[], file: FilePath): Re
   return rounds.find(({ files }) => files.has(file));
 }
 
+/**
+ * The files beside `file` in its earliest pending round, in the round's
+ * order — where stepping up and down from its diff lands. Undefined with no
+ * review of the file left; a missing side means the file ends the round.
+ */
+export function neighborFiles(
+  rounds: readonly ReviewRound[],
+  file: FilePath,
+): { readonly prev: FilePath | undefined; readonly next: FilePath | undefined } | undefined {
+  const round = pendingRound(rounds, file);
+  if (round === undefined) {
+    return undefined;
+  }
+  const files = [...round.files.keys()];
+  const at = files.indexOf(file);
+  return { prev: files[at - 1], next: files[at + 1] };
+}
+
 /** What marking a file reviewed did, and where review continues. */
 export type MarkReviewedResult =
   /** The file had no review pending, so nothing was recorded. */

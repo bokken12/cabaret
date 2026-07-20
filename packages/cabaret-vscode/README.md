@@ -16,11 +16,12 @@ text buffers, so search, selection, and vim keybindings work untouched.
   folds or unfolds the section at the cursor, `R` re-renders the page,
   `q` closes it, and `?` lists the page's keybindings — picking an entry
   runs it.
-  On a show page, `r` opens the change's review page,
-  `^` climbs to the parent's show page — or to the todo page from a change
-  rooted on a trunk — and `$` descends to a child's, picking one when there
-  are several. On the review page, `enter` opens the first file left to
-  review unless the cursor is on another file's line.
+  On a show page, `r` opens the change's review page.
+  `^` and `$` step up and down between siblings: on a show page to the
+  parent's or a child's show page — picking a child when there are several
+  — and on a file's diff to the round's previous or next file. On the
+  review page, `enter` opens the first file left to review unless the
+  cursor is on another file's line.
 - Change actions sit behind `!` chords: `!c` creates a child, `!m` marks a
   file reviewed, `!la` lands, and so on.
 - Remote traffic follows magit's `F`: `F` fetches remote activity, and `S`
