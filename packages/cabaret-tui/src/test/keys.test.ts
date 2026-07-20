@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { keyName } from "../keys.js";
+import { keyName, mouseEvent } from "../keys.js";
 
 test("keyName names keys as the keymap spells them", () => {
   expect(keyName({ name: "return", sequence: "\r" })).toBe("enter");
@@ -20,4 +20,14 @@ test("keyName declines what the keymap cannot spell", () => {
   expect(keyName({ ctrl: true })).toBeUndefined();
   expect(keyName({})).toBeUndefined();
   expect(keyName({ sequence: "ab" })).toBeUndefined();
+});
+
+test("mouseEvent reads SGR clicks and wheels, declining the rest", () => {
+  expect(mouseEvent("\x1b[<0;12;3M")).toEqual({ kind: "click", x: 12, y: 3 });
+  expect(mouseEvent("\x1b[<64;5;5M")).toEqual({ kind: "wheel", delta: -1 });
+  expect(mouseEvent("\x1b[<65;5;5M")).toEqual({ kind: "wheel", delta: 1 });
+  expect(mouseEvent("\x1b[<0;12;3m")).toBeUndefined();
+  expect(mouseEvent("\x1b[<2;12;3M")).toBeUndefined();
+  expect(mouseEvent("\x1b[<32;12;3M")).toBeUndefined();
+  expect(mouseEvent("q")).toBeUndefined();
 });

@@ -19,6 +19,7 @@ import {
   type Doc,
   displayedKey,
   enclosingPage,
+  linkRanges,
   type MarkReviewedResult,
   neighborFiles,
   type Page,
@@ -29,7 +30,8 @@ import {
   type ViewedDiffs,
 } from "cabaret-views";
 import { bindingsFor, type Command } from "./keymap.js";
-import { type ColorDepth, foldAt, paintPage, paintStatus, visibleLines } from "./paint.js";
+import type { MouseEvent } from "./keys.js";
+import { type ColorDepth, foldAt, gutterWidth, paintPage, paintStatus, visibleLines } from "./paint.js";
 
 /** What the app draws frames on. */
 export interface Terminal {
@@ -268,6 +270,55 @@ export class App {
     }
     this.repaint();
     return "continue";
+  }
+
+  /**
+   * Act on a mouse event: the wheel scrolls, a click moves the cursor to the
+   * clicked row and follows a link under it. While a question, choice, or
+   * input waits, clicks are not answers, so they are ignored.
+   */
+  async handleMouse(event: MouseEvent): Promise<void> {
+    if (this.question !== undefined || this.choice !== undefined || this.input !== undefined) {
+      return;
+    }
+    if (this.overlay !== undefined) {
+      this.overlay = undefined;
+      this.repaint();
+      return;
+    }
+    const view = this.current();
+    if (event.kind === "wheel") {
+      this.scroll(view, event.delta * 3);
+      this.repaint();
+      return;
+    }
+    const visible = visibleLines(view.doc, view.folded);
+    const row = view.top + event.y - 1;
+    if (event.y > this.contentHeight() || row >= visible.length) {
+      return;
+    }
+    view.cursor = row;
+    this.scrollIntoView(view);
+    const line = visible[row];
+    const column = event.x - 1 - gutterWidth(view.doc);
+    const link =
+      line === undefined
+        ? undefined
+        : linkRanges(view.doc).find(
+            (range) => range.line === line && range.start <= column && column < range.start + range.length,
+          );
+    if (link !== undefined) {
+      await this.follow(link.target);
+    }
+    this.repaint();
+  }
+
+  /** Scroll the viewport by `delta` rows, dragging the cursor along to stay visible. */
+  private scroll(view: View, delta: number): void {
+    const visible = visibleLines(view.doc, view.folded);
+    const height = this.contentHeight();
+    view.top = Math.min(Math.max(view.top + delta, 0), Math.max(0, visible.length - height));
+    view.cursor = Math.min(Math.max(view.cursor, view.top), view.top + height - 1, visible.length - 1);
   }
 
   /** Repaint the current frame, e.g. after the terminal resizes. */
