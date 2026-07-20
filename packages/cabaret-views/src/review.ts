@@ -10,7 +10,6 @@ import {
   defaultContext,
   type FilePath,
   type FileSource,
-  type FileView,
   fileLabel,
   mayRecordReview,
   NotReviewingError,
@@ -19,7 +18,7 @@ import {
   type Revision,
   rebasedView,
   reviewLeftFiles,
-  reviewRounds,
+  reviewRound,
   selfAs,
   shortHash,
   structuredDiff4,
@@ -66,7 +65,8 @@ export interface ChangeSnapshot {
   readonly tip: Revision;
   /** Files whose tip contents still carry conflict markers; review waits while any remain. */
   readonly conflicts: readonly FilePath[];
-  readonly rounds: readonly ReviewRound[];
+  /** The round of review left for `user`, or undefined with none. */
+  readonly round: ReviewRound | undefined;
 }
 
 export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
@@ -83,7 +83,7 @@ export async function changeSnapshot(backend: Backend, change: ChangeName, as?: 
     base: diff.base,
     tip: diff.tip,
     conflicts: await changeConflicts(backend, diff),
-    rounds: await reviewRounds(backend, entries, acting.self.user, diff),
+    round: await reviewRound(backend, entries, acting.self.user, diff),
   };
 }
 
@@ -105,12 +105,15 @@ export interface ReviewPage {
 }
 
 export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
-  const first = snapshot.rounds[0];
+  const { round } = snapshot;
   return {
     change: snapshot.change,
     as: snapshot.as,
     conflicts: snapshot.conflicts,
-    round: snapshot.conflicts.length > 0 ? undefined : first && { end: first.end, files: reviewLeftFiles([first]) },
+    round:
+      snapshot.conflicts.length > 0 || round === undefined
+        ? undefined
+        : { end: round.end, files: reviewLeftFiles(round) },
   };
 }
 
@@ -147,21 +150,21 @@ export function reviewDoc(page: ReviewPage): Doc {
   return layout(lines);
 }
 
-/** The earliest round with review of `file` left, or undefined with none: what a mark of it records. */
-export function pendingRound(rounds: readonly ReviewRound[], file: FilePath): ReviewRound | undefined {
-  return rounds.find(({ files }) => files.has(file));
+/** The round when review of `file` is left in it, or undefined otherwise: what a mark of it records. */
+export function pendingRound(round: ReviewRound | undefined, file: FilePath): ReviewRound | undefined {
+  return round?.files.has(file) ? round : undefined;
 }
 
 /**
- * The files beside `file` in its earliest pending round, in the round's
- * order — where stepping up and down from its diff lands. Undefined with no
- * review of the file left; a missing side means the file ends the round.
+ * The files beside `file` in the pending round, in the round's order —
+ * where stepping up and down from its diff lands. Undefined with no review
+ * of the file left; a missing side means the file ends the round.
  */
 export function neighborFiles(
-  rounds: readonly ReviewRound[],
+  round: ReviewRound | undefined,
   file: FilePath,
 ): { readonly prev: FilePath | undefined; readonly next: FilePath | undefined } | undefined {
-  const round = pendingRound(rounds, file);
+  round = pendingRound(round, file);
   if (round === undefined) {
     return undefined;
   }
@@ -216,26 +219,20 @@ export function markReviewed(
   if (!snapshot.asked && !evenThoughNotReviewing) {
     throw new NotReviewingError(snapshot.change, snapshot.reviewing, snapshot.user);
   }
-  const round = pendingRound(snapshot.rounds, file);
+  const round = pendingRound(snapshot.round, file);
   if (round === undefined) {
     return { kind: "nothing-left" };
   }
   const recorded = backend.appendLog(snapshot.change, [
     { timestamp: now(), user: snapshot.user, action: { kind: "review", file, base: snapshot.base, tip: round.end } },
   ]);
-  const rounds = snapshot.rounds.flatMap((other) => {
-    if (other !== round) {
-      return [other];
-    }
-    const files = new Map(other.files);
-    files.delete(file);
-    return files.size === 0 ? [] : [{ end: other.end, files }];
-  });
-  const remaining = [...round.files.keys()].filter((other) => other !== file);
+  const files = new Map(round.files);
+  files.delete(file);
+  const remaining = [...files.keys()];
   return {
     kind: "marked",
     next: remaining.find((other) => other > file) ?? remaining[0],
-    snapshot: { ...snapshot, rounds },
+    snapshot: { ...snapshot, round: files.size === 0 ? undefined : { end: round.end, files } },
     recorded,
   };
 }
@@ -261,18 +258,11 @@ export interface DiffPage {
 /** Query the diff page for `file`: `snapshot`'s rounds locate the diff, and only the file contents are read. */
 export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
   const { change, as, base } = snapshot;
-  let found: { end: Revision; view: FileView } | undefined;
-  for (const { end, files } of snapshot.rounds) {
-    const view = files.get(file);
-    if (view !== undefined) {
-      found = { end, view };
-      break;
-    }
-  }
-  if (found === undefined) {
+  const view = snapshot.round?.files.get(file);
+  if (snapshot.round === undefined || view === undefined) {
     return { change, file, as, round: undefined };
   }
-  const { end, view } = found;
+  const end = snapshot.round.end;
   const two = async (from: Revision, prevPath: FilePath): Promise<DiffView> => {
     const [prev, next] = await Promise.all([backend.readFile(from, prevPath), backend.readFile(end, file)]);
     return { kind: "two", prev, next };
@@ -636,13 +626,12 @@ export interface DiffsPage {
 
 /** Query the diffs page: one `diffPage` view per file of the current round. */
 export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Promise<DiffsPage> {
-  const { change, as, conflicts } = snapshot;
-  const first = snapshot.rounds[0];
-  if (conflicts.length > 0 || first === undefined) {
+  const { change, as, conflicts, round } = snapshot;
+  if (conflicts.length > 0 || round === undefined) {
     return { change, as, conflicts, round: undefined };
   }
   const files = await Promise.all(
-    [...first.files.keys()].map(async (file) => {
+    [...round.files.keys()].map(async (file) => {
       const page = await diffPage(backend, snapshot, file);
       if (page.round === undefined) {
         throw new Error(`${file} is in ${change}'s current round but has no diff`);
@@ -650,7 +639,7 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
       return { file, source: page.round.source, view: page.round.view };
     }),
   );
-  return { change, as, conflicts, round: { end: first.end, files } };
+  return { change, as, conflicts, round: { end: round.end, files } };
 }
 
 /**

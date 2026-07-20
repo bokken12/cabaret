@@ -540,7 +540,7 @@ async function stepToFile(
   side: "prev" | "next",
 ): Promise<void> {
   const backend = await openBackend();
-  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).rounds, page.file);
+  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).round, page.file);
   if (neighbors === undefined) {
     vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
     return;
@@ -803,7 +803,7 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     // page can lack its snapshot; the fresh one then read falls under the
     // never-displayed ask below.
     const snapshot = provider.snapshot(editor.document.uri) ?? (await changeSnapshot(backend, page.change, page.as));
-    const pending = pendingRound(snapshot.rounds, file);
+    const pending = pendingRound(snapshot.round, file);
     if (
       pending !== undefined &&
       !provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end)

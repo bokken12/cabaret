@@ -33,7 +33,7 @@ import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
 import { assertObligationsSatisfied, isSatisfied, obligationStatuses, UnreviewedParentError } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewRound } from "./summary.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -154,7 +154,7 @@ export async function widenReviewing(
   }
   const diff = await changeDiff(backend, change, entries);
   const owes = async (user: UserName): Promise<boolean> =>
-    (await reviewRounds(backend, entries, user, diff)).length > 0;
+    (await reviewRound(backend, entries, user, diff)) !== undefined;
   const owner = currentOwner(change, entries);
   while (to !== "everyone") {
     const added = to === "owner" ? [owner] : currentReviewers(entries).filter((reviewer) => reviewer !== owner);

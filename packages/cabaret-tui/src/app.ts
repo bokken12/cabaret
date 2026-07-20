@@ -702,7 +702,7 @@ export class App {
       this.note = "the page rendered without its review state; refresh first";
       return;
     }
-    const pending = pendingRound(snapshot.rounds, file);
+    const pending = pendingRound(snapshot.round, file);
     if (
       pending !== undefined &&
       !this.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end)
@@ -1049,7 +1049,7 @@ export class App {
       this.note = "the page rendered without its review state; refresh first";
       return;
     }
-    const neighbors = neighborFiles(view.snapshot.rounds, page.file);
+    const neighbors = neighborFiles(view.snapshot.round, page.file);
     if (neighbors === undefined) {
       this.note = `nothing left to review in ${page.file}`;
       return;

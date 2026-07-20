@@ -143,8 +143,7 @@ export async function summarizeChange(
   const landed = landedMerge(entries);
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
-  const rounds = await reviewRounds(backend, entries, user, diff);
-  const reviewLeft = reviewLeftFiles(rounds);
+  const reviewLeft = reviewLeftFiles(await reviewRound(backend, entries, user, diff));
   // A landed change is frozen, so nothing about its surroundings bears on it.
   // These are all local readings — origin's tip is whatever was last fetched
   // — so summarizing never makes a remote query.
@@ -346,20 +345,16 @@ async function nextStep(
 }
 
 /**
- * The files `rounds` still owe, one entry per path, sorted by name. A file
- * whose earliest pending view moves or copies it names its source — that
- * view is the first thing its reviewer will read.
+ * The files `round` still owes, one entry per path, sorted by name. A file
+ * whose pending view moves or copies it names its source — that view is the
+ * first thing its reviewer will read.
  */
-export function reviewLeftFiles(rounds: readonly ReviewRound[]): readonly ChangedFile[] {
-  const left = new Map<FilePath, ChangedFile>();
-  for (const { files } of rounds) {
-    for (const [path, view] of files) {
-      if (!left.has(path)) {
-        left.set(path, { path, source: view.kind === "span" ? view.source : undefined });
-      }
-    }
+export function reviewLeftFiles(round: ReviewRound | undefined): readonly ChangedFile[] {
+  const left: ChangedFile[] = [];
+  for (const [path, view] of round?.files ?? []) {
+    left.push({ path, source: view.kind === "span" ? view.source : undefined });
   }
-  return [...left.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return left.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 /** What a reviewer looks at to review a file in a round. */
@@ -371,9 +366,9 @@ export type FileView =
   /** The reviewed tip left the change's history: diff from its contents. */
   | { readonly kind: "rewritten"; readonly from: Revision };
 
-/** One round of review: a span of a change's history with review left in it. */
+/** The round of review left: the change as it currently stands. */
 export interface ReviewRound {
-  /** The revision the round reviews up to: reviewing a file here records `{base, tip: end}`. */
+  /** The revision the round reviews up to — the tip: reviewing a file here records `{base, tip: end}`. */
   readonly end: Revision;
   /** What to review per file, sorted by name. */
   readonly files: ReadonlyMap<FilePath, FileView>;
@@ -393,21 +388,21 @@ function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision:
 }
 
 /**
- * The rounds of review left for `user` in `diff`: one round at the tip, or
- * none. Each changed file is judged by the latest review that speaks for it
- * — the user's own record, or the implicit review of the land merge that
- * brought the file in, whichever reaches further — against the current
- * diff. A review at the current base leaves the plain diff past its tip; one
- * whose base has moved leaves the 4-way comparison of the reviewed diff with
- * the current one, and nothing at all when that comparison renders empty —
- * the change carried cleanly over whatever moved.
+ * The round of review left for `user` in `diff`, or undefined with none.
+ * Each changed file is judged by the latest review that speaks for it — the
+ * user's own record, or the implicit review of the land merge that brought
+ * the file in, whichever reaches further — against the current diff. A
+ * review at the current base leaves the plain diff past its tip; one whose
+ * base has moved leaves the 4-way comparison of the reviewed diff with the
+ * current one, and nothing at all when that comparison renders empty — the
+ * change carried cleanly over whatever moved.
  */
-export async function reviewRounds(
+export async function reviewRound(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
   diff: ChangeDiff,
-): Promise<readonly ReviewRound[]> {
+): Promise<ReviewRound | undefined> {
   const { base, tip } = diff;
   // A review recorded against objects this clone lacks — reviewed where the
   // commits were never pushed — can be neither placed in the history nor
@@ -448,7 +443,7 @@ export async function reviewRounds(
     }
     files.set(file, view);
   }
-  return files.size > 0 ? [{ end: tip, files }] : [];
+  return files.size > 0 ? { end: tip, files } : undefined;
 }
 
 /**

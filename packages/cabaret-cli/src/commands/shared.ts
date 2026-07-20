@@ -78,8 +78,8 @@ export function parseChangeSpec(raw: string): ChangeSpec {
 }
 
 /** Every file with review pending in some round, sorted by name. */
-export function pendingFiles(rounds: readonly ReviewRound[]): readonly FilePath[] {
-  return [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
+export function pendingFiles(round: ReviewRound | undefined): readonly FilePath[] {
+  return [...(round?.files.keys() ?? [])].sort();
 }
 
 /**

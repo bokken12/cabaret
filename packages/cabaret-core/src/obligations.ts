@@ -18,7 +18,7 @@ import {
 } from "./backend.js";
 import { UserError } from "./error.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewRound } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
 export const OBLIGATIONS_FILE = ".obligations";
@@ -279,8 +279,8 @@ export async function obligationStatuses(
   ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
   for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
-    const rounds = await reviewRounds(backend, entries, user, diff);
-    left.set(user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()])));
+    const round = await reviewRound(backend, entries, user, diff);
+    left.set(user, new Set(round?.files.keys() ?? []));
   }
   const covered = (user: UserName, file: FilePath): boolean => {
     const due = left.get(user);

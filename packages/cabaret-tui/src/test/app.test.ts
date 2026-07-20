@@ -37,7 +37,7 @@ function reviewState(files: readonly FilePath[]): ChangeSnapshot {
     base,
     tip: roundEnd,
     conflicts: [],
-    rounds: [{ end: roundEnd, files: new Map(files.map((file) => [file, fileView()])) }],
+    round: files.length === 0 ? undefined : { end: roundEnd, files: new Map(files.map((file) => [file, fileView()])) },
   };
 }
 

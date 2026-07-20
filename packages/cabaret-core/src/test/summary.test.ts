@@ -18,7 +18,7 @@ import {
   parseForgeLocator,
   type ReviewRound,
   type Revision,
-  reviewRounds,
+  reviewRound,
   summarizeChange,
   timestampMs,
   type UserName,
@@ -239,8 +239,8 @@ async function rounds(
   user: UserName,
   base: Revision,
   tip: Revision,
-): Promise<readonly ReviewRound[]> {
-  return reviewRounds(backend, entries, user, await diffBetween(backend, base, tip));
+): Promise<ReviewRound | undefined> {
+  return reviewRound(backend, entries, user, await diffBetween(backend, base, tip));
 }
 
 test("a change with no commits of its own must add code", async () => {
@@ -662,15 +662,13 @@ test("reviewRounds asks one round of the whole diff, its landed files excused", 
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
     changed: { "03": ["a.ts", "c.ts", "d.ts"], "12": ["d.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual([
-    {
-      end: fake("3"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("0"), source: undefined },
-        "c.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual({
+    end: fake("3"),
+    files: files({
+      "a.ts": { kind: "span", start: fake("0"), source: undefined },
+      "c.ts": { kind: "span", start: fake("0"), source: undefined },
+    }),
+  });
 });
 
 test("reviewRounds resumes mid-span from a reviewed tip", async () => {
@@ -681,9 +679,10 @@ test("reviewRounds resumes mid-span from a reviewed tip", async () => {
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("b.ts", "0", "2"))];
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual({
+    end: fake("3"),
+    files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }),
+  });
 });
 
 test("reviewRounds keys a moved file by its new path, its view from the old", async () => {
@@ -692,15 +691,13 @@ test("reviewRounds keys a moved file by its new path, its view from the old", as
     branches: { main: "0", feature: "2" },
     changed: { "02": ["old/api.ts -> new/api.ts", "b.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("0"), source: undefined },
-        "new/api.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("old/api.ts"), copied: false } },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual({
+    end: fake("2"),
+    files: files({
+      "b.ts": { kind: "span", start: fake("0"), source: undefined },
+      "new/api.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("old/api.ts"), copied: false } },
+    }),
+  });
 });
 
 test("reviewRounds views a copied file from its source, which stays its own entry", async () => {
@@ -709,15 +706,13 @@ test("reviewRounds views a copied file from its source, which stays its own entr
     branches: { main: "0", feature: "2" },
     changed: { "02": ["charter.ts => bylaws.ts", "charter.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "bylaws.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("charter.ts"), copied: true } },
-        "charter.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual({
+    end: fake("2"),
+    files: files({
+      "bylaws.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("charter.ts"), copied: true } },
+      "charter.ts": { kind: "span", start: fake("0"), source: undefined },
+    }),
+  });
 });
 
 test("reviewRounds resumes past a move under the file's new name", async () => {
@@ -729,14 +724,12 @@ test("reviewRounds resumes past a move under the file's new name", async () => {
     changed: { "02": ["a.ts -> b.ts"], "12": ["b.ts"] },
   });
   const entries = [...created("main", "0"), entry(review("b.ts", "0", "1"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("1"), source: { path: parseFilePath("a.ts"), copied: false } },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual({
+    end: fake("2"),
+    files: files({
+      "b.ts": { kind: "span", start: fake("1"), source: { path: parseFilePath("a.ts"), copied: false } },
+    }),
+  });
 });
 
 test("reviewRounds does not carry knowledge recorded under a moved file's old path", async () => {
@@ -748,14 +741,12 @@ test("reviewRounds does not carry knowledge recorded under a moved file's old pa
   // The whole diff moves a.ts to b.ts, and the review names only a.ts: the
   // move is due in full under its new name.
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("a.ts"), copied: false } },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual({
+    end: fake("2"),
+    files: files({
+      "b.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("a.ts"), copied: false } },
+    }),
+  });
 });
 
 test("reviewRounds counts a review against absent objects as no review at all", async () => {
@@ -768,15 +759,13 @@ test("reviewRounds counts a review against absent objects as no review at all", 
   // a.ts was reviewed up to a tip, and b.ts against a base, that this clone
   // has no objects for; both count as unreviewed.
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "9")), entry(review("b.ts", "8", "1"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("0"), source: undefined },
-        "b.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual({
+    end: fake("2"),
+    files: files({
+      "a.ts": { kind: "span", start: fake("0"), source: undefined },
+      "b.ts": { kind: "span", start: fake("0"), source: undefined },
+    }),
+  });
 });
 
 test("reviewRounds views misplaced reviews against the current diff", async () => {
@@ -796,15 +785,13 @@ test("reviewRounds views misplaced reviews against the current diff", async () =
     },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "9", "2")), entry(review("c.ts", "0", "9"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    {
-      end: fake("3"),
-      files: files({
-        "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
-        "c.ts": { kind: "rewritten", from: fake("9") },
-      }),
-    },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual({
+    end: fake("3"),
+    files: files({
+      "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
+      "c.ts": { kind: "rewritten", from: fake("9") },
+    }),
+  });
 });
 
 test("reviewRounds drops a rewritten-tip review whose file ends up unchanged", async () => {
@@ -814,7 +801,7 @@ test("reviewRounds drops a rewritten-tip review whose file ends up unchanged", a
     changed: { "03": ["a.ts"], "93": [] },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "9"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([]);
+  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toBeUndefined();
 });
 
 test("reviewRounds drops a rebased review whose file the base move left alone", async () => {
@@ -832,7 +819,7 @@ test("reviewRounds drops a rebased review whose file the base move left alone", 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([]);
+  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toBeUndefined();
 });
 
 test("reviewRounds drops a rebased review the rebase carried cleanly", async () => {
@@ -850,7 +837,7 @@ test("reviewRounds drops a rebased review the rebase carried cleanly", async () 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([]);
+  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toBeUndefined();
 });
 
 test("reviewRounds keeps a rebased review whose diff the rebase changed", async () => {
@@ -868,9 +855,10 @@ test("reviewRounds keeps a rebased review whose diff the rebase changed", async 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "rebased", reviewed: { base: fake("0"), tip: fake("2") } } }) },
-  ]);
+  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual({
+    end: fake("3"),
+    files: files({ "a.ts": { kind: "rebased", reviewed: { base: fake("0"), tip: fake("2") } } }),
+  });
 });
 
 test("review left excuses landed files and keeps a rewritten reviewed tip's diff", async () => {

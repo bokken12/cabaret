@@ -57,7 +57,7 @@ export const review = buildCommand({
     const files =
       args.length === 0
         ? (page.round?.files.map(({ path }) => path) ?? [])
-        : selectFiles(backend, pendingFiles(snapshot.rounds), args, false, "file with review left");
+        : selectFiles(backend, pendingFiles(snapshot.round), args, false, "file with review left");
     let separate = false;
     if (page.round !== undefined) {
       const listed = page.round.files.filter(({ path }) => files.includes(path));

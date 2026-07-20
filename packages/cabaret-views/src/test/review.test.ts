@@ -754,11 +754,7 @@ test("diffDoc as another user names them in the title", () => {
   `);
 });
 
-function snapshotWith(
-  files: readonly string[],
-  secondRound: readonly string[] = [],
-  conflicts: readonly string[] = [],
-): ChangeSnapshot {
+function snapshotWith(files: readonly string[], conflicts: readonly string[] = []): ChangeSnapshot {
   const round = (end: Revision, names: readonly string[]) => ({
     end,
     files: new Map(
@@ -774,7 +770,7 @@ function snapshotWith(
     base: fake("1"),
     tip: fake("3"),
     conflicts: conflicts.map(parseFilePath),
-    rounds: [round(fake("2"), files), ...(secondRound.length === 0 ? [] : [round(fake("3"), secondRound)])],
+    round: files.length === 0 ? undefined : round(fake("2"), files),
   };
 }
 
@@ -817,7 +813,7 @@ test("markReviewed records the snapshot's round end and marks the file off", () 
 test("marking past the last file wraps to the earliest unmarked, then ends the round", () => {
   const appended: LogEntry[][] = [];
   const backend = appendOnly(appended);
-  const first = markReviewed(backend, () => at, snapshotWith(["a.ts", "c.ts"], ["z.ts"]), parseFilePath("c.ts"));
+  const first = markReviewed(backend, () => at, snapshotWith(["a.ts", "c.ts"]), parseFilePath("c.ts"));
   if (first.kind !== "marked") {
     throw new Error("unreachable");
   }
@@ -826,18 +822,14 @@ test("marking past the last file wraps to the earliest unmarked, then ends the r
   if (second.kind !== "marked") {
     throw new Error("unreachable");
   }
-  // The emptied round drops away; the next round takes over on the review page.
+  // The emptied round drops away; nothing is left to review.
   expect(second.next).toBeUndefined();
-  expect(reviewPage(second.snapshot)).toEqual({
-    change: widgets,
-    conflicts: [],
-    round: { end: fake("3"), files: [file("z.ts")] },
-  });
+  expect(reviewPage(second.snapshot)).toEqual({ change: widgets, conflicts: [], round: undefined });
   expect(appended).toHaveLength(2);
 });
 
 test("a conflicted snapshot drops its round and refuses to mark, even asked", () => {
-  const snapshot = snapshotWith(["a.ts", "b.ts"], [], ["a.ts"]);
+  const snapshot = snapshotWith(["a.ts", "b.ts"], ["a.ts"]);
   expect(reviewPage(snapshot)).toEqual({ change: widgets, conflicts: [parseFilePath("a.ts")], round: undefined });
   const appended: LogEntry[][] = [];
   expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"), true)).toThrow(
@@ -864,17 +856,11 @@ test("markReviewed through a borrowed snapshot records the borrowed user", () =>
 });
 
 test("neighborFiles names the files beside one in the round, ending at its edges", () => {
-  const rounds = snapshotWith(["a.ts", "b.ts", "c.ts"]).rounds;
-  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: "a.ts", next: "c.ts" });
-  expect(neighborFiles(rounds, parseFilePath("a.ts"))).toEqual({ prev: undefined, next: "b.ts" });
-  expect(neighborFiles(rounds, parseFilePath("c.ts"))).toEqual({ prev: "b.ts", next: undefined });
-  expect(neighborFiles(rounds, parseFilePath("other.ts"))).toBeUndefined();
-});
-
-test("neighborFiles reads the earliest round still owing the file", () => {
-  const rounds = snapshotWith(["b.ts", "d.ts"], ["a.ts", "b.ts", "z.ts"]).rounds;
-  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: undefined, next: "d.ts" });
-  expect(neighborFiles(rounds, parseFilePath("z.ts"))).toEqual({ prev: "b.ts", next: undefined });
+  const round = snapshotWith(["a.ts", "b.ts", "c.ts"]).round;
+  expect(neighborFiles(round, parseFilePath("b.ts"))).toEqual({ prev: "a.ts", next: "c.ts" });
+  expect(neighborFiles(round, parseFilePath("a.ts"))).toEqual({ prev: undefined, next: "b.ts" });
+  expect(neighborFiles(round, parseFilePath("c.ts"))).toEqual({ prev: "b.ts", next: undefined });
+  expect(neighborFiles(round, parseFilePath("other.ts"))).toBeUndefined();
 });
 
 test("markReviewed of a file with no review pending records nothing", () => {
