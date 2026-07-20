@@ -123,6 +123,9 @@ importers:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
       cabaret-views:
         specifier: workspace:*
         version: link:../cabaret-views

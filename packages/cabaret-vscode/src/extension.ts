@@ -60,6 +60,7 @@ import {
   type ChangeSnapshot,
   changeSnapshot,
   type Doc,
+  displayedKey,
   docText,
   enclosingPage,
   linkRanges,
@@ -82,11 +83,6 @@ import { type Manifest, pageHelp } from "./help.js";
 import { writePageGrammar } from "./language.js";
 
 const SCHEME = "cabaret";
-
-/** The `displayedEnds` key for one file's diff as shown to one user against one base. */
-function displayedKey(change: ChangeName, user: UserName, base: Revision, file: FilePath): string {
-  return [change, user, base, file].join("\u0000");
-}
 
 /**
  * The backend for whichever folder `openBackend` last opened: the root,
@@ -276,7 +272,8 @@ class PageProvider
             const key = displayedKey(viewed.change, viewed.user, viewed.base, file);
             let ends = this.displayedEnds.get(key);
             if (ends === undefined) {
-              this.displayedEnds.set(key, (ends = new Set()));
+              ends = new Set();
+              this.displayedEnds.set(key, ends);
             }
             ends.add(end);
           }

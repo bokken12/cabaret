@@ -10,6 +10,9 @@ export type Command =
   | "help"
   | "review"
   | "diffs"
+  | "mark"
+  | "show-parent"
+  | "show-child"
   | "up"
   | "down"
   | "half-up"
@@ -34,6 +37,9 @@ export const KEYMAP: readonly Binding[] = [
   { keys: ["?"], command: "help", label: "Keybindings" },
   { keys: ["r"], command: "review", label: "Review", pages: ["show"] },
   { keys: ["d"], command: "diffs", label: "Review Diffs", pages: ["show", "review"] },
+  { keys: ["!", "m"], command: "mark", label: "Mark Reviewed", pages: ["diff", "review"] },
+  { keys: ["^"], command: "show-parent", label: "Show Parent", pages: ["show"] },
+  { keys: ["$"], command: "show-child", label: "Show Child", pages: ["show"] },
   { keys: ["j"], command: "down", label: "Down" },
   { keys: ["down"], command: "down", label: "Down" },
   { keys: ["k"], command: "up", label: "Up" },
