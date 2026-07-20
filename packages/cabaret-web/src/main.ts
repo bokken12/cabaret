@@ -1,4 +1,4 @@
-import { GitHubBackend, githubClient, isStatus } from "cabaret-github";
+import { GitHubBackend, githubClient, isStatus, type ObjectStore } from "cabaret-github";
 import { renderPage } from "cabaret-views";
 import { App, type Shell } from "./app.js";
 import {
@@ -114,26 +114,45 @@ function showSetup(shellRoot: HTMLElement, notice?: string): void {
   shellRoot.replaceChildren(el("div", { className: "setup" }, el("h1", {}, "cabaret"), noticeRow, form));
 }
 
+/** Immutable git facts persisted across reloads; hash-pinned keys never go stale. */
+function objectStore(repo: Config["repo"]): ObjectStore {
+  const prefix = `cabaret-web.git.${repo.owner}/${repo.repo}.`;
+  return {
+    get: (key) => localStorage.getItem(prefix + key) ?? undefined,
+    set: (key, value) => {
+      try {
+        localStorage.setItem(prefix + key, value);
+      } catch {
+        // A full store just means less caching.
+      }
+    },
+  };
+}
+
 function startApp(shellRoot: HTMLElement, config: Config): void {
-  const backend = new GitHubBackend(githubClient(config.token), config.repo);
+  const backend = new GitHubBackend(githubClient(config.token), config.repo, objectStore(config.repo));
   const shell: Shell = {
     content: el("div", { className: "content" }),
     status: el("div", { className: "status" }),
     overlay: el("div", { className: "overlay", hidden: true }),
   };
   shellRoot.replaceChildren(shell.content, shell.status, shell.overlay);
-  const app = new App(async (page) => {
-    try {
-      return await renderPage(backend, page);
-    } catch (error) {
-      if (isStatus(error, 401)) {
-        clearToken();
-        postNotice("GitHub rejected the token; sign in again");
-        location.reload();
+  const app = new App(
+    async (page) => {
+      try {
+        return await renderPage(backend, page);
+      } catch (error) {
+        if (isStatus(error, 401)) {
+          clearToken();
+          postNotice("GitHub rejected the token; sign in again");
+          location.reload();
+        }
+        throw error;
       }
-      throw error;
-    }
-  }, shell);
+    },
+    shell,
+    () => backend.fetchOrigin(),
+  );
   app.start();
 }
 

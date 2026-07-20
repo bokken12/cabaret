@@ -67,6 +67,63 @@ const TreeSchema = z.object({
   tree: z.array(z.object({ path: z.string(), mode: z.string(), type: z.string(), sha: z.string() })),
 });
 
+/** Changes per aliased-lookup GraphQL query when sweeping logs and tips. */
+const SWEEP_QUERY_BATCH = 100;
+
+/**
+ * Ceiling on one stored value; a giant file's text is cheaper to re-fetch
+ * than to crowd everything else out of a bounded store.
+ */
+const MAX_STORED_BYTES = 65536;
+
+/**
+ * Versions every durable key. Stored entries are read back as their written
+ * shape without validation, and past sessions wrote them — so any change to
+ * a stored value's shape must bump this, abandoning the old entries.
+ */
+const STORE_VERSION = 1;
+
+/**
+ * A durable keyed store for immutable git facts, localStorage-shaped. Every
+ * key embeds a hash, so entries never go stale — a bounded store can evict
+ * freely, and `set` may drop writes it has no room for.
+ */
+export interface ObjectStore {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+}
+
+const GraphQLEnvelope = z.object({
+  data: z.unknown(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+const SweepBatchSchema = z.object({ repository: z.record(z.string(), z.unknown()) });
+
+const SweptLogSchema = z
+  .object({
+    file: z
+      .object({ object: z.object({ isTruncated: z.boolean(), text: z.string().nullable() }).nullable() })
+      .nullable(),
+  })
+  .nullable();
+
+const SweptHeadSchema = z.object({ target: z.object({ oid: z.string().transform(parseCommitHash) }) }).nullable();
+
+/**
+ * One fetch epoch's readings: origin's change logs and branch tips as of the
+ * last wholesale sweep — the last-fetched copies the `Backend` contract
+ * promises. This backend's own writes fold into the held epoch, so a session
+ * always sees its own appends without re-fetching.
+ */
+interface Sweep {
+  readonly at: TimestampMs;
+  /** Branch tips by change: the sweep's, plus per-epoch read-throughs for names outside it. */
+  readonly heads: Map<ChangeName, Promise<Revision | undefined>>;
+  /** Each change's log-ref tip and the entries at it. */
+  readonly logs: Map<ChangeName, { readonly tip: Revision; readonly entries: readonly LogEntry[] }>;
+}
+
 const ShaSchema = z.object({ sha: z.string() });
 
 /** A file at one commit: its mode and blob hash, so chmods count as changes. */
@@ -111,6 +168,11 @@ interface ChainLister {
  * the sync operations have nothing to reconcile and succeed as no-ops, while
  * the operations that need a working tree or a content merge fail with a
  * `UserError` naming a local checkout as the way out.
+ *
+ * Mutable state reads by fetch epoch: `fetchOrigin` sweeps every change log
+ * and branch tip in a few GraphQL requests, and tips, logs, and the change
+ * list answer from that reading — refreshed by the next fetch, and updated
+ * in place by this backend's own writes.
  */
 export class GitHubBackend implements Backend {
   readonly parseRevision = parseCommitHash;
@@ -127,11 +189,11 @@ export class GitHubBackend implements Backend {
   // Git objects and the facts derived from them are immutable once a hash is
   // known, so hash-keyed queries cache for the backend's lifetime: reviewing
   // walks the same history from several pages, and each fact should cost one
-  // request per session, not one per page. Only mutable reads — refs and the
-  // logs behind them — always go to the API.
+  // request per session, not one per page. Mutable reads — refs and the logs
+  // behind them — answer from the current fetch epoch's sweep instead.
   private readonly commits = new Map<Revision, Promise<z.infer<typeof CommitSchema>>>();
   private readonly contents = new Map<string, Promise<string | undefined>>();
-  private readonly compares = new Map<string, Promise<z.infer<typeof CompareSchema>>>();
+  private readonly compares = new Map<string, Promise<z.infer<typeof CompareSchema> | undefined>>();
   private readonly trees = new Map<string, Promise<ReadonlyMap<string, TreeEntry>>>();
   private readonly diffs = new Map<string, Promise<readonly ChangedFile[]>>();
   private readonly chains = new Map<
@@ -143,10 +205,12 @@ export class GitHubBackend implements Backend {
   // failures surface through each batch's own `done`.
   private readonly waiting = new Map<ChangeName, { entries: LogEntry[]; done: Promise<void> }>();
   private readonly running = new Map<ChangeName, Promise<void>>();
+  private sweep: Promise<Sweep> | undefined;
 
   constructor(
     private readonly client: GitHubClient,
     private readonly repo: GitHubRepo,
+    private readonly store?: ObjectStore,
   ) {}
 
   /** The cached promise for `key`, computing and remembering it on the first ask; a rejection is not cached. */
@@ -160,6 +224,32 @@ export class GitHubBackend implements Backend {
       cache.set(key, value);
     }
     return value;
+  }
+
+  /**
+   * `cached`, backed by the durable store when one is held: an immutable
+   * fact computed once in any session answers from the store forever after.
+   * Values are plain data — branded strings and arrays of them — so they
+   * round-trip JSON unchanged; the envelope keeps `undefined` storable.
+   */
+  private durable<K, V>(cache: Map<K, Promise<V>>, space: string, key: K, compute: () => Promise<V>): Promise<V> {
+    return this.cached(cache, key, async () => {
+      const at = `${STORE_VERSION}:${space}:${String(key)}`;
+      const held = this.store?.get(at);
+      if (held !== undefined) {
+        try {
+          return (JSON.parse(held) as { v: V }).v;
+        } catch {
+          // A mangled entry is a miss; the store is a cache, not a source.
+        }
+      }
+      const value = await compute();
+      const encoded = JSON.stringify({ v: value });
+      if (encoded.length <= MAX_STORED_BYTES) {
+        this.store?.set(at, encoded);
+      }
+      return value;
+    });
   }
 
   async currentChange(): Promise<ChangeName> {
@@ -283,18 +373,134 @@ export class GitHubBackend implements Backend {
     }
   }
 
+  /** The current fetch epoch, sweeping on the first ask; a failed sweep is not held. */
+  private swept(): Promise<Sweep> {
+    if (this.sweep === undefined) {
+      const sweep: Promise<Sweep> = this.sweepNow().catch((error: unknown) => {
+        // Clear only this sweep: a fetch may have installed a fresh epoch
+        // that must not be discarded for a stale failure.
+        if (this.sweep === sweep) {
+          this.sweep = undefined;
+        }
+        throw error;
+      });
+      this.sweep = sweep;
+    }
+    return this.sweep;
+  }
+
+  /** The held epoch for a write to fold into, if any; never sweeps. */
+  private async sweptIfAny(): Promise<Sweep | undefined> {
+    return this.sweep?.catch(() => undefined);
+  }
+
+  /**
+   * Fold a written branch tip into the epoch a write was predicated on —
+   * `held` captured before the write — skipping when a fetch has replaced
+   * it: the fresh sweep read the branch itself, and this stale reading must
+   * not overwrite what it saw.
+   */
+  private async foldHead(held: Promise<Sweep> | undefined, change: ChangeName, tip: Revision): Promise<void> {
+    if (held === undefined || this.sweep !== held) {
+      return;
+    }
+    (await held.catch(() => undefined))?.heads.set(change, Promise.resolve(tip));
+  }
+
+  /**
+   * Fold an appended log into the held epoch, so a session reads its own
+   * appends without re-fetching. A compare-and-swap on the reading's tip:
+   * the fold applies only where the epoch still reads the log tip the
+   * append built on — an epoch that swept mid-write already read the ref
+   * fresher than `text`, and keeps its own reading.
+   */
+  private async foldLog(change: ChangeName, old: Revision | undefined, tip: string, text: string): Promise<void> {
+    const held = await this.sweptIfAny();
+    if (held === undefined) {
+      return;
+    }
+    const reading = held.logs.get(change);
+    if (old === undefined ? reading === undefined : reading?.tip === old) {
+      held.logs.set(change, { tip: parseCommitHash(tip), entries: parseLog(text, parseCommitHash, parseBranchName) });
+    }
+  }
+
+  /** One GraphQL request, failing loudly on any reported error. */
+  private async graphql(query: string, variables: Readonly<Record<string, unknown>>): Promise<unknown> {
+    const { data } = await this.client.request("POST /graphql", { query, variables });
+    const { data: payload, errors } = GraphQLEnvelope.parse(data);
+    if (errors !== undefined && errors.length > 0) {
+      throw new Error(`GraphQL: ${errors.map(({ message }) => message).join("; ")}`);
+    }
+    return payload;
+  }
+
+  /**
+   * Read origin wholesale: list the log refs, then batch every change's log
+   * text and branch tip into aliased GraphQL lookups. A render reads logs
+   * and tips across all changes; fetched one request at a time, a large
+   * repository's home page costs a thousand requests, where sweeping costs a
+   * handful. The listing itself stays REST: GraphQL's `refs` field serves
+   * only the standard prefixes and answers the log namespace with nothing.
+   */
+  private async sweepNow(): Promise<Sweep> {
+    const listing = z
+      .array(z.object({ ref: z.string(), object: z.object({ sha: z.string().transform(parseCommitHash) }) }))
+      .parse(
+        await this.client.paginate("GET /repos/{owner}/{repo}/git/matching-refs/{ref}", {
+          ...this.repo,
+          ref: LOG_REF_PREFIX.slice("refs/".length),
+          per_page: 100,
+        }),
+      )
+      .map(({ ref, object }) => ({ change: parseBranchName(ref.slice(LOG_REF_PREFIX.length)), logTip: object.sha }));
+    const heads = new Map<ChangeName, Promise<Revision | undefined>>();
+    const logs = new Map<ChangeName, { readonly tip: Revision; readonly entries: readonly LogEntry[] }>();
+    for (let start = 0; start < listing.length; start += SWEEP_QUERY_BATCH) {
+      const batch = listing.slice(start, start + SWEEP_QUERY_BATCH);
+      const lookups = batch
+        .map(
+          ({ change, logTip }, i) =>
+            `l${i}: object(oid: ${JSON.stringify(logTip)}) { ... on Commit {` +
+            ` file(path: ${JSON.stringify(LOG_PATH)}) { object { ... on Blob { isTruncated text } } } } }` +
+            ` h${i}: ref(qualifiedName: ${JSON.stringify(`refs/heads/${change}`)}) { target { ... on Commit { oid } } }`,
+        )
+        .join(" ");
+      const { repository } = SweepBatchSchema.parse(
+        await this.graphql(
+          `query ($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${lookups} } }`,
+          { owner: this.repo.owner, name: this.repo.repo },
+        ),
+      );
+      for (const [i, { change, logTip }] of batch.entries()) {
+        const blob = SweptLogSchema.parse(repository[`l${i}`])?.file?.object ?? undefined;
+        // An oversized or binary blob comes back truncated or textless;
+        // reread it raw rather than serve a partial log.
+        const text =
+          blob === undefined || blob.text === null || blob.isTruncated ? await this.logText(logTip) : blob.text;
+        logs.set(change, { tip: logTip, entries: parseLog(text, parseCommitHash, parseBranchName) });
+        heads.set(change, Promise.resolve(SweptHeadSchema.parse(repository[`h${i}`])?.target.oid));
+      }
+    }
+    return { at: timestampMs(Date.now()), heads, logs };
+  }
+
   async tip(change: ChangeName): Promise<Revision | undefined> {
-    return this.refTip(`refs/heads/${change}`);
+    // The epoch's reading, read through live for a name outside the sweep —
+    // a change's parent branch, say — so each such tip costs one request per
+    // epoch.
+    const sweep = await this.swept();
+    return this.cached(sweep.heads, change, () => this.refTip(`refs/heads/${change}`));
   }
 
   async originTip(change: ChangeName): Promise<Revision | undefined> {
-    // This backend reads the remote itself, so a branch never trails its copy.
+    // This backend reads origin itself: a branch and its origin copy are one
+    // reading, the epoch's.
     return this.tip(change);
   }
 
   async originFetched(): Promise<TimestampMs | undefined> {
-    // Every read goes to origin itself, so the reading is always this fresh.
-    return timestampMs(Date.now());
+    return (await this.swept()).at;
   }
 
   /** The commit `ref` (a full `refs/...` name) points at, or undefined if it does not exist. */
@@ -319,7 +525,7 @@ export class GitHubBackend implements Backend {
 
   /** The Git-database commit object at `sha`. */
   private commitObject(sha: Revision): Promise<z.infer<typeof CommitSchema>> {
-    return this.cached(this.commits, sha, async () => {
+    return this.durable(this.commits, "commit", sha, async () => {
       const { data } = await this.client.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
         ...this.repo,
         commit_sha: sha,
@@ -329,6 +535,7 @@ export class GitHubBackend implements Backend {
   }
 
   async create(change: ChangeName, at: Revision): Promise<void> {
+    const held = this.sweep;
     // GitHub rejects a ref that already exists, matching update-ref's
     // empty-old-value guard.
     await this.client.request("POST /repos/{owner}/{repo}/git/refs", {
@@ -336,28 +543,32 @@ export class GitHubBackend implements Backend {
       ref: `refs/heads/${change}`,
       sha: at,
     });
+    await this.foldHead(held, change, at);
   }
 
   async advance(change: ChangeName, to: Revision): Promise<void> {
-    const tip = await this.tip(change);
+    const held = this.sweep;
+    // A write reads the ref live, not the epoch's copy: the guard should
+    // judge the branch as it stands.
+    const tip = await this.refTip(`refs/heads/${change}`);
     if (tip === undefined) {
       throw new UserError(`branch does not exist: ${JSON.stringify(change)}`);
     }
-    if (tip === to) {
-      return;
+    if (tip !== to) {
+      if (!(await this.isAncestor(tip, to))) {
+        throw new Error(`cannot advance ${JSON.stringify(change)}: ${to} does not descend from its tip ${tip}`);
+      }
+      // Unforced ref updates are fast-forward-only, so a concurrent move to
+      // anywhere but another ancestor of `to` fails here rather than being
+      // overwritten; GitHub's API offers no exact compare-and-swap.
+      await this.client.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
+        ...this.repo,
+        ref: `heads/${change}`,
+        sha: to,
+        force: false,
+      });
     }
-    if (!(await this.isAncestor(tip, to))) {
-      throw new Error(`cannot advance ${JSON.stringify(change)}: ${to} does not descend from its tip ${tip}`);
-    }
-    // Unforced ref updates are fast-forward-only, so a concurrent move to
-    // anywhere but another ancestor of `to` fails here rather than being
-    // overwritten; GitHub's API offers no exact compare-and-swap.
-    await this.client.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
-      ...this.repo,
-      ref: `heads/${change}`,
-      sha: to,
-      force: false,
-    });
+    await this.foldHead(held, change, to);
   }
 
   async workspaces(): Promise<readonly Workspace[]> {
@@ -402,7 +613,7 @@ export class GitHubBackend implements Backend {
    * API answers with a 404.
    */
   private compare(a: Revision, b: Revision): Promise<z.infer<typeof CompareSchema> | undefined> {
-    return this.cached(this.compares, `${a}...${b}`, async () => {
+    return this.durable(this.compares, "compare", `${a}...${b}`, async () => {
       try {
         const { data } = await this.client.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
           ...this.repo,
@@ -471,7 +682,9 @@ export class GitHubBackend implements Backend {
     tip: Revision,
     scan: number,
   ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }> {
-    return this.cached(this.chains, `${base ?? ""}..${tip}:${scan}`, () => this.chainMergesUncached(base, tip, scan));
+    return this.durable(this.chains, "chain", `${base ?? ""}..${tip}:${scan}`, () =>
+      this.chainMergesUncached(base, tip, scan),
+    );
   }
 
   private async chainMergesUncached(
@@ -618,7 +831,9 @@ export class GitHubBackend implements Backend {
   }
 
   async fetchOrigin(): Promise<void> {
-    // This backend already operates on origin; there is nothing to fetch from.
+    // Start a fresh epoch: reads answer from the new sweep.
+    this.sweep = undefined;
+    await this.swept();
   }
 
   async advanceBranches(): Promise<readonly ChangeName[]> {
@@ -664,10 +879,11 @@ export class GitHubBackend implements Backend {
         throw error;
       }
     }
+    (await this.sweptIfAny())?.logs.delete(change);
   }
 
   readFile(commit: Revision, file: FilePath): Promise<string | undefined> {
-    return this.cached(this.contents, `${commit}:${file}`, () => this.readFileUncached(commit, file));
+    return this.durable(this.contents, "file", `${commit}:${file}`, () => this.readFileUncached(commit, file));
   }
 
   private async readFileUncached(commit: Revision, file: FilePath): Promise<string | undefined> {
@@ -692,7 +908,7 @@ export class GitHubBackend implements Backend {
   }
 
   changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]> {
-    return this.cached(this.diffs, `${base}..${tip}`, () => this.changedFilesUncached(base, tip));
+    return this.durable(this.diffs, "diff", `${base}..${tip}`, () => this.changedFilesUncached(base, tip));
   }
 
   private async changedFilesUncached(base: Revision, tip: Revision): Promise<readonly ChangedFile[]> {
@@ -792,24 +1008,11 @@ export class GitHubBackend implements Backend {
   }
 
   async listChanges(): Promise<readonly ChangeName[]> {
-    const data = await this.client.paginate("GET /repos/{owner}/{repo}/git/matching-refs/{ref}", {
-      ...this.repo,
-      ref: LOG_REF_PREFIX.slice("refs/".length),
-      per_page: 100,
-    });
-    return z
-      .array(z.object({ ref: z.string() }))
-      .parse(data)
-      .map(({ ref }) => parseBranchName(ref.slice(LOG_REF_PREFIX.length)))
-      .sort();
+    return [...(await this.swept()).logs.keys()].sort();
   }
 
   async readLog(change: ChangeName): Promise<readonly LogEntry[]> {
-    const tip = await this.refTip(`${LOG_REF_PREFIX}${change}`);
-    if (tip === undefined) {
-      return [];
-    }
-    return parseLog(await this.logText(tip), parseCommitHash, parseBranchName);
+    return (await this.swept()).logs.get(change)?.entries ?? [];
   }
 
   /** The log file's text at log commit `tip`; a log ref without one is malformed, and fails. */
@@ -871,9 +1074,10 @@ export class GitHubBackend implements Backend {
       if (log !== "" && !log.endsWith("\n")) {
         throw new Error(`malformed log for ${change}: missing trailing newline`);
       }
+      const text = log + entries.map(formatLogEntry).join("");
       const { data: blob } = await this.client.request("POST /repos/{owner}/{repo}/git/blobs", {
         ...this.repo,
-        content: log + entries.map(formatLogEntry).join(""),
+        content: text,
         encoding: "utf-8",
       });
       const { data: tree } = await this.client.request("POST /repos/{owner}/{repo}/git/trees", {
@@ -905,6 +1109,7 @@ export class GitHubBackend implements Backend {
             force: false,
           });
         }
+        await this.foldLog(change, old, sha, text);
         return;
       } catch (error) {
         // 422 is exactly the lost swap (non-fast-forward, or the ref appearing

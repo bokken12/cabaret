@@ -43,6 +43,7 @@ export class App {
   constructor(
     private readonly source: (page: Page) => Promise<Doc>,
     private readonly shell: Shell,
+    private readonly fetchOrigin: () => Promise<void>,
   ) {}
 
   start(): void {
@@ -262,9 +263,14 @@ export class App {
         await this.refresh();
         return;
       case "fetch":
-        // Every read already goes straight to the forge, so fetching is
-        // re-rendering; the report says so.
-        await this.refresh("fetched — pages read the forge live");
+        this.setNote("fetching…");
+        try {
+          await this.fetchOrigin();
+        } catch (error) {
+          this.setNote(message(error), true);
+          return;
+        }
+        await this.refresh("fetched");
         return;
       case "help":
         this.showOverlay(view);
