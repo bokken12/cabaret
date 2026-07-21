@@ -75,16 +75,8 @@ export const fetch = buildCommand({
       "profile emails, are recorded as aliases of you, so their changes " +
       "read as yours. Without a forge, the origin half still runs.",
   },
-  parameters: {
-    flags: {
-      full: {
-        kind: "boolean",
-        brief: "Sweep every open forge change, not just what moved since the last fetch",
-        default: false,
-      },
-    },
-  },
-  async func(this: LocalContext, flags: { readonly full: boolean }) {
+  parameters: {},
+  async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
     let forge: Forge | undefined;
     try {
@@ -103,12 +95,8 @@ export const fetch = buildCommand({
       return;
     }
     const locator = forge.locator;
-    const { coverage, swept } = await fetchForge(
-      backend,
-      this.now,
-      forge,
-      (event) => reportFetchEvent(this, locator, event),
-      { full: flags.full },
+    const { coverage, swept } = await fetchForge(backend, this.now, forge, (event) =>
+      reportFetchEvent(this, locator, event),
     );
     const kind = coverage === "open" ? "open" : "updated";
     this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);

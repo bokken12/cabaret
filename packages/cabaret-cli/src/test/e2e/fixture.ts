@@ -37,8 +37,6 @@ export interface TestRepo {
   cabaret(...argv: string[]): Promise<Invocation>;
   /** Like `cabaret`, but invoked from `subdir` of the working tree. */
   cabaretIn(subdir: string, ...argv: string[]): Promise<Invocation>;
-  /** Jump the repo's clock forward, as if `ms` passed between commands. */
-  advanceClock(ms: number): void;
 }
 
 /** The Comments section of a change's show page, or "" when it has none. */
@@ -134,15 +132,7 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
     await writeFile(full, content);
   };
 
-  return {
-    git,
-    write,
-    cabaret,
-    cabaretIn,
-    advanceClock: (ms) => {
-      clock += ms;
-    },
-  };
+  return { git, write, cabaret, cabaretIn };
 }
 
 /**
