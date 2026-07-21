@@ -6,3 +6,5 @@ Most of the tech stack is dictated by the desire to be a VSCode extension, meeti
 - VSCode extensions run on Node, and so we stick with it to avoid targeting multiple runtimes.
 
 Outside of those basics we have more flexibility, but choose to use Biome for linting/formatting, and Vitest for testing.
+
+On other platforms, choices are often made to minimize divergence from the primary VSCode UI: e.g. Shiki formatting.
