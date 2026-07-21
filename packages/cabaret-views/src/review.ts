@@ -566,7 +566,7 @@ function fourWayDiffNodes(
 export function emptyDiffNote(source: FileSource | undefined): string {
   return source === undefined
     ? "No differences left to read."
-    : `${source.copied ? "Copied" : "Moved"} from ${source.path} with no content changes.`;
+    : `${source.copied ? "Copied" : "Moved"} with no content changes.`;
 }
 
 /** One file's diff body: its hunks, or the note that nothing is left to read there. */
