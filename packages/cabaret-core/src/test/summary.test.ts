@@ -1295,6 +1295,22 @@ test("a change whose parent branch is gone must reparent", async () => {
   });
 });
 
+test("a change whose parent is archived must reparent, before any review", async () => {
+  // widgets was set aside with review left in both changes; the child's move
+  // is to hang somewhere live, not to read either diff.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1", widgets: "2", feature: "3" },
+    changed: { "23": ["f.ts"] },
+    logs: { widgets: [...created("main", "1"), entry({ kind: "set-archived", archived: true })] },
+  });
+  const summary = await summarize(backend, feature, created("widgets", "2"), alice);
+  expect({ deadParent: summary.deadParent, nextStep: summary.nextStep }).toEqual({
+    deadParent: "archived",
+    nextStep: "reparent",
+  });
+});
+
 test("a base under a rewritten parent reads as diverged, review still the step", async () => {
   // main was rewritten to 3 (forking from 0) while feature still builds on 1.
   // No `conflicting` entry: with review left as the step, querying the

@@ -95,6 +95,7 @@ const ORIGIN_NOTES: Record<NonNullable<ChangeSummary["origin"]>, string> = {
 const PARENT_NOTES: Record<NonNullable<ChangeSummary["deadParent"]>, string> = {
   landed: "landed",
   missing: "does not exist",
+  archived: "archived",
 };
 
 const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>, string> = {
