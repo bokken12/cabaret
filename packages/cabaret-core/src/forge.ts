@@ -838,13 +838,28 @@ function pureImport(entries: readonly LogEntry[]): boolean {
  */
 const CURSOR_KEY = "cabaret.forge-cursor";
 
-async function storedCursor(backend: Backend, locator: ForgeLocator): Promise<ForgeCursor | undefined> {
-  const raw = await backend.config(CURSOR_KEY);
+/**
+ * When the open set was last swept whole, keyed like the cursor. Forges move
+ * some state without touching a change's update stamp — a note edit, a
+ * refused reviewer withdrawal — so since sweeps alone drift; a daily open
+ * sweep re-reads everything still open and re-anchors.
+ */
+const RECONCILED_KEY = "cabaret.forge-reconciled";
+const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** The stored `key` value for `locator`'s forge; undefined when unset or another forge's. */
+async function forgeState(backend: Backend, key: string, locator: ForgeLocator): Promise<string | undefined> {
+  const raw = await backend.config(key);
   const space = raw?.indexOf(" ") ?? -1;
   if (raw === undefined || space === -1 || raw.slice(0, space) !== locator) {
     return undefined;
   }
-  return forgeCursor(raw.slice(space + 1));
+  return raw.slice(space + 1);
+}
+
+async function storedCursor(backend: Backend, locator: ForgeLocator): Promise<ForgeCursor | undefined> {
+  const raw = await forgeState(backend, CURSOR_KEY, locator);
+  return raw === undefined ? undefined : forgeCursor(raw);
 }
 
 /**
@@ -877,6 +892,7 @@ export async function fetchForge(
   now: () => TimestampMs,
   forge: Forge,
   onEvent: (event: FetchEvent) => void,
+  opts: { readonly full?: boolean } = {},
 ): Promise<{ readonly coverage: "open" | "since"; readonly swept: number }> {
   const forgeSelf = await forge.currentSelf();
   const self = await currentSelf(backend);
@@ -901,7 +917,9 @@ export async function fetchForge(
   const tracked = await backend.listChanges();
   const existing = new Set(tracked);
 
-  const sweep = await forge.fetchChanges(await storedCursor(backend, forge.locator));
+  const lastOpen = Number(await forgeState(backend, RECONCILED_KEY, forge.locator));
+  const resweep = opts.full === true || !Number.isFinite(lastOpen) || lastOpen + RECONCILE_INTERVAL_MS <= now();
+  const sweep = await forge.fetchChanges(resweep ? undefined : await storedCursor(backend, forge.locator));
   // Open changes keyed by head — closed ones neither import nor adopt — with
   // heads sharing a branch collapsed to the lowest id, so every machine
   // imports the same change for a branch with several open forge changes.
@@ -1024,6 +1042,9 @@ export async function fetchForge(
   // sweep re-reads an overlap absorption tolerates.
   if (sweep.cursor !== undefined) {
     await backend.configSet(CURSOR_KEY, `${forge.locator} ${sweep.cursor}`, "local");
+  }
+  if (sweep.coverage === "open") {
+    await backend.configSet(RECONCILED_KEY, `${forge.locator} ${now()}`, "local");
   }
 
   // Prune closed changes nobody engaged with, judged after the closing sync

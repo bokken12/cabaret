@@ -10,6 +10,7 @@ import {
   type ForgeSweep,
   forgeAccount,
   forgeChangeId,
+  forgeCursor,
   type LandMethod,
   parseBranchName,
   parseCommitHash,
@@ -56,6 +57,7 @@ const UserSchema = z.object({ login: z.string() });
 
 const PrSchema = z.object({
   number: z.number().transform(forgeChangeId),
+  updated_at: z.string(),
   title: z.string(),
   user: UserSchema.nullable(),
   state: z.enum(["open", "closed"]),
@@ -96,6 +98,29 @@ const MergedPrSchema = z.object({
 });
 
 const TitleSchema = z.object({ title: z.string(), draft: z.boolean() });
+
+// A row of the issues listing, which is the one Forgejo endpoint that can
+// filter pulls by update time; the pulls themselves are fetched by number.
+const IssueSchema = z.object({
+  number: z.number().transform(forgeChangeId),
+  updated_at: z.string(),
+});
+
+/**
+ * How far back a minted cursor trails the newest activity a sweep read.
+ * Stamps are written synchronously, but a read may come from a lagging
+ * replica; the overlap re-reads that window, which absorption tolerates.
+ */
+const CURSOR_OVERLAP_MS = 5 * 60 * 1000;
+
+/** The forge-clock epoch milliseconds a cursor resumes from; undefined resweeps the open set. */
+function cursorMs(since: ForgeCursor | undefined): number | undefined {
+  if (since === undefined) {
+    return undefined;
+  }
+  const ms = Number(since);
+  return Number.isNaN(ms) ? undefined : ms;
+}
 
 // Forgejo's default work-in-progress title prefixes, matched case-insensitively
 // as the server matches them; codeberg.org runs the defaults.
@@ -198,20 +223,45 @@ export class ForgejoForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  async fetchChanges(_since: ForgeCursor | undefined): Promise<ForgeSweep> {
-    // Forgejo has no bulk query, so the sweep costs a few calls per open PR;
-    // in return every discussion comes back whole, and nothing truncates.
-    const prs = await this.listOpenPrs();
-    const changes = await Promise.all(
-      prs.map(
-        async (pr): Promise<SweptChange> => ({
-          change: await this.toChange(pr),
-          comments: await this.listComments(pr.number),
-          commentsTruncated: false,
-        }),
-      ),
-    );
-    return { coverage: "open", changes, cursor: undefined };
+  private async toSweptChange(pr: Pr): Promise<SweptChange> {
+    return {
+      change: await this.toChange(pr),
+      comments: await this.listComments(pr.number),
+      commentsTruncated: false,
+    };
+  }
+
+  async fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    // Forgejo has no bulk query, so the sweep costs a few calls per PR it
+    // carries; in return every discussion comes back whole, and nothing
+    // truncates. A cursor narrows the carried set to what the issues
+    // listing — the one endpoint filtering pulls by update time — reports
+    // touched, every state included.
+    const resume = cursorMs(since);
+    const prs =
+      resume === undefined
+        ? await this.listOpenPrs()
+        : await Promise.all(
+            z
+              .array(IssueSchema)
+              .parse(
+                await this.client.getPaginated(`${this.api}/issues`, {
+                  type: "pulls",
+                  state: "all",
+                  since: new Date(resume).toISOString(),
+                }),
+              )
+              .map(async ({ number }) => PrSchema.parse(await this.client.get(`${this.api}/pulls/${number}`))),
+          );
+    const changes = await Promise.all(prs.map(this.toSweptChange, this));
+    const newest = Math.max(0, ...prs.map(({ updated_at }) => Date.parse(updated_at)));
+    // Never regresses: an empty sweep resumes where this one began.
+    const minted = Math.max(resume ?? 0, newest - CURSOR_OVERLAP_MS);
+    return {
+      coverage: resume === undefined ? "open" : "since",
+      changes,
+      cursor: minted > 0 ? forgeCursor(String(minted)) : undefined,
+    };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
