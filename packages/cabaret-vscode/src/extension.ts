@@ -350,8 +350,13 @@ class PageProvider
   }
 }
 
+/** The canonical URI addressing `page`: one URI, one open copy of the page. */
+function pageUri(page: Page): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+}
+
 async function openPage(provider: PageProvider, page: Page): Promise<void> {
-  const uri = vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+  const uri = pageUri(page);
   // Reopening an already-open page serves the buffer as it stands, so ask for
   // a fresh render alongside.
   if (provider.doc(uri) !== undefined) {
@@ -842,7 +847,11 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     }
     await result.recorded;
     if (result.next === undefined) {
+      // Review is done: fold its pages away — the one being marked and the
+      // review page a file-by-file pass leaves open — and land back on the
+      // change, whose canonical URI focuses the tab the pass started from.
       await closeTabs(editor.document.uri);
+      await closeTabs(pageUri({ kind: "review", change: page.change, as: page.as }));
       await openPage(provider, { kind: "show", change: page.change, as: page.as });
     } else if (page.kind === "diff") {
       await closeTabs(editor.document.uri);
