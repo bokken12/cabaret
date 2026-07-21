@@ -1319,7 +1319,26 @@ test("a change whose obligations are all satisfied lands from any reviewing set"
   expect(await step([...base, reviewing("reviewers"), reviewed])).toBe("land");
 });
 
-test("an obligations rule keeps the reviewing flow asking after the owner reviewed", async () => {
+test("a blocking rule keeps the reviewing flow asking after the owner reviewed", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: {
+      "2": {
+        ".obligations": `{"rules": [{"match": "a.ts", "kind": "blocking", "require": {"atLeast": 1, "of": ["${bob}"]}}]}`,
+      },
+    },
+  });
+  const entries = [
+    ...created("main", "1"),
+    entry({ kind: "set-reviewing", reviewing: "owner" }),
+    entry(review("a.ts", "1", "2")),
+  ];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("add reviewers");
+});
+
+test("a follow rule holds nothing: the change lands, its review still owed", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "1", feature: "2" },
@@ -1333,7 +1352,7 @@ test("an obligations rule keeps the reviewing flow asking after the owner review
     entry({ kind: "set-reviewing", reviewing: "owner" }),
     entry(review("a.ts", "1", "2")),
   ];
-  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("add reviewers");
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("land");
 });
 
 test("a forge-tracked draft widens whatever the obligations say", async () => {

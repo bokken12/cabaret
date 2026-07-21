@@ -31,10 +31,20 @@ export interface Requirement {
   readonly of: readonly UserName[];
 }
 
+/**
+ * The kind of review a requirement demands. Blocking review gates the land:
+ * the change cannot land until the requirement is satisfied. Follow review is
+ * asynchronous: it never gates, but stays owed — through the land and beyond —
+ * until the reviewers catch up.
+ */
+export type ReviewKind = "blocking" | "follow";
+
 /** One rule of an obligations file: the requirement it puts on matching files. */
 export interface ObligationRule {
   /** A gitignore-style pattern, relative to the directory containing the file. */
   readonly match: string;
+  /** The kind of review demanded; follow — the lighter demand — unless the rule says. */
+  readonly kind: ReviewKind;
   readonly require: Requirement;
 }
 
@@ -60,6 +70,7 @@ const ObligationRuleSchema = z.strictObject({
     .string()
     .min(1)
     .refine((pattern) => !pattern.endsWith("/"), { error: "patterns match files, not directories" }),
+  kind: z.enum(["blocking", "follow"]).default("follow"),
   require: RequirementSchema,
 }) satisfies z.ZodType<ObligationRule>;
 
@@ -109,6 +120,7 @@ export interface Obligation {
   readonly file: FilePath;
   /** The obligations file that put the requirement there, or the implicit standing that did: the owner's self-review, or a reviewer's whole-diff review. */
   readonly source: FilePath | "owner" | "reviewer";
+  readonly kind: ReviewKind;
   readonly require: Requirement;
 }
 
@@ -146,7 +158,7 @@ export async function changeObligations(
       const relative = parts.slice(depth).join("/");
       for (const rule of policy.rules) {
         if (patternMatches(rule.match, relative)) {
-          obligations.push({ file, source, require: rule.require });
+          obligations.push({ file, source, kind: rule.kind, require: rule.require });
         }
       }
       if (policy.root) {
@@ -156,7 +168,7 @@ export async function changeObligations(
     if (parts.at(-1) === OBLIGATIONS_FILE) {
       const replaced = await readObligations(backend, base, file);
       for (const rule of replaced?.rules ?? []) {
-        obligations.push({ file, source: file, require: rule.require });
+        obligations.push({ file, source: file, kind: rule.kind, require: rule.require });
       }
     }
   }
@@ -248,6 +260,14 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
+ * The statuses that stand in a land's way: unsatisfied and blocking. Follow
+ * review stays owed — `reviewOwed` keeps asking — but never gates.
+ */
+export function landBlockers(statuses: readonly ObligationStatus[]): readonly ObligationStatus[] {
+  return statuses.filter((status) => !isSatisfied(status) && status.obligation.kind === "blocking");
+}
+
+/**
  * The status of every obligation on `diff`, owned by `owner`. Every file of
  * the diff is governed. Independent of any rules, each carries the owner's
  * implicit self-review requirement, and one likewise for each of the
@@ -271,9 +291,11 @@ export async function obligationStatuses(
       .filter((reviewer) => reviewer !== owner)
       .map((reviewer) => [reviewer, "reviewer"] as const),
   ];
+  // The owner and each reviewer sign off before the land: their standings
+  // block, where a rule blocks only when it says so.
   const obligations: Obligation[] = [
     ...standings.flatMap(([user, source]) =>
-      sorted.map((file) => ({ file, source, require: { atLeast: 1, of: [user] } })),
+      sorted.map((file) => ({ file, source, kind: "blocking" as const, require: { atLeast: 1, of: [user] } })),
     ),
     ...(await changeObligations(backend, diff.base, diff.tip, sorted)),
   ];
@@ -405,16 +427,15 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   return reviewerTallies(unsatisfied).map(tallyText);
 }
 
-/** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */
+/** Fail with `UnsatisfiedObligationsError` unless every blocking obligation on `diff` is satisfied. */
 export async function assertObligationsSatisfied(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
   diff: ChangeDiff,
 ): Promise<void> {
-  const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-  if (unsatisfied.length > 0) {
-    throw new UnsatisfiedObligationsError(unsatisfied);
+  const blockers = landBlockers(await obligationStatuses(backend, entries, owner, diff));
+  if (blockers.length > 0) {
+    throw new UnsatisfiedObligationsError(blockers);
   }
 }

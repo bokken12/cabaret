@@ -32,7 +32,7 @@ import {
 } from "./backend.js";
 import { diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
-import { isSatisfied, type ObligationStatus, obligationStatuses, outstanding } from "./obligations.js";
+import { landBlockers, type ObligationStatus, obligationStatuses, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -302,9 +302,10 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * conflicts outrank review: markers are not code worth reading. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
- * exist to widen to. The whole flow asks only while some obligation is
- * unsatisfied: once every one is met, the set gates nothing `land` reads,
- * so the change moves by landing however narrow the set stands. A
+ * exist to widen to. The whole flow asks only while some blocking obligation
+ * is unsatisfied: once every one is met, the set gates nothing `land` reads,
+ * so the change moves by landing however narrow the set stands — follow
+ * review stays owed on the todo page, holding nothing here. A
  * forge-tracked draft is the exception — the forge refuses to merge what
  * it shows as a draft — so it widens whatever the obligations say. Review
  * reads bottom-up — a child's diff builds on its parent's — so review the
@@ -318,8 +319,8 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * own check. The dry-run, like the rebase and land it stands for, is a
  * question about the parent's tip — its freshest reading — so a parent
  * whose readings diverged outranks them: no freshest reading exists until
- * the user joins them. A parent with unsatisfied obligations of its own
- * comes next, whoever owes them: `land` refuses to grow an unreviewed
+ * the user joins them. A parent with unsatisfied blocking obligations of its
+ * own comes next, whoever owes them: `land` refuses to grow an unreviewed
  * parent, so the change reads `review in parent` until the parent is
  * fully reviewed. Last, a forge-tracked change syncs before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
@@ -369,7 +370,7 @@ async function nextStep(
             : undefined;
   if (flow !== undefined) {
     const statuses = await obligationStatuses(backend, entries, readings.owner, diff);
-    if (statuses.some((status) => !isSatisfied(status))) {
+    if (landBlockers(statuses).length > 0) {
       if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
         return "review in parent";
       }
@@ -382,7 +383,7 @@ async function nextStep(
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";
   }
-  if (parentReview !== undefined && (await parentReview()).some((status) => !isSatisfied(status))) {
+  if (parentReview !== undefined && landBlockers(await parentReview()).length > 0) {
     return "review in parent";
   }
   const { forgeChange } = readings;
@@ -391,12 +392,12 @@ async function nextStep(
     : "land";
 }
 
-/** Whether the parent still carries an unsatisfied obligation `user`'s review can count toward. */
+/** Whether the parent still carries an unsatisfied blocking obligation `user`'s review can count toward. */
 async function owesParentReview(
   parentReview: () => Promise<readonly ObligationStatus[]>,
   user: UserName,
 ): Promise<boolean> {
-  return (await parentReview()).some((status) => !isSatisfied(status) && outstanding(status).includes(user));
+  return landBlockers(await parentReview()).some((status) => outstanding(status).includes(user));
 }
 
 /**
