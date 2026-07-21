@@ -450,6 +450,14 @@ export function planArchivedPush(
  * landed. A single-parent landing commit (a squash or rebase merge) descends
  * from no reviewed history, so the entry freezes the head that merged as the
  * change's tip.
+ *
+ * TODO: a merge observed here bypassed `recordLand`, so nothing settled the
+ * landed diff's review — it reads as unreviewed work in both the parent and
+ * the landed change until someone reviews it. The observer should settle it
+ * the way the land op does, evaluated as of the observation; writing the
+ * land entry is the guard that keeps racing observers from each settling.
+ * Reaching the merges made while untracked also means fetch reading closed
+ * forge changes, which it skips today.
  */
 export function observedLand(
   now: () => TimestampMs,
