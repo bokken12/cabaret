@@ -10,6 +10,7 @@ import {
   type ForgeSweep,
   forgeAccount,
   forgeChangeId,
+  forgeCursor,
   type LandMethod,
   parseBranchName,
   parseCommitHash,
@@ -79,14 +80,25 @@ const FIND_MR = `query ($path: ID!, $branch: String!) {
 }`;
 
 // Notes are capped at the first hundred per MR rather than paginated,
-// keeping the whole sweep to one query per hundred open MRs; the page info
+// keeping the whole sweep to one query per hundred MRs; the page info
 // reports the cap so readers needing more fall back to `listComments`.
-const OPEN_CHANGE_FIELDS = `${MR_FIELDS} notes(first: 100) { nodes { id author { username } body system updatedAt } pageInfo { hasNextPage } }`;
+const SWEPT_CHANGE_FIELDS = `${MR_FIELDS} updatedAt notes(first: 100) { nodes { id author { username } body system updatedAt } pageInfo { hasNextPage } }`;
 
 const FETCH_OPEN_CHANGES = `query ($path: ID!, $cursor: String) {
   project(fullPath: $path) {
     mergeRequests(state: opened, first: 100, after: $cursor) {
-      nodes { ${OPEN_CHANGE_FIELDS} }
+      nodes { ${SWEPT_CHANGE_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+// Every state: the server filters to what moved after the cursor, so closed
+// and merged changes surface with the rest.
+const FETCH_CHANGES_SINCE = `query ($path: ID!, $updatedAfter: Time!, $cursor: String) {
+  project(fullPath: $path) {
+    mergeRequests(updatedAfter: $updatedAfter, sort: UPDATED_DESC, first: 100, after: $cursor) {
+      nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -112,7 +124,8 @@ const FindMrSchema = z.object({
 // on it) identifies the same note.
 const NOTE_GID = /(\d+)$/;
 
-const OpenMrSchema = MrSchema.extend({
+const SweptMrSchema = MrSchema.extend({
+  updatedAt: z.string(),
   notes: z.object({
     nodes: z.array(
       z.object({
@@ -127,16 +140,33 @@ const OpenMrSchema = MrSchema.extend({
   }),
 });
 
-const FetchOpenChangesSchema = z.object({
+const FetchChangesSchema = z.object({
   project: z
     .object({
       mergeRequests: z.object({
-        nodes: z.array(OpenMrSchema),
+        nodes: z.array(SweptMrSchema),
         pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
       }),
     })
     .nullable(),
 });
+
+/**
+ * How far back a minted cursor trails the newest activity a sweep read.
+ * GitLab stamps some updates from async workers, and a read may come from a
+ * lagging replica; the overlap re-reads that window, which absorption
+ * tolerates.
+ */
+const CURSOR_OVERLAP_MS = 5 * 60 * 1000;
+
+/** The forge-clock epoch milliseconds a cursor resumes from; undefined resweeps the open set. */
+function cursorMs(since: ForgeCursor | undefined): number | undefined {
+  if (since === undefined) {
+    return undefined;
+  }
+  const ms = Number(since);
+  return Number.isNaN(ms) ? undefined : ms;
+}
 
 const GetMrSchema = z.object({
   project: z.object({ mergeRequest: MrSchema.nullable() }).nullable(),
@@ -296,7 +326,7 @@ export class GitLabForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toSweptChange(mr: z.infer<typeof OpenMrSchema>): Promise<SweptChange> {
+  private async toSweptChange(mr: z.infer<typeof SweptMrSchema>): Promise<SweptChange> {
     const comments = mr.notes.nodes
       .filter((note) => !note.system)
       .map((note) => {
@@ -318,16 +348,34 @@ export class GitLabForge implements Forge {
     return { change: await this.toChange(mr), comments, commentsTruncated: mr.notes.pageInfo.hasNextPage };
   }
 
-  async fetchChanges(_since: ForgeCursor | undefined): Promise<ForgeSweep> {
+  async fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    const resume = cursorMs(since);
     const changes: Promise<SweptChange>[] = [];
+    let newest = 0;
     let cursor: string | null = null;
     do {
-      const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, cursor });
-      const { nodes, pageInfo } = this.requireProject(FetchOpenChangesSchema.parse(out).project).mergeRequests;
-      changes.push(...nodes.map(this.toSweptChange, this));
+      const out: unknown =
+        resume === undefined
+          ? await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, cursor })
+          : await this.client.graphql(FETCH_CHANGES_SINCE, {
+              path: this.project.path,
+              updatedAfter: new Date(resume).toISOString(),
+              cursor,
+            });
+      const { nodes, pageInfo } = this.requireProject(FetchChangesSchema.parse(out).project).mergeRequests;
+      for (const mr of nodes) {
+        newest = Math.max(newest, Date.parse(mr.updatedAt));
+        changes.push(this.toSweptChange(mr));
+      }
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return { coverage: "open", changes: await Promise.all(changes), cursor: undefined };
+    // Never regresses: an empty sweep resumes where this one began.
+    const minted = Math.max(resume ?? 0, newest - CURSOR_OVERLAP_MS);
+    return {
+      coverage: resume === undefined ? "open" : "since",
+      changes: await Promise.all(changes),
+      cursor: minted > 0 ? forgeCursor(String(minted)) : undefined,
+    };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {

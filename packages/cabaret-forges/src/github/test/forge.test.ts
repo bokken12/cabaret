@@ -1,4 +1,4 @@
-import { forgeChangeId, parseBranchName, UserError, userName } from "cabaret-core";
+import { forgeChangeId, forgeCursor, parseBranchName, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { githubClient, parseGitHubRemote } from "../client.js";
 import { GitHubForge } from "../forge.js";
@@ -308,6 +308,7 @@ describe("GitHubForge", () => {
                       title: "First",
                       author: { login: "alice" },
                       state: "OPEN",
+                      updatedAt: "2026-05-02T10:00:00Z",
                       mergeCommit: null,
                       reviewRequests: { nodes: [{ requestedReviewer: { login: "bob" } }] },
                       latestReviews: { nodes: [] },
@@ -333,6 +334,7 @@ describe("GitHubForge", () => {
                       title: "Second",
                       author: { login: "bob" },
                       state: "OPEN",
+                      updatedAt: "2026-05-02T11:30:00Z",
                       mergeCommit: null,
                       ...NO_REVIEWERS,
                       comments: { nodes: [], pageInfo: { hasNextPage: false } },
@@ -360,6 +362,7 @@ describe("GitHubForge", () => {
                       title: "Third",
                       author: { login: "alice" },
                       state: "OPEN",
+                      updatedAt: "2026-05-01T09:00:00Z",
                       mergeCommit: null,
                       ...NO_REVIEWERS,
                       comments: { nodes: [], pageInfo: { hasNextPage: true } },
@@ -375,7 +378,7 @@ describe("GitHubForge", () => {
     });
     expect(await forge().fetchChanges(undefined)).toEqual({
       coverage: "open",
-      cursor: undefined,
+      cursor: String(Date.parse("2026-05-02T11:25:00Z")),
       changes: [
         {
           change: {
@@ -435,6 +438,97 @@ describe("GitHubForge", () => {
       { owner: "test-org", repo: "widgets", cursor: null },
       { owner: "test-org", repo: "widgets", cursor: "CUR1" },
     ]);
+  });
+
+  test("fetchChanges with a cursor walks recency order, keeping every state, until it falls below", async () => {
+    const node = (number: number, updatedAt: string, extra: Record<string, unknown> = {}) => ({
+      number,
+      id: `PR_node${number}`,
+      isDraft: false,
+      headRefName: `branch-${number}`,
+      headRefOid: `${number}${"0".repeat(39)}`,
+      baseRefName: "main",
+      title: `Change ${number}`,
+      author: { login: "alice" },
+      state: "OPEN",
+      updatedAt,
+      mergeCommit: null,
+      ...NO_REVIEWERS,
+      comments: { nodes: [], pageInfo: { hasNextPage: false } },
+      ...extra,
+    });
+    const calls = stubGitHub({
+      [GRAPHQL]: [
+        {
+          json: {
+            data: {
+              repository: {
+                pullRequests: {
+                  nodes: [
+                    node(7, "2026-06-10T12:00:00Z", {
+                      state: "MERGED",
+                      mergeCommit: { oid: "7".repeat(40), parents: { totalCount: 2 } },
+                    }),
+                    node(4, "2026-06-10T09:00:00Z"),
+                  ],
+                  pageInfo: { hasNextPage: true, endCursor: "CUR1" },
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
+            data: {
+              repository: {
+                pullRequests: {
+                  // The stamp equal to the cursor re-reads (absorption is
+                  // idempotent); the one below it ends the walk with pages
+                  // still unread.
+                  nodes: [node(5, "2026-06-01T00:00:00Z"), node(6, "2026-05-20T00:00:00Z")],
+                  pageInfo: { hasNextPage: true, endCursor: "CUR2" },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const since = String(Date.parse("2026-06-01T00:00:00Z"));
+    const sweep = await forge().fetchChanges(forgeCursor(since));
+    expect(sweep.coverage).toBe("since");
+    expect(sweep.cursor).toBe(String(Date.parse("2026-06-10T11:55:00Z")));
+    expect(sweep.changes.map(({ change }) => [change.id, change.state])).toEqual([
+      [7, "merged"],
+      [4, "open"],
+      [5, "open"],
+    ]);
+    expect(sweep.changes[0]?.change.merge).toEqual({ commit: "7".repeat(40), parents: 2 });
+    const bodies = calls.map(({ body }) => (JSON.parse(body ?? "{}") as { query?: string }).query ?? "");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toContain("orderBy: {field: UPDATED_AT, direction: DESC}");
+    expect(bodies[0]).not.toContain("states: OPEN");
+  });
+
+  test("fetchChanges with a cursor it cannot read resweeps the open set", async () => {
+    const calls = stubGitHub({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            repository: {
+              pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+            },
+          },
+        },
+      },
+    });
+    expect(await forge().fetchChanges(forgeCursor("gitlab.com-shaped nonsense"))).toEqual({
+      coverage: "open",
+      cursor: undefined,
+      changes: [],
+    });
+    const bodies = calls.map(({ body }) => (JSON.parse(body ?? "{}") as { query?: string }).query ?? "");
+    expect(bodies[0]).toContain("states: OPEN");
   });
 
   test("createChange posts the PR and fetches it by number", async () => {
