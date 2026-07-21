@@ -270,7 +270,7 @@ test("show by name reflects review progress", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ add reviewers     │
+    │ next step │ land              │
     │ owner     │ alice@example.com │
     │ reviewing │ owner             │
     │ parent    │ main              │

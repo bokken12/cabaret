@@ -1338,17 +1338,67 @@ test("nextStep walks the staged reviewing flow", async () => {
   const base = created("main", "1");
   const reviewed = entry(review("a.ts", "1", "2"));
   const step = async (entries: readonly LogEntry[]) => (await summarize(backend, feature, entries, alice)).nextStep;
+  const addBob = entry({ kind: "add-reviewer", reviewer: bob });
   // A draft moves by widening, not by anyone reading it.
   expect(await step([...base, reviewing("none")])).toBe("widen reviewing");
-  // The owner reviews first; done, they add reviewers when none exist to
-  // widen to, and widen when some do.
+  // The owner reviews first; done, they widen to the reviewers whose review
+  // is still owed.
   expect(await step([...base, reviewing("owner")])).toBe("review");
-  expect(await step([...base, reviewing("owner"), reviewed])).toBe("add reviewers");
-  expect(await step([...base, reviewing("owner"), reviewed, entry({ kind: "add-reviewer", reviewer: bob })])).toBe(
-    "widen reviewing",
-  );
-  expect(await step([...base, reviewing("reviewers"), reviewed])).toBe("widen reviewing");
+  expect(await step([...base, reviewing("owner"), reviewed, addBob])).toBe("widen reviewing");
+  expect(await step([...base, reviewing("reviewers"), addBob, reviewed])).toBe("widen reviewing");
   expect(await step([...base, reviewing("everyone"), reviewed])).toBe("land");
+});
+
+test("a change whose obligations are all satisfied lands from any reviewing set", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  const reviewing = (value: "none" | "owner" | "reviewers"): LogEntry =>
+    entry({ kind: "set-reviewing", reviewing: value });
+  const base = created("main", "1");
+  const reviewed = entry(review("a.ts", "1", "2"));
+  const step = async (entries: readonly LogEntry[]) => (await summarize(backend, feature, entries, alice)).nextStep;
+  // The owner's review was the only obligation, so the reviewing set gates
+  // nothing land reads: no widening, no reviewers to add.
+  expect(await step([...base, reviewing("none"), reviewed])).toBe("land");
+  expect(await step([...base, reviewing("owner"), reviewed])).toBe("land");
+  expect(await step([...base, reviewing("reviewers"), reviewed])).toBe("land");
+});
+
+test("an obligations rule keeps the reviewing flow asking after the owner reviewed", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: {
+      "2": { ".obligations": `{"rules": [{"match": "a.ts", "require": {"atLeast": 1, "of": ["${bob}"]}}]}` },
+    },
+  });
+  const entries = [
+    ...created("main", "1"),
+    entry({ kind: "set-reviewing", reviewing: "owner" }),
+    entry(review("a.ts", "1", "2")),
+  ];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("add reviewers");
+});
+
+test("a forge-tracked draft widens whatever the obligations say", async () => {
+  // The forge refuses to merge a draft, so marking it ready is a real step
+  // even with every obligation satisfied.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  const entries = [
+    ...created("main", "1"),
+    entry({ kind: "set-forge", forge: parseForgeLocator("github.com/test-org/widgets"), id: forgeChangeId(7) }),
+    entry({ kind: "set-reviewing", reviewing: "none" }),
+    entry(review("a.ts", "1", "2")),
+  ];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("widen reviewing");
 });
 
 test("an archived change reads as archived until the latest set-archived revives it", async () => {

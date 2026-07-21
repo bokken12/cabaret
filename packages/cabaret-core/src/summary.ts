@@ -32,6 +32,7 @@ import {
 } from "./backend.js";
 import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
+import { isSatisfied, obligationStatuses } from "./obligations.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -207,7 +208,7 @@ export async function summarizeChange(
     conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
     reviewLeft,
   };
-  return { ...readings, nextStep: await nextStep(backend, readings, stale) };
+  return { ...readings, nextStep: await nextStep(backend, readings, entries, diff, stale) };
 }
 
 /**
@@ -286,7 +287,12 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * conflicts outrank review: markers are not code worth reading. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
- * exist to widen to. A stale base waits for review to finish — the parent
+ * exist to widen to. The whole flow asks only while some obligation is
+ * unsatisfied: once every one is met, the set gates nothing `land` reads,
+ * so the change moves by landing however narrow the set stands. A
+ * forge-tracked draft is the exception — the forge refuses to merge what
+ * it shows as a draft — so it widens whatever the obligations say. A stale
+ * base waits for review to finish — the parent
  * moving on is routine, and rebasing mid-review churns reviewers — and
  * calls for a rebase only where `land` would refuse it: when the tip no
  * longer merges cleanly onto `stale`'s parent tip. That merge is dry-run
@@ -304,6 +310,8 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
 async function nextStep(
   backend: Backend,
   readings: Omit<ChangeSummary, "nextStep">,
+  entries: readonly LogEntry[],
+  diff: ChangeDiff,
   stale: { readonly parentTip: Revision } | undefined,
 ): Promise<NextStep> {
   if (readings.landed !== undefined) {
@@ -324,17 +332,24 @@ async function nextStep(
   if (readings.tip === readings.base) {
     return "add code";
   }
-  if (readings.reviewing === "none") {
+  if (readings.reviewing === "none" && readings.forgeChange !== undefined) {
     return "widen reviewing";
   }
-  if (readings.reviewLeft.length > 0) {
-    return "review";
-  }
-  if (readings.reviewing === "owner" && readings.reviewers.length === 0) {
-    return "add reviewers";
-  }
-  if (readings.reviewing !== "everyone") {
-    return "widen reviewing";
+  const flow: NextStep | undefined =
+    readings.reviewing === "none"
+      ? "widen reviewing"
+      : readings.reviewLeft.length > 0
+        ? "review"
+        : readings.reviewing === "owner" && readings.reviewers.length === 0
+          ? "add reviewers"
+          : readings.reviewing !== "everyone"
+            ? "widen reviewing"
+            : undefined;
+  if (flow !== undefined) {
+    const statuses = await obligationStatuses(backend, entries, readings.owner, diff);
+    if (statuses.some((status) => !isSatisfied(status))) {
+      return flow;
+    }
   }
   if (readings.parentOrigin === "diverged") {
     return "resolve parent divergence";
