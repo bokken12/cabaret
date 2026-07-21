@@ -8,10 +8,20 @@ async function makeOwnedChange(): Promise<TestRepo> {
   return repo;
 }
 
-test("set-owner replaces the owner", async () => {
+test("owner show prints the owner and owner set replaces them", async () => {
   const repo = await makeOwnedChange();
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
+  expect(await repo.cabaret("owner", "show", "--change", "feature")).toEqual({
+    stdout: "alice@example.com\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("owner", "set", "bob@example.com", "--change", "feature")).toEqual({
     stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("owner", "show", "--change", "feature")).toEqual({
+    stdout: "bob@example.com\n",
     stderr: "",
     exitCode: 0,
   });
@@ -29,21 +39,26 @@ test("set-owner replaces the owner", async () => {
   `);
 });
 
-test("set-owner fails on a change that does not exist", async () => {
-  const repo = await makeRepo();
-  expect(await repo.cabaret("set-owner", "bob@example.com")).toEqual({
-    stdout: "",
-    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
-    exitCode: 1,
-  });
-});
-
 for (const argv of [
-  ["set-owner", "bob@example.com", "--change", "feature"],
-  ["reparent", "feature", "main"],
-  ["rebase", "feature"],
+  ["owner", "show"],
+  ["owner", "set", "bob@example.com"],
 ]) {
-  test(`only the owner may ${argv[0]}, until the override excuses it`, async () => {
+  test(`owner ${argv[1]} fails on a change that does not exist`, async () => {
+    const repo = await makeRepo();
+    expect(await repo.cabaret(...argv)).toEqual({
+      stdout: "",
+      stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
+      exitCode: 1,
+    });
+  });
+}
+
+for (const [label, argv] of [
+  ["owner set", ["owner", "set", "bob@example.com", "--change", "feature"]],
+  ["reparent", ["reparent", "feature", "main"]],
+  ["rebase", ["rebase", "feature"]],
+] as const) {
+  test(`only the owner may ${label}, until the override excuses it`, async () => {
     const repo = await makeOwnedChange();
     await repo.git("config", "user.email", "bob@example.com");
     const before = await repo.cabaret("dev", "log", "feature");
@@ -61,14 +76,14 @@ for (const argv of [
 test("a change owned by an alias is the user's own to operate", async () => {
   const repo = await makeOwnedChange();
   await repo.git("config", "user.email", "bob@example.com");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
+  expect(await repo.cabaret("owner", "set", "bob@example.com", "--change", "feature")).toEqual({
     stdout: "",
     stderr:
       '"feature" is owned by "alice@example.com", not "bob@example.com"; pass --even-though-not-owner to override\n',
     exitCode: 1,
   });
   await repo.git("config", "--add", "cabaret.alias", "alice@example.com");
-  expect(await repo.cabaret("set-owner", "bob@example.com", "--change", "feature")).toEqual({
+  expect(await repo.cabaret("owner", "set", "bob@example.com", "--change", "feature")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,

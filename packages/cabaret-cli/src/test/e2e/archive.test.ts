@@ -8,7 +8,7 @@ const PR = forgeChangeId(1);
 test("an archived change leaves the home page and archive --undo brings it back", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("archive");
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
     "Home

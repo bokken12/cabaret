@@ -17,16 +17,16 @@ test("reviewing shows the current set and records a new one", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   // A fresh change is a draft until widened.
-  expect(await repo.cabaret("reviewing")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("reviewing", "owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("reviewing")).toEqual({ stdout: "owner\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "set", "owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "owner\n", stderr: "", exitCode: 0 });
   expect((await repo.cabaret("dev", "log")).stdout).toContain('"action":{"kind":"set-reviewing","reviewing":"owner"}');
 });
 
 test("reviewing rejects a value outside the set", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  const { stderr, exitCode } = await repo.cabaret("reviewing", "somebody");
+  const { stderr, exitCode } = await repo.cabaret("reviewing", "set", "somebody");
   expect(exitCode).not.toBe(0);
   expect(stderr).toContain('not a reviewing set: "somebody" (one of none, owner, reviewers, everyone)');
 });
@@ -69,12 +69,12 @@ test("obligations reach a user's home only once the reviewing set includes them"
   expect(await aliceHome()).not.toContain("feature");
   // As a reviewer alice is asked as soon as reviewing widens to reviewers.
   await repo.cabaret("reviewers", "add", "alice@example.com");
-  await repo.cabaret("reviewing", "reviewers");
+  await repo.cabaret("reviewing", "set", "reviewers");
   expect(await aliceHome()).toContain("feature");
   await repo.cabaret("reviewers", "remove", "alice@example.com");
   expect(await aliceHome()).not.toContain("feature");
   // Widened to everyone, the obligations files alone decide.
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   expect(await aliceHome()).toContain("feature");
 });
 
@@ -96,20 +96,20 @@ test("a forge-side draft toggle mirrors into the reviewing set on fetch", async 
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("sync");
   // A teammate converts the forge change to a draft.
   forge.toggleDraft(PR, true);
   expect((await repo.cabaret("fetch")).stdout).toContain(
     "github.com/test-org/widgets#1 was marked draft; reviewing none",
   );
-  expect(await repo.cabaret("reviewing")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
   // Marked ready again, review opens to everyone: the forge-faithful reading.
   forge.toggleDraft(PR, false);
   expect((await repo.cabaret("fetch")).stdout).toContain(
     "github.com/test-org/widgets#1 was marked ready; reviewing everyone",
   );
-  expect(await repo.cabaret("reviewing")).toEqual({ stdout: "everyone\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "everyone\n", stderr: "", exitCode: 0 });
 });
 
 test("an imported draft starts with nobody reviewing", async () => {
@@ -124,7 +124,7 @@ test("an imported draft starts with nobody reviewing", async () => {
   await repo.git("branch", "-qD", "their-feature");
   forge.openPr("carol", parseBranchName("their-feature"), parseBranchName("main"), "Their feature", true);
   await repo.cabaret("fetch");
-  expect(await repo.cabaret("reviewing", "--change", "their-feature")).toEqual({
+  expect(await repo.cabaret("reviewing", "show", "--change", "their-feature")).toEqual({
     stdout: "none\n",
     stderr: "",
     exitCode: 0,

@@ -23,13 +23,13 @@ import { forget } from "./commands/forget.js";
 import { home } from "./commands/home.js";
 import { land } from "./commands/land.js";
 import { mark } from "./commands/mark.js";
+import { owner } from "./commands/owner.js";
 import { rebase } from "./commands/rebase.js";
 import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
 import { reviewers } from "./commands/reviewers.js";
 import { reviewing, widen } from "./commands/reviewing.js";
-import { setOwner } from "./commands/set-owner.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
@@ -82,13 +82,13 @@ const routes = buildRouteMap({
     home,
     land,
     mark,
+    owner,
     rebase,
     rename,
     reparent,
     review,
     reviewers,
     reviewing,
-    "set-owner": setOwner,
     setup,
     show,
     sync,

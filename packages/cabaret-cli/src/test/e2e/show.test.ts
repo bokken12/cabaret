@@ -234,7 +234,7 @@ test("show tallies the remaining review per user", async () => {
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "policy");
   await addChange(repo, "feature");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "feature
@@ -261,7 +261,7 @@ test("show tallies the remaining review per user", async () => {
 test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   const { stdout } = await repo.cabaret("show", "gadget");
   expect(stdout).toMatchInlineSnapshot(`
@@ -318,7 +318,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
 test("show notes a stale base on its row while review stays the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.git("checkout", "-q", "main");
   await repo.write("trunk.txt", "trunk work\n");
   await repo.git("add", "-A");
@@ -453,7 +453,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
 test("show notes a tip ahead of origin's copy without changing the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.git("push", "-q", "origin", "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
@@ -487,7 +487,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
@@ -516,7 +516,7 @@ test("show notes the forge change's stale target and makes sync the step", async
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
   await repo.cabaret("reparent", "gadget", "trunk");
