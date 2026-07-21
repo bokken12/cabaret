@@ -84,11 +84,10 @@ test("a follow rule never gates the land, and stays owed after it", async () => 
     ====
 
     Changes to review:
-    ╭─────────┬────────╮
-    │ change  │ review │
-    ├─────────┼────────┤
-    │ feature │      1 │
-    ╰─────────┴────────╯
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
 
     Changes you own:
     ╭────────┬───────────╮

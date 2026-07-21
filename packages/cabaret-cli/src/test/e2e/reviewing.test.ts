@@ -36,11 +36,15 @@ test("widen steps to the next level with review to do, skipping levels that ask 
   await addChange(repo, "gadget");
   await repo.cabaret("reviewers", "add", "bob@example.com");
   // The owner has review left, so the fresh draft widens to them first.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing owner\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing owner\n", stderr: "", exitCode: 0 });
   // bob still owes the diff, so the next step is the reviewers.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing reviewers\n", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
-  expect((await repo.cabaret("widen")).stderr).toBe('everyone is already reviewing "gadget"\n');
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({
+    stdout: "reviewing reviewers\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("reviewing", "widen")).stderr).toBe('everyone is already reviewing "gadget"\n');
 });
 
 test("widen from a draft skips an owner who already read the whole diff", async () => {
@@ -49,7 +53,7 @@ test("widen from a draft skips an owner who already read the whole diff", async 
   // Self-review of a draft needs no widening: the owner is never nudged.
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   // Nobody is a reviewer either, so the first level with anything to ask is everyone.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
 });
 
 test("obligations reach a user's home only once the reviewing set includes them", async () => {
@@ -85,7 +89,7 @@ test("sync opens a draft for an unreviewing change and marks it ready when revie
   expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
   expect((await forge.getChange(PR)).draft).toBe(true);
   // Widening past none is local intent the next sync asserts on the forge.
-  await repo.cabaret("widen");
+  await repo.cabaret("reviewing", "widen");
   expect((await repo.cabaret("sync")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
   expect((await forge.getChange(PR)).draft).toBe(false);
   // Settled: syncing again moves nothing.

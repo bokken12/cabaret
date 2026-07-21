@@ -48,25 +48,24 @@ export const reviewing = buildRouteMap({
         await setReviewing(backend, this.now, change, entries, value);
       },
     }),
-  },
-});
-
-export const widen = buildCommand({
-  docs: {
-    brief: "Widen who is asked to review a change",
-    fullDescription:
-      "Widen a change's reviewing set to the next level with review to do — " +
-      "owner, reviewers, everyone — skipping levels whose users have already " +
-      "read the whole diff.",
-  },
-  parameters: {
-    positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag("widen") },
-  },
-  async func(this: LocalContext, flags: { change?: string }) {
-    const backend = await this.backend();
-    const { change, entries } = await resolveChange(backend, flags.change);
-    const { to } = await widenReviewing(backend, this.now, change, entries);
-    this.process.stdout.write(`reviewing ${to}\n`);
+    widen: buildCommand({
+      docs: {
+        brief: "Widen who is asked to review a change",
+        fullDescription:
+          "Widen a change's reviewing set to the next level with review to do — " +
+          "owner, reviewers, everyone — skipping levels whose users have already " +
+          "read the whole diff.",
+      },
+      parameters: {
+        positional: { kind: "tuple", parameters: [] },
+        flags: { change: changeFlag("widen") },
+      },
+      async func(this: LocalContext, flags: { change?: string }) {
+        const backend = await this.backend();
+        const { change, entries } = await resolveChange(backend, flags.change);
+        const { to } = await widenReviewing(backend, this.now, change, entries);
+        this.process.stdout.write(`reviewing ${to}\n`);
+      },
+    }),
   },
 });
