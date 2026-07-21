@@ -350,8 +350,13 @@ class PageProvider
   }
 }
 
+/** The canonical URI addressing `page`: one URI, one open copy of the page. */
+function pageUri(page: Page): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+}
+
 async function openPage(provider: PageProvider, page: Page): Promise<void> {
-  const uri = vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+  const uri = pageUri(page);
   // Reopening an already-open page serves the buffer as it stands, so ask for
   // a fresh render alongside.
   if (provider.doc(uri) !== undefined) {
@@ -762,8 +767,8 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
  * the file the cursor's line resolves to. The mark records the page's own
  * snapshot — a change that moved on since the render just leaves the rest
  * pending — so only a mark whose diff this window never displayed asks
- * first. From a diff page, move on to the next file left, or back to the
- * change's review page when review is done. Errors surface as
+ * first. From a diff page, move on to the next file left; marking the last
+ * file steps back out to the change's own page. Errors surface as
  * notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
@@ -841,14 +846,16 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
       return;
     }
     await result.recorded;
-    if (page.kind === "diff") {
+    if (result.next === undefined) {
+      // Review is done: fold its pages away — the one being marked and the
+      // review page a file-by-file pass leaves open — and land back on the
+      // change, whose canonical URI focuses the tab the pass started from.
       await closeTabs(editor.document.uri);
-      await openPage(
-        provider,
-        result.next === undefined
-          ? { kind: "review", change: page.change, as: page.as }
-          : { kind: "diff", change: page.change, file: result.next, as: page.as },
-      );
+      await closeTabs(pageUri({ kind: "review", change: page.change, as: page.as }));
+      await openPage(provider, { kind: "show", change: page.change, as: page.as });
+    } else if (page.kind === "diff") {
+      await closeTabs(editor.document.uri);
+      await openPage(provider, { kind: "diff", change: page.change, file: result.next, as: page.as });
     }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);

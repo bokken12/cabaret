@@ -173,9 +173,9 @@ export type MarkReviewedResult =
   /**
    * The file is being marked reviewed at the snapshot's tip. `next` is the
    * next file left in list order, wrapping past the end for files skipped
-   * earlier; undefined when review is done, where the review page takes
-   * over — what to read next changes shape there. `snapshot` has the file
-   * marked off, ready to render those pages from.
+   * earlier; undefined when review is done, where hosts step back out to
+   * the change's own page rather than an emptied review page. `snapshot`
+   * has the file marked off, ready to render those pages from.
    */
   | {
       readonly kind: "marked";
