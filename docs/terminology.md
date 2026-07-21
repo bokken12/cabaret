@@ -144,15 +144,19 @@ verbs earn their keep when direction changes whose work wins (rewrites) or
 when publication is itself a speech act; cabaret has neither — attention is
 gated by the reviewing state, and release is `land`.
 
-Decided: "sync" for the explicit per-change join (merge origin's copy,
-conflicts committed; push; reconcile the forge change both ways), and
-"fetch" for the ambient unobtrusive sweep (refresh origin readings,
-fast-forward branches losing nothing — dirty workspaces hold theirs put —
-union logs, absorb forge activity). "Fetch" is git's word with a wider
-meaning here, adopted like "origin" because the instinct it imports — gets
-remote state, never disturbs my work — is exactly right. "Merge" was
-rejected for sync: GitHub-reared users read "merge" as landing, and it
-already names a land method.
+Decided: "fetch" for the ambient sweep that runs all replication — refresh
+origin readings, push and fast-forward branch advances (dirty workspaces
+hold theirs put), commit clean joins, union logs, reconcile forge changes
+both ways — and "sync" for the one thing replication may not do on its own:
+join this change's conflicted readings now, committing the markers. "Fetch"
+is git's word with a wider meaning here, adopted like "origin" because the
+instinct it imports — gets remote state, never disturbs my work — is
+exactly right. "Merge" was rejected for sync: GitHub-reared users read
+"merge" as landing, and it already names a land method.
+
+TODO: with sync narrowed to conflicted joins, a name like "resolve" (which
+already rhymes with `conflicts`) may fit better than "sync"; revisit once
+the narrowed verb has been lived with.
 
 # Versions
 
