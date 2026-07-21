@@ -74,7 +74,7 @@ test("a follow rule never gates the land, and stays owed after it", async () => 
     rules: [{ match: "*.txt", require: { atLeast: 1, of: ["bob@example.com"] } }],
   });
   await addChange(repo, "feature");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   // bob's follow review is still outstanding, and no override is needed.
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
