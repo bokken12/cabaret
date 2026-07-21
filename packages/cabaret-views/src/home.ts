@@ -298,7 +298,7 @@ export function homeDoc(page: HomePage): Doc {
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
-    return [changeCell(summary, guide, page.as, style), stepSpan(summary.nextStep, summary.change, page.as, style)];
+    return [changeCell(summary, guide, page.as, style), stepSpan(summary, page.as, style)];
   });
   const title = page.as === undefined ? "Home" : `Home as ${page.as}`;
   return layout(

@@ -193,7 +193,7 @@ export function showDoc(page: ShowPage): Doc {
   // A trunk's log never declared anything, so only its history's rows appear.
   const attributes: [string, string | Cell][] = [];
   if (summary.kind === "change") {
-    attributes.push(["next step", stepSpan(summary.nextStep, summary.change, page.as)], ["owner", summary.owner]);
+    attributes.push(["next step", stepSpan(summary, page.as)], ["owner", summary.owner]);
     if (summary.reviewers.length > 0) {
       attributes.push(["reviewers", summary.reviewers.join(", ")]);
     }
