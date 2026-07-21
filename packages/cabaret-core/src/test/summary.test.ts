@@ -1355,6 +1355,38 @@ test("a follow rule holds nothing: the change lands, its review still owed", asy
   expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("land");
 });
 
+test("a malformed obligations file is the step to fix, for every viewer and reviewing set", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: { "2": { ".obligations": "not json" } },
+  });
+  const narrow = [...created("main", "1"), entry({ kind: "set-reviewing", reviewing: "owner" })];
+  expect((await summarize(backend, feature, narrow, alice)).nextStep).toBe("fix obligations");
+  expect((await summarize(backend, feature, narrow, bob)).nextStep).toBe("fix obligations");
+  // Even fully read under the widest set, the policy preempts the land.
+  const read = [...created("main", "1"), entry(review("a.ts", "1", "2"))];
+  expect((await summarize(backend, feature, read, alice)).nextStep).toBe("fix obligations");
+});
+
+test("a malformed parent policy blocks the land, not the child's own review", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1", widgets: "2", feature: "3" },
+    changed: { "12": ["w.ts"], "23": ["f.ts"] },
+    logs: { widgets: [...created("main", "1"), entry(review("w.ts", "1", "2"))] },
+    contents: { "2": { ".obligations": "not json" } },
+  });
+  // The broken policy cannot say what alice owes the parent, so her own
+  // reading proceeds; once the child is read, the land waits on the parent,
+  // whose own page reads fix obligations.
+  const unread = created("widgets", "2");
+  expect((await summarize(backend, feature, unread, alice)).nextStep).toBe("review");
+  const read = [...created("widgets", "2"), entry(review("f.ts", "2", "3"))];
+  expect((await summarize(backend, feature, read, alice)).nextStep).toBe("review in parent");
+});
+
 test("a forge-tracked draft widens whatever the obligations say", async () => {
   // The forge refuses to merge a draft, so marking it ready is a real step
   // even with every obligation satisfied.

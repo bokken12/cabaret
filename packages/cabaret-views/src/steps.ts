@@ -17,13 +17,14 @@ function stepAction(step: NextStep): ChangeAction | undefined {
 
 /**
  * Paint for the steps where immediate action matters most: a change ready to
- * land, or one whose conflicts block the work stacked on it.
+ * land, or one whose conflicts or unreadable policy block the work on it.
  */
 export function stepStyle(step: NextStep): Style | undefined {
   switch (step) {
     case "land":
       return "ready";
     case "fix conflicts":
+    case "fix obligations":
       return "blocked";
     default:
       return undefined;
