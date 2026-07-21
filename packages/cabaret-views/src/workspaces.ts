@@ -1,4 +1,11 @@
-import { type Backend, type ChangeName, currentArchived, landedMerge, type Workspace } from "cabaret-core";
+import {
+  type Backend,
+  type ChangeName,
+  currentArchived,
+  landedMerge,
+  type ReclaimedWorkspace,
+  type Workspace,
+} from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
 import { type Cell, table } from "./table.js";
 
@@ -40,6 +47,17 @@ export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<Chan
     }
   }
   return notes;
+}
+
+/** One line reporting a reclaim's outcome, for a host's status row. */
+export function reclaimNote(reclaimed: readonly ReclaimedWorkspace[]): string {
+  const removed = reclaimed.filter(({ outcome }) => outcome === "removed").length;
+  const kept = reclaimed.length - removed;
+  if (reclaimed.length === 0) {
+    return "nothing to reclaim";
+  }
+  const counted = `${removed} workspace${removed === 1 ? "" : "s"}`;
+  return kept === 0 ? `removed ${counted}` : `removed ${counted}, kept ${kept}`;
 }
 
 /** One workspace on the workspaces page. */

@@ -33,6 +33,7 @@ are chosen.
 | `! g`   | Go to Workspace       | home, show, review        |
 | `! w a` | Add Workspace         | home, show, review        |
 | `! w d` | Remove Workspace      | home, show, review        |
+| `! w r` | Reclaim Workspaces    | home                      |
 | `! c`   | Create Child          | all                       |
 | `! p`   | Create Parent         | all                       |
 | `F`     | Fetch Remote Activity | all                       |

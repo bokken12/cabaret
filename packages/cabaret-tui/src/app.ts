@@ -94,6 +94,8 @@ export interface Effects {
   addWorkspace(change: ChangeName): Promise<string>;
   /** Remove the change's workspace; resolves to the removed path. */
   removeWorkspace(change: ChangeName, evenThoughDirty: boolean): Promise<string>;
+  /** Remove the workspaces of landed and archived changes; resolves to a report for the status row. */
+  reclaimWorkspaces(): Promise<string>;
   create(name: ChangeName, parent: ChangeName): Promise<void>;
   /** Every change a reparent could target. */
   changes(): Promise<readonly ChangeName[]>;
@@ -646,6 +648,11 @@ export class App {
         }
         return "continue";
       }
+      case "reclaim-workspaces":
+        this.note = "reclaiming…";
+        this.repaint();
+        await this.attempt(() => this.effects.reclaimWorkspaces());
+        return "continue";
       case "create-child": {
         const parent = this.singleChange(view, "create a child of");
         if (parent !== undefined) {

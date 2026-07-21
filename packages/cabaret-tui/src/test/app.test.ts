@@ -122,6 +122,7 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
     gotoWorkspace: unavailable("workspaces"),
     addWorkspace: unavailable("workspaces"),
     removeWorkspace: unavailable("workspaces"),
+    reclaimWorkspaces: unavailable("workspaces"),
     create: unavailable("creating"),
     changes: () => Promise.resolve([widgets, gadgets, sprockets]),
     parseName: (raw) => parseBranchName(raw),
@@ -806,4 +807,17 @@ test("v selects as V does while every selection is line-wise", async () => {
   await app.open({ kind: "home" });
   await keys("j", "v", "j", "!", "r", "b");
   expect(calls).toEqual([[widgets, gadgets]]);
+});
+
+test("! w r reclaims workspaces from home and nowhere else", async () => {
+  const { app, keys, screen } = harness({
+    reclaimWorkspaces: () => Promise.resolve("removed 2 workspaces"),
+  });
+  await app.open({ kind: "home" });
+  await keys("!", "w", "r");
+  expect(screen()).toContain("removed 2 workspaces");
+  // On a show page the chord is no binding at all.
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "w", "r");
+  expect(screen()).toContain("! w r is undefined");
 });

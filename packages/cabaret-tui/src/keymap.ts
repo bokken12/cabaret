@@ -27,6 +27,7 @@ export type Command =
   | "goto-workspace"
   | "add-workspace"
   | "remove-workspace"
+  | "reclaim-workspaces"
   | "create-child"
   | "create-parent"
   | "fetch"
@@ -140,6 +141,13 @@ export const KEYMAP: readonly Binding[] = [
     label: "Remove Workspace",
     pages: ACTION_PAGES,
     counterpart: "cabaret.removeWorkspace",
+  },
+  {
+    keys: ["!", "w", "r"],
+    command: "reclaim-workspaces",
+    label: "Reclaim Workspaces",
+    pages: ["home"],
+    counterpart: "cabaret.reclaimWorkspaces",
   },
   { keys: ["!", "c"], command: "create-child", label: "Create Child", counterpart: "cabaret.createChild" },
   { keys: ["!", "p"], command: "create-parent", label: "Create Parent", counterpart: "cabaret.createParent" },
