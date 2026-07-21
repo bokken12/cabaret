@@ -557,15 +557,32 @@ function fourWayDiffNodes(
   return nodes;
 }
 
+/**
+ * The note standing in for hunks when a due file's diff renders empty — a
+ * pure move or copy, or a tree diff listing changes patdiff shows no hunks
+ * for, like a mode-only change. Marking the file reviewed is how the
+ * reviewer clears it either way.
+ */
+export function emptyDiffNote(source: FileSource | undefined): string {
+  const note =
+    source === undefined
+      ? "No differences left to read"
+      : `${source.copied ? "Copied" : "Moved"} from ${source.path} with no content changes`;
+  return `${note}; mark the file reviewed to record that.`;
+}
+
 /** One file's diff body: its hunks, or the note that nothing is left to read there. */
-function fileBodyNodes(change: ChangeName, file: FilePath, view: DiffView, context?: number): Node[] {
+function fileBodyNodes(
+  change: ChangeName,
+  file: FilePath,
+  source: FileSource | undefined,
+  view: DiffView,
+  context?: number,
+): Node[] {
   const body =
     view.kind === "two" ? twoWayDiffNodes(change, file, view, context) : fourWayDiffNodes(change, file, view, context);
   if (body.length === 0) {
-    // A due file's diff can still render empty — a tree diff lists changes
-    // patdiff shows no hunks for, like a mode-only change; marking the file
-    // reviewed is how the reviewer clears it.
-    return [{ spans: [span("No differences left to read; mark the file reviewed to record that.")] }];
+    return [{ spans: [span(emptyDiffNote(source))] }];
   }
   return body;
 }
@@ -584,7 +601,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  nodes.push(...fileBodyNodes(page.change, page.file, page.left.view, context));
+  nodes.push(...fileBodyNodes(page.change, page.file, page.left.source, page.left.view, context));
   return layout(nodes);
 }
 
@@ -667,7 +684,7 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
         }),
       ],
     };
-    nodes.push(section(heading, fileBodyNodes(page.change, file, view, context)));
+    nodes.push(section(heading, fileBodyNodes(page.change, file, source, view, context)));
   });
   return layout(nodes);
 }

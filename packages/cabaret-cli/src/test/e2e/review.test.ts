@@ -34,7 +34,7 @@ test("a moved file reviews as one entry named by both sides", async () => {
 
     notes.txt -> journal.txt in main (up to e20e72be5344)
 
-    No differences left to read; mark the file reviewed to record that.
+    Moved from notes.txt with no content changes; mark the file reviewed to record that.
 
     Record review of what you have read:
       cabaret mark --tip e20e72be5344 journal.txt
@@ -68,7 +68,7 @@ test("an exact copy still reviews as an entry, with nothing left to read", async
 
     charter.txt => bylaws.txt in main (up to 621fe81034fb)
 
-    No differences left to read; mark the file reviewed to record that.
+    Copied from charter.txt with no content changes; mark the file reviewed to record that.
 
     charter.txt in main (up to 621fe81034fb)
 

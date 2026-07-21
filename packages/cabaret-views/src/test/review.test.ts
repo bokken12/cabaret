@@ -174,7 +174,7 @@ test("diffDoc titles a moved file by both sides, a pure move showing no hunks", 
   expect(docText(doc)).toMatchInlineSnapshot(`
     "old/api.ts -> api.ts in widgets (up to 333333333333)
 
-    No differences left to read; mark the file reviewed to record that."
+    Moved from old/api.ts with no content changes; mark the file reviewed to record that."
   `);
 });
 
@@ -889,7 +889,7 @@ test("diffsDoc renders every file left under its own bar", () => {
     new
 
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ old.cfg -> moved.cfg @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    No differences left to read; mark the file reviewed to record that."
+    Moved from old.cfg with no content changes; mark the file reviewed to record that."
   `);
   // Each file folds down to its bar, each hunk to its header.
   expect(doc.folds).toEqual([
