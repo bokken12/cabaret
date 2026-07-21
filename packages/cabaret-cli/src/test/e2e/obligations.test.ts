@@ -149,3 +149,98 @@ test("a malformed obligations file blocks landing with a diagnostic", async () =
     exitCode: 1,
   });
 });
+
+test("a malformed obligations file reads as the owner's step to fix, asking nobody", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "feature");
+  await repo.write(".obligations", "not json\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "broken policy");
+  await repo.cabaret("reviewing", "set", "everyone");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "feature
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ fix obligations   │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 6387c555e933      │
+    │ base      │ 1ac0b33426d0      │
+    │ workspace │ .                 │
+    ╰───────────┴───────────────────╯
+
+    Files to review:
+      .obligations
+      feature.txt
+    "
+  `);
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭─────────┬─────────────────╮
+    │ change  │ next step       │
+    ├─────────┼─────────────────┤
+    │ feature │ fix obligations │
+    ╰─────────┴─────────────────╯
+
+    Workspaces on this device:
+    ╭─────────┬──────╮
+    │ change  │ note │
+    ├─────────┼──────┤
+    │ feature │      │
+    ╰─────────┴──────╯
+    "
+  `);
+  // Not the owner's problem to anyone else: bob is asked nothing, and no
+  // error reaches his pages.
+  await repo.git("config", "user.email", "bob@example.com");
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭─────────┬──────╮
+    │ change  │ note │
+    ├─────────┼──────┤
+    │ feature │      │
+    ╰─────────┴──────╯
+    "
+  `);
+});
+
+test("fixing a malformed obligations file needs no sign-off from the unreadable version", async () => {
+  const repo = await makeRepo();
+  await repo.write(".obligations", "not json\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "broken policy");
+  await repo.cabaret("create", "mend");
+  await repo.git("checkout", "-q", "mend");
+  await repo.write(".obligations", `${JSON.stringify({ rules: [] })}\n`);
+  await repo.git("commit", "-qam", "mend policy");
+  await repo.cabaret("mark", "--tip", "HEAD", ".obligations");
+  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});

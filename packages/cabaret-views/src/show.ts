@@ -11,7 +11,7 @@ import {
   forgeChangeUrl,
   isSatisfied,
   type LandMerge,
-  obligationStatuses,
+  obligationsReading,
   type ReviewerTally,
   reviewerTallies,
   selfAs,
@@ -64,13 +64,15 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
   // A landed change has no review to demand, whatever state it landed in;
-  // an archived one asks nothing while set aside.
-  const remaining =
-    summary.landed === undefined && !summary.archived
-      ? reviewerTallies(
-          (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
-        )
-      : [];
+  // an archived one asks nothing while set aside; a malformed policy tallies
+  // nobody — the next step row already says whose fix it awaits.
+  let remaining: readonly ReviewerTally[] = [];
+  if (summary.landed === undefined && !summary.archived) {
+    const reading = await obligationsReading(backend, entries, summary.owner, diff);
+    if (reading.kind === "read") {
+      remaining = reviewerTallies(reading.statuses.filter((status) => !isSatisfied(status)));
+    }
+  }
   return {
     summary,
     as: acting.as,

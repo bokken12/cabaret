@@ -10,6 +10,7 @@ import {
   isSatisfied,
   type LogEntry,
   landBlockers,
+  MalformedObligationsError,
   type ObligationStatus,
   obligationStatuses,
   parseBranchName,
@@ -290,9 +291,23 @@ test("a brand-new obligations file answers only to the tip tree", async () => {
 
 test("a malformed obligations file is a user error naming the file", async () => {
   const backend = repoBackend({ trees: { "1": { ".obligations": "not json" } } });
-  await expect(changeObligations(backend, fake("0"), fake("1"), paths(["a.rs"]))).rejects.toThrow(
-    'malformed obligations file ".obligations" at 111111111111',
-  );
+  const failing = changeObligations(backend, fake("0"), fake("1"), paths(["a.rs"]));
+  await expect(failing).rejects.toThrow(MalformedObligationsError);
+  await expect(failing).rejects.toThrow('malformed obligations file ".obligations" at 111111111111');
+});
+
+test("a malformed base version states no requirements for its replacement", async () => {
+  const backend = repoBackend({
+    trees: {
+      "0": { ".obligations": "not json" },
+      "1": { ".obligations": policyText([rule("**", 1, alice)]) },
+    },
+  });
+  // Only the tip tree's governing rules apply: the unreadable version could
+  // demand nothing, so the change fixing it can land.
+  expect(await changeObligations(backend, fake("0"), fake("1"), paths([".obligations"]))).toEqual([
+    { file: ".obligations", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
+  ]);
 });
 
 function review(user: UserName, file: string, base: string, tip: string): LogEntry {
@@ -466,6 +481,17 @@ test("landBlockers keeps only unsatisfied blocking obligations", () => {
   });
   const blocked = status("blocking", []);
   expect(landBlockers([status("blocking", [bob]), blocked, status("follow", [])])).toEqual([blocked]);
+});
+
+test("reviewOwed asks nobody while the policy is malformed, the owner included", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["a.rs"] },
+    trees: { "1": { ".obligations": "not json" } },
+  });
+  const diff = await diffOf(backend, "0", "1");
+  expect(await reviewOwed(backend, [], alice, soleUser(alice), diff)).toEqual([]);
+  expect(await reviewOwed(backend, [], alice, soleUser(bob), diff)).toEqual([]);
 });
 
 test("reviewOwed lists follow and blocking review alike: both await the user", async () => {
