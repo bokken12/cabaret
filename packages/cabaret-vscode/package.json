@@ -122,6 +122,16 @@
           "highContrast": "#f85149",
           "highContrastLight": "#cf222e"
         }
+      },
+      {
+        "id": "cabaret.nudgeForeground",
+        "description": "Text of a status inviting unhurried action, like the reclaimable workspace of a landed change",
+        "defaults": {
+          "dark": "#d29922",
+          "light": "#9a6700",
+          "highContrast": "#d29922",
+          "highContrastLight": "#9a6700"
+        }
       }
     ],
     "commands": [

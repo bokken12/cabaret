@@ -21,7 +21,7 @@ import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
 import { stepSpan, stepStyle } from "./steps.js";
-import { type Cell, type Column, table, tableParts } from "./table.js";
+import { type Cell, type Column, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
@@ -69,18 +69,27 @@ export interface HomePage {
    */
   readonly broken: readonly BrokenChange[];
   /**
-   * Every workspace on this device with a name checked out, change or not,
-   * in workspace order (the primary working tree first). This is where a
-   * workspace whose change has landed gets noticed — and reclaimed.
+   * The names checked out in workspaces on this device, each change situated
+   * in its stack: ancestors without workspaces of their own ride along for
+   * context. Checked-out names no change log speaks for — a trunk like main —
+   * lead flat, in workspace order (the primary working tree first). This is
+   * where a workspace whose change has landed gets noticed — and reclaimed.
    */
-  readonly workspaces: readonly WorkspaceEntry[];
+  readonly workspaces: readonly WorkspaceNode[];
   /** When this clone last fetched from origin, when known. */
   readonly fetched: TimestampMs | undefined;
 }
 
-/** A checked-out name — not necessarily a change — and the workspace holding it on this device. */
-export interface WorkspaceEntry {
+/** A change in the workspace forest: checked out on this device, or an ancestor kept to situate one. */
+export interface WorkspaceNode {
   readonly change: ChangeName;
+  /** The workspace holding the change; absent on an ancestor kept only for context. */
+  readonly held: HeldWorkspace | undefined;
+  readonly children: readonly WorkspaceNode[];
+}
+
+/** A workspace and what its change's log says of its usefulness. */
+export interface HeldWorkspace {
   readonly workspace: WorkspaceNote;
   /** Whether the change has landed, leaving the workspace ready to remove. */
   readonly landed: boolean;
@@ -185,23 +194,28 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
       return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
   const forest = changeForest(parents);
-  const entries = [...workspaces].map(([change, workspace]): WorkspaceEntry => {
-    // Every workspace shows, even one on a branch that is no change — its
-    // name still opens a page — with the log-borne notes blank.
-    const found = summaries.get(change);
-    return {
-      change,
-      workspace,
-      landed: found !== undefined && found.landed !== undefined,
-      archived: found?.archived ?? false,
-    };
-  });
+  const pruneWorkspaces = (nodes: readonly ChangeNode[]): WorkspaceNode[] =>
+    nodes.flatMap((node) => {
+      const children = pruneWorkspaces(node.children);
+      const workspace = workspaces.get(node.change);
+      const candidate = summary(node.change);
+      const held =
+        workspace === undefined
+          ? undefined
+          : { workspace, landed: candidate.landed !== undefined, archived: candidate.archived };
+      return held !== undefined || children.length > 0 ? [{ change: node.change, held, children }] : [];
+    });
+  // A workspace on a branch that is no change still shows — its name still
+  // opens a page — flat, with the log-borne notes blank.
+  const loose = [...workspaces].flatMap(([change, workspace]): WorkspaceNode[] =>
+    summaries.has(change) ? [] : [{ change, held: { workspace, landed: false, archived: false }, children: [] }],
+  );
   return {
     as: acting.as,
     review: pruneReview(forest),
     owned: pruneOwned(forest),
     broken,
-    workspaces: entries,
+    workspaces: [...loose, ...pruneWorkspaces(forest)],
     fetched: await backend.originFetched(),
   };
 }
@@ -269,25 +283,36 @@ function forestSection<N extends { readonly children: readonly N[] }>(
   return section({ spans: [span(title, { style: "heading" })] }, [...head, ...treeNodes(forest, rows), foot]);
 }
 
-/** The workspaces section: one row per change checked out on this device. */
-function workspacesSection(entries: readonly WorkspaceEntry[], as: UserName | undefined): Node {
-  const rows = entries.map(({ change, workspace, landed, archived }): readonly Cell[] => [
-    span(change, { target: { kind: "change", change, as } }),
-    span(
-      [...(workspace.dirty ? ["dirty"] : []), ...(landed ? ["landed"] : []), ...(archived ? ["archived"] : [])].join(
-        ", ",
-      ),
-    ),
-  ]);
-  return section(
-    { spans: [span("Workspaces on this device:", { style: "heading" })] },
-    table(
-      [
-        { header: "change", align: "left" },
-        { header: "note", align: "left" },
-      ],
-      rows,
-    ),
+/**
+ * The workspaces section: a row per change checked out on this device, in its
+ * stack. An ancestor kept only to situate dims; a landed or archived note
+ * wears nudge paint, inviting the workspace's reclaiming.
+ */
+function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined): Node {
+  const rows = treeRows(forest).map(({ node: { change, held }, guide }): readonly Cell[] => {
+    const style = held === undefined ? "context" : undefined;
+    const name = span(change, { style, target: { kind: "change", change, as } });
+    const notes =
+      held === undefined
+        ? []
+        : [
+            ...(held.workspace.dirty ? ["dirty"] : []),
+            ...(held.landed ? ["landed"] : []),
+            ...(held.archived ? ["archived"] : []),
+          ];
+    return [
+      guide === "" ? name : [span(guide, { style }), name],
+      span(notes.join(", "), { style: held !== undefined && (held.landed || held.archived) ? "nudge" : undefined }),
+    ];
+  });
+  return forestSection(
+    "Workspaces on this device:",
+    forest,
+    [
+      { header: "change", align: "left" },
+      { header: "note", align: "left" },
+    ],
+    rows,
   );
 }
 

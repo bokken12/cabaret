@@ -170,9 +170,15 @@ test("homeDoc with nothing to do keeps both sections, empty", () => {
   `);
 });
 
-test("homeDoc lists the changes checked out on this device in their own section", () => {
+test("homeDoc lists the changes checked out on this device in their stacks", () => {
   const gadget = summary("gadget", { reviewLeft: left("gadget.ts") });
-  const relic = summary("relic", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
+  const widgets = summary("widgets", {});
+  const relic = summary("relic", {
+    parent: parseBranchName("widgets"),
+    landed: fake("5"),
+    nextStep: "landed",
+    tip: fake("3"),
+  });
   const doc = homeDoc({
     as: undefined,
     review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
@@ -181,15 +187,23 @@ test("homeDoc lists the changes checked out on this device in their own section"
     workspaces: [
       {
         change: gadget.change,
-        workspace: { path: "/src/widgets", display: ".", dirty: false },
-        landed: false,
-        archived: false,
+        held: { workspace: { path: "/src/widgets", display: ".", dirty: false }, landed: false, archived: false },
+        children: [],
       },
       {
-        change: relic.change,
-        workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
-        landed: true,
-        archived: false,
+        change: widgets.change,
+        held: undefined,
+        children: [
+          {
+            change: relic.change,
+            held: {
+              workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
+              landed: true,
+              archived: false,
+            },
+            children: [],
+          },
+        ],
       },
     ],
     fetched: undefined,
@@ -213,15 +227,19 @@ test("homeDoc lists the changes checked out on this device in their own section"
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────────╮
-    │ change │ note          │
-    ├────────┼───────────────┤
-    │ gadget │               │
-    │ relic  │ dirty, landed │
-    ╰────────┴───────────────╯"
+    ╭──────────┬───────────────╮
+    │ change   │ note          │
+    ├──────────┼───────────────┤
+    │ gadget   │               │
+    │ widgets  │               │
+    │ └─ relic │ dirty, landed │
+    ╰──────────┴───────────────╯"
   `);
-  // The section folds like the others.
-  expect(foldTexts(doc).at(-1)).toEqual(["Workspaces on this device:", "╰────────┴───────────────╯"]);
+  // The section folds like the others, and so does widgets' subtree.
+  expect(foldTexts(doc).slice(-2)).toEqual([
+    ["Workspaces on this device:", "╰──────────┴───────────────╯"],
+    ["│ widgets  │               │", "│ └─ relic │ dirty, landed │"],
+  ]);
   // The change links to its page; the workspace's directory stays off this
   // table, left to the workspaces page.
   const line = docText(doc)
@@ -229,6 +247,16 @@ test("homeDoc lists the changes checked out on this device in their own section"
     .findIndex((text) => text.includes("relic"));
   expect(doc.lines[line]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
     { kind: "change", change: "relic" },
+  ]);
+  // An ancestor kept only to situate relic dims; a landed note wears nudge
+  // paint, inviting the workspace's reclaiming.
+  const styled = (row: string) =>
+    doc.lines[docText(doc).split("\n").indexOf(row)]?.spans.filter(({ style }) => style !== undefined);
+  expect(styled("│ widgets  │               │")).toEqual([
+    { text: "widgets", style: "context", target: { kind: "change", change: "widgets" }, tier: "link" },
+  ]);
+  expect(styled("│ └─ relic │ dirty, landed │")).toEqual([
+    { text: "dirty, landed", style: "nudge", target: undefined, tier: undefined },
   ]);
 });
 
