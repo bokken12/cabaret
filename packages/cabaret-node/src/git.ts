@@ -70,6 +70,33 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
   }
 }
 
+/**
+ * A ref update losing its compare-and-swap to a concurrent process: the ref
+ * "is at" the winner's value where git "expected" the one it first read. The
+ * losing update aborts atomically, touching nothing.
+ */
+const REF_RACE = /cannot lock ref '[^']+': is at [0-9a-f]+ but expected [0-9a-f]+/;
+
+/**
+ * Run a fetch, given as full git arguments, retrying when it loses a ref
+ * update race to a concurrent fetch of the same refs. A rerun recomputes
+ * every update from the winner's value, so retrying is always sound — and
+ * usually a no-op, the winner having installed the same values. Bounded so
+ * sustained contention still surfaces.
+ */
+async function fetchRetryingRaces(root: string, args: readonly string[]): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await git(root, args);
+      return;
+    } catch (error) {
+      if (attempt >= 2 || !REF_RACE.test((error as Error).message)) {
+        throw error;
+      }
+    }
+  }
+}
+
 /** A response to one object query: the resolved object, with contents when asked for. */
 interface ObjectResponse {
   readonly oid: string;
@@ -507,9 +534,14 @@ export class GitBackend implements Backend {
     // an unrelated-history log commit as the merge candidate.
     const home = (await this.branchHomes()).get(branch);
     if (home === undefined) {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+      await fetchRetryingRaces(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
     } else {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+      await fetchRetryingRaces(this.root, [
+        "fetch",
+        "--quiet",
+        "origin",
+        `refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
       await git(home, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
     }
   }
@@ -518,7 +550,13 @@ export class GitBackend implements Backend {
     // One fetch brings branches and logs alike. The log refspec goes in as
     // config because a command-line refspec would replace the configured
     // ones; `-c` adds a value to the multi-valued key instead.
-    await git(this.root, ["-c", `remote.origin.fetch=${LOG_FETCH_REFSPEC}`, "fetch", "--quiet", "origin"]);
+    await fetchRetryingRaces(this.root, [
+      "-c",
+      `remote.origin.fetch=${LOG_FETCH_REFSPEC}`,
+      "fetch",
+      "--quiet",
+      "origin",
+    ]);
   }
 
   async originFetched(): Promise<TimestampMs | undefined> {
@@ -668,7 +706,7 @@ export class GitBackend implements Backend {
 
   /** Fetch every log on `origin` into the remote-log namespace. */
   private async fetchLogs(): Promise<void> {
-    await git(this.root, ["fetch", "--quiet", "origin", LOG_FETCH_REFSPEC]);
+    await fetchRetryingRaces(this.root, ["fetch", "--quiet", "origin", LOG_FETCH_REFSPEC]);
   }
 
   /**
