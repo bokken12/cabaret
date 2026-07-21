@@ -77,7 +77,7 @@ test("review-all marks every owed file, then finds nothing owed", async () => {
   });
 });
 
-test("review-all marks as each identity, so an alias's demands clear too", async () => {
+test("review-all marks as your writing identity alone; --for marks as another", async () => {
   const repo = await makeRepo();
   await repo.git("config", "cabaret.alias", "agent@example.com");
   await addChange(repo, "widgets");
@@ -85,21 +85,29 @@ test("review-all marks as each identity, so an alias's demands clear too", async
   await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "policy");
-  await repo.cabaret("reviewing", "set", "owner");
+  await repo.cabaret("reviewing", "set", "everyone");
 
   expect(await repo.cabaret("dev", "review-all")).toEqual({
     stdout: "widgets: marked 2 files\n",
     stderr: "",
     exitCode: 0,
   });
-  // The owner's mark covers both files; the demand naming only the alias
-  // needs the alias's own entry.
+  // The owner's marks cannot satisfy the demand naming only the alias, so
+  // the file stays owed — to the alias, not to another default run.
+  expect(await repo.cabaret("dev", "review-all")).toEqual({
+    stdout: "nothing owed\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("dev", "review-all", "--for", "agent@example.com")).toEqual({
+    stdout: "widgets: marked 1 file\n",
+    stderr: "",
+    exitCode: 0,
+  });
   const { stdout } = await repo.cabaret("dev", "log", "widgets");
-  expect(stdout).toContain('"user":"alice@example.com","action":{"kind":"review","file":".obligations"');
-  expect(stdout).toContain('"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt"');
   expect(stdout).toContain('"user":"agent@example.com","action":{"kind":"review","file":"widgets.txt"');
   expect(stdout).not.toContain('"user":"agent@example.com","action":{"kind":"review","file":".obligations"');
-  expect(await repo.cabaret("dev", "review-all")).toEqual({
+  expect(await repo.cabaret("dev", "review-all", "--for", "agent@example.com")).toEqual({
     stdout: "nothing owed\n",
     stderr: "",
     exitCode: 0,
