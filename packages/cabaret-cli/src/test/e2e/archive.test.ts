@@ -188,5 +188,5 @@ test("sync opens no forge change for an archived change", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await forge.fetchOpenChanges()).toEqual([]);
+  expect((await forge.fetchChanges(undefined)).changes).toEqual([]);
 });

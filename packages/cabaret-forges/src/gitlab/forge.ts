@@ -4,17 +4,19 @@ import {
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
+  type ForgeCursor,
   type ForgeLocator,
   type ForgeMerge,
+  type ForgeSweep,
   forgeAccount,
   forgeChangeId,
   type LandMethod,
-  type OpenChange,
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
   type Revision,
   type Self,
+  type SweptChange,
   timestampMs,
   UserError,
   type UserName,
@@ -294,7 +296,7 @@ export class GitLabForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private async toOpenChange(mr: z.infer<typeof OpenMrSchema>): Promise<OpenChange> {
+  private async toSweptChange(mr: z.infer<typeof OpenMrSchema>): Promise<SweptChange> {
     const comments = mr.notes.nodes
       .filter((note) => !note.system)
       .map((note) => {
@@ -316,16 +318,16 @@ export class GitLabForge implements Forge {
     return { change: await this.toChange(mr), comments, commentsTruncated: mr.notes.pageInfo.hasNextPage };
   }
 
-  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
-    const changes: Promise<OpenChange>[] = [];
+  async fetchChanges(_since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    const changes: Promise<SweptChange>[] = [];
     let cursor: string | null = null;
     do {
       const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, cursor });
       const { nodes, pageInfo } = this.requireProject(FetchOpenChangesSchema.parse(out).project).mergeRequests;
-      changes.push(...nodes.map(this.toOpenChange, this));
+      changes.push(...nodes.map(this.toSweptChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return Promise.all(changes);
+    return { coverage: "open", changes: await Promise.all(changes), cursor: undefined };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {

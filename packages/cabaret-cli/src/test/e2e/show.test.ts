@@ -106,7 +106,7 @@ test("show renders an imported change like any other", async () => {
       github:carol: 1 file
 
     Comments:
-      2025-06-15T15:06:40.000Z github:carol
+      2025-06-15T15:06:40.001Z github:carol
         please take a look
 
     Files to review:

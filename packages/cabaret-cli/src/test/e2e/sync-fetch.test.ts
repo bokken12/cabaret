@@ -81,12 +81,10 @@ test("fetch imports comments under forge identities, and again is a no-op", asyn
     exitCode: 0,
   });
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-06-15T15:06:40.000Z github:carol\n    does this handle empty diffs?\n",
+    "Comments:\n  2025-06-15T15:06:40.001Z github:carol\n    does this handle empty diffs?\n",
   );
   expect(await repo.cabaret("fetch")).toEqual({
-    stdout:
-      "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+    stdout: "fetched github.com/test-org/widgets: 0 updated forge changes\n",
     stderr: "",
     exitCode: 0,
   });
@@ -102,10 +100,10 @@ test("fetch imports a forge-side edit as a new version, displayed once", async (
   forge.edit(PR, commentId, "looks wrong (never mind)");
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "fetched 1 comment from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-06-15T15:06:40.001Z github:carol\n    looks wrong (never mind)\n",
+    "Comments:\n  2025-06-15T15:06:40.004Z github:carol\n    looks wrong (never mind)\n",
   );
 });
 
@@ -147,7 +145,7 @@ test("fetch records a merged forge change as landing the change, once", async ()
   });
   expect((await repo.cabaret("dev", "log")).stdout).toContain(`"action":{"kind":"land","merge":"${merge}"}`);
   // The landed change is done: the next sweep passes it by.
-  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 open forge changes\n");
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
 test("fetch records a squash-merged forge change with the tip that merged", async () => {
@@ -243,7 +241,7 @@ test("fetch turns a teammate's forge change into a change to review", async () =
   await expect(repo.git("rev-parse", "--verify", "refs/heads/their-feature")).rejects.toThrow();
   expect(await repo.git("rev-parse", "refs/remotes/origin/their-feature")).toBe(theirTip);
   expect(await shownComments(repo, "their-feature")).toBe(
-    "Comments:\n  2025-06-15T15:06:40.000Z github:carol\n    please take a look\n",
+    "Comments:\n  2025-06-15T15:06:40.001Z github:carol\n    please take a look\n",
   );
   const log = (await repo.cabaret("dev", "log", "their-feature")).stdout;
   expect(log).toContain(
@@ -254,10 +252,7 @@ test("fetch turns a teammate's forge change into a change to review", async () =
   // The import published: origin holds the log, and fetching again refreshes
   // the change rather than re-importing it.
   expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).not.toBe("");
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
-  );
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
 test("fetch adopts the forge change of an existing local branch without fetching it", async () => {
@@ -304,6 +299,35 @@ test("a second machine's fetch adopts the published import instead of re-importi
   expect(await clone.cabaret("dev", "log", "their-feature")).toEqual(await repo.cabaret("dev", "log", "their-feature"));
 });
 
+test("a since sweep never asks the forge change by change", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  expect(await repo.git("config", "cabaret.forge-cursor")).toMatch(/^github\.com\/test-org\/widgets /);
+  // An untouched tracked change is passed by entirely — no per-change reads.
+  forge.getChange = async () => {
+    throw new Error("a since sweep must not fetch changes one by one");
+  };
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
+});
+
+test("a cursor from another forge does not resume the sweep", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  // A repointed origin leaves a stranger's cursor behind; the sweep starts
+  // over from the open set rather than resuming it.
+  await repo.git("config", "cabaret.forge-cursor", "example.com/other/repo 9999999999999");
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  );
+});
+
 test("fetch records the account's public email as an alias too, once", async () => {
   const forge = new FakeForge();
   forge.tokenEmail = "alice@work.example.com";
@@ -316,10 +340,7 @@ test("fetch records the account's public email as an alias too, once", async () 
       "fetched 0 comments from github.com/test-org/widgets#1\n" +
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
-  );
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
 test("fetch does not record a public email that is already you", async () => {
@@ -372,7 +393,7 @@ test("fetch prunes the change of a closed forge change when nobody engaged with 
   expect(await repo.cabaret("fetch")).toEqual({
     stdout:
       'github.com/test-org/widgets#1 was closed; removed unreviewed change "their-feature"\n' +
-      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
     stderr: "",
     exitCode: 0,
   });
@@ -390,7 +411,7 @@ test("fetch archives the change of a closed forge change once someone engaged wi
   forge.close(id);
   expect((await repo.cabaret("fetch")).stdout).toBe(
     'github.com/test-org/widgets#1 was closed; archived "their-feature"\n' +
-      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   const log = (await repo.cabaret("dev", "log", "their-feature")).stdout;
   expect(log).toContain('"kind":"review"');
@@ -398,7 +419,7 @@ test("fetch archives the change of a closed forge change once someone engaged wi
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
   );
   // The close was observed once; fetching again re-mirrors nothing.
-  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 open forge changes\n");
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
 test("fetch unarchives the change of a reopened forge change", async () => {
@@ -414,7 +435,7 @@ test("fetch unarchives the change of a reopened forge change", async () => {
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "github.com/test-org/widgets#1 was reopened; unarchived the change\n" +
       "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   expect((await repo.cabaret("dev", "log", "their-feature")).stdout).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":false}',
@@ -439,10 +460,7 @@ test("fetch mirrors a forge-side retarget into the change", async () => {
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"develop"}',
   );
   // The retarget was observed once; fetching again re-mirrors nothing.
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
-  );
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
 test("fetch leaves an unpushed local reparent alone", async () => {

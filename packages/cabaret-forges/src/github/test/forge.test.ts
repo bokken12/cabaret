@@ -289,7 +289,7 @@ describe("GitHubForge", () => {
     expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
-  test("fetchOpenChanges follows the pagination cursor, carrying comments and their cap", async () => {
+  test("fetchChanges follows the pagination cursor, carrying comments and their cap", async () => {
     const calls = stubGitHub({
       [GRAPHQL]: [
         {
@@ -373,60 +373,64 @@ describe("GitHubForge", () => {
         },
       ],
     });
-    expect(await forge().fetchOpenChanges()).toEqual([
-      {
-        change: {
-          id: 4,
-          head: "first",
-          tip: "123456789abcdef0123456789abcdef012345678",
-          parent: "main",
-          title: "First",
-          author: "github:alice",
-          state: "open",
-          draft: false,
-          reviewers: ["github:bob"],
-        },
-        comments: [
-          {
-            id: "101",
-            author: "github:bob",
-            body: "please take a look",
-            updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+    expect(await forge().fetchChanges(undefined)).toEqual({
+      coverage: "open",
+      cursor: undefined,
+      changes: [
+        {
+          change: {
+            id: 4,
+            head: "first",
+            tip: "123456789abcdef0123456789abcdef012345678",
+            parent: "main",
+            title: "First",
+            author: "github:alice",
+            state: "open",
+            draft: false,
+            reviewers: ["github:bob"],
           },
-        ],
-        commentsTruncated: false,
-      },
-      {
-        change: {
-          id: 5,
-          head: "second",
-          tip: "23456789abcdef0123456789abcdef0123456789",
-          parent: "first",
-          title: "Second",
-          author: "github:bob",
-          state: "open",
-          draft: false,
-          reviewers: [],
+          comments: [
+            {
+              id: "101",
+              author: "github:bob",
+              body: "please take a look",
+              updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+            },
+          ],
+          commentsTruncated: false,
         },
-        comments: [],
-        commentsTruncated: false,
-      },
-      {
-        change: {
-          id: 6,
-          head: "third",
-          tip: "3456789abcdef0123456789abcdef0123456789a",
-          parent: "main",
-          title: "Third",
-          author: "github:alice",
-          state: "open",
-          draft: false,
-          reviewers: [],
+        {
+          change: {
+            id: 5,
+            head: "second",
+            tip: "23456789abcdef0123456789abcdef0123456789",
+            parent: "first",
+            title: "Second",
+            author: "github:bob",
+            state: "open",
+            draft: false,
+            reviewers: [],
+          },
+          comments: [],
+          commentsTruncated: false,
         },
-        comments: [],
-        commentsTruncated: true,
-      },
-    ]);
+        {
+          change: {
+            id: 6,
+            head: "third",
+            tip: "3456789abcdef0123456789abcdef0123456789a",
+            parent: "main",
+            title: "Third",
+            author: "github:alice",
+            state: "open",
+            draft: false,
+            reviewers: [],
+          },
+          comments: [],
+          commentsTruncated: true,
+        },
+      ],
+    });
     expect(graphqlVariables(calls)).toEqual([
       { owner: "test-org", repo: "widgets", cursor: null },
       { owner: "test-org", repo: "widgets", cursor: "CUR1" },

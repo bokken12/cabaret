@@ -337,7 +337,7 @@ describe("ForgejoForge", () => {
     expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
-  test("fetchOpenChanges pages past a full page, carrying each PR's whole discussion", async () => {
+  test("fetchChanges pages past a full page, carrying each PR's whole discussion", async () => {
     const routes: Record<string, Route> = {
       [`GET ${REPO}/pulls?state=open&limit=50&page=1`]: {
         json: Array.from({ length: 50 }, (_, i) => openPr(i + 1, `branch-${i + 1}`)),
@@ -352,7 +352,7 @@ describe("ForgejoForge", () => {
       json: [{ id: 301, user: { login: "bob" }, body: "looks good", updated_at: "2026-05-01T00:00:00Z" }],
     };
     stubForgejo(routes);
-    const changes = await forge().fetchOpenChanges();
+    const { changes } = await forge().fetchChanges(undefined);
     expect(changes.map(({ change }) => change.id)).toEqual(Array.from({ length: 51 }, (_, i) => i + 1));
     expect(changes[2]).toEqual({
       change: {

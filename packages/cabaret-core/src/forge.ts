@@ -1,3 +1,4 @@
+import type { Branded } from "cabaret-util";
 import {
   type Backend,
   type ChangeName,
@@ -48,13 +49,42 @@ declare class TextEncoder {
   encode(input: string): Uint8Array;
 }
 
-/** An open forge change with what importing it needs, as one bulk sweep carries it. */
-export interface OpenChange {
+/** A forge change with what absorbing it needs, as one bulk sweep carries it. */
+export interface SweptChange {
   readonly change: ForgeChange;
   /** The change-level comments, oldest first; may be capped at the first hundred or so. */
   readonly comments: readonly ForgeComment[];
   /** Whether `comments` was capped; full readers fall back to `listComments`. */
   readonly commentsTruncated: boolean;
+}
+
+/**
+ * Where a sweep's reading of the forge ends, so the next can resume there.
+ * Opaque outside the adapter that minted it, and overlapping by design:
+ * absorption is idempotent, so a cursor claims a little less than its sweep
+ * read.
+ */
+export type ForgeCursor = Branded<string, "ForgeCursor">;
+
+export function forgeCursor(raw: string): ForgeCursor {
+  if (raw === "") {
+    throw new Error("forge cursor must be nonempty");
+  }
+  return raw as ForgeCursor;
+}
+
+/** What one `fetchChanges` sweep saw. */
+export interface ForgeSweep {
+  /**
+   * What absence from `changes` means: an "open" sweep carried every open
+   * change, so an absent tracked change merged or closed; a "since" sweep
+   * carried everything the forge touched after its cursor, closed and merged
+   * changes included, so an absent change is untouched.
+   */
+  readonly coverage: "open" | "since";
+  readonly changes: readonly SweptChange[];
+  /** Resumes the next sweep; undefined when this one saw nothing to mint from. */
+  readonly cursor: ForgeCursor | undefined;
 }
 
 /**
@@ -75,12 +105,15 @@ export interface Forge {
   currentSelf(): Promise<Self>;
 
   /**
-   * Every open change with its comments, in no particular order. Taken in one
-   * sweep so a fetch costs a handful of API calls however many changes are
-   * open; in return each change's comments may be capped, which
-   * `commentsTruncated` reports.
+   * A sweep of the forge's changes with their comments, in no particular
+   * order. Given the cursor a prior sweep minted, an adapter may cover just
+   * what the forge touched since; without one, or when it cannot resume, it
+   * covers every open change. Either way the sweep is taken in bulk, so a
+   * fetch costs a handful of API calls however many changes it carries; in
+   * return each change's comments may be capped, which `commentsTruncated`
+   * reports.
    */
-  fetchOpenChanges(): Promise<readonly OpenChange[]>;
+  fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep>;
 
   /** The open change with head `branch`, or undefined if there is none. */
   findChange(branch: ChangeName): Promise<ForgeChange | undefined>;
@@ -800,15 +833,32 @@ function pureImport(entries: readonly LogEntry[]): boolean {
 }
 
 /**
+ * The config key holding the fetch cursor, prefixed with the locator it reads
+ * from so a repointed origin discards it rather than resuming a stranger's.
+ */
+const CURSOR_KEY = "cabaret.forge-cursor";
+
+async function storedCursor(backend: Backend, locator: ForgeLocator): Promise<ForgeCursor | undefined> {
+  const raw = await backend.config(CURSOR_KEY);
+  const space = raw?.indexOf(" ") ?? -1;
+  if (raw === undefined || space === -1 || raw.slice(0, space) !== locator) {
+    return undefined;
+  }
+  return forgeCursor(raw.slice(space + 1));
+}
+
+/**
  * Fetch everything remote, forge included: refresh origin's copies,
  * fast-forward branches whose moves lose nothing (as `advanceBranches`),
- * merge every change's log with origin's, then absorb the forge wholesale —
- * import every open forge change that has no log yet as a change to review
+ * merge every change's log with origin's, then absorb the forge's sweep —
+ * import each open forge change that has no log yet as a change to review
  * (owned by its author, parented on its target branch, its discussion
- * imported), refresh every tracked change (as `absorbForgeChange`), mirror
- * closed forge changes in as archived, and prune changes whose forge change
- * closed before anyone engaged with them. Returns how many forge changes
- * are open.
+ * imported), refresh every tracked change the sweep touched (as
+ * `absorbForgeChange`), mirror closed forge changes in as archived, and
+ * prune changes whose forge change closed before anyone engaged with them.
+ * Sweeps resume from a per-repository cursor when the adapter mints one, so
+ * a quiet forge costs one sweep that carries nothing. Returns what the
+ * sweep covered and how many changes it carried.
  *
  * The account the forge's credentials authenticate — and each email its
  * profile shows — is declared a `cabaret.alias` when it does not already
@@ -827,7 +877,7 @@ export async function fetchForge(
   now: () => TimestampMs,
   forge: Forge,
   onEvent: (event: FetchEvent) => void,
-): Promise<{ readonly open: number }> {
+): Promise<{ readonly coverage: "open" | "since"; readonly swept: number }> {
   const forgeSelf = await forge.currentSelf();
   const self = await currentSelf(backend);
   const user = self.user;
@@ -851,17 +901,18 @@ export async function fetchForge(
   const tracked = await backend.listChanges();
   const existing = new Set(tracked);
 
-  const open = await forge.fetchOpenChanges();
-  // Heads sharing a branch collapse to the lowest id, so every machine
+  const sweep = await forge.fetchChanges(await storedCursor(backend, forge.locator));
+  // Open changes keyed by head — closed ones neither import nor adopt — with
+  // heads sharing a branch collapsed to the lowest id, so every machine
   // imports the same change for a branch with several open forge changes.
-  const byHead = new Map<ChangeName, OpenChange>();
-  for (const candidate of open) {
+  const byHead = new Map<ChangeName, SweptChange>();
+  for (const candidate of sweep.changes) {
     const prev = byHead.get(candidate.change.head);
-    if (prev === undefined || candidate.change.id < prev.change.id) {
+    if (candidate.change.state === "open" && (prev === undefined || candidate.change.id < prev.change.id)) {
       byHead.set(candidate.change.head, candidate);
     }
   }
-  const byId = new Map(open.map((candidate) => [candidate.change.id, candidate]));
+  const byId = new Map(sweep.changes.map((candidate) => [candidate.change.id, candidate]));
 
   // Import: every open forge change whose head has no log. Import creates
   // logs and nothing else: the change is born reading origin's copy of its
@@ -925,13 +976,17 @@ export async function fetchForge(
         return undefined;
       }
       const recorded = currentForgeChange(entries);
-      let bulk: OpenChange | undefined;
+      let bulk: SweptChange | undefined;
       let forgeChange: ForgeChange;
       if (recorded !== undefined) {
         if (recorded.forge !== forge.locator) {
           return undefined;
         }
         bulk = byId.get(recorded.id);
+        if (bulk === undefined && sweep.coverage === "since") {
+          // Absent from a since sweep: the forge has not touched it.
+          return undefined;
+        }
         // A tracked change absent from the open sweep merged or closed since;
         // fetched live so this fetch still records its land.
         forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
@@ -965,6 +1020,12 @@ export async function fetchForge(
   // Publish what this fetch imported and appended.
   await backend.syncLogs();
 
+  // Recorded only now: a crash beforehand leaves the old cursor, and the next
+  // sweep re-reads an overlap absorption tolerates.
+  if (sweep.cursor !== undefined) {
+    await backend.configSet(CURSOR_KEY, `${forge.locator} ${sweep.cursor}`, "local");
+  }
+
   // Prune closed changes nobody engaged with, judged after the closing sync
   // so engagement published from another machine counts. An engaged change
   // keeps its log; the close it mirrored in as archived is reported instead.
@@ -977,7 +1038,7 @@ export async function fetchForge(
     }
   }
 
-  return { open: open.length };
+  return { coverage: sweep.coverage, swept: sweep.changes.length };
 }
 
 /** What publishing settled on the forge, so hosts can narrate in their own voice. */
@@ -1082,8 +1143,21 @@ export async function publishForgeChange(
     const mirrored = planReviewerPull(now, user, forge.locator, current, forgeChange.reviewers);
     const plan = planReviewerPush(now, user, forge.locator, [...current, ...mirrored], forgeChange.reviewers);
     reviewers = plan.add.length + plan.remove.length;
+    let readBack: readonly LogEntry[] = [];
     if (reviewers > 0) {
       await forge.setReviewers(forgeChange.id, plan.add, plan.remove);
+      // Best effort settles here: the observations above record what was
+      // asked, and a fresh reading mirrors back whatever the forge refused —
+      // a reviewer who has reviewed cannot be withdrawn — rather than leaving
+      // the difference to a sweep that may never revisit an untouched change.
+      const fresh = await forge.getChange(forgeChange.id);
+      readBack = planReviewerPull(
+        now,
+        user,
+        forge.locator,
+        [...current, ...mirrored, ...plan.observations],
+        fresh.reviewers,
+      );
     }
     const reviewingMirror = planReviewingPull(now, user, forge.locator, current, forgeChange.draft);
     const reviewingPlan = planReviewingPush(
@@ -1097,7 +1171,13 @@ export async function publishForgeChange(
     if (draft !== undefined) {
       await forge.setDraft(forgeChange.id, draft);
     }
-    const additions = [...mirrored, ...plan.observations, ...reviewingMirror, ...reviewingPlan.observations];
+    const additions = [
+      ...mirrored,
+      ...plan.observations,
+      ...readBack,
+      ...reviewingMirror,
+      ...reviewingPlan.observations,
+    ];
     if (additions.length > 0) {
       await backend.appendLog(change, additions);
     }
