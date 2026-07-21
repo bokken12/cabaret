@@ -184,6 +184,27 @@ test("workspace reclaim removes landed and archived workspaces, keeping dirty on
     ╰────────────────┴────────┴─────────────────╯
     "
   `);
+
+  // --all reclaims the live gadget's clean workspace too — its branch keeps
+  // everything the workspace held — while dirtiness still protects relic's,
+  // and the primary stays put as ever.
+  expect(await repo.cabaret("workspace", "reclaim", "--all")).toEqual({
+    stdout: `kept ${root}: primary workspace\nremoved ${root}-gadget\nkept ${root}-relic: dirty\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("workspace", "list")).stdout).toMatchInlineSnapshot(`
+    "Workspaces
+    ==========
+
+    ╭───────────────┬────────┬─────────────────╮
+    │ workspace     │ change │ note            │
+    ├───────────────┼────────┼─────────────────┤
+    │ .             │ main   │                 │
+    │ ../repo-relic │ relic  │ dirty, archived │
+    ╰───────────────┴────────┴─────────────────╯
+    "
+  `);
 });
 
 test("workspace reclaim spares the workspace it runs in and says when there is nothing", async () => {

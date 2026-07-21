@@ -73,9 +73,17 @@ const reclaim = buildCommand({
       "with uncommitted changes is kept, as are the primary workspace and the one " +
       "this command runs in; each is reported.",
   },
-  parameters: {},
-  async func(this: LocalContext, _flags: Record<never, never>) {
-    const reclaimed = await reclaimWorkspaces(await this.backend());
+  parameters: {
+    flags: {
+      all: {
+        kind: "boolean",
+        brief: "Reclaim every clean workspace, not only those of landed and archived changes",
+        default: false,
+      },
+    },
+  },
+  async func(this: LocalContext, flags: { all: boolean }) {
+    const reclaimed = await reclaimWorkspaces(await this.backend(), flags.all);
     if (reclaimed.length === 0) {
       this.process.stdout.write("nothing to reclaim\n");
       return;

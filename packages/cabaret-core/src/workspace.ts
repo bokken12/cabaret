@@ -111,7 +111,7 @@ export async function removeChangeWorkspace(
   return workspace.path;
 }
 
-/** A workspace holding a landed or archived change, and what reclaiming did with it. */
+/** A workspace reclaiming considered, and what it did with it. */
 export interface ReclaimedWorkspace {
   readonly path: string;
   readonly change: ChangeName;
@@ -121,19 +121,22 @@ export interface ReclaimedWorkspace {
 
 /**
  * Remove every workspace whose change has landed or is archived — the ones
- * pages nudge about — and return what happened to each. A dirty workspace
- * keeps its uncommitted work, and the primary and current workspaces stay
- * put; reporting them keeps a nudge the reclaim leaves standing from
- * reading as a miss.
+ * pages nudge about — and return what happened to each. With `all`, every
+ * workspace holding its branch cleanly goes: removing one costs nothing the
+ * branch does not keep, which frees space when it is needed. Either way a
+ * dirty workspace keeps its uncommitted work, and the primary and current
+ * workspaces stay put; reporting them keeps what the reclaim leaves
+ * standing from reading as a miss. A detached workspace is never touched —
+ * its position lives nowhere else.
  */
-export async function reclaimWorkspaces(backend: Backend): Promise<readonly ReclaimedWorkspace[]> {
+export async function reclaimWorkspaces(backend: Backend, all: boolean): Promise<readonly ReclaimedWorkspace[]> {
   const reclaimed: ReclaimedWorkspace[] = [];
   for (const { path, change, dirty, primary } of await backend.workspaces()) {
     if (change === undefined) {
       continue;
     }
     const entries = await backend.readLog(change);
-    if (landedMerge(entries) === undefined && !currentArchived(entries)) {
+    if (!all && landedMerge(entries) === undefined && !currentArchived(entries)) {
       continue;
     }
     const outcome = primary ? "primary" : path === backend.root ? "current" : dirty ? "dirty" : "removed";
