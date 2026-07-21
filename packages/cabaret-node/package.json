@@ -12,9 +12,7 @@
   },
   "dependencies": {
     "cabaret-core": "workspace:*",
-    "cabaret-forgejo": "workspace:*",
-    "cabaret-github": "workspace:*",
-    "cabaret-gitlab": "workspace:*"
+    "cabaret-forges": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b"

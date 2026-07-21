@@ -6,10 +6,5 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "references": [
-    { "path": "../cabaret-core" },
-    { "path": "../cabaret-forgejo" },
-    { "path": "../cabaret-github" },
-    { "path": "../cabaret-gitlab" }
-  ]
+  "references": [{ "path": "../cabaret-core" }, { "path": "../cabaret-forges" }]
 }
