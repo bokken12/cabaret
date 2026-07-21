@@ -262,6 +262,39 @@ test("show tallies the remaining review per user", async () => {
   `);
 });
 
+test("show holds the step at await review while only others owe blocking review", async () => {
+  const repo = await makeRepo();
+  const policy = {
+    rules: [{ match: "*.txt", kind: "blocking", require: { atLeast: 1, of: ["bob@example.com"] } }],
+  };
+  await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "policy");
+  await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "set", "everyone");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "feature
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ await review      │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 9ca9323bb76a      │
+    │ base      │ 6365470fcd55      │
+    │ workspace │ .                 │
+    ╰───────────┴───────────────────╯
+
+    Remaining review:
+      bob@example.com: 1 file
+    "
+  `);
+});
+
 test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
