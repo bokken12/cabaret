@@ -59,7 +59,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   const repo = await makeRepo();
   await addChange(repo, "feature");
   await repo.cabaret("reviewers", "add", "bob@example.com");
-  await repo.cabaret("reviewing", "reviewers");
+  await repo.cabaret("reviewing", "set", "reviewers");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",

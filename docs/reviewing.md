@@ -23,7 +23,7 @@ the next step, skipping any level that would ask nothing of anyone: a level
 asks something when a user it newly adds still has review left, so an owner
 who already read the whole diff is skipped, as are reviewers who have (or a
 change with none), landing on the first level with real review to do or on
-`everyone`. `reviewing <value>` sets the level directly, in either direction;
+`everyone`. `reviewing set <value>` sets the level directly, in either direction;
 narrowing back to `none` is how a change goes back to being a draft.
 
 ## What the set gates

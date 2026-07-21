@@ -58,7 +58,7 @@ test("a forge land retargets the children's forge changes", async () => {
   const repo = await makePr(forge);
   await addChange(repo, "doodad");
   await repo.cabaret("mark", "--tip", "HEAD", "doodad.txt");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("sync");
   expect(await repo.cabaret("land", "gadget")).toEqual({
     stdout:

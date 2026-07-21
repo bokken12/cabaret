@@ -14,9 +14,9 @@ async function requireReviewers(repo: TestRepo, ...users: string[]): Promise<voi
 test("home shows review work and owned changes as a tree", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   const { stdout, stderr, exitCode } = await repo.cabaret("home");
   expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
   expect(stdout).toMatchInlineSnapshot(`
@@ -53,10 +53,10 @@ test("home shows review work and owned changes as a tree", async () => {
 test("a landed change keeps its follow review in the todos of a covering reviewer", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--change", "gadget", "--tip", "gadget", "gadget.txt");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("land", "gizmo", "--even-though-unreviewed");
   // gadget was covered when gizmo landed, so the land settled gizmo's diff
   // to gizmo's own log: the landed change stays in the review todos until
@@ -94,9 +94,9 @@ test("a landed change keeps its follow review in the todos of a covering reviewe
 test("a landed change owes nothing when its diff reads in the parent's catch-up", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("land", "gizmo", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   // gadget was not covered at the land, so the land completed gizmo's own
   // review: its diff reads combined into gadget's catch-up, and only gadget
@@ -133,7 +133,7 @@ test("a landed change owes nothing when its diff reads in the parent's catch-up"
 test("a change with conflict markers asks no review, only its fix", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.write("gadget.txt", "<<<<<<< ours\ngadget work\n=======\nother\n>>>>>>> parent\n");
   await repo.git("commit", "-qam", "conflicted");
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
@@ -167,7 +167,7 @@ test("home counts an alias's changes among the user's own", async () => {
   const repo = await makeRepo();
   await repo.git("config", "user.email", "agent@example.com");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.git("config", "user.email", "alice@example.com");
   // Someone else's change: alice neither owns gizmo nor owes it review.
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
@@ -229,7 +229,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
   const repo = await makeRepo();
   await requireReviewers(repo, "bob@example.com");
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.git("push", "-q", "origin", "main", "gadget", "refs/cabaret/log/gadget:refs/cabaret/log/gadget");
   // The clone holds gadget's log and origin's copy of its branch, but no
   // local branch: the state adoption leaves a second machine in.
@@ -304,7 +304,7 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   // Deleting the branch orphans gadget's log: the change can no longer be
   // read, while gizmo — parented on the missing branch — still can.
   await repo.git("branch", "-qD", "gadget");
@@ -375,7 +375,7 @@ test("fetch imports an open forge change, and home lists it when review is owed"
   // The policy on main is what puts the imported change on this user's plate.
   await requireReviewers(repo, "alice@example.com");
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   // A teammate's branch lives on origin and in a forge change, but not locally.
   await repo.git("checkout", "-q", "main");
   await repo.git("checkout", "-qb", "their-feature");
@@ -495,7 +495,7 @@ test("a landed change stays only while children hang from it", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--tip", "gadget", "gadget.txt", "--change", "gadget");
   await repo.cabaret("land", "gadget");
   // The land moved gizmo onto main; hang it back to keep the landed gadget in view.
@@ -568,7 +568,7 @@ test("review is owed only while an obligation is unsatisfied", async () => {
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
   // Obligations only reach home pages once the reviewing set includes their users.
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.git("config", "user.email", "alice@example.com");
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
     "Home

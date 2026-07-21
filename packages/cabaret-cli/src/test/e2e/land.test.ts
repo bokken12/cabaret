@@ -156,7 +156,7 @@ test("land refuses a parent that itself landed", async () => {
 
 test("land requires ownership, with the usual override", async () => {
   const repo = await makeStack();
-  await repo.cabaret("set-owner", "bob@example.com", "--change", "child");
+  await repo.cabaret("owner", "set", "bob@example.com", "--change", "child");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
     stderr:
@@ -178,14 +178,14 @@ test("land requires ownership, with the usual override", async () => {
   });
 });
 
-test("a landed change refuses rebase, reparent, and set-owner", async () => {
+test("a landed change refuses rebase, reparent, and owner set", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "parent");
   for (const argv of [
     ["rebase", "child"],
     ["reparent", "child", "main"],
-    ["set-owner", "bob@example.com", "--change", "child"],
+    ["owner", "set", "bob@example.com", "--change", "child"],
   ]) {
     expect(await repo.cabaret(...argv)).toEqual({
       stdout: "",
@@ -589,7 +589,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
   await addChange(repo, "a");
   await addChange(repo, "b");
   await addChange(repo, "c");
-  await repo.cabaret("set-owner", "bob@example.com", "--change", "b");
+  await repo.cabaret("owner", "set", "bob@example.com", "--change", "b");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: '"b" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',

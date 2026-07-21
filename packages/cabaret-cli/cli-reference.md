@@ -513,6 +513,34 @@ FLAGS
 ARGUMENTS
   file...  files or patterns to mark reviewed
 
+### cab owner show
+
+USAGE
+  cab owner show [--change value]
+  cab owner show --help
+
+Show a change's owner
+
+FLAGS
+     [--change]  Change to show (defaults to current)
+  -h  --help     Print help information and exit
+
+### cab owner set
+
+USAGE
+  cab owner set [--change value] [--even-though-not-owner] <user>
+  cab owner set --help
+
+Set a change's owner, replacing the current one. Only the owner may transfer ownership.
+
+FLAGS
+     [--change]                 Change to transfer (defaults to current)
+     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
+  -h  --help                    Print help information and exit
+
+ARGUMENTS
+  user  the new owner
+
 ## cab rebase
 
 USAGE
@@ -607,36 +635,32 @@ FLAGS
 ARGUMENTS
   user  user to remove
 
-## cab reviewing
+### cab reviewing show
 
 USAGE
-  cab reviewing [--change value] [<reviewing>]
-  cab reviewing --help
+  cab reviewing show [--change value]
+  cab reviewing show --help
 
-Show or set who is asked to review a change: none, the owner, the reviewers, or everyone. The set gates what todos ask of people; landing still requires every obligation. A change whose reviewing is none shows on its forge as a draft.
+Show who is asked to review a change
+
+FLAGS
+     [--change]  Change to show (defaults to current)
+  -h  --help     Print help information and exit
+
+### cab reviewing set
+
+USAGE
+  cab reviewing set [--change value] <reviewing>
+  cab reviewing set --help
+
+Set who is asked to review a change: none, the owner, the reviewers, or everyone. The set gates what todos ask of people; landing still requires every obligation. A change whose reviewing is none shows on its forge as a draft.
 
 FLAGS
      [--change]  Change to act on (defaults to current)
   -h  --help     Print help information and exit
 
 ARGUMENTS
-  [reviewing]  reviewing set to record (prints the current one when omitted)
-
-## cab set-owner
-
-USAGE
-  cab set-owner [--change value] [--even-though-not-owner] <user>
-  cab set-owner --help
-
-Set a change's owner, replacing the current one. Only the owner may transfer ownership; `show` displays the owner.
-
-FLAGS
-     [--change]                 Change to transfer (defaults to current)
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
-
-ARGUMENTS
-  user  the new owner
+  reviewing  reviewing set to record
 
 ### cab setup list
 
