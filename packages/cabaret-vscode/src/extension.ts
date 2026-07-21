@@ -35,6 +35,7 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  reclaimWorkspaces,
   removeChangeWorkspace,
   renameChange,
   reparentChange,
@@ -70,6 +71,7 @@ import {
   type Page,
   pagePath,
   parsePagePath,
+  reclaimNote,
   renderPage,
   type Style,
   styledRanges,
@@ -1306,6 +1308,19 @@ async function addWorkspaceSelection(backend: Backend, change: ChangeName): Prom
   await openWorkspaceWindow(path);
 }
 
+/** Remove the workspaces of landed and archived changes, reporting the tally in the status bar. */
+async function runReclaim(provider: PageProvider): Promise<void> {
+  try {
+    const backend = await openBackend();
+    const reclaimed = await reclaimWorkspaces(backend, false);
+    vscode.window.setStatusBarMessage(`cabaret: ${reclaimNote(reclaimed)}`, 5000);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
+  }
+}
+
 /** Remove `change`'s workspace, confirming before uncommitted changes are discarded. */
 async function removeWorkspaceSelection(backend: Backend, change: ChangeName): Promise<void> {
   let path: string;
@@ -1735,6 +1750,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }),
     ),
+    vscode.commands.registerCommand("cabaret.reclaimWorkspaces", () => runReclaim(provider)),
     vscode.commands.registerCommand("cabaret.createChild", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const parent = singleChange(changes, "create a child of");

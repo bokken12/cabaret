@@ -24,6 +24,7 @@ test("home page keybindings", () => {
       "! g  Go to Workspace",
       "! w a  Add Workspace",
       "! w d  Remove Workspace",
+      "! w r  Reclaim Workspaces",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",

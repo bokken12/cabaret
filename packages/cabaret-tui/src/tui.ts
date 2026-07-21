@@ -21,6 +21,7 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  reclaimWorkspaces,
   removeChangeWorkspace,
   renameChange,
   reparentChange,
@@ -41,6 +42,7 @@ import {
   type ChangeSnapshot,
   markReviewed,
   type Page,
+  reclaimNote,
   renderPage,
   type Target,
   type ViewedDiffs,
@@ -186,6 +188,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     },
     addWorkspace: (change) => addChangeWorkspace(backend, change),
     removeWorkspace: (change, evenThoughDirty) => removeChangeWorkspace(backend, change, evenThoughDirty),
+    reclaimWorkspaces: async () => reclaimNote(await reclaimWorkspaces(backend, false)),
     create: async (name, parent) => {
       await createChange(backend, now, name, parent);
     },

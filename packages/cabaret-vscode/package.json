@@ -246,6 +246,10 @@
       {
         "command": "cabaret.sync",
         "title": "Cabaret: Sync Change"
+      },
+      {
+        "command": "cabaret.reclaimWorkspaces",
+        "title": "Cabaret: Reclaim Workspaces"
       }
     ],
     "menus": {
@@ -349,6 +353,10 @@
         {
           "command": "cabaret.sync",
           "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.reclaimWorkspaces",
+          "when": "cabaret.page == 'home'"
         }
       ]
     },
@@ -467,6 +475,11 @@
         "command": "cabaret.removeWorkspace",
         "key": "shift+1 w d",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.reclaimWorkspaces",
+        "key": "shift+1 w r",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createChild",
