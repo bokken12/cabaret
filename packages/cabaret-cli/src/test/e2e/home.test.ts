@@ -49,6 +49,84 @@ test("home shows review work and owned changes as a tree", async () => {
   `);
 });
 
+test("a landed change keeps its follow review in the todos of a covering reviewer", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("mark", "--change", "gadget", "--tip", "gadget", "gadget.txt");
+  await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("land", "gizmo", "--even-though-unreviewed");
+  // gadget was covered when gizmo landed, so the land settled gizmo's diff
+  // to gizmo's own log: the landed change stays in the review todos until
+  // the catch-up.
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭──────────┬────────╮
+    │ change   │ review │
+    ├──────────┼────────┤
+    │ gadget   │        │
+    │ └─ gizmo │      1 │
+    ╰──────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────────╮
+    │ change │ next step     │
+    ├────────┼───────────────┤
+    │ gadget │ add reviewers │
+    ╰────────┴───────────────╯
+
+    Workspaces on this device:
+    ╭────────┬────────╮
+    │ change │ note   │
+    ├────────┼────────┤
+    │ gizmo  │ landed │
+    ╰────────┴────────╯
+    "
+  `);
+});
+
+test("a landed change owes nothing when its diff reads in the parent's catch-up", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "owner");
+  await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("land", "gizmo", "--even-though-unreviewed", "--even-though-parent-unreviewed");
+  // gadget was not covered at the land, so the land completed gizmo's own
+  // review: its diff reads combined into gadget's catch-up, and only gadget
+  // asks, with both files.
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      2 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬────────╮
+    │ change │ note   │
+    ├────────┼────────┤
+    │ gizmo  │ landed │
+    ╰────────┴────────╯
+    "
+  `);
+});
+
 test("a change with conflict markers asks no review, only its fix", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");

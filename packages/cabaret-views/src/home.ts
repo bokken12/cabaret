@@ -111,9 +111,10 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   // every obligation — though it says nothing about their aliases, whose
   // obligations each count that identity's own reviews. A change with
   // conflict markers asks review of nobody: fixing them rewrites the
-  // tip, so reading it now is wasted.
+  // tip, so reading it now is wasted. A landed change still asks: the
+  // follow review its landing left in place stays owed until reviewers
+  // catch up.
   const asked =
-    summary.landed === undefined &&
     !summary.archived &&
     summary.conflicts.length === 0 &&
     (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
