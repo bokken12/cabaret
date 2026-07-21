@@ -40,11 +40,12 @@ test("home shows review work and owned changes as a tree", async () => {
     ╰──────────┴──────────────────╯
 
     Workspaces on this device:
-    ╭────────┬──────╮
-    │ change │ note │
-    ├────────┼──────┤
-    │ gizmo  │      │
-    ╰────────┴──────╯
+    ╭──────────┬──────╮
+    │ change   │ note │
+    ├──────────┼──────┤
+    │ gadget   │      │
+    │ └─ gizmo │      │
+    ╰──────────┴──────╯
     "
   `);
 });
@@ -73,18 +74,19 @@ test("a landed change keeps its follow review in the todos of a covering reviewe
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭────────┬───────────────╮
-    │ change │ next step     │
-    ├────────┼───────────────┤
-    │ gadget │ add reviewers │
-    ╰────────┴───────────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ land      │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬────────╮
-    │ change │ note   │
-    ├────────┼────────┤
-    │ gizmo  │ landed │
-    ╰────────┴────────╯
+    ╭──────────┬────────╮
+    │ change   │ note   │
+    ├──────────┼────────┤
+    │ gadget   │        │
+    │ └─ gizmo │ landed │
+    ╰──────────┴────────╯
     "
   `);
 });
@@ -118,11 +120,12 @@ test("a landed change owes nothing when its diff reads in the parent's catch-up"
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬────────╮
-    │ change │ note   │
-    ├────────┼────────┤
-    │ gizmo  │ landed │
-    ╰────────┴────────╯
+    ╭──────────┬────────╮
+    │ change   │ note   │
+    ├──────────┼────────┤
+    │ gadget   │        │
+    │ └─ gizmo │ landed │
+    ╰──────────┴────────╯
     "
   `);
 });
@@ -518,11 +521,12 @@ test("a landed change stays only while children hang from it", async () => {
     ╰──────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────╮
-    │ change │ note │
-    ├────────┼──────┤
-    │ gizmo  │      │
-    ╰────────┴──────╯
+    ╭──────────┬──────╮
+    │ change   │ note │
+    ├──────────┼──────┤
+    │ gadget   │      │
+    │ └─ gizmo │      │
+    ╰──────────┴──────╯
     "
   `);
 });

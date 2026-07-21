@@ -10,6 +10,8 @@ export type ChangeAction = "sync" | "rebase" | "reparent" | "widen reviewing" | 
  * whose kept text is plain. Context marks material shown only to situate its
  * neighbors, for hosts to dim. Ready and blocked pull the eye to a status:
  * a step whose obligations are all met, or one gating work until mended.
+ * Idle marks a leftover worth reclaiming at leisure, like the workspace of
+ * a landed change — a nudge, not an alarm.
  *
  * The diff-of-diffs styles carry a 4-way conflict's second channel: a line
  * present in only the reviewed diff (old) or only the current diff (new),
@@ -26,6 +28,7 @@ export type Style =
   | "context"
   | "ready"
   | "blocked"
+  | "idle"
   | "old-diff-removed"
   | "old-diff-added"
   | "old-diff-context"

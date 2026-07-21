@@ -93,7 +93,11 @@ export function workspacesDoc(page: WorkspacesPage): Doc {
             style: isChange ? undefined : "context",
             target: { kind: "change", change: workspace.change },
           });
-    return [span(display, { target: { kind: "workspace", path: workspace.path } }), name, span(notes.join(", "))];
+    return [
+      span(display, { target: { kind: "workspace", path: workspace.path } }),
+      name,
+      span(notes.join(", "), { style: landed || archived ? "idle" : undefined }),
+    ];
   });
   const title = "Workspaces";
   return layout([
