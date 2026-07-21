@@ -59,7 +59,7 @@ export interface OpenChange {
 
 /**
  * The operations Cabaret needs from a code forge (GitHub, GitLab, …).
- * Implementations live in `cabaret-github` and friends.
+ * Implementations live in `cabaret-forges`.
  *
  * Rendering never calls a forge: it reads change logs, which `fetchForge` —
  * behind `cab fetch` — populates from the forge.

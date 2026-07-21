@@ -32,14 +32,10 @@ In approximate dependency order, Cabaret splits its packages into:
 ### Platform-Specific Libraries
 
 - `cabaret-node`: native access via the Node runtime (e.g. `git` subprocesses)
-- Forge APIs
-    - `cabaret-github`
-    - `cabaret-gitlab`
-    - `cabaret-forgejo`
+- `cabaret-forges`: forge APIs (GitHub, GitLab, Forgejo)
+
 ### Frontends
 
 - `cabaret-cli`: command line interface (optimized for agents)
 - `cabaret-vscode`: VSCode extension (primary in-editor frontend)
 - `cabaret-tui`: text-based user interface (in terminal, over ssh)
-
-<!-- TODO(joel): maybe merge forges into a single package? -->

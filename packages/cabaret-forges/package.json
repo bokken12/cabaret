@@ -1,6 +1,6 @@
 {
-  "name": "cabaret-github",
-  "description": "Cabaret's GitHub integration, over the REST API so it runs wherever fetch exists",
+  "name": "cabaret-forges",
+  "description": "Cabaret's forge integrations (GitHub, GitLab, Forgejo), over REST APIs so they run wherever fetch exists",
   "private": true,
   "type": "module",
   "exports": {
