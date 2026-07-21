@@ -280,6 +280,16 @@ function remoteLogRef(change: ChangeName): ChangeName {
 /** Path of the log file within a log ref's tree. */
 const LOG_PATH = "log";
 
+/**
+ * Where the forge sweep record lives: a blob of how far origin's logs have
+ * absorbed the forge. Its copies join by max, so the fetch is forced and the
+ * push blind — a racing overwrite only widens the next sweep's overlap.
+ */
+const FORGE_REF = `${CABARET_REF_PREFIX}forge/sweep`;
+const REMOTE_FORGE_REF = `${CABARET_REF_PREFIX}remote-forge/sweep`;
+// Wildcarded so a fetch finding no record yet succeeds; an exact refspec fails.
+export const FORGE_FETCH_REFSPEC = `+${CABARET_REF_PREFIX}forge/*:${CABARET_REF_PREFIX}remote-forge/*`;
+
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
   readonly parseRevision = parseCommitHash;
@@ -553,6 +563,8 @@ export class GitBackend implements Backend {
     await fetchRetryingRaces(this.root, [
       "-c",
       `remote.origin.fetch=${LOG_FETCH_REFSPEC}`,
+      "-c",
+      `remote.origin.fetch=${FORGE_FETCH_REFSPEC}`,
       "fetch",
       "--quiet",
       "origin",
@@ -661,6 +673,20 @@ export class GitBackend implements Backend {
     const changes = [...names].sort();
     await this.publishLogs(changes);
     return changes;
+  }
+
+  async forgeSweepState(): Promise<string | undefined> {
+    try {
+      return await git(this.root, ["cat-file", "blob", REMOTE_FORGE_REF]);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async publishForgeSweepState(content: string): Promise<void> {
+    const blob = (await git(this.root, ["hash-object", "-w", "--stdin"], content)).trim();
+    await git(this.root, ["update-ref", FORGE_REF, blob]);
+    await git(this.root, ["push", "--quiet", "--force", "origin", `${FORGE_REF}:${FORGE_REF}`]);
   }
 
   async wipeReviewState(): Promise<readonly ChangeName[]> {
