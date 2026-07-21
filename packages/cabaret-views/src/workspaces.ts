@@ -96,7 +96,7 @@ export function workspacesDoc(page: WorkspacesPage): Doc {
     return [
       span(display, { target: { kind: "workspace", path: workspace.path } }),
       name,
-      span(notes.join(", "), { style: landed || archived ? "idle" : undefined }),
+      span(notes.join(", "), { style: landed || archived ? "nudge" : undefined }),
     ];
   });
   const title = "Workspaces";

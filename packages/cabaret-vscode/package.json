@@ -124,8 +124,8 @@
         }
       },
       {
-        "id": "cabaret.idleForeground",
-        "description": "Text of a status left idle and worth reclaiming, like the workspace of a landed change",
+        "id": "cabaret.nudgeForeground",
+        "description": "Text of a status inviting unhurried action, like the reclaimable workspace of a landed change",
         "defaults": {
           "dark": "#d29922",
           "light": "#9a6700",

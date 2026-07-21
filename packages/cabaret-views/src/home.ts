@@ -286,7 +286,7 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 /**
  * The workspaces section: a row per change checked out on this device, in its
  * stack. An ancestor kept only to situate dims; a landed or archived note
- * wears idle paint, nudging toward reclaiming the workspace.
+ * wears nudge paint, inviting the workspace's reclaiming.
  */
 function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined): Node {
   const rows = treeRows(forest).map(({ node: { change, held }, guide }): readonly Cell[] => {
@@ -302,7 +302,7 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
           ];
     return [
       guide === "" ? name : [span(guide, { style }), name],
-      span(notes.join(", "), { style: held !== undefined && (held.landed || held.archived) ? "idle" : undefined }),
+      span(notes.join(", "), { style: held !== undefined && (held.landed || held.archived) ? "nudge" : undefined }),
     ];
   });
   return forestSection(
