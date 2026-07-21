@@ -31,6 +31,90 @@ test("log rejects a malformed change name", async () => {
   });
 });
 
+test("review-all marks every owed file, then finds nothing owed", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "widgets");
+  await repo.cabaret("reviewing", "set", "owner");
+  await addChange(repo, "gadgets");
+  await repo.cabaret("reviewing", "set", "owner");
+
+  expect(await repo.cabaret("dev", "review-all")).toEqual({
+    stdout: "widgets: marked 1 file\ngadgets: marked 1 file\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────────┬───────────╮
+    │ change     │ next step │
+    ├────────────┼───────────┤
+    │ widgets    │ land      │
+    │ └─ gadgets │ land      │
+    ╰────────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────────┬──────╮
+    │ change     │ note │
+    ├────────────┼──────┤
+    │ widgets    │      │
+    │ └─ gadgets │      │
+    ╰────────────┴──────╯
+    "
+  `);
+  expect(await repo.cabaret("dev", "review-all")).toEqual({
+    stdout: "nothing owed\n",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("review-all marks as each identity, so an alias's demands clear too", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "cabaret.alias", "agent@example.com");
+  await addChange(repo, "widgets");
+  const policy = { rules: [{ match: "*.txt", require: { atLeast: 1, of: ["agent@example.com"] } }] };
+  await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "policy");
+  await repo.cabaret("reviewing", "set", "owner");
+
+  expect(await repo.cabaret("dev", "review-all")).toEqual({
+    stdout: "widgets: marked 2 files\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The owner's mark covers both files; the demand naming only the alias
+  // needs the alias's own entry.
+  const { stdout } = await repo.cabaret("dev", "log", "widgets");
+  expect(stdout).toContain('"user":"alice@example.com","action":{"kind":"review","file":".obligations"');
+  expect(stdout).toContain('"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt"');
+  expect(stdout).toContain('"user":"agent@example.com","action":{"kind":"review","file":"widgets.txt"');
+  expect(stdout).not.toContain('"user":"agent@example.com","action":{"kind":"review","file":".obligations"');
+  expect(await repo.cabaret("dev", "review-all")).toEqual({
+    stdout: "nothing owed\n",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+test("review-all leaves a draft alone", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "widgets");
+  const before = await repo.cabaret("dev", "log", "widgets");
+
+  expect(await repo.cabaret("dev", "review-all")).toEqual({ stdout: "nothing owed\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log", "widgets")).toEqual(before);
+});
+
 test("wipe deletes logs and fetched logs; branches stay", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");

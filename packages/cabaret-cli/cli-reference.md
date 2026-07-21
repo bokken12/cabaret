@@ -414,6 +414,17 @@ FLAGS
 ARGUMENTS
   [change]  change to inspect (defaults to current)
 
+### cab dev review-all
+
+USAGE
+  cab dev review-all
+  cab dev review-all --help
+
+Mark every file the home page asks you to review: one `review` entry per owed file, at its change's current tip.
+
+FLAGS
+  -h --help  Print help information and exit
+
 ### cab dev wipe
 
 USAGE
