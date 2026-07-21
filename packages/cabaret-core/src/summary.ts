@@ -118,7 +118,7 @@ export interface ChangeSummary {
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
-  readonly deadParent: "landed" | "missing" | undefined;
+  readonly deadParent: "landed" | "missing" | "archived" | undefined;
   /** Set when the parent's local tip and origin's last-fetched copy have diverged: the user's to join. */
   readonly parentOrigin: "diverged" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
@@ -165,8 +165,11 @@ export async function summarizeChange(
       }
     }
     origin = await originStanding(backend, change, tip);
-    if (landedMerge(await backend.readLog(parent)) !== undefined) {
+    const parentEntries = await backend.readLog(parent);
+    if (landedMerge(parentEntries) !== undefined) {
       deadParent = "landed";
+    } else if (currentArchived(parentEntries)) {
+      deadParent = "archived";
     } else {
       const reading = await freshestReading(backend, parent);
       if (reading.kind === "none") {
@@ -282,8 +285,8 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * fixing. A change with no local
  * branch gates nothing: its readings are origin's copy already, and
  * operations that move the branch create it from that copy themselves. A
- * dead parent comes next: nothing can land until the change hangs somewhere
- * real. Unresolved
+ * dead parent — landed, missing, or archived, all parents `land` refuses —
+ * comes next: nothing can land until the change hangs somewhere live. Unresolved
  * conflicts outrank review: markers are not code worth reading. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
