@@ -523,6 +523,88 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
   }
 });
 
+/**
+ * Run `run` with a shim `git` prepended to PATH whose first `failures` fetch
+ * invocations fail with `stderr`, everything else passing through to the real
+ * git. Returns how many fetches the shim saw.
+ */
+async function countingFailedFetches(failures: number, stderr: string, run: () => Promise<void>): Promise<number> {
+  const real = (await execFileAsync("/bin/sh", ["-c", "command -v git"])).stdout.trim();
+  const shim = await mkdtemp(join(tmpdir(), "cabaret-node-test-shim-"));
+  const count = join(shim, "count");
+  await writeFile(count, "");
+  await writeFile(join(shim, "stderr"), `${stderr}\n`);
+  const script = [
+    "#!/bin/sh",
+    `[ "$1" = fetch ] || exec "${real}" "$@"`,
+    `printf x >> "${count}"`,
+    `if [ "$(wc -c < "${count}")" -le ${failures} ]; then`,
+    `  cat "${join(shim, "stderr")}" >&2`,
+    "  exit 128",
+    "fi",
+    `exec "${real}" "$@"`,
+  ].join("\n");
+  await writeFile(join(shim, "git"), script, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${shim}:${path}`;
+  try {
+    await run();
+  } finally {
+    process.env.PATH = path;
+  }
+  const seen = (await readFile(count, "utf8")).length;
+  await rm(shim, { recursive: true, force: true });
+  return seen;
+}
+
+const REF_RACE_STDERR =
+  `error: cannot lock ref 'refs/heads/main': is at ${"1234abcd".repeat(5)} but expected ${"5678cdef".repeat(5)}\n` +
+  `error: cannot lock ref 'refs/remotes/origin/main': is at ${"1234abcd".repeat(5)} but expected ${"5678cdef".repeat(5)}`;
+
+test("fetch retries a ref update lost to a concurrent fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(1, REF_RACE_STDERR, () => backend.fetch(parseBranchName("main")));
+    expect(fetches).toBe(2);
+    expect(await backend.tip(parseBranchName("main"))).toBe(await gitIn(origin, "rev-parse", "main"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch surfaces a ref update race that outlasts its retries", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(Number.MAX_SAFE_INTEGER, REF_RACE_STDERR, () =>
+      expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/cannot lock ref/),
+    );
+    expect(fetches).toBe(3);
+    expect(await backend.tip(parseBranchName("main"))).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch does not retry a failure that is no ref update race", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(
+      Number.MAX_SAFE_INTEGER,
+      "fatal: couldn't find remote ref refs/heads/main",
+      () => expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/couldn't find remote ref/),
+    );
+    expect(fetches).toBe(1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
 test("originFetched dates this workspace's last successful fetch", async () => {
   const { dir, origin } = await makeRemotePair();
   const worktree = `${dir}-worktree`;
