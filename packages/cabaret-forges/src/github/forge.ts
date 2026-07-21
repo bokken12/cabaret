@@ -4,17 +4,19 @@ import {
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
+  type ForgeCursor,
   type ForgeLocator,
   type ForgeMerge,
+  type ForgeSweep,
   forgeAccount,
   forgeChangeId,
   type LandMethod,
-  type OpenChange,
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
   type Revision,
   type Self,
+  type SweptChange,
   timestampMs,
   UserError,
   type UserName,
@@ -215,7 +217,7 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private toOpenChange(pr: z.infer<typeof OpenPrSchema>): OpenChange {
+  private toSweptChange(pr: z.infer<typeof OpenPrSchema>): SweptChange {
     const comments = pr.comments.nodes
       .filter((comment) => comment.databaseId !== null)
       .map((comment) => ({
@@ -227,16 +229,16 @@ export class GitHubForge implements Forge {
     return { change: this.toChange(pr), comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
   }
 
-  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
-    const changes: OpenChange[] = [];
+  async fetchChanges(_since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    const changes: SweptChange[] = [];
     let cursor: string | null = null;
     do {
       const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { ...this.repo, cursor });
       const { nodes, pageInfo } = FetchOpenChangesSchema.parse(out).repository.pullRequests;
-      changes.push(...nodes.map(this.toOpenChange, this));
+      changes.push(...nodes.map(this.toSweptChange, this));
       cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
     } while (cursor !== null);
-    return changes;
+    return { coverage: "open", changes, cursor: undefined };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {

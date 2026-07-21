@@ -120,7 +120,7 @@ test("fetch mirrors forge-side reviewer changes in; a local removal syncs the wi
   // Settled: another fetch re-mirrors nothing.
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   expect(await shownReviewers(repo)).toBeUndefined();
 });
@@ -140,7 +140,7 @@ test("sync absorbs a forge-side request it has not fetched, rather than withdraw
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 
-test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back on the next fetch", async () => {
+test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors straight back", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -149,14 +149,13 @@ test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back 
   forge.review(PR, "carol");
   await repo.cabaret("fetch");
   await repo.cabaret("reviewers", "remove", "github:carol");
-  // The sync attempts the withdrawal, but the forge cannot unmake the review.
+  // The sync attempts the withdrawal, but the forge cannot unmake the review;
+  // the fresh reading it takes after writing mirrors carol back immediately.
   await repo.cabaret("sync");
   expect((await forge.getChange(PR)).reviewers).toEqual(["github:carol"]);
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "updated 1 reviewer from github.com/test-org/widgets#1\n" +
-      "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
-  );
+  expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
+  // The refused write touched nothing on the forge: the next sweep passes by.
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 

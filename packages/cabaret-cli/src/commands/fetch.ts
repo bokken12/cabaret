@@ -95,7 +95,10 @@ export const fetch = buildCommand({
       return;
     }
     const locator = forge.locator;
-    const { open } = await fetchForge(backend, this.now, forge, (event) => reportFetchEvent(this, locator, event));
-    this.process.stdout.write(`fetched ${locator}: ${open} open forge change${open === 1 ? "" : "s"}\n`);
+    const { coverage, swept } = await fetchForge(backend, this.now, forge, (event) =>
+      reportFetchEvent(this, locator, event),
+    );
+    const kind = coverage === "open" ? "open" : "updated";
+    this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);
   },
 });

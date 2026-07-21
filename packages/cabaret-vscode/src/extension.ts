@@ -893,7 +893,7 @@ const fetchListeners = new Set<(event: FetchEvent) => void>();
  * budget over. Undefined, not a failure, when there is no supported forge
  * here: most repositories this extension opens will never configure one.
  */
-async function pollForge(): Promise<{ readonly open: number } | undefined> {
+async function pollForge(): Promise<{ readonly swept: number } | undefined> {
   let forge: Forge;
   try {
     forge = await openForge({ signIn: false });
@@ -915,7 +915,7 @@ async function pollForge(): Promise<{ readonly open: number } | undefined> {
  * `cabaret.backgroundSync` for its own scheduled ticks only: the manual Pull
  * command always actually pulls, via `runNow`.
  */
-function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly open: number } | undefined> {
+function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly swept: number } | undefined> {
   return new BackoffLoop({
     run: pollForge,
     baseIntervalMs: 90_000,
@@ -932,7 +932,7 @@ function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly ope
   });
 }
 
-async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly open: number } | undefined>) {
+async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly swept: number } | undefined>) {
   try {
     const forge = await openForge();
     // A notification appears the moment the command fires, rather than
@@ -960,9 +960,9 @@ async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ rea
         }
       },
     );
-    const open = result?.open ?? 0;
+    const swept = result?.swept ?? 0;
     vscode.window.setStatusBarMessage(
-      `cabaret: fetched ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
+      `cabaret: fetched ${forge.locator}, ${swept} forge change${swept === 1 ? "" : "s"}`,
       5000,
     );
   } catch (error) {

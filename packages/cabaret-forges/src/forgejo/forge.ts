@@ -4,17 +4,19 @@ import {
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
+  type ForgeCursor,
   type ForgeLocator,
   type ForgeMerge,
+  type ForgeSweep,
   forgeAccount,
   forgeChangeId,
   type LandMethod,
-  type OpenChange,
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
   type Revision,
   type Self,
+  type SweptChange,
   timestampMs,
   UserError,
   type UserName,
@@ -196,17 +198,20 @@ export class ForgejoForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
+  async fetchChanges(_since: ForgeCursor | undefined): Promise<ForgeSweep> {
     // Forgejo has no bulk query, so the sweep costs a few calls per open PR;
     // in return every discussion comes back whole, and nothing truncates.
     const prs = await this.listOpenPrs();
-    return Promise.all(
-      prs.map(async (pr) => ({
-        change: await this.toChange(pr),
-        comments: await this.listComments(pr.number),
-        commentsTruncated: false,
-      })),
+    const changes = await Promise.all(
+      prs.map(
+        async (pr): Promise<SweptChange> => ({
+          change: await this.toChange(pr),
+          comments: await this.listComments(pr.number),
+          commentsTruncated: false,
+        }),
+      ),
     );
+    return { coverage: "open", changes, cursor: undefined };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
