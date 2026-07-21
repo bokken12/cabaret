@@ -229,7 +229,11 @@ test("show names a branch outright even when no log speaks for it", async () => 
 
 test("show tallies the remaining review per user", async () => {
   const repo = await makeRepo();
-  const policy = { rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }] };
+  const policy = {
+    rules: [
+      { match: "*.txt", kind: "blocking", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } },
+    ],
+  };
   await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "policy");
@@ -247,8 +251,8 @@ test("show tallies the remaining review per user", async () => {
     │ owner     │ alice@example.com │
     │ reviewing │ owner             │
     │ parent    │ main              │
-    │ tip       │ 01cd7b3eb0c9      │
-    │ base      │ 7651e9c1eed4      │
+    │ tip       │ f7ec66f69dac      │
+    │ base      │ 36d86cfef878      │
     │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 

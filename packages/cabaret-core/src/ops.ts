@@ -34,6 +34,7 @@ import { UserError } from "./error.js";
 import {
   assertObligationsSatisfied,
   isSatisfied,
+  landBlockers,
   obligationStatuses,
   outstanding,
   UnreviewedParentError,
@@ -495,10 +496,14 @@ export async function prepareLand(
   if (parentEntries.length > 0) {
     const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
     const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
-    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-    if (unsatisfied.length > 0 && !overrides.parentUnreviewed) {
-      throw new UnreviewedParentError(parent, unsatisfied);
+    const blockers = landBlockers(statuses);
+    if (blockers.length > 0 && !overrides.parentUnreviewed) {
+      throw new UnreviewedParentError(parent, blockers);
     }
+    // Settling asks who still expects to read the parent, whatever kind of
+    // review they owe: follow review left there means the landed diff joins
+    // that catch-up rather than fast-forwarding past it.
+    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
     const users = new Set(statuses.flatMap(({ obligation }) => obligation.require.of));
     const owing = new Set(unsatisfied.flatMap(outstanding));
     settling = {
