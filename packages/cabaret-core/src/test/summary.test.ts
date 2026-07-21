@@ -16,9 +16,9 @@ import {
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
-  type ReviewRound,
+  type ReviewLeft,
   type Revision,
-  reviewRounds,
+  reviewLeft,
   summarizeChange,
   timestampMs,
   type UserName,
@@ -236,15 +236,15 @@ async function summarize(
   return summarizeChange(backend, change, entries, user, await changeDiff(backend, change, entries));
 }
 
-/** The rounds left for `user`, the diff of `base`..`tip` read afresh. */
-async function rounds(
+/** The review left for `user`, the diff of `base`..`tip` read afresh. */
+async function leftFor(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
   base: Revision,
   tip: Revision,
-): Promise<readonly ReviewRound[]> {
-  return reviewRounds(backend, entries, user, await diffBetween(backend, base, tip));
+): Promise<ReviewLeft> {
+  return reviewLeft(backend, entries, user, await diffBetween(backend, base, tip));
 }
 
 test("a change with no commits of its own must add code", async () => {
@@ -652,38 +652,30 @@ test("a landed change reports its merge, and a moved-base review counts as left"
   });
 });
 
-/** A `{file: view}` record as the round's file map, for terse expectations. */
+/** A `{file: view}` record as the review left, for terse expectations. */
 function files(views: Record<string, FileView>): ReadonlyMap<FilePath, FileView> {
   return new Map(Object.entries(views).map(([file, view]) => [parseFilePath(file), view]));
 }
 
-test("reviewRounds splits review at land merges, oldest first", async () => {
-  // 2 is a land merge (onto 1), so review spans 0-1 and 2-3.
+test("reviewLeft reads a landed-over stack as one catch-up diff", async () => {
+  // 2 is a land merge (onto 1). bob reviewed nothing before the land, so the
+  // landed diff and the change's own commits read as one combined diff.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"] },
+    changed: { "03": ["a.ts", "b.ts", "c.ts"], "01": ["a.ts", "c.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual([
-    {
-      end: fake("1"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("0"), source: undefined },
-        "c.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-    {
-      end: fake("3"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("2"), source: undefined },
-        "c.ts": { kind: "span", start: fake("2"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual(
+    files({
+      "a.ts": { kind: "fresh", source: undefined },
+      "b.ts": { kind: "fresh", source: undefined },
+      "c.ts": { kind: "fresh", source: undefined },
+    }),
+  );
 });
 
-test("reviewRounds resumes mid-span from a reviewed tip", async () => {
+test("reviewLeft extends from a reviewed tip", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
@@ -691,60 +683,40 @@ test("reviewRounds resumes mid-span from a reviewed tip", async () => {
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("b.ts", "0", "2"))];
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
-  ]);
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
+    files({ "a.ts": { kind: "extend", from: fake("2") } }),
+  );
 });
 
-test("reviewRounds keys a moved file by its new path, its view from the old", async () => {
+test("reviewLeft keys a moved file by its new path, its view from the old", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "0", feature: "2" },
     changed: { "02": ["old/api.ts -> new/api.ts", "b.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("0"), source: undefined },
-        "new/api.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("old/api.ts"), copied: false } },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
+    files({
+      "b.ts": { kind: "fresh", source: undefined },
+      "new/api.ts": { kind: "fresh", source: { path: parseFilePath("old/api.ts"), copied: false } },
+    }),
+  );
 });
 
-test("reviewRounds views a copied file from its source, which stays its own entry", async () => {
+test("reviewLeft views a copied file from its source, which stays its own entry", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "0", feature: "2" },
     changed: { "02": ["charter.ts => bylaws.ts", "charter.ts"] },
   });
-  expect(await rounds(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "bylaws.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("charter.ts"), copied: true } },
-        "charter.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
+    files({
+      "bylaws.ts": { kind: "fresh", source: { path: parseFilePath("charter.ts"), copied: true } },
+      "charter.ts": { kind: "fresh", source: undefined },
+    }),
+  );
 });
 
-test("reviewRounds resuming past a move takes the resumed diff's reading of it", async () => {
-  // The move happened before the reviewed tip 1, so what remains is a plain
-  // diff of the file under its new name.
-  const backend = repoBackend({
-    history: { "1": "0", "2": "1" },
-    branches: { main: "0", feature: "2" },
-    changed: { "02": ["a.ts -> b.ts"], "12": ["b.ts"] },
-  });
-  const entries = [...created("main", "0"), entry(review("b.ts", "0", "1"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    { end: fake("2"), files: files({ "b.ts": { kind: "span", start: fake("1"), source: undefined } }) },
-  ]);
-});
-
-test("reviewRounds does not carry knowledge recorded under a moved file's old path", async () => {
+test("reviewLeft does not carry knowledge recorded under a moved file's old path", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "0", feature: "2" },
@@ -753,17 +725,12 @@ test("reviewRounds does not carry knowledge recorded under a moved file's old pa
   // The whole diff moves a.ts to b.ts, and the review names only a.ts: the
   // move is due in full under its new name.
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "b.ts": { kind: "span", start: fake("0"), source: { path: parseFilePath("a.ts"), copied: false } },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("2"))).toEqual(
+    files({ "b.ts": { kind: "fresh", source: { path: parseFilePath("a.ts"), copied: false } } }),
+  );
 });
 
-test("reviewRounds counts a review against absent objects as no review at all", async () => {
+test("reviewLeft counts a review against absent objects as no review at all", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
     branches: { main: "0", feature: "2" },
@@ -773,64 +740,50 @@ test("reviewRounds counts a review against absent objects as no review at all", 
   // a.ts was reviewed up to a tip, and b.ts against a base, that this clone
   // has no objects for; both count as unreviewed.
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "9")), entry(review("b.ts", "8", "1"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("2"))).toEqual([
-    {
-      end: fake("2"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("0"), source: undefined },
-        "b.ts": { kind: "span", start: fake("0"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("2"))).toEqual(
+    files({
+      "a.ts": { kind: "fresh", source: undefined },
+      "b.ts": { kind: "fresh", source: undefined },
+    }),
+  );
 });
 
-test("reviewRounds carries misplaced reviews into the earliest round's view", async () => {
-  // 2 is a land merge (onto 1). alice's review of a.ts predates the current
-  // base, and her review of c.ts names a tip 9 that a rewrite removed from
-  // history; both changed in both spans.
+test("reviewLeft shows a moved-base review four-way, a rewritten tip as the diff onward", async () => {
+  // alice's review of a.ts predates the current base, and her review of c.ts
+  // names a tip 9 that a rewrite removed from history: the first compares
+  // diffs, the second simply diffs onward from the reviewed contents.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
-    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["a.ts", "c.ts"], "93": ["c.ts"] },
-    // Every version distinct, so neither carried view renders empty.
+    changed: { "03": ["a.ts", "c.ts"], "93": ["c.ts"] },
+    // Every version distinct, so neither view renders empty.
     contents: {
       "0": { "a.ts": "zero\n" },
-      "1": { "a.ts": "one\n", "c.ts": "one\n" },
       "2": { "a.ts": "two\n" },
-      "9": { "a.ts": "nine\n", "c.ts": "nine\n" },
+      "3": { "a.ts": "three\n" },
+      "9": { "a.ts": "nine\n" },
     },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "9", "2")), entry(review("c.ts", "0", "9"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    {
-      end: fake("1"),
-      files: files({
-        "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
-        "c.ts": { kind: "rewritten", from: fake("9") },
-      }),
-    },
-    {
-      end: fake("3"),
-      files: files({
-        "a.ts": { kind: "span", start: fake("2"), source: undefined },
-        "c.ts": { kind: "span", start: fake("2"), source: undefined },
-      }),
-    },
-  ]);
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
+    files({
+      "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
+      "c.ts": { kind: "extend", from: fake("9") },
+    }),
+  );
 });
 
-test("reviewRounds drops a rewritten-tip review whose file ends up unchanged", async () => {
+test("reviewLeft drops a rewritten-tip review whose file ends up unchanged", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
     changed: { "03": ["a.ts"], "93": [] },
   });
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "9"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([]);
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(files({}));
 });
 
-test("reviewRounds drops a rebased review whose file the base move left alone", async () => {
+test("reviewLeft drops a rebased review whose file the base move left alone", async () => {
   // feature rebased from base 0 to base 1; a.ts reads the same at both bases
   // and at both tips, so nothing is left to read.
   const backend = repoBackend({
@@ -845,10 +798,10 @@ test("reviewRounds drops a rebased review whose file the base move left alone", 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([]);
+  expect(await leftFor(backend, entries, alice, fake("1"), fake("3"))).toEqual(files({}));
 });
 
-test("reviewRounds drops a rebased review the rebase carried cleanly", async () => {
+test("reviewLeft drops a rebased review the rebase carried cleanly", async () => {
   // The base's copy gained a line, and the rebased tip took it verbatim: the
   // reviewed diff and the current diff agree, so the 4-way view is empty.
   const backend = repoBackend({
@@ -863,10 +816,10 @@ test("reviewRounds drops a rebased review the rebase carried cleanly", async () 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([]);
+  expect(await leftFor(backend, entries, alice, fake("1"), fake("3"))).toEqual(files({}));
 });
 
-test("reviewRounds keeps a rebased review whose diff the rebase changed", async () => {
+test("reviewLeft keeps a rebased review whose diff the rebase changed", async () => {
   // The rebased tip resolves the base move differently from the reviewed
   // diff, so the 4-way view shows the disagreement.
   const backend = repoBackend({
@@ -881,41 +834,24 @@ test("reviewRounds keeps a rebased review whose diff the rebase changed", async 
     },
   });
   const entries = [...created("main", "1"), entry(review("a.ts", "0", "2"))];
-  expect(await rounds(backend, entries, alice, fake("1"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "rebased", reviewed: { base: fake("0"), tip: fake("2") } } }) },
-  ]);
+  expect(await leftFor(backend, entries, alice, fake("1"), fake("3"))).toEqual(
+    files({ "a.ts": { kind: "rebased", reviewed: { base: fake("0"), tip: fake("2") } } }),
+  );
 });
 
-test("reviewRounds skips only the round a carried review leaves empty", async () => {
-  // 2 is a land merge (onto 1). The rebase carried a.ts cleanly through the
-  // first span, but the second span changed it again: only that span is due.
+test("review left extends from a settled land and diffs from a rewritten reviewed tip", async () => {
+  // 2 is a land merge (onto 1). alice's review reaches through it — the
+  // record a land settles reads like any other — and her review of c.ts
+  // names a tip 9 that a rewrite removed from history.
   const backend = repoBackend({
     history: { "1": "0", "2": "1", "3": "2" },
     branches: { main: "0", feature: "3" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts"], "23": ["a.ts"] },
-    contents: {
-      "0": { "a.ts": "base\n" },
-      "1": { "a.ts": "base\nplus\n" },
-      "8": { "a.ts": "base\nplus\n" },
-      "9": { "a.ts": "base\n" },
+    changed: {
+      "03": ["a.ts", "b.ts", "c.ts"],
+      "23": ["b.ts", "c.ts"],
+      "93": ["c.ts"],
     },
-  });
-  const entries = [...created("main", "0"), entry(review("a.ts", "9", "8"))];
-  expect(await rounds(backend, entries, alice, fake("0"), fake("3"))).toEqual([
-    { end: fake("3"), files: files({ "a.ts": { kind: "span", start: fake("2"), source: undefined } }) },
-  ]);
-});
-
-test("review left skips land merges and diffs from a rewritten reviewed tip", async () => {
-  // 2 is a land merge (onto 1), so review spans 0-1 and 2-3. alice reviewed
-  // a.ts through 2 (covering 0-1), and c.ts to a tip 9 that a rewrite removed
-  // from history.
-  const backend = repoBackend({
-    history: { "1": "0", "2": "1", "3": "2" },
-    branches: { main: "0", feature: "3" },
-    merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.ts", "c.ts"], "23": ["b.ts", "c.ts"], "93": ["c.ts"] },
     // c.ts differs from the rewritten reviewed tip, so its view stays due.
     contents: { "1": { "c.ts": "one\n" }, "9": { "c.ts": "nine\n" } },
   });

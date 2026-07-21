@@ -1159,10 +1159,9 @@ export class GitBackend implements Backend {
         continue;
       }
       // A land merge's onto is its first parent; a squash land's, its sole
-      // parent. Trusting the trailer on a single-parent commit does mean a
-      // cherry-pick of a land commit — which copies the message verbatim —
-      // is skipped too, even though its diff (conflict resolutions included)
-      // may match nothing that was reviewed.
+      // parent. The trailer only names what landed — review answers to the
+      // entries the land wrote, so a cherry-pick copying the message claims
+      // nothing.
       const [onto, merged] = GitBackend.lineParents(line);
       const landed = trailer === undefined || trailer === "" ? undefined : parseBranchName(trailer);
       if (onto === undefined || (merged === undefined && landed === undefined)) {

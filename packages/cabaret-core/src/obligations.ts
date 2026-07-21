@@ -18,7 +18,7 @@ import {
 } from "./backend.js";
 import { UserError } from "./error.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewLeft } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
 export const OBLIGATIONS_FILE = ".obligations";
@@ -248,13 +248,13 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
- * The status of every obligation on `diff`, owned by `owner`. Only files
- * changed within the change's own review spans are governed: the diff a
- * land merge brings in was reviewed in the landed child, under the child's
- * own obligations. Independent of any rules, every governed file carries the
- * owner's implicit self-review requirement, and one likewise for each of the
+ * The status of every obligation on `diff`, owned by `owner`. Every file of
+ * the diff is governed. Independent of any rules, each carries the owner's
+ * implicit self-review requirement, and one likewise for each of the
  * change's reviewers. A user counts toward a requirement exactly when no
- * round of review is left for them on the file.
+ * review of the file is left for them — the diff a land merge brings in
+ * counts through the land's fast-forward, so it answers to the landed
+ * child's obligations, not to re-reading here.
  */
 export async function obligationStatuses(
   backend: Backend,
@@ -262,13 +262,7 @@ export async function obligationStatuses(
   owner: UserName,
   diff: ChangeDiff,
 ): Promise<readonly ObligationStatus[]> {
-  const files = new Set<FilePath>();
-  for (const { changed } of diff.spans) {
-    for (const file of changed.keys()) {
-      files.add(file);
-    }
-  }
-  const sorted = [...files].sort();
+  const sorted = [...diff.changed.keys()].sort();
   // An owning reviewer already owes every file as owner; a second identical
   // requirement would only double the noise.
   const standings: readonly (readonly [UserName, "owner" | "reviewer"])[] = [
@@ -285,8 +279,7 @@ export async function obligationStatuses(
   ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
   for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
-    const rounds = await reviewRounds(backend, entries, user, diff);
-    left.set(user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()])));
+    left.set(user, new Set((await reviewLeft(backend, entries, user, diff)).keys()));
   }
   const covered = (user: UserName, file: FilePath): boolean => {
     const due = left.get(user);
@@ -302,7 +295,7 @@ export async function obligationStatuses(
 }
 
 /** The users who can still count toward the requirement. */
-function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
+export function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
   return obligation.require.of.filter((user) => !reviewedBy.includes(user));
 }
 

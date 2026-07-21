@@ -24,7 +24,6 @@ import {
   neighborFiles,
   type Page,
   pagePath,
-  pendingRound,
   type Target,
   targetAt,
   type ViewedDiffs,
@@ -168,7 +167,7 @@ export class App {
   private input: Input | undefined;
   /** A pressed button not yet released: where it landed, and whether it has dragged rows. */
   private press: { row: number; column: number; dragged: boolean } | undefined;
-  /** Per displayed diff, the round ends it was shown up to: evidence for mark's viewed check. */
+  /** Per displayed diff, the tips it was shown up to: evidence for mark's viewed check. */
   private readonly displayedEnds = new Map<string, Set<Revision>>();
 
   constructor(
@@ -828,10 +827,9 @@ export class App {
       this.note = "the page rendered without its review state; refresh first";
       return;
     }
-    const pending = pendingRound(snapshot.rounds, file);
     if (
-      pending !== undefined &&
-      !this.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end)
+      snapshot.left.has(file) &&
+      !this.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(snapshot.tip)
     ) {
       const whom = view.page.as ?? "you";
       this.ask(`The diff of ${file} has not been displayed to ${whom}. Mark anyway?`, () =>
@@ -881,8 +879,8 @@ export class App {
       other.stale = true;
     }
     if (view.page.kind === "diff") {
-      // The marked page has served its purpose: move on to the round's
-      // next file, or back to the review page when the round is done.
+      // The marked page has served its purpose: move on to the next file
+      // left, or back to the review page when review is done.
       await this.replace(
         view,
         result.next === undefined
@@ -1202,7 +1200,7 @@ export class App {
     });
   }
 
-  /** Step a diff page to the file beside it in its round — how a reviewer walks the round. */
+  /** Step a diff page to the file beside it — how a reviewer walks the files left. */
   private async stepToFile(view: View, side: "prev" | "next"): Promise<void> {
     if (view.page.kind !== "diff") {
       return;
@@ -1212,14 +1210,14 @@ export class App {
       this.note = "the page rendered without its review state; refresh first";
       return;
     }
-    const neighbors = neighborFiles(view.snapshot.rounds, page.file);
+    const neighbors = neighborFiles(view.snapshot.left, page.file);
     if (neighbors === undefined) {
       this.note = `nothing left to review in ${page.file}`;
       return;
     }
     const file = neighbors[side];
     if (file === undefined) {
-      this.note = `${page.file} is the round's ${side === "prev" ? "first" : "last"} file`;
+      this.note = `${page.file} is the ${side === "prev" ? "first" : "last"} file left`;
       return;
     }
     await this.replace(view, { kind: "diff", change: page.change, file, as: page.as });

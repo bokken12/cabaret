@@ -70,7 +70,6 @@ import {
   type Page,
   pagePath,
   parsePagePath,
-  pendingRound,
   renderPage,
   type Style,
   styledRanges,
@@ -467,7 +466,7 @@ function shownPage(): Extract<Page, { kind: "show" }> | undefined {
 /**
  * Step up to the sibling above: from a show page to the parent's show page
  * — a trunk parent has a page of its own — or from a file's diff to the
- * round's previous file.
+ * previous file left.
  */
 async function stepUp(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -494,7 +493,7 @@ async function stepUp(provider: PageProvider): Promise<void> {
 /**
  * Step down to the sibling below: from a show page to a child's show page —
  * picking one when the change has several children — or from a file's diff
- * to the round's next file.
+ * to the next file left.
  */
 async function stepDown(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -530,8 +529,8 @@ async function stepDown(provider: PageProvider): Promise<void> {
 }
 
 /**
- * Step a diff page to the file beside it in its round, replacing the page as
- * marking reviewed does — stepping is how a reviewer walks the round.
+ * Step a diff page to the file beside it, replacing the page as marking
+ * reviewed does — stepping is how a reviewer walks the files left.
  */
 async function stepToFile(
   provider: PageProvider,
@@ -540,7 +539,7 @@ async function stepToFile(
   side: "prev" | "next",
 ): Promise<void> {
   const backend = await openBackend();
-  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).rounds, page.file);
+  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).left, page.file);
   if (neighbors === undefined) {
     vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
     return;
@@ -548,7 +547,7 @@ async function stepToFile(
   const file = neighbors[side];
   if (file === undefined) {
     vscode.window.showInformationMessage(
-      `cabaret: ${page.file} is the round's ${side === "prev" ? "first" : "last"} file`,
+      `cabaret: ${page.file} is the ${side === "prev" ? "first" : "last"} file left`,
     );
     return;
   }
@@ -743,7 +742,7 @@ async function review(provider: PageProvider): Promise<void> {
   }
 }
 
-/** Open every diff of the active page's change, one round in one buffer. */
+/** Open every diff of the active page's change in one buffer. */
 async function reviewDiffs(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
@@ -761,8 +760,8 @@ async function reviewDiffs(provider: PageProvider): Promise<void> {
  * the file the cursor's line resolves to. The mark records the page's own
  * snapshot — a change that moved on since the render just leaves the rest
  * pending — so only a mark whose diff this window never displayed asks
- * first. From a diff page, move on to the round's next file, or back to the
- * change's review page when the round is done. Errors surface as
+ * first. From a diff page, move on to the next file left, or back to the
+ * change's review page when review is done. Errors surface as
  * notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
@@ -803,10 +802,9 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     // page can lack its snapshot; the fresh one then read falls under the
     // never-displayed ask below.
     const snapshot = provider.snapshot(editor.document.uri) ?? (await changeSnapshot(backend, page.change, page.as));
-    const pending = pendingRound(snapshot.rounds, file);
     if (
-      pending !== undefined &&
-      !provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(pending.end)
+      snapshot.left.has(file) &&
+      !provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(snapshot.tip)
     ) {
       const choice = await vscode.window.showWarningMessage(
         `The diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,

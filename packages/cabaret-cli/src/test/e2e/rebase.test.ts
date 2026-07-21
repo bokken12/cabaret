@@ -540,10 +540,10 @@ async function makeRebasedFeature(repo: TestRepo): Promise<void> {
 test("a rebase keeps main's own movement out of review", async () => {
   const repo = await makeRepo();
   await makeRebasedFeature(repo);
-  // Only the change's own work is owed: both.txt because main also moved it
-  // since the review, plain.txt because it was never reviewed. What the
-  // rebase merged in (mainline.txt) and what the landed child brought
-  // (gadget.txt) owe nothing, and feature.txt's review carried cleanly.
+  // plain.txt was never reviewed, and its missing review left the landing
+  // uncovered, so gadget.txt reads here too. What the rebase merged in
+  // (mainline.txt) owes nothing, and the reviews of feature.txt and
+  // both.txt carried cleanly through the rebase.
   expect((await repo.cabaret("show", "feature")).stdout).toMatchInlineSnapshot(`
     "feature
     =======
@@ -567,11 +567,11 @@ test("a rebase keeps main's own movement out of review", async () => {
       alice@example.com: 2 files
 
     Files to review:
-      both.txt
+      gadget.txt
       plain.txt
     "
   `);
-  for (const settled of ["feature.txt", "gadget.txt", "mainline.txt"]) {
+  for (const settled of ["both.txt", "feature.txt", "mainline.txt"]) {
     expect(await repo.cabaret("review", "--change", "feature", settled)).toEqual({
       stdout: `${settled} in feature\n\nNothing left to review.\n`,
       stderr: "",
@@ -579,53 +579,26 @@ test("a rebase keeps main's own movement out of review", async () => {
     });
   }
   expect((await repo.cabaret("review", "--change", "feature", "both.txt")).stdout).toMatchInlineSnapshot(`
-    "Review feature
-    ==============
+    "both.txt in feature
 
-    Reviewing up to 97b57f3b06b5.
-
-      both.txt
-
-    both.txt in feature (up to 97b57f3b06b5)
-
-    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ both.txt @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    old base 879cfc4b1ce7 | new base 5e19fa6beaa9 | old & new tip 97b57f3b06b5
-    _
-    | @@@@@@@@ This base change was dropped... : @@@@@@@@
-    | @@@@@@@@ old base 1,4 new base 1,4 @@@@@@@@
-    |   top
-    |   middle
-    | -|bottom
-    | +|bottom (mainline)
-    |_
-    _
-    | @@@@@@@@ ... in favor of this feature change: @@@@@@@@
-    | @@@@@@@@ old base 1,4 tip 1,4 @@@@@@@@
-    | -|top
-    | +|top (feature)
-    |   middle
-    |   bottom
-    |_
-
-    Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 both.txt
+    Nothing left to review.
     "
   `);
   expect((await repo.cabaret("review", "--change", "feature", "plain.txt")).stdout).toMatchInlineSnapshot(`
     "Review feature
     ==============
 
-    Reviewing up to 97b57f3b06b5.
+    Reviewing up to 244470f9ef1a.
 
       plain.txt
 
-    plain.txt in feature (up to 97b57f3b06b5)
+    plain.txt in feature (up to 244470f9ef1a)
 
     -1,0 +1,1
     +|plain work
 
     Record review of what you have read:
-      cabaret mark --change feature --tip 97b57f3b06b5 plain.txt
+      cabaret mark --change feature --tip 244470f9ef1a plain.txt
     "
   `);
 });

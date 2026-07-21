@@ -31,9 +31,15 @@ import {
 import type { LandMethod } from "./config.js";
 import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { assertObligationsSatisfied, isSatisfied, obligationStatuses, UnreviewedParentError } from "./obligations.js";
+import {
+  assertObligationsSatisfied,
+  isSatisfied,
+  obligationStatuses,
+  outstanding,
+  UnreviewedParentError,
+} from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewLeft } from "./summary.js";
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
@@ -153,8 +159,7 @@ export async function widenReviewing(
     throw new UserError(`everyone is already reviewing ${JSON.stringify(change)}`);
   }
   const diff = await changeDiff(backend, change, entries);
-  const owes = async (user: UserName): Promise<boolean> =>
-    (await reviewRounds(backend, entries, user, diff)).length > 0;
+  const owes = async (user: UserName): Promise<boolean> => (await reviewLeft(backend, entries, user, diff)).size > 0;
   const owner = currentOwner(change, entries);
   while (to !== "everyone") {
     const added = to === "owner" ? [owner] : currentReviewers(entries).filter((reviewer) => reviewer !== owner);
@@ -403,6 +408,21 @@ export interface PreparedLand {
   readonly onto: Revision;
   readonly tip: Revision;
   readonly user: UserName;
+  /**
+   * Where the landed diff's review settles per user, from the parent's
+   * obligations as the land found them; undefined for a trunk parent, which
+   * owes no review. `recordLand` writes it into the logs — after the land,
+   * the review entries alone answer, atomically with the landing.
+   */
+  readonly settling:
+    | {
+        readonly parentBase: Revision;
+        /** Users with no review still owed on the parent: the landed diff answers to the landed change's log. */
+        readonly fulfilled: readonly UserName[];
+        /** Users the parent still expects review from: the landed diff joins their catch-up in the parent. */
+        readonly unfulfilled: readonly UserName[];
+      }
+    | undefined;
 }
 
 /** The land checks the user may explicitly override. */
@@ -471,18 +491,26 @@ export async function prepareLand(
   }
   // A trunk parent has no log and owes nothing. The parent's diff is
   // measured to `onto`, the freshest reading the land merges onto.
-  if (!overrides.parentUnreviewed && parentEntries.length > 0) {
+  let settling: PreparedLand["settling"];
+  if (parentEntries.length > 0) {
     const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
     const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
     const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-    if (unsatisfied.length > 0) {
+    if (unsatisfied.length > 0 && !overrides.parentUnreviewed) {
       throw new UnreviewedParentError(parent, unsatisfied);
     }
+    const users = new Set(statuses.flatMap(({ obligation }) => obligation.require.of));
+    const owing = new Set(unsatisfied.flatMap(outstanding));
+    settling = {
+      parentBase: parentDiff.base,
+      fulfilled: [...users].filter((user) => !owing.has(user)).sort(),
+      unfulfilled: [...owing].sort(),
+    };
   }
   // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.
   const user = await backend.currentUser();
-  return { parent, base, onto, tip, user };
+  return { parent, base, onto, tip, user, settling };
 }
 
 /**
@@ -492,21 +520,48 @@ export async function prepareLand(
  * entry. A landing commit that descends from no reviewed history — a squash,
  * or whatever else the forge chose to write — also freezes the tip that
  * landed.
+ *
+ * The landing also settles the landed diff's review, per `settling`: a user
+ * the parent still expects review from reads it combined into the parent's
+ * catch-up, so their review of `target` records as complete; everyone else
+ * answers to `target`'s log for it, so their review of the parent records
+ * through the landing commit. After this, the review entries alone say who
+ * has read what — nothing later re-reads the land.
  */
 export async function recordLand(
   backend: Backend,
   now: () => TimestampMs,
   target: ChangeName,
   entries: readonly LogEntry[],
-  { base, tip, user }: PreparedLand,
+  { parent, base, onto, tip, user, settling }: PreparedLand,
   merge: LandedMerge,
 ): Promise<void> {
   const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
+  const review = (reviewer: UserName, file: FilePath, from: Revision, to: Revision): LogEntry => ({
+    timestamp: now(),
+    user: reviewer,
+    action: { kind: "review", file, base: from, tip: to },
+  });
+  let settled: LogEntry[] = [];
+  if (settling !== undefined && settling.unfulfilled.length > 0) {
+    const files = await backend.changedFiles(base, tip);
+    settled = settling.unfulfilled.flatMap((reviewer) => files.map(({ path }) => review(reviewer, path, base, tip)));
+  }
   await backend.appendLog(target, [
     ...pin,
+    ...settled,
     { timestamp: now(), user, action: { kind: "land", merge: merge.commit, ...(merge.parents > 1 ? {} : { tip }) } },
   ]);
+  if (settling !== undefined && settling.fulfilled.length > 0) {
+    const landed = await backend.changedFiles(onto, merge.commit);
+    await backend.appendLog(
+      parent,
+      settling.fulfilled.flatMap((reviewer) =>
+        landed.map(({ path }) => review(reviewer, path, settling.parentBase, merge.commit)),
+      ),
+    );
+  }
 }
 
 /** How a local land's parent advance reached origin, if it could. */

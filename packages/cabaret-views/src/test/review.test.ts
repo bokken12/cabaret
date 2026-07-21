@@ -35,18 +35,18 @@ function file(name: string): ChangedFile {
 
 const widgets = parseBranchName("widgets");
 
-test("reviewDoc lists the round's files and what follows", () => {
+test("reviewDoc lists the files left", () => {
   const doc = reviewDoc({
     change: widgets,
     as: undefined,
     conflicts: [],
-    round: { end: fake("3"), files: [file("api.ts"), file("ui.ts")], later: 2 },
+    left: { tip: fake("3"), files: [file("api.ts"), file("ui.ts")] },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
 
-    Reviewing up to 333333333333; 2 more rounds follow.
+    Reviewing up to 333333333333.
 
       api.ts
       ui.ts"
@@ -58,14 +58,13 @@ test("reviewDoc names a moved or copied file with its source, targeting its new 
     change: widgets,
     as: undefined,
     conflicts: [],
-    round: {
-      end: fake("3"),
+    left: {
+      tip: fake("3"),
       files: [
         { path: parseFilePath("bylaws.ts"), source: { path: parseFilePath("charter.ts"), copied: true } },
         { path: parseFilePath("new/api.ts"), source: { path: parseFilePath("old/api.ts"), copied: false } },
         file("ui.ts"),
       ],
-      later: 0,
     },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
@@ -82,12 +81,12 @@ test("reviewDoc names a moved or copied file with its source, targeting its new 
   expect(targetAt(doc, 6)).toEqual({ kind: "file", change: "widgets", file: "new/api.ts" });
 });
 
-test("reviewDoc targets the round's first file from every line but a file's own", () => {
+test("reviewDoc targets the first file left from every line but a file's own", () => {
   const doc = reviewDoc({
     change: widgets,
     as: undefined,
     conflicts: [],
-    round: { end: fake("3"), files: [file("api.ts"), file("ui.ts")], later: 0 },
+    left: { tip: fake("3"), files: [file("api.ts"), file("ui.ts")] },
   });
   const api = { kind: "file", change: "widgets", file: "api.ts" };
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([
@@ -116,7 +115,7 @@ test("reviewDoc as another user says so and routes files to their diffs", () => 
     change: widgets,
     as: userName("bob@example.com"),
     conflicts: [],
-    round: { end: fake("3"), files: [file("api.ts"), file("ui.ts")], later: 0 },
+    left: { tip: fake("3"), files: [file("api.ts"), file("ui.ts")] },
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets as bob@example.com
@@ -133,29 +132,12 @@ test("reviewDoc as another user says so and routes files to their diffs", () => 
   expect(targetAt(doc, 6)).toEqual(asBob("ui.ts"));
 });
 
-test("reviewDoc of the last round drops the indicator", () => {
-  const doc = reviewDoc({
-    change: widgets,
-    as: undefined,
-    conflicts: [],
-    round: { end: fake("3"), files: [file("api.ts")], later: 0 },
-  });
-  expect(docText(doc)).toMatchInlineSnapshot(`
-    "Review widgets
-    ==============
-
-    Reviewing up to 333333333333.
-
-      api.ts"
-  `);
-});
-
 test("reviewDoc with conflicts asks for the fix instead of offering files", () => {
   const doc = reviewDoc({
     change: widgets,
     as: undefined,
     conflicts: [parseFilePath("api.ts"), parseFilePath("ui.ts")],
-    round: undefined,
+    left: undefined,
   });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
@@ -167,7 +149,7 @@ test("reviewDoc with conflicts asks for the fix instead of offering files", () =
 });
 
 test("reviewDoc with nothing left says so, targeting nothing", () => {
-  const doc = reviewDoc({ change: widgets, as: undefined, conflicts: [], round: undefined });
+  const doc = reviewDoc({ change: widgets, as: undefined, conflicts: [], left: undefined });
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Review widgets
     ==============
@@ -177,15 +159,14 @@ test("reviewDoc with nothing left says so, targeting nothing", () => {
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([undefined, undefined, undefined, undefined]);
 });
 
-function diffPageWith(round: DiffPage["round"]): DiffPage {
-  return { change: widgets, file: parseFilePath("api.ts"), as: undefined, round };
+function diffPageWith(left: DiffPage["left"]): DiffPage {
+  return { change: widgets, file: parseFilePath("api.ts"), as: undefined, left };
 }
 
 test("diffDoc titles a moved file by both sides, a pure move showing no hunks", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: { path: parseFilePath("old/api.ts"), copied: false },
       view: { kind: "two", prev: "same\n", next: "same\n" },
     }),
@@ -200,8 +181,7 @@ test("diffDoc titles a moved file by both sides, a pure move showing no hunks", 
 test("diffDoc titles a copied file with its source and shows only the delta", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: { path: parseFilePath("charter.ts"), copied: true },
       view: { kind: "two", prev: "shared\nclosing\n", next: "shared\nbylaws closing\n" },
     }),
@@ -218,14 +198,13 @@ test("diffDoc titles a copied file with its source and shows only the delta", ()
 test("diffDoc renders a two-way diff bare of marks, styling its added and removed lines", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 1,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
     }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "api.ts in widgets (up to 333333333333; 1 more round follows)
+    "api.ts in widgets (up to 333333333333)
 
     -1,2 +1,2
     shared
@@ -234,7 +213,7 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
   `);
   const styles = doc.lines.map(({ spans }) => spans.map(({ text, style }) => [text, style]));
   expect(styles.filter((line) => line.some(([, style]) => style !== undefined))).toEqual([
-    [["api.ts in widgets (up to 333333333333; 1 more round follows)", "heading"]],
+    [["api.ts in widgets (up to 333333333333)", "heading"]],
     [["-1,2 +1,2", "hunk"]],
     [["gone", "removed"]],
     [["here", "added"]],
@@ -244,8 +223,7 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
 test("diffDoc anchors each hunk line to its place in the new copy, on the jump tier", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
     }),
@@ -267,10 +245,7 @@ test("diffDoc trims each hunk to the requested context", () => {
   const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
   const prev = `${lines.join("\n")}\n`;
   const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
-  const doc = diffDoc(
-    diffPageWith({ end: fake("3"), later: 0, source: undefined, view: { kind: "two", prev, next } }),
-    1,
-  );
+  const doc = diffDoc(diffPageWith({ tip: fake("3"), source: undefined, view: { kind: "two", prev, next } }), 1);
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
@@ -297,10 +272,7 @@ test("diffDoc shows the whole file in one hunk at context -1", () => {
   const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
   const prev = `${lines.join("\n")}\n`;
   const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
-  const doc = diffDoc(
-    diffPageWith({ end: fake("3"), later: 0, source: undefined, view: { kind: "two", prev, next } }),
-    -1,
-  );
+  const doc = diffDoc(diffPageWith({ tip: fake("3"), source: undefined, view: { kind: "two", prev, next } }), -1);
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
@@ -322,8 +294,7 @@ test("diffDoc shows the whole file in one hunk at context -1", () => {
 test("diffDoc styles an added blank line, so hosts wash it like its neighbors", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "one\ntwo\n", next: "one\n\nnew\ntwo\n" },
     }),
@@ -340,8 +311,7 @@ test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
   const prev = `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev, next: `${prev}tail\n` },
     }),
@@ -356,8 +326,7 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
   const long = (word: string) => `const banner = "${word}: ${"x".repeat(90)}";\n`;
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: long("before"), next: long("after") },
     }),
@@ -382,8 +351,7 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
 test("diffDoc emphasizes the changed words within a modified line", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "dogs are the best pets\n", next: "dogs are the cutest pets\n" },
     }),
@@ -413,8 +381,7 @@ test("diffDoc emphasizes the changed words within a modified line", () => {
 test("diffDoc unifies a line that only gained words, styling just those words", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "dogs are best pets\ntail\n", next: "dogs are the very best pets\ntail\n" },
     }),
@@ -437,8 +404,7 @@ test("diffDoc unifies a line that only gained words, styling just those words", 
 test("diffDoc unifies a line that only lost words, keeping the old line as the marked superset", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "dogs are the very best pets\ntail\n", next: "dogs are best pets\ntail\n" },
     }),
@@ -458,8 +424,7 @@ test("diffDoc unifies a line that only lost words, keeping the old line as the m
 test("diffDoc keeps line anchors across a unified join, whose boundary the new copy lost", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "keep alpha\nbeta tail\nlast\n", next: "keep tail\nlast\n" },
     }),
@@ -486,8 +451,7 @@ test("diffDoc keeps line anchors across a unified join, whose boundary the new c
 test("diffDoc leaves a line replaced wholesale as one plain span", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nfresh words\n" },
     }),
@@ -504,8 +468,7 @@ test("diffDoc leaves a line replaced wholesale as one plain span", () => {
 test("diffDoc leaves a context line unstyled even when its text starts like a mark", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" },
     }),
@@ -517,8 +480,7 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
 test("diffDoc omits the redundant file-name lines for a newly added file", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: undefined, next: "new\n" },
     }),
@@ -534,8 +496,7 @@ test("diffDoc omits the redundant file-name lines for a newly added file", () =>
 test("diffDoc renders a four-way diff when the base changed under the review", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("4"),
-      later: 0,
+      tip: fake("4"),
       source: undefined,
       view: {
         kind: "four",
@@ -587,8 +548,7 @@ test("diffDoc anchors a story block through its to-side's equivalence with the n
   // (b1 -> f1) never touches the new tip and carries no targets.
   const doc = diffDoc(
     diffPageWith({
-      end: fake("4"),
-      later: 0,
+      tip: fake("4"),
       source: undefined,
       view: {
         kind: "four",
@@ -639,8 +599,7 @@ test("diffDoc anchors a conflict's agreed removal at the running insertion point
   // anchored context line "a" and anchors where its replacement would sit.
   const doc = diffDoc(
     diffPageWith({
-      end: fake("4"),
-      later: 0,
+      tip: fake("4"),
       source: undefined,
       view: {
         kind: "four",
@@ -676,8 +635,7 @@ test("diffDoc folds each four-way block's hunks to their headers", () => {
   const contents = (second: string, ninth: string): string => `top\n${second}\nm1\nm2\nm3\nm4\nm5\n${ninth}\nbot\n`;
   const doc = diffDoc(
     diffPageWith({
-      end: fake("4"),
-      later: 0,
+      tip: fake("4"),
       source: undefined,
       view: {
         kind: "four",
@@ -726,8 +684,7 @@ test("diffDoc folds each four-way block's hunks to their headers", () => {
 test("diffDoc with an empty diff points at marking the file reviewed", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "same\n", next: "same\n" },
     }),
@@ -742,8 +699,7 @@ test("diffDoc with an empty diff points at marking the file reviewed", () => {
 test("diffDoc reports binary versions instead of diffing them", () => {
   const doc = diffDoc(
     diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "a\0b\n", next: "c\0d\n" },
     }),
@@ -766,8 +722,7 @@ test("diffDoc with no review left says so", () => {
 test("diffDoc as another user names them in the title", () => {
   const doc = diffDoc({
     ...diffPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       source: undefined,
       view: { kind: "two", prev: "gone\n", next: "here\n" },
     }),
@@ -782,17 +737,7 @@ test("diffDoc as another user names them in the title", () => {
   `);
 });
 
-function snapshotWith(
-  files: readonly string[],
-  secondRound: readonly string[] = [],
-  conflicts: readonly string[] = [],
-): ChangeSnapshot {
-  const round = (end: Revision, names: readonly string[]) => ({
-    end,
-    files: new Map(
-      names.map((name) => [parseFilePath(name), { kind: "span", start: fake("1"), source: undefined } as const]),
-    ),
-  });
+function snapshotWith(files: readonly string[], conflicts: readonly string[] = []): ChangeSnapshot {
   return {
     change: widgets,
     user: userName("alice@example.com"),
@@ -802,7 +747,7 @@ function snapshotWith(
     base: fake("1"),
     tip: fake("3"),
     conflicts: conflicts.map(parseFilePath),
-    rounds: [round(fake("2"), files), ...(secondRound.length === 0 ? [] : [round(fake("3"), secondRound)])],
+    left: new Map(files.map((name) => [parseFilePath(name), { kind: "fresh", source: undefined } as const])),
   };
 }
 
@@ -817,7 +762,7 @@ function appendOnly(appended: LogEntry[][]): Backend {
 
 const at = timestampMs(1748000000000);
 
-test("markReviewed records the snapshot's round end and marks the file off", () => {
+test("markReviewed records the snapshot's tip and marks the file off", () => {
   const appended: LogEntry[][] = [];
   const snapshot = snapshotWith(["a.ts", "b.ts", "c.ts"]);
   const result = markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"));
@@ -831,21 +776,21 @@ test("markReviewed records the snapshot's round end and marks the file off", () 
       {
         timestamp: at,
         user: userName("alice@example.com"),
-        action: { kind: "review", file: parseFilePath("b.ts"), base: fake("1"), tip: fake("2") },
+        action: { kind: "review", file: parseFilePath("b.ts"), base: fake("1"), tip: fake("3") },
       },
     ],
   ]);
   expect(reviewPage(result.snapshot)).toEqual({
     change: widgets,
     conflicts: [],
-    round: { end: fake("2"), files: [file("a.ts"), file("c.ts")], later: 0 },
+    left: { tip: fake("3"), files: [file("a.ts"), file("c.ts")] },
   });
 });
 
-test("marking past the last file wraps to the earliest unmarked, then ends the round", () => {
+test("marking past the last file wraps to the earliest unmarked, then ends review", () => {
   const appended: LogEntry[][] = [];
   const backend = appendOnly(appended);
-  const first = markReviewed(backend, () => at, snapshotWith(["a.ts", "c.ts"], ["z.ts"]), parseFilePath("c.ts"));
+  const first = markReviewed(backend, () => at, snapshotWith(["a.ts", "c.ts"]), parseFilePath("c.ts"));
   if (first.kind !== "marked") {
     throw new Error("unreachable");
   }
@@ -854,19 +799,15 @@ test("marking past the last file wraps to the earliest unmarked, then ends the r
   if (second.kind !== "marked") {
     throw new Error("unreachable");
   }
-  // The emptied round drops away; the next round takes over on the review page.
+  // Review is done; the review page takes over and says so.
   expect(second.next).toBeUndefined();
-  expect(reviewPage(second.snapshot)).toEqual({
-    change: widgets,
-    conflicts: [],
-    round: { end: fake("3"), files: [file("z.ts")], later: 0 },
-  });
+  expect(reviewPage(second.snapshot)).toEqual({ change: widgets, conflicts: [], left: undefined });
   expect(appended).toHaveLength(2);
 });
 
-test("a conflicted snapshot drops its round and refuses to mark, even asked", () => {
-  const snapshot = snapshotWith(["a.ts", "b.ts"], [], ["a.ts"]);
-  expect(reviewPage(snapshot)).toEqual({ change: widgets, conflicts: [parseFilePath("a.ts")], round: undefined });
+test("a conflicted snapshot drops its review and refuses to mark, even asked", () => {
+  const snapshot = snapshotWith(["a.ts", "b.ts"], ["a.ts"]);
+  expect(reviewPage(snapshot)).toEqual({ change: widgets, conflicts: [parseFilePath("a.ts")], left: undefined });
   const appended: LogEntry[][] = [];
   expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"), true)).toThrow(
     '"widgets" has unresolved conflicts in a.ts; fix the markers and amend',
@@ -885,24 +826,18 @@ test("markReviewed through a borrowed snapshot records the borrowed user", () =>
       {
         timestamp: at,
         user: bob,
-        action: { kind: "review", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("2") },
+        action: { kind: "review", file: parseFilePath("a.ts"), base: fake("1"), tip: fake("3") },
       },
     ],
   ]);
 });
 
-test("neighborFiles names the files beside one in the round, ending at its edges", () => {
-  const rounds = snapshotWith(["a.ts", "b.ts", "c.ts"]).rounds;
-  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: "a.ts", next: "c.ts" });
-  expect(neighborFiles(rounds, parseFilePath("a.ts"))).toEqual({ prev: undefined, next: "b.ts" });
-  expect(neighborFiles(rounds, parseFilePath("c.ts"))).toEqual({ prev: "b.ts", next: undefined });
-  expect(neighborFiles(rounds, parseFilePath("other.ts"))).toBeUndefined();
-});
-
-test("neighborFiles reads the earliest round still owing the file", () => {
-  const rounds = snapshotWith(["b.ts", "d.ts"], ["a.ts", "b.ts", "z.ts"]).rounds;
-  expect(neighborFiles(rounds, parseFilePath("b.ts"))).toEqual({ prev: undefined, next: "d.ts" });
-  expect(neighborFiles(rounds, parseFilePath("z.ts"))).toEqual({ prev: "b.ts", next: undefined });
+test("neighborFiles names the files beside one, ending at the edges", () => {
+  const left = snapshotWith(["a.ts", "b.ts", "c.ts"]).left;
+  expect(neighborFiles(left, parseFilePath("b.ts"))).toEqual({ prev: "a.ts", next: "c.ts" });
+  expect(neighborFiles(left, parseFilePath("a.ts"))).toEqual({ prev: undefined, next: "b.ts" });
+  expect(neighborFiles(left, parseFilePath("c.ts"))).toEqual({ prev: "b.ts", next: undefined });
+  expect(neighborFiles(left, parseFilePath("other.ts"))).toBeUndefined();
 });
 
 test("markReviewed of a file with no review pending records nothing", () => {
@@ -912,15 +847,14 @@ test("markReviewed of a file with no review pending records nothing", () => {
   expect(appended).toEqual([]);
 });
 
-function diffsPageWith(round: DiffsPage["round"], conflicts: DiffsPage["conflicts"] = []): DiffsPage {
-  return { change: widgets, as: undefined, conflicts, round };
+function diffsPageWith(left: DiffsPage["left"], conflicts: DiffsPage["conflicts"] = []): DiffsPage {
+  return { change: widgets, as: undefined, conflicts, left };
 }
 
-test("diffsDoc renders every file of the round under its own bar", () => {
+test("diffsDoc renders every file left under its own bar", () => {
   const doc = diffsDoc(
     diffsPageWith({
-      end: fake("3"),
-      later: 1,
+      tip: fake("3"),
       files: [
         {
           file: parseFilePath("api.ts"),
@@ -941,7 +875,7 @@ test("diffsDoc renders every file of the round under its own bar", () => {
     }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
-    "Review widgets (up to 333333333333; 1 more round follows)
+    "Review widgets (up to 333333333333)
 
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ api.ts @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     -1,2 +1,2
@@ -970,8 +904,7 @@ test("diffsDoc renders every file of the round under its own bar", () => {
 test("diffsDoc targets the change from its title, files from their bars, and lines from their hunks", () => {
   const doc = diffsDoc(
     diffsPageWith({
-      end: fake("3"),
-      later: 0,
+      tip: fake("3"),
       files: [
         {
           file: parseFilePath("api.ts"),

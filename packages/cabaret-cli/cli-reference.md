@@ -567,7 +567,7 @@ USAGE
   cab review [--change value] [--context value] <file>...
   cab review --help
 
-Show the diff of a change left for you to review: the files of the current review round, then each file's remaining diff. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths. What is shown is remembered, and `mark` records review of it.
+Show the diff of a change left for you to review: the files with review left, then each file's remaining diff. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths. What is shown is remembered, and `mark` records review of it.
 
 FLAGS
      [--change]   Change to review (defaults to current)
@@ -575,7 +575,7 @@ FLAGS
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to show (defaults to the whole round)
+  file...  files or patterns to show (defaults to everything left)
 
 ### cab reviewers add
 
