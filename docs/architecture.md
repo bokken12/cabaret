@@ -1,20 +1,45 @@
 # Architecture
 
-Notes on how the code should be structured and why.
+Notes on code structure
 
-## Language
+## Interfaces
 
-Cabaret will be written in TypeScript to permit a VSCode extension without FFI.
+A few common interfaces mark seams in Cabaret
+
+### Backend
+
+The "backend" provides primitives to work with the underlying VCS. This is primarily `git` through its CLI, but in the future it could also be `hg` or `jj`, or could be accessed via API on `cabaret-web`.
+
+## Forge
+
+The "forge" is another source of changes (pull requests, merge requests, or similar) which must be synced with for collaboration. This is primarily GitHub, but may also be GitLab, Codeberg, or others.
+
+## Views
+
+Shared view interfaces define tree-structured pages and how users can interfact with them, so that the job of each frontend is only to translate decorations to what's available on their platform.
 
 ## Packages
 
-Cabaret has 2 frontends:
+In approximate dependency order, Cabaret splits its packages into:
 
-- `cabaret-cli`: a command line interface
-- `cabaret-vscode`: a VSCode extension
+### Shared Libraries
 
-The interactive frontends share their UI through `cabaret-views`: pure functions from queried state to plain-text documents, with each frontend a thin host that paints documents and routes keys. In particular the VSCode extension renders into real text buffers rather than embedding the website, so editor navigation (including vim emulation) works untouched. See [ui.md](ui.md).
+- `patdiff`: patience diffing and diff4 translated from OCaml
+- `cabaret-util`: standard non-Cabaret-specific utilities (e.g. branded types)
+- `cabaret-core`: core operations and logic to work with Cabaret (e.g. log operations)
+- `cabaret-views`: frontend-agnostic UI specifications (e.g. "home" page)
 
-All of these frontends are built around `cabaret-core`, which defines basic operations against a `Backend`. The implementation, `GitBackend` (`cabaret-node`), shells out to a local `git`.
+### Platform-Specific Libraries
 
-It may also be useful to create a shared UI library between Cabaret and the Edamajutsu porcelain for JJ to create a unified feel, but this can come later.
+- `cabaret-node`: native access via the Node runtime (e.g. `git` subprocesses)
+- Forge APIs
+    - `cabaret-github`
+    - `cabaret-gitlab`
+    - `cabaret-forgejo`
+### Frontends
+
+- `cabaret-cli`: command line interface (optimized for agents)
+- `cabaret-vscode`: VSCode extension (primary in-editor frontend)
+- `cabaret-tui`: text-based user interface (in terminal, over ssh)
+
+<!-- TODO(joel): maybe merge forges into a single package? -->

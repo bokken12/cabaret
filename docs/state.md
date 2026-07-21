@@ -1,16 +1,15 @@
 # State
 
+## Logs
+
+Cabaret has central server/coordinator, and so all shared state must live within git. However, shared git state is liable to produce conflicts, and Cabaret seeks never to expose to the user conflicts in its internal state. This means any shared state must have an automatic merging strategy.
+
+The most common such strategy is an append-only log, where the operations are associative and we can merge via union. The canonical example of this is each change's log, which are mostly resolved by "last write wins" with timestamps.
+
+However there can be some exceptions, such as change descriptions, which simply permit conflicts as valid state, and therefore can also auto-resolve.
+
+## Configs
+
+In addition to shared state, Cabaret sometimes has local state: primarily configs recording user preferences. Again we prefer to piggyback on existing stores: putting data in the git or vscode configs as appropriate.
+
 For each change, a user's review state can be represented as a map from file name to: (base hash, tip hash, timestamp) representing the time at which they reviewed the base -> tip diff.
-
-There are a number of restrictions on how state can be stored:
-
-- State must live entirely within git, without external servers or local storage.
-- State must never produce any conflicts that are surfaced to the user.
-
-These two goals are conflicting, but can be unified by a log of associative operations merged by union. Cabaret performs the union itself when syncing (no `.gitattributes` setup): the merged log is the union of the two logs' entries, deduplicated by serialized line and ordered by timestamp then serialized line. Being a function of the entry sets alone, the merge is conflict-free and every machine converges on byte-identical logs.
-
-Our principle operation is conditional `set` on a single file's review state, with associativity coming from taking the value with the latest timestamp. Reads break equal-timestamp ties on the serialized entry, never on log position, so machines agree on the winner.
-
-The lack of any log will be treated as equivalent to an empty log so that there is no separate initialization step required.
-
-Each change stores its log under a dedicated ref (`refs/cabaret/log/<change>`) with name mirroring the name of the branch it tracks. Syncing fetches the remote's logs, merges each into the local ref, and pushes the result without forcing, so a concurrent push is never overwritten — it fails and merges on retry. In the future we may swap to a UUID-based system to better permit distributed renaming, but this will simplify our system for now.
