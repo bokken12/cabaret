@@ -146,3 +146,63 @@ test("a landed change stays in the home workspaces section until its workspace i
   await repo.cabaret("workspace", "remove", "gizmo");
   expect((await repo.cabaret("home")).stdout).not.toContain("gizmo");
 });
+
+test("workspace reclaim removes landed and archived workspaces, keeping dirty ones", async () => {
+  const repo = await makeRepo(undefined, "repo");
+  await addChange(repo, "gizmo");
+  await repo.git("checkout", "-q", "main");
+  await addChange(repo, "relic");
+  await repo.git("checkout", "-q", "main");
+  await addChange(repo, "gadget");
+  await repo.git("checkout", "-q", "main");
+  const root = await rootOf(repo);
+  await repo.cabaret("workspace", "add", "gizmo");
+  await repo.cabaret("workspace", "add", "relic");
+  await repo.cabaret("workspace", "add", "gadget");
+  await repo.cabaret("mark", "--tip", "gizmo", "--change", "gizmo", "gizmo.txt");
+  await repo.cabaret("land", "gizmo");
+  await repo.cabaret("archive", "--change", "relic");
+  await writeFile(join(`${root}-relic`, "junk.txt"), "junk\n");
+
+  // The landed gizmo's clean workspace goes; the archived relic's stays for
+  // its uncommitted junk; the live gadget is not reclaiming's business.
+  expect(await repo.cabaret("workspace", "reclaim")).toEqual({
+    stdout: `removed ${root}-gizmo\nkept ${root}-relic: dirty\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("workspace", "list")).stdout).toMatchInlineSnapshot(`
+    "Workspaces
+    ==========
+
+    ╭────────────────┬────────┬─────────────────╮
+    │ workspace      │ change │ note            │
+    ├────────────────┼────────┼─────────────────┤
+    │ .              │ main   │                 │
+    │ ../repo-gadget │ gadget │                 │
+    │ ../repo-relic  │ relic  │ dirty, archived │
+    ╰────────────────┴────────┴─────────────────╯
+    "
+  `);
+});
+
+test("workspace reclaim spares the workspace it runs in and says when there is nothing", async () => {
+  const repo = await makeRepo(undefined, "repo");
+  await addChange(repo, "gizmo");
+  await repo.cabaret("mark", "--tip", "gizmo", "--change", "gizmo", "gizmo.txt");
+  await repo.cabaret("land", "gizmo");
+  // gizmo landed while checked out in the primary workspace: reclaim can
+  // remove neither the primary nor the workspace it runs in.
+  expect(await repo.cabaret("workspace", "reclaim")).toEqual({
+    stdout: `kept ${await rootOf(repo)}: primary workspace\n`,
+    stderr: "",
+    exitCode: 0,
+  });
+  await repo.git("checkout", "-q", "main");
+  await repo.git("branch", "-qD", "gizmo");
+  expect(await repo.cabaret("workspace", "reclaim")).toEqual({
+    stdout: "nothing to reclaim\n",
+    stderr: "",
+    exitCode: 0,
+  });
+});

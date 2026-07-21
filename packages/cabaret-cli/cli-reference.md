@@ -767,6 +767,17 @@ FLAGS
 ARGUMENTS
   change  change the workspace holds
 
+### cab workspace reclaim
+
+USAGE
+  cab workspace reclaim
+  cab workspace reclaim --help
+
+Remove every workspace whose change has landed or is archived. A workspace with uncommitted changes is kept, as are the primary workspace and the one this command runs in; each is reported.
+
+FLAGS
+  -h --help  Print help information and exit
+
 ### cab workspace dir
 
 USAGE

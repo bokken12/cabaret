@@ -3,7 +3,9 @@ import {
   assertNotLanded,
   type Backend,
   type ChangeName,
+  currentArchived,
   ensureBranch,
+  landedMerge,
   type Workspace,
 } from "./backend.js";
 import type { Config } from "./config.js";
@@ -107,6 +109,40 @@ export async function removeChangeWorkspace(
   }
   await backend.removeWorkspace(workspace.path, evenThoughDirty);
   return workspace.path;
+}
+
+/** A workspace holding a landed or archived change, and what reclaiming did with it. */
+export interface ReclaimedWorkspace {
+  readonly path: string;
+  readonly change: ChangeName;
+  /** Removed, or kept: dirty guards uncommitted work; primary and current can never go. */
+  readonly outcome: "removed" | "dirty" | "primary" | "current";
+}
+
+/**
+ * Remove every workspace whose change has landed or is archived — the ones
+ * pages nudge about — and return what happened to each. A dirty workspace
+ * keeps its uncommitted work, and the primary and current workspaces stay
+ * put; reporting them keeps a nudge the reclaim leaves standing from
+ * reading as a miss.
+ */
+export async function reclaimWorkspaces(backend: Backend): Promise<readonly ReclaimedWorkspace[]> {
+  const reclaimed: ReclaimedWorkspace[] = [];
+  for (const { path, change, dirty, primary } of await backend.workspaces()) {
+    if (change === undefined) {
+      continue;
+    }
+    const entries = await backend.readLog(change);
+    if (landedMerge(entries) === undefined && !currentArchived(entries)) {
+      continue;
+    }
+    const outcome = primary ? "primary" : path === backend.root ? "current" : dirty ? "dirty" : "removed";
+    if (outcome === "removed") {
+      await backend.removeWorkspace(path, false);
+    }
+    reclaimed.push({ path, change, outcome });
+  }
+  return reclaimed;
 }
 
 /**
