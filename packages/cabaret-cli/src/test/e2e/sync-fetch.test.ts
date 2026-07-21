@@ -313,6 +313,36 @@ test("a since sweep never asks the forge change by change", async () => {
   expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
+test("a day after the last open sweep, fetch resweeps the open set", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
+  repo.advanceClock(25 * 60 * 60 * 1000);
+  // Overdue: the sweep covers the open set again, re-reading state that
+  // moved without touching any update stamp.
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  );
+  // Re-anchored: the next fetch resumes the cursor.
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
+});
+
+test("fetch --full resweeps the open set on demand", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  expect((await repo.cabaret("fetch", "--full")).stdout).toBe(
+    "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  );
+});
+
 test("a cursor from another forge does not resume the sweep", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);

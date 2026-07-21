@@ -457,13 +457,14 @@ ARGUMENTS
 ## cab fetch
 
 USAGE
-  cab fetch
+  cab fetch [--full]
   cab fetch --help
 
 Fetch remote activity: refresh origin's copies, fast-forward branches origin is strictly ahead of, merge every change's log with origin's, and absorb forge activity — import every open forge change that is not yet a change, refresh tracked ones, record lands, and prune closed imports nobody engaged with. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours. Without a forge, the origin half still runs.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--full]  Sweep every open forge change, not just what moved since the last fetch [default = false]
+  -h  --help   Print help information and exit
 
 ## cab forget
 
