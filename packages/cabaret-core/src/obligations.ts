@@ -302,7 +302,7 @@ export async function obligationStatuses(
 }
 
 /** The users who can still count toward the requirement. */
-function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
+export function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
   return obligation.require.of.filter((user) => !reviewedBy.includes(user));
 }
 

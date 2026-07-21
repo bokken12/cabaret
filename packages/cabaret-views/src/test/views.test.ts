@@ -808,3 +808,18 @@ test("a review next step opens the change's review, keeping a borrowed identity"
     .findIndex((text) => text.includes("next step"));
   expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "gizmo", as: "bob@example.com" });
 });
+
+test("a review in parent next step opens the parent's review", () => {
+  const doc = showDoc({
+    as: undefined,
+    summary: summary("gizmo", { parent: parseBranchName("widgets"), nextStep: "review in parent" }),
+    comments: [],
+    workspace: undefined,
+    remaining: [],
+    fetched: undefined,
+  });
+  const stepLine = docText(doc)
+    .split("\n")
+    .findIndex((text) => text.includes("next step"));
+  expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "widgets" });
+});

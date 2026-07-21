@@ -1417,6 +1417,58 @@ test("a forge-tracked draft widens whatever the obligations say", async () => {
   expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("widen reviewing");
 });
 
+/**
+ * A stack of widgets (1..2, changing w.ts) under feature (2..3, changing
+ * f.ts), with `logs` supplying the parent's log: widgets owned by alice,
+ * reviewed as each test says.
+ */
+function stacked(widgets: readonly LogEntry[]): Backend {
+  return repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1", widgets: "2", feature: "3" },
+    changed: { "12": ["w.ts"], "23": ["f.ts"] },
+    logs: { widgets },
+  });
+}
+
+test("review the user owes the parent outranks reading the child", async () => {
+  // Alice owes review in both: the child's diff builds on the parent's, so
+  // the parent reads first.
+  const backend = stacked(created("main", "1"));
+  const entries = created("widgets", "2");
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("review in parent");
+});
+
+test("parent review owed by someone else leaves the child's review the step", async () => {
+  // Only bob can move the parent, so alice's productive move is still her
+  // own reading.
+  const backend = stacked([
+    ...created("main", "1"),
+    entry({ kind: "add-reviewer", reviewer: bob }),
+    entry(review("w.ts", "1", "2")),
+  ]);
+  const entries = created("widgets", "2");
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("review");
+});
+
+test("a change otherwise ready reads review in parent until the parent is fully reviewed", async () => {
+  // land refuses to grow an unreviewed parent, so the step is honest about
+  // what must happen first — here bob's review of the parent.
+  const backend = stacked([
+    ...created("main", "1"),
+    entry({ kind: "add-reviewer", reviewer: bob }),
+    entry(review("w.ts", "1", "2")),
+  ]);
+  const entries = [...created("widgets", "2"), entry(review("f.ts", "2", "3"))];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("review in parent");
+});
+
+test("a fully reviewed parent leaves the child free to land", async () => {
+  const backend = stacked([...created("main", "1"), entry(review("w.ts", "1", "2"))]);
+  const entries = [...created("widgets", "2"), entry(review("f.ts", "2", "3"))];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("land");
+});
+
 test("an archived change reads as archived until the latest set-archived revives it", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },

@@ -32,12 +32,12 @@ test("home shows review work and owned changes as a tree", async () => {
     ╰──────────┴────────╯
 
     Changes you own:
-    ╭──────────┬───────────╮
-    │ change   │ next step │
-    ├──────────┼───────────┤
-    │ gadget   │ review    │
-    │ └─ gizmo │ review    │
-    ╰──────────┴───────────╯
+    ╭──────────┬──────────────────╮
+    │ change   │ next step        │
+    ├──────────┼──────────────────┤
+    │ gadget   │ review           │
+    │ └─ gizmo │ review in parent │
+    ╰──────────┴──────────────────╯
 
     Workspaces on this device:
     ╭────────┬──────╮

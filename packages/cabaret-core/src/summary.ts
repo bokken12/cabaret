@@ -4,6 +4,7 @@ import {
   type ChangeDiff,
   type ChangedFile,
   type ChangeName,
+  changeBase,
   changeConflicts,
   changedByPath,
   currentArchived,
@@ -12,6 +13,7 @@ import {
   currentParent,
   currentReviewers,
   currentReviewing,
+  diffBetween,
   type FilePath,
   type FileSource,
   type ForgeChangeId,
@@ -32,7 +34,7 @@ import {
 } from "./backend.js";
 import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
-import { isSatisfied, obligationStatuses } from "./obligations.js";
+import { isSatisfied, type ObligationStatus, obligationStatuses, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -81,6 +83,7 @@ export type NextStep =
   | "fix conflicts"
   | "add code"
   | "review"
+  | "review in parent"
   | "add reviewers"
   | "widen reviewing"
   | "resolve parent divergence"
@@ -157,6 +160,7 @@ export async function summarizeChange(
   let deadParent: ChangeSummary["deadParent"];
   let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
+  let parentReview: (() => Promise<readonly ObligationStatus[]>) | undefined;
   if (landed === undefined) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
@@ -187,6 +191,17 @@ export async function summarizeChange(
         if (parentTip !== base) {
           stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
         }
+        // A trunk parent has no log to put obligations on, so only a change
+        // parent reads. The diff is the one `land` would check.
+        if (parentEntries.length > 0) {
+          parentReview = async () =>
+            obligationStatuses(
+              backend,
+              parentEntries,
+              currentOwner(parent, parentEntries),
+              await diffBetween(backend, await changeBase(backend, parent, parentEntries), parentTip),
+            );
+        }
       }
     }
   }
@@ -211,7 +226,7 @@ export async function summarizeChange(
     conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
     reviewLeft,
   };
-  return { ...readings, nextStep: await nextStep(backend, readings, entries, diff, stale) };
+  return { ...readings, nextStep: await nextStep(backend, readings, entries, user, diff, stale, parentReview) };
 }
 
 /**
@@ -294,7 +309,9 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * unsatisfied: once every one is met, the set gates nothing `land` reads,
  * so the change moves by landing however narrow the set stands. A
  * forge-tracked draft is the exception — the forge refuses to merge what
- * it shows as a draft — so it widens whatever the obligations say. A stale
+ * it shows as a draft — so it widens whatever the obligations say. Review
+ * reads bottom-up — a child's diff builds on its parent's — so review the
+ * user still owes the parent outranks reading the child. A stale
  * base waits for review to finish — the parent
  * moving on is routine, and rebasing mid-review churns reviewers — and
  * calls for a rebase only where `land` would refuse it: when the tip no
@@ -304,7 +321,10 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * own check. The dry-run, like the rebase and land it stands for, is a
  * question about the parent's tip — its freshest reading — so a parent
  * whose readings diverged outranks them: no freshest reading exists until
- * the user joins them. Last, a forge-tracked change syncs before landing when the
+ * the user joins them. A parent with unsatisfied obligations of its own
+ * comes next, whoever owes them: `land` refuses to grow an unreviewed
+ * parent, so the change reads `review in parent` until the parent is
+ * fully reviewed. Last, a forge-tracked change syncs before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
  * forge change's target has yet to follow — since the forge refuses to land
  * state it has not seen, while a local land reads nothing from origin and
@@ -314,8 +334,10 @@ async function nextStep(
   backend: Backend,
   readings: Omit<ChangeSummary, "nextStep">,
   entries: readonly LogEntry[],
+  user: UserName,
   diff: ChangeDiff,
   stale: { readonly parentTip: Revision } | undefined,
+  parentReview: (() => Promise<readonly ObligationStatus[]>) | undefined,
 ): Promise<NextStep> {
   if (readings.landed !== undefined) {
     return "landed";
@@ -351,6 +373,9 @@ async function nextStep(
   if (flow !== undefined) {
     const statuses = await obligationStatuses(backend, entries, readings.owner, diff);
     if (statuses.some((status) => !isSatisfied(status))) {
+      if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
+        return "review in parent";
+      }
       return flow;
     }
   }
@@ -360,10 +385,21 @@ async function nextStep(
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";
   }
+  if (parentReview !== undefined && (await parentReview()).some((status) => !isSatisfied(status))) {
+    return "review in parent";
+  }
   const { forgeChange } = readings;
   return forgeChange !== undefined && (readings.origin === "ahead" || forgeChange.staleParent !== undefined)
     ? "sync"
     : "land";
+}
+
+/** Whether the parent still carries an unsatisfied obligation `user`'s review can count toward. */
+async function owesParentReview(
+  parentReview: () => Promise<readonly ObligationStatus[]>,
+  user: UserName,
+): Promise<boolean> {
+  return (await parentReview()).some((status) => !isSatisfied(status) && outstanding(status).includes(user));
 }
 
 /**
