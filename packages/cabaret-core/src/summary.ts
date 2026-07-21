@@ -85,6 +85,7 @@ export type NextStep =
   | "review in parent"
   | "add reviewers"
   | "widen reviewing"
+  | "await review"
   | "resolve parent divergence"
   | "rebase"
   | "land"
@@ -309,7 +310,11 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * exist to widen to. The whole flow asks only while some blocking obligation
  * is unsatisfied: once every one is met, the set gates nothing `land` reads,
  * so the change moves by landing however narrow the set stands — follow
- * review stays owed on the todo page, holding nothing here. A
+ * review stays owed on the todo page, holding nothing here. Blockers the
+ * flow has no ask left for — the set already reads everyone, the user's own
+ * review done — read `await review`: the land waits on review only others
+ * can give, and the step names the wait rather than a land that would
+ * refuse. A
  * forge-tracked draft is the exception — the forge refuses to merge what
  * it shows as a draft — so it widens whatever the obligations say. Review
  * reads bottom-up — a child's diff builds on its parent's — so review the
@@ -379,11 +384,11 @@ async function nextStep(
           : readings.reviewing !== "everyone"
             ? "widen reviewing"
             : undefined;
-  if (flow !== undefined && landBlockers(reading.statuses).length > 0) {
+  if (landBlockers(reading.statuses).length > 0) {
     if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
       return "review in parent";
     }
-    return flow;
+    return flow ?? "await review";
   }
   if (readings.parentOrigin === "diverged") {
     return "resolve parent divergence";

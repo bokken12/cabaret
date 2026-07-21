@@ -1355,6 +1355,37 @@ test("a follow rule holds nothing: the change lands, its review still owed", asy
   expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("land");
 });
 
+test("blocking review only others can give reads await review, not land", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: {
+      "2": {
+        ".obligations": `{"rules": [{"match": "a.ts", "kind": "blocking", "require": {"atLeast": 1, "of": ["${bob}"]}}]}`,
+      },
+    },
+  });
+  // Alice's own review is done and the set already reads everyone, but bob's
+  // blocking review is still owed: land would refuse, so the step is the wait.
+  const entries = [...created("main", "1"), entry(review("a.ts", "1", "2"))];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("await review");
+});
+
+test("an owner's unreviewed change reads await review to a viewer who has read it", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  // Bob has read everything, but alice's own blocking self-review remains.
+  const entries = [
+    ...created("main", "1"),
+    { timestamp: timestampMs(1748000000000), user: bob, action: review("a.ts", "1", "2") },
+  ];
+  expect((await summarize(backend, feature, entries, bob)).nextStep).toBe("await review");
+});
+
 test("a malformed obligations file is the step to fix, for every viewer and reviewing set", async () => {
   const backend = repoBackend({
     history: { "1": "0", "2": "1" },
