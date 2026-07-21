@@ -67,13 +67,13 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
       const diffs = await diffsPage(backend, snapshot);
-      if (diffs.round !== undefined) {
-        const { end, files } = diffs.round;
+      if (diffs.left !== undefined) {
+        const { tip, files } = diffs.left;
         options.onViewed?.({
           change: snapshot.change,
           user: snapshot.user,
           base: snapshot.base,
-          files: new Map(files.map(({ file }) => [file, end])),
+          files: new Map(files.map(({ file }) => [file, tip])),
         });
       }
       return diffsDoc(diffs, options.context);
@@ -82,12 +82,12 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
       const file = await diffPage(backend, snapshot, page.file);
-      if (file.round !== undefined) {
+      if (file.left !== undefined) {
         options.onViewed?.({
           change: snapshot.change,
           user: snapshot.user,
           base: snapshot.base,
-          files: new Map([[page.file, file.round.end]]),
+          files: new Map([[page.file, file.left.tip]]),
         });
       }
       return diffDoc(file, options.context);

@@ -1219,80 +1219,20 @@ export async function conflictsBetween(backend: Backend, base: Revision, tip: Re
   );
 }
 
-/** One contiguous span of a change's history that a reviewer must review. */
-export interface ReviewSpan {
-  readonly start: Revision;
-  readonly end: Revision;
-}
-
 /**
- * The spans of a change's history left for a reviewer, oldest first: the
- * windows of the tip's first-parent chain between `cuts`, the chain's
- * merges whose diff arrived already reviewed. What needs review is `start`
- * (the chain's root) → first cut's onto, then each cut → the next cut's
- * onto, and finally the last cut → tip. A span a cut jumps over entirely
- * (its start is its end) is dropped.
- */
-export function reviewSpans(
-  cuts: readonly Pick<ChainMerge, "commit" | "onto">[],
-  start: Revision,
-  tip: Revision,
-): readonly ReviewSpan[] {
-  const spans: ReviewSpan[] = [];
-  let at = start;
-  for (const { commit, onto } of cuts) {
-    if (at !== onto) {
-      spans.push({ start: at, end: onto });
-    }
-    at = commit;
-  }
-  if (at !== tip) {
-    spans.push({ start: at, end: tip });
-  }
-  return spans;
-}
-
-/**
- * The spans of `spans` past `reviewedTip`, the tip of a reviewer's brain for
- * a review whose base matches the spans' (a moved base invalidates span
- * endpoints, so callers handle that case separately): spans the reviewer has
- * already reviewed past are dropped, and the span containing `reviewedTip`
- * resumes from it.
- */
-export async function remainingSpans(
-  backend: Backend,
-  spans: readonly ReviewSpan[],
-  reviewedTip: Revision,
-): Promise<readonly ReviewSpan[]> {
-  const remaining: ReviewSpan[] = [];
-  for (const span of spans) {
-    if (await backend.isAncestor(span.end, reviewedTip)) {
-      continue;
-    }
-    const inside =
-      (await backend.isAncestor(span.start, reviewedTip)) && (await backend.isAncestor(reviewedTip, span.end));
-    remaining.push(inside ? { start: reviewedTip, end: span.end } : span);
-  }
-  return remaining;
-}
-
-/** A review span and the files its diff changes, keyed by their `ChangedFile` path. */
-export interface SpanDiff extends ReviewSpan {
-  readonly changed: ReadonlyMap<FilePath, ChangedFile>;
-}
-
-/**
- * A change's diff, read once: its endpoints and review spans, each with the
- * files its diff changes. Everything derived from the diff — summaries,
- * review rounds, obligations — takes one of these, so a page that computes
- * several shares one reading instead of each re-querying the history.
+ * A change's diff, read once: its endpoints, the files changed between them,
+ * and the land merges on the way. Everything derived from the diff —
+ * summaries, review left, obligations — takes one of these, so a page that
+ * computes several shares one reading instead of each re-querying the
+ * history.
  */
 export interface ChangeDiff {
   readonly base: Revision;
   readonly tip: Revision;
   /** The land merges on the first-parent chain, oldest first. */
   readonly lands: readonly LandMerge[];
-  readonly spans: readonly SpanDiff[];
+  /** The files the diff changes, keyed by their `ChangedFile` path. */
+  readonly changed: ReadonlyMap<FilePath, ChangedFile>;
 }
 
 export async function changeDiff(
@@ -1311,10 +1251,10 @@ export async function changeDiff(
 export const LAND_SCAN = 10_000;
 
 /**
- * The complete first-parent chain survey of `base`..`tip`. Review spans need
- * the walk complete — a shortened answer would silently misplace them — so a
- * history outrunning `LAND_SCAN` commits, which no one could review anyway,
- * is an error instead.
+ * The complete first-parent chain survey of `base`..`tip`. Review reads
+ * through every land on the chain — a shortened answer would silently drop
+ * some — so a history outrunning `LAND_SCAN` commits, which no one could
+ * review anyway, is an error instead.
  */
 export async function completeChainMerges(
   backend: Backend,
@@ -1328,48 +1268,13 @@ export async function completeChainMerges(
   return { merges, root };
 }
 
-/**
- * The diff of `base`..`tip`, for callers that resolved the endpoints
- * themselves. Two kinds of merge on the first-parent chain carry a diff that
- * was reviewed elsewhere: land merges, reviewed in the landed child, and
- * rebase merges — those merging in commits the base already reaches —
- * reviewed in whatever landed them on the parent. Land merges cut the chain
- * into review spans. A rebase merge instead restarts the open window at the
- * base it merged in, so the span crossing it shows the current diff,
- * conflict resolutions included — until a land cut pins the window's end to
- * the chain: spans behind such a cut cannot be re-anchored without
- * re-opening the landed diff, so a rebase merge behind one cuts like a land
- * and its own delta goes unreviewed. The walk starts at the chain's root
- * rather than at `base`, which a rebase merge leaves off the chain,
- * reachable only through its second parent.
- */
+/** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
-  const { merges, root } = await completeChainMerges(backend, base, tip);
-  const reviewedElsewhere = await Promise.all(
-    merges.map(
-      async ({ landed, merged }) =>
-        landed !== undefined || (merged !== undefined && (await backend.isAncestor(merged, base))),
-    ),
-  );
-  let start = root ?? base;
-  const cuts: Pick<ChainMerge, "commit" | "onto">[] = [];
-  for (const [index, merge] of merges.entries()) {
-    if (!reviewedElsewhere[index]) {
-      continue;
-    }
-    if (merge.landed === undefined && merge.merged !== undefined && cuts.length === 0) {
-      start = merge.merged;
-    } else {
-      cuts.push(merge);
-    }
-  }
-  const spans = await Promise.all(
-    reviewSpans(cuts, start, tip).map(async (span) => ({
-      ...span,
-      changed: changedByPath(await backend.changedFiles(span.start, span.end)),
-    })),
-  );
-  return { base, tip, lands: landsAmong(merges), spans };
+  const [{ merges }, changed] = await Promise.all([
+    completeChainMerges(backend, base, tip),
+    backend.changedFiles(base, tip),
+  ]);
+  return { base, tip, lands: landsAmong(merges), changed: changedByPath(changed) };
 }
 
 /** Key `files` by path, the identity every diff-derived structure shares. */
@@ -1379,9 +1284,5 @@ export function changedByPath(files: readonly ChangedFile[]): ReadonlyMap<FilePa
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
 export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
-  return conflictedFiles(
-    backend,
-    diff.tip,
-    [...new Set(diff.spans.flatMap(({ changed }) => [...changed.keys()]))].sort(),
-  );
+  return conflictedFiles(backend, diff.tip, [...diff.changed.keys()].sort());
 }

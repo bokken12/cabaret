@@ -117,7 +117,7 @@ test("show renders an imported change like any other", async () => {
   `);
 });
 
-test("show lists the changes landed into a parent, their diffs out of its review", async () => {
+test("show lists the changes landed into a parent; an unreviewed landing joins its review", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");
   await repo.git("checkout", "-q", "parent");
@@ -149,9 +149,10 @@ test("show lists the changes landed into a parent, their diffs out of its review
       child
 
     Remaining review:
-      alice@example.com: 1 file
+      alice@example.com: 2 files
 
     Files to review:
+      child.txt
       parent.txt
     "
   `);

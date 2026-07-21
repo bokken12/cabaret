@@ -89,9 +89,8 @@ const page: DiffsPage = {
   change: widgets,
   as: undefined,
   conflicts: [],
-  round: {
-    end: fake("3"),
-    later: 0,
+  left: {
+    tip: fake("3"),
     files: [
       {
         file: parseFilePath("src/thing.alpha"),
@@ -131,7 +130,7 @@ test("a single-file diff page's title opens its file's section", async () => {
     change: widgets,
     file: parseFilePath("src/thing.alpha"),
     as: undefined,
-    round: { end: fake("3"), later: 0, source: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
+    left: { tip: fake("3"), source: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
   });
   const rows = await tokenized(docText(doc));
   expect(tokensOf(rows, "y")).toEqual([

@@ -4,7 +4,6 @@ import { ZodError } from "zod";
 import {
   assertNotArchived,
   assertNotLanded,
-  type Backend,
   brain,
   type ChangeName,
   currentArchived,
@@ -16,7 +15,6 @@ import {
   forgeChangeId,
   forgeChangeUrl,
   formatLogEntry,
-  type LandMerge,
   type LogAction,
   type LogEntry,
   landedMerge,
@@ -30,8 +28,6 @@ import {
   parseLog,
   REVIEWING,
   type Revision,
-  remainingSpans,
-  reviewSpans,
   type TimestampMs,
   timestampMs,
   type UserName,
@@ -465,56 +461,6 @@ test("observedForgeArchived reads only entries sourced from the forge", () => {
   const entries = [entry(5, true, "github.com/test-org/widgets"), entry(9, false)];
   expect(observedForgeArchived(entries, forge)).toBe(true);
   expect(observedForgeArchived(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toBeUndefined();
-});
-
-/** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): Revision {
-  return parseCommitHash(digit.repeat(40));
-}
-
-/**
- * A backend whose first-parent chain is the fake commits of `digits` (oldest
- * first). Only the members `remainingSpans` touches exist; ancestry is chain
- * order, and anything off the chain is nobody's relative.
- */
-function chainBackend(digits: string): Backend {
-  const chain = [...digits].map(fake);
-  const at = (hash: Revision) => chain.indexOf(hash);
-  const stub: Pick<Backend, "isAncestor"> = {
-    async isAncestor(ancestor, descendant) {
-      return ancestor === descendant || (at(ancestor) !== -1 && at(descendant) !== -1 && at(ancestor) < at(descendant));
-    },
-  };
-  return stub as Backend;
-}
-
-/** A land of a change named for its commit, for terse span fixtures. */
-function landAt(commit: string, onto: string): LandMerge {
-  return { change: parseBranchName(`child-${commit}`), commit: fake(commit), onto: fake(onto) };
-}
-
-test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
-  // Lands at 2 (onto 1) and 5 (onto 4); 3-4 and 6-7 are ordinary commits.
-  const backend = chainBackend("01234567");
-  const lands = [landAt("2", "1"), landAt("5", "4")];
-  const span = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
-  const spans = reviewSpans(lands, fake("0"), fake("7"));
-  expect(spans).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
-  // A land right at the base or the tip leaves no span on that side.
-  expect(reviewSpans(lands, fake("1"), fake("5"))).toEqual([span("2", "4")]);
-  // Reviewing up to a land's onto covers everything the land then jumps over.
-  expect(await remainingSpans(backend, spans, fake("1"))).toEqual([span("2", "4"), span("5", "7")]);
-  // A reviewed tip inside a span resumes that span from it.
-  expect(await remainingSpans(backend, spans, fake("3"))).toEqual([span("3", "4"), span("5", "7")]);
-  expect(await remainingSpans(backend, spans, fake("7"))).toEqual([]);
-  // A reviewed tip from outside the chain trims nothing.
-  expect(await remainingSpans(backend, spans, fake("f"))).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
-});
-
-test("reviewSpans drops the span between back-to-back lands", () => {
-  expect(reviewSpans([landAt("2", "1"), landAt("3", "2")], fake("0"), fake("3"))).toEqual([
-    { start: fake("0"), end: fake("1") },
-  ]);
 });
 
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {

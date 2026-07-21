@@ -21,13 +21,13 @@ const sprockets = parseBranchName("sprockets");
 const api = parseFilePath("api.ts");
 const ui = parseFilePath("ui.ts");
 const base = parseCommitHash("1".repeat(40));
-const roundEnd = parseCommitHash("3".repeat(40));
+const tip = parseCommitHash("3".repeat(40));
 
 function fileView(): FileView {
-  return { kind: "span", start: base, source: undefined };
+  return { kind: "fresh", source: undefined };
 }
 
-/** A snapshot with one round pending over `files`, reviewed by alice. */
+/** A snapshot with review pending over `files`, reviewed by alice. */
 function reviewState(files: readonly FilePath[]): ChangeSnapshot {
   return {
     change: widgets,
@@ -36,9 +36,9 @@ function reviewState(files: readonly FilePath[]): ChangeSnapshot {
     reviewing: "everyone",
     asked: true,
     base,
-    tip: roundEnd,
+    tip,
     conflicts: [],
-    rounds: [{ end: roundEnd, files: new Map(files.map((file) => [file, fileView()])) }],
+    left: new Map(files.map((file) => [file, fileView()])),
   };
 }
 
@@ -270,7 +270,7 @@ test("! m on a displayed diff page marks and moves to the round's next file", as
       page.kind === "diff"
         ? {
             snapshot,
-            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, roundEnd]]) },
+            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, tip]]) },
           }
         : {},
   );
@@ -317,7 +317,7 @@ test("! m outside the reviewing set asks, then retries with the override", async
       page.kind === "diff"
         ? {
             snapshot,
-            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, roundEnd]]) },
+            viewed: { change: widgets, user: snapshot.user, base, files: new Map([[page.file, tip]]) },
           }
         : {},
   );
@@ -502,12 +502,12 @@ test("landing past unsatisfied obligations asks once and reports the land", asyn
   expect(screen()).toContain("landed widgets");
 });
 
-test("$ and ^ step a diff page along its round; the ends report", async () => {
+test("$ and ^ step a diff page along the files left; the ends report", async () => {
   const snapshot = reviewState([api, ui]);
   const { app, keys, screen } = harness({}, (page) => (page.kind === "diff" ? { snapshot } : {}));
   await app.open({ kind: "diff", change: widgets, file: api });
   await keys("^");
-  expect(screen()).toContain("api.ts is the round's first file");
+  expect(screen()).toContain("api.ts is the first file left");
   await keys("$");
   expect(screen()).toContain("/cabaret/diff/widgets:ui.ts");
   await keys("^");

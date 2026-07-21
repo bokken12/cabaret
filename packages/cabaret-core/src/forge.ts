@@ -579,8 +579,10 @@ export async function landOnForge(
     );
   }
   const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(change), landTrailer(change));
-  await recordLand(backend, now, change, entries, prepared, merge);
+  // Fetch before recording: the settling entries read the merge commit, which
+  // arrives with the parent.
   await backend.fetch(parent);
+  await recordLand(backend, now, change, entries, prepared, merge);
   return merge.commit;
 }
 

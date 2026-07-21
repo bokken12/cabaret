@@ -7,7 +7,6 @@ import {
   type LogEntry,
   parseContext,
   patternMatches,
-  type ReviewRound,
   UserError,
   type UserName,
   userName,
@@ -75,11 +74,6 @@ export function parseChangeSpec(raw: string): ChangeSpec {
     throw new UserError(`not a change or ancestor..descendant range: ${JSON.stringify(raw)}`);
   }
   return { kind: "range", ancestor, descendant };
-}
-
-/** Every file with review pending in some round, sorted by name. */
-export function pendingFiles(rounds: readonly ReviewRound[]): readonly FilePath[] {
-  return [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
 }
 
 /**

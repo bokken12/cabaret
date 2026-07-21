@@ -75,7 +75,8 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${createdBase}","tip":"${childTip}"}}\n` +
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -216,9 +217,34 @@ test("a review made before a land still stands after it", async () => {
   });
 });
 
-test("parent work on both sides of a land renders one diff per span", async () => {
+test("landing settles the landed diff's review into the logs", async () => {
+  // Parent covered: the land writes the lander's review of the landed file
+  // through the merge into the parent's log, and the child's log keeps its
+  // review open as the child's own.
+  const covered = await makeStack();
+  const parentBase = await covered.git("rev-parse", "main");
+  await covered.cabaret("land", "--even-though-unreviewed");
+  const merge = await covered.git("rev-parse", "parent");
+  expect((await covered.cabaret("dev", "log", "parent")).stdout).toContain(
+    `"action":{"kind":"review","file":"child.txt","base":"${parentBase}","tip":"${merge}"}`,
+  );
+  expect((await covered.cabaret("dev", "log", "child")).stdout).not.toContain('"kind":"review"');
+  // Parent still owed: the land instead completes the child's review in its
+  // own log — its diff reads combined in the parent — and writes the parent
+  // nothing.
+  const owing = await makeStack(false);
+  const childBase = await owing.git("rev-parse", "parent");
+  const childTip = await owing.git("rev-parse", "child");
+  await owing.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
+  expect((await owing.cabaret("dev", "log", "child")).stdout).toContain(
+    `"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${childBase}","tip":"${childTip}"}`,
+  );
+  expect((await owing.cabaret("dev", "log", "parent")).stdout).not.toContain('"kind":"review"');
+});
+
+test("parent work on both sides of a land reads as one diff", async () => {
   const repo = await makeStack(false);
-  const round1End = await repo.git("rev-parse", "parent");
+  const preLand = await repo.git("rev-parse", "parent");
   await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v1\nparent v2\n");
@@ -230,22 +256,23 @@ test("parent work on both sides of a land renders one diff per span", async () =
       "stdout": "Review parent
     =============
 
-    Reviewing up to 752ee7d4c0d4; 1 more round follows.
+    Reviewing up to b51dcf25203e.
 
       parent.txt
 
-    parent.txt in parent (up to 752ee7d4c0d4; 1 more round follows)
+    parent.txt in parent (up to b51dcf25203e)
 
-    -1,0 +1,1
+    -1,0 +1,2
     +|parent v1
+    +|parent v2
 
     Record review of what you have read:
-      cabaret mark --change parent --tip 752ee7d4c0d4 parent.txt
+      cabaret mark --change parent --tip b51dcf25203e parent.txt
     ",
     }
   `);
-  // A mark at the first round's end leaves the later round open.
-  await repo.cabaret("mark", "--tip", round1End, "parent.txt", "--change", "parent");
+  // A mark at a mid-history tip leaves the diff onward from it.
+  await repo.cabaret("mark", "--tip", preLand, "parent.txt", "--change", "parent");
   expect((await repo.cabaret("review", "--change", "parent", "parent.txt")).stdout).toContain("+|parent v2");
   await repo.cabaret("mark", "--tip", "parent", "parent.txt", "--change", "parent");
   expect(await repo.cabaret("review", "--change", "parent", "parent.txt")).toEqual({
@@ -411,6 +438,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   const advanced = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
+  const rebasedTip = await repo.git("rev-parse", "child");
   expect(await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
@@ -424,7 +452,8 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
+      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${advanced}","tip":"${rebasedTip}"}}\n` +
+      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -436,12 +465,13 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   });
 });
 
-test("a cherry-picked land commit is skipped like the land it copies", async () => {
+test("a cherry-picked land commit reads as unreviewed work", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "--even-though-unreviewed");
-  // The cherry-pick copies the land merge's message, trailer included, onto
-  // an ordinary single-parent commit — the same shape as a squash land, so
-  // its diff is skipped as already reviewed: it was, where it landed.
+  // The cherry-pick copies the land merge's message, trailer included, but
+  // no review entries came with it: unlike the land that wrote some where it
+  // landed, the copy's diff — conflict resolutions included — is unread
+  // here, and reads as any other work.
   await repo.cabaret("create", "copy", "--parent", "main");
   await repo.git("checkout", "-q", "copy");
   await repo.git("cherry-pick", "-m", "1", "parent");
@@ -449,9 +479,20 @@ test("a cherry-picked land commit is skipped like the land it copies", async () 
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "child.txt in copy
+      "stdout": "Review copy
+    ===========
 
-    Nothing left to review.
+    Reviewing up to 0e445ff5818d.
+
+      child.txt
+
+    child.txt in copy (up to 0e445ff5818d)
+
+    -1,0 +1,1
+    +|child work
+
+    Record review of what you have read:
+      cabaret mark --tip 0e445ff5818d child.txt
     ",
     }
   `);
@@ -492,6 +533,7 @@ test("a range lands the whole chain, deepest first", async () => {
   await addChange(repo, "b");
   const bTip = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
+  const cTip = await repo.git("rev-parse", "c");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
@@ -513,7 +555,7 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
       '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
+      `{"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -523,7 +565,9 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
       '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
+      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
+      `{"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
+      `{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -533,7 +577,8 @@ test("a range lands the whole chain, deepest first", async () => {
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
       '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
+      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${bTip}","tip":"${cTip}"}}\n` +
+      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
     stderr: "",
     exitCode: 0,
   });
@@ -690,8 +735,8 @@ test("a range land carries an outside child down with each landing", async () =>
       `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
       '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
       '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      '{"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
+      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
+      '{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
     stderr: "",
     exitCode: 0,
   });
