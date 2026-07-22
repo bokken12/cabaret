@@ -43,8 +43,8 @@ export const permanent = buildRouteMap({
       },
       async func(this: LocalContext, flags: { change?: string }, value: boolean) {
         const backend = await this.backend();
-        const change = await resolveChange(backend, flags.change);
-        await setPermanent(backend, this.now, change, value);
+        const { change, entries } = await resolveChange(backend, flags.change);
+        await setPermanent(backend, this.now, change, entries, value);
       },
     }),
   },

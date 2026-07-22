@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import {
-  allChanges,
   type Backend,
   type ChangedFile,
   type ChangeName,
@@ -14,7 +13,6 @@ import {
   type LogAction,
   type LogEntry,
   parseBranchName,
-  parseChangeId,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -96,7 +94,7 @@ function repoBackend(opts: {
   origin?: Record<string, string>;
   /** Commit digits whose objects this clone lacks, for `hasRevision`. */
   absent?: readonly string[];
-  /** Change logs by name, served id-keyed with a synthesized `set-name`; an unlisted change reads as empty. */
+  /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
   logs?: Record<string, readonly LogEntry[]>;
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
@@ -121,7 +119,6 @@ function repoBackend(opts: {
     | "mergeConflicts"
     | "readFile"
     | "readLog"
-    | "listChanges"
   > = {
     async mergedTip(merge) {
       const digit = opts.tips?.[merge[0] as string];
@@ -148,23 +145,8 @@ function repoBackend(opts: {
     async hasRevision(revision) {
       return !(opts.absent ?? []).includes(revision[0] as string);
     },
-    async listChanges() {
-      return Object.keys(opts.logs ?? {}).map((_, index) => fixtureChangeId(index));
-    },
     async readLog(change) {
-      const names = Object.keys(opts.logs ?? {});
-      const name = names.find((_, index) => fixtureChangeId(index) === change);
-      if (name === undefined) {
-        return [];
-      }
-      return [
-        {
-          timestamp: timestampMs(0),
-          user: userName("alice@example.com"),
-          action: { kind: "set-name", name: parseBranchName(name) },
-        },
-        ...(opts.logs?.[name] ?? []),
-      ];
+      return opts.logs?.[change as string] ?? [];
     },
     async mergeBase(a, b) {
       const shared = new Set(ancestry(b));
@@ -262,22 +244,7 @@ async function summarize(
   entries: readonly LogEntry[],
   user: UserName,
 ): Promise<ChangeSummary> {
-  const named = {
-    id: parseChangeId("0".repeat(32)),
-    // Tests hand entries straight to the summary; the name every real log
-    // starts with is synthesized here the way `repoBackend` does for its.
-    entries: [
-      { timestamp: timestampMs(0), user: userName("alice@example.com"), action: { kind: "set-name", name: change } },
-      ...entries,
-    ] as const,
-  };
-  const all = [named, ...(await allChanges(backend))];
-  return summarizeChange(backend, named, user, await changeDiff(backend, change, entries), all);
-}
-
-/** The id the `index`th log of a `repoBackend` is keyed by. */
-function fixtureChangeId(index: number) {
-  return parseChangeId((index + 1).toString(16).padStart(32, "0"));
+  return summarizeChange(backend, change, entries, user, await changeDiff(backend, change, entries));
 }
 
 /** The review left for `user`, the diff of `base`..`tip` read afresh. */

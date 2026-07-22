@@ -1,6 +1,6 @@
 import {
+  assertChangeExists,
   type Backend,
-  currentName,
   type ChangeName,
   conflictsBetween,
   ensureBranch,
@@ -17,7 +17,6 @@ import {
   publishForgeChange,
   syncedForgeChange,
 } from "./forge.js";
-import { allChanges, type Change } from "./naming.js";
 import { assertNoConflict, pushAdvances } from "./ops.js";
 
 /** What the ambient half of a fetch moved, for hosts to narrate. */
@@ -42,11 +41,7 @@ export interface FetchedLocal {
 export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
-  const syncedIds = new Set(await backend.syncLogs());
-  const synced = (await allChanges(backend))
-    .filter((change) => syncedIds.has(change.id))
-    .map((change) => currentName(change.id, change.entries))
-    .sort();
+  const synced = await backend.syncLogs();
   const joined = await backend.joinBranches(synced);
   return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
 }
@@ -121,34 +116,21 @@ export async function reconcileChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge | undefined,
-  change: Change,
+  change: ChangeName,
 ): Promise<ReconcileResult> {
   try {
-    await backend.syncLog(change.id);
+    await backend.syncLog(change);
     let absorbed: AbsorbResult | undefined;
     let published: PublishResult | undefined;
-    const current = { ...change, entries: await backend.readLog(change.id) };
-    if (forge !== undefined && landedMerge(current.entries) === undefined) {
+    const current = await backend.readLog(change);
+    if (forge !== undefined && landedMerge(current) === undefined) {
       const user = await backend.currentUser();
-      const found = await syncedForgeChange(backend, now, user, forge, current);
+      const found = await syncedForgeChange(backend, now, user, forge, change, current);
       if (found !== undefined) {
-        absorbed = await absorbForgeChange(
-          backend,
-          now,
-          user,
-          forge,
-          { ...change, entries: await backend.readLog(change.id) },
-          found,
-        );
+        absorbed = await absorbForgeChange(backend, now, user, forge, change, await backend.readLog(change), found);
       }
-      published = await publishForgeChange(
-        backend,
-        now,
-        forge,
-        { ...change, entries: await backend.readLog(change.id) },
-        found,
-      );
-      await backend.syncLog(change.id);
+      published = await publishForgeChange(backend, now, forge, change, await backend.readLog(change), found);
+      await backend.syncLog(change);
     }
     return { offline: false, absorbed, published };
   } catch (error) {
@@ -170,18 +152,19 @@ export async function syncChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge | undefined,
-  change: Change,
+  change: ChangeName,
 ): Promise<SyncResult> {
-  const name = currentName(change.id, change.entries);
+  const entries = await backend.readLog(change);
+  assertChangeExists(change, entries);
   try {
     await backend.fetchOrigin();
   } catch (error) {
     if (!isConnectivityError(error)) {
       throw error;
     }
-    return { offline: true, joined: await joinBranch(backend, name), absorbed: undefined, published: undefined };
+    return { offline: true, joined: await joinBranch(backend, change), absorbed: undefined, published: undefined };
   }
-  const joined = await joinBranch(backend, name);
-  await backend.push(name);
+  const joined = await joinBranch(backend, change);
+  await backend.push(change);
   return { joined, ...(await reconcileChange(backend, now, forge, change)) };
 }

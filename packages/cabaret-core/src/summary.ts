@@ -8,7 +8,6 @@ import {
   changeConflicts,
   currentArchived,
   currentForgeChange,
-  currentName,
   currentOwner,
   currentParent,
   currentPermanent,
@@ -36,7 +35,6 @@ import {
 } from "./backend.js";
 import { diffViewEmpty, rebasedView, renderDiff } from "./diff.js";
 import { UserError } from "./error.js";
-import { allChanges, type Change, resolveNamed } from "./naming.js";
 import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
@@ -148,14 +146,12 @@ export interface ChangeSummary {
  */
 export async function summarizeChange(
   backend: Backend,
-  change: Change,
+  change: ChangeName,
+  entries: readonly LogEntry[],
   user: UserName,
   diff: ChangeDiff,
-  all: readonly Change[],
 ): Promise<ChangeSummary> {
-  const entries = change.entries;
-  const name = currentName(change.id, entries);
-  const parent = currentParent(name, entries);
+  const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
   const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
@@ -177,8 +173,8 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
-    origin = await originStanding(backend, name, tip);
-    const parentEntries = resolveNamed(all, parent)?.entries ?? [];
+    origin = await originStanding(backend, change, tip);
+    const parentEntries = await backend.readLog(parent);
     if (finished(parentEntries)) {
       deadParent = "landed";
     } else if (currentArchived(parentEntries)) {
@@ -216,9 +212,9 @@ export async function summarizeChange(
   }
   const readings = {
     kind: "change" as const,
-    change: name,
+    change,
     parent,
-    owner: currentOwner(name, entries),
+    owner: currentOwner(change, entries),
     reviewers: currentReviewers(entries),
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
@@ -292,12 +288,10 @@ export async function summarizeTrunk(backend: Backend, change: ChangeName): Prom
  * when named outright.
  */
 export async function knownChanges(backend: Backend): Promise<readonly ChangeName[]> {
-  const changes = await allChanges(backend);
-  const names = new Set<ChangeName>();
+  const changes = await backend.listChanges();
+  const names = new Set<ChangeName>(changes);
   for (const change of changes) {
-    const name = currentName(change.id, change.entries);
-    names.add(name);
-    names.add(currentParent(name, change.entries));
+    names.add(currentParent(change, await backend.readLog(change)));
   }
   return [...names].sort();
 }

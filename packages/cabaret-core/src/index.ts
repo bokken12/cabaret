@@ -4,7 +4,6 @@ export * from "./connectivity.js";
 export * from "./diff.js";
 export * from "./error.js";
 export * from "./forge.js";
-export * from "./naming.js";
 export * from "./obligations.js";
 export * from "./ops.js";
 export * from "./self.js";

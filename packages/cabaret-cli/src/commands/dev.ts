@@ -1,15 +1,5 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import {
-  allChanges,
-  changeDiff,
-  currentSelf,
-  formatLogEntry,
-  requireNamed,
-  resolveNamed,
-  reviewOwed,
-  soleUser,
-  type UserName,
-} from "cabaret-core";
+import { changeDiff, currentSelf, formatLogEntry, reviewOwed, soleUser, type UserName } from "cabaret-core";
 import { homePage, type ReviewNode } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { parseUser } from "./shared.js";
@@ -34,8 +24,9 @@ export const dev = buildRouteMap({
       },
       async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
         const backend = await this.backend();
-        const name = change === undefined ? await backend.currentChange() : backend.parseName(change);
-        const entries = resolveNamed(await allChanges(backend), name)?.entries ?? [];
+        const entries = await backend.readLog(
+          change === undefined ? await backend.currentChange() : backend.parseName(change),
+        );
         this.process.stdout.write(entries.map(formatLogEntry).join(""));
       },
     }),
@@ -60,13 +51,11 @@ export const dev = buildRouteMap({
         const backend = await this.backend();
         const identity = flags.for ?? (await currentSelf(backend)).user;
         const page = await homePage(backend, flags.for);
-        const all = await allChanges(backend);
         let marked = false;
         const mark = async (nodes: readonly ReviewNode[]): Promise<void> => {
           for (const { summary, owed, children } of nodes) {
             if (owed.length > 0) {
-              const { id } = requireNamed(all, summary.change);
-              const entries = await backend.readLog(id);
+              const entries = await backend.readLog(summary.change);
               const diff = await changeDiff(backend, summary.change, entries);
               // Obligations are per identity: only demands `identity`'s own
               // review can satisfy are marked, so a file owed to an alias
@@ -74,7 +63,7 @@ export const dev = buildRouteMap({
               const files = await reviewOwed(backend, entries, summary.owner, soleUser(identity), diff);
               if (files.length > 0) {
                 await backend.appendLog(
-                  id,
+                  summary.change,
                   files.map((file) => ({
                     timestamp: this.now(),
                     user: identity,
@@ -121,10 +110,12 @@ export const dev = buildRouteMap({
       async func(this: LocalContext, flags: { remote: boolean }) {
         const backend = await this.backend();
         const wiped = await backend.wipeReviewState();
-        this.process.stdout.write(`wiped the logs of ${wiped} change${wiped === 1 ? "" : "s"}\n`);
+        this.process.stdout.write(`wiped the logs of ${wiped.length} change${wiped.length === 1 ? "" : "s"}\n`);
         if (flags.remote) {
           const origin = await backend.wipeOriginLogs();
-          this.process.stdout.write(`wiped the logs of ${origin} change${origin === 1 ? "" : "s"} on origin\n`);
+          this.process.stdout.write(
+            `wiped the logs of ${origin.length} change${origin.length === 1 ? "" : "s"} on origin\n`,
+          );
         }
       },
     }),

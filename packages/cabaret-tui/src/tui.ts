@@ -4,12 +4,10 @@ import { emitKeypressEvents } from "node:readline";
 import { PassThrough } from "node:stream";
 import {
   addChangeWorkspace,
-  allChanges,
   type Backend,
-  type Change,
+  type ChangeName,
   createChange,
   currentArchived,
-  currentName,
   currentParent,
   currentSelf,
   type Forge,
@@ -17,6 +15,7 @@ import {
   fetchLocal,
   gotoChange,
   knownChanges,
+  type LogEntry,
   landAsConfigured,
   landChain,
   readConfig,
@@ -26,8 +25,6 @@ import {
   removeChangeWorkspace,
   reparentChange,
   resolveChain,
-  resolveChange,
-  resolveNamed,
   setArchived,
   setReviewing,
   syncChange,
@@ -39,6 +36,7 @@ import {
   widenReviewing,
 } from "cabaret-core";
 import { NoForgeError, openForge as openRepositoryForge } from "cabaret-node";
+import { mapConcurrent } from "cabaret-util";
 import {
   type ChangeSnapshot,
   markReviewed,
@@ -54,6 +52,9 @@ import { type KeyEvent, keyName, mouseEvent } from "./keys.js";
 import { Screen } from "./screen.js";
 
 const now = (): TimestampMs => timestampMs(Date.now());
+
+/** Concurrent change-log reads, matching the home page's fan-out. */
+const READ_CONCURRENCY = 8;
 
 /**
  * Visit a location target by suspending the TUI and opening `$EDITOR` on the
@@ -121,59 +122,61 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     mark: (snapshot, file, evenThoughNotReviewing) =>
       Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
     parent: async (change) => {
-      const found = resolveNamed(await allChanges(backend), change);
-      return found === undefined ? undefined : currentParent(currentName(found.id, found.entries), found.entries);
+      const entries = await backend.readLog(change);
+      return entries.length === 0 ? undefined : currentParent(change, entries);
     },
     self: () => currentSelf(backend),
     children: async (change) => {
-      const all = await allChanges(backend);
-      return all
-        .flatMap((other) => {
-          const name = currentName(other.id, other.entries);
-          return currentParent(name, other.entries) === change ? [name] : [];
-        })
+      const all = await backend.listChanges();
+      const parents = await mapConcurrent(all, READ_CONCURRENCY, async (other) => ({
+        other,
+        parent: currentParent(other, await backend.readLog(other)),
+      }));
+      return parents
+        .filter(({ parent }) => parent === change)
+        .map(({ other }) => other)
         .sort();
     },
     rebase: async (changes, overrides) => {
       const only = changes.length === 1 ? changes[0] : undefined;
       if (only !== undefined) {
-        await rebaseChange(backend, now, await resolveChange(backend, only), overrides);
+        await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
       } else {
         await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
       }
     },
     land: async (changes, overrides) => {
       const config = await readConfig(backend);
-      const landOne = async (change: Change): Promise<void> => {
-        await landAsConfigured(backend, now, openForge, config, change, overrides);
+      const landOne = async (change: ChangeName, entries: readonly LogEntry[]): Promise<void> => {
+        await landAsConfigured(backend, now, openForge, config, change, entries, overrides);
       };
       const only = changes.length === 1 ? changes[0] : undefined;
       if (only !== undefined) {
-        await landOne(await resolveChange(backend, only));
+        await landOne(only, await backend.readLog(only));
       } else {
         await landChain(backend, await resolveChain(backend, changes), landOne);
       }
     },
     reparent: async (change, parent, evenThoughNotOwner) => {
-      await reparentChange(backend, now, await resolveChange(backend, change), parent, {
+      await reparentChange(backend, now, change, parent, {
         notOwner: evenThoughNotOwner,
         parentArchived: false,
         parentDiverged: false,
       });
     },
-    setOwner: async (change, owner, evenThoughNotOwner) =>
-      transferChange(backend, now, await resolveChange(backend, change), userName(owner), evenThoughNotOwner),
+    setOwner: (change, owner, evenThoughNotOwner) =>
+      transferChange(backend, now, change, userName(owner), evenThoughNotOwner),
     widenReviewing: async (change) => {
-      const { to } = await widenReviewing(backend, now, await resolveChange(backend, change));
+      const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
       return to;
     },
     disableReviewing: async (change) => {
-      await setReviewing(backend, now, await resolveChange(backend, change), "none");
+      await setReviewing(backend, now, change, await backend.readLog(change), "none");
     },
     toggleArchived: async (change) => {
-      const found = await resolveChange(backend, change);
-      const archived = !currentArchived(found.entries);
-      await setArchived(backend, now, found, archived);
+      const entries = await backend.readLog(change);
+      const archived = !currentArchived(entries);
+      await setArchived(backend, now, change, entries, archived);
       return archived;
     },
     gotoWorkspace: async (change, evenThoughDirty) => {
@@ -206,7 +209,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     },
     sync: async (change) => {
       const forge = await forgeIfAny();
-      const result = await syncChange(backend, now, forge, await resolveChange(backend, change));
+      const result = await syncChange(backend, now, forge, change);
       const conflicts = result.joined?.conflicts ?? [];
       const offline = result.offline ? "; origin unreachable \u2014 sync again online to publish" : "";
       if (conflicts.length > 0) {

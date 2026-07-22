@@ -1,18 +1,17 @@
 import {
-  allChanges,
+  assertChangeExists,
   type Backend,
   type ChangeName,
   defaultContext,
   type FilePath,
   type Forge,
   isConnectivityError,
-  type Change,
+  type LogEntry,
   parseContext,
   patternMatches,
   pushAdvances,
   type ReconcileResult,
   reconcileChange,
-  requireNamed,
   UserError,
   type UserName,
   userName,
@@ -41,9 +40,14 @@ export function changeFlag(act: string) {
  * are only ever started by `create`, so acting on a missing one would conjure
  * a change out of thin air.
  */
-export async function resolveChange(backend: Backend, flagged: string | undefined): Promise<Change> {
-  const name = flagged === undefined ? await backend.currentChange() : backend.parseName(flagged);
-  return requireNamed(await allChanges(backend), name);
+export async function resolveChange(
+  backend: Backend,
+  flagged: string | undefined,
+): Promise<{ change: ChangeName; entries: readonly LogEntry[] }> {
+  const change = flagged === undefined ? await backend.currentChange() : backend.parseName(flagged);
+  const entries = await backend.readLog(change);
+  assertChangeExists(change, entries);
+  return { change, entries };
 }
 
 /** Parse a user argument, rejecting the empty string. */
@@ -227,7 +231,7 @@ export function settledLines(locator: string | undefined, result: ReconcileResul
  * appends to a log does on its way out: the append was the publication
  * intent, so carrying it asks no further consent.
  */
-export async function writeThrough(context: LocalContext, backend: Backend, change: Change): Promise<void> {
+export async function writeThrough(context: LocalContext, backend: Backend, change: ChangeName): Promise<void> {
   const forge = await forgeIfAny(context);
   const result = await reconcileChange(backend, context.now, forge, change);
   if (result.offline) {

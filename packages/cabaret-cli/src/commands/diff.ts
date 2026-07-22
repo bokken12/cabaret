@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, changeTip, currentName, fileLabel, readConfig, renderDiff } from "cabaret-core";
+import { changeBase, changeTip, fileLabel, readConfig, renderDiff } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, contextFlag, resolveChange, selectFiles } from "./shared.js";
 
@@ -30,9 +30,8 @@ export const diff = buildCommand({
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;
-    const { id, entries } = await resolveChange(backend, flags.change);
-    const name = currentName(id, entries);
-    const [base, tip] = await Promise.all([changeBase(backend, name, entries), changeTip(backend, name, entries)]);
+    const { change, entries } = await resolveChange(backend, flags.change);
+    const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
     const changed = await backend.changedFiles(base, tip);
     const byPath = new Map(changed.map((file) => [file.path, file]));
     const moves = new Map(
@@ -59,7 +58,7 @@ export const diff = buildCommand({
         backend.readFile(base, source?.path ?? file),
         backend.readFile(tip, file),
       ]);
-      this.process.stdout.write(`${separate ? "\n" : ""}${fileLabel(file, source)} in ${name}\n\n`);
+      this.process.stdout.write(`${separate ? "\n" : ""}${fileLabel(file, source)} in ${change}\n\n`);
       separate = true;
       const rendered = renderDiff(file, prev, next, color, context);
       this.process.stdout.write(rendered === "" ? "No differences.\n" : rendered);

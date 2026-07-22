@@ -24,8 +24,8 @@ export const archive = buildCommand({
   },
   async func(this: LocalContext, flags: { change?: string; undo: boolean }) {
     const backend = await this.backend();
-    const change = await resolveChange(backend, flags.change);
-    await setArchived(backend, this.now, change, !flags.undo);
+    const { change, entries } = await resolveChange(backend, flags.change);
+    await setArchived(backend, this.now, change, entries, !flags.undo);
     await writeThrough(this, backend, change);
   },
 });

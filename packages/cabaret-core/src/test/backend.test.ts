@@ -23,7 +23,6 @@ import {
   observedForgeArchived,
   observedForgeReviewers,
   parseBranchName,
-  parseChangeId,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -313,19 +312,16 @@ test("parseLog rejects malformed logs", () => {
   }
 });
 
-test("currentName takes the set-name with the greatest timestamp, and fails without one", () => {
+test("currentName takes the set-name with the greatest timestamp, or undefined without one", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
-  const id = parseChangeId("0".repeat(32));
-  expect(() => currentName(id, [])).toThrow(`log has no name: ${id}`);
-  expect(() => currentName(id, [entry(5, { kind: "set-archived", archived: true })])).toThrow(
-    `log has no name: ${id}`,
-  );
+  expect(currentName([])).toBeUndefined();
+  expect(currentName([entry(5, { kind: "set-archived", archived: true })])).toBeUndefined();
   expect(
-    currentName(id, [
+    currentName([
       entry(9, { kind: "set-name", name: parseBranchName("renamed") }),
       entry(3, { kind: "set-name", name: parseBranchName("original") }),
       entry(12, { kind: "set-archived", archived: true }),

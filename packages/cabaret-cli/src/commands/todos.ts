@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { allChanges, changeBase, newTodos, requireTip, resolveNamed, type Todo } from "cabaret-core";
+import { changeBase, newTodos, requireTip, type Todo } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 
 /**
@@ -49,7 +49,7 @@ export const todos = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
     const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
-    const base = await changeBase(backend, target, resolveNamed(await allChanges(backend), target)?.entries ?? []);
+    const base = await changeBase(backend, target, await backend.readLog(target));
     const tip = await requireTip(backend, target);
     const rendered: string[] = [];
     // A moved or copied file's TODOs compare against its source's copy, so

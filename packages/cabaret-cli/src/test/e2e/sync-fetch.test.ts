@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { type ChangeName, forgeChangeId, parseBranchName, parseCommitHash } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
@@ -334,10 +333,7 @@ test("fetch turns a teammate's forge change into a change to review", async () =
   expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}');
   // The import published: origin holds the log, and fetching again refreshes
   // the change rather than re-importing it.
-  // Imports mint the id from the forge change's identity, so every machine
-  // converges on this one ref.
-  const importId = createHash("sha256").update("github.com/test-org/widgets#1").digest("hex").slice(0, 32);
-  expect(await repo.git("ls-remote", "origin", `refs/cabaret/log/${importId}`)).toContain(importId);
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).not.toBe("");
   expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
@@ -615,7 +611,7 @@ test("fetch prunes the change of a closed forge change when nobody engaged with 
     exitCode: 0,
   });
   expect((await repo.cabaret("dev", "log", "their-feature")).stdout).toBe("");
-  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/*")).toBe("");
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).toBe("");
 });
 
 test("fetch archives the change of a closed forge change once someone engaged with it", async () => {

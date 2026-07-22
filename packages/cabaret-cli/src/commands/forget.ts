@@ -20,10 +20,10 @@ export const forget = buildCommand({
   async func(this: LocalContext, flags: { change?: string }, ...rawFiles: string[]) {
     const backend = await this.backend();
     const files = rawFiles.map((raw) => backend.resolveFile(raw));
-    const change = await resolveChange(backend, flags.change);
+    const { change } = await resolveChange(backend, flags.change);
     const user = await backend.currentUser();
     await backend.appendLog(
-      change.id,
+      change,
       files.map((file) => ({
         timestamp: this.now(),
         user,
