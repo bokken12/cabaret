@@ -1,7 +1,9 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import {
+  ArchivedParentError,
   DirtyWorkspaceError,
   DivergedParentError,
+  LandedParentError,
   NotOwnerError,
   NotReviewingError,
   UnreviewedParentError,
@@ -47,6 +49,12 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof DivergedParentError) {
     return `${error.message}, or pass --even-though-parent-diverged to rebase onto the local reading`;
+  }
+  if (error instanceof LandedParentError) {
+    return `${error.message}, or pass --even-though-parent-landed to proceed`;
+  }
+  if (error instanceof ArchivedParentError) {
+    return `${error.message}, or pass --even-though-parent-archived to proceed`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;

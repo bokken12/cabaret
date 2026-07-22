@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { makeClone, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
 
 /** Commit `file` on `branch` of `repo` and push it; a branch origin lacks is created at origin/main. */
 async function pushWork(repo: TestRepo, branch: string, file: string): Promise<void> {
@@ -193,6 +193,46 @@ test("create adopts a branch held only at origin, leaving it unmaterialized", as
     stderr: "",
     exitCode: 0,
   });
+});
+
+test("create refuses a landed parent until overridden, naming where the code went", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("mark", "--tip", "gadget", "gadget.txt");
+  expect(await repo.cabaret("land", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("create", "widgets", "--parent", "gadget")).toEqual({
+    stdout: "",
+    stderr: 'parent "gadget" has landed; create off "main" instead, or pass --even-though-parent-landed to proceed\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "widgets")).toBe("");
+  expect(await repo.cabaret("dev", "log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("create", "widgets", "--parent", "gadget", "--even-though-parent-landed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("rev-parse", "widgets")).toBe(await repo.git("rev-parse", "gadget"));
+});
+
+test("create refuses an archived parent until overridden", async () => {
+  const repo = await makeRepo();
+  await repo.cabaret("create", "gadget");
+  await repo.cabaret("archive", "--change", "gadget");
+  expect(await repo.cabaret("create", "widgets", "--parent", "gadget")).toEqual({
+    stdout: "",
+    stderr:
+      'parent "gadget" is archived; run `cab archive --undo` first, or pass --even-though-parent-archived to proceed\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "widgets")).toBe("");
+  expect(await repo.cabaret("dev", "log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("create", "widgets", "--parent", "gadget", "--even-though-parent-archived")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("rev-parse", "widgets")).toBe(await repo.git("rev-parse", "gadget"));
 });
 
 test("create refuses adopting a branch whose readings have diverged", async () => {

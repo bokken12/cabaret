@@ -1378,7 +1378,7 @@ async function promptCreate(backend: Backend, parent: ChangeName, prompt: string
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent);
+  await createChange(backend, now, change, parent, { parentLanded: false, parentArchived: false });
   return change;
 }
 

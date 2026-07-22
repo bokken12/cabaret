@@ -387,15 +387,17 @@ ARGUMENTS
 ## cab create
 
 USAGE
-  cab create [--parent value] [--owner value] <change>
+  cab create [--parent value] [--owner value] [--even-though-parent-landed] [--even-though-parent-archived] <change>
   cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
-     [--parent]  The new change's parent (defaults to what is checked out)
-     [--owner]   The new change's owner (defaults to you)
-  -h  --help     Print help information and exit
+     [--parent]                       The new change's parent (defaults to what is checked out)
+     [--owner]                        The new change's owner (defaults to you)
+     [--even-though-parent-landed]    Proceed even though the parent has landed                 [default = false]
+     [--even-though-parent-archived]  Proceed even though the parent is archived                [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   change  name for the new change

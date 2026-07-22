@@ -1018,7 +1018,10 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"), {
+        parentLanded: false,
+        parentArchived: false,
+      });
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",
@@ -1075,7 +1078,10 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"), {
+        parentLanded: false,
+        parentArchived: false,
+      });
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",
