@@ -398,7 +398,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     exitCode: 0,
   });
   // Hang gizmo back under the landed gadget to see the nudge.
-  await repo.cabaret("reparent", "gizmo", "gadget");
+  await repo.cabaret("reparent", "gizmo", "gadget", "--even-though-parent-archived");
   expect((await repo.cabaret("show", "gizmo")).stdout).toMatchInlineSnapshot(`
     "gizmo
     =====

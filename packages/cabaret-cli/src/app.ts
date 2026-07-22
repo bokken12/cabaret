@@ -3,7 +3,6 @@ import {
   ArchivedParentError,
   DirtyWorkspaceError,
   DivergedParentError,
-  LandedParentError,
   NotOwnerError,
   NotReviewingError,
   UnreviewedParentError,
@@ -48,10 +47,7 @@ function userMessage(error: UserError): string {
     return `${error.message}; pass --even-though-not-reviewing to override`;
   }
   if (error instanceof DivergedParentError) {
-    return `${error.message}, or pass --even-though-parent-diverged to rebase onto the local reading`;
-  }
-  if (error instanceof LandedParentError) {
-    return `${error.message}, or pass --even-though-parent-landed to proceed`;
+    return `${error.message}, or pass --even-though-parent-diverged to proceed on the local reading`;
   }
   if (error instanceof ArchivedParentError) {
     return `${error.message}, or pass --even-though-parent-archived to proceed`;

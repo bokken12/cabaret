@@ -387,7 +387,7 @@ ARGUMENTS
 ## cab create
 
 USAGE
-  cab create [--parent value] [--owner value] [--permanent] [--even-though-parent-landed] [--even-though-parent-archived] <change>
+  cab create [--parent value] [--owner value] [--permanent] [--even-though-parent-archived] <change>
   cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
@@ -396,7 +396,6 @@ FLAGS
      [--parent]                       The new change's parent (defaults to what is checked out)
      [--owner]                        The new change's owner (defaults to you)
      [--permanent]                    Mark the new change permanent: structure expected to outlive its lands [default = false]
-     [--even-though-parent-landed]    Proceed even though the parent has landed                              [default = false]
      [--even-though-parent-archived]  Proceed even though the parent is archived                             [default = false]
   -h  --help                          Print help information and exit
 
@@ -603,14 +602,16 @@ ARGUMENTS
 ## cab reparent
 
 USAGE
-  cab reparent [--even-though-not-owner] <change> <parent>
+  cab reparent [--even-though-not-owner] [--even-though-parent-archived] [--even-though-parent-diverged] <change> <parent>
   cab reparent --help
 
 Update a change's parent. This is a metadata/log change only, and does not touch code without a subsequent `rebase`. Only the change's owner may reparent it.
 
 FLAGS
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
+     [--even-though-not-owner]        Proceed even though you do not own the change               [default = false]
+     [--even-though-parent-archived]  Proceed even though the new parent is archived              [default = false]
+     [--even-though-parent-diverged]  Proceed even though the new parent's readings have diverged [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   change  change to reparent

@@ -129,6 +129,16 @@ What should one call setting a change aside without landing it?
 
 Tentative: I'm going to call this "archive" (undone by "archive --undo" — a separate "unarchive" command was tried and felt like clutter). If this turns out badly, my second choice is "abandon". A change's archived state syncs with its forge change's open/closed state.
 
+Archived is also how a change is done: landing is an event in the log, not a state, and an ordinary land concludes by archiving the change. There is no separate "landed" state — a change is live or archived, and the land entries are history.
+
+## Long-lived structure
+
+What should one call a change that outlives its lands — an umbrella others stack work under, landing cycle after cycle instead of archiving?
+
+- Iron calls such features "permanent"
+
+Decided: "permanent", after Iron. An ordinary change archives when it lands; a permanent one advances to the landing commit with an empty diff, next step add code. A permanent change refuses to archive until made ordinary again.
+
 ## Exchanging with origin
 
 What should one call moving state between this clone and origin?

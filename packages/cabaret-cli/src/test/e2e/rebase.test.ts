@@ -244,7 +244,7 @@ test("rebase refuses a diverged parent; overridden, it stands on the local readi
     stdout: "",
     stderr:
       'local "main" has diverged from origin\'s copy; sync it first, ' +
-      "or pass --even-though-parent-diverged to rebase onto the local reading\n",
+      "or pass --even-though-parent-diverged to proceed on the local reading\n",
     exitCode: 1,
   });
   expect(await repo.cabaret("rebase", "feature", "--even-though-parent-diverged")).toEqual({

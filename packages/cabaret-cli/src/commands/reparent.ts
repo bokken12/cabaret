@@ -19,12 +19,33 @@ export const reparent = buildCommand({
         { brief: "the new parent", placeholder: "parent", parse: String },
       ],
     },
-    flags: { evenThoughNotOwner },
+    flags: {
+      evenThoughNotOwner,
+      evenThoughParentArchived: {
+        kind: "boolean",
+        brief: "Proceed even though the new parent is archived",
+        default: false,
+      },
+      evenThoughParentDiverged: {
+        kind: "boolean",
+        brief: "Proceed even though the new parent's readings have diverged",
+        default: false,
+      },
+    },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change: string, parent: string) {
+  async func(
+    this: LocalContext,
+    flags: { evenThoughNotOwner: boolean; evenThoughParentArchived: boolean; evenThoughParentDiverged: boolean },
+    change: string,
+    parent: string,
+  ) {
     const backend = await this.backend();
     const name = backend.parseName(change);
-    await reparentChange(backend, this.now, name, backend.parseName(parent), flags.evenThoughNotOwner);
+    await reparentChange(backend, this.now, name, backend.parseName(parent), {
+      notOwner: flags.evenThoughNotOwner,
+      parentArchived: flags.evenThoughParentArchived,
+      parentDiverged: flags.evenThoughParentDiverged,
+    });
     await writeThrough(this, backend, name);
   },
 });
