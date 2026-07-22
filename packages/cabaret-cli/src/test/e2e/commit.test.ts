@@ -95,15 +95,44 @@ test("a clean workspace has nothing to commit", async () => {
   });
 });
 
-test("a path matching no files is a mistake worth stopping on", async () => {
+test("a path matching no edit is a mistake worth stopping on", async () => {
   const repo = await makeRepo();
   await repo.write("real.txt", "real\n");
   expect(await repo.cabaret("commit", "unreal.txt")).toEqual({
     stdout: "",
-    stderr: "pathspec 'unreal.txt' did not match any files\n",
+    stderr: 'no edit matches "unreal.txt"\n',
     exitCode: 1,
   });
   expect(await repo.git("status", "--porcelain")).toBe("?? real.txt");
+});
+
+test("a directory argument commits the edits under it, deletions included", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.write("src/old.ts", "old\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "setup");
+  await repo.git("rm", "-q", "src/old.ts");
+  await repo.write("src/lib.ts", "lib\n");
+  await repo.write("notes.md", "notes\n");
+  expect(await repo.cabaret("commit", "src")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("status", "--porcelain")).toBe("?? notes.md");
+  expect(await repo.git("show", "--stat", "--format=%s", "HEAD")).toMatchInlineSnapshot(`
+    "gadget
+
+     src/lib.ts | 1 +
+     src/old.ts | 1 -
+     2 files changed, 1 insertion(+), 1 deletion(-)"
+  `);
+});
+
+test("a slashed pattern's star stays within one directory", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.write("src/a.ts", "a\n");
+  await repo.write("src/nested/b.ts", "b\n");
+  expect(await repo.cabaret("commit", "src/*.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("status", "--porcelain", "-uall")).toBe("?? src/nested/b.ts");
 });
 
 test("a detached workspace refuses to commit", async () => {

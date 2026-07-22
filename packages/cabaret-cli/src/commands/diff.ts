@@ -8,14 +8,14 @@ export const diff = buildCommand({
     brief: "Show a change's diff",
     fullDescription:
       "Show a change's diff: each changed file, base to tip. Arguments " +
-      "narrow what is shown — a path, or a gitignore-style pattern against " +
-      "repo-relative paths.",
+      "narrow what is shown — a file or directory, or a gitignore-style " +
+      "pattern against repo-relative paths.",
   },
   parameters: {
     positional: {
       kind: "array",
       parameter: {
-        brief: "files or patterns to show (defaults to every changed file)",
+        brief: "files, directories, or patterns to show (defaults to every changed file)",
         placeholder: "file",
         parse: String,
       },

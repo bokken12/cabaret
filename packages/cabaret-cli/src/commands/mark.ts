@@ -16,7 +16,7 @@ export const mark = buildCommand({
   parameters: {
     positional: {
       kind: "array",
-      parameter: { brief: "files or patterns to mark reviewed", placeholder: "file", parse: String },
+      parameter: { brief: "files, directories, or patterns to mark reviewed", placeholder: "file", parse: String },
       minimum: 1,
     },
     flags: {
