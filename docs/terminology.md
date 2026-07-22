@@ -137,7 +137,9 @@ What should one call a change that outlives its lands — an umbrella others sta
 
 - Iron calls such features "permanent"
 
-Decided: "permanent", after Iron. An ordinary change archives when it lands; a permanent one advances to the landing commit with an empty diff, next step add code. A permanent change refuses to archive until made ordinary again.
+Decided: "permanent", after Iron. An ordinary change archives when it lands; a permanent one advances to the landing commit with an empty diff, next step add code. A permanent change refuses to archive until made ordinary again. (Iron also keeps a released feature alive when it has children; Cabaret does not — only the explicit permanent attribute outlives a land.)
+
+Each land cycle converses with its own forge change: a land concludes the cycle's forge change along with its observations and comments, and the next cycle opens a fresh one once it has commits at origin to review.
 
 ## Exchanging with origin
 

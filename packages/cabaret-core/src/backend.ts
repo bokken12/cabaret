@@ -871,11 +871,35 @@ export function currentOwner(change: ChangeName, entries: readonly LogEntry[]): 
   return action.owner;
 }
 
-/** The forge change from the log's latest `set-forge`, or undefined if none is recorded. */
+/**
+ * The entries of the change's current cycle: those after its latest land.
+ * A land concludes the cycle's conversation with the forge, so the forge
+ * link and the observations syncing compares against read only past it —
+ * the next cycle opens its own forge change and baselines afresh — while
+ * local state (parent, base, reviewing, reviews) spans cycles and reads
+ * the whole log.
+ */
+export function cycleEntries(entries: readonly LogEntry[]): readonly LogEntry[] {
+  let land: LogEntry | undefined;
+  for (const entry of entries) {
+    if (entry.action.kind === "land" && (land === undefined || compareLogEntries(entry, land) >= 0)) {
+      land = entry;
+    }
+  }
+  const latest = land;
+  return latest === undefined ? entries : entries.filter((entry) => compareLogEntries(entry, latest) > 0);
+}
+
+/**
+ * The forge change from the current cycle's latest `set-forge`, or undefined
+ * if none is recorded. One forge change reviews one cycle: a link from before
+ * the latest land named the forge change that landed it, not one for the
+ * work that follows.
+ */
 export function currentForgeChange(
   entries: readonly LogEntry[],
 ): { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined {
-  const action = latestAction(entries, "set-forge");
+  const action = latestAction(cycleEntries(entries), "set-forge");
   // Rebuilt so the value is what the type says, with no `kind` tagging along.
   return action && { forge: action.forge, id: action.id };
 }
@@ -910,16 +934,18 @@ export function currentPermanent(entries: readonly LogEntry[]): boolean {
 }
 
 /**
- * The archived state the log last observed on `forge` — the latest
+ * The archived state the current cycle observed on `forge` — the latest
  * `set-archived` carrying it as `source` — or undefined when never observed.
  * A forge expresses archiving as its open/closed state, so syncing compares
  * against it: only a forge that closed or reopened since last observed
  * mirrors in, and a local `set-archived` awaiting a push is never overridden
- * by re-observing the state it is about to replace.
+ * by re-observing the state it is about to replace. An observation from
+ * before the latest land described the forge change that landed, so it is
+ * void here, as in every observation reader.
  */
 export function observedForgeArchived(entries: readonly LogEntry[], forge: ForgeLocator): boolean | undefined {
   let found: LogEntry | undefined;
-  for (const entry of entries) {
+  for (const entry of cycleEntries(entries)) {
     if (
       entry.action.kind === "set-archived" &&
       entry.source?.forge === forge &&
@@ -932,7 +958,7 @@ export function observedForgeArchived(entries: readonly LogEntry[], forge: Forge
 }
 
 /**
- * The reviewing set the log last observed on `forge` — the latest
+ * The reviewing set the current cycle observed on `forge` — the latest
  * `set-reviewing` carrying it as `source` — or undefined when never observed.
  * A forge expresses only the none/wider boundary (draft or ready), so syncing
  * compares boundaries: only a forge that crossed it since last observed
@@ -941,7 +967,7 @@ export function observedForgeArchived(entries: readonly LogEntry[], forge: Forge
  */
 export function observedForgeReviewing(entries: readonly LogEntry[], forge: ForgeLocator): Reviewing | undefined {
   let found: LogEntry | undefined;
-  for (const entry of entries) {
+  for (const entry of cycleEntries(entries)) {
     if (
       entry.action.kind === "set-reviewing" &&
       entry.source?.forge === forge &&
@@ -954,7 +980,7 @@ export function observedForgeReviewing(entries: readonly LogEntry[], forge: Forg
 }
 
 /**
- * The parent the log last observed on `forge` — the latest `set-parent`
+ * The parent the current cycle observed on `forge` — the latest `set-parent`
  * carrying it as `source` — or undefined when the forge's parent was never
  * observed. What a pull compares the forge's parent against: only a forge
  * that moved since last observed mirrors in, so a local reparent awaiting a
@@ -962,7 +988,7 @@ export function observedForgeReviewing(entries: readonly LogEntry[], forge: Forg
  */
 export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLocator): ChangeName | undefined {
   let found: LogEntry | undefined;
-  for (const entry of entries) {
+  for (const entry of cycleEntries(entries)) {
     if (
       entry.action.kind === "set-parent" &&
       entry.source?.forge === forge &&
@@ -1011,14 +1037,14 @@ export function currentReviewers(entries: readonly LogEntry[]): readonly UserNam
 }
 
 /**
- * The reviewer set the log last observed on `forge`: for each user, the
+ * The reviewer set the current cycle observed on `forge`: for each user, the
  * latest add/remove entry carrying it as `source` decides. What a sync
  * compares the forge's reviewers against: only a forge that moved since last
  * observed mirrors in, so local edits awaiting a push are never overridden by
  * re-observing the state they are about to replace.
  */
 export function observedForgeReviewers(entries: readonly LogEntry[], forge: ForgeLocator): ReadonlySet<UserName> {
-  return foldReviewers(entries, (entry) => entry.source?.forge === forge);
+  return foldReviewers(cycleEntries(entries), (entry) => entry.source?.forge === forge);
 }
 
 /** The merge of the change's latest land, or undefined if it has never landed. */

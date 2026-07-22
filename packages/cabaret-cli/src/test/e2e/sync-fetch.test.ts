@@ -156,8 +156,11 @@ test("fetch records a squash-merged forge change with the tip that merged", asyn
   await repo.cabaret("sync");
   const tip = await repo.git("rev-parse", "gadget");
   // The squash commit descends from no reviewed history, so the land entry
-  // freezes the head that merged as the change's tip.
-  const squash = parseCommitHash("1".repeat(40));
+  // freezes the head that merged as the change's tip. It reaches the base
+  // branch first, as a forge's squash does: an unfetched landing defers the
+  // observation.
+  const squash = parseCommitHash(await repo.git("commit-tree", `${tip}^{tree}`, "-p", "main", "-m", "gadget"));
+  await repo.git("push", "origin", `${squash}:refs/heads/main`);
   forge.merge(PR, squash, 1);
   expect((await repo.cabaret("fetch")).stdout).toContain("was merged; recorded the land");
   expect((await repo.cabaret("dev", "log")).stdout).toContain(

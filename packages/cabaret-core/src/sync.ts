@@ -5,7 +5,7 @@ import {
   conflictsBetween,
   ensureBranch,
   type FilePath,
-  landedMerge,
+  finished,
   type TimestampMs,
 } from "./backend.js";
 import { isConnectivityError } from "./connectivity.js";
@@ -58,9 +58,9 @@ export interface ReconcileResult {
   readonly absorbed: AbsorbResult | undefined;
   /**
    * What publishing settled on the forge; undefined without a forge, for a
-   * landed change (frozen, nothing to settle), or for a change whose forge
+   * finished change (frozen, nothing to settle), or for a change whose forge
    * change does not exist and is not yet due — none is opened before the
-   * head reaches origin, and archiving asks for no new one.
+   * cycle has a diff at origin, and archiving asks for no new one.
    */
   readonly published: PublishResult | undefined;
 }
@@ -122,7 +122,7 @@ export async function reconcileChange(
     let absorbed: AbsorbResult | undefined;
     let published: PublishResult | undefined;
     const current = await backend.readLog(change);
-    if (forge !== undefined && landedMerge(current) === undefined) {
+    if (forge !== undefined && !finished(current)) {
       const user = await backend.currentUser();
       const found = await syncedForgeChange(backend, now, user, forge, change, current);
       if (found !== undefined) {

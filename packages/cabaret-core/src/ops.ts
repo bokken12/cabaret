@@ -661,21 +661,52 @@ export async function recordLand(
     );
   }
   if (permanent) {
-    let next: Revision;
-    if (merge.parents > 1) {
-      next = merge.commit;
-      if ((await ensureBranch(backend, target)) !== next) {
-        await backend.advance(target, next);
-      }
-    } else {
-      const conflicts = await backend.mergeOnto(target, base, merge.commit, `Merge land of '${target}'`);
-      if (conflicts.length > 0) {
-        throw new Error(`merging ${JSON.stringify(target)}'s own landed content conflicted in ${conflicts.join(", ")}`);
-      }
-      next = await requireTip(backend, target);
+    const conflicts = await advancePastLand(backend, now, target, base, merge, tip);
+    if (conflicts.length > 0) {
+      throw new Error(`merging ${JSON.stringify(target)}'s own landed content conflicted in ${conflicts.join(", ")}`);
     }
-    await backend.appendLog(target, [{ timestamp: now(), user, action: { kind: "set-base", base: next } }]);
   }
+}
+
+/**
+ * Advance a permanent change past `merge`, the commit that landed its
+ * `tip`: the branch moves to the landing commit — a land merge contains
+ * everything the branch held, so it fast-forwards; a squash, which descends
+ * from none of the change's history, merges in as content the branch
+ * already carries — and the base pins where the next cycle's diff begins.
+ * A branch holding nothing past the landed tip empties its diff; one with
+ * work committed since — a land observed late — keeps exactly that work,
+ * measured from the landing commit. Returns the paths a conflicting merge
+ * left marked, committed in place as any join leaves them.
+ */
+export async function advancePastLand(
+  backend: Backend,
+  now: () => TimestampMs,
+  target: ChangeName,
+  base: Revision,
+  merge: LandedMerge,
+  tip: Revision,
+): Promise<readonly FilePath[]> {
+  const held = await ensureBranch(backend, target);
+  let next: Revision;
+  let conflicts: readonly FilePath[] = [];
+  if (await backend.isAncestor(held, merge.commit)) {
+    if (held !== merge.commit) {
+      await backend.advance(target, merge.commit);
+    }
+    next = merge.commit;
+  } else if (await backend.isAncestor(merge.commit, held)) {
+    // The branch already carries the landing — pulled or rebased in by
+    // hand — so only the base moves.
+    next = merge.commit;
+  } else {
+    conflicts = await backend.mergeOnto(target, base, merge.commit, `Merge land of '${target}'`);
+    next = held === tip ? await requireTip(backend, target) : merge.commit;
+  }
+  await backend.appendLog(target, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-base", base: next } },
+  ]);
+  return conflicts;
 }
 
 /** How a local land's parent advance reached origin, if it could. */

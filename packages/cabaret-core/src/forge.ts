@@ -4,11 +4,13 @@ import {
   type ChangeName,
   compareLogEntries,
   currentArchived,
+  currentBase,
   currentForgeChange,
   currentParent,
   currentPermanent,
   currentReviewers,
   currentReviewing,
+  cycleEntries,
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
@@ -31,6 +33,7 @@ import {
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
 import {
+  advancePastLand,
   type LandOverrides,
   type LandPublication,
   landChange,
@@ -491,10 +494,7 @@ export function planArchivedPush(
  * the landed change until someone reviews it. The observer should settle it
  * the way the land op does, evaluated as of the observation; writing the
  * land entry is the guard that keeps racing observers from each settling.
- * The land's other conclusions are likewise still the user's: children are
- * not walked to the parent, and a permanent change's branch stays put until
- * its next rebase. Reaching the merges made while untracked also means
- * fetch reading closed forge changes, which it skips today.
+ * An ordinary change's children are likewise not walked to the parent.
  */
 export function observedLand(
   now: () => TimestampMs,
@@ -774,9 +774,11 @@ export interface AbsorbResult {
 /**
  * Absorb one tracked change's forge activity into its log: comments the log
  * lacks — new ones, and new versions of ones edited in place — the land a
- * merged forge change implies, and a forge-side retarget as an observed
- * `set-parent`. Only a forge parent that moved since last observed mirrors
- * in, so a local reparent awaiting publication is never overridden — and a
+ * merged forge change implies (a permanent change's branch and base then
+ * advance past the landing, as the land op advances them), and a forge-side
+ * retarget as an observed `set-parent`. Only a forge parent that moved
+ * since last observed mirrors in, so a local reparent awaiting publication
+ * is never overridden — and a
  * forge-side reviewer change as mirrored add/remove entries, a forge-side
  * draft toggle as a mirrored `set-reviewing`, and a forge-side close or
  * reopen as a mirrored `set-archived`, on the same observation principle.
@@ -796,7 +798,17 @@ export async function absorbForgeChange(
   const additions = [
     ...(await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)))),
   ];
-  const landing = observedLand(now, user, forge.locator, forgeChange, entries);
+  // A landing commit that has not arrived — the parent not yet fetched —
+  // defers the whole land observation: recording it without the commit
+  // could not advance a permanent change past it, and a fetch carries it.
+  let landing = observedLand(now, user, forge.locator, forgeChange, entries);
+  if (
+    landing !== undefined &&
+    forgeChange.merge !== undefined &&
+    !(await backend.hasRevision(forgeChange.merge.commit))
+  ) {
+    landing = undefined;
+  }
   if (landing !== undefined) {
     additions.push(landing);
   }
@@ -830,6 +842,20 @@ export async function absorbForgeChange(
   additions.push(...archived);
   if (additions.length > 0) {
     await backend.appendLog(change, additions);
+  }
+  if (
+    landing !== undefined &&
+    forgeChange.merge !== undefined &&
+    currentPermanent(entries) &&
+    // A landing the base already passed — an earlier cycle's merge mirrored
+    // in late — concluded a cycle the change has already left behind.
+    !(await backend.isAncestor(forgeChange.merge.commit, currentBase(change, entries)))
+  ) {
+    // The land is recorded, so the cycle turns over as the land op turns it:
+    // the branch advances past the landing and the base pins. A conflicting
+    // merge — work committed since the landing colliding with it — commits
+    // its markers for the owner to fix, as a join would.
+    await advancePastLand(backend, now, change, currentBase(change, entries), forgeChange.merge, forgeChange.tip);
   }
   const mirroredReviewing = reviewing[0]?.action;
   const mirroredArchived = archived[0]?.action;
@@ -992,6 +1018,20 @@ export async function fetchForge(
     }
   }
   const byId = new Map(sweep.changes.map((candidate) => [candidate.change.id, candidate]));
+  // Merged changes keyed by head, in id order: lands to mirror in when no
+  // land entry accounts for their merge — made while the change was
+  // untracked, or before its log reached this clone.
+  const mergedByHead = new Map<ChangeName, SweptChange[]>();
+  for (const candidate of sweep.changes) {
+    if (candidate.change.state === "merged" && candidate.change.merge !== undefined) {
+      const late = mergedByHead.get(candidate.change.head) ?? [];
+      late.push(candidate);
+      mergedByHead.set(candidate.change.head, late);
+    }
+  }
+  for (const late of mergedByHead.values()) {
+    late.sort((a, b) => (a.change.id < b.change.id ? -1 : 1));
+  }
 
   // Import: every open forge change whose head has no log. Import creates
   // logs and nothing else: the change is born reading origin's copy of its
@@ -1057,6 +1097,7 @@ export async function fetchForge(
         return undefined;
       }
       const recorded = currentForgeChange(entries);
+      let held = entries;
       let bulk: SweptChange | undefined;
       let forgeChange: ForgeChange | undefined;
       if (recorded !== undefined) {
@@ -1072,28 +1113,52 @@ export async function fetchForge(
         // merged or closed, and a since-sweep absence has intent to publish.
         forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
       } else {
+        // A merged forge change no land entry accounts for is a land made
+        // while the change was untracked, matched to its cycle by merge
+        // commit: mirror those in first, so what follows judges the change
+        // as landed.
+        for (const late of mergedByHead.get(change) ?? []) {
+          const merge = late.change.merge;
+          if (
+            merge === undefined ||
+            finished(held) ||
+            held.some(({ action }) => action.kind === "land" && action.merge === merge.commit)
+          ) {
+            continue;
+          }
+          const lateComments = late.commentsTruncated ? undefined : late.comments;
+          const absorbed = await absorbForgeChange(backend, now, user, forge, change, held, late.change, lateComments);
+          onEvent({ kind: "absorbed", id: late.change.id, change, ...absorbed });
+          held = await backend.readLog(change);
+        }
+        if (finished(held)) {
+          return undefined;
+        }
         // An untracked branch's open forge change is adopted without asking
         // the forge change by change.
         bulk = byHead.get(change);
         if (bulk !== undefined) {
           forgeChange = bulk.change;
-          await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
-        } else if (
-          currentArchived(entries) ||
-          currentReviewing(entries) === "none" ||
-          (await backend.originTip(change)) === undefined
-        ) {
-          return undefined;
+          await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, held));
         } else {
+          const originTip = await backend.originTip(change);
+          if (
+            currentArchived(held) ||
+            currentReviewing(held) === "none" ||
+            originTip === undefined ||
+            (await backend.isAncestor(originTip, currentBase(change, held)))
+          ) {
+            return undefined;
+          }
           // A forge change is due — reviewing left none while the forge was
           // unreachable, say — so the sweep finishes the write-through's job.
-          forgeChange = await syncedForgeChange(backend, now, user, forge, change, entries);
+          forgeChange = await syncedForgeChange(backend, now, user, forge, change, held);
         }
       }
       if (forgeChange?.state === "closed") {
         // Mirror the close in as archived before judging engagement: the
         // observation carries a source, so a pure import stays prunable.
-        const mirror = planArchivedPull(now, user, forge.locator, entries, true);
+        const mirror = planArchivedPull(now, user, forge.locator, held, true);
         if (mirror.length > 0) {
           await backend.appendLog(change, mirror);
         }
@@ -1101,7 +1166,7 @@ export async function fetchForge(
       }
       const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
       if (forgeChange !== undefined) {
-        const absorbed = await absorbForgeChange(backend, now, user, forge, change, entries, forgeChange, comments);
+        const absorbed = await absorbForgeChange(backend, now, user, forge, change, held, forgeChange, comments);
         onEvent({ kind: "absorbed", id: forgeChange.id, change, ...absorbed });
       }
       const published = await publishForgeChange(
@@ -1187,12 +1252,13 @@ export interface PublishResult {
 
 /**
  * Publish `change`'s activity to `found`, its forge change: open one if
- * there is none (merging into the change's parent, a draft when nobody is
- * reviewing), close or reopen it to match the change's archived state,
- * retarget it to the parent, settle reviewers and the draft boundary both
- * ways, and post the change's comments the forge lacks. The branch must
- * already be pushed. An archived change with no forge change is already
- * converged — archiving asks for no new one — and publishes nothing.
+ * there is none and the cycle has a diff to review (merging into the
+ * change's parent, a draft when nobody is reviewing), close or reopen it to
+ * match the change's archived state, retarget it to the parent, settle
+ * reviewers and the draft boundary both ways, and post the cycle's comments
+ * the forge lacks. The branch must already be pushed. An archived change
+ * with no forge change is already converged — archiving asks for no new one
+ * — and publishes nothing.
  */
 export async function publishForgeChange(
   backend: Backend,
@@ -1218,13 +1284,16 @@ export async function publishForgeChange(
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
     // The forge change is the change's attention artifact: none exists until
-    // reviewing leaves none and the head reaches origin, and archiving asks
-    // for no new one. The change replicates regardless — its branch and log
-    // are already at origin.
+    // reviewing leaves none and origin's copy carries commits past the base
+    // — a cycle with nothing at origin to review opens nothing — and
+    // archiving asks for no new one. The change replicates regardless — its
+    // branch and log are already at origin.
+    const originTip = await backend.originTip(change);
     if (
       currentArchived(entries) ||
       currentReviewing(entries) === "none" ||
-      (await backend.originTip(change)) === undefined
+      originTip === undefined ||
+      (await backend.isAncestor(originTip, currentBase(change, entries)))
     ) {
       return undefined;
     }
@@ -1318,7 +1387,9 @@ export async function publishForgeChange(
       await backend.appendLog(change, additions);
     }
   }
-  const bodies = await planPush(entries, comments ?? (await forge.listComments(forgeChange.id)), user);
+  // Comments push within the cycle: earlier cycles' were conversations on
+  // earlier forge changes.
+  const bodies = await planPush(cycleEntries(entries), comments ?? (await forge.listComments(forgeChange.id)), user);
   for (const body of bodies) {
     await forge.addComment(forgeChange.id, body);
   }
