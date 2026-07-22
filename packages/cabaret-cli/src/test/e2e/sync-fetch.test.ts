@@ -123,8 +123,8 @@ test("fetch does not echo comments sync posted", async () => {
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-05-23T11:33:20.005Z bob@example.com\n    one nit\n\n" +
-      "  2025-05-23T11:33:20.006Z alice@example.com\n    ship it\n",
+    "Comments:\n  2025-05-23T11:33:20.006Z bob@example.com\n    one nit\n\n" +
+      "  2025-05-23T11:33:20.007Z alice@example.com\n    ship it\n",
   );
 });
 

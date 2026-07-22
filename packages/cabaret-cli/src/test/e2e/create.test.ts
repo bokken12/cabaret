@@ -21,10 +21,11 @@ test("create makes a new branch at the parent's tip and initializes its log", as
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("main");
   expect(await repo.cabaret("dev", "log", "feature")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"feature"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -40,10 +41,11 @@ test("create adopts an existing branch, based where it left the parent", async (
   expect(await repo.cabaret("create", "main", "--parent", "trunk")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("dev", "log", "main")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"main"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -59,10 +61,11 @@ test("create --owner records the given owner instead of the creator", async () =
   });
   expect(await repo.cabaret("dev", "log", "feature")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"bob@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"feature"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"bob@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -128,10 +131,11 @@ test("create bases a new change on origin's copy of a parent that is merely behi
   expect(await repo.git("rev-parse", "main")).toBe(localMain);
   expect(await repo.cabaret("dev", "log", "widgets")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${originMain}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"widgets"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${originMain}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -186,10 +190,11 @@ test("create adopts a branch held only at origin, leaving it unmaterialized", as
   expect(await repo.git("branch", "--list", "gadget")).toBe("");
   expect(await repo.cabaret("dev", "log", "gadget")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"gadget"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
