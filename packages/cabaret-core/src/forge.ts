@@ -607,18 +607,10 @@ export async function landOnForge(
   }
   const parent = currentParent(change, entries);
   if (forgeChange.parent !== parent) {
-    // The land names the parent, so retargeting the forge change to it is
-    // within the intent asked; the observation keeps the next absorb from
-    // reading the move as forge-side.
-    await forge.setParent(forgeChange.id, parent);
-    await backend.appendLog(change, [
-      {
-        timestamp: now(),
-        user: await backend.currentUser(),
-        source: { forge: forge.locator },
-        action: { kind: "set-parent", parent },
-      },
-    ]);
+    throw new UserError(
+      `${forge.locator}#${forgeChange.id} merges into ${JSON.stringify(forgeChange.parent)}, ` +
+        `not ${JSON.stringify(parent)}; run \`cab sync\` to retarget it`,
+    );
   }
   await backend.fetch(parent);
   const prepared = await prepareLand(backend, change, entries, overrides);
