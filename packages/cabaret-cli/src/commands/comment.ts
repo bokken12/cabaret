@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { UserError } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, resolveChange, writeThrough } from "./shared.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 /** Parse a comment-text argument, rejecting the empty string. */
 function parseCommentText(raw: string): string {
@@ -30,6 +30,5 @@ export const comment = buildCommand({
     await backend.appendLog(change, [
       { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
     ]);
-    await writeThrough(this, backend, change);
   },
 });

@@ -6,11 +6,10 @@ import {
   landAsConfigured,
   landChain,
   readConfig,
-  reconcileChange,
   resolveRange,
 } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { type ChangeSpec, evenThoughNotOwner, forgeIfAny, parseChangeSpec, settledLines } from "./shared.js";
+import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
 
 /** The escape hatch for the review-obligations check on `land`. */
 const evenThoughUnreviewed = {
@@ -68,16 +67,7 @@ export const land = buildCommand({
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
-    const landOne = async (change: ChangeName, _entries: readonly LogEntry[]) => {
-      // Lands write through like any command: the reconcile settles the
-      // forge change — a pending retarget included — before the land reads
-      // it, and the land proceeds on the settled log.
-      const forge = await forgeIfAny(this);
-      const settled = await reconcileChange(backend, this.now, forge, change);
-      for (const line of settledLines(forge?.locator, settled)) {
-        this.process.stdout.write(`${line}\n`);
-      }
-      const entries = await backend.readLog(change);
+    const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
       const { merged, reparented, publication } = await landAsConfigured(
         backend,
         this.now,

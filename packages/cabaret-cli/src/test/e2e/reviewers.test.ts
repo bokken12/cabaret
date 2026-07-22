@@ -111,11 +111,11 @@ test("fetch mirrors forge-side reviewer changes in; a local removal syncs the wi
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
-  // The removal itself carries the withdrawal to the forge; sync finds it settled.
-  expect((await repo.cabaret("reviewers", "remove", "github:carol")).stdout).toBe(
-    "updated 1 reviewer on github.com/test-org/widgets#1\n",
+  // Removing carol locally is intent the next sync carries to the forge.
+  await repo.cabaret("reviewers", "remove", "github:carol");
+  expect((await repo.cabaret("sync")).stdout).toBe(
+    "updated 1 reviewer on github.com/test-org/widgets#1\n" + 'synced "gadget" with github.com/test-org/widgets#1\n',
   );
-  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   expect((await forge.getChange(PR)).reviewers).toEqual([]);
   // Settled: another fetch re-mirrors nothing.
   expect((await repo.cabaret("fetch")).stdout).toBe(

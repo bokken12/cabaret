@@ -1,7 +1,7 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
 import { assertNotLanded, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, parseUser, resolveChange, writeThrough } from "./shared.js";
+import { changeFlag, parseUser, resolveChange } from "./shared.js";
 
 /** Append one reviewer entry to `change`'s log. */
 async function recordReviewer(
@@ -17,7 +17,6 @@ async function recordReviewer(
   await backend.appendLog(target, [
     { timestamp: ctx.now(), user: await backend.currentUser(), action: { kind, reviewer } },
   ]);
-  await writeThrough(ctx, backend, target);
 }
 
 export const reviewers = buildRouteMap({

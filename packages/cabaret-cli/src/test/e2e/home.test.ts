@@ -341,6 +341,85 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   `);
 });
 
+test("someone else's change places by its log alone, its code never read", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "user.email", "bob@example.com");
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "owner");
+  await repo.git("config", "user.email", "alice@example.com");
+  await repo.git("checkout", "-q", "main");
+  // Deleting the branch leaves gadget's diff unreadable. Alice's page never
+  // notices: a change asking nothing of her reaches home only through its log.
+  await repo.git("branch", "-qD", "gadget");
+  const { stdout, stderr, exitCode } = await repo.cabaret("home");
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  expect(stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬──────╮
+    │ change │ note │
+    ├────────┼──────┤
+    │ main   │      │
+    ╰────────┴──────╯
+    "
+  `);
+});
+
+test("a live ancestor owned by someone else dims to its bare name", async () => {
+  const repo = await makeRepo();
+  await repo.git("config", "user.email", "bob@example.com");
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "owner");
+  await repo.git("config", "user.email", "alice@example.com");
+  await addChange(repo, "gizmo");
+  await repo.cabaret("reviewing", "set", "owner");
+  // Bob's gadget stays only to hang gizmo: its name dims and its step
+  // column stays empty, his progress being no business of this page.
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭──────────┬────────╮
+    │ change   │ review │
+    ├──────────┼────────┤
+    │ gadget   │        │
+    │ └─ gizmo │      1 │
+    ╰──────────┴────────╯
+
+    Changes you own:
+    ╭──────────┬───────────╮
+    │ change   │ next step │
+    ├──────────┼───────────┤
+    │ gadget   │           │
+    │ └─ gizmo │ review    │
+    ╰──────────┴───────────╯
+
+    Workspaces on this device:
+    ╭──────────┬──────╮
+    │ change   │ note │
+    ├──────────┼──────┤
+    │ gadget   │      │
+    │ └─ gizmo │      │
+    ╰──────────┴──────╯
+    "
+  `);
+});
+
 test("home with no changes shows both sections empty", async () => {
   const repo = await makeRepo();
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`

@@ -85,6 +85,7 @@ test("no forge change opens while reviewing is none; leaving none opens one read
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
+<<<<<<< 1285f432103a6ee2471068b7003738de63ebb315
   await repo.cabaret("reviewing", "set", "none");
   // The forge change is the change's attention artifact: an unreviewing sync
   // replicates the branch and log but opens nothing.
@@ -93,12 +94,33 @@ test("no forge change opens while reviewing is none; leaving none opens one read
   // Leaving none is the attention act, and its write-through opens the
   // forge change ready — never as a draft.
   expect((await repo.cabaret("widen")).stdout).toContain("opened github.com/test-org/widgets#1");
+||||||| 2be1091d3fbb20a58d36013a40e3f8c3993d4755
+  expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
+  expect((await forge.getChange(PR)).draft).toBe(true);
+  // The widen itself asserts readiness on the forge; sync finds it settled.
+  expect((await repo.cabaret("widen")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
+=======
+  expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
+  expect((await forge.getChange(PR)).draft).toBe(true);
+  // Widening past none is local intent the next sync asserts on the forge.
+  await repo.cabaret("widen");
+  expect((await repo.cabaret("sync")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
+>>>>>>> b656874caa14a75e51fa08d2b678c4f26e997d68
   expect((await forge.getChange(PR)).draft).toBe(false);
+<<<<<<< 1285f432103a6ee2471068b7003738de63ebb315
   // Reviewing back to none marks the existing forge change a draft.
   expect((await repo.cabaret("reviewing", "set", "none")).stdout).toContain(
     "marked github.com/test-org/widgets#1 draft",
   );
   expect((await forge.getChange(PR)).draft).toBe(true);
+||||||| 2be1091d3fbb20a58d36013a40e3f8c3993d4755
+  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
+  // Settled: syncing again moves nothing.
+  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
+=======
+  // Settled: syncing again moves nothing.
+  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
+>>>>>>> b656874caa14a75e51fa08d2b678c4f26e997d68
 });
 
 test("a forge-side draft toggle mirrors into the reviewing set on fetch", async () => {

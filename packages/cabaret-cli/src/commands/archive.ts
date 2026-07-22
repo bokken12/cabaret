@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { setArchived } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, resolveChange, writeThrough } from "./shared.js";
+import { changeFlag, resolveChange } from "./shared.js";
 
 export const archive = buildCommand({
   docs: {
@@ -26,6 +26,5 @@ export const archive = buildCommand({
     const backend = await this.backend();
     const { change, entries } = await resolveChange(backend, flags.change);
     await setArchived(backend, this.now, change, entries, !flags.undo);
-    await writeThrough(this, backend, change);
   },
 });

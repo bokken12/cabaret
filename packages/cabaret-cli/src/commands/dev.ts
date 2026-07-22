@@ -53,8 +53,9 @@ export const dev = buildRouteMap({
         const page = await homePage(backend, flags.for);
         let marked = false;
         const mark = async (nodes: readonly ReviewNode[]): Promise<void> => {
-          for (const { summary, owed, children } of nodes) {
-            if (owed.length > 0) {
+          for (const node of nodes) {
+            if (node.kind === "owed") {
+              const { summary } = node;
               const entries = await backend.readLog(summary.change);
               const diff = await changeDiff(backend, summary.change, entries);
               // Obligations are per identity: only demands `identity`'s own
@@ -76,7 +77,7 @@ export const dev = buildRouteMap({
                 );
               }
             }
-            await mark(children);
+            await mark(node.children);
           }
         };
         await mark(page.review);

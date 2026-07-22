@@ -1132,6 +1132,7 @@ export async function publishForgeChange(
   let forgeChange = found;
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
+<<<<<<< 1285f432103a6ee2471068b7003738de63ebb315
     // The forge change is the change's attention artifact: none exists until
     // reviewing leaves none and the head reaches origin, and archiving asks
     // for no new one. The change replicates regardless — its branch and log
@@ -1141,6 +1142,13 @@ export async function publishForgeChange(
       currentReviewing(entries) === "none" ||
       (await backend.originTip(change)) === undefined
     ) {
+||||||| 2be1091d3fbb20a58d36013a40e3f8c3993d4755
+    // A forge change cannot exist before its head reaches origin, and
+    // archiving asks for no new one.
+    if (currentArchived(entries) || (await backend.originTip(change)) === undefined) {
+=======
+    if (currentArchived(entries)) {
+>>>>>>> b656874caa14a75e51fa08d2b678c4f26e997d68
       return undefined;
     }
     forgeChange = await forge.createChange(change, parent, change);

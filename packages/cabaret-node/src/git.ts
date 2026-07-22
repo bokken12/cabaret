@@ -813,10 +813,8 @@ export class GitBackend implements Backend {
         ...pending.map(({ change, tip }) => `${tip}:${logRef(change)}`),
       ]);
     } catch (error) {
-      // Only a push that reached the remote reports per-ref outcomes; an
-      // empty porcelain is a transport failure, not a rejection.
       const stdout = (error as { stdout?: string }).stdout;
-      if (stdout === undefined || stdout === "") {
+      if (stdout === undefined) {
         throw error;
       }
       out = stdout;

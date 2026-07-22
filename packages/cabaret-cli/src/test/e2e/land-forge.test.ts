@@ -96,30 +96,6 @@ test("a forge land retargets the children's forge changes", async () => {
   `);
 });
 
-test("land settles a pending retarget before merging", async () => {
-  const forge = new FakeForge();
-  const repo = await makePr(forge);
-  // A second landable parent, present on the forge so it can merge into it.
-  await repo.git("branch", "develop", "main");
-  await repo.git("push", "-q", "origin", "develop");
-  // The reparent happens offline, so its write-through cannot carry it; the
-  // land's own reconcile settles the forge change before merging.
-  const origin = await repo.git("remote", "get-url", "origin");
-  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
-  expect((await repo.cabaret("reparent", "gadget", "develop")).stdout).toBe("origin unreachable; sync to publish\n");
-  await repo.git("remote", "set-url", "origin", origin);
-  expect(await repo.cabaret("land")).toEqual({
-    stdout: "merged github.com/test-org/widgets#1\n",
-    stderr: "",
-    exitCode: 0,
-  });
-  expect((await forge.getChange(PR)).parent).toBe("develop");
-  expect((await forge.getChange(PR)).state).toBe("merged");
-  expect((await repo.cabaret("dev", "log")).stdout).toContain(
-    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"develop"}',
-  );
-});
-
 test("land squashes the change's forge change when configured", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);

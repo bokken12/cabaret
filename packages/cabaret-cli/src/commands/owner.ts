@@ -1,7 +1,7 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
 import { currentOwner, transferChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, evenThoughNotOwner, parseUser, resolveChange, writeThrough } from "./shared.js";
+import { changeFlag, evenThoughNotOwner, parseUser, resolveChange } from "./shared.js";
 
 export const owner = buildRouteMap({
   docs: { brief: "Show or set a change's owner" },
@@ -37,7 +37,6 @@ export const owner = buildRouteMap({
         const backend = await this.backend();
         const change = flags.change === undefined ? await backend.currentChange() : backend.parseName(flags.change);
         await transferChange(backend, this.now, change, newOwner, flags.evenThoughNotOwner);
-        await writeThrough(this, backend, change);
       },
     }),
   },

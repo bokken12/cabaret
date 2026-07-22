@@ -41,32 +41,26 @@ export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   return { synced, advanced };
 }
 
-/** What a per-change reconcile settled, for hosts to narrate. */
-export interface ReconcileResult {
+/** What a sync did, for hosts to narrate. */
+export interface SyncResult {
   /**
-   * Whether origin was unreachable: nothing ran and nothing queued — a later
-   * reconcile converges, and logs already absorbed origin's entries when
-   * last fetched.
+   * Whether origin was unreachable: only the local join ran, against the
+   * last-fetched readings, and running again online finishes the exchange.
    */
   readonly offline: boolean;
-  /** What absorbing the forge's side recorded; undefined without a forge change. */
-  readonly absorbed: AbsorbResult | undefined;
-  /**
-   * What publishing settled on the forge; undefined without a forge, for a
-   * landed change (frozen, nothing to settle), or for a change whose forge
-   * change does not exist and is not yet due — none is opened before the
-   * head reaches origin, and archiving asks for no new one.
-   */
-  readonly published: PublishResult | undefined;
-}
-
-/** What a sync did, for hosts to narrate. */
-export interface SyncResult extends ReconcileResult {
   /**
    * Origin's copy merged into the branch, with the paths the merge left
    * conflicted; undefined when the branch already carried origin's reading.
    */
   readonly joined: { readonly conflicts: readonly FilePath[] } | undefined;
+  /** What absorbing the forge's side recorded; undefined without a forge change. */
+  readonly absorbed: AbsorbResult | undefined;
+  /**
+   * What publishing settled on the forge; undefined without a forge, for a
+   * landed change (frozen, nothing to settle), or for an archived change with
+   * no forge change (converged already: archiving asks for no new one).
+   */
+  readonly published: PublishResult | undefined;
 }
 
 /**
@@ -93,54 +87,17 @@ async function joinBranch(
 }
 
 /**
- * Reconcile `change`'s shared state without touching its branch or working
- * tree: merge and push its log, and settle its forge change both ways —
- * absorbing the forge's side first, then publishing what remains as local
- * intent, opening a forge change if one is due. The transport half of
- * `syncChange`, which commands run write-through after appending to a log:
- * the append was the publication intent, so carrying it asks no further
- * consent. Every step converges state, so rerunning after any failure
- * resumes where it left off.
- *
- * Offline — origin unreachable, as `isConnectivityError` reads it — nothing
- * runs and nothing queues; a later reconcile converges. Any other failure
- * surfaces.
- */
-export async function reconcileChange(
-  backend: Backend,
-  now: () => TimestampMs,
-  forge: Forge | undefined,
-  change: ChangeName,
-): Promise<ReconcileResult> {
-  try {
-    await backend.syncLog(change);
-    let absorbed: AbsorbResult | undefined;
-    let published: PublishResult | undefined;
-    const current = await backend.readLog(change);
-    if (forge !== undefined && landedMerge(current) === undefined) {
-      const user = await backend.currentUser();
-      const found = await syncedForgeChange(backend, now, user, forge, change, current);
-      if (found !== undefined) {
-        absorbed = await absorbForgeChange(backend, now, user, forge, change, await backend.readLog(change), found);
-      }
-      published = await publishForgeChange(backend, now, forge, change, await backend.readLog(change), found);
-      await backend.syncLog(change);
-    }
-    return { offline: false, absorbed, published };
-  } catch (error) {
-    if (!isConnectivityError(error)) {
-      throw error;
-    }
-    return { offline: true, absorbed: undefined, published: undefined };
-  }
-}
-
-/**
  * Sync `change` with origin and its forge: merge origin's copy of the branch
- * into the local one (as `joinBranch`), push the result, and reconcile its
- * log and forge change (as `reconcileChange`).
+ * into the local one (as `joinBranch`), push the result, reconcile the forge
+ * change — absorbing the forge's side first, then publishing what remains as
+ * local intent, opening a forge change if none exists — and sync the log.
+ * Every step converges state that syncing again would converge no further,
+ * so rerunning after any failure resumes where it left off.
  *
- * Offline, only the join runs, against origin's last-fetched readings.
+ * Offline — origin unreachable, as `isConnectivityError` reads it — only the
+ * join runs, against origin's last-fetched readings; logs already absorbed
+ * origin's entries when last fetched, so there is nothing else to do without
+ * the network. Any other failure surfaces.
  */
 export async function syncChange(
   backend: Backend,
@@ -150,15 +107,32 @@ export async function syncChange(
 ): Promise<SyncResult> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
+  let offline = false;
   try {
     await backend.fetchOrigin();
   } catch (error) {
     if (!isConnectivityError(error)) {
       throw error;
     }
-    return { offline: true, joined: await joinBranch(backend, change), absorbed: undefined, published: undefined };
+    offline = true;
   }
+  if (offline) {
+    return { offline, joined: await joinBranch(backend, change), absorbed: undefined, published: undefined };
+  }
+  await backend.syncLog(change);
   const joined = await joinBranch(backend, change);
   await backend.push(change);
-  return { joined, ...(await reconcileChange(backend, now, forge, change)) };
+  let absorbed: AbsorbResult | undefined;
+  let published: PublishResult | undefined;
+  const current = await backend.readLog(change);
+  if (forge !== undefined && landedMerge(current) === undefined) {
+    const user = await backend.currentUser();
+    const found = await syncedForgeChange(backend, now, user, forge, change, current);
+    if (found !== undefined) {
+      absorbed = await absorbForgeChange(backend, now, user, forge, change, await backend.readLog(change), found);
+    }
+    published = await publishForgeChange(backend, now, forge, change, await backend.readLog(change), found);
+  }
+  await backend.syncLog(change);
+  return { offline, joined, absorbed, published };
 }
