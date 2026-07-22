@@ -688,8 +688,9 @@ export interface Backend {
   forgeSweepState(): Promise<string | undefined>;
 
   /**
-   * Replace origin's forge sweep record. Last write wins: the record's
-   * copies join by max, so a racing overwrite is safe to lose.
+   * Replace origin's forge sweep record, unless it moved since last
+   * fetched — a racer's advance serves in this one's stead, so the record
+   * never regresses and losing the race skips rather than retries.
    */
   publishForgeSweepState(content: string): Promise<void>;
 

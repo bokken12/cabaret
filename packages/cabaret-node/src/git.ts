@@ -282,8 +282,8 @@ const LOG_PATH = "log";
 
 /**
  * Where the forge sweep record lives: a blob of how far origin's logs have
- * absorbed the forge. Its copies join by max, so the fetch is forced and the
- * push blind — a racing overwrite only widens the next sweep's overlap.
+ * absorbed the forge. Its copies join by max; the fetch is forced, and the
+ * push leases on the fetched value, skipping when a racer advanced first.
  */
 const FORGE_REF = `${CABARET_REF_PREFIX}forge/sweep`;
 const REMOTE_FORGE_REF = `${CABARET_REF_PREFIX}remote-forge/sweep`;
@@ -686,7 +686,32 @@ export class GitBackend implements Backend {
   async publishForgeSweepState(content: string): Promise<void> {
     const blob = (await git(this.root, ["hash-object", "-w", "--stdin"], content)).trim();
     await git(this.root, ["update-ref", FORGE_REF, blob]);
-    await git(this.root, ["push", "--quiet", "--force", "origin", `${FORGE_REF}:${FORGE_REF}`]);
+    let expected: string;
+    try {
+      expected = (await git(this.root, ["rev-parse", "--verify", REMOTE_FORGE_REF])).trim();
+    } catch {
+      // Never fetched: the lease demands the ref not exist yet.
+      expected = "";
+    }
+    // Advance-or-skip: the lease rejects the push when someone advanced the
+    // record since this fetch read it, and that advance serves in this one's
+    // stead — the record never regresses. `--porcelain` reports the
+    // rejection on stdout whatever the exit code; any other failure surfaces.
+    try {
+      await git(this.root, [
+        "push",
+        "--quiet",
+        "--porcelain",
+        `--force-with-lease=${FORGE_REF}:${expected}`,
+        "origin",
+        `${FORGE_REF}:${FORGE_REF}`,
+      ]);
+    } catch (error) {
+      const stdout = (error as { stdout?: string }).stdout;
+      if (stdout === undefined || !stdout.split("\n").some((line) => line.startsWith("!"))) {
+        throw error;
+      }
+    }
   }
 
   async wipeReviewState(): Promise<readonly ChangeName[]> {
