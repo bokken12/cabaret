@@ -45,24 +45,28 @@ test("name set renames a draft origin never held without touching origin", async
   });
 });
 
-test("name set carries an open forge change along with the branch", async () => {
+test("name set recreates the forge change the rename closes", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
+  // The forge closes #1 with the head rename; a fresh #2 tracks the new head.
   expect(await repo.cabaret("name", "set", "widget", "--change", "gadget")).toEqual({
-    stdout: "",
+    stdout: "opened github.com/test-org/widgets#2\n",
     stderr: "",
     exitCode: 0,
   });
   const pr = await forge.findChange(parseBranchName("widget"));
-  expect({ head: pr?.head, state: pr?.state }).toEqual({ head: "widget", state: "open" });
+  expect({ id: pr?.id, state: pr?.state }).toEqual({ id: 2, state: "open" });
+  expect(await forge.findChange(parseBranchName("gadget"))).toBeUndefined();
   expect(await repo.git("ls-remote", "origin", "gadget")).toBe("");
   expect(await repo.git("branch", "--list", "gadget")).toBe("");
-  // The next fetch reads the renamed change steadily: no re-import, no divergence.
+  // The next fetch reads the renamed change steadily: still live, tracked by
+  // the fresh forge change — the closed #1 archives nothing.
   const fetched = await repo.cabaret("fetch");
   expect(fetched.stderr).toBe("");
+  expect((await repo.cabaret("show", "widget")).stdout).toContain("│ reviewing    │ everyone");
   expect(await repo.cabaret("name", "show", "--change", "widget")).toEqual({
     stdout: "widget\n",
     stderr: "",

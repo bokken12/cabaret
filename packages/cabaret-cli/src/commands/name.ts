@@ -39,9 +39,12 @@ export const name = buildRouteMap({
       async func(this: LocalContext, flags: { change?: string; evenThoughNotOwner: boolean }, raw: string) {
         const backend = await this.backend();
         const change = await resolveChange(backend, flags.change);
-        await renameChange(backend, this.now, this.forge, change, backend.parseName(raw), {
+        const { reopened } = await renameChange(backend, this.now, this.forge, change, backend.parseName(raw), {
           notOwner: flags.evenThoughNotOwner,
         });
+        if (reopened !== undefined) {
+          this.process.stdout.write(`opened ${reopened.forge}#${reopened.id}\n`);
+        }
         await writeThrough(this, backend, change);
       },
     }),

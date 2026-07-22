@@ -182,23 +182,18 @@ export class FakeForge implements Forge {
   }
 
   async renameBranch(from: ChangeName, to: ChangeName): Promise<void> {
-    // As GitHub: the hosted branch moves, and open PRs riding it — as head
-    // or as base — follow.
+    // As GitHub: the hosted branch moves; open PRs based on it retarget,
+    // but one with it as head closes — a head deletion, never a carry.
     await this.git("branch", "-m", from, to);
     for (const pr of this.prs.values()) {
       if (pr.state !== "open") {
         continue;
       }
-      let touched = false;
       if (pr.head === from) {
-        pr.head = to;
-        touched = true;
-      }
-      if (pr.base === from) {
+        pr.state = "closed";
+        this.touch(pr);
+      } else if (pr.base === from) {
         pr.base = to;
-        touched = true;
-      }
-      if (touched) {
         this.touch(pr);
       }
     }

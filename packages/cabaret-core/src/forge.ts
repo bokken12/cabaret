@@ -795,12 +795,17 @@ export interface RenameOverrides {
 /**
  * Rename `change` to `name`: its branch follows everywhere it lives, then
  * the log records the name. Origin's branch moves first — through the forge
- * when an open forge change rides it, so the change is carried along rather
- * than closed; by a plain push otherwise — because that is the step that can
- * fail on connectivity, and failing there leaves everything as it was. The
- * log entry comes last: resolution follows the log, so it only speaks the
- * new name once the branches already wear it. `openForge` is consulted only
- * when an open forge change must be carried.
+ * when an open forge change rides it, by a plain push otherwise — because
+ * that is the step that can fail on connectivity, and failing there leaves
+ * everything as it was. The log entry follows: resolution speaks the new
+ * name only once the branches wear it.
+ *
+ * A forge rename carries the bases of children's forge changes, but no
+ * forge carries the renamed head's own: GitHub closes it as a head
+ * deletion. The forge change is the change's attention artifact, so a fresh
+ * one is opened for the new head, drafted as the old one was, and tracked
+ * in its place — the log already holds the discussion, and write-through
+ * reposts it. Returns the fresh forge change when one was opened.
  */
 export async function renameChange(
   backend: Backend,
@@ -809,7 +814,7 @@ export async function renameChange(
   change: Change,
   name: ChangeName,
   overrides: RenameOverrides,
-): Promise<void> {
+): Promise<{ readonly reopened: { readonly forge: ForgeLocator; readonly id: ForgeChangeId } | undefined }> {
   const entries = change.entries;
   const from = currentName(change.id, entries);
   if (from === name) {
@@ -827,26 +832,42 @@ export async function renameChange(
     throw new UserError(`branch already exists: ${JSON.stringify(name)}`);
   }
   await ensureBranch(backend, from);
+  let riding: { readonly forge: Forge; readonly was: ForgeChange } | undefined;
   if ((await backend.originTip(from)) !== undefined) {
     const tracked = currentForgeChange(entries);
-    let riding: Forge | undefined;
     if (tracked !== undefined) {
       const forge = await openForge();
-      if (forge.locator === tracked.forge && (await forge.getChange(tracked.id)).state === "open") {
-        riding = forge;
+      if (forge.locator === tracked.forge) {
+        const was = await forge.getChange(tracked.id);
+        if (was.state === "open") {
+          riding = { forge, was };
+        }
       }
     }
     if (riding !== undefined) {
-      await riding.renameBranch(from, name);
+      await riding.forge.renameBranch(from, name);
       await backend.renameOriginReading(from, name);
     } else {
       await backend.renameOriginBranch(from, name);
     }
   }
   await backend.renameBranch(from, name);
-  await backend.appendLog(change.id, [
-    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-name", name } },
-  ]);
+  const user = await backend.currentUser();
+  await backend.appendLog(change.id, [{ timestamp: now(), user, action: { kind: "set-name", name } }]);
+  if (riding === undefined) {
+    return { reopened: undefined };
+  }
+  const onto = await requireParentBranch(backend, currentParentRef(change.id, entries));
+  const fresh = await riding.forge.createChange(name, onto, name);
+  if (riding.was.draft) {
+    await riding.forge.setDraft(fresh.id, true);
+  }
+  const current = { id: change.id, entries: await backend.readLog(change.id) };
+  await backend.appendLog(
+    change.id,
+    await adoptionEntries(backend, now, user, riding.forge.locator, { ...fresh, draft: riding.was.draft }, current),
+  );
+  return { reopened: { forge: riding.forge.locator, id: fresh.id } };
 }
 
 /** One thing a fetch did, as it happens, so hosts can narrate in their own voice. */
