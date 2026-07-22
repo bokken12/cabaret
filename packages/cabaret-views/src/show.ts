@@ -56,7 +56,7 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
     // A branch with no log still names a line of history worth viewing; its
     // log-borne sections are simply empty.
     return {
-      summary: await summarizeTrunk(backend, change),
+      summary: await summarizeTrunk(backend, change, all),
       as: acting.as,
       comments: [],
       remaining: [],

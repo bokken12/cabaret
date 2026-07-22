@@ -141,7 +141,7 @@ test("show lists the changes landed into a parent; an unreviewed landing joins i
     │ owner     │ alice@example.com │
     │ reviewing │ none              │
     │ parent    │ main              │
-    │ tip       │ 80ad42d25455      │
+    │ tip       │ 81d70c64cbe2      │
     │ base      │ 1ac0b33426d0      │
     ╰───────────┴───────────────────╯
 
@@ -173,7 +173,7 @@ test("show renders a branch with no log from its history alone", async () => {
     ╭───────────┬──────────────╮
     │ attribute │ value        │
     ├───────────┼──────────────┤
-    │ tip       │ df22a5b69709 │
+    │ tip       │ 9f15455a53c6 │
     │ workspace │ .            │
     ╰───────────┴──────────────╯
 

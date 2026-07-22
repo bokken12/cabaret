@@ -440,19 +440,28 @@ export function landTitle(change: ChangeName): string {
   return `Land ${change}`;
 }
 
-/** The trailer line marking the commit that lands `change`. */
-export function landTrailer(change: ChangeName): string {
-  return `${LAND_TRAILER}: ${change}`;
+/**
+ * The trailer line marking the commit that lands the change with `id`. The
+ * trailer carries the id, not the name: commit messages are forever, and the
+ * id still designates the change after any rename. The title names it for
+ * humans.
+ */
+export function landTrailer(id: ChangeId): string {
+  return `${LAND_TRAILER}: ${id}`;
 }
 
 /** The message for the commit that lands `change`. */
-export function landMessage(change: ChangeName): string {
-  return `${landTitle(change)}\n\n${landTrailer(change)}\n`;
+export function landMessage(change: ChangeName, id: ChangeId): string {
+  return `${landTitle(change)}\n\n${landTrailer(id)}\n`;
 }
 
 /** A commit that landed a change, and the parent tip it landed onto. */
 export interface LandMerge {
-  /** The landed change, as the commit's trailer names it. */
+  /**
+   * The landed change, as the commit's trailer designates it: its id, or a
+   * name in history whose trailers predate ids. Summaries resolve ids to
+   * current names before display.
+   */
   readonly change: ChangeName;
   readonly commit: Revision;
   readonly onto: Revision;
