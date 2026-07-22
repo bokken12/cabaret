@@ -528,6 +528,34 @@ FLAGS
 ARGUMENTS
   file...  files, directories, or patterns to mark reviewed
 
+### cab name show
+
+USAGE
+  cab name show [--change value]
+  cab name show --help
+
+Show a change's name
+
+FLAGS
+     [--change]  Change to show (defaults to current)
+  -h  --help     Print help information and exit
+
+### cab name set
+
+USAGE
+  cab name set [--change value] [--even-though-not-owner] <name>
+  cab name set --help
+
+Rename a change. Its branch follows everywhere it lives — origin included, an open forge change carried along — and resolution answers to the new name from here on.
+
+FLAGS
+     [--change]                 Change to rename (defaults to current)
+     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
+  -h  --help                    Print help information and exit
+
+ARGUMENTS
+  name  the new name
+
 ### cab owner show
 
 USAGE

@@ -403,6 +403,12 @@ export class GitLabForge implements Forge {
     await this.client.put(`${this.api}/merge_requests/${id}`, { target_branch: parent });
   }
 
+  async renameBranch(): Promise<void> {
+    // GitLab has no branch-rename API, and delete-plus-create closes the
+    // branch's merge requests.
+    throw new UserError(`${this.locator} cannot rename branches`);
+  }
+
   async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
     await this.client.put(`${this.api}/merge_requests/${id}`, {
       state_event: state === "closed" ? "close" : "reopen",

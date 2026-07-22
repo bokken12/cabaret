@@ -638,6 +638,27 @@ export interface Backend {
   advance(change: ChangeName, to: Revision): Promise<void>;
 
   /**
+   * Rename the local branch `from` to `to`, which must not exist. A branch
+   * checked out in a workspace renames in place, working tree undisturbed.
+   */
+  renameBranch(from: ChangeName, to: ChangeName): Promise<void>;
+
+  /**
+   * Rename origin's branch: push the local branch `from` to origin's `to`
+   * and delete origin's `from`, one push, both readings updated. A
+   * forge-held origin whose open change rides the branch renames through
+   * the forge instead, so its change follows.
+   */
+  renameOriginBranch(from: ChangeName, to: ChangeName): Promise<void>;
+
+  /**
+   * Move this clone's reading of origin's branch `from` to `to`, after the
+   * forge renamed it remotely: the stale reading would otherwise ghost-adopt
+   * into the next change created under the old name.
+   */
+  renameOriginReading(from: ChangeName, to: ChangeName): Promise<void>;
+
+  /**
    * Every workspace of the repository, the primary working tree first. A
    * workspace whose directory is gone is not a working tree anymore and is
    * dropped.

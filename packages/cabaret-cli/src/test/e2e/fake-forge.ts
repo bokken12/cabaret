@@ -32,7 +32,7 @@ interface FakeComment {
 }
 
 interface FakePr {
-  readonly head: ChangeName;
+  head: ChangeName;
   base: ChangeName;
   readonly title: string;
   readonly login: string;
@@ -179,6 +179,29 @@ export class FakeForge implements Forge {
     const pr = this.pr(id);
     pr.base = parent;
     this.touch(pr);
+  }
+
+  async renameBranch(from: ChangeName, to: ChangeName): Promise<void> {
+    // As GitHub: the hosted branch moves, and open PRs riding it — as head
+    // or as base — follow.
+    await this.git("branch", "-m", from, to);
+    for (const pr of this.prs.values()) {
+      if (pr.state !== "open") {
+        continue;
+      }
+      let touched = false;
+      if (pr.head === from) {
+        pr.head = to;
+        touched = true;
+      }
+      if (pr.base === from) {
+        pr.base = to;
+        touched = true;
+      }
+      if (touched) {
+        this.touch(pr);
+      }
+    }
   }
 
   async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {

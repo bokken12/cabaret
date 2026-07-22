@@ -1,8 +1,26 @@
 import { buildCommand } from "@stricli/core";
-import { type FetchEvent, type Forge, fetchForge, fetchLocal } from "cabaret-core";
+import {
+  type Backend,
+  type FetchEvent,
+  type Forge,
+  fetchForge,
+  fetchLocal,
+  nameCollisions,
+  shortChangeId,
+} from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
 import { settledLines } from "./shared.js";
+
+/** Nudge about names more than one live change now claims, fresh fetches being how collisions arrive. */
+async function reportCollisions(context: LocalContext, backend: Backend): Promise<void> {
+  for (const { name, ids } of await nameCollisions(backend)) {
+    context.process.stderr.write(
+      `warning: multiple live changes are named ${JSON.stringify(name)}: ` +
+        `${ids.map(shortChangeId).join(", ")}; rename one with \`cab name set\`\n`,
+    );
+  }
+}
 
 /** Report one thing the fetch did, in the CLI's voice. */
 function reportFetchEvent(context: LocalContext, locator: string, event: FetchEvent): void {
@@ -121,6 +139,7 @@ export const fetch = buildCommand({
         this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);
       }
       this.process.stdout.write(`synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin\n`);
+      await reportCollisions(this, backend);
       return;
     }
     const locator = forge.locator;
@@ -133,5 +152,6 @@ export const fetch = buildCommand({
     );
     const kind = coverage === "open" ? "open" : "updated";
     this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);
+    await reportCollisions(this, backend);
   },
 });

@@ -319,6 +319,16 @@ export class GitHubForge implements Forge {
     });
   }
 
+  async renameBranch(from: ChangeName, to: ChangeName): Promise<void> {
+    // GitHub's rename moves the branch and retargets the head of every open
+    // pull request riding it.
+    await this.client.request("POST /repos/{owner}/{repo}/branches/{branch}/rename", {
+      ...this.repo,
+      branch: from,
+      new_name: to,
+    });
+  }
+
   async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
     await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
       ...this.repo,

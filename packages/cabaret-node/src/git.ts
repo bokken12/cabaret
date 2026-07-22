@@ -1082,6 +1082,32 @@ export class GitBackend implements Backend {
     await this.advanceBranch(change, to, tip);
   }
 
+  async renameBranch(from: ChangeName, to: ChangeName): Promise<void> {
+    // `branch -m` moves the ref with its reflog and retargets any worktree
+    // that has it checked out; without `-M` it refuses to clobber `to`.
+    await git(this.root, ["branch", "-m", from, to]);
+  }
+
+  async renameOriginBranch(from: ChangeName, to: ChangeName): Promise<void> {
+    await git(this.root, [
+      "push",
+      "--quiet",
+      "--force-with-lease",
+      "origin",
+      `refs/heads/${from}:refs/heads/${to}`,
+      `:refs/heads/${from}`,
+    ]);
+  }
+
+  async renameOriginReading(from: ChangeName, to: ChangeName): Promise<void> {
+    const oid = await this.commitAt(parseBranchName(`refs/remotes/origin/${from}`));
+    if (oid === undefined) {
+      return;
+    }
+    await git(this.root, ["update-ref", `refs/remotes/origin/${to}`, oid]);
+    await git(this.root, ["update-ref", "-d", `refs/remotes/origin/${from}`]);
+  }
+
   async workspaces(): Promise<readonly Workspace[]> {
     const out = await git(this.root, ["worktree", "list", "--porcelain"]);
     // One attribute-line block per working tree, blank-line separated, the

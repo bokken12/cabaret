@@ -293,6 +293,12 @@ export class ForgejoForge implements Forge {
     await this.client.patch(`${this.api}/pulls/${id}`, { base: parent });
   }
 
+  // TODO: Gitea grew a branch-rename endpoint; adopt it once verified
+  // against a live Forgejo instance.
+  async renameBranch(): Promise<void> {
+    throw new UserError(`${this.locator} cannot rename branches`);
+  }
+
   async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
     await this.client.patch(`${this.api}/pulls/${id}`, { state });
   }

@@ -56,10 +56,8 @@ function factsOf(change: Change): NameFacts {
  * claims it. Names are unique among live changes by convention, not
  * invariant, so resolution arbitrates: live claims beat archived ones,
  * archived claims resolve by most recent activity, and a genuine tie among
- * live claims is an error naming the contenders' ids.
- *
- * TODO: fetch should nudge the later claimant of a live collision; until
- * the rename command exists, the ambiguity error is the only surface.
+ * live claims is an error naming the contenders' ids — `nameCollisions` is
+ * how fetch nudges before anyone hits it.
  */
 function arbitrate(facts: readonly NameFacts[], name: ChangeName): NameFacts | undefined {
   const claims = facts.filter((fact) => fact.name === name);
@@ -215,6 +213,37 @@ export async function resolveChange(backend: Backend, name: ChangeName): Promise
   throw new UserError(
     `change does not exist: ${JSON.stringify(name)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
   );
+}
+
+/**
+ * Names more than one live change claims, each with its claimants' ids
+ * sorted — what fetch nudges about, since a collision otherwise surfaces
+ * only as resolution's ambiguity error. Reads through the index: only names
+ * indexed more than once have their claimants' logs read at all.
+ */
+export async function nameCollisions(
+  backend: Backend,
+): Promise<readonly { readonly name: ChangeName; readonly ids: readonly ChangeId[] }[]> {
+  const byName = new Map<ChangeName, ChangeId[]>();
+  for (const entry of await indexedNames(backend)) {
+    byName.set(entry.name, [...(byName.get(entry.name) ?? []), entry.id]);
+  }
+  const collisions: { name: ChangeName; ids: ChangeId[] }[] = [];
+  for (const [name, ids] of byName) {
+    if (ids.length < 2) {
+      continue;
+    }
+    const live: ChangeId[] = [];
+    for (const id of ids) {
+      if (!currentArchived(await backend.readLog(id))) {
+        live.push(id);
+      }
+    }
+    if (live.length > 1) {
+      collisions.push({ name, ids: live.sort() });
+    }
+  }
+  return collisions.sort((a, b) => (a.name < b.name ? -1 : 1));
 }
 
 /**
