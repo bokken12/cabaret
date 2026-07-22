@@ -19,6 +19,8 @@ text buffers, so search, selection, and vim keybindings work untouched.
 - Change actions sit behind `!` chords: `!c` creates a child, `!p` splices in
   a parent, `!o` sets the owner, `!rb` rebases, `!rn` renames, `!rp`
   reparents, and `!la` lands.
+- Forge sync follows magit: `F` pulls from the forge, `P` pushes the change
+  under the cursor (or the shown change) to it.
 - With VSCodeVim, the bindings apply in normal and visual mode and stay out
   of the way while vim is reading input, so search and motions work as usual.
 - With [leaderkey](https://github.com/JimmyZJX/leaderkey) installed, `SPC a f

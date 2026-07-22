@@ -133,6 +133,10 @@
       {
         "command": "cabaret.pull",
         "title": "Cabaret: Pull from Forge"
+      },
+      {
+        "command": "cabaret.push",
+        "title": "Cabaret: Push to Forge"
       }
     ],
     "menus": {
@@ -191,6 +195,10 @@
         },
         {
           "command": "cabaret.pull",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.push",
           "when": "resourceScheme == cabaret"
         }
       ]
@@ -263,7 +271,12 @@
       },
       {
         "command": "cabaret.pull",
-        "key": "shift+1 s",
+        "key": "shift+f",
+        "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.push",
+        "key": "shift+p",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       }
     ],

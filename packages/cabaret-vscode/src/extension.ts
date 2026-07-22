@@ -10,6 +10,7 @@ import {
   NotOwnerError,
   parseRefName,
   pullForge,
+  pushChange,
   type RefName,
   readConfig,
   rebaseChain,
@@ -352,6 +353,22 @@ async function runPull(provider: PageProvider): Promise<void> {
   } finally {
     provider.refreshAll();
   }
+}
+
+/** Push each selected change to the forge, ancestormost first. */
+async function pushSelection(backend: Backend, changes: readonly RefName[]): Promise<void> {
+  const forge = await requireForge();
+  const pushed: string[] = [];
+  for (const change of changes) {
+    const { id } = await pushChange(backend, now, forge, change, await backend.readLog(change));
+    pushed.push(`${change} to ${forge.locator}#${id}`);
+  }
+  vscode.window.setStatusBarMessage(
+    pushed.length === 1
+      ? `cabaret: pushed ${pushed[0]}`
+      : `cabaret: pushed ${pushed.length} changes to ${forge.locator}`,
+    5000,
+  );
 }
 
 const now = (): TimestampMs => timestampMs(Date.now());
@@ -722,6 +739,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.review", () => review(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.pull", () => runPull(provider)),
+    vscode.commands.registerCommand("cabaret.push", () =>
+      actOnSelection(provider, (backend, _editor, changes) => pushSelection(backend, changes)),
+    ),
     vscode.commands.registerCommand("cabaret.refresh", () => {
       const uri = vscode.window.activeTextEditor?.document.uri;
       if (uri !== undefined && uri.scheme === SCHEME) {
