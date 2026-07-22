@@ -14,6 +14,7 @@ import {
   type FileSource,
   fileLabel,
   lookupChange,
+  type ModeChange,
   mayRecordReview,
   NotReviewingError,
   type Reviewing,
@@ -255,6 +256,8 @@ export interface DiffPage {
         readonly tip: Revision;
         /** The source the diff moves or copies the file from, when it records one. */
         readonly source: FileSource | undefined;
+        /** The mode change the diff carries, when its sides' modes differ. */
+        readonly modes: ModeChange | undefined;
         readonly view: DiffView;
       }
     | undefined;
@@ -273,15 +276,32 @@ export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file:
   };
   switch (view.kind) {
     case "fresh":
-      return { change, file, as, left: { tip, source: view.source, view: await two(base, view.source?.path ?? file) } };
-    case "extend":
-      return { change, file, as, left: { tip, source: undefined, view: await two(view.from, file) } };
-    case "rebased":
       return {
         change,
         file,
         as,
-        left: { tip, source: undefined, view: await rebasedView(backend, file, view.reviewed, base, tip) },
+        left: { tip, source: view.source, modes: view.modes, view: await two(base, view.source?.path ?? file) },
+      };
+    case "extend":
+      return {
+        change,
+        file,
+        as,
+        left: { tip, source: undefined, modes: view.modes, view: await two(view.from, file) },
+      };
+    case "rebased":
+      // TODO: a mode change is invisible under a moved base — the four-way
+      // compares contents only, and no mode pair is threaded through it.
+      return {
+        change,
+        file,
+        as,
+        left: {
+          tip,
+          source: undefined,
+          modes: undefined,
+          view: await rebasedView(backend, file, view.reviewed, base, tip),
+        },
       };
   }
 }
@@ -573,9 +593,9 @@ function fourWayDiffNodes(
 
 /**
  * The note standing in for hunks when a due file's diff renders empty: what
- * the tree records that the hunks cannot show — a pure move or copy, a mode
- * change, or a file created or deleted with nothing visible inside. Marking
- * the file reviewed is how the reviewer clears it either way.
+ * the tree records that the hunks cannot show — a pure move or copy, or a
+ * file created or deleted with nothing visible inside. Marking the file
+ * reviewed is how the reviewer clears it either way.
  */
 export function emptyDiffNote(source: FileSource | undefined, view: DiffView): string {
   if (source !== undefined) {
@@ -588,27 +608,44 @@ export function emptyDiffNote(source: FileSource | undefined, view: DiffView): s
     if (view.next === undefined) {
       return "File deleted.";
     }
-    if (view.prev === view.next) {
-      return "File mode changed.";
-    }
   }
   return "No differences left to read.";
 }
 
-/** One file's diff body: its hunks, or the note that nothing is left to read there. */
+/** The line reporting a diff's mode change, which its hunks cannot show. */
+export function modeChangeNote(modes: ModeChange): string {
+  return `Mode changed from ${modes.prev} to ${modes.next}.`;
+}
+
+/**
+ * One file's diff body: the mode change when the diff carries one, then its
+ * hunks — or the note that nothing else is left to read there. A mode change
+ * alone needs no note; the mode line is the diff.
+ */
 function fileBodyNodes(
   change: ChangeName,
   file: FilePath,
   source: FileSource | undefined,
+  modes: ModeChange | undefined,
   view: DiffView,
   context?: number,
 ): Node[] {
   const body =
     view.kind === "two" ? twoWayDiffNodes(change, file, view, context) : fourWayDiffNodes(change, file, view, context);
-  if (body.length === 0) {
-    return [{ spans: [span(emptyDiffNote(source, view))] }];
+  const nodes: Node[] = [];
+  if (body.length === 0 && (source !== undefined || modes === undefined)) {
+    nodes.push({ spans: [span(emptyDiffNote(source, view))] });
   }
-  return body;
+  if (modes !== undefined) {
+    nodes.push({ spans: [span(modeChangeNote(modes))] });
+  }
+  if (body.length > 0) {
+    if (nodes.length > 0) {
+      nodes.push({ spans: [] });
+    }
+    nodes.push(...body);
+  }
+  return nodes;
 }
 
 export function diffDoc(page: DiffPage, context?: number): Doc {
@@ -625,7 +662,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  nodes.push(...fileBodyNodes(page.change, page.file, page.left.source, page.left.view, context));
+  nodes.push(...fileBodyNodes(page.change, page.file, page.left.source, page.left.modes, page.left.view, context));
   return layout(nodes);
 }
 
@@ -645,6 +682,8 @@ export interface DiffsPage {
           readonly file: FilePath;
           /** The source the diff moves or copies the file from, when it records one. */
           readonly source: FileSource | undefined;
+          /** The mode change the diff carries, when its sides' modes differ. */
+          readonly modes: ModeChange | undefined;
           readonly view: DiffView;
         }[];
       }
@@ -663,7 +702,7 @@ export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Pro
       if (page.left === undefined) {
         throw new Error(`${file} is left to review in ${change} but has no diff`);
       }
-      return { file, source: page.left.source, view: page.left.view };
+      return { file, source: page.left.source, modes: page.left.modes, view: page.left.view };
     }),
   );
   return { change, as, conflicts, left: { tip: snapshot.tip, files } };
@@ -696,7 +735,7 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  page.left.files.forEach(({ file, source, view }, i) => {
+  page.left.files.forEach(({ file, source, modes, view }, i) => {
     if (i > 0) {
       nodes.push({ spans: [] });
     }
@@ -708,7 +747,7 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
         }),
       ],
     };
-    nodes.push(section(heading, fileBodyNodes(page.change, file, source, view, context)));
+    nodes.push(section(heading, fileBodyNodes(page.change, file, source, modes, view, context)));
   });
   return layout(nodes);
 }

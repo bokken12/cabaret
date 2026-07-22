@@ -25,7 +25,7 @@ const base = parseCommitHash("1".repeat(40));
 const tip = parseCommitHash("3".repeat(40));
 
 function fileView(): FileView {
-  return { kind: "fresh", source: undefined };
+  return { kind: "fresh", source: undefined, modes: undefined };
 }
 
 /** A snapshot with review pending over `files`, reviewed by alice. */

@@ -68,8 +68,8 @@ function sourced(name: string): ChangedFile {
   const arrow = name.includes(" => ") ? " => " : " -> ";
   const [from, to] = name.split(arrow);
   return from !== undefined && to !== undefined
-    ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " } }
-    : { path: parseFilePath(name), source: undefined };
+    ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " }, modes: undefined }
+    : { path: parseFilePath(name), source: undefined, modes: undefined };
 }
 
 /**
@@ -726,9 +726,9 @@ test("reviewLeft reads a landed-over stack as one catch-up diff", async () => {
   });
   expect(await leftFor(backend, created("main", "0"), bob, fake("0"), fake("3"))).toEqual(
     files({
-      "a.ts": { kind: "fresh", source: undefined },
-      "b.ts": { kind: "fresh", source: undefined },
-      "c.ts": { kind: "fresh", source: undefined },
+      "a.ts": { kind: "fresh", source: undefined, modes: undefined },
+      "b.ts": { kind: "fresh", source: undefined, modes: undefined },
+      "c.ts": { kind: "fresh", source: undefined, modes: undefined },
     }),
   );
 });
@@ -742,7 +742,7 @@ test("reviewLeft extends from a reviewed tip", async () => {
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2")), entry(review("b.ts", "0", "2"))];
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
   expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
-    files({ "a.ts": { kind: "extend", from: fake("2") } }),
+    files({ "a.ts": { kind: "extend", from: fake("2"), modes: undefined } }),
   );
 });
 
@@ -760,7 +760,7 @@ test("reviewLeft discharges a fresh file whose whole diff is whitespace", async 
   // spacing.ts changed only in whitespace, which its diff renders as
   // nothing: no review is owed there.
   expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
-    files({ "solid.ts": { kind: "fresh", source: undefined } }),
+    files({ "solid.ts": { kind: "fresh", source: undefined, modes: undefined } }),
   );
 });
 
@@ -778,7 +778,7 @@ test("reviewLeft keeps a file whose spacing git overlooks but the diff shows", a
     },
   });
   expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
-    files({ "gap.ts": { kind: "fresh", source: undefined } }),
+    files({ "gap.ts": { kind: "fresh", source: undefined, modes: undefined } }),
   );
 });
 
@@ -793,7 +793,7 @@ test("reviewLeft keeps a file created with nothing visible inside", async () => 
     contents: { "2": { "blank.ts": "\n\n" } },
   });
   expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
-    files({ "blank.ts": { kind: "fresh", source: undefined } }),
+    files({ "blank.ts": { kind: "fresh", source: undefined, modes: undefined } }),
   );
 });
 
@@ -812,7 +812,7 @@ test("reviewLeft discharges an extension that only reflows whitespace", async ()
   // re-indented: reading onward from the reviewed tip would show nothing.
   const entries = [...created("main", "0"), entry(review("indent.ts", "0", "1")), entry(review("logic.ts", "0", "1"))];
   expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
-    files({ "logic.ts": { kind: "extend", from: fake("1") } }),
+    files({ "logic.ts": { kind: "extend", from: fake("1"), modes: undefined } }),
   );
 });
 
@@ -824,8 +824,8 @@ test("reviewLeft keys a moved file by its new path, its view from the old", asyn
   });
   expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
     files({
-      "b.ts": { kind: "fresh", source: undefined },
-      "new/api.ts": { kind: "fresh", source: { path: parseFilePath("old/api.ts"), copied: false } },
+      "b.ts": { kind: "fresh", source: undefined, modes: undefined },
+      "new/api.ts": { kind: "fresh", source: { path: parseFilePath("old/api.ts"), copied: false }, modes: undefined },
     }),
   );
 });
@@ -838,8 +838,8 @@ test("reviewLeft views a copied file from its source, which stays its own entry"
   });
   expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
     files({
-      "bylaws.ts": { kind: "fresh", source: { path: parseFilePath("charter.ts"), copied: true } },
-      "charter.ts": { kind: "fresh", source: undefined },
+      "bylaws.ts": { kind: "fresh", source: { path: parseFilePath("charter.ts"), copied: true }, modes: undefined },
+      "charter.ts": { kind: "fresh", source: undefined, modes: undefined },
     }),
   );
 });
@@ -854,7 +854,7 @@ test("reviewLeft does not carry knowledge recorded under a moved file's old path
   // move is due in full under its new name.
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "2"))];
   expect(await leftFor(backend, entries, alice, fake("0"), fake("2"))).toEqual(
-    files({ "b.ts": { kind: "fresh", source: { path: parseFilePath("a.ts"), copied: false } } }),
+    files({ "b.ts": { kind: "fresh", source: { path: parseFilePath("a.ts"), copied: false }, modes: undefined } }),
   );
 });
 
@@ -870,8 +870,8 @@ test("reviewLeft counts a review against absent objects as no review at all", as
   const entries = [...created("main", "0"), entry(review("a.ts", "0", "9")), entry(review("b.ts", "8", "1"))];
   expect(await leftFor(backend, entries, alice, fake("0"), fake("2"))).toEqual(
     files({
-      "a.ts": { kind: "fresh", source: undefined },
-      "b.ts": { kind: "fresh", source: undefined },
+      "a.ts": { kind: "fresh", source: undefined, modes: undefined },
+      "b.ts": { kind: "fresh", source: undefined, modes: undefined },
     }),
   );
 });
@@ -896,7 +896,7 @@ test("reviewLeft shows a moved-base review four-way, a rewritten tip as the diff
   expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
     files({
       "a.ts": { kind: "rebased", reviewed: { base: fake("9"), tip: fake("2") } },
-      "c.ts": { kind: "extend", from: fake("9") },
+      "c.ts": { kind: "extend", from: fake("9"), modes: undefined },
     }),
   );
 });

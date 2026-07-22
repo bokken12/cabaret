@@ -872,6 +872,42 @@ test("changedFiles pairs moved files with their old paths", async () => {
   ]);
 });
 
+test("changedFiles carries the mode pair of a file whose mode changed", async () => {
+  const backend = await GitBackend.open(repo);
+  const script = `#!/bin/sh\n${"a steady command\n".repeat(30)}exit 0\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "install.sh": "setup\n",
+      "run.sh": "go\n",
+      "tools/watch.sh": script,
+      "plain.txt": "text\n",
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree(
+      {
+        "install.sh": "setup\n",
+        "run.sh": "go faster\n",
+        "bin/watch.sh": script,
+        "plain.txt": "more text\n",
+      },
+      { "install.sh": "100755", "run.sh": "100755", "bin/watch.sh": "100755" },
+    ),
+  );
+  // A chmod rides along whether the contents changed, moved, or stayed put;
+  // a content-only change carries no mode pair.
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    {
+      path: "bin/watch.sh",
+      source: { path: "tools/watch.sh", copied: false },
+      modes: { prev: "100644", next: "100755" },
+    },
+    { path: "install.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+    { path: "plain.txt", source: undefined, modes: undefined },
+    { path: "run.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+  ]);
+});
+
 test("nonWhitespaceChanges drops files changed only in whitespace", async () => {
   const backend = await GitBackend.open(repo);
   const essay = `a first line\n${"a body line\n".repeat(10)}a last line\n`;

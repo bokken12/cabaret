@@ -164,7 +164,7 @@ function repoBackend(opts: {
       if (files === undefined) {
         throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
       }
-      return files.map((name) => ({ path: parseFilePath(name), source: undefined }));
+      return files.map((name) => ({ path: parseFilePath(name), source: undefined, modes: undefined }));
     },
     async nonWhitespaceChanges(base, tip) {
       return new Set((await stub.changedFiles(base, tip)).map(({ path }) => path));

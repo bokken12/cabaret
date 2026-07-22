@@ -135,6 +135,48 @@ test("whitespace stays reviewable where the diff keeps it, as in python", async 
   `);
 });
 
+test("a mode change reports its sides, alone or above the hunks", async () => {
+  const repo = await makeRepo();
+  await repo.write("tool.sh", "spin\n");
+  await repo.write("job.sh", "wait\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.write("job.sh", "work\n");
+  await repo.git("add", "--chmod=+x", "tool.sh", "job.sh");
+  await repo.git("commit", "-qm", "make executable");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to 648cbbcf6fe6.
+
+      job.sh
+      tool.sh
+
+    job.sh in main (up to 648cbbcf6fe6)
+
+    Mode changed from 100644 to 100755.
+
+    -1,1 +1,1
+    -|wait
+    +|work
+
+    tool.sh in main (up to 648cbbcf6fe6)
+
+    Mode changed from 100644 to 100755.
+
+    Record review of what you have read:
+      cabaret mark --tip 648cbbcf6fe6 job.sh tool.sh
+    ",
+    }
+  `);
+});
+
 test("an exact copy still reviews as an entry, with nothing left to read", async () => {
   const repo = await makeRepo();
   await repo.write("charter.txt", "preamble\narticle one\narticle two\nclosing\n");
