@@ -95,13 +95,19 @@ const page: DiffsPage = {
       {
         file: parseFilePath("src/thing.alpha"),
         source: undefined,
+        modes: undefined,
         view: {
           kind: "two",
           prev: "alpha1\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nomega\n",
           next: "opened /*\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nclosed\n",
         },
       },
-      { file: parseFilePath("sub/Betafile"), source: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
+      {
+        file: parseFilePath("sub/Betafile"),
+        source: undefined,
+        modes: undefined,
+        view: { kind: "two", prev: "x\n", next: "y\n" },
+      },
     ],
   },
 };
@@ -130,7 +136,7 @@ test("a single-file diff page's title opens its file's section", async () => {
     change: widgets,
     file: parseFilePath("src/thing.alpha"),
     as: undefined,
-    left: { tip: fake("3"), source: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
+    left: { tip: fake("3"), source: undefined, modes: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
   });
   const rows = await tokenized(docText(doc));
   expect(tokensOf(rows, "y")).toEqual([

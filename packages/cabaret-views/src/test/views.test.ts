@@ -52,8 +52,8 @@ const left = (...names: string[]) =>
     const arrow = name.includes(" => ") ? " => " : " -> ";
     const [from, to] = name.split(arrow);
     return from !== undefined && to !== undefined
-      ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " } }
-      : { path: parseFilePath(name), source: undefined };
+      ? { path: parseFilePath(to), source: { path: parseFilePath(from), copied: arrow === " => " }, modes: undefined }
+      : { path: parseFilePath(name), source: undefined, modes: undefined };
   });
 
 /** Each fold as the text of the lines it runs from and to. */

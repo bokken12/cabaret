@@ -828,12 +828,12 @@ test("editedFiles lists modified, added, and deleted files, with both endpoints 
 });
 
 /** Commit `files` (path → content) on top of the root commit, returning the commit hash. */
-async function plumbTree(files: Record<string, string>): Promise<string> {
+async function plumbTree(files: Record<string, string>, modes: Record<string, string> = {}): Promise<string> {
   await git("read-tree", "--empty");
   for (const [path, content] of Object.entries(files)) {
     await writeFile(join(repo, "blob-scratch"), content);
     const blob = await git("hash-object", "-w", "--", join(repo, "blob-scratch"));
-    await git("update-index", "--add", "--cacheinfo", `100644,${blob},${path}`);
+    await git("update-index", "--add", "--cacheinfo", `${modes[path] ?? "100644"},${blob},${path}`);
   }
   const tree = await git("write-tree");
   return git("commit-tree", tree, "-m", "tree fixture");
@@ -870,6 +870,77 @@ test("changedFiles pairs moved files with their old paths", async () => {
     { path: "fresh.txt", source: undefined },
     { path: "journal.txt", source: { path: "notes.txt", copied: false } },
   ]);
+});
+
+test("changedFiles carries the mode pair of a file whose mode changed", async () => {
+  const backend = await GitBackend.open(repo);
+  const script = `#!/bin/sh\n${"a steady command\n".repeat(30)}exit 0\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "install.sh": "setup\n",
+      "run.sh": "go\n",
+      "tools/watch.sh": script,
+      "plain.txt": "text\n",
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree(
+      {
+        "install.sh": "setup\n",
+        "run.sh": "go faster\n",
+        "bin/watch.sh": script,
+        "plain.txt": "more text\n",
+      },
+      { "install.sh": "100755", "run.sh": "100755", "bin/watch.sh": "100755" },
+    ),
+  );
+  // A chmod rides along whether the contents changed, moved, or stayed put;
+  // a content-only change carries no mode pair.
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    {
+      path: "bin/watch.sh",
+      source: { path: "tools/watch.sh", copied: false },
+      modes: { prev: "100644", next: "100755" },
+    },
+    { path: "install.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+    { path: "plain.txt", source: undefined, modes: undefined },
+    { path: "run.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+  ]);
+});
+
+test("nonWhitespaceChanges drops files changed only in whitespace", async () => {
+  const backend = await GitBackend.open(repo);
+  const essay = `a first line\n${"a body line\n".repeat(10)}a last line\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "spacing.txt": "alpha  beta\n",
+      "blank.txt": "top\nbottom\n",
+      "eof.txt": "tail\n",
+      "logic.txt": "before\n",
+      "script.sh": "run\n",
+      "dropped.txt": "dropped\n",
+      "moved/essay.txt": essay,
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree(
+      {
+        "spacing.txt": "alpha beta \n",
+        "blank.txt": "top\n\nbottom\n",
+        "eof.txt": "tail",
+        "logic.txt": "after\n",
+        "script.sh": "run\n",
+        "fresh.txt": "fresh\n",
+        "prose/essay.txt": essay,
+      },
+      { "script.sh": "100755" },
+    ),
+  );
+  // Respacing, a blank line, and a trailing newline all vanish; edited
+  // content, existence, and mode survive, a move under both of its paths.
+  expect(await backend.nonWhitespaceChanges(prev, next)).toEqual(
+    new Set(["logic.txt", "script.sh", "fresh.txt", "dropped.txt", "moved/essay.txt", "prose/essay.txt"]),
+  );
 });
 
 test("changedFiles pairs a copy with its source when the source changed too", async () => {

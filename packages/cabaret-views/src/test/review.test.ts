@@ -5,6 +5,7 @@ import {
   parseBranchName,
   parseChangeId,
   parseCommitHash,
+  parseFileMode,
   parseFilePath,
   type Revision,
   timestampMs,
@@ -31,7 +32,7 @@ function fake(digit: string): Revision {
 
 /** A round entry for a file the diff changes in place. */
 function file(name: string): ChangedFile {
-  return { path: parseFilePath(name), source: undefined };
+  return { path: parseFilePath(name), source: undefined, modes: undefined };
 }
 
 const widgets = parseBranchName("widgets");
@@ -62,8 +63,16 @@ test("reviewDoc names a moved or copied file with its source, targeting its new 
     left: {
       tip: fake("3"),
       files: [
-        { path: parseFilePath("bylaws.ts"), source: { path: parseFilePath("charter.ts"), copied: true } },
-        { path: parseFilePath("new/api.ts"), source: { path: parseFilePath("old/api.ts"), copied: false } },
+        {
+          path: parseFilePath("bylaws.ts"),
+          source: { path: parseFilePath("charter.ts"), copied: true },
+          modes: undefined,
+        },
+        {
+          path: parseFilePath("new/api.ts"),
+          source: { path: parseFilePath("old/api.ts"), copied: false },
+          modes: undefined,
+        },
         file("ui.ts"),
       ],
     },
@@ -169,6 +178,7 @@ test("diffDoc titles a moved file by both sides, a pure move showing no hunks", 
     diffPageWith({
       tip: fake("3"),
       source: { path: parseFilePath("old/api.ts"), copied: false },
+      modes: undefined,
       view: { kind: "two", prev: "same\n", next: "same\n" },
     }),
   );
@@ -184,6 +194,7 @@ test("diffDoc titles a copied file with its source and shows only the delta", ()
     diffPageWith({
       tip: fake("3"),
       source: { path: parseFilePath("charter.ts"), copied: true },
+      modes: undefined,
       view: { kind: "two", prev: "shared\nclosing\n", next: "shared\nbylaws closing\n" },
     }),
   );
@@ -201,6 +212,7 @@ test("diffDoc renders a two-way diff bare of marks, styling its added and remove
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
     }),
   );
@@ -226,6 +238,7 @@ test("diffDoc anchors each hunk line to its place in the new copy, on the jump t
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
     }),
   );
@@ -246,7 +259,10 @@ test("diffDoc trims each hunk to the requested context", () => {
   const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
   const prev = `${lines.join("\n")}\n`;
   const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
-  const doc = diffDoc(diffPageWith({ tip: fake("3"), source: undefined, view: { kind: "two", prev, next } }), 1);
+  const doc = diffDoc(
+    diffPageWith({ tip: fake("3"), source: undefined, modes: undefined, view: { kind: "two", prev, next } }),
+    1,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
@@ -273,7 +289,10 @@ test("diffDoc shows the whole file in one hunk at context -1", () => {
   const lines = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
   const prev = `${lines.join("\n")}\n`;
   const next = `${lines.join("\n").replace("two", "TWO").replace("eight", "EIGHT")}\n`;
-  const doc = diffDoc(diffPageWith({ tip: fake("3"), source: undefined, view: { kind: "two", prev, next } }), -1);
+  const doc = diffDoc(
+    diffPageWith({ tip: fake("3"), source: undefined, modes: undefined, view: { kind: "two", prev, next } }),
+    -1,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
@@ -297,6 +316,7 @@ test("diffDoc styles an added blank line, so hosts wash it like its neighbors", 
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "one\ntwo\n", next: "one\n\nnew\ntwo\n" },
     }),
   );
@@ -314,6 +334,7 @@ test("diffDoc anchors a mid-file hunk from its header, not from 1", () => {
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev, next: `${prev}tail\n` },
     }),
   );
@@ -329,6 +350,7 @@ test("diffDoc keeps a long modified line whole instead of splitting it", () => {
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: long("before"), next: long("after") },
     }),
   );
@@ -354,6 +376,7 @@ test("diffDoc emphasizes the changed words within a modified line", () => {
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "dogs are the best pets\n", next: "dogs are the cutest pets\n" },
     }),
   );
@@ -384,6 +407,7 @@ test("diffDoc unifies a line that only gained words, styling just those words", 
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "dogs are best pets\ntail\n", next: "dogs are the very best pets\ntail\n" },
     }),
   );
@@ -407,6 +431,7 @@ test("diffDoc unifies a line that only lost words, keeping the old line as the m
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "dogs are the very best pets\ntail\n", next: "dogs are best pets\ntail\n" },
     }),
   );
@@ -427,6 +452,7 @@ test("diffDoc keeps line anchors across a unified join, whose boundary the new c
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "keep alpha\nbeta tail\nlast\n", next: "keep tail\nlast\n" },
     }),
   );
@@ -454,6 +480,7 @@ test("diffDoc leaves a line replaced wholesale as one plain span", () => {
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "shared\ngone\n", next: "shared\nfresh words\n" },
     }),
   );
@@ -471,6 +498,7 @@ test("diffDoc leaves a context line unstyled even when its text starts like a ma
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "-|weird\n", next: "-|weird\nnew\n" },
     }),
   );
@@ -483,6 +511,7 @@ test("diffDoc omits the redundant file-name lines for a newly added file", () =>
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: undefined, next: "new\n" },
     }),
   );
@@ -499,6 +528,7 @@ test("diffDoc renders a four-way diff when the base changed under the review", (
     diffPageWith({
       tip: fake("4"),
       source: undefined,
+      modes: undefined,
       view: {
         kind: "four",
         revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
@@ -551,6 +581,7 @@ test("diffDoc anchors a story block through its to-side's equivalence with the n
     diffPageWith({
       tip: fake("4"),
       source: undefined,
+      modes: undefined,
       view: {
         kind: "four",
         revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
@@ -602,6 +633,7 @@ test("diffDoc anchors a conflict's agreed removal at the running insertion point
     diffPageWith({
       tip: fake("4"),
       source: undefined,
+      modes: undefined,
       view: {
         kind: "four",
         revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
@@ -638,6 +670,7 @@ test("diffDoc folds each four-way block's hunks to their headers", () => {
     diffPageWith({
       tip: fake("4"),
       source: undefined,
+      modes: undefined,
       view: {
         kind: "four",
         revs: { b1: fake("1"), b2: fake("2"), f1: fake("3"), f2: fake("4") },
@@ -682,18 +715,88 @@ test("diffDoc folds each four-way block's hunks to their headers", () => {
   ]);
 });
 
-test("diffDoc with an empty diff points at marking the file reviewed", () => {
+test("diffDoc shows a mode-only change as its mode line alone", () => {
   const doc = diffDoc(
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: { prev: parseFileMode("100644"), next: parseFileMode("100755") },
       view: { kind: "two", prev: "same\n", next: "same\n" },
     }),
   );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
-    No differences left to read."
+    Mode changed from 100644 to 100755."
+  `);
+});
+
+test("diffDoc reports a mode change above the hunks it rides with", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      modes: { prev: parseFileMode("100755"), next: parseFileMode("100644") },
+      view: { kind: "two", prev: "run\n", next: "walk\n" },
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    Mode changed from 100755 to 100644.
+
+    -1,1 +1,1
+    run
+    walk"
+  `);
+});
+
+test("diffDoc pairs a symlink turned regular file with its mode line", () => {
+  const doc = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      modes: { prev: parseFileMode("120000"), next: parseFileMode("100644") },
+      view: { kind: "two", prev: "configs/prod.json", next: '{ "env": "prod" }\n' },
+    }),
+  );
+  expect(docText(doc)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    Mode changed from 120000 to 100644.
+
+    -1,1 +1,1
+    configs/prod.json
+    { "env": "prod" }"
+  `);
+});
+
+test("diffDoc notes a creation and a deletion their hunks cannot show", () => {
+  const created = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      modes: undefined,
+      view: { kind: "two", prev: undefined, next: "\n" },
+    }),
+  );
+  expect(docText(created)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    File created."
+  `);
+  const deleted = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      modes: undefined,
+      view: { kind: "two", prev: "", next: undefined },
+    }),
+  );
+  expect(docText(deleted)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    File deleted."
   `);
 });
 
@@ -702,6 +805,7 @@ test("diffDoc reports binary versions instead of diffing them", () => {
     diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "a\0b\n", next: "c\0d\n" },
     }),
   );
@@ -725,6 +829,7 @@ test("diffDoc as another user names them in the title", () => {
     ...diffPageWith({
       tip: fake("3"),
       source: undefined,
+      modes: undefined,
       view: { kind: "two", prev: "gone\n", next: "here\n" },
     }),
     as: userName("bob@example.com"),
@@ -749,7 +854,9 @@ function snapshotWith(files: readonly string[], conflicts: readonly string[] = [
     base: fake("1"),
     tip: fake("3"),
     conflicts: conflicts.map(parseFilePath),
-    left: new Map(files.map((name) => [parseFilePath(name), { kind: "fresh", source: undefined } as const])),
+    left: new Map(
+      files.map((name) => [parseFilePath(name), { kind: "fresh", source: undefined, modes: undefined } as const]),
+    ),
   };
 }
 
@@ -861,16 +968,19 @@ test("diffsDoc renders every file left under its own bar", () => {
         {
           file: parseFilePath("api.ts"),
           source: undefined,
+          modes: undefined,
           view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
         },
         {
           file: parseFilePath("docs/notes.md"),
           source: undefined,
+          modes: undefined,
           view: { kind: "two", prev: "old\n", next: "new\n" },
         },
         {
           file: parseFilePath("moved.cfg"),
           source: { path: parseFilePath("old.cfg"), copied: false },
+          modes: undefined,
           view: { kind: "two", prev: "same\n", next: "same\n" },
         },
       ],
@@ -911,11 +1021,13 @@ test("diffsDoc targets the change from its title, files from their bars, and lin
         {
           file: parseFilePath("api.ts"),
           source: undefined,
+          modes: undefined,
           view: { kind: "two", prev: "shared\ngone\n", next: "shared\nhere\n" },
         },
         {
           file: parseFilePath("docs/notes.md"),
           source: undefined,
+          modes: undefined,
           view: { kind: "two", prev: "old\n", next: "new\n" },
         },
       ],

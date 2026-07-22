@@ -1,6 +1,14 @@
 import { buildCommand } from "@stricli/core";
 import { currentName, fileLabel, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
-import { changeSnapshot, type DiffPage, diffPage, emptyDiffNote, reviewDoc, reviewPage } from "cabaret-views";
+import {
+  changeSnapshot,
+  type DiffPage,
+  diffPage,
+  emptyDiffNote,
+  modeChangeNote,
+  reviewDoc,
+  reviewPage,
+} from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { changeFlag, contextFlag, resolveChange, selectFiles, writeDoc } from "./shared.js";
 
@@ -75,14 +83,21 @@ export const review = buildCommand({
         continue;
       }
       shown.push(file);
-      const view = filePage.left.view;
+      const { source, modes, view } = filePage.left;
       const rendered =
         view.kind === "two"
           ? renderDiff(file, view.prev, view.next, color, context)
           : renderDiff4({ file, revs: view.revs, contents: view.contents, color, context })
               .map((line) => `${line.text}\n`)
               .join("");
-      this.process.stdout.write(rendered === "" ? `${emptyDiffNote(filePage.left.source)}\n` : rendered);
+      // As `fileBodyNodes` composes it: the mode change when the diff
+      // carries one, then the hunks — or the note that nothing else is left.
+      const notes = [
+        ...(rendered === "" && (source !== undefined || modes === undefined) ? [emptyDiffNote(source, view)] : []),
+        ...(modes === undefined ? [] : [modeChangeNote(modes)]),
+      ];
+      const heading = notes.map((note) => `${note}\n`).join("");
+      this.process.stdout.write(rendered === "" ? heading : heading === "" ? rendered : `${heading}\n${rendered}`);
     }
     if (shown.length === 0) {
       return;

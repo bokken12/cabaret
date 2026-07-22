@@ -43,6 +43,140 @@ test("a moved file reviews as one entry named by both sides", async () => {
   `);
 });
 
+test("a file changed only in whitespace never comes up for review", async () => {
+  const repo = await makeRepo();
+  await repo.write("logic.ts", "act()\n");
+  await repo.write("layout.ts", "open()\nshut()\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.write("logic.ts", "react()\n");
+  await repo.write("layout.ts", "open()\n\nshut()\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "rework");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  // layout.ts only gained a blank line, which the diff renders as nothing:
+  // only logic.ts comes up, and marking it finishes the review.
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to eb53020f812a.
+
+      logic.ts
+
+    logic.ts in main (up to eb53020f812a)
+
+    -1,1 +1,1
+    -|act()
+    +|react()
+
+    Record review of what you have read:
+      cabaret mark --tip eb53020f812a logic.ts
+    ",
+    }
+  `);
+});
+
+test("an amendment touching only whitespace leaves nothing more to review", async () => {
+  const repo = await makeChange("script.ts", "const go = () => {\nstart()\n}\n");
+  const tip = await repo.git("rev-parse", "main");
+  await repo.cabaret("mark", "--tip", tip, "script.ts");
+  await repo.write("script.ts", "const go = () => {\n  start()\n}\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "indent the body");
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Nothing left to review.
+    ",
+    }
+  `);
+});
+
+test("whitespace stays reviewable where the diff keeps it, as in python", async () => {
+  const repo = await makeChange("script.py", "def go():\n    start()\n");
+  const tip = await repo.git("rev-parse", "main");
+  await repo.cabaret("mark", "--tip", tip, "script.py");
+  await repo.write("script.py", "def go():\n        start()\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "deepen indentation");
+  // Python's whitespace is meaning, so patdiff keeps it and the re-indent
+  // renders as a real diff: the review is still owed.
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to 94673cf794d0.
+
+      script.py
+
+    script.py in main (up to 94673cf794d0)
+
+    -1,2 +1,2
+      def go():
+    -|    start()
+    +|        start()
+
+    Record review of what you have read:
+      cabaret mark --tip 94673cf794d0 script.py
+    ",
+    }
+  `);
+});
+
+test("a mode change reports its sides, alone or above the hunks", async () => {
+  const repo = await makeRepo();
+  await repo.write("tool.sh", "spin\n");
+  await repo.write("job.sh", "wait\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "base");
+  await repo.git("branch", "trunk");
+  await repo.write("job.sh", "work\n");
+  await repo.git("add", "--chmod=+x", "tool.sh", "job.sh");
+  await repo.git("commit", "-qm", "make executable");
+  await repo.cabaret("create", "main", "--parent", "trunk");
+  expect(await repo.cabaret("review")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "Review main
+    ===========
+
+    Reviewing up to 648cbbcf6fe6.
+
+      job.sh
+      tool.sh
+
+    job.sh in main (up to 648cbbcf6fe6)
+
+    Mode changed from 100644 to 100755.
+
+    -1,1 +1,1
+    -|wait
+    +|work
+
+    tool.sh in main (up to 648cbbcf6fe6)
+
+    Mode changed from 100644 to 100755.
+
+    Record review of what you have read:
+      cabaret mark --tip 648cbbcf6fe6 job.sh tool.sh
+    ",
+    }
+  `);
+});
+
 test("an exact copy still reviews as an entry, with nothing left to read", async () => {
   const repo = await makeRepo();
   await repo.write("charter.txt", "preamble\narticle one\narticle two\nclosing\n");

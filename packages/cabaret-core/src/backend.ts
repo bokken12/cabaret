@@ -87,12 +87,30 @@ export interface FileSource {
   readonly copied: boolean;
 }
 
+/** A git file mode: six octal digits, as "100644". Obtain via `parseFileMode`. */
+export type FileMode = Branded<string, "FileMode">;
+
+export function parseFileMode(raw: string): FileMode {
+  if (!/^[0-7]{6}$/.test(raw)) {
+    throw new Error(`not a file mode: ${JSON.stringify(raw)}`);
+  }
+  return raw as FileMode;
+}
+
+/** A file's mode on each side of a diff that changes it. */
+export interface ModeChange {
+  readonly prev: FileMode;
+  readonly next: FileMode;
+}
+
 /** A file a diff changes, named by its path at the diff's tip side. */
 export interface ChangedFile {
   /** The file's path at the tip — or at the base for a file the diff deletes. */
   readonly path: FilePath;
   /** The source the diff moved or copied the file from, when it records one. */
   readonly source: FileSource | undefined;
+  /** The modes either side, when the file exists on both and they differ — a moved or copied file's from its source. */
+  readonly modes: ModeChange | undefined;
 }
 
 /** `path` alone, or `old -> path` naming a move's source — `=>` a copy's. */
@@ -757,6 +775,15 @@ export interface Backend {
    * nested repositories (git submodules) are not files and are never listed.
    */
   changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;
+
+  /**
+   * The paths of files that differ between `base` and `tip` by more than
+   * whitespace: in existence, in mode, or in line content beyond spacing,
+   * blank lines, and a trailing newline. A changed file absent here differs
+   * only in whitespace. Paths name each side of the diff as it stands there —
+   * a moved file appears under both its old and new paths.
+   */
+  nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>>;
 
   /**
    * The id of every change, sorted: one per log ref. Only `appendLog`

@@ -138,53 +138,58 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "chainMerges" | "isAncestor" | "hasRevision" | "mergeBase"> =
-    {
-      async hasRevision() {
-        return true;
-      },
-      async mergeBase(a, b) {
-        const shared = new Set(ancestry(b));
-        const found = ancestry(a).find((commit) => shared.has(commit));
-        if (found === undefined) {
-          throw new Error(`no merge base of ${a} and ${b}`);
-        }
-        return found;
-      },
-      async readFile(commit, file) {
-        return opts.trees?.[commit[0] as string]?.[file as string];
-      },
-      async changedFiles(base, tip) {
-        if (base === tip) {
-          return [];
-        }
-        const files = opts.changed?.[`${base[0]}${tip[0]}`];
-        if (files === undefined) {
-          throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
-        }
-        return files.map((name) => ({ path: parseFilePath(name), source: undefined }));
-      },
-      async chainMerges(base, tip) {
-        const path = ancestry(tip);
-        const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
-        const chain = path.filter((commit) => !settled.has(commit));
-        const merges = (opts.merges ?? [])
-          .map(({ change, commit, onto, merged }) => ({
-            commit: fake(commit),
-            onto: fake(onto),
-            merged: merged === undefined ? undefined : fake(merged),
-            landed: change === undefined ? undefined : parseBranchName(change),
-          }))
-          .filter(({ commit }) => chain.includes(commit))
-          .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
-        const oldest = chain.at(-1);
-        const up = oldest === undefined ? undefined : opts.history?.[oldest[0] as string];
-        return { merges, root: up === undefined ? undefined : fake(up), more: false };
-      },
-      async isAncestor(ancestor, descendant) {
-        return ancestry(descendant).includes(ancestor);
-      },
-    };
+  const stub: Pick<
+    Backend,
+    "readFile" | "changedFiles" | "nonWhitespaceChanges" | "chainMerges" | "isAncestor" | "hasRevision" | "mergeBase"
+  > = {
+    async hasRevision() {
+      return true;
+    },
+    async mergeBase(a, b) {
+      const shared = new Set(ancestry(b));
+      const found = ancestry(a).find((commit) => shared.has(commit));
+      if (found === undefined) {
+        throw new Error(`no merge base of ${a} and ${b}`);
+      }
+      return found;
+    },
+    async readFile(commit, file) {
+      return opts.trees?.[commit[0] as string]?.[file as string];
+    },
+    async changedFiles(base, tip) {
+      if (base === tip) {
+        return [];
+      }
+      const files = opts.changed?.[`${base[0]}${tip[0]}`];
+      if (files === undefined) {
+        throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
+      }
+      return files.map((name) => ({ path: parseFilePath(name), source: undefined, modes: undefined }));
+    },
+    async nonWhitespaceChanges(base, tip) {
+      return new Set((await stub.changedFiles(base, tip)).map(({ path }) => path));
+    },
+    async chainMerges(base, tip) {
+      const path = ancestry(tip);
+      const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
+      const chain = path.filter((commit) => !settled.has(commit));
+      const merges = (opts.merges ?? [])
+        .map(({ change, commit, onto, merged }) => ({
+          commit: fake(commit),
+          onto: fake(onto),
+          merged: merged === undefined ? undefined : fake(merged),
+          landed: change === undefined ? undefined : parseBranchName(change),
+        }))
+        .filter(({ commit }) => chain.includes(commit))
+        .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
+      const oldest = chain.at(-1);
+      const up = oldest === undefined ? undefined : opts.history?.[oldest[0] as string];
+      return { merges, root: up === undefined ? undefined : fake(up), more: false };
+    },
+    async isAncestor(ancestor, descendant) {
+      return ancestry(descendant).includes(ancestor);
+    },
+  };
   return stub as Backend;
 }
 

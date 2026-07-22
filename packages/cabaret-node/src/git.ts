@@ -17,6 +17,7 @@ import {
   parseBranchName,
   parseChangeId,
   parseCommitHash,
+  parseFileMode,
   parseFilePath,
   parseLog,
   type Recommendation,
@@ -980,7 +981,7 @@ export class GitBackend implements Backend {
     // serve it.
     const out = await git(this.root, [
       "diff",
-      "--name-status",
+      "--raw",
       "--find-renames",
       "--find-copies",
       "--ignore-submodules=all",
@@ -988,22 +989,29 @@ export class GitBackend implements Backend {
       base,
       tip,
     ]);
-    // Each record is a status token, then one path — or two for a rename or
-    // copy, source before destination. The trailing NUL leaves one empty
-    // token at the end.
+    // Each record is ":<old mode> <new mode> <old hash> <new hash> <status>",
+    // then one path — or two for a rename or copy, source before destination.
+    // The trailing NUL leaves one empty token at the end.
     const tokens = out.split("\0");
     const files: ChangedFile[] = [];
     for (let i = 0; ; ) {
-      const status = tokens[i];
-      if (status === undefined || status === "") {
+      const header = tokens[i];
+      if (header === undefined || header === "") {
         break;
       }
+      const fields = header.match(/^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z]\d*)$/);
       const path = tokens[i + 1];
-      if (path === undefined) {
-        throw new Error(`diff status ${JSON.stringify(status)} names no path`);
+      if (fields === null || path === undefined) {
+        throw new Error(`malformed diff record ${JSON.stringify(header)}`);
       }
+      const [, oldMode = "", newMode = "", status = ""] = fields;
+      // A file only one side has changes no mode — it has just one.
+      const modes =
+        oldMode === "000000" || newMode === "000000" || oldMode === newMode
+          ? undefined
+          : { prev: parseFileMode(oldMode), next: parseFileMode(newMode) };
       if (/^[ADMT]$/.test(status)) {
-        files.push({ path: parseFilePath(path), source: undefined });
+        files.push({ path: parseFilePath(path), source: undefined, modes });
         i += 2;
       } else if (/^[RC]\d+$/.test(status)) {
         const to = tokens[i + 2];
@@ -1015,6 +1023,7 @@ export class GitBackend implements Backend {
         files.push({
           path: parseFilePath(to),
           source: { path: parseFilePath(path), copied: status.startsWith("C") },
+          modes,
         });
         i += 3;
       } else {
@@ -1022,6 +1031,30 @@ export class GitBackend implements Backend {
       }
     }
     return files;
+  }
+
+  async nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>> {
+    // -w and --ignore-blank-lines make git drop a file whose only line
+    // changes are spacing, blank lines, or a trailing newline, while a file
+    // changed in existence, mode, or solid content stays listed. Rename
+    // detection stays off so each side answers under its own path.
+    const out = await git(this.root, [
+      "diff",
+      "-w",
+      "--ignore-blank-lines",
+      "--no-renames",
+      "--name-only",
+      "--ignore-submodules=all",
+      "-z",
+      base,
+      tip,
+    ]);
+    return new Set(
+      out
+        .split("\0")
+        .filter((path) => path !== "")
+        .map(parseFilePath),
+    );
   }
 
   async tip(branch: ChangeName): Promise<Revision | undefined> {

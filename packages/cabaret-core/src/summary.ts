@@ -26,6 +26,7 @@ import {
   type LogEntry,
   landedMerge,
   landsAmong,
+  type ModeChange,
   observedForgeParent,
   type ReviewedDiff,
   type Reviewing,
@@ -33,7 +34,7 @@ import {
   requireTip,
   type UserName,
 } from "./backend.js";
-import { diffViewEmpty, rebasedView } from "./diff.js";
+import { diffViewEmpty, rebasedView, renderDiff } from "./diff.js";
 import { UserError } from "./error.js";
 import { allChanges, type Change, resolveNamed } from "./naming.js";
 import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
@@ -438,15 +439,20 @@ async function owesParentReview(parentReview: () => Promise<ObligationsReading>,
  * reviewer will read.
  */
 export function reviewLeftFiles(left: ReviewLeft): readonly ChangedFile[] {
-  return [...left].map(([path, view]) => ({ path, source: view.kind === "fresh" ? view.source : undefined }));
+  return [...left].map(([path, view]) => ({
+    path,
+    source: view.kind === "fresh" ? view.source : undefined,
+    modes: view.kind === "rebased" ? undefined : view.modes,
+  }));
 }
 
-/** What a reviewer looks at to review a file. */
+/** What a reviewer looks at to review a file. Each view carries the mode
+    change its endpoints see, when they see one, for the diff to report. */
 export type FileView =
   /** No prior review: the plain diff, base to tip — from the file's `source` path when the diff moves or copies it. */
-  | { readonly kind: "fresh"; readonly source: FileSource | undefined }
+  | { readonly kind: "fresh"; readonly source: FileSource | undefined; readonly modes: ModeChange | undefined }
   /** Reviewed at this base: the diff onward from the reviewed tip. */
-  | { readonly kind: "extend"; readonly from: Revision }
+  | { readonly kind: "extend"; readonly from: Revision; readonly modes: ModeChange | undefined }
   /** The base moved under the review: compare the reviewed diff with the current one. */
   | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff };
 
@@ -471,9 +477,14 @@ function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision:
  * absent when their latest review of the file covers its current diff. A
  * file never reviewed shows the whole diff; one reviewed at the current base
  * shows the diff onward from the reviewed tip; one whose base moved under
- * the review compares the reviewed diff with the current one, and an empty
- * comparison — the rebase carried the reviewed change cleanly — discharges
- * the review silently.
+ * the review compares the reviewed diff with the current one.
+ *
+ * A file whose view would render nothing to read — a whitespace-only edit
+ * the diff hides, or a rebase that carried the reviewed diff cleanly — is
+ * discharged silently: nothing can be read there, so nothing is owed. A
+ * moved or copied file stays owed even without content changes, as does a
+ * file whose mode changed or that was created or deleted empty — the tree
+ * change itself is what its reviewer acknowledges.
  *
  * The records alone answer: a land needs no reading here, because landing
  * writes the review it settles (as `recordLand`) — the diff a land brings in
@@ -498,18 +509,34 @@ export async function reviewLeft(
     }
   }
   // The files changed since a reviewed tip, batched per tip: one reading
-  // answers "is the diff onward from here empty" for every file at once.
+  // answers what the diff onward from here touches for every file at once.
   const changedSince = perRevision(
-    async (from) => new Set(from === tip ? [] : (await backend.changedFiles(from, tip)).map(({ path }) => path)),
+    async (from) =>
+      new Map(from === tip ? [] : (await backend.changedFiles(from, tip)).map((changed) => [changed.path, changed])),
   );
+  // Patdiff's whitespace-insensitive line equality is finer than git's, so a
+  // file git still reports under its whitespace-ignoring flags always renders
+  // hunks — one tree-level reading settles almost every file, and only the
+  // rare remainder needs its contents read and diffed to tell.
+  const solidSince = perRevision((from) => backend.nonWhitespaceChanges(from, tip));
+  const rendersEmpty = async (from: Revision, file: FilePath): Promise<boolean> => {
+    if ((await solidSince(from)).has(file)) {
+      return false;
+    }
+    const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(tip, file)]);
+    return (prev === undefined) === (next === undefined) && renderDiff(file, prev, next, false) === "";
+  };
   const left = new Map<FilePath, FileView>();
-  for (const [file, { source }] of [...diff.changed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  for (const [file, { source, modes }] of [...diff.changed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const reviewed = known.get(file);
     if (reviewed === undefined) {
-      left.set(file, { kind: "fresh", source });
+      if (source !== undefined || !(await rendersEmpty(base, file))) {
+        left.set(file, { kind: "fresh", source, modes });
+      }
     } else if (reviewed.base === base) {
-      if ((await changedSince(reviewed.tip)).has(file)) {
-        left.set(file, { kind: "extend", from: reviewed.tip });
+      const since = (await changedSince(reviewed.tip)).get(file);
+      if (since !== undefined && !(await rendersEmpty(reviewed.tip, file))) {
+        left.set(file, { kind: "extend", from: reviewed.tip, modes: since.modes });
       }
     } else if (!diffViewEmpty(file, await rebasedView(backend, file, reviewed, base, tip))) {
       left.set(file, { kind: "rebased", reviewed });
