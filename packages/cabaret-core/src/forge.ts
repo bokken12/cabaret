@@ -1222,11 +1222,15 @@ export async function publishForgeChange(
     // reviewing leaves none and the head reaches origin, and archiving asks
     // for no new one. The change replicates regardless — its branch and log
     // are already at origin.
-    if (
-      currentArchived(entries) ||
-      currentReviewing(entries) === "none" ||
-      (await backend.originTip(change)) === undefined
-    ) {
+    const head = await backend.originTip(change);
+    if (currentArchived(entries) || currentReviewing(entries) === "none" || head === undefined) {
+      return undefined;
+    }
+    // Forges refuse a change whose head adds no commits over its parent —
+    // judged against the forge's own copies, which are origin's — so opening
+    // waits until it does.
+    const parentTip = await backend.originTip(parent);
+    if (parentTip !== undefined && (await backend.isAncestor(head, parentTip))) {
       return undefined;
     }
     forgeChange = await forge.createChange(change, parent, change);

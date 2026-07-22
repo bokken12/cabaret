@@ -60,7 +60,8 @@ export interface ReconcileResult {
    * What publishing settled on the forge; undefined without a forge, for a
    * landed change (frozen, nothing to settle), or for a change whose forge
    * change does not exist and is not yet due — none is opened before the
-   * head reaches origin, and archiving asks for no new one.
+   * head reaches origin or while it adds nothing over the parent, and
+   * archiving asks for no new one.
    */
   readonly published: PublishResult | undefined;
 }

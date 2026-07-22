@@ -163,6 +163,15 @@ export class FakeForge implements Forge {
   }
 
   async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
+    // GitHub refuses to open a PR whose head adds nothing over its base.
+    // Branches the hosted repository lacks stay permissive, like `tip`'s
+    // zero hash; `openPr` stays fully permissive for fabricated teammate PRs.
+    const between = await this.git("rev-list", "--count", `refs/heads/${parent}..refs/heads/${head}`).catch(
+      () => undefined,
+    );
+    if (between === "0") {
+      throw new Error(`Validation Failed: No commits between ${parent} and ${head}`);
+    }
     return this.getChange(this.openPr(this.tokenLogin, head, parent, title));
   }
 
