@@ -1,10 +1,10 @@
 import { buildCommand } from "@stricli/core";
 import {
   type Change,
-  currentParentRef,
+  currentName,
+  currentParent,
   landAsConfigured,
   landChain,
-  parentDesignator,
   readConfig,
   reconcileChange,
   resolveRange,
@@ -97,7 +97,7 @@ export const land = buildCommand({
           parentUnreviewed: flags.evenThoughParentUnreviewed,
         },
       );
-      const parent = await parentDesignator(backend, currentParentRef(current.id, current.entries));
+      const parent = currentParent(currentName(current.id, current.entries), current.entries);
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
       }

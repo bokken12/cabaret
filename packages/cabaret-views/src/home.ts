@@ -9,6 +9,7 @@ import {
   changeForest,
   currentArchived,
   currentName,
+  currentParent,
   type FilePath,
   isReviewing,
   isSelf,
@@ -122,7 +123,7 @@ async function readChange(
 ): Promise<ChangeReading> {
   const entries = change.entries;
   const name = currentName(change.id, entries);
-  const diff = await changeDiff(backend, change);
+  const diff = await changeDiff(backend, name, entries);
   const summary = await summarizeChange(backend, change, self.user, diff, all);
   // Obligations ask nothing of a user outside the reviewing set — a
   // membership the log alone decides, sparing the obligations files of
@@ -141,7 +142,7 @@ async function readChange(
   return {
     kind: "read",
     summary,
-    parent: summary.parent,
+    parent: currentParent(name, entries),
     owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
   };
 }

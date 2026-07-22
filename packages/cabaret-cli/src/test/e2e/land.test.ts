@@ -39,7 +39,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -71,7 +71,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   const _merge = await repo.git("rev-parse", "parent");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -487,7 +487,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   const _merge = await repo.git("rev-parse", "parent");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -602,7 +602,7 @@ test("a range lands the whole chain, deepest first", async () => {
   `);
   expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"b"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -615,7 +615,7 @@ test("a range lands the whole chain, deepest first", async () => {
   `);
   expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"c"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000002"}}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
     {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
     {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -689,7 +689,7 @@ test("landing a change reparents its children onto where it landed", async () =>
   });
   expect(await shownLog(repo, "gizmo")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"gizmo"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -699,7 +699,7 @@ test("landing a change reparents its children onto where it landed", async () =>
   `);
   expect(await shownLog(repo, "widget")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"widget"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
     {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
     {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -721,7 +721,7 @@ test("landing leaves landed children where they landed", async () => {
   // The landed child's parent stays the frozen history it landed into.
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -750,7 +750,7 @@ test("landing into its own child leaves the cycle for a manual reparent", async 
   });
   expect(await shownLog(repo, "inner")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"inner"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"d8e04f0cb85e7ae359016dd142c226595a7d6228"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -773,11 +773,11 @@ test("a range land carries an outside child down with each landing", async () =>
   // d followed its code: onto a when b landed there, onto main when a landed.
   expect(await shownLog(repo, "d")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"d"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000002"}}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
     {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
     {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
+    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
     {"timestamp":1748000000023,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
     "
   `);

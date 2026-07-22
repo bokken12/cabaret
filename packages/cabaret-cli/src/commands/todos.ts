@@ -1,7 +1,6 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, currentName, newTodos, requireTip, type Todo } from "cabaret-core";
+import { changeBase, lookupChange, newTodos, requireTip, type Todo } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { resolveChange } from "./shared.js";
 
 /**
  * Render a TODO's content indented two spaces, dropping the comment's own
@@ -49,9 +48,9 @@ export const todos = buildCommand({
   },
   async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
-    const named = await resolveChange(backend, change);
-    const base = await changeBase(backend, named);
-    const tip = await requireTip(backend, currentName(named.id, named.entries));
+    const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
+    const base = await changeBase(backend, target, (await lookupChange(backend, target))?.entries ?? []);
+    const tip = await requireTip(backend, target);
     const rendered: string[] = [];
     // A moved or copied file's TODOs compare against its source's copy, so
     // the move or copy alone surfaces nothing.

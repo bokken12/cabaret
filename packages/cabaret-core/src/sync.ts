@@ -1,6 +1,5 @@
 import {
   type Backend,
-  type Change,
   type ChangeName,
   conflictsBetween,
   currentName,
@@ -18,7 +17,7 @@ import {
   publishForgeChange,
   syncedForgeChange,
 } from "./forge.js";
-import { allChanges } from "./naming.js";
+import { allChanges, type Change } from "./naming.js";
 import { assertNoConflict, pushAdvances } from "./ops.js";
 
 /** What the ambient half of a fetch moved, for hosts to narrate. */

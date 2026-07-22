@@ -38,12 +38,11 @@ archive keys features by ID and repeats paths freely).
 ## Parents
 
 A parent reference is either a change, by ID, or a bare branch, by name.
-Local intent prefers the ID arm, writing the name arm only when the
+The ID arm is always preferred; the name arm is written only when the
 parent has no change — long-lived branches like trunk, which in practice
-never rename. Forge-sourced observations always record the name arm: a
-forge speaks branches, so that is what was observed. Making a bare branch
-a change needs no fixup: existing name-arm references resolve through the
-branch the change now owns, and new references use its ID.
+never rename. Making such a branch a change needs no fixup: existing
+name-arm references resolve through the branch the change now owns, and
+new references use its ID.
 
 ## Lookup
 

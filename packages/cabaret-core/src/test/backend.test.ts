@@ -9,7 +9,7 @@ import {
   currentBase,
   currentName,
   currentOwner,
-  currentParentRef,
+  currentParent,
   currentReviewers,
   type FilePath,
   finished,
@@ -22,7 +22,6 @@ import {
   mergeLogs,
   observedForgeArchived,
   observedForgeReviewers,
-  type ParentRef,
   parseBranchName,
   parseChangeId,
   parseCommitHash,
@@ -40,9 +39,6 @@ import {
 const SHA1 = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA1 = "fedcba9876543210fedcba9876543210fedcba98";
 const SHA256 = SHA1 + SHA1.slice(0, 24);
-
-const branchParent = (name: string): ParentRef => ({ kind: "branch", name: parseBranchName(name) });
-const changeParent = (id: string): ParentRef => ({ kind: "change", id: parseChangeId(id) });
 
 test("parses full sha1 and sha256 hashes", () => {
   expect(parseCommitHash(SHA1)).toBe(SHA1);
@@ -118,24 +114,11 @@ test("formatLogEntry renders one JSON object per line, keys in schema order", ()
   expect(
     formatLogEntry({
       // Key order here deliberately differs from the schema's.
-      action: { parent: branchParent("main"), kind: "set-parent" },
+      action: { parent: parseBranchName("main"), kind: "set-parent" },
       user: userName("alice@example.com"),
       timestamp: timestampMs(1748000000000),
     }),
   ).toBe('{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n');
-});
-
-test("a change parent serializes as its id object, a branch parent as its plain name", () => {
-  const id = "c0de".repeat(8);
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000000),
-      user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: changeParent(id) },
-    }),
-  ).toBe(
-    `{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"${id}"}}}\n`,
-  );
 });
 
 test("formatLogEntry renders review and forget actions", () => {
@@ -207,7 +190,7 @@ test("formatLogEntry rejects invalid timestamps and users", () => {
   const entry = {
     timestamp: timestampMs(1748000060000),
     user: userName("bob@example.com"),
-    action: { kind: "set-parent", parent: branchParent("feature/base") },
+    action: { kind: "set-parent", parent: parseBranchName("feature/base") },
   } as const;
   for (const bad of [0.5, -1, 2 ** 53]) {
     expect(() => formatLogEntry({ ...entry, timestamp: bad as TimestampMs })).toThrow("not a millisecond timestamp");
@@ -220,17 +203,12 @@ test("a formatted log parses back to the original entries", () => {
     {
       timestamp: timestampMs(1748000000000),
       user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: branchParent("main") },
+      action: { kind: "set-parent", parent: parseBranchName("main") },
     },
     {
       timestamp: timestampMs(1748000060000),
       user: userName('Bob Smith <bob@example.com>\n"tricky"'),
-      action: { kind: "set-parent", parent: branchParent("feature/base") },
-    },
-    {
-      timestamp: timestampMs(1748000090000),
-      user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: changeParent("f00d".repeat(8)) },
+      action: { kind: "set-parent", parent: parseBranchName("feature/base") },
     },
     {
       timestamp: timestampMs(1748000120000),
@@ -311,8 +289,6 @@ test("parseLog rejects malformed logs", () => {
     [line({ ...entry, user: "" }), "malformed log line"],
     [line({ ...entry, action: { kind: "merge", parent: "main" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "set-parent", parent: "bad..ref" } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "set-parent", parent: { id: "not-hex" } } }), "malformed log line"],
-    [line({ ...entry, action: { kind: "set-parent", parent: {} } }), "malformed log line"],
     [line({ ...entry, action: { kind: "review", file: "a.ts", base: SHA1, tip: "HEAD" } }), "malformed log line"],
     [line({ ...entry, action: { kind: "review", file: "a.ts", tip: SHA1 } }), "malformed log line"],
     [line({ ...entry, action: { kind: "forget", file: "" } }), "malformed log line"],
@@ -355,21 +331,23 @@ test("currentName takes the set-name with the greatest timestamp, and fails with
   ).toBe("renamed");
 });
 
-test("currentParentRef takes the set-parent with the greatest timestamp, regardless of order", () => {
+test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
-  const id = parseChangeId("0".repeat(32));
-  expect(() => currentParentRef(id, [])).toThrow(`log has no parent: ${id}`);
-  expect(() => currentParentRef(id, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
-    `log has no parent: ${id}`,
+  const change = parseBranchName("feature");
+  expect(() => currentParent(change, [])).toThrow(
+    'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
+  );
+  expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
+    'change has no parent: "feature"',
   );
   expect(
-    currentParentRef(id, [
-      entry(9, { kind: "set-parent", parent: changeParent("c0de".repeat(8)) }),
-      entry(3, { kind: "set-parent", parent: branchParent("oldest") }),
+    currentParent(change, [
+      entry(9, { kind: "set-parent", parent: parseBranchName("newest") }),
+      entry(3, { kind: "set-parent", parent: parseBranchName("oldest") }),
       entry(12, {
         kind: "review",
         file: parseFilePath("a.ts"),
@@ -377,7 +355,7 @@ test("currentParentRef takes the set-parent with the greatest timestamp, regardl
         tip: parseCommitHash(SHA1),
       }),
     ]),
-  ).toEqual(changeParent("c0de".repeat(8)));
+  ).toBe("newest");
 });
 
 test("currentBase takes the set-base with the greatest timestamp, regardless of order", () => {
@@ -390,7 +368,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
   expect(() => currentBase(change, [])).toThrow(
     'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
   );
-  expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: branchParent("main") })])).toThrow(
+  expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no base: "feature"',
   );
   expect(
@@ -417,14 +395,14 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
   expect(() => currentOwner(change, [])).toThrow(
     'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
   );
-  expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: branchParent("main") })])).toThrow(
+  expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no owner: "feature"',
   );
   expect(
     currentOwner(change, [
       entry(9, { kind: "set-owner", owner: userName("carol@example.com") }),
       entry(3, { kind: "set-owner", owner: userName("bob@example.com") }),
-      entry(12, { kind: "set-parent", parent: branchParent("main") }),
+      entry(12, { kind: "set-parent", parent: parseBranchName("main") }),
     ]),
   ).toBe("carol@example.com");
 });
@@ -463,7 +441,7 @@ test("landedMerge finds the land entry, and finished asks for archived alongside
     user: userName("alice@example.com"),
     action,
   });
-  const unlanded = [entry(5, { kind: "set-parent", parent: branchParent("main") })];
+  const unlanded = [entry(5, { kind: "set-parent", parent: parseBranchName("main") })];
   expect(landedMerge(unlanded)).toBeUndefined();
   expect(finished(unlanded)).toBe(false);
   const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
@@ -535,7 +513,7 @@ test("brain keeps each file's latest review per user and honors forgets by times
     at(2, alice, review("b.ts", OTHER_SHA1, SHA1)),
     at(3, alice, review("c.ts", SHA1, SHA1)),
     at(8, bob, { kind: "forget", file: parseFilePath("a.ts") }),
-    at(5, alice, { kind: "set-parent", parent: branchParent("main") }),
+    at(5, alice, { kind: "set-parent", parent: parseBranchName("main") }),
     at(10, alice, { kind: "set-base", base: parseCommitHash(SHA256) }),
     // Equal timestamps: the serialized entry, not log position, breaks the
     // tie, and `"kind":"review"` sorts after `"kind":"forget"`.
@@ -568,16 +546,6 @@ function refNames(): fc.Arbitrary<ChangeName> {
   return fc.string({ minLength: 1, maxLength: 30 }).filter(valid).map(parseBranchName);
 }
 
-function parentRefs(): fc.Arbitrary<ParentRef> {
-  const ids = fc
-    .string({ unit: fc.constantFrom(..."0123456789abcdef"), minLength: 32, maxLength: 32 })
-    .map(parseChangeId);
-  return fc.oneof(
-    refNames().map((name): ParentRef => ({ kind: "branch", name })),
-    ids.map((id): ParentRef => ({ kind: "change", id })),
-  );
-}
-
 function filePaths(): fc.Arbitrary<FilePath> {
   return fc
     .string({ minLength: 1, unit: "grapheme" })
@@ -594,7 +562,7 @@ function logActions(): fc.Arbitrary<LogAction> {
   const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
   return fc.oneof(
     fc.record({ kind: fc.constant("set-name" as const), name: refNames() }),
-    fc.record({ kind: fc.constant("set-parent" as const), parent: parentRefs() }),
+    fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
     fc.record({
@@ -657,7 +625,7 @@ test("mergeLogs unions, dedupes, and orders by timestamp then serialized line", 
   const parent = (timestamp: number, user: UserName, name: string): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user,
-    action: { kind: "set-parent", parent: branchParent(name) },
+    action: { kind: "set-parent", parent: parseBranchName(name) },
   });
   const shared = parent(1, alice, "main");
   expect(
@@ -686,7 +654,7 @@ test("log reads agree on any interleaving of the same entries", () => {
   const seeded = fc
     .array(tiedEntries())
     .map((entries): readonly LogEntry[] => [
-      { timestamp: timestampMs(0), user: alice, action: { kind: "set-parent", parent: branchParent("main") } },
+      { timestamp: timestampMs(0), user: alice, action: { kind: "set-parent", parent: parseBranchName("main") } },
       { timestamp: timestampMs(0), user: alice, action: { kind: "set-base", base: parseCommitHash(SHA1) } },
       { timestamp: timestampMs(0), user: alice, action: { kind: "set-owner", owner: alice } },
       ...entries,
@@ -697,8 +665,7 @@ test("log reads agree on any interleaving of the same entries", () => {
   fc.assert(
     fc.property(withShuffle, ([log, shuffled]) => {
       const change = parseBranchName("widgets");
-      const id = parseChangeId("0".repeat(32));
-      expect(currentParentRef(id, shuffled)).toEqual(currentParentRef(id, log));
+      expect(currentParent(change, shuffled)).toBe(currentParent(change, log));
       expect(currentBase(change, shuffled)).toBe(currentBase(change, log));
       expect(currentOwner(change, shuffled)).toBe(currentOwner(change, log));
       expect(landedMerge(shuffled)).toBe(landedMerge(log));

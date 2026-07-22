@@ -10,7 +10,7 @@ import {
   createChange,
   currentArchived,
   currentName,
-  currentParentRef,
+  currentParent,
   currentSelf,
   DirtyWorkspaceError,
   DivergedParentError,
@@ -33,7 +33,6 @@ import {
   lookupChange,
   NotOwnerError,
   NotReviewingError,
-  parentDesignator,
   type RebaseOverrides,
   type Revision,
   readConfig,
@@ -45,7 +44,6 @@ import {
   requireNamed,
   resolveChain,
   resolveChange,
-  resolveNamed,
   reviewerSummary,
   type SetupAudit,
   setArchived,
@@ -503,7 +501,7 @@ async function stepUp(provider: PageProvider): Promise<void> {
   }
   await openPage(provider, {
     kind: "show",
-    change: await parentDesignator(backend, currentParentRef(found.id, found.entries)),
+    change: currentParent(currentName(found.id, found.entries), found.entries),
     as: page.as,
   });
 }
@@ -528,12 +526,10 @@ async function stepDown(provider: PageProvider): Promise<void> {
   }
   const backend = await openBackend();
   const children: ChangeName[] = [];
-  const all = await allChanges(backend);
-  const target = resolveNamed(all, page.change);
-  for (const other of all) {
-    const ref = currentParentRef(other.id, other.entries);
-    if (ref.kind === "change" ? ref.id === target?.id : ref.name === page.change) {
-      children.push(currentName(other.id, other.entries));
+  for (const other of await allChanges(backend)) {
+    const name = currentName(other.id, other.entries);
+    if (currentParent(name, other.entries) === page.change) {
+      children.push(name);
     }
   }
   if (children.length === 0) {
@@ -1770,7 +1766,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // the child's next rebase lands where a rebase onto the grandparent
         // would have.
         const named = await resolveChange(backend, child);
-        const grandparent = await parentDesignator(backend, currentParentRef(named.id, named.entries));
+        const grandparent = currentParent(currentName(named.id, named.entries), named.entries);
         // TODO: check ownership of `child` before creating the parent, so a
         // declined ownership confirmation does not leave the new change
         // created but never spliced in.

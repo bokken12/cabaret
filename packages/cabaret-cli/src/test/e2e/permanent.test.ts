@@ -88,7 +88,7 @@ test("a permanent umbrella keeps its children and lands cycle after cycle", asyn
   expect(await repo.cabaret("land", "leaf")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The leaf landed into the umbrella and archived under it, not walked away.
   const leafLog = (await repo.cabaret("dev", "log", "leaf")).stdout;
-  expect(leafLog).toContain('"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}');
+  expect(leafLog).toContain('"kind":"set-parent","parent":"umbrella"');
   expect(leafLog).not.toContain('"kind":"set-parent","parent":"main"');
   // The umbrella grew by the leaf's land; its second cycle lands that into main.
   expect(await repo.cabaret("land", "umbrella")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

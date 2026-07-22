@@ -241,19 +241,6 @@ test("create refuses an archived parent until overridden", async () => {
   expect(await repo.git("rev-parse", "widgets")).toBe(await repo.git("rev-parse", "gadget"));
 });
 
-test("create refuses a parent wearing the change's own name", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("create", "gadget");
-  await repo.cabaret("archive", "--change", "gadget");
-  // The archived namesake, designated by id prefix: parenting the new
-  // "gadget" on it would read as a cycle in every name-keyed view.
-  expect(await repo.cabaret("create", "gadget", "--parent", "00000000", "--even-though-parent-archived")).toEqual({
-    stdout: "",
-    stderr: 'change cannot share its parent\'s name: "gadget"\n',
-    exitCode: 1,
-  });
-});
-
 test("create refuses adopting a branch whose readings have diverged", async () => {
   const repo = await makeRepo();
   await repo.git("push", "-q", "origin", "main");

@@ -1,15 +1,24 @@
 import { z } from "zod";
 import {
   type Backend,
-  type Change,
   type ChangeId,
   type ChangeName,
   currentArchived,
   currentName,
   type LogEntry,
-  type ParentRef,
 } from "./backend.js";
 import { UserError } from "./error.js";
+
+/**
+ * A change in hand: its identity and its log, as read at resolution time.
+ * The id is the one fact not derivable from the log — everything else
+ * (name, owner, parent, …) is a fold over `entries`, computed where it is
+ * used so it can never disagree with the log it came from.
+ */
+export interface Change {
+  readonly id: ChangeId;
+  readonly entries: readonly LogEntry[];
+}
 
 /**
  * Every change, each with its log read once — the read behind every
@@ -193,39 +202,20 @@ export async function lookupChange(backend: Backend, name: ChangeName): Promise<
   return resolveNamed(claims, name);
 }
 
-/** The change an id prefix abbreviates, read through the name index, or undefined when it matches none. */
-export async function changeByIdPrefix(backend: Backend, prefix: string): Promise<Change | undefined> {
-  const matched = matchIdPrefix(
-    (await indexedNames(backend)).map(({ id }) => id),
-    prefix,
-  );
-  return matched === undefined ? undefined : { id: matched, entries: await backend.readLog(matched) };
-}
-
 /** Resolve `name` to its change through the name index, failing — after trying `name` as an id prefix — when no change claims it. */
 export async function resolveChange(backend: Backend, name: ChangeName): Promise<Change> {
   const found = await lookupChange(backend, name);
   if (found !== undefined) {
     return found;
   }
-  const abbreviated = await changeByIdPrefix(backend, name);
-  if (abbreviated !== undefined) {
-    return abbreviated;
+  const matched = matchIdPrefix(
+    (await indexedNames(backend)).map(({ id }) => id),
+    name,
+  );
+  if (matched !== undefined) {
+    return { id: matched, entries: await backend.readLog(matched) };
   }
   throw new UserError(
     `change does not exist: ${JSON.stringify(name)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
   );
-}
-
-/**
- * The change a parent reference points at: a change arm's log read outright,
- * a branch arm resolved by name. Undefined when the parent is a bare branch
- * with no change, or a change whose log this clone does not hold.
- */
-export async function resolveParent(backend: Backend, ref: ParentRef): Promise<Change | undefined> {
-  if (ref.kind === "change") {
-    const entries = await backend.readLog(ref.id);
-    return entries.length === 0 ? undefined : { id: ref.id, entries };
-  }
-  return lookupChange(backend, ref.name);
 }

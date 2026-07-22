@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   type ChangeId,
-  currentParentRef,
+  currentParent,
   formatLogEntry,
   type LogAction,
   type LogEntry,
@@ -64,7 +64,7 @@ function entry(timestamp: number, user: string, action: LogAction): LogEntry {
 }
 
 function setParent(timestamp: number, user: string, parent: string): LogEntry {
-  return entry(timestamp, user, { kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } });
+  return entry(timestamp, user, { kind: "set-parent", parent: parseBranchName(parent) });
 }
 
 // Fixed ids, so assertions on sorted listings stay deterministic.
@@ -135,9 +135,9 @@ test("concurrent appends converge to byte-identical logs, ties resolved alike", 
   expect(stateA).toEqual(stateB);
   expect(stateA.blob).toBe(merged.map(formatLogEntry).join("").trimEnd());
   // The tie breaks on the serialized entry, identically on both machines.
-  const trunkB = { kind: "branch", name: parseBranchName("trunk-b") };
-  expect(currentParentRef(WIDGETS, await a.backend.readLog(WIDGETS))).toEqual(trunkB);
-  expect(currentParentRef(WIDGETS, await b.backend.readLog(WIDGETS))).toEqual(trunkB);
+  const widgets = parseBranchName("widgets");
+  expect(currentParent(widgets, await a.backend.readLog(WIDGETS))).toBe("trunk-b");
+  expect(currentParent(widgets, await b.backend.readLog(WIDGETS))).toBe("trunk-b");
 });
 
 test("a converged log syncs as a no-op", async () => {

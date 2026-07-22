@@ -30,9 +30,9 @@ export const diff = buildCommand({
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;
-    const named = await resolveChange(backend, flags.change);
-    const name = currentName(named.id, named.entries);
-    const [base, tip] = await Promise.all([changeBase(backend, named), changeTip(backend, named)]);
+    const { id, entries } = await resolveChange(backend, flags.change);
+    const name = currentName(id, entries);
+    const [base, tip] = await Promise.all([changeBase(backend, name, entries), changeTip(backend, name, entries)]);
     const changed = await backend.changedFiles(base, tip);
     const byPath = new Map(changed.map((file) => [file.path, file]));
     const moves = new Map(
