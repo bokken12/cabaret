@@ -27,8 +27,9 @@ test("sync pushes the branch, opens a forge change on the parent, and posts comm
     title: "gadget",
     author: "github:alice",
     state: "open",
-    // A fresh change is a draft until widened, and opens as one.
-    draft: true,
+    // The change was pushed ready: the forge change opens only once
+    // reviewing has left none, so it is never a draft at birth.
+    draft: false,
     reviewers: [],
   });
   const posted = await forge.listComments(PR);
@@ -122,8 +123,8 @@ test("fetch does not echo comments sync posted", async () => {
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-05-23T11:33:20.004Z bob@example.com\n    one nit\n\n" +
-      "  2025-05-23T11:33:20.005Z alice@example.com\n    ship it\n",
+    "Comments:\n  2025-05-23T11:33:20.005Z bob@example.com\n    one nit\n\n" +
+      "  2025-05-23T11:33:20.006Z alice@example.com\n    ship it\n",
   );
 });
 
@@ -185,7 +186,7 @@ test("fetch adopts the branch's open forge change when the log names none", asyn
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await forge.createChange(parseBranchName("gadget"), parseBranchName("main"), "gadget", false);
+  await forge.createChange(parseBranchName("gadget"), parseBranchName("main"), "gadget");
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\n" +

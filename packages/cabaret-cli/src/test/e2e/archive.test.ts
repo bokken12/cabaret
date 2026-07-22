@@ -76,7 +76,7 @@ test("show reads an archived change's next step as archived, demanding no review
     ├───────────┼───────────────────┤
     │ next step │ archived          │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │

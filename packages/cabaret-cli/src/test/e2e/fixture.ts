@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { run } from "@stricli/core";
 import { type Forge, timestampMs } from "cabaret-core";
 import { GitBackend, NoForgeError } from "cabaret-node";
-import { onTestFinished } from "vitest";
+import { expect, onTestFinished } from "vitest";
 import { app } from "../../app.js";
 import type { LocalContext } from "../../context.js";
 import { FakeForge } from "./fake-forge.js";
@@ -41,6 +41,13 @@ export interface TestRepo {
   advanceClock(ms: number): void;
 }
 
+/** `dev log`'s stdout for `argv`, asserting the invocation succeeded silently. */
+export async function shownLog(repo: TestRepo, ...argv: string[]): Promise<string> {
+  const { stdout, stderr, exitCode } = await repo.cabaret("dev", "log", ...argv);
+  expect({ stderr, exitCode }).toEqual({ stderr: "", exitCode: 0 });
+  return stdout;
+}
+
 /** The Comments section of a change's show page, or "" when it has none. */
 export async function shownComments(repo: TestRepo, ...argv: string[]): Promise<string> {
   const { stdout } = await repo.cabaret("show", ...argv);
@@ -52,9 +59,14 @@ export async function shownComments(repo: TestRepo, ...argv: string[]): Promise<
   return end === -1 ? stdout.slice(start) : stdout.slice(start, end);
 }
 
-/** Create change `name` stacked on the current branch, with one commit adding `<name>.txt`. */
+/**
+ * Create change `name` stacked on the current branch, with one commit adding
+ * `<name>.txt`, reviewing everyone — pushed ready, so a sync opens its forge
+ * change.
+ */
 export async function addChange(repo: TestRepo, name: string): Promise<void> {
   await repo.cabaret("create", name);
+  await repo.cabaret("reviewing", "set", "everyone", "--change", name);
   await repo.git("checkout", "-q", name);
   await repo.write(`${name}.txt`, `${name} work\n`);
   await repo.git("add", "-A");

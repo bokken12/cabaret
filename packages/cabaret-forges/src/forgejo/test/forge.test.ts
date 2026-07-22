@@ -446,7 +446,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/12/reviews?limit=50&page=1`]: { json: [] },
     });
     expect(
-      await forge().createChange(parseBranchName("new-work"), parseBranchName("parent-branch"), "New work", false),
+      await forge().createChange(parseBranchName("new-work"), parseBranchName("parent-branch"), "New work"),
     ).toEqual({
       id: 12,
       head: "new-work",
@@ -459,32 +459,6 @@ describe("ForgejoForge", () => {
       reviewers: [],
     });
     expect(calls[0]?.body).toBe(JSON.stringify({ head: "new-work", base: "parent-branch", title: "New work" }));
-  });
-
-  test("createChange opens a draft under the work-in-progress prefix", async () => {
-    const calls = stubForgejo({
-      [`POST ${REPO}/pulls`]: { status: 201, json: { number: 13 } },
-      [`GET ${REPO}/pulls/13`]: {
-        json: {
-          number: 13,
-          updated_at: "2026-05-02T10:00:00Z",
-          title: "WIP: Sketch",
-          user: { login: "dave" },
-          state: "open",
-          draft: true,
-          merged: false,
-          merge_commit_sha: null,
-          head: { ref: "sketch", sha: "56789abcdef0123456789abcdef0123456789abc" },
-          base: { ref: "main" },
-          requested_reviewers: null,
-        },
-      },
-      [`GET ${REPO}/pulls/13/reviews?limit=50&page=1`]: { json: [] },
-    });
-    expect((await forge().createChange(parseBranchName("sketch"), parseBranchName("main"), "Sketch", true)).draft).toBe(
-      true,
-    );
-    expect(calls[0]?.body).toBe(JSON.stringify({ head: "sketch", base: "main", title: "WIP: Sketch" }));
   });
 
   test("setParent patches the PR's base branch", async () => {

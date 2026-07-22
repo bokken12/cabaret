@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, shownLog, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -37,17 +37,15 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${parentTip}\n${childTip}`);
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    "
+  `);
 });
 
 test("land takes a change behind its parent when it merges cleanly", async () => {
@@ -69,17 +67,15 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   // The base stays where the reviewed diff was computed, not the tip landed onto.
   const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${createdBase}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"a12744b45f14e8c634ed5853621952f22c519cf4"}}
+    "
+  `);
 });
 
 test("land squashes a change behind its parent to the merged tree", async () => {
@@ -445,18 +441,16 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
     exitCode: 0,
   });
   const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${advanced}","tip":"${rebasedTip}"}}\n` +
-      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52","tip":"507301964aa048e3c7abc9c06e703506da66e2de"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"4b7d5d8dc5ee966b6af2d0a61e06197c6e7f11e1"}}
+    "
+  `);
   // The pinned base keeps the frozen change's diff to its own work.
   expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
     stdout: "parent.txt in child\n\nNothing left to review.\n",
@@ -549,39 +543,36 @@ test("a range lands the whole chain, deepest first", async () => {
     await repo.git("rev-parse", "a"),
     await repo.git("rev-parse", "b"),
   ];
-  expect(await repo.cabaret("dev", "log", "a")).toEqual({
-    stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "b")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
-      `{"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
-      `{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "c")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${bTip}","tip":"${cTip}"}}\n` +
-      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "a")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"land","merge":"5a1836b67314c288a076153aa26a99fd7e7cdf09"}}
+    "
+  `);
+  expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000018,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"land","merge":"1c36ebc08432a44e2e4b3ced6ffe8c2372c7da5f"}}
+    "
+  `);
+  expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5","tip":"cf71bf0d7f3e2f4be8063d5dd5444a4f4ef167ea"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"land","merge":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    "
+  `);
 });
 
 test("a range stops at a failure and a rerun resumes past the landed prefix", async () => {
@@ -644,26 +635,23 @@ test("landing a change reparents its children onto where it landed", async () =>
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("dev", "log", "gizmo")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "widget")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "gizmo")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
+  expect(await shownLog(repo, "widget")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
 });
 
 test("landing leaves landed children where they landed", async () => {
@@ -677,16 +665,14 @@ test("landing leaves landed children where they landed", async () => {
     exitCode: 0,
   });
   // The landed child's parent stays the frozen history it landed into.
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${childMerge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    "
+  `);
 });
 
 test("landing into its own child leaves the cycle for a manual reparent", async () => {
@@ -706,15 +692,14 @@ test("landing into its own child leaves the cycle for a manual reparent", async 
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("dev", "log", "inner")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${outerTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "inner")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"d8e04f0cb85e7ae359016dd142c226595a7d6228"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    "
+  `);
 });
 
 test("a range land carries an outside child down with each landing", async () => {
@@ -729,17 +714,15 @@ test("a range land carries an outside child down with each landing", async () =>
     exitCode: 0,
   });
   // d followed its code: onto a when b landed there, onto main when a landed.
-  expect(await repo.cabaret("dev", "log", "d")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      '{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "d")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000018,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
 });
 
 test("a landed change can still be reviewed and forgotten", async () => {

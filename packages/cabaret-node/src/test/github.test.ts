@@ -90,7 +90,7 @@ describe.skipIf(FIXTURE === undefined || !WRITES)("GitHubForge writes to the liv
         await execFileAsync("gh", ["pr", "close", String(id), "--delete-branch"], { cwd: dir });
       }
     });
-    const created = await forge.createChange(branch, parseBranchName("main"), `live test ${branch}`, false);
+    const created = await forge.createChange(branch, parseBranchName("main"), `live test ${branch}`);
     id = created.id;
     expect(created).toEqual({
       id: expect.any(Number),

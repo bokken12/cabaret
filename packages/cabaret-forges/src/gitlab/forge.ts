@@ -387,15 +387,14 @@ export class GitLabForge implements Forge {
     return this.toChange(found);
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
     // The creation response names the new MR; fetching by its iid —
     // never by head, which could race another MR on the same branch —
-    // reuses the one query that maps an MR. GitLab stores draft state in the
-    // title's prefix, so a draft is created as one.
+    // reuses the one query that maps an MR.
     const data = await this.client.post(`${this.api}/merge_requests`, {
       source_branch: head,
       target_branch: parent,
-      title: draft ? `Draft: ${title}` : title,
+      title,
     });
     return this.getChange(forgeChangeId(z.object({ iid: z.number() }).parse(data).iid));
   }

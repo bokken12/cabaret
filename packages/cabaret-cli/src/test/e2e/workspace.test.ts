@@ -44,14 +44,15 @@ test("workspace add creates a sibling working tree that dir, list, and home repo
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
+    │ gizmo  │      1 │
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬─────────────────╮
-    │ change │ next step       │
-    ├────────┼─────────────────┤
-    │ gizmo  │ widen reviewing │
-    ╰────────┴─────────────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gizmo  │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
     ╭────────┬──────╮

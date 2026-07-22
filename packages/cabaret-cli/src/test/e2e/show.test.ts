@@ -15,9 +15,9 @@ test("show renders the current change's status page", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -45,9 +45,9 @@ test("show renders the comments on a change, oldest first, above the files", asy
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.004Z alice@example.com
+      2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.005Z alice@example.com
+      2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly
@@ -336,7 +336,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     ├───────────┼──────────────────────────────┤
     │ next step │ sync                         │
     │ owner     │ alice@example.com            │
-    │ reviewing │ none                         │
+    │ reviewing │ everyone                     │
     │ parent    │ main                         │
     │ tip       │ f37230616d25 (behind origin) │
     │ base      │ 1ac0b33426d0                 │
@@ -408,7 +408,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     ├───────────┼───────────────────┤
     │ next step │ reparent          │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ gadget (landed)   │
     │ tip       │ 03c72c897f10      │
     │ base      │ f37230616d25      │
@@ -471,7 +471,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     ├───────────┼─────────────────────────────────────┤
     │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
-    │ reviewing │ none                                │
+    │ reviewing │ everyone                            │
     │ parent    │ main                                │
     │ tip       │ 7eccbe63002f (diverged from origin) │
     │ base      │ 1ac0b33426d0                        │
@@ -603,9 +603,9 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ 7eccbe63002f      │
     │ base      │ 1ac0b33426d0      │
