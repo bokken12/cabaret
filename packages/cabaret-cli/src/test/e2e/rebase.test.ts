@@ -110,7 +110,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   await repo.write("shared.txt", "from parent\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "parent work");
-  const oldBase = await repo.git("rev-parse", "parent");
+  const _oldBase = await repo.git("rev-parse", "parent");
   await repo.cabaret("create", "child");
   await repo.git("checkout", "-q", "child");
   await repo.write("shared.txt", "from child\n");
@@ -292,8 +292,8 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   await repo.git("commit", "-qm", "more parent work");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
-  const createdBase = await repo.git("rev-parse", "child~2");
-  const advanced = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "child~2");
+  const _advanced = await repo.git("rev-parse", "parent");
   // The child sits on the parent's tip, so there is nothing to replay; but
   // rebase must still pin the base there, since the merge-base alone would
   // slide back once the parent is rewritten.
@@ -330,24 +330,24 @@ test("rebase fails on a change that does not exist", async () => {
 
 test("a range rebases each change onto its parent, ancestormost first", async () => {
   const repo = await makeRepo();
-  const root = await repo.git("rev-parse", "main");
+  const _root = await repo.git("rev-parse", "main");
   await addChange(repo, "a");
-  const aOld = await repo.git("rev-parse", "a");
+  const _aOld = await repo.git("rev-parse", "a");
   await addChange(repo, "b");
-  const bOld = await repo.git("rev-parse", "b");
+  const _bOld = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
   await repo.git("checkout", "-q", "main");
   await repo.write("trunk.txt", "trunk work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk work");
-  const mainNew = await repo.git("rev-parse", "main");
+  const _mainNew = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
     "Merge branch 'b' into c\nc work\nb work\na work\nroot",
   );
   // Each change merged its parent's merged tip, so the trunk's work reaches
   // the top of the stack and nothing of the parent line is left in a diff.
-  const [aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
+  const [_aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
   expect(await repo.git("rev-parse", "c^2")).toBe(bNew);
   expect(await repo.git("show", "c:trunk.txt")).toBe("trunk work");
   expect(await repo.cabaret("review", "--change", "c", "b.txt")).toEqual({

@@ -18,8 +18,8 @@ test("fetch carries a change's log to a fresh machine verbatim", async () => {
     stderr: "",
     exitCode: 0,
   });
-  const root = await alice.git("rev-parse", "main");
-  const tip = await alice.git("rev-parse", "widgets");
+  const _root = await alice.git("rev-parse", "main");
+  const _tip = await alice.git("rev-parse", "widgets");
   const log = await shownLog(alice, "widgets");
   expect(await shownLog(bob, "widgets")).toBe(log);
   expect(log).toMatchInlineSnapshot(`

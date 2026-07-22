@@ -33,7 +33,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The land advances the parent by exactly the merge, without moving HEAD.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
-  const merge = await repo.git("rev-parse", "parent");
+  const _merge = await repo.git("rev-parse", "parent");
   expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${parentTip}\n${childTip}`);
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
@@ -51,7 +51,7 @@ test("land merges the child into its parent with a marked merge commit", async (
 test("land takes a change behind its parent when it merges cleanly", async () => {
   const repo = await makeStack();
   const childTip = await repo.git("rev-parse", "child");
-  const createdBase = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
@@ -66,7 +66,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   expect(await repo.git("show", "parent:parent.txt")).toBe("parent v2");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   // The base stays where the reviewed diff was computed, not the tip landed onto.
-  const merge = await repo.git("rev-parse", "parent");
+  const _merge = await repo.git("rev-parse", "parent");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
@@ -427,20 +427,20 @@ test("land refuses a diverged parent, moving nothing", async () => {
 
 test("land after an out-of-band rebase pins the base it validated", async () => {
   const repo = await makeStack();
-  const createdBase = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
-  const advanced = await repo.git("rev-parse", "parent");
+  const _advanced = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
-  const rebasedTip = await repo.git("rev-parse", "child");
+  const _rebasedTip = await repo.git("rev-parse", "child");
   expect(await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
-  const merge = await repo.git("rev-parse", "parent");
+  const _merge = await repo.git("rev-parse", "parent");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
     {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
@@ -521,13 +521,13 @@ test("a merge without the land trailer still needs review", async () => {
 
 test("a range lands the whole chain, deepest first", async () => {
   const repo = await makeRepo();
-  const root = await repo.git("rev-parse", "main");
+  const _root = await repo.git("rev-parse", "main");
   await addChange(repo, "a");
-  const aTip = await repo.git("rev-parse", "a");
+  const _aTip = await repo.git("rev-parse", "a");
   await addChange(repo, "b");
-  const bTip = await repo.git("rev-parse", "b");
+  const _bTip = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
-  const cTip = await repo.git("rev-parse", "c");
+  const _cTip = await repo.git("rev-parse", "c");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
@@ -538,7 +538,7 @@ test("a range lands the whole chain, deepest first", async () => {
   expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Land b\na work\nroot");
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
   expect(await repo.git("show", "main:c.txt")).toBe("c work");
-  const [mergeA, mergeB, mergeC] = [
+  const [_mergeA, _mergeB, _mergeC] = [
     await repo.git("rev-parse", "main"),
     await repo.git("rev-parse", "a"),
     await repo.git("rev-parse", "b"),
@@ -627,7 +627,7 @@ test("a range that would land into a landed change refuses before landing anythi
 test("landing a change reparents its children onto where it landed", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  const gadgetTip = await repo.git("rev-parse", "gadget");
+  const _gadgetTip = await repo.git("rev-parse", "gadget");
   await addChange(repo, "gizmo");
   await repo.cabaret("create", "widget", "--parent", "gadget");
   expect(await repo.cabaret("land", "gadget", "--even-though-unreviewed")).toEqual({
@@ -656,9 +656,9 @@ test("landing a change reparents its children onto where it landed", async () =>
 
 test("landing leaves landed children where they landed", async () => {
   const repo = await makeStack();
-  const parentTip = await repo.git("rev-parse", "parent");
+  const _parentTip = await repo.git("rev-parse", "parent");
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  const childMerge = await repo.git("rev-parse", "parent");
+  const _childMerge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "parent", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
@@ -678,7 +678,7 @@ test("landing leaves landed children where they landed", async () => {
 test("landing into its own child leaves the cycle for a manual reparent", async () => {
   const repo = await makeRepo();
   await addChange(repo, "outer");
-  const outerTip = await repo.git("rev-parse", "outer");
+  const _outerTip = await repo.git("rev-parse", "outer");
   await addChange(repo, "inner");
   await repo.git("checkout", "-q", "outer");
   await repo.write("outer2.txt", "more outer work\n");
@@ -706,7 +706,7 @@ test("a range land carries an outside child down with each landing", async () =>
   const repo = await makeRepo();
   await addChange(repo, "a");
   await addChange(repo, "b");
-  const bTip = await repo.git("rev-parse", "b");
+  const _bTip = await repo.git("rev-parse", "b");
   await repo.cabaret("create", "d", "--parent", "b");
   expect(await repo.cabaret("land", "main..b", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: 'reparented "d" onto "a"\nreparented "d" onto "main"\n',
