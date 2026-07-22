@@ -1,5 +1,5 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { currentOwner, transferChange, type UserName } from "cabaret-core";
+import { currentName, currentOwner, transferChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, evenThoughNotOwner, parseUser, resolveChange, writeThrough } from "./shared.js";
 
@@ -14,8 +14,8 @@ export const owner = buildRouteMap({
       },
       async func(this: LocalContext, flags: { change?: string }) {
         const backend = await this.backend();
-        const { name, entries } = await resolveChange(backend, flags.change);
-        this.process.stdout.write(`${currentOwner(name, entries)}\n`);
+        const { id, entries } = await resolveChange(backend, flags.change);
+        this.process.stdout.write(`${currentOwner(currentName(id, entries), entries)}\n`);
       },
     }),
     set: buildCommand({

@@ -8,6 +8,7 @@ import {
   conflictsBetween,
   currentArchived,
   currentBase,
+  currentName,
   currentOwner,
   currentParent,
   currentPermanent,
@@ -32,7 +33,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { allChanges, type NamedChange, requireNamed, resolveNamed } from "./naming.js";
+import { allChanges, type Change, requireNamed, resolveNamed } from "./naming.js";
 import {
   assertObligationsSatisfied,
   isSatisfied,
@@ -102,7 +103,7 @@ export async function createChange(
   const all = await allChanges(backend);
   // Only live claims block the name: archiving releases it, and the archived
   // holder stays reachable by resolution's recency rules.
-  if (all.some((held) => held.name === change && !currentArchived(held.entries))) {
+  if (all.some((held) => currentName(held.id, held.entries) === change && !currentArchived(held.entries))) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
   if (!evenThoughParentArchived) {
@@ -150,7 +151,7 @@ export async function createChange(
 export async function setReviewing(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
   reviewing: Reviewing,
 ): Promise<void> {
   await backend.appendLog(change.id, [
@@ -167,11 +168,13 @@ export async function setReviewing(
 export async function setArchived(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
   archived: boolean,
 ): Promise<void> {
   if (archived && currentPermanent(change.entries)) {
-    throw new UserError(`change is permanent: ${JSON.stringify(change.name)}; run \`cab permanent set false\` first`);
+    throw new UserError(
+      `change is permanent: ${JSON.stringify(currentName(change.id, change.entries))}; run \`cab permanent set false\` first`,
+    );
   }
   await backend.appendLog(change.id, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-archived", archived } },
@@ -185,7 +188,7 @@ export async function setArchived(
 export async function setPermanent(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
   permanent: boolean,
 ): Promise<void> {
   await backend.appendLog(change.id, [
@@ -205,17 +208,18 @@ export async function setPermanent(
 export async function widenReviewing(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
 ): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
   const entries = change.entries;
+  const name = currentName(change.id, entries);
   const from = currentReviewing(entries);
   let to = widerReviewing(from);
   if (to === undefined) {
-    throw new UserError(`everyone is already reviewing ${JSON.stringify(change.name)}`);
+    throw new UserError(`everyone is already reviewing ${JSON.stringify(name)}`);
   }
-  const diff = await changeDiff(backend, change.name, entries);
+  const diff = await changeDiff(backend, name, entries);
   const owes = async (user: UserName): Promise<boolean> => (await reviewLeft(backend, entries, user, diff)).size > 0;
-  const owner = currentOwner(change.name, entries);
+  const owner = currentOwner(name, entries);
   while (to !== "everyone") {
     const added = to === "owner" ? [owner] : currentReviewers(entries).filter((reviewer) => reviewer !== owner);
     let asks = false;
@@ -248,9 +252,9 @@ export async function resolveRange(
   backend: Backend,
   ancestor: ChangeName,
   descendant: ChangeName,
-): Promise<readonly NamedChange[]> {
+): Promise<readonly Change[]> {
   const all = await allChanges(backend);
-  const chain: NamedChange[] = [];
+  const chain: Change[] = [];
   const seen = new Set<ChangeName>();
   let cursor = descendant;
   while (cursor !== ancestor) {
@@ -266,7 +270,7 @@ export async function resolveRange(
       );
     }
     chain.push(found);
-    cursor = currentParent(found.name, found.entries);
+    cursor = currentParent(cursor, found.entries);
   }
   return chain.reverse();
 }
@@ -276,22 +280,23 @@ export async function resolveRange(
  * verifying they form a stack: each change after the first must have its
  * predecessor as its current parent.
  */
-export async function resolveChain(backend: Backend, changes: readonly ChangeName[]): Promise<readonly NamedChange[]> {
+export async function resolveChain(backend: Backend, changes: readonly ChangeName[]): Promise<readonly Change[]> {
   const all = await allChanges(backend);
-  const chain: NamedChange[] = [];
+  const chain: Change[] = [];
+  let previousName: ChangeName | undefined;
   for (const change of changes) {
     const found = requireNamed(all, change);
-    const previous = chain.at(-1);
-    if (previous !== undefined) {
-      const parent = currentParent(found.name, found.entries);
-      if (parent !== previous.name) {
+    if (previousName !== undefined) {
+      const parent = currentParent(change, found.entries);
+      if (parent !== previousName) {
         throw new UserError(
           `not a stack: ${JSON.stringify(change)}'s parent is ` +
-            `${JSON.stringify(parent)}, not ${JSON.stringify(previous.name)}`,
+            `${JSON.stringify(parent)}, not ${JSON.stringify(previousName)}`,
         );
       }
     }
     chain.push(found);
+    previousName = currentName(found.id, found.entries);
   }
   return chain;
 }
@@ -330,14 +335,15 @@ export class DivergedParentError extends UserError {
  * and fails regardless of the override: the override excuses not being the
  * owner, not a broken log.
  */
-export async function requireOwner(backend: Backend, change: NamedChange, override: boolean): Promise<void> {
-  const owner = currentOwner(change.name, change.entries);
+export async function requireOwner(backend: Backend, change: Change, override: boolean): Promise<void> {
+  const name = currentName(change.id, change.entries);
+  const owner = currentOwner(name, change.entries);
   if (override) {
     return;
   }
   const self = await currentSelf(backend);
   if (!isSelf(self, owner)) {
-    throw new NotOwnerError(change.name, owner, self.user);
+    throw new NotOwnerError(name, owner, self.user);
   }
 }
 
@@ -377,12 +383,13 @@ export interface RebaseOverrides {
 export async function rebaseChange(
   backend: Backend,
   now: () => TimestampMs,
-  target: NamedChange,
+  target: Change,
   overrides: RebaseOverrides,
 ): Promise<void> {
   const entries = target.entries;
+  const name = currentName(target.id, entries);
   await requireOwner(backend, target, overrides.notOwner);
-  const parent = currentParent(target.name, entries);
+  const parent = currentParent(name, entries);
   const reading = await freshestReading(backend, parent);
   if (reading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
@@ -391,10 +398,10 @@ export async function rebaseChange(
     throw new DivergedParentError(parent);
   }
   const onto = reading.kind === "fresh" ? reading.tip : reading.local;
-  const base = await changeBase(backend, target.name, entries);
+  const base = await changeBase(backend, name, entries);
   // The merge moves the target's branch, so one held only at origin materializes.
-  const tip = await ensureBranch(backend, target.name);
-  assertNoConflict(target.name, await conflictsBetween(backend, base, tip));
+  const tip = await ensureBranch(backend, name);
+  assertNoConflict(name, await conflictsBetween(backend, base, tip));
   // A tip the base already reaches — the parent trailing where the change
   // was built — offers nothing to move; merging it would reverse-diff the
   // newer history, and pinning to it would slide the base backwards and
@@ -407,18 +414,18 @@ export async function rebaseChange(
   // is no code to move.
   let conflicts: readonly FilePath[] = [];
   if (base !== onto) {
-    conflicts = await backend.mergeOnto(target.name, base, onto, `Merge branch '${parent}' into ${target.name}`);
+    conflicts = await backend.mergeOnto(name, base, onto, `Merge branch '${parent}' into ${name}`);
   }
   // Pin the base to the parent's tip so a later parent rewrite cannot slide
   // it back to an ancestor and pull the parent's commits into the diff.
-  if (currentBase(target.name, entries) !== onto) {
+  if (currentBase(name, entries) !== onto) {
     await backend.appendLog(target.id, [
       { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
     ]);
   }
   if (conflicts.length > 0) {
     throw new UserError(
-      `merging ${JSON.stringify(parent)} into ${JSON.stringify(target.name)} ` +
+      `merging ${JSON.stringify(parent)} into ${JSON.stringify(name)} ` +
         `left conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
     );
   }
@@ -435,7 +442,7 @@ export async function rebaseChange(
 export async function rebaseChain(
   backend: Backend,
   now: () => TimestampMs,
-  chain: readonly NamedChange[],
+  chain: readonly Change[],
   overrides: RebaseOverrides,
 ): Promise<void> {
   for (const change of chain) {
@@ -492,13 +499,14 @@ export interface LandOverrides {
  */
 export async function prepareLand(
   backend: Backend,
-  target: NamedChange,
+  target: Change,
   overrides: LandOverrides,
 ): Promise<PreparedLand> {
   const entries = target.entries;
-  assertNotArchived(target.name, entries);
+  const name = currentName(target.id, entries);
+  assertNotArchived(name, entries);
   await requireOwner(backend, target, overrides.notOwner);
-  const parent = currentParent(target.name, entries);
+  const parent = currentParent(name, entries);
   // An archived parent is set aside — or done, when a land archived it — so
   // landing into it would bury the work. A parent that is not a change (no
   // log) cannot be.
@@ -507,11 +515,11 @@ export async function prepareLand(
   if (currentArchived(parentEntries)) {
     throw landedMerge(parentEntries) !== undefined
       ? new UserError(
-          `${JSON.stringify(target.name)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+          `${JSON.stringify(name)} would land into ${JSON.stringify(parent)}, which has landed; ` +
             "run `cab reparent` first",
         )
       : new UserError(
-          `${JSON.stringify(target.name)} would land into ${JSON.stringify(parent)}, which is archived; ` +
+          `${JSON.stringify(name)} would land into ${JSON.stringify(parent)}, which is archived; ` +
             "run `cab archive --undo` or `cab reparent` first",
         );
   }
@@ -526,10 +534,10 @@ export async function prepareLand(
     throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
   }
   const onto = parentReading.tip;
-  const base = await changeBase(backend, target.name, entries);
-  const tip = await requireTip(backend, target.name);
+  const base = await changeBase(backend, name, entries);
+  const tip = await requireTip(backend, name);
   if (tip === base) {
-    throw new UserError(`nothing to land: ${JSON.stringify(target.name)} has no commits of its own`);
+    throw new UserError(`nothing to land: ${JSON.stringify(name)} has no commits of its own`);
   }
   // A change that landed before lands again only from a base past that land:
   // a diff still spanning landed work would write it onto the parent twice —
@@ -537,29 +545,29 @@ export async function prepareLand(
   const landed = landedMerge(entries);
   if (landed !== undefined && (!(await backend.hasRevision(landed)) || !(await backend.isAncestor(landed, base)))) {
     throw new UserError(
-      `${JSON.stringify(target.name)} landed at ${landed}; run \`cab rebase\` to start its next cycle`,
+      `${JSON.stringify(name)} landed at ${landed}; run \`cab rebase\` to start its next cycle`,
     );
   }
   // Commits that change nothing — say, the merges a reopened change's rebase
   // wrote — would land as an empty commit on the parent.
   if ((await backend.changedFiles(base, tip)).length === 0) {
     throw new UserError(
-      `nothing to land: ${JSON.stringify(target.name)} changes nothing against ${JSON.stringify(parent)}`,
+      `nothing to land: ${JSON.stringify(name)} changes nothing against ${JSON.stringify(parent)}`,
     );
   }
-  assertNoConflict(target.name, await conflictsBetween(backend, base, tip));
+  assertNoConflict(name, await conflictsBetween(backend, base, tip));
   if (base !== onto) {
     const conflicts = await backend.mergeConflicts(base, tip, onto);
     if (conflicts.length > 0) {
       throw new UserError(
-        `${JSON.stringify(target.name)} conflicts with the tip of ${JSON.stringify(parent)} ` +
+        `${JSON.stringify(name)} conflicts with the tip of ${JSON.stringify(parent)} ` +
           `in ${conflicts.join(", ")}; run \`cab rebase\` first`,
       );
     }
   }
   if (!overrides.unreviewed) {
     const diff = await diffBetween(backend, base, tip);
-    await assertObligationsSatisfied(backend, entries, currentOwner(target.name, entries), diff);
+    await assertObligationsSatisfied(backend, entries, currentOwner(name, entries), diff);
   }
   // A trunk parent has no log and owes nothing. The parent's diff is
   // measured to `onto`, the freshest reading the land merges onto.
@@ -624,13 +632,14 @@ export async function prepareLand(
 export async function recordLand(
   backend: Backend,
   now: () => TimestampMs,
-  target: NamedChange,
+  target: Change,
   { base, onto, tip, user, settling }: PreparedLand,
   merge: LandedMerge,
 ): Promise<void> {
   const entries = target.entries;
+  const name = currentName(target.id, entries);
   const pin: LogEntry[] =
-    currentBase(target.name, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
+    currentBase(name, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
   const review = (reviewer: UserName, file: FilePath, from: Revision, to: Revision): LogEntry => ({
     timestamp: now(),
     user: reviewer,
@@ -661,17 +670,17 @@ export async function recordLand(
     let next: Revision;
     if (merge.parents > 1) {
       next = merge.commit;
-      if ((await ensureBranch(backend, target.name)) !== next) {
-        await backend.advance(target.name, next);
+      if ((await ensureBranch(backend, name)) !== next) {
+        await backend.advance(name, next);
       }
     } else {
-      const conflicts = await backend.mergeOnto(target.name, base, merge.commit, `Merge land of '${target.name}'`);
+      const conflicts = await backend.mergeOnto(name, base, merge.commit, `Merge land of '${name}'`);
       if (conflicts.length > 0) {
         throw new Error(
-          `merging ${JSON.stringify(target.name)}'s own landed content conflicted in ${conflicts.join(", ")}`,
+          `merging ${JSON.stringify(name)}'s own landed content conflicted in ${conflicts.join(", ")}`,
         );
       }
-      next = await requireTip(backend, target.name);
+      next = await requireTip(backend, name);
     }
     await backend.appendLog(target.id, [{ timestamp: now(), user, action: { kind: "set-base", base: next } }]);
   }
@@ -698,7 +707,7 @@ export type LandPublication =
 export async function landChange(
   backend: Backend,
   now: () => TimestampMs,
-  target: NamedChange,
+  target: Change,
   method: LandMethod,
   overrides: LandOverrides,
 ): Promise<LandPublication> {
@@ -711,10 +720,11 @@ export async function landChange(
   if ((await ensureBranch(backend, parent)) !== onto) {
     await backend.advance(parent, onto);
   }
+  const message = landMessage(currentName(target.id, target.entries));
   const merge =
     method === "merge"
-      ? await backend.merge(parent, base, onto, tip, landMessage(target.name))
-      : await backend.squash(parent, base, onto, tip, landMessage(target.name));
+      ? await backend.merge(parent, base, onto, tip, message)
+      : await backend.squash(parent, base, onto, tip, message);
   await recordLand(backend, now, target, prepared, {
     commit: merge,
     parents: method === "merge" ? 2 : 1,
@@ -743,8 +753,8 @@ export async function landChange(
  */
 export async function landChain(
   backend: Backend,
-  chain: readonly NamedChange[],
-  land: (change: NamedChange) => Promise<void>,
+  chain: readonly Change[],
+  land: (change: Change) => Promise<void>,
 ): Promise<void> {
   const first = chain[0];
   if (first === undefined) {
@@ -753,21 +763,23 @@ export async function landChain(
   // A live change under an archived one can never reach its ancestor:
   // landing below it would only bury work in a jammed chain, so refuse
   // before any merge moves.
-  let parent = currentParent(first.name, first.entries);
+  const firstName = currentName(first.id, first.entries);
+  let parent = currentParent(firstName, first.entries);
   let parentEntries = resolveNamed(await allChanges(backend), parent)?.entries ?? [];
   for (const change of chain) {
+    const name = currentName(change.id, change.entries);
     if (!currentArchived(change.entries) && currentArchived(parentEntries)) {
       throw landedMerge(parentEntries) !== undefined
         ? new UserError(
-            `${JSON.stringify(change.name)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+            `${JSON.stringify(name)} would land into ${JSON.stringify(parent)}, which has landed; ` +
               "run `cab reparent` first",
           )
         : new UserError(
-            `${JSON.stringify(change.name)} would land into ${JSON.stringify(parent)}, which is archived; ` +
+            `${JSON.stringify(name)} would land into ${JSON.stringify(parent)}, which is archived; ` +
               "run `cab archive --undo` or `cab reparent` first",
           );
     }
-    parent = change.name;
+    parent = name;
     parentEntries = change.entries;
   }
   for (const change of chain.toReversed()) {
@@ -795,20 +807,21 @@ export async function reparentLandedChildren(
   const user = await backend.currentUser();
   const moved: ChangeName[] = [];
   for (const change of await allChanges(backend)) {
+    const name = currentName(change.id, change.entries);
     // `parent` itself can be a child of `landed` when a reparent made the two
     // a cycle; moving it would make it its own parent, so leave the cycle for
     // a manual reparent.
-    if (change.name === parent) {
+    if (name === parent) {
       continue;
     }
     if (
-      currentParent(change.name, change.entries) !== landed ||
+      currentParent(name, change.entries) !== landed ||
       (landedMerge(change.entries) !== undefined && currentArchived(change.entries))
     ) {
       continue;
     }
     await backend.appendLog(change.id, [{ timestamp: now(), user, action: { kind: "set-parent", parent } }]);
-    moved.push(change.name);
+    moved.push(name);
   }
   return moved.sort();
 }
@@ -832,12 +845,12 @@ export interface ReparentOverrides {
 export async function reparentChange(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
   parent: ChangeName,
   overrides: ReparentOverrides,
 ): Promise<void> {
-  if (change.name === parent) {
-    throw new UserError(`change cannot be its own parent: ${JSON.stringify(change.name)}`);
+  if (currentName(change.id, change.entries) === parent) {
+    throw new UserError(`change cannot be its own parent: ${JSON.stringify(parent)}`);
   }
   await requireOwner(backend, change, overrides.notOwner);
   if (!overrides.parentArchived) {
@@ -861,7 +874,7 @@ export async function reparentChange(
 export async function transferChange(
   backend: Backend,
   now: () => TimestampMs,
-  change: NamedChange,
+  change: Change,
   owner: UserName,
   override: boolean,
 ): Promise<void> {

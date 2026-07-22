@@ -4,10 +4,12 @@ import {
   applySetup,
   auditSetup,
   type Backend,
+  type Change,
   type ChangeName,
   checkoutChange,
   createChange,
   currentArchived,
+  currentName,
   currentParent,
   currentSelf,
   DirtyWorkspaceError,
@@ -28,7 +30,6 @@ import {
   type LandOverrides,
   landAsConfigured,
   landChain,
-  type NamedChange,
   NotOwnerError,
   NotReviewingError,
   type RebaseOverrides,
@@ -497,7 +498,11 @@ async function stepUp(provider: PageProvider): Promise<void> {
     vscode.window.showInformationMessage(`cabaret: ${page.change} has no parent`);
     return;
   }
-  await openPage(provider, { kind: "show", change: currentParent(found.name, found.entries), as: page.as });
+  await openPage(provider, {
+    kind: "show",
+    change: currentParent(currentName(found.id, found.entries), found.entries),
+    as: page.as,
+  });
 }
 
 /**
@@ -521,8 +526,9 @@ async function stepDown(provider: PageProvider): Promise<void> {
   const backend = await openBackend();
   const children: ChangeName[] = [];
   for (const other of await allChanges(backend)) {
-    if (currentParent(other.name, other.entries) === page.change) {
-      children.push(other.name);
+    const name = currentName(other.id, other.entries);
+    if (currentParent(name, other.entries) === page.change) {
+      children.push(name);
     }
   }
   if (children.length === 0) {
@@ -1232,7 +1238,7 @@ async function rebaseSelection(backend: Backend, changes: readonly ChangeName[])
 async function landSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const config = await readConfig(backend);
   const landAll = async (overrides: LandOverrides) => {
-    const landOne = async (change: NamedChange) => {
+    const landOne = async (change: Change) => {
       await landAsConfigured(backend, now, openForge, config, change, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
@@ -1759,7 +1765,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // the child's next rebase lands where a rebase onto the grandparent
         // would have.
         const named = await resolveChange(backend, child);
-        const grandparent = currentParent(named.name, named.entries);
+        const grandparent = currentParent(currentName(named.id, named.entries), named.entries);
         // TODO: check ownership of `child` before creating the parent, so a
         // declined ownership confirmation does not leave the new change
         // created but never spliced in.

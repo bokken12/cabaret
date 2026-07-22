@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { assertNoConflict, NotReviewingError, UserError } from "cabaret-core";
+import { assertNoConflict, currentName, NotReviewingError, UserError } from "cabaret-core";
 import { changeSnapshot } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange, selectFiles } from "./shared.js";
@@ -40,13 +40,14 @@ export const mark = buildCommand({
   ) {
     const backend = await this.backend();
     const change = await resolveChange(backend, flags.change);
-    const snapshot = await changeSnapshot(backend, change.name);
-    assertNoConflict(change.name, snapshot.conflicts);
+    const name = currentName(change.id, change.entries);
+    const snapshot = await changeSnapshot(backend, name);
+    assertNoConflict(name, snapshot.conflicts);
     if (!snapshot.asked && !flags.evenThoughNotReviewing) {
-      throw new NotReviewingError(change.name, snapshot.reviewing, snapshot.user);
+      throw new NotReviewingError(name, snapshot.reviewing, snapshot.user);
     }
     if (snapshot.left.size === 0) {
-      throw new UserError(`nothing is left to review in ${JSON.stringify(change.name)}`);
+      throw new UserError(`nothing is left to review in ${JSON.stringify(name)}`);
     }
     const tip = await backend.resolveCommit(flags.tip);
     const files = selectFiles(backend, [...snapshot.left.keys()], args, true, "file with review left");

@@ -6,8 +6,10 @@ import {
   addChangeWorkspace,
   allChanges,
   type Backend,
+  type Change,
   createChange,
   currentArchived,
+  currentName,
   currentParent,
   currentSelf,
   type Forge,
@@ -17,7 +19,6 @@ import {
   knownChanges,
   landAsConfigured,
   landChain,
-  type NamedChange,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -121,14 +122,16 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
       Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
     parent: async (change) => {
       const found = resolveNamed(await allChanges(backend), change);
-      return found === undefined ? undefined : currentParent(found.name, found.entries);
+      return found === undefined ? undefined : currentParent(currentName(found.id, found.entries), found.entries);
     },
     self: () => currentSelf(backend),
     children: async (change) => {
       const all = await allChanges(backend);
       return all
-        .filter((other) => currentParent(other.name, other.entries) === change)
-        .map((other) => other.name)
+        .flatMap((other) => {
+          const name = currentName(other.id, other.entries);
+          return currentParent(name, other.entries) === change ? [name] : [];
+        })
         .sort();
     },
     rebase: async (changes, overrides) => {
@@ -141,7 +144,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     },
     land: async (changes, overrides) => {
       const config = await readConfig(backend);
-      const landOne = async (change: NamedChange): Promise<void> => {
+      const landOne = async (change: Change): Promise<void> => {
         await landAsConfigured(backend, now, openForge, config, change, overrides);
       };
       const only = changes.length === 1 ? changes[0] : undefined;

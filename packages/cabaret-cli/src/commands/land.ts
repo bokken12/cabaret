@@ -1,9 +1,10 @@
 import { buildCommand } from "@stricli/core";
 import {
+  currentName,
   currentParent,
   landAsConfigured,
   landChain,
-  type NamedChange,
+  type Change,
   readConfig,
   reconcileChange,
   resolveRange,
@@ -74,7 +75,7 @@ export const land = buildCommand({
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
-    const landOne = async (change: NamedChange) => {
+    const landOne = async (change: Change) => {
       // Lands write through like any command: the reconcile settles the
       // forge change — a pending retarget included — before the land reads
       // it, and the land proceeds on the settled log.
@@ -96,7 +97,7 @@ export const land = buildCommand({
           parentUnreviewed: flags.evenThoughParentUnreviewed,
         },
       );
-      const parent = currentParent(current.name, current.entries);
+      const parent = currentParent(currentName(current.id, current.entries), current.entries);
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
       }

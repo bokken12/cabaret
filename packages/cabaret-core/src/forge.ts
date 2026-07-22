@@ -6,6 +6,7 @@ import {
   compareLogEntries,
   currentArchived,
   currentForgeChange,
+  currentName,
   currentParent,
   currentPermanent,
   currentReviewers,
@@ -32,7 +33,7 @@ import {
 } from "./backend.js";
 import type { Config, LandMethod } from "./config.js";
 import { UserError } from "./error.js";
-import { allChanges, type NamedChange, requireNamed } from "./naming.js";
+import { allChanges, type Change, requireNamed } from "./naming.js";
 import {
   type LandOverrides,
   type LandPublication,
@@ -551,9 +552,10 @@ function adoptionEntries(
   user: UserName,
   locator: ForgeLocator,
   forgeChange: ForgeChange,
-  change: NamedChange,
+  change: Change,
 ): LogEntry[] {
   const entries = change.entries;
+  const name = currentName(change.id, entries);
   const adoption: LogEntry[] = [
     {
       timestamp: now(),
@@ -562,7 +564,7 @@ function adoptionEntries(
       action: { kind: "set-forge", forge: locator, id: forgeChange.id },
     },
   ];
-  if (forgeChange.parent === currentParent(change.name, entries)) {
+  if (forgeChange.parent === currentParent(name, entries)) {
     adoption.push({
       timestamp: now(),
       user,
@@ -587,13 +589,13 @@ export async function syncedForgeChange(
   now: () => TimestampMs,
   user: UserName,
   forge: Forge,
-  change: NamedChange,
+  change: Change,
 ): Promise<ForgeChange | undefined> {
   const recorded = currentForgeChange(change.entries);
   if (recorded !== undefined && recorded.forge === forge.locator) {
     return forge.getChange(recorded.id);
   }
-  const found = await forge.findChange(change.name);
+  const found = await forge.findChange(currentName(change.id, change.entries));
   if (found !== undefined) {
     await backend.appendLog(change.id, adoptionEntries(now, user, forge.locator, found, change));
   }
@@ -613,12 +615,13 @@ export async function landOnForge(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
-  change: NamedChange,
+  change: Change,
   forgeChange: ForgeChange,
   method: LandMethod,
   overrides: LandOverrides,
 ): Promise<Revision> {
   const entries = change.entries;
+  const name = currentName(change.id, entries);
   if (forgeChange.state === "merged") {
     throw new UserError(`${forge.locator}#${forgeChange.id} was already merged; run \`cab sync\` to record the land`);
   }
@@ -627,12 +630,12 @@ export async function landOnForge(
       `${forge.locator}#${forgeChange.id} is closed; reopen it, or land locally (cab config land-via local)`,
     );
   }
-  if (forgeChange.head !== change.name) {
+  if (forgeChange.head !== name) {
     throw new UserError(
       `${forge.locator}#${forgeChange.id} merges ${JSON.stringify(forgeChange.head)}, not this change`,
     );
   }
-  const parent = currentParent(change.name, entries);
+  const parent = currentParent(name, entries);
   if (forgeChange.parent !== parent) {
     throw new UserError(
       `${forge.locator}#${forgeChange.id} merges into ${JSON.stringify(forgeChange.parent)}, ` +
@@ -643,15 +646,15 @@ export async function landOnForge(
   const prepared = await prepareLand(backend, change, overrides);
   if (forgeChange.tip !== prepared.tip) {
     throw new UserError(
-      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(change.name)}'s tip; run \`cab sync\` first`,
+      `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(name)}'s tip; run \`cab sync\` first`,
     );
   }
   const merge = await forge.landChange(
     forgeChange.id,
     method,
     prepared.tip,
-    landTitle(change.name),
-    landTrailer(change.name),
+    landTitle(name),
+    landTrailer(name),
   );
   // Fetch before recording: the settling entries read the merge commit, which
   // arrives with the parent.
@@ -718,7 +721,7 @@ async function retargetLandedChildren(
     await backend.appendLog(child.id, [
       { timestamp: now(), user, source: { forge: forge.locator }, action: { kind: "set-parent", parent: onto } },
     ]);
-    retargeted.push({ change: child.name, forge: forge.locator, id: tracked.id });
+    retargeted.push({ change: name, forge: forge.locator, id: tracked.id });
   }
   return retargeted;
 }
@@ -737,10 +740,11 @@ export async function landAsConfigured(
   now: () => TimestampMs,
   openForge: () => Promise<Forge>,
   config: Config,
-  change: NamedChange,
+  change: Change,
   overrides: LandOverrides,
 ): Promise<LandOutcome> {
   const entries = change.entries;
+  const name = currentName(change.id, entries);
   const viaForge =
     config.landVia === "forge" || (config.landVia === "auto" && currentForgeChange(entries) !== undefined);
   let merged: LandOutcome["merged"];
@@ -753,7 +757,7 @@ export async function landAsConfigured(
     const forgeChange = await syncedForgeChange(backend, now, await backend.currentUser(), forge, change);
     if (forgeChange === undefined) {
       throw new UserError(
-        `no forge change for ${JSON.stringify(change.name)} on ${forge.locator}; run \`cab sync\` first`,
+        `no forge change for ${JSON.stringify(name)} on ${forge.locator}; run \`cab sync\` first`,
       );
     }
     await landOnForge(backend, now, forge, change, forgeChange, config.landMethod, overrides);
@@ -762,8 +766,8 @@ export async function landAsConfigured(
   if (currentPermanent(entries)) {
     return { merged, reparented: undefined, publication };
   }
-  const onto = currentParent(change.name, entries);
-  const children = await reparentLandedChildren(backend, now, change.name, onto);
+  const onto = currentParent(name, entries);
+  const children = await reparentLandedChildren(backend, now, name, onto);
   const retargeted = forge === undefined ? [] : await retargetLandedChildren(backend, now, forge, children, onto);
   return { merged, reparented: children.length > 0 ? { onto, children, retargeted } : undefined, publication };
 }
@@ -814,7 +818,7 @@ export async function absorbForgeChange(
   now: () => TimestampMs,
   user: UserName,
   forge: Forge,
-  change: NamedChange,
+  change: Change,
   forgeChange: ForgeChange,
   comments?: readonly ForgeComment[],
 ): Promise<AbsorbResult> {
@@ -993,7 +997,7 @@ export async function fetchForge(
   // forge changes nobody holds.
   await backend.syncLogs();
   const tracked = await allChanges(backend);
-  const trackedNames = tracked.map((change) => change.name);
+  const trackedNames = tracked.map((change) => currentName(change.id, change.entries));
   for (const change of await backend.joinBranches(trackedNames)) {
     onEvent({ kind: "joined", change });
   }
@@ -1075,10 +1079,11 @@ export async function fetchForge(
   // appends only its own log, so refreshing the batch concurrently costs one
   // round trip's latency, not `tracked.length`'s; `onEvent` fires in
   // whatever order the changes finish in, not `tracked`'s.
-  type PruneCandidate = { readonly change: NamedChange; readonly id: ForgeChangeId; readonly archived: boolean };
+  type PruneCandidate = { readonly change: Change; readonly id: ForgeChangeId; readonly archived: boolean };
   const refreshed = await Promise.all(
     tracked.map(async (change): Promise<PruneCandidate | undefined> => {
       const entries = change.entries;
+      const name = currentName(change.id, entries);
       // A finished change converged when its land archived it; one that
       // landed but lives on — permanent structure — keeps syncing.
       if (finished(entries)) {
@@ -1095,7 +1100,7 @@ export async function fetchForge(
         if (
           bulk === undefined &&
           sweep.coverage === "since" &&
-          !unpublishedIntent(forge.locator, change.name, entries)
+          !unpublishedIntent(forge.locator, name, entries)
         ) {
           // Absent from a since sweep with nothing pending: converged.
           return undefined;
@@ -1106,14 +1111,14 @@ export async function fetchForge(
       } else {
         // An untracked branch's open forge change is adopted without asking
         // the forge change by change.
-        bulk = byHead.get(change.name);
+        bulk = byHead.get(name);
         if (bulk !== undefined) {
           forgeChange = bulk.change;
           await backend.appendLog(change.id, adoptionEntries(now, user, forge.locator, forgeChange, change));
         } else if (
           currentArchived(entries) ||
           currentReviewing(entries) === "none" ||
-          (await backend.originTip(change.name)) === undefined
+          (await backend.originTip(name)) === undefined
         ) {
           return undefined;
         } else {
@@ -1134,7 +1139,7 @@ export async function fetchForge(
       const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
       if (forgeChange !== undefined) {
         const absorbed = await absorbForgeChange(backend, now, user, forge, change, forgeChange, comments);
-        onEvent({ kind: "absorbed", id: forgeChange.id, change: change.name, ...absorbed });
+        onEvent({ kind: "absorbed", id: forgeChange.id, change: name, ...absorbed });
       }
       const published = await publishForgeChange(
         backend,
@@ -1153,7 +1158,7 @@ export async function fetchForge(
           published.state !== undefined ||
           published.archived !== undefined)
       ) {
-        onEvent({ kind: "published", change: change.name, ...published });
+        onEvent({ kind: "published", change: name, ...published });
       }
       return undefined;
     }),
@@ -1188,11 +1193,12 @@ export async function fetchForge(
   // so engagement published from another machine counts. An engaged change
   // keeps its log; the close it mirrored in as archived is reported instead.
   for (const { change, id, archived } of pruneCandidates) {
+    const name = currentName(change.id, change.entries);
     if (pureImport(await backend.readLog(change.id))) {
       await backend.deleteLog(change.id);
-      onEvent({ kind: "pruned", id, change: change.name });
+      onEvent({ kind: "pruned", id, change: name });
     } else if (archived) {
-      onEvent({ kind: "archived", id, change: change.name });
+      onEvent({ kind: "archived", id, change: name });
     }
   }
 
@@ -1229,12 +1235,13 @@ export async function publishForgeChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge,
-  change: NamedChange,
+  change: Change,
   found: ForgeChange | undefined,
   comments?: readonly ForgeComment[],
 ): Promise<PublishResult | undefined> {
   const entries = change.entries;
-  const parent = currentParent(change.name, entries);
+  const name = currentName(change.id, entries);
+  const parent = currentParent(name, entries);
   const user = await backend.currentUser();
   // Whenever publishing sets the forge's parent — at creation or by a
   // retarget — the log records the observation, so a later absorb can
@@ -1255,11 +1262,11 @@ export async function publishForgeChange(
     if (
       currentArchived(entries) ||
       currentReviewing(entries) === "none" ||
-      (await backend.originTip(change.name)) === undefined
+      (await backend.originTip(name)) === undefined
     ) {
       return undefined;
     }
-    forgeChange = await forge.createChange(change.name, parent, change.name);
+    forgeChange = await forge.createChange(name, parent, name);
     await backend.appendLog(change.id, [
       {
         timestamp: now(),

@@ -1,17 +1,14 @@
-import {
-  type Backend,
-  type ChangeId,
-  type ChangeName,
-  currentArchived,
-  currentName,
-  type LogEntry,
-} from "./backend.js";
+import { type Backend, type ChangeId, type ChangeName, currentArchived, currentName, type LogEntry } from "./backend.js";
 import { UserError } from "./error.js";
 
-/** A change resolved by name: its identity, current name, and log. */
-export interface NamedChange {
+/**
+ * A change in hand: its identity and its log, as read at resolution time.
+ * The id is the one fact not derivable from the log — everything else
+ * (name, owner, parent, …) is a fold over `entries`, computed where it is
+ * used so it can never disagree with the log it came from.
+ */
+export interface Change {
   readonly id: ChangeId;
-  readonly name: ChangeName;
   readonly entries: readonly LogEntry[];
 }
 
@@ -25,17 +22,15 @@ export interface NamedChange {
  * once; a verify-on-use name index should replace the sweeps before repos
  * grow large.
  */
-export async function allChanges(backend: Backend): Promise<readonly NamedChange[]> {
-  const changes: NamedChange[] = [];
+export async function allChanges(backend: Backend): Promise<readonly Change[]> {
+  const changes: Change[] = [];
   for (const id of await backend.listChanges()) {
-    const entries = await backend.readLog(id);
-    const name = currentName(entries);
-    if (name === undefined) {
-      throw new Error(`log has no name: ${id}`);
-    }
-    changes.push({ id, name, entries });
+    changes.push({ id, entries: await backend.readLog(id) });
   }
-  return changes.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : 1));
+  return changes
+    .map((change) => ({ change, name: currentName(change.id, change.entries) }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.change.id < b.change.id ? -1 : 1))
+    .map(({ change }) => change);
 }
 
 /** When the change last moved: its latest entry's timestamp. */
@@ -53,8 +48,8 @@ function lastActivity(entries: readonly LogEntry[]): number {
  * TODO: fetch should nudge the later claimant of a live collision; until
  * the rename command exists, the ambiguity error is the only surface.
  */
-export function resolveNamed(changes: readonly NamedChange[], name: ChangeName): NamedChange | undefined {
-  const claims = changes.filter((change) => change.name === name);
+export function resolveNamed(changes: readonly Change[], name: ChangeName): Change | undefined {
+  const claims = changes.filter((change) => currentName(change.id, change.entries) === name);
   if (claims.length <= 1) {
     return claims[0];
   }
@@ -78,7 +73,7 @@ export function resolveNamed(changes: readonly NamedChange[], name: ChangeName):
  * id" advice resolves. Names win: prefixes only match when no change wears
  * the name.
  */
-export function requireNamed(changes: readonly NamedChange[], name: ChangeName): NamedChange {
+export function requireNamed(changes: readonly Change[], name: ChangeName): Change {
   const found = resolveNamed(changes, name);
   if (found !== undefined) {
     return found;
@@ -103,6 +98,6 @@ export function requireNamed(changes: readonly NamedChange[], name: ChangeName):
 }
 
 /** Resolve `name` to its change, failing when no change claims it. */
-export async function resolveChange(backend: Backend, name: ChangeName): Promise<NamedChange> {
+export async function resolveChange(backend: Backend, name: ChangeName): Promise<Change> {
   return requireNamed(await allChanges(backend), name);
 }

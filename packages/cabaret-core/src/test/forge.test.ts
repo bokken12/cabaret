@@ -47,8 +47,10 @@ test("publish resolves its identity before mutating the forge", async () => {
       { locator: FORGE, createChange } as unknown as Forge,
       {
         id: parseChangeId("0".repeat(32)),
-        name: change,
-        entries: [{ timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } }],
+        entries: [
+          { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-name", name: change } },
+          { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } },
+        ],
       },
       undefined,
     ),

@@ -8,6 +8,7 @@ import {
   changeConflicts,
   currentArchived,
   currentForgeChange,
+  currentName,
   currentOwner,
   currentParent,
   currentPermanent,
@@ -34,7 +35,7 @@ import {
 } from "./backend.js";
 import { diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
-import { allChanges, type NamedChange, resolveNamed } from "./naming.js";
+import { allChanges, type Change, resolveNamed } from "./naming.js";
 import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
@@ -146,13 +147,14 @@ export interface ChangeSummary {
  */
 export async function summarizeChange(
   backend: Backend,
-  change: NamedChange,
+  change: Change,
   user: UserName,
   diff: ChangeDiff,
-  all: readonly NamedChange[],
+  all: readonly Change[],
 ): Promise<ChangeSummary> {
   const entries = change.entries;
-  const parent = currentParent(change.name, entries);
+  const name = currentName(change.id, entries);
+  const parent = currentParent(name, entries);
   const landed = landedMerge(entries);
   const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
@@ -174,7 +176,7 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
-    origin = await originStanding(backend, change.name, tip);
+    origin = await originStanding(backend, name, tip);
     const parentEntries = resolveNamed(all, parent)?.entries ?? [];
     if (finished(parentEntries)) {
       deadParent = "landed";
@@ -213,9 +215,9 @@ export async function summarizeChange(
   }
   const readings = {
     kind: "change" as const,
-    change: change.name,
+    change: name,
     parent,
-    owner: currentOwner(change.name, entries),
+    owner: currentOwner(name, entries),
     reviewers: currentReviewers(entries),
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
@@ -290,9 +292,11 @@ export async function summarizeTrunk(backend: Backend, change: ChangeName): Prom
  */
 export async function knownChanges(backend: Backend): Promise<readonly ChangeName[]> {
   const changes = await allChanges(backend);
-  const names = new Set<ChangeName>(changes.map((change) => change.name));
+  const names = new Set<ChangeName>();
   for (const change of changes) {
-    names.add(currentParent(change.name, change.entries));
+    const name = currentName(change.id, change.entries);
+    names.add(name);
+    names.add(currentParent(name, change.entries));
   }
   return [...names].sort();
 }

@@ -1,5 +1,6 @@
 import {
   type Backend,
+  currentName,
   type ChangeName,
   conflictsBetween,
   ensureBranch,
@@ -16,7 +17,7 @@ import {
   publishForgeChange,
   syncedForgeChange,
 } from "./forge.js";
-import { allChanges, type NamedChange } from "./naming.js";
+import { allChanges, type Change } from "./naming.js";
 import { assertNoConflict, pushAdvances } from "./ops.js";
 
 /** What the ambient half of a fetch moved, for hosts to narrate. */
@@ -44,7 +45,7 @@ export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   const syncedIds = new Set(await backend.syncLogs());
   const synced = (await allChanges(backend))
     .filter((change) => syncedIds.has(change.id))
-    .map((change) => change.name)
+    .map((change) => currentName(change.id, change.entries))
     .sort();
   const joined = await backend.joinBranches(synced);
   return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
@@ -119,7 +120,7 @@ export async function reconcileChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge | undefined,
-  change: NamedChange,
+  change: Change,
 ): Promise<ReconcileResult> {
   try {
     await backend.syncLog(change.id);
@@ -168,17 +169,18 @@ export async function syncChange(
   backend: Backend,
   now: () => TimestampMs,
   forge: Forge | undefined,
-  change: NamedChange,
+  change: Change,
 ): Promise<SyncResult> {
+  const name = currentName(change.id, change.entries);
   try {
     await backend.fetchOrigin();
   } catch (error) {
     if (!isConnectivityError(error)) {
       throw error;
     }
-    return { offline: true, joined: await joinBranch(backend, change.name), absorbed: undefined, published: undefined };
+    return { offline: true, joined: await joinBranch(backend, name), absorbed: undefined, published: undefined };
   }
-  const joined = await joinBranch(backend, change.name);
-  await backend.push(change.name);
+  const joined = await joinBranch(backend, name);
+  await backend.push(name);
   return { joined, ...(await reconcileChange(backend, now, forge, change)) };
 }

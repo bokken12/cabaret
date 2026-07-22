@@ -50,7 +50,7 @@ test("resolveChain links a stack ancestormost first, with each change's log", as
   };
   const changes = ["feature", "feature-tests", "feature-docs"].map(parseBranchName);
   expect(await resolveChain(logBackend(logs), changes)).toEqual(
-    changes.map((name, index) => ({ id: changeId(index), name, entries: logs[name] })),
+    changes.map((name, index) => ({ id: changeId(index), entries: logs[name] })),
   );
 });
 
@@ -65,7 +65,7 @@ test("resolveChain follows a reparent over the original parent", async () => {
   };
   const changes = ["base", "moved"].map(parseBranchName);
   expect(await resolveChain(logBackend(logs), changes)).toEqual(
-    changes.map((name, index) => ({ id: changeId(index), name, entries: logs[name] })),
+    changes.map((name, index) => ({ id: changeId(index), entries: logs[name] })),
   );
 });
 

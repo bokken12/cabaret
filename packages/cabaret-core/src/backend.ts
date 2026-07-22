@@ -869,9 +869,13 @@ export function assertChangeExists(change: ChangeName, entries: readonly LogEntr
   }
 }
 
-/** The name from the log's latest `set-name`, or undefined when the log never recorded one. */
-export function currentName(entries: readonly LogEntry[]): ChangeName | undefined {
-  return latestAction(entries, "set-name")?.name;
+/** The name from the log's latest `set-name`; `create` starts every log with one, so a missing name is an error. */
+export function currentName(change: ChangeId, entries: readonly LogEntry[]): ChangeName {
+  const action = latestAction(entries, "set-name");
+  if (action === undefined) {
+    throw new Error(`log has no name: ${change}`);
+  }
+  return action.name;
 }
 
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */

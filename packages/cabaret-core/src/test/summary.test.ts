@@ -251,7 +251,15 @@ async function summarize(
   entries: readonly LogEntry[],
   user: UserName,
 ): Promise<ChangeSummary> {
-  const named = { id: parseChangeId("0".repeat(32)), name: change, entries };
+  const named = {
+    id: parseChangeId("0".repeat(32)),
+    // Tests hand entries straight to the summary; the name every real log
+    // starts with is synthesized here the way `repoBackend` does for its.
+    entries: [
+      { timestamp: timestampMs(0), user: userName("alice@example.com"), action: { kind: "set-name", name: change } },
+      ...entries,
+    ] as const,
+  };
   const all = [named, ...(await allChanges(backend))];
   return summarizeChange(backend, named, user, await changeDiff(backend, change, entries), all);
 }

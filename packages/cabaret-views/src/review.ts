@@ -7,6 +7,7 @@ import {
   type ChangeName,
   changeConflicts,
   changeDiff,
+  currentName,
   currentReviewing,
   type DiffView,
   defaultContext,
@@ -79,7 +80,7 @@ export async function changeSnapshot(backend: Backend, change: ChangeName, as?: 
   // nothing reviewed — it just has no id to record review against.
   const named = resolveNamed(await allChanges(backend), change);
   const entries = named?.entries ?? [];
-  const name = named?.name ?? change;
+  const name = named === undefined ? change : currentName(named.id, named.entries);
   const [diff, acting] = await Promise.all([changeDiff(backend, name, entries), selfAs(backend, as)]);
   return {
     id: named?.id,
