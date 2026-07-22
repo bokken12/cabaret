@@ -1,5 +1,4 @@
 import {
-  allChanges,
   type Backend,
   type ChangeComment,
   type ChangedFile,
@@ -14,7 +13,6 @@ import {
   type LandMerge,
   obligationsReading,
   type ReviewerTally,
-  resolveNamed,
   reviewerTallies,
   selfAs,
   shortHash,
@@ -48,15 +46,14 @@ export interface ShowPage {
 
 /** Query the show page for `change`, read as the current user or as `as`. */
 export async function showPage(backend: Backend, change: ChangeName, as?: UserName): Promise<ShowPage> {
-  const all = await allChanges(backend);
-  const found = resolveNamed(all, change);
+  const entries = await backend.readLog(change);
   const acting = await selfAs(backend, as);
   const fetched = await backend.originFetched();
-  if (found === undefined) {
+  if (entries.length === 0) {
     // A branch with no log still names a line of history worth viewing; its
     // log-borne sections are simply empty.
     return {
-      summary: await summarizeTrunk(backend, change, all),
+      summary: await summarizeTrunk(backend, change),
       as: acting.as,
       comments: [],
       remaining: [],
@@ -64,9 +61,8 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
       fetched,
     };
   }
-  const entries = found.entries;
-  const diff = await changeDiff(backend, found);
-  const summary = await summarizeChange(backend, found, acting.self.user, diff, all);
+  const diff = await changeDiff(backend, change, entries);
+  const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
   // An archived change asks nothing while set aside — a land settles what
   // it archives — and a malformed policy tallies nobody: the next step row
   // already says whose fix it awaits.

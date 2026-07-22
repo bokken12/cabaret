@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { assertChangeExists, type ChangeName, knownChanges, lookupChange } from "cabaret-core";
+import { assertChangeExists, type ChangeName, knownChanges } from "cabaret-core";
 import { showDoc, showPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { writeDoc } from "./shared.js";
@@ -29,7 +29,7 @@ export const show = buildCommand({
       // anywhere else keeps the nudge toward creating a change, though
       // naming the branch outright still shows it.
       if (!(await knownChanges(backend)).includes(target)) {
-        assertChangeExists(target, (await lookupChange(backend, target))?.entries ?? []);
+        assertChangeExists(target, await backend.readLog(target));
       }
     } else {
       target = backend.parseName(change);

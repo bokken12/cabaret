@@ -4,13 +4,11 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
-  type ChangeId,
-  currentParentRef,
+  currentParent,
   formatLogEntry,
   type LogAction,
   type LogEntry,
   parseBranchName,
-  parseChangeId,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -64,11 +62,10 @@ function entry(timestamp: number, user: string, action: LogAction): LogEntry {
 }
 
 function setParent(timestamp: number, user: string, parent: string): LogEntry {
-  return entry(timestamp, user, { kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } });
+  return entry(timestamp, user, { kind: "set-parent", parent: parseBranchName(parent) });
 }
 
-// Fixed ids, so assertions on sorted listings stay deterministic.
-const WIDGETS = parseChangeId("ab".repeat(16));
+const WIDGETS = parseBranchName("widgets");
 
 interface LogState {
   readonly blob: string;
@@ -76,7 +73,7 @@ interface LogState {
 }
 
 /** Both machines' logs for `change`, as bytes and refs, for convergence checks. */
-async function logStates(machines: readonly [Machine, Machine], change: ChangeId): Promise<[LogState, LogState]> {
+async function logStates(machines: readonly [Machine, Machine], change: string): Promise<[LogState, LogState]> {
   const state = async ({ git }: Machine): Promise<LogState> => ({
     blob: await git("cat-file", "blob", `refs/cabaret/log/${change}:log`),
     ref: await git("rev-parse", `refs/cabaret/log/${change}`),
@@ -93,7 +90,7 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", async () 
   await b.backend.fetchOrigin();
   await b.backend.syncLog(WIDGETS);
   expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
-  const [stateA, stateB] = await logStates([a, b], WIDGETS);
+  const [stateA, stateB] = await logStates([a, b], "widgets");
   expect(stateB).toEqual(stateA);
 });
 
@@ -131,13 +128,12 @@ test("concurrent appends converge to byte-identical logs, ties resolved alike", 
   const merged = [shared, aParent, bParent];
   expect(await a.backend.readLog(WIDGETS)).toEqual(merged);
   expect(await b.backend.readLog(WIDGETS)).toEqual(merged);
-  const [stateA, stateB] = await logStates([a, b], WIDGETS);
+  const [stateA, stateB] = await logStates([a, b], "widgets");
   expect(stateA).toEqual(stateB);
   expect(stateA.blob).toBe(merged.map(formatLogEntry).join("").trimEnd());
   // The tie breaks on the serialized entry, identically on both machines.
-  const trunkB = { kind: "branch", name: parseBranchName("trunk-b") };
-  expect(currentParentRef(WIDGETS, await a.backend.readLog(WIDGETS))).toEqual(trunkB);
-  expect(currentParentRef(WIDGETS, await b.backend.readLog(WIDGETS))).toEqual(trunkB);
+  expect(currentParent(WIDGETS, await a.backend.readLog(WIDGETS))).toBe("trunk-b");
+  expect(currentParent(WIDGETS, await b.backend.readLog(WIDGETS))).toBe("trunk-b");
 });
 
 test("a converged log syncs as a no-op", async () => {
@@ -146,10 +142,10 @@ test("a converged log syncs as a no-op", async () => {
   await a.backend.syncLog(WIDGETS);
   await b.backend.fetchOrigin();
   await b.backend.syncLog(WIDGETS);
-  const before = await logStates([a, b], WIDGETS);
+  const before = await logStates([a, b], "widgets");
   await a.backend.syncLog(WIDGETS);
   await b.backend.syncLog(WIDGETS);
-  expect(await logStates([a, b], WIDGETS)).toEqual(before);
+  expect(await logStates([a, b], "widgets")).toEqual(before);
 });
 
 test("appends after convergence flow both ways as fast-forwards", async () => {
@@ -164,23 +160,21 @@ test("appends after convergence flow both ways as fast-forwards", async () => {
   await a.backend.fetchOrigin();
   await a.backend.syncLog(WIDGETS);
   expect(await a.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main"), late]);
-  const [stateA, stateB] = await logStates([a, b], WIDGETS);
+  const [stateA, stateB] = await logStates([a, b], "widgets");
   expect(stateA).toEqual(stateB);
 });
 
 test("syncLogs sweeps every change, local and remote alike, sorted", async () => {
   const [a, b] = await makeMachines();
-  const API = parseChangeId("11".repeat(16));
-  const DOCS = parseChangeId("22".repeat(16));
   expect(await a.backend.syncLogs()).toEqual([]);
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
-  await a.backend.appendLog(API, [setParent(1001, "alice@example.com", "main")]);
-  expect(await a.backend.syncLogs()).toEqual([API, WIDGETS]);
-  await b.backend.appendLog(DOCS, [setParent(1002, "bob@example.com", "main")]);
+  await a.backend.appendLog(parseBranchName("api"), [setParent(1001, "alice@example.com", "main")]);
+  expect(await a.backend.syncLogs()).toEqual(["api", "widgets"]);
+  await b.backend.appendLog(parseBranchName("docs"), [setParent(1002, "bob@example.com", "main")]);
   await b.backend.fetchOrigin();
-  expect(await b.backend.syncLogs()).toEqual([API, DOCS, WIDGETS]);
+  expect(await b.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
   expect(await b.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main")]);
   await a.backend.fetchOrigin();
-  expect(await a.backend.syncLogs()).toEqual([API, DOCS, WIDGETS]);
-  expect(await a.backend.readLog(DOCS)).toEqual([setParent(1002, "bob@example.com", "main")]);
+  expect(await a.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
+  expect(await a.backend.readLog(parseBranchName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
 });

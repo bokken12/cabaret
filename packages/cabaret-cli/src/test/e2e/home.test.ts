@@ -230,7 +230,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
   await requireReviewers(repo, "bob@example.com");
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "set", "everyone");
-  await repo.git("push", "-q", "origin", "main", "gadget", "refs/cabaret/log/*:refs/cabaret/log/*");
+  await repo.git("push", "-q", "origin", "main", "gadget", "refs/cabaret/log/gadget:refs/cabaret/log/gadget");
   // The clone holds gadget's log and origin's copy of its branch, but no
   // local branch: the state adoption leaves a second machine in.
   const clone = await makeClone(repo, "bob@example.com");

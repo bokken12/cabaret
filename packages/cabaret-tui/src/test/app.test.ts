@@ -5,7 +5,6 @@ import {
   NotOwnerError,
   NotReviewingError,
   parseBranchName,
-  parseChangeId,
   parseCommitHash,
   parseFilePath,
   UnsatisfiedObligationsError,
@@ -31,7 +30,6 @@ function fileView(): FileView {
 /** A snapshot with review pending over `files`, reviewed by alice. */
 function reviewState(files: readonly FilePath[]): ChangeSnapshot {
   return {
-    id: parseChangeId("ab".repeat(16)),
     change: widgets,
     user: userName("alice@example.com"),
     as: undefined,

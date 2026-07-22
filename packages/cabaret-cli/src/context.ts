@@ -1,5 +1,5 @@
 import type { CommandContext, StricliProcess } from "@stricli/core";
-import { type Backend, type ChangeId, type Forge, mintChangeId, type TimestampMs, timestampMs } from "cabaret-core";
+import { type Backend, type Forge, type TimestampMs, timestampMs } from "cabaret-core";
 import { openBackend, openForge } from "cabaret-node";
 
 /**
@@ -14,8 +14,6 @@ export interface LocalContext extends CommandContext {
   readonly forge: () => Promise<Forge>;
   /** The current time. */
   readonly now: () => TimestampMs;
-  /** Mint the identity of a newly created change. */
-  readonly mint: () => ChangeId;
 }
 
 export function buildContext(process: NodeJS.Process): LocalContext {
@@ -28,6 +26,5 @@ export function buildContext(process: NodeJS.Process): LocalContext {
     backend: () => openBackend(process.cwd()),
     forge: () => openForge(process.cwd()),
     now: () => timestampMs(Date.now()),
-    mint: mintChangeId,
   };
 }

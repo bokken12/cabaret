@@ -1,7 +1,13 @@
-import { type Backend, type ChangeName, currentArchived, ensureBranch, type Workspace } from "./backend.js";
+import {
+  assertChangeExists,
+  type Backend,
+  type ChangeName,
+  currentArchived,
+  ensureBranch,
+  type Workspace,
+} from "./backend.js";
 import type { Config } from "./config.js";
 import { UserError } from "./error.js";
-import { allChanges, resolveChange, resolveNamed } from "./naming.js";
 
 /**
  * The workspace is dirty where the operation wants a clean one. The message
@@ -56,7 +62,8 @@ export function workspacePath(primary: string, change: ChangeName): string {
  * one: checking out is the moment such a change materializes.
  */
 async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
-  await resolveChange(backend, change);
+  const entries = await backend.readLog(change);
+  assertChangeExists(change, entries);
   await ensureBranch(backend, change);
 }
 
@@ -122,12 +129,11 @@ export interface ReclaimedWorkspace {
  */
 export async function reclaimWorkspaces(backend: Backend, all: boolean): Promise<readonly ReclaimedWorkspace[]> {
   const reclaimed: ReclaimedWorkspace[] = [];
-  const changes = await allChanges(backend);
   for (const { path, change, dirty, primary } of await backend.workspaces()) {
     if (change === undefined) {
       continue;
     }
-    const entries = resolveNamed(changes, change)?.entries ?? [];
+    const entries = await backend.readLog(change);
     if (!all && !currentArchived(entries)) {
       continue;
     }

@@ -44,42 +44,6 @@ export function parseBranchName(raw: string): ChangeName {
   return raw as ChangeName;
 }
 
-/**
- * A change's permanent identity: random, minted at create, immutable. Log
- * refs are keyed by it, so renaming a change never moves a ref; names are
- * log state (`set-name`) resolved through `naming.ts`.
- */
-export type ChangeId = Branded<string, "ChangeId">;
-
-const CHANGE_ID = /^[0-9a-f]{32}$/;
-
-export function parseChangeId(raw: string): ChangeId {
-  if (!CHANGE_ID.test(raw)) {
-    throw new UserError(`not a change id: ${JSON.stringify(raw)}`);
-  }
-  return raw as ChangeId;
-}
-
-// WebCrypto exists in every supported runtime but is absent from the bare
-// es2025 lib this platform-agnostic package compiles against.
-declare const crypto: { getRandomValues(array: Uint8Array): Uint8Array };
-
-/** Mint a fresh `ChangeId`: 16 random bytes as lowercase hex. */
-export function mintChangeId(): ChangeId {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") as ChangeId;
-}
-
-/**
- * A change's short id, standing in where a name is expected but none is
- * reachable — a change whose log this clone lacks, say. Resolution accepts id
- * prefixes wherever a name goes, so the designator remains usable, and eight
- * hex characters are always a well-formed branch name.
- */
-export function shortChangeId(id: ChangeId): ChangeName {
-  return id.slice(0, 8) as ChangeName;
-}
-
 /** A repository-relative file path, as named in diffs. Obtain via `parseFilePath`. */
 export type FilePath = Branded<string, "FilePath">;
 
@@ -219,21 +183,9 @@ export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
   return REVIEWING[REVIEWING.indexOf(reviewing) + 1];
 }
 
-/**
- * What a change builds on: another change, by its immutable id, or a bare
- * branch — a parent with no log, trunk included — by name. Local intent
- * records the id whenever the parent is a change, so the reference survives
- * renames and never retargets to a later claimant of the same name; forge
- * observations record the name, since a forge speaks branches.
- */
-export type ParentRef =
-  | { readonly kind: "change"; readonly id: ChangeId }
-  | { readonly kind: "branch"; readonly name: ChangeName };
-
 /** An action that can be recorded in a change's log. Revisions and names it records are in the owning backend's formats. */
 export type LogAction =
-  | { readonly kind: "set-name"; readonly name: ChangeName }
-  | { readonly kind: "set-parent"; readonly parent: ParentRef }
+  | { readonly kind: "set-parent"; readonly parent: ChangeName }
   | { readonly kind: "set-base"; readonly base: Revision }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
@@ -266,40 +218,19 @@ const ForgeSourceSchema = z.object({
 }) satisfies z.ZodType<ForgeSource>;
 
 /**
- * A parent reference on the wire is the plain branch name, or `{"id"}` for a
- * change — the string form is how branch parents were always written, so
- * every old line parses unchanged.
- */
-function parentRefSchema(parseName: (raw: string) => ChangeName): z.ZodType<ParentRef> {
-  return z.union([
-    z.string().transform((raw): ParentRef => ({ kind: "branch", name: parseName(raw) })),
-    z.object({ id: z.string().transform(parseChangeId) }).transform(({ id }): ParentRef => ({ kind: "change", id })),
-  ]);
-}
-
-/** The inverse of `parentRefSchema`: a `ParentRef` down to its wire form. */
-const encodedParentRef = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("branch"), name: z.string().min(1) }).transform(({ name }) => name),
-  z.object({ kind: z.literal("change"), id: z.string().regex(CHANGE_ID) }).transform(({ id }) => ({ id })),
-]);
-
-/**
  * The log's wire format: entries are stored as this schema's JSON, one object
  * per line, keys in shape order. Revisions and names are opaque to the
  * format, so the schema is built around the owning backend's `parseRevision`
  * and `parseName`; `satisfies` has the compiler verify that the schema parses
- * to exactly `LogEntry`. The parent arm is the one spot where wire and
- * memory shapes differ, so serialization passes its own codec.
+ * to exactly `LogEntry`.
  */
-function entrySchemaWith<Parent>(
+function logEntrySchema(
   parseRevision: (raw: string) => Revision,
   parseName: (raw: string) => ChangeName,
-  parent: z.ZodType<Parent>,
-) {
+): z.ZodType<LogEntry> {
   const revision = z.string().transform(parseRevision);
   const action = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("set-name"), name: z.string().transform(parseName) }),
-    z.object({ kind: z.literal("set-parent"), parent }),
+    z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseName) }),
     z.object({ kind: z.literal("set-base"), base: revision }),
     z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
     z.object({
@@ -321,20 +252,13 @@ function entrySchemaWith<Parent>(
     z.object({ kind: z.literal("forget"), file: z.string().transform(parseFilePath) }),
     z.object({ kind: z.literal("land"), merge: revision, tip: revision.optional() }),
     z.object({ kind: z.literal("comment"), text: z.string().min(1), edits: z.string().min(1).optional() }),
-  ]);
+  ]) satisfies z.ZodType<LogAction>;
   return z.object({
     timestamp: z.number().transform(timestampMs),
     user: z.string().min(1).transform(userName),
     source: ForgeSourceSchema.optional(),
     action,
-  });
-}
-
-function logEntrySchema(
-  parseRevision: (raw: string) => Revision,
-  parseName: (raw: string) => ChangeName,
-): z.ZodType<LogEntry> {
-  return entrySchemaWith(parseRevision, parseName, parentRefSchema(parseName)) satisfies z.ZodType<LogEntry>;
+  }) satisfies z.ZodType<LogEntry>;
 }
 
 // Serialization does not re-parse revisions or names — the brands certify a
@@ -348,11 +272,7 @@ function nonempty<T>(what: string): (raw: string) => T {
   };
 }
 
-const WireLogEntrySchema = entrySchemaWith(
-  nonempty<Revision>("revision"),
-  nonempty<ChangeName>("name"),
-  encodedParentRef,
-);
+const WireLogEntrySchema = logEntrySchema(nonempty<Revision>("revision"), nonempty<ChangeName>("name"));
 
 /**
  * Render an entry as its log line. Re-parsing through the schema validates
@@ -440,28 +360,19 @@ export function landTitle(change: ChangeName): string {
   return `Land ${change}`;
 }
 
-/**
- * The trailer line marking the commit that lands the change with `id`. The
- * trailer carries the id, not the name: commit messages are forever, and the
- * id still designates the change after any rename. The title names it for
- * humans.
- */
-export function landTrailer(id: ChangeId): string {
-  return `${LAND_TRAILER}: ${id}`;
+/** The trailer line marking the commit that lands `change`. */
+export function landTrailer(change: ChangeName): string {
+  return `${LAND_TRAILER}: ${change}`;
 }
 
 /** The message for the commit that lands `change`. */
-export function landMessage(change: ChangeName, id: ChangeId): string {
-  return `${landTitle(change)}\n\n${landTrailer(id)}\n`;
+export function landMessage(change: ChangeName): string {
+  return `${landTitle(change)}\n\n${landTrailer(change)}\n`;
 }
 
 /** A commit that landed a change, and the parent tip it landed onto. */
 export interface LandMerge {
-  /**
-   * The landed change, as the commit's trailer designates it: its id, or a
-   * name in history whose trailers predate ids. Summaries resolve ids to
-   * current names before display.
-   */
+  /** The landed change, as the commit's trailer names it. */
   readonly change: ChangeName;
   readonly commit: Revision;
   readonly onto: Revision;
@@ -788,14 +699,14 @@ export interface Backend {
    * entries — a push landing on a ref origin moved re-fetches and converges,
    * so no appended entry is ever lost to staleness.
    */
-  syncLog(change: ChangeId): Promise<void>;
+  syncLog(change: ChangeName): Promise<void>;
 
   /**
    * Sync every log with the `origin` remote — every change with a log here or
-   * fetched from there — and return their ids, sorted. Reads last-fetched
+   * fetched from there — and return their names, sorted. Reads last-fetched
    * logs, as `syncLog` does.
    */
-  syncLogs(): Promise<readonly ChangeId[]>;
+  syncLogs(): Promise<readonly ChangeName[]>;
 
   /**
    * Merge origin's reading into every branch of `changes` whose readings
@@ -819,17 +730,17 @@ export interface Backend {
   /**
    * Delete the review state this repository holds: every change's log and the
    * fetched copies of origin's logs. Branches and commits are untouched, and
-   * origin keeps its logs, so syncing restores them. Returns how many
-   * changes' logs were deleted, whatever ref layout they used.
+   * origin keeps its logs, so syncing restores them. Returns the names of the
+   * changes whose logs were deleted, sorted.
    */
-  wipeReviewState(): Promise<number>;
+  wipeReviewState(): Promise<readonly ChangeName[]>;
 
   /**
    * Delete every change's log on the `origin` remote — for every user of the
-   * repository, with no way to recover them. Returns how many changes' logs
-   * were deleted, whatever ref layout they used.
+   * repository, with no way to recover them. Returns the names of the changes
+   * whose logs were deleted, sorted.
    */
-  wipeOriginLogs(): Promise<number>;
+  wipeOriginLogs(): Promise<readonly ChangeName[]>;
 
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
@@ -853,29 +764,11 @@ export interface Backend {
   nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>>;
 
   /**
-   * The id of every change, sorted: one per log ref. Only `appendLog`
-   * creates logs and every log starts nonempty, so each id names a change
-   * that exists — though a landed change's branch may be gone.
+   * The name of every change, sorted by name: one per log ref. Only
+   * `appendLog` creates logs and every log starts nonempty, so each named
+   * change exists — though a landed change's branch may be gone.
    */
-  listChanges(): Promise<readonly ChangeId[]>;
-
-  /**
-   * Every change's log position in one cheap read: each id with an opaque
-   * token that changes whenever its log does. What cache verification
-   * compares against, without reading any log.
-   */
-  logStates(): Promise<ReadonlyMap<ChangeId, string>>;
-
-  /**
-   * A locally stored derivation, as `writeCache` last stored it — or
-   * undefined when never written, unreadable, or wiped. Caches hold only
-   * derivable state: local to this repository, never replicated, safe to
-   * lose at any time.
-   */
-  readCache(key: string): Promise<string | undefined>;
-
-  /** Store a derivation under `key`, replacing what was there. */
-  writeCache(key: string, content: string): Promise<void>;
+  listChanges(): Promise<readonly ChangeName[]>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
@@ -887,17 +780,17 @@ export interface Backend {
    * changes, add a batched or cached parent index to the backend rather than
    * memoizing in each caller.
    */
-  readLog(change: ChangeId): Promise<readonly LogEntry[]>;
+  readLog(change: ChangeName): Promise<readonly LogEntry[]>;
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
-  appendLog(change: ChangeId, entries: readonly LogEntry[]): Promise<void>;
+  appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void>;
 
   /**
    * Delete `change`'s log everywhere this backend reaches: locally, the
    * fetched copy of origin's, and origin's own. Gone for every user — callers
    * decide a log holds nothing worth keeping before deleting it.
    */
-  deleteLog(change: ChangeId): Promise<void>;
+  deleteLog(change: ChangeName): Promise<void>;
 }
 
 /**
@@ -987,72 +880,14 @@ export function assertChangeExists(change: ChangeName, entries: readonly LogEntr
   }
 }
 
-/** The name from the log's latest `set-name`; `create` starts every log with one, so a missing name is an error. */
-export function currentName(change: ChangeId, entries: readonly LogEntry[]): ChangeName {
-  const action = latestAction(entries, "set-name");
-  if (action === undefined) {
-    throw new Error(`log has no name: ${change}`);
-  }
-  return action.name;
-}
-
-/**
- * A change in hand: its identity and its log, as read at resolution time.
- * The id is the one fact not derivable from the log — everything else
- * (name, owner, parent, …) is a fold over `entries`, computed where it is
- * used so it can never disagree with the log it came from.
- */
-export interface Change {
-  readonly id: ChangeId;
-  readonly entries: readonly LogEntry[];
-}
-
-/** The parent reference from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
-export function currentParentRef(change: ChangeId, entries: readonly LogEntry[]): ParentRef {
+/** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
+export function currentParent(change: ChangeName, entries: readonly LogEntry[]): ChangeName {
+  assertChangeExists(change, entries);
   const action = latestAction(entries, "set-parent");
   if (action === undefined) {
-    throw new Error(`log has no parent: ${change}`);
+    throw new Error(`change has no parent: ${JSON.stringify(change)}`);
   }
   return action.parent;
-}
-
-/**
- * The branch a parent reference points at: a branch arm's name outright, a
- * change arm's current name folded from its log — undefined when this clone
- * does not hold that log.
- */
-export async function parentBranch(backend: Backend, ref: ParentRef): Promise<ChangeName | undefined> {
-  if (ref.kind === "branch") {
-    return ref.name;
-  }
-  const entries = await backend.readLog(ref.id);
-  return entries.length === 0 ? undefined : currentName(ref.id, entries);
-}
-
-/** As `parentBranch`, but failing when the parent change's log is not in this clone. */
-export async function requireParentBranch(backend: Backend, ref: ParentRef): Promise<ChangeName> {
-  if (ref.kind === "branch") {
-    return ref.name;
-  }
-  const entries = await backend.readLog(ref.id);
-  if (entries.length === 0) {
-    throw new UserError(
-      `parent change is not in this clone: ${shortChangeId(ref.id)}; run \`cab fetch\`, or \`cab reparent\``,
-    );
-  }
-  return currentName(ref.id, entries);
-}
-
-/**
- * As `parentBranch`, but for messages and displays: an unfetched change
- * parent labels as its short id, which resolution accepts wherever a name
- * goes.
- */
-export async function parentDesignator(backend: Backend, ref: ParentRef): Promise<ChangeName> {
-  if (ref.kind === "branch") {
-    return ref.name;
-  }
-  return (await parentBranch(backend, ref)) ?? shortChangeId(ref.id);
 }
 
 /** The base from the log's latest `set-base`; `create` starts every log with one, so a missing base is an error. */
@@ -1175,14 +1010,7 @@ export function observedForgeParent(entries: readonly LogEntry[], forge: ForgeLo
       found = entry;
     }
   }
-  if (found?.action.kind !== "set-parent") {
-    return undefined;
-  }
-  const { parent } = found.action;
-  if (parent.kind !== "branch") {
-    throw new Error("forge-observed parent records a change, but forges speak branches");
-  }
-  return parent.name;
+  return found?.action.kind === "set-parent" ? found.action.parent : undefined;
 }
 
 /**
@@ -1329,24 +1157,22 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
  */
-export async function changeBase(backend: Backend, change: Change): Promise<Revision> {
-  const entries = change.entries;
-  const name = currentName(change.id, entries);
-  const stored = currentBase(name, entries);
-  const tip = await changeTip(backend, change);
+export async function changeBase(
+  backend: Backend,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<Revision> {
+  const stored = currentBase(change, entries);
+  const tip = await changeTip(backend, change, entries);
   const landed = finished(entries) ? landedMerge(entries) : undefined;
   let readings: readonly Revision[];
-  let parent: ChangeName | undefined;
   if (landed !== undefined) {
     readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
   } else {
-    parent = await parentBranch(backend, currentParentRef(change.id, entries));
-    readings =
-      parent === undefined
-        ? []
-        : [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
-            (reading): reading is Revision => reading !== undefined,
-          );
+    const parent = currentParent(change, entries);
+    readings = [...new Set([await backend.tip(parent), await backend.originTip(parent)])].filter(
+      (reading): reading is Revision => reading !== undefined,
+    );
   }
   const storedValid = (await backend.hasRevision(stored)) && (await backend.isAncestor(stored, tip));
   // With no reading there is no merge-base; the stored base is the only
@@ -1355,17 +1181,11 @@ export async function changeBase(backend: Backend, change: Change): Promise<Revi
     if (storedValid) {
       return stored;
     }
-    if (landed !== undefined) {
-      throw new UserError(`land merge of ${JSON.stringify(name)} is not in this clone: ${landed}; run \`cab fetch\``);
-    }
-    const ref = currentParentRef(change.id, entries);
-    throw parent === undefined && ref.kind === "change"
-      ? new UserError(
-          `parent change of ${JSON.stringify(name)} is not in this clone: ${shortChangeId(ref.id)}; ` +
-            "run `cab fetch`, or `cab reparent`",
-        )
+    throw landed !== undefined
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cab fetch\``)
       : new UserError(
-          `parent branch of ${JSON.stringify(name)} does not exist: ${JSON.stringify(parent)}; run \`cab reparent\``,
+          `parent branch of ${JSON.stringify(change)} does not exist: ` +
+            `${JSON.stringify(currentParent(change, entries))}; run \`cab reparent\``,
         );
   }
   const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
@@ -1379,12 +1199,12 @@ export async function changeBase(backend: Backend, change: Change): Promise<Revi
     }
   }
   if (base === undefined) {
-    throw new Error(`no base candidates for ${JSON.stringify(name)}`);
+    throw new Error(`no base candidates for ${JSON.stringify(change)}`);
   }
   for (const candidate of candidates) {
     if (!(await backend.isAncestor(candidate, base))) {
       throw new UserError(
-        `base of ${JSON.stringify(name)} is ambiguous: candidates ` +
+        `base of ${JSON.stringify(change)} is ambiguous: candidates ` +
           `${[...candidates].join(", ")} are on unrelated lines` +
           (landed === undefined ? "; rebase to resolve" : ""),
       );
@@ -1401,24 +1221,22 @@ export async function changeBase(backend: Backend, change: Change): Promise<Revi
  * on. A live change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
-export async function changeTip(backend: Backend, change: Change): Promise<Revision> {
-  const entries = change.entries;
-  const name = currentName(change.id, entries);
+export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
   const landed = finished(entries) ? latestAction(entries, "land") : undefined;
   if (landed === undefined) {
-    return requireTip(backend, name);
+    return requireTip(backend, change);
   }
   if (landed.tip !== undefined) {
     // A squash does not carry the reviewed history, so a clone that never
     // fetched it while the branch lived cannot reach the recorded tip.
     if (!(await backend.hasRevision(landed.tip))) {
-      throw new UserError(`landed tip of ${JSON.stringify(name)} is not in this clone: ${landed.tip}`);
+      throw new UserError(`landed tip of ${JSON.stringify(change)} is not in this clone: ${landed.tip}`);
     }
     return landed.tip;
   }
   if (!(await backend.hasRevision(landed.merge))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(name)} is not in this clone: ${landed.merge}; run \`cab fetch\``,
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cab fetch\``,
     );
   }
   return backend.mergedTip(landed.merge);
@@ -1480,8 +1298,12 @@ export interface ChangeDiff {
   readonly changed: ReadonlyMap<FilePath, ChangedFile>;
 }
 
-export async function changeDiff(backend: Backend, change: Change): Promise<ChangeDiff> {
-  const [base, tip] = await Promise.all([changeBase(backend, change), changeTip(backend, change)]);
+export async function changeDiff(
+  backend: Backend,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+): Promise<ChangeDiff> {
+  const [base, tip] = await Promise.all([changeBase(backend, change, entries), changeTip(backend, change, entries)]);
   return diffBetween(backend, base, tip);
 }
 

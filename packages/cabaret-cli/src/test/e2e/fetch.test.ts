@@ -76,13 +76,12 @@ test("fetch carries a change's log to a fresh machine verbatim", async () => {
   const log = await shownLog(alice, "widgets");
   expect(await shownLog(bob, "widgets")).toBe(log);
   expect(log).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"widgets"}}
-    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
-    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
-    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b","tip":"9deb95270887a6eac741083f431a3b653dc6b656"}}
+    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"widgets.txt","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b","tip":"9deb95270887a6eac741083f431a3b653dc6b656"}}
     "
   `);
 });
@@ -105,7 +104,7 @@ test("concurrent work on two machines merges into one identical log", async () =
   const aliceLog = await alice.cabaret("dev", "log", "widgets");
   expect(await bob.cabaret("dev", "log", "widgets")).toEqual(aliceLog);
   expect(await shownComments(alice, "widgets")).toBe(
-    "Comments:\n  2025-05-23T11:33:20.006Z alice@example.com\n    does this handle empty diffs?\n\n" +
+    "Comments:\n  2025-05-23T11:33:20.005Z alice@example.com\n    does this handle empty diffs?\n\n" +
       "  2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",
   );
 });

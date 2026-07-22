@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import {
-  allChanges,
   type Backend,
   type ChangedFile,
   type ChangeName,
@@ -14,7 +13,6 @@ import {
   type LogAction,
   type LogEntry,
   parseBranchName,
-  parseChangeId,
   parseCommitHash,
   parseFilePath,
   parseForgeLocator,
@@ -96,7 +94,7 @@ function repoBackend(opts: {
   origin?: Record<string, string>;
   /** Commit digits whose objects this clone lacks, for `hasRevision`. */
   absent?: readonly string[];
-  /** Change logs by name, served id-keyed with a synthesized `set-name`; an unlisted change reads as empty. */
+  /** Change logs by name, for `readLog`; an unlisted name reads as empty. */
   logs?: Record<string, readonly LogEntry[]>;
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
@@ -121,7 +119,6 @@ function repoBackend(opts: {
     | "mergeConflicts"
     | "readFile"
     | "readLog"
-    | "listChanges"
   > = {
     async mergedTip(merge) {
       const digit = opts.tips?.[merge[0] as string];
@@ -148,23 +145,8 @@ function repoBackend(opts: {
     async hasRevision(revision) {
       return !(opts.absent ?? []).includes(revision[0] as string);
     },
-    async listChanges() {
-      return Object.keys(opts.logs ?? {}).map((_, index) => fixtureChangeId(index));
-    },
     async readLog(change) {
-      const names = Object.keys(opts.logs ?? {});
-      const name = names.find((_, index) => fixtureChangeId(index) === change);
-      if (name === undefined) {
-        return [];
-      }
-      return [
-        {
-          timestamp: timestampMs(0),
-          user: userName("alice@example.com"),
-          action: { kind: "set-name", name: parseBranchName(name) },
-        },
-        ...(opts.logs?.[name] ?? []),
-      ];
+      return opts.logs?.[change as string] ?? [];
     },
     async mergeBase(a, b) {
       const shared = new Set(ancestry(b));
@@ -238,7 +220,7 @@ function entry(action: LogAction): LogEntry {
 /** The entries `create` seeds a log with: parented on `parent`, based at `base`, owned by alice. */
 function created(parent: string, base: string): LogEntry[] {
   return [
-    entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } }),
+    entry({ kind: "set-parent", parent: parseBranchName(parent) }),
     entry({ kind: "set-base", base: fake(base) }),
     entry({ kind: "set-owner", owner: alice }),
   ];
@@ -262,22 +244,7 @@ async function summarize(
   entries: readonly LogEntry[],
   user: UserName,
 ): Promise<ChangeSummary> {
-  const named = {
-    id: parseChangeId("0".repeat(32)),
-    // Tests hand entries straight to the summary; the name every real log
-    // starts with is synthesized here the way `repoBackend` does for its.
-    entries: [
-      { timestamp: timestampMs(0), user: userName("alice@example.com"), action: { kind: "set-name", name: change } },
-      ...entries,
-    ] as const,
-  };
-  const all = [named, ...(await allChanges(backend))];
-  return summarizeChange(backend, named, user, await changeDiff(backend, named), all);
-}
-
-/** The id the `index`th log of a `repoBackend` is keyed by. */
-function fixtureChangeId(index: number) {
-  return parseChangeId((index + 1).toString(16).padStart(32, "0"));
+  return summarizeChange(backend, change, entries, user, await changeDiff(backend, change, entries));
 }
 
 /** The review left for `user`, the diff of `base`..`tip` read afresh. */
@@ -1008,28 +975,6 @@ test("review left extends from a settled land and diffs from a rewritten reviewe
   });
 });
 
-test("included lands with id trailers label by current name, or short id when the log is absent", async () => {
-  const backend = repoBackend({
-    history: { "1": "0", "2": "1", "3": "2" },
-    branches: { main: "0", feature: "3" },
-    // Two id-trailer lands — one whose change this clone holds, one whose
-    // log it lacks — and one trailer from history predating id trailers.
-    merges: [
-      { change: fixtureChangeId(0), commit: "1", onto: "0" },
-      { change: "f".repeat(32), commit: "2", onto: "1" },
-      { change: "old-style", commit: "3", onto: "2" },
-    ],
-    changed: { "03": ["a.ts"] },
-    logs: { gizmo: created("main", "0") },
-  });
-  const summary = await summarize(backend, feature, [...created("main", "0"), entry(review("a.ts", "0", "3"))], alice);
-  expect(summary.included).toEqual([
-    { change: "gizmo", commit: fake("1"), onto: fake("0") },
-    { change: "ffffffff", commit: fake("2"), onto: fake("1") },
-    { change: "old-style", commit: fake("3"), onto: fake("2") },
-  ]);
-});
-
 test("a change behind origin's copy must sync, before anything else", async () => {
   // Origin's widgets moved to 2 while the local branch still sits at 1.
   const backend = repoBackend({
@@ -1292,11 +1237,8 @@ test("a reviewed change whose forge change targets its old parent syncs to retar
   const entries = [
     ...created("relic", "1"),
     entry({ kind: "set-forge", forge, id: forgeChangeId(103) }),
-    { ...entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName("relic") } }), source: { forge } },
-    {
-      ...entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName("main") } }),
-      timestamp: timestampMs(1748000000001),
-    },
+    { ...entry({ kind: "set-parent", parent: parseBranchName("relic") }), source: { forge } },
+    { ...entry({ kind: "set-parent", parent: parseBranchName("main") }), timestamp: timestampMs(1748000000001) },
     entry(review("gizmo.ts", "1", "2")),
   ];
   expect(await summarize(backend, gizmo, entries, alice)).toEqual({

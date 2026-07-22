@@ -35,12 +35,11 @@ test("create --permanent starts the change permanent", async () => {
   });
   expect(await repo.cabaret("dev", "log", "umbrella")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"umbrella"}}\n' +
-      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-permanent","permanent":true}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-permanent","permanent":true}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -88,7 +87,7 @@ test("a permanent umbrella keeps its children and lands cycle after cycle", asyn
   expect(await repo.cabaret("land", "leaf")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The leaf landed into the umbrella and archived under it, not walked away.
   const leafLog = (await repo.cabaret("dev", "log", "leaf")).stdout;
-  expect(leafLog).toContain('"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}');
+  expect(leafLog).toContain('"kind":"set-parent","parent":"umbrella"');
   expect(leafLog).not.toContain('"kind":"set-parent","parent":"main"');
   // The umbrella grew by the leaf's land; its second cycle lands that into main.
   expect(await repo.cabaret("land", "umbrella")).toEqual({ stdout: "", stderr: "", exitCode: 0 });

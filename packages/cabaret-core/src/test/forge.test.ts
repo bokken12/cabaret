@@ -8,7 +8,6 @@ import {
   type ForgeSource,
   type LogEntry,
   parseBranchName,
-  parseChangeId,
   parseForgeLocator,
   planArchivedPull,
   planArchivedPush,
@@ -45,17 +44,8 @@ test("publish resolves its identity before mutating the forge", async () => {
       { currentUser } as unknown as Backend,
       testClock(),
       { locator: FORGE, createChange } as unknown as Forge,
-      {
-        id: parseChangeId("0".repeat(32)),
-        entries: [
-          { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-name", name: change } },
-          {
-            timestamp: timestampMs(1750000000000),
-            user: alice,
-            action: { kind: "set-parent", parent: { kind: "branch", name: parent } },
-          },
-        ],
-      },
+      change,
+      [{ timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } }],
       undefined,
     ),
   ).rejects.toBe(identityError);
@@ -63,35 +53,6 @@ test("publish resolves its identity before mutating the forge", async () => {
     identityReads: 1,
     creations: 0,
   });
-});
-
-test("publish skips a change whose parent's log is not in this clone", async () => {
-  // The identity is never read and the forge never touched: the fetch sweep
-  // publishes every change, and one dangling parent must not fail it.
-  const readLog = vi.fn(async () => []);
-  const result = await publishForgeChange(
-    { readLog } as unknown as Backend,
-    testClock(),
-    { locator: FORGE } as unknown as Forge,
-    {
-      id: parseChangeId("0".repeat(32)),
-      entries: [
-        {
-          timestamp: timestampMs(1750000000000),
-          user: alice,
-          action: { kind: "set-name", name: parseBranchName("feature") },
-        },
-        {
-          timestamp: timestampMs(1750000000000),
-          user: alice,
-          action: { kind: "set-parent", parent: { kind: "change", id: parseChangeId("1".repeat(32)) } },
-        },
-      ],
-    },
-    undefined,
-  );
-  expect(result).toBeUndefined();
-  expect(readLog.mock.calls).toEqual([[parseChangeId("1".repeat(32))]]);
 });
 
 function comment(timestamp: number, user: UserName, text: string, source?: ForgeSource, edits?: string): LogEntry {

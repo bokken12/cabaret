@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.006Z alice@example.com
+      2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.007Z alice@example.com
+      2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly
@@ -141,7 +141,7 @@ test("show lists the changes landed into a parent; an unreviewed landing joins i
     │ owner     │ alice@example.com │
     │ reviewing │ none              │
     │ parent    │ main              │
-    │ tip       │ 81d70c64cbe2      │
+    │ tip       │ 80ad42d25455      │
     │ base      │ 1ac0b33426d0      │
     ╰───────────┴───────────────────╯
 
@@ -173,7 +173,7 @@ test("show renders a branch with no log from its history alone", async () => {
     ╭───────────┬──────────────╮
     │ attribute │ value        │
     ├───────────┼──────────────┤
-    │ tip       │ 9f15455a53c6 │
+    │ tip       │ df22a5b69709 │
     │ workspace │ .            │
     ╰───────────┴──────────────╯
 

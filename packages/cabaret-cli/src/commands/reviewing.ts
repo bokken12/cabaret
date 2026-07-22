@@ -44,8 +44,8 @@ export const reviewing = buildRouteMap({
       },
       async func(this: LocalContext, flags: { change?: string }, value: Reviewing) {
         const backend = await this.backend();
-        const change = await resolveChange(backend, flags.change);
-        await setReviewing(backend, this.now, change, value);
+        const { change, entries } = await resolveChange(backend, flags.change);
+        await setReviewing(backend, this.now, change, entries, value);
         await writeThrough(this, backend, change);
       },
     }),
@@ -63,8 +63,8 @@ export const reviewing = buildRouteMap({
       },
       async func(this: LocalContext, flags: { change?: string }) {
         const backend = await this.backend();
-        const change = await resolveChange(backend, flags.change);
-        const { to } = await widenReviewing(backend, this.now, change);
+        const { change, entries } = await resolveChange(backend, flags.change);
+        const { to } = await widenReviewing(backend, this.now, change, entries);
         this.process.stdout.write(`reviewing ${to}\n`);
         await writeThrough(this, backend, change);
       },

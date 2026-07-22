@@ -2,18 +2,15 @@ import {
   assertNoConflict,
   type Backend,
   type ChangedFile,
-  type ChangeId,
   type ChangeName,
   changeConflicts,
   changeDiff,
-  currentName,
   currentReviewing,
   type DiffView,
   defaultContext,
   type FilePath,
   type FileSource,
   fileLabel,
-  lookupChange,
   type ModeChange,
   mayRecordReview,
   NotReviewingError,
@@ -27,7 +24,6 @@ import {
   shortHash,
   structuredDiff4,
   type TimestampMs,
-  UserError,
   type UserName,
 } from "cabaret-core";
 // The kernel entry, not `patdiff`, whose Node-flavored PatdiffCore reads the
@@ -57,8 +53,6 @@ import {
  * review state that changed elsewhere until the next refresh.
  */
 export interface ChangeSnapshot {
-  /** The change's identity, where marking records review; undefined for a log-less branch, which has nowhere to record. */
-  readonly id: ChangeId | undefined;
   readonly change: ChangeName;
   /** Whose review state this is: `as` when set, else the backend's current user. */
   readonly user: UserName;
@@ -76,27 +70,16 @@ export interface ChangeSnapshot {
 }
 
 export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
-  const named = await lookupChange(backend, change);
-  // TODO: view a log-less branch as a degenerate change — nothing reviewed,
-  // no id to record against — instead of failing; its diff needs a base read
-  // no log informs.
-  if (named === undefined) {
-    throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
-    );
-  }
-  const entries = named.entries;
-  const name = currentName(named.id, named.entries);
-  const [diff, acting] = await Promise.all([changeDiff(backend, named), selfAs(backend, as)]);
+  const entries = await backend.readLog(change);
+  const [diff, acting] = await Promise.all([changeDiff(backend, change, entries), selfAs(backend, as)]);
   return {
-    id: named.id,
-    change: name,
+    change,
     user: acting.self.user,
     as: acting.as,
     reviewing: currentReviewing(entries),
     // A borrowed identity's own aliases are unknown here, so its standing may
     // read narrower than that user would see it themselves.
-    asked: mayRecordReview(acting.self, name, entries),
+    asked: mayRecordReview(acting.self, change, entries),
     base: diff.base,
     tip: diff.tip,
     conflicts: await changeConflicts(backend, diff),
@@ -232,10 +215,7 @@ export function markReviewed(
   if (!snapshot.left.has(file)) {
     return { kind: "nothing-left" };
   }
-  if (snapshot.id === undefined) {
-    throw new UserError(`${JSON.stringify(snapshot.change)} is not a change; run \`cab create\` to review it`);
-  }
-  const recorded = backend.appendLog(snapshot.id, [
+  const recorded = backend.appendLog(snapshot.change, [
     { timestamp: now(), user: snapshot.user, action: { kind: "review", file, base: snapshot.base, tip: snapshot.tip } },
   ]);
   const left = new Map(snapshot.left);

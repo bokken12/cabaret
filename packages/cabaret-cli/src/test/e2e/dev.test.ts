@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, test } from "vitest";
 import { addChange, makeRepo } from "./fixture.js";
 
@@ -10,11 +8,10 @@ test("log defaults to the change of the checked-out branch", async () => {
   await repo.cabaret("create", "main", "--parent", "trunk");
   expect(await repo.cabaret("dev", "log")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"main"}}\n' +
-      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -174,18 +171,4 @@ test("wipe --remote deletes origin's logs too", async () => {
     stderr: "",
     exitCode: 0,
   });
-});
-
-test("resolution keeps the name index beside the shared git dir, and wipe clears it", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("create", "gadget");
-  await repo.cabaret("reviewing", "show", "--change", "gadget");
-  const gitDir = await repo.git("rev-parse", "--path-format=absolute", "--git-common-dir");
-  const index = join(gitDir, "cabaret", "names.json");
-  const [id, state] = (await repo.git("for-each-ref", "--format=%(refname) %(objectname)", "refs/cabaret/log/"))
-    .replace("refs/cabaret/log/", "")
-    .split(" ");
-  expect(JSON.parse(await readFile(index, "utf8"))).toEqual([{ id, name: "gadget", state }]);
-  await repo.cabaret("dev", "wipe");
-  await expect(readFile(index, "utf8")).rejects.toThrow();
 });

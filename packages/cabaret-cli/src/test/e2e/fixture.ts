@@ -4,7 +4,7 @@ import { devNull, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { run } from "@stricli/core";
-import { type Forge, parseChangeId, timestampMs } from "cabaret-core";
+import { type Forge, timestampMs } from "cabaret-core";
 import { GitBackend, NoForgeError } from "cabaret-node";
 import { expect, onTestFinished } from "vitest";
 import { app } from "../../app.js";
@@ -105,18 +105,8 @@ async function pinFetched(dir: string): Promise<void> {
   );
 }
 
-// Change ids mint deterministically — snapshots embed them — as
-// machine-then-sequence hex: repo instances within one test count up from
-// zero, resetting when it finishes, and each mints its changes in order.
-let machines = 0;
-
 /** A `TestRepo` over an initialized repo at `dir`, its clock starting at `clockStart`. */
 function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): TestRepo {
-  const machine = machines++;
-  let minted = 0;
-  onTestFinished(() => {
-    machines = 0;
-  });
   const git = async (...args: string[]) => {
     const { stdout } = await execFileAsync("git", args, { cwd: dir });
     await pinFetched(dir);
@@ -143,7 +133,6 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
         return forge;
       },
       now: () => timestampMs(clock++),
-      mint: () => parseChangeId(machine.toString(16).padStart(2, "0") + (++minted).toString(16).padStart(30, "0")),
     };
     await run(app, argv, context);
     await pinFetched(dir);

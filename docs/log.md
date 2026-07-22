@@ -1,6 +1,6 @@
 # Log
 
-The source of truth for each change is its log. The log is append-only, and composed only of associative operations to permit automatic merging via union. Logs are only ever started by `create`, which records a name, a parent, a base, and an owner; a log missing any of these is malformed.
+The source of truth for each change is its log. The log is append-only, and composed only of associative operations to permit automatic merging via union. Logs are only ever started by `create`, which records a parent, a base, and an owner; a log missing any of these is malformed.
 
 Each log entry consists of
 
@@ -12,8 +12,7 @@ Each log entry consists of
 Where the `action` may be any of (incomplete)
 
 - `set-base` to a commit `base`
-- `set-name` to a `name` (see `naming.md`)
-- `set-parent` to a parent: a change by `id`, or a bare branch by `name`
+- `set-parent` to `ref`
 - `set-owner` to a user `owner`, replacing the previous owner
 - `set-reviewing` to one of `none`, `owner`, `reviewers`, `everyone`: who is asked to review right now (see `reviewing.md`); a log that never set one reads as `everyone`
 - `set-archived` to a boolean `archived`: whether the change is set aside as not landing; a log that never set one reads as live. Nothing else moves — the branch and log stay, todos stop asking after the change, and `land` refuses it. Syncing mirrors it to the forge change's open/closed state in both directions.
