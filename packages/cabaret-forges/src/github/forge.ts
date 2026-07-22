@@ -99,15 +99,15 @@ const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
 }`;
 
 // Comments are capped at their first hundred rather than paginated per PR,
-// keeping the whole sweep to one query per hundred PRs; the page info
+// keeping the whole sweep to one query per page of PRs; the page info
 // reports the cap so readers needing more fall back to `listComments`.
 const SWEPT_CHANGE_FIELDS =
   `${PR_FIELDS} updatedAt comments(first: 100) ` +
   "{ nodes { databaseId author { login } body updatedAt } pageInfo { hasNextPage } }";
 
-const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $cursor: String) {
+const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $first: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(states: OPEN, first: 100, after: $cursor) {
+    pullRequests(states: OPEN, first: $first, after: $cursor) {
       nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
@@ -117,14 +117,22 @@ const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $cursor: Str
 // Every state, newest activity first: a since sweep walks down the recency
 // order until it falls below its cursor, so closed and merged changes
 // surface with the rest.
-const FETCH_CHANGES_SINCE = `query ($owner: String!, $repo: String!, $cursor: String) {
+const FETCH_CHANGES_SINCE = `query ($owner: String!, $repo: String!, $first: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(first: 100, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
 }`;
+
+/**
+ * Sweeps run close together, so most end within their first page; the query
+ * cost the forge charges scales with the requested page size, so pages start
+ * small and double toward this cap for the sweeps that are far behind.
+ */
+const FIRST_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
 
 const GET_PR = `query ($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -264,12 +272,15 @@ export class GitHubForge implements Forge {
     const changes: SweptChange[] = [];
     let newest = 0;
     let cursor: string | null = null;
+    let first = FIRST_PAGE_SIZE;
     let exhausted = false;
     do {
       const out: unknown = await this.client.graphql(resume === undefined ? FETCH_OPEN_CHANGES : FETCH_CHANGES_SINCE, {
         ...this.repo,
+        first,
         cursor,
       });
+      first = Math.min(first * 2, MAX_PAGE_SIZE);
       const { nodes, pageInfo } = FetchChangesSchema.parse(out).repository.pullRequests;
       for (const pr of nodes) {
         const updated = Date.parse(pr.updatedAt);
