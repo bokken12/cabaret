@@ -1085,25 +1085,41 @@ test("workspaces lists each working tree with its branch and dirtiness, dropping
     const dir = join(base, "repo");
     await mkdir(dir);
     await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "config", "user.email", "alice@example.com");
     await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
     await gitIn(dir, "branch", "gadget");
+    await gitIn(dir, "branch", "shears");
     await gitIn(dir, "branch", "doomed");
     await gitIn(dir, "worktree", "add", "--quiet", join(base, "gadget-tree"), "gadget");
     await gitIn(dir, "worktree", "add", "--quiet", "--detach", join(base, "adrift-tree"));
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "shears-tree"), "shears");
     await gitIn(dir, "worktree", "add", "--quiet", join(base, "doomed-tree"), "doomed");
-    await writeFile(join(base, "gadget-tree", "junk.txt"), "junk\n");
+    // Two edits in an untracked directory: dirtiness dates from the newest.
+    await mkdir(join(base, "gadget-tree", "junk"));
+    const older = new Date("2026-01-05T06:07:08.000Z");
+    const newer = new Date("2026-01-06T06:07:08.000Z");
+    await writeFile(join(base, "gadget-tree", "junk", "stale.txt"), "junk\n");
+    await utimes(join(base, "gadget-tree", "junk", "stale.txt"), older, older);
+    await writeFile(join(base, "gadget-tree", "junk", "fresh.txt"), "junk\n");
+    await utimes(join(base, "gadget-tree", "junk", "fresh.txt"), newer, newer);
+    // A deletion is the only edit here, leaving the dirtiness undated.
+    await writeFile(join(base, "shears-tree", "doc.txt"), "cut me\n");
+    await gitIn(join(base, "shears-tree"), "add", "doc.txt");
+    await gitIn(join(base, "shears-tree"), "commit", "-qm", "doc");
+    await rm(join(base, "shears-tree", "doc.txt"));
     await rm(join(base, "doomed-tree"), { recursive: true, force: true });
     const backend = await GitBackend.open(dir);
     // Paths as git reports them, symlinks (macOS /tmp) resolved.
     const roots = await Promise.all(
-      [dir, join(base, "adrift-tree"), join(base, "gadget-tree")].map((tree) =>
+      [dir, join(base, "adrift-tree"), join(base, "gadget-tree"), join(base, "shears-tree")].map((tree) =>
         gitIn(tree, "rev-parse", "--show-toplevel"),
       ),
     );
     expect(await backend.workspaces()).toEqual([
-      { path: roots[0], change: "main", dirty: false, primary: true },
-      { path: roots[1], change: undefined, dirty: false, primary: false },
-      { path: roots[2], change: "gadget", dirty: true, primary: false },
+      { path: roots[0], change: "main", dirty: undefined, primary: true },
+      { path: roots[1], change: undefined, dirty: undefined, primary: false },
+      { path: roots[2], change: "gadget", dirty: { at: timestampMs(newer.getTime()) }, primary: false },
+      { path: roots[3], change: "shears", dirty: { at: undefined }, primary: false },
     ]);
   } finally {
     await rm(base, { recursive: true, force: true });

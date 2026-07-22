@@ -1,5 +1,6 @@
 import {
   type ChangeSummary,
+  type Dirty,
   forgeChangeId,
   parseBranchName,
   parseCommitHash,
@@ -18,6 +19,11 @@ function fake(digit: string): Revision {
 }
 
 const alice = userName("alice@example.com");
+
+const NOW = timestampMs(Date.UTC(2026, 6, 19, 8, 0, 0));
+
+/** Dirty edits made `minutes` before the page renders. */
+const dirtyFor = (minutes: number) => ({ at: timestampMs(NOW - minutes * 60_000) });
 
 function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
   return {
@@ -72,20 +78,27 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
   });
   const widgets = summary("widgets", { reviewLeft: [], nextStep: "land" });
   const rusty = summary("rusty", { conflicts: files("rusty.ts"), nextStep: "fix conflicts" });
-  const doc = homeDoc({
-    as: undefined,
-    review: [
-      { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
-    ],
-    owned: [
-      { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
-      { summary: rusty, context: false, children: [] },
-      { summary: widgets, context: false, children: [] },
-    ],
-    broken: [],
-    workspaces: [],
-    fetched: undefined,
-  });
+  const doc = homeDoc(
+    {
+      as: undefined,
+      review: [
+        {
+          summary: gadget,
+          owed: [],
+          children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }],
+        },
+      ],
+      owned: [
+        { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
+        { summary: rusty, context: false, children: [] },
+        { summary: widgets, context: false, children: [] },
+      ],
+      broken: [],
+      workspaces: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Home
     ====
@@ -152,7 +165,7 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
 
 test("homeDoc with nothing to do keeps both sections, empty", () => {
   expect(
-    docText(homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined })),
+    docText(homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched: undefined }, NOW)),
   ).toMatchInlineSnapshot(`
     "Home
     ====
@@ -180,35 +193,38 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
     nextStep: "landed",
     tip: fake("3"),
   });
-  const doc = homeDoc({
-    as: undefined,
-    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
-    owned: [{ summary: gadget, context: false, children: [] }],
-    broken: [],
-    workspaces: [
-      {
-        change: gadget.change,
-        held: { workspace: { path: "/src/widgets", display: ".", dirty: false }, landed: false, archived: false },
-        children: [],
-      },
-      {
-        change: widgets.change,
-        held: undefined,
-        children: [
-          {
-            change: relic.change,
-            held: {
-              workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
-              landed: true,
-              archived: false,
+  const doc = homeDoc(
+    {
+      as: undefined,
+      review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
+      owned: [{ summary: gadget, context: false, children: [] }],
+      broken: [],
+      workspaces: [
+        {
+          change: gadget.change,
+          held: { workspace: { path: "/src/widgets", display: ".", dirty: undefined }, landed: false, archived: false },
+          children: [],
+        },
+        {
+          change: widgets.change,
+          held: undefined,
+          children: [
+            {
+              change: relic.change,
+              held: {
+                workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: dirtyFor(3 * 24 * 60) },
+                landed: true,
+                archived: false,
+              },
+              children: [],
             },
-            children: [],
-          },
-        ],
-      },
-    ],
-    fetched: undefined,
-  });
+          ],
+        },
+      ],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Home
     ====
@@ -228,18 +244,18 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭──────────┬───────────────╮
-    │ change   │ note          │
-    ├──────────┼───────────────┤
-    │ gadget   │               │
-    │ widgets  │               │
-    │ └─ relic │ dirty, landed │
-    ╰──────────┴───────────────╯"
+    ╭──────────┬──────────────────╮
+    │ change   │ note             │
+    ├──────────┼──────────────────┤
+    │ gadget   │                  │
+    │ widgets  │                  │
+    │ └─ relic │ dirty 3d, landed │
+    ╰──────────┴──────────────────╯"
   `);
   // The section folds like the others, and so does widgets' subtree.
   expect(foldTexts(doc).slice(-2)).toEqual([
-    ["Workspaces on this device:", "╰──────────┴───────────────╯"],
-    ["│ widgets  │               │", "│ └─ relic │ dirty, landed │"],
+    ["Workspaces on this device:", "╰──────────┴──────────────────╯"],
+    ["│ widgets  │                  │", "│ └─ relic │ dirty 3d, landed │"],
   ]);
   // The change links to its page; the workspace's directory stays off this
   // table, left to the workspaces page.
@@ -253,24 +269,27 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
   // paint, inviting the workspace's reclaiming.
   const styled = (row: string) =>
     doc.lines[docText(doc).split("\n").indexOf(row)]?.spans.filter(({ style }) => style !== undefined);
-  expect(styled("│ widgets  │               │")).toEqual([
+  expect(styled("│ widgets  │                  │")).toEqual([
     { text: "widgets", style: "context", target: { kind: "change", change: "widgets" }, tier: "link" },
   ]);
-  expect(styled("│ └─ relic │ dirty, landed │")).toEqual([
-    { text: "dirty, landed", style: "nudge", target: undefined, tier: undefined },
+  expect(styled("│ └─ relic │ dirty 3d, landed │")).toEqual([
+    { text: "dirty 3d, landed", style: "nudge", target: undefined, tier: undefined },
   ]);
 });
 
 test("homeDoc as another user names them and keeps their identity on every change link", () => {
   const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: left("gadget.ts") });
-  const doc = homeDoc({
-    as: userName("bob@example.com"),
-    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
-    owned: [{ summary: gadget, context: false, children: [] }],
-    broken: [],
-    workspaces: [],
-    fetched: undefined,
-  });
+  const doc = homeDoc(
+    {
+      as: userName("bob@example.com"),
+      review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
+      owned: [{ summary: gadget, context: false, children: [] }],
+      broken: [],
+      workspaces: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Home as bob@example.com
     =======================
@@ -296,17 +315,20 @@ test("homeDoc as another user names them and keeps their identity on every chang
 });
 
 test("homeDoc carries broken changes as doc errors, named for their change", () => {
-  const doc = homeDoc({
-    as: undefined,
-    review: [],
-    owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
-    broken: [
-      { change: parseBranchName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
-      { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
-    ],
-    workspaces: [],
-    fetched: undefined,
-  });
+  const doc = homeDoc(
+    {
+      as: undefined,
+      review: [],
+      owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
+      broken: [
+        { change: parseBranchName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
+        { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
+      ],
+      workspaces: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(doc.errors).toEqual([
     'gizmo: unknown revision: "refs/heads/gizmo"',
     'relic: parent branch of "relic" does not exist: "gone"',
@@ -332,25 +354,28 @@ test("homeDoc carries broken changes as doc errors, named for their change", () 
 });
 
 test("showDoc renders the attribute table, remaining review, and files left", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("widgets", {
-      reviewers: [userName("bob@example.com"), userName("carol@example.com")],
-      forgeChange: {
-        forge: parseForgeLocator("github.com/test-org/widgets"),
-        id: forgeChangeId(7),
-        staleParent: undefined,
-      },
-      reviewLeft: left("lib/api.ts -> api.ts", "ui.ts"),
-    }),
-    comments: [],
-    workspace: undefined,
-    remaining: [
-      { user: userName("alice@example.com"), files: 2 },
-      { user: userName("bob@example.com"), files: 1 },
-    ],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("widgets", {
+        reviewers: [userName("bob@example.com"), userName("carol@example.com")],
+        forgeChange: {
+          forge: parseForgeLocator("github.com/test-org/widgets"),
+          id: forgeChangeId(7),
+          staleParent: undefined,
+        },
+        reviewLeft: left("lib/api.ts -> api.ts", "ui.ts"),
+      }),
+      comments: [],
+      workspace: undefined,
+      remaining: [
+        { user: userName("alice@example.com"), files: 2 },
+        { user: userName("bob@example.com"), files: 1 },
+      ],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
@@ -399,24 +424,27 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
 });
 
 test("showDoc renders a trunk from its history alone, newest lands first, an ellipsis marking older ones", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: {
-      kind: "trunk",
-      change: parseBranchName("main"),
-      tip: fake("2"),
-      origin: "behind",
-      included: [
-        { change: parseBranchName("gadget"), commit: fake("3"), onto: fake("1") },
-        { change: parseBranchName("gizmo"), commit: fake("5"), onto: fake("4") },
-      ],
-      truncated: true,
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: {
+        kind: "trunk",
+        change: parseBranchName("main"),
+        tip: fake("2"),
+        origin: "behind",
+        included: [
+          { change: parseBranchName("gadget"), commit: fake("3"), onto: fake("1") },
+          { change: parseBranchName("gizmo"), commit: fake("5"), onto: fake("4") },
+        ],
+        truncated: true,
+      },
+      comments: [],
+      workspace: { path: "/src/widgets", display: ".", dirty: undefined },
+      remaining: [],
+      fetched: undefined,
     },
-    comments: [],
-    workspace: { path: "/src/widgets", display: ".", dirty: false },
-    remaining: [],
-    fetched: undefined,
-  });
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "main
     ====
@@ -453,20 +481,23 @@ test("showDoc renders a trunk from its history alone, newest lands first, an ell
 });
 
 test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("widgets", {
-      forgeChange: {
-        forge: parseForgeLocator("forge.example.com/test-org/widgets"),
-        id: forgeChangeId(7),
-        staleParent: undefined,
-      },
-    }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("widgets", {
+        forgeChange: {
+          forge: parseForgeLocator("forge.example.com/test-org/widgets"),
+          id: forgeChangeId(7),
+          staleParent: undefined,
+        },
+      }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   const forge = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("forge change"));
@@ -475,17 +506,20 @@ test("showDoc leaves a forge change on an unrecognized host unlinked", () => {
 
 test("showDoc as another user names them and keeps their identity on file and change links", () => {
   const bob = userName("bob@example.com");
-  const doc = showDoc({
-    summary: summary("widgets", {
-      included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
-      reviewLeft: left("api.ts"),
-    }),
-    as: bob,
-    comments: [],
-    workspace: undefined,
-    remaining: [{ user: bob, files: 1 }],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      summary: summary("widgets", {
+        included: [{ change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") }],
+        reviewLeft: left("api.ts"),
+      }),
+      as: bob,
+      comments: [],
+      workspace: undefined,
+      remaining: [{ user: bob, files: 1 }],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc).split("\n").slice(0, 2).join("\n")).toMatchInlineSnapshot(`
     "widgets as bob@example.com
     =========================="
@@ -502,20 +536,23 @@ test("showDoc as another user names them and keeps their identity on file and ch
 });
 
 test("showDoc lists included changes above the review, each linking to its page", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("widgets", {
-      included: [
-        { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
-        { change: parseBranchName("widgets-ui"), commit: fake("5"), onto: fake("3") },
-      ],
-      reviewLeft: left("glue.ts"),
-    }),
-    comments: [],
-    workspace: undefined,
-    remaining: [{ user: alice, files: 1 }],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("widgets", {
+        included: [
+          { change: parseBranchName("widgets-api"), commit: fake("3"), onto: fake("1") },
+          { change: parseBranchName("widgets-ui"), commit: fake("5"), onto: fake("3") },
+        ],
+        reviewLeft: left("glue.ts"),
+      }),
+      comments: [],
+      workspace: undefined,
+      remaining: [{ user: alice, files: 1 }],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
@@ -549,19 +586,22 @@ test("showDoc lists included changes above the review, each linking to its page"
 });
 
 test("showDoc notes disagreeing readings on their own rows", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("widgets", {
-      reviewLeft: left("api.ts"),
-      origin: "behind",
-      staleBase: "behind",
-      nextStep: "sync",
-    }),
-    comments: [],
-    workspace: undefined,
-    remaining: [{ user: alice, files: 1 }],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("widgets", {
+        reviewLeft: left("api.ts"),
+        origin: "behind",
+        staleBase: "behind",
+        nextStep: "sync",
+      }),
+      comments: [],
+      workspace: undefined,
+      remaining: [{ user: alice, files: 1 }],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
@@ -587,14 +627,17 @@ test("showDoc notes disagreeing readings on their own rows", () => {
 
 test("showDoc words each note by its reading", () => {
   const attributeRow = (opts: Partial<ChangeSummary>, attribute: string) => {
-    const doc = showDoc({
-      as: undefined,
-      summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
-      comments: [],
-      workspace: undefined,
-      remaining: [],
-      fetched: undefined,
-    });
+    const doc = showDoc(
+      {
+        as: undefined,
+        summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
+        comments: [],
+        workspace: undefined,
+        remaining: [],
+        fetched: undefined,
+      },
+      NOW,
+    );
     return docText(doc)
       .split("\n")
       .find((line) => line.startsWith(`│ ${attribute}`));
@@ -622,14 +665,17 @@ test("showDoc words each note by its reading", () => {
 
 test("showDoc links the parent row to its page, except a missing parent", () => {
   const parentTarget = (opts: Partial<ChangeSummary>, as?: UserName) => {
-    const doc = showDoc({
-      as,
-      summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
-      comments: [],
-      workspace: undefined,
-      remaining: [],
-      fetched: undefined,
-    });
+    const doc = showDoc(
+      {
+        as,
+        summary: summary("widgets", { parent: parseBranchName("gadget"), ...opts }),
+        comments: [],
+        workspace: undefined,
+        remaining: [],
+        fetched: undefined,
+      },
+      NOW,
+    );
     const line = docText(doc)
       .split("\n")
       .findIndex((text) => text.startsWith("│ parent"));
@@ -646,25 +692,28 @@ test("showDoc links the parent row to its page, except a missing parent", () => 
 });
 
 test("showDoc renders comments between the remaining review and the files, multi-line text indented", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("gadget", { reviewLeft: left("gadget.ts") }),
-    remaining: [{ user: userName("bob@example.com"), files: 1 }],
-    workspace: undefined,
-    comments: [
-      {
-        timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
-        user: alice,
-        text: "does this handle empty diffs?",
-      },
-      {
-        timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 4)),
-        user: userName("bob@example.com"),
-        text: "second thoughts:\n\nthe flag name reads oddly",
-      },
-    ],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("gadget", { reviewLeft: left("gadget.ts") }),
+      remaining: [{ user: userName("bob@example.com"), files: 1 }],
+      workspace: undefined,
+      comments: [
+        {
+          timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
+          user: alice,
+          text: "does this handle empty diffs?",
+        },
+        {
+          timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 4)),
+          user: userName("bob@example.com"),
+          text: "second thoughts:\n\nthe flag name reads oddly",
+        },
+      ],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -704,33 +753,43 @@ test("showDoc renders comments between the remaining review and the files, multi
   ]);
 });
 
-test("showDoc rows the change's workspace, noting dirtiness", () => {
-  const workspaceRow = (dirty: boolean) => {
-    const doc = showDoc({
-      as: undefined,
-      summary: summary("widgets", {}),
-      comments: [],
-      workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
-      remaining: [],
-      fetched: undefined,
-    });
+test("showDoc rows the change's workspace, noting dirtiness and its age", () => {
+  const workspaceRow = (dirty: Dirty | undefined) => {
+    const doc = showDoc(
+      {
+        as: undefined,
+        summary: summary("widgets", {}),
+        comments: [],
+        workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
+        remaining: [],
+        fetched: undefined,
+      },
+      NOW,
+    );
     return docText(doc)
       .split("\n")
       .find((line) => line.startsWith("│ workspace"));
   };
-  expect(workspaceRow(false)).toBe("│ workspace │ ../widgets-tree   │");
-  expect(workspaceRow(true)).toBe("│ workspace │ ../widgets-tree (dirty) │");
+  expect(workspaceRow(undefined)).toBe("│ workspace │ ../widgets-tree   │");
+  expect(workspaceRow({ at: undefined })).toBe("│ workspace │ ../widgets-tree (dirty) │");
+  expect(workspaceRow(dirtyFor(0))).toBe("│ workspace │ ../widgets-tree (dirty <1m) │");
+  expect(workspaceRow(dirtyFor(45))).toBe("│ workspace │ ../widgets-tree (dirty 45m) │");
+  expect(workspaceRow(dirtyFor(26 * 60))).toBe("│ workspace │ ../widgets-tree (dirty 1d) │");
+  expect(workspaceRow(dirtyFor(30 * 24 * 60))).toBe("│ workspace │ ../widgets-tree (dirty 4w) │");
 });
 
 test("showDoc renders a landed change without a files section", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("widgets", { landed: fake("5"), archived: true, nextStep: "landed" }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("widgets", { landed: fake("5"), archived: true, nextStep: "landed" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "widgets
     =======
@@ -752,7 +811,7 @@ test("showDoc renders a landed change without a files section", () => {
 test("each doc closes with a dimmed line dating the last fetch, when one is known", () => {
   const fetched = timestampMs(Date.UTC(2026, 6, 19, 8, 4, 5, 678));
   const footer = [{ text: "fetched 08:04, 2026-07-19", style: "context", target: undefined, tier: undefined }];
-  const home = homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched });
+  const home = homeDoc({ as: undefined, review: [], owned: [], broken: [], workspaces: [], fetched }, NOW);
   expect(docText(home)).toMatchInlineSnapshot(`
     "Home
     ====
@@ -772,30 +831,36 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
     fetched 08:04, 2026-07-19"
   `);
   expect(home.lines.at(-1)?.spans).toEqual(footer);
-  const show = showDoc({
-    as: undefined,
-    summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched,
-  });
+  const show = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched,
+    },
+    NOW,
+  );
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 08:04, 2026-07-19"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
 });
 
 test("next steps an action performs link to running it, the rest staying bare", () => {
-  const doc = homeDoc({
-    as: undefined,
-    review: [],
-    owned: [
-      { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
-      { summary: summary("widgets", { nextStep: "fix conflicts" }), context: false, children: [] },
-    ],
-    broken: [],
-    workspaces: [],
-    fetched: undefined,
-  });
+  const doc = homeDoc(
+    {
+      as: undefined,
+      review: [],
+      owned: [
+        { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
+        { summary: summary("widgets", { nextStep: "fix conflicts" }), context: false, children: [] },
+      ],
+      broken: [],
+      workspaces: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   const rows = docText(doc).split("\n");
   const targeted = (text: string) =>
     doc.lines[rows.findIndex((row) => row.includes(text))]?.spans.filter(({ target }) => target !== undefined);
@@ -809,14 +874,17 @@ test("next steps an action performs link to running it, the rest staying bare", 
   expect(targeted("fix conflicts")).toEqual([
     { text: "widgets", style: "blocked", target: { kind: "change", change: "widgets" }, tier: "link" },
   ]);
-  const show = showDoc({
-    as: undefined,
-    summary: summary("gadget", { nextStep: "sync" }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched: undefined,
-  });
+  const show = showDoc(
+    {
+      as: undefined,
+      summary: summary("gadget", { nextStep: "sync" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   const stepLine = docText(show)
     .split("\n")
     .findIndex((text) => text.includes("next step"));
@@ -824,14 +892,17 @@ test("next steps an action performs link to running it, the rest staying bare", 
 });
 
 test("a review next step opens the change's review, keeping a borrowed identity", () => {
-  const doc = showDoc({
-    as: userName("bob@example.com"),
-    summary: summary("gizmo", { nextStep: "review" }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: userName("bob@example.com"),
+      summary: summary("gizmo", { nextStep: "review" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   const stepLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("next step"));
@@ -839,14 +910,17 @@ test("a review next step opens the change's review, keeping a borrowed identity"
 });
 
 test("a review in parent next step opens the parent's review", () => {
-  const doc = showDoc({
-    as: undefined,
-    summary: summary("gizmo", { parent: parseBranchName("widgets"), nextStep: "review in parent" }),
-    comments: [],
-    workspace: undefined,
-    remaining: [],
-    fetched: undefined,
-  });
+  const doc = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { parent: parseBranchName("widgets"), nextStep: "review in parent" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+  );
   const stepLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("next step"));

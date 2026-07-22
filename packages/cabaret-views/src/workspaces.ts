@@ -3,9 +3,11 @@ import {
   type Backend,
   type ChangeName,
   currentArchived,
+  type Dirty,
   finished,
   type ReclaimedWorkspace,
   resolveNamed,
+  type TimestampMs,
   type Workspace,
 } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
@@ -37,7 +39,32 @@ export interface WorkspaceNote {
   readonly path: string;
   /** The path as read from the current workspace, for display. */
   readonly display: string;
-  readonly dirty: boolean;
+  readonly dirty: Dirty | undefined;
+}
+
+/** The "dirty" note, dating the edits when the dirty files gave a time. */
+export function dirtyNote(dirty: Dirty, now: TimestampMs): string {
+  return dirty.at === undefined ? "dirty" : `dirty ${age(dirty.at, now)}`;
+}
+
+/** How long ago `at` was, floored to its largest fitting unit. */
+function age(at: TimestampMs, now: TimestampMs): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) {
+    return "<1m";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 7) {
+    return `${days}d`;
+  }
+  return `${Math.floor(days / 7)}w`;
 }
 
 /** Each checked-out change's workspace note, from the current workspace's point of view. */
@@ -97,10 +124,10 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
   return { rows };
 }
 
-export function workspacesDoc(page: WorkspacesPage): Doc {
+export function workspacesDoc(page: WorkspacesPage, now: TimestampMs): Doc {
   const rows = page.rows.map(({ workspace, display, isChange, landed, archived }): readonly Cell[] => {
     const notes = [
-      ...(workspace.dirty ? ["dirty"] : []),
+      ...(workspace.dirty === undefined ? [] : [dirtyNote(workspace.dirty, now)]),
       ...(landed ? ["landed"] : []),
       ...(archived ? ["archived"] : []),
     ];

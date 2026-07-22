@@ -181,13 +181,13 @@ test("workspace reclaim removes landed and archived workspaces, keeping dirty on
     "Workspaces
     ==========
 
-    ╭────────────────┬────────┬─────────────────╮
-    │ workspace      │ change │ note            │
-    ├────────────────┼────────┼─────────────────┤
-    │ .              │ main   │                 │
-    │ ../repo-gadget │ gadget │                 │
-    │ ../repo-relic  │ relic  │ dirty, archived │
-    ╰────────────────┴────────┴─────────────────╯
+    ╭────────────────┬────────┬─────────────────────╮
+    │ workspace      │ change │ note                │
+    ├────────────────┼────────┼─────────────────────┤
+    │ .              │ main   │                     │
+    │ ../repo-gadget │ gadget │                     │
+    │ ../repo-relic  │ relic  │ dirty <1m, archived │
+    ╰────────────────┴────────┴─────────────────────╯
     "
   `);
 
@@ -203,12 +203,12 @@ test("workspace reclaim removes landed and archived workspaces, keeping dirty on
     "Workspaces
     ==========
 
-    ╭───────────────┬────────┬─────────────────╮
-    │ workspace     │ change │ note            │
-    ├───────────────┼────────┼─────────────────┤
-    │ .             │ main   │                 │
-    │ ../repo-relic │ relic  │ dirty, archived │
-    ╰───────────────┴────────┴─────────────────╯
+    ╭───────────────┬────────┬─────────────────────╮
+    │ workspace     │ change │ note                │
+    ├───────────────┼────────┼─────────────────────┤
+    │ .             │ main   │                     │
+    │ ../repo-relic │ relic  │ dirty <1m, archived │
+    ╰───────────────┴────────┴─────────────────────╯
     "
   `);
 });

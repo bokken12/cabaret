@@ -270,6 +270,7 @@ class PageProvider
     let snapshot: ChangeSnapshot | undefined;
     try {
       doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
+        now,
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
         onSnapshot: (rendered) => {
           snapshot = rendered;

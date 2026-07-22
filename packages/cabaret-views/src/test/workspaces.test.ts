@@ -1,6 +1,8 @@
-import { parseBranchName } from "cabaret-core";
+import { type Dirty, parseBranchName, timestampMs } from "cabaret-core";
 import { expect, test } from "vitest";
 import { displayPath, docText, targetAt, type WorkspaceRow, workspacesDoc } from "../index.js";
+
+const NOW = timestampMs(Date.UTC(2026, 6, 19, 8, 0, 0));
 
 test("displayPath reads nearby paths relative to the current workspace, distant ones absolute", () => {
   expect(displayPath("/src/widgets", "/src/widgets")).toBe(".");
@@ -16,12 +18,12 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
     path: string,
     display: string,
     change: string | undefined,
-    opts?: Partial<Omit<WorkspaceRow, "workspace" | "display">> & { dirty?: boolean; primary?: boolean },
+    opts?: Partial<Omit<WorkspaceRow, "workspace" | "display">> & { dirty?: Dirty; primary?: boolean },
   ): WorkspaceRow => ({
     workspace: {
       path,
       change: change === undefined ? undefined : parseBranchName(change),
-      dirty: opts?.dirty ?? false,
+      dirty: opts?.dirty,
       primary: opts?.primary ?? false,
     },
     display,
@@ -29,28 +31,38 @@ test("workspacesDoc lays out each workspace with its change and notes", () => {
     landed: opts?.landed ?? false,
     archived: opts?.archived ?? false,
   });
-  const doc = workspacesDoc({
-    rows: [
-      row("/src/widgets", ".", "main", { primary: true }),
-      row("/src/widgets-gadget", "../widgets-gadget", "gadget", { isChange: true, dirty: true }),
-      row("/src/widgets-relic", "../widgets-relic", "relic", { isChange: true, landed: true }),
-      row("/src/widgets-shelf", "../widgets-shelf", "shelf", { isChange: true, archived: true }),
-      row("/src/widgets-probe", "../widgets-probe", undefined),
-    ],
-  });
+  const doc = workspacesDoc(
+    {
+      rows: [
+        row("/src/widgets", ".", "main", { primary: true }),
+        row("/src/widgets-gadget", "../widgets-gadget", "gadget", {
+          isChange: true,
+          dirty: { at: timestampMs(NOW - 5 * 3_600_000) },
+        }),
+        row("/src/widgets-relic", "../widgets-relic", "relic", { isChange: true, landed: true }),
+        row("/src/widgets-shelf", "../widgets-shelf", "shelf", {
+          isChange: true,
+          dirty: { at: undefined },
+          archived: true,
+        }),
+        row("/src/widgets-probe", "../widgets-probe", undefined),
+      ],
+    },
+    NOW,
+  );
   expect(docText(doc)).toMatchInlineSnapshot(`
     "Workspaces
     ==========
 
-    ╭───────────────────┬────────────┬──────────╮
-    │ workspace         │ change     │ note     │
-    ├───────────────────┼────────────┼──────────┤
-    │ .                 │ main       │          │
-    │ ../widgets-gadget │ gadget     │ dirty    │
-    │ ../widgets-relic  │ relic      │ landed   │
-    │ ../widgets-shelf  │ shelf      │ archived │
-    │ ../widgets-probe  │ (detached) │          │
-    ╰───────────────────┴────────────┴──────────╯"
+    ╭───────────────────┬────────────┬─────────────────╮
+    │ workspace         │ change     │ note            │
+    ├───────────────────┼────────────┼─────────────────┤
+    │ .                 │ main       │                 │
+    │ ../widgets-gadget │ gadget     │ dirty 5h        │
+    │ ../widgets-relic  │ relic      │ landed          │
+    │ ../widgets-shelf  │ shelf      │ dirty, archived │
+    │ ../widgets-probe  │ (detached) │                 │
+    ╰───────────────────┴────────────┴─────────────────╯"
   `);
   // Each row resolves to its workspace's directory; every named branch links
   // to its page, change or not, while a detached workspace goes nowhere.
