@@ -1028,52 +1028,6 @@ export class GitBackend implements Backend {
     await git(this.root, ["switch", "--quiet", "--end-of-options", branch]);
   }
 
-  async rename(from: ChangeName, to: ChangeName): Promise<void> {
-    const tip = await this.tip(from);
-    if (tip === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
-    }
-    const log = await this.commitAt(logRef(from));
-    if (log === undefined) {
-      throw new Error(`change has no log: ${JSON.stringify(from)}`);
-    }
-    // One transaction moves the branch and the log together: `create` fails on
-    // an existing target, `delete` compare-and-swaps on the tips read above,
-    // and any failure moves nothing.
-    const transaction =
-      `create refs/heads/${to} ${tip}\n` +
-      `delete refs/heads/${from} ${tip}\n` +
-      `create ${logRef(to)} ${log}\n` +
-      `delete ${logRef(from)} ${log}\n`;
-    // Git refuses to update HEAD and delete its referent in one transaction,
-    // so a checked-out `from` detaches HEAD around the rename instead — a
-    // ref-only move that leaves the index and working tree in place. A crash
-    // here strands a detached HEAD at the tip, never a half-renamed change.
-    const checkedOut = (await this.checkedOutBranch()) === from;
-    if (checkedOut) {
-      await git(this.root, ["update-ref", "--no-deref", "HEAD", tip]);
-    }
-    try {
-      // The transaction does not guard other worktrees' HEADs: deleting a
-      // branch out from under one leaves it on an unborn branch that a later
-      // commit would quietly recreate. With this worktree's HEAD already
-      // detached, any worktree still on `from` is someone else's.
-      const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-      if (worktrees.split("\n").includes(`branch refs/heads/${from}`)) {
-        throw new UserError(`branch is checked out in another worktree: ${JSON.stringify(from)}`);
-      }
-      await git(this.root, ["update-ref", "--stdin"], transaction);
-    } catch (error) {
-      if (checkedOut) {
-        await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${from}`]);
-      }
-      throw error;
-    }
-    if (checkedOut) {
-      await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${to}`]);
-    }
-  }
-
   async commit(message: string, paths: readonly FilePath[]): Promise<void> {
     try {
       await git(this.root, ["add", "--all", ...(paths.length === 0 ? [] : ["--", ...paths])]);

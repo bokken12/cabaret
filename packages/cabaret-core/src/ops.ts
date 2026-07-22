@@ -747,33 +747,3 @@ export async function transferChange(
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-owner", owner } },
   ]);
 }
-
-/**
- * Rename an unlanded change: move its branch and its log to the new name
- * together, atomically.
- */
-// TODO: rename assumes the change lives only in this repository. Once
-// changes sync with a remote, a raw ref move races concurrent editors —
-// their appends target the old log ref — so a distributed rename likely
-// needs to be recorded in the log itself. Children are similarly untouched:
-// their `set-parent` entries keep naming the old change until a manual
-// `cab reparent`.
-export async function renameChange(
-  backend: Backend,
-  from: ChangeName,
-  to: ChangeName,
-  override: boolean,
-): Promise<void> {
-  const entries = await backend.readLog(from);
-  assertChangeExists(from, entries);
-  assertNotLanded(from, entries);
-  await requireOwner(backend, from, entries, override);
-  if ((await backend.readLog(to)).length > 0) {
-    throw new UserError(`change already exists: ${JSON.stringify(to)}`);
-  }
-  // Origin holding the name counts too: the rename would collide there on push.
-  if ((await freshestReading(backend, to)).kind !== "none") {
-    throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
-  }
-  await backend.rename(from, to);
-}

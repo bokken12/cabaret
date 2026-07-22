@@ -546,14 +546,6 @@ export interface Backend {
   checkout(change: ChangeName): Promise<void>;
 
   /**
-   * Rename change `from` to `to`: move its branch and its log to the new name
-   * in one all-or-nothing transaction, retargeting HEAD when `from` is checked
-   * out. Fails if `to`'s branch or log already exists, or if either of
-   * `from`'s refs moves concurrently.
-   */
-  rename(from: ChangeName, to: ChangeName): Promise<void>;
-
-  /**
    * Commit this workspace's edits — modified, added, and deleted files alike
    * — to the checked-out branch with `message`. `paths`, each a path or one
    * of the backend's native patterns, restrict what is committed; empty

@@ -113,7 +113,6 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
     self: () => Promise.resolve({ user: userName("alice@example.com"), aliases: new Set<UserName>() }),
     rebase: unavailable("rebasing"),
     land: unavailable("landing"),
-    rename: unavailable("renaming"),
     reparent: unavailable("reparenting"),
     setOwner: unavailable("owner transfer"),
     widenReviewing: unavailable("widening"),
@@ -414,33 +413,16 @@ test("! r b rebases the cursor's change; a stale parent asks and retries with th
   ]);
 });
 
-test("! r n renames through the minibuffer, editing the old name in place", async () => {
-  const calls: object[] = [];
-  const { app, keys, screen } = harness({
-    rename: (from, to, evenThoughNotOwner) => {
-      calls.push({ from, to, evenThoughNotOwner });
-      return Promise.resolve();
-    },
-  });
-  await app.open({ kind: "show", change: widgets });
-  await keys("!", "r", "n");
-  expect(screen()).toContain("Rename widgets: widgets");
-  await keys("backspace", "2", "enter");
-  expect(calls).toEqual([{ from: widgets, to: parseBranchName("widget2"), evenThoughNotOwner: false }]);
-  // The show page follows the change to its new name.
-  expect(screen()).toContain("/cabaret/show/widget2");
-});
-
 test("esc abandons a minibuffer input without acting", async () => {
   const calls: object[] = [];
   const { app, keys, screen } = harness({
-    rename: (from, to) => {
-      calls.push({ from, to });
+    create: (change, parent) => {
+      calls.push({ change, parent });
       return Promise.resolve();
     },
   });
   await app.open({ kind: "show", change: widgets });
-  await keys("!", "r", "n", "x", "esc", "enter");
+  await keys("!", "c", "x", "esc", "enter");
   expect(calls).toEqual([]);
   expect(screen()).toContain("/cabaret/show/widgets");
 });
@@ -671,15 +653,15 @@ test("dragging selects the rows crossed and lands them as a stack", async () => 
 test("a single-change action over a selection asks for a single change", async () => {
   const calls: string[] = [];
   const { app, keys, screen } = harness({
-    rename: (from) => {
-      calls.push(from);
+    create: (change) => {
+      calls.push(change);
       return Promise.resolve();
     },
   });
   await app.open({ kind: "home" });
-  await keys("j", "V", "j", "!", "r", "n");
+  await keys("j", "V", "j", "!", "c");
   expect(calls).toEqual([]);
-  expect(screen()).toContain("select a single change to rename");
+  expect(screen()).toContain("select a single change to create a child of");
 });
 
 test("! a toggles each selected change and reports both directions", async () => {
@@ -791,9 +773,9 @@ test("a click lands the cursor cell where it fell", async () => {
 test("the minibuffer parks the cursor after the typed text on the status row", async () => {
   const { app, keys, cursors } = harness();
   await app.open({ kind: "show", change: widgets });
-  await keys("!", "r", "n");
-  // " Rename widgets: widgets" is 24 code points; the cursor sits after it.
-  expect(cursors[cursors.length - 1]).toEqual({ row: 6, column: 24 });
+  await keys("!", "c");
+  // " Name for a child of widgets: " is 30 code points; the cursor sits after it.
+  expect(cursors[cursors.length - 1]).toEqual({ row: 6, column: 30 });
 });
 
 test("v selects as V does while every selection is line-wise", async () => {
