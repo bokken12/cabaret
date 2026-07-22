@@ -1017,7 +1017,6 @@ export async function fetchForge(
     // is anyone here engaging with the change.
     const source = { forge: forge.locator };
     const additions: LogEntry[] = [
-      { timestamp: now(), user, source, action: { kind: "set-name", name: forgeChange.head } },
       { timestamp: now(), user, source, action: { kind: "set-parent", parent: forgeChange.parent } },
       {
         timestamp: now(),

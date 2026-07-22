@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.006Z alice@example.com
+      2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.007Z alice@example.com
+      2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly

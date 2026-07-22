@@ -185,7 +185,6 @@ export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
 
 /** An action that can be recorded in a change's log. Revisions and names it records are in the owning backend's formats. */
 export type LogAction =
-  | { readonly kind: "set-name"; readonly name: ChangeName }
   | { readonly kind: "set-parent"; readonly parent: ChangeName }
   | { readonly kind: "set-base"; readonly base: Revision }
   | { readonly kind: "set-owner"; readonly owner: UserName }
@@ -231,7 +230,6 @@ function logEntrySchema(
 ): z.ZodType<LogEntry> {
   const revision = z.string().transform(parseRevision);
   const action = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("set-name"), name: z.string().transform(parseName) }),
     z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseName) }),
     z.object({ kind: z.literal("set-base"), base: revision }),
     z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
@@ -880,11 +878,6 @@ export function assertChangeExists(change: ChangeName, entries: readonly LogEntr
       `change does not exist: ${JSON.stringify(change)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
     );
   }
-}
-
-/** The name from the log's latest `set-name`, or undefined when the log never recorded one. */
-export function currentName(entries: readonly LogEntry[]): ChangeName | undefined {
-  return latestAction(entries, "set-name")?.name;
 }
 
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */

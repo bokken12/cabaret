@@ -133,12 +133,11 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
     `<<<<<<< ${tipBefore}\nfrom child\n=======\nfrom parent, amended\n>>>>>>> ${onto}`,
   );
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"aaf2e0dc48428bf54d4b9aae694d45311d1d89ab"}}
-    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-base","base":"38504647eb6283c6596aabb6eac12b4273a383dd"}}
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"aaf2e0dc48428bf54d4b9aae694d45311d1d89ab"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"38504647eb6283c6596aabb6eac12b4273a383dd"}}
     "
   `);
   expect(await repo.cabaret("conflicts", "child")).toEqual({
@@ -300,12 +299,11 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   // slide back once the parent is rewritten.
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
-    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-base","base":"fb9614990d7a450df016bb6152c809b7d82cba4d"}}
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"fb9614990d7a450df016bb6152c809b7d82cba4d"}}
     "
   `);
   // Rewrite the parent's tip; without the pinned base the merge-base would
@@ -363,33 +361,30 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
     exitCode: 0,
   });
   expect(await shownLog(repo, "a")).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"a"}}
-    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
-    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
-    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000018,"user":"alice@example.com","action":{"kind":"set-base","base":"5ea531675f501df58bfcc7b0fa4180baf4e20791"}}
+    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-base","base":"5ea531675f501df58bfcc7b0fa4180baf4e20791"}}
     "
   `);
   expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"b"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
-    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
-    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"set-base","base":"c487be5ad4f41d90666600afefa27b092e939521"}}
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-base","base":"c487be5ad4f41d90666600afefa27b092e939521"}}
     "
   `);
   expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
-    "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"c"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
-    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
-    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-base","base":"457863f7a5da1c56012d5a09dbfaace94bb67a8f"}}
+    "{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"set-base","base":"457863f7a5da1c56012d5a09dbfaace94bb67a8f"}}
     "
   `);
 });

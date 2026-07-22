@@ -7,7 +7,6 @@ import {
   type ChangeName,
   currentArchived,
   currentBase,
-  currentName,
   currentOwner,
   currentParent,
   currentReviewers,
@@ -312,23 +311,6 @@ test("parseLog rejects malformed logs", () => {
   }
 });
 
-test("currentName takes the set-name with the greatest timestamp, or undefined without one", () => {
-  const entry = (timestamp: number, action: LogAction): LogEntry => ({
-    timestamp: timestampMs(timestamp),
-    user: userName("alice@example.com"),
-    action,
-  });
-  expect(currentName([])).toBeUndefined();
-  expect(currentName([entry(5, { kind: "set-archived", archived: true })])).toBeUndefined();
-  expect(
-    currentName([
-      entry(9, { kind: "set-name", name: parseBranchName("renamed") }),
-      entry(3, { kind: "set-name", name: parseBranchName("original") }),
-      entry(12, { kind: "set-archived", archived: true }),
-    ]),
-  ).toBe("renamed");
-});
-
 test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
@@ -559,7 +541,6 @@ function logActions(): fc.Arbitrary<LogAction> {
   const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
   const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
   return fc.oneof(
-    fc.record({ kind: fc.constant("set-name" as const), name: refNames() }),
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
