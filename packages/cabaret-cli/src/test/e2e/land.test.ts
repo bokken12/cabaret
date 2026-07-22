@@ -181,7 +181,7 @@ test("land refuses a parent that itself landed", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
   await repo.cabaret("land", "parent", "--even-though-unreviewed");
-  await repo.cabaret("create", "late", "--parent", "parent", "--even-though-parent-landed");
+  await repo.cabaret("create", "late", "--parent", "parent", "--even-though-parent-archived");
   await repo.git("checkout", "-q", "late");
   await repo.write("late.txt", "late work\n");
   await repo.git("add", "-A");
@@ -660,7 +660,7 @@ test("a range that would land into a landed change refuses before landing anythi
   await addChange(repo, "c");
   await repo.cabaret("land", "a", "--even-though-unreviewed");
   // The land moved b onto main; hanging it back under the landed a jams the chain.
-  await repo.cabaret("reparent", "b", "a");
+  await repo.cabaret("reparent", "b", "a", "--even-though-parent-archived");
   expect(await repo.cabaret("land", "main..c")).toEqual({
     stdout: "",
     stderr: '"b" would land into "a", which has landed; run `cab reparent` first\n',

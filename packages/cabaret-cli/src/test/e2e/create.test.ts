@@ -202,12 +202,13 @@ test("create refuses a landed parent until overridden, naming where the code wen
   expect(await repo.cabaret("land", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("create", "widgets", "--parent", "gadget")).toEqual({
     stdout: "",
-    stderr: 'parent "gadget" has landed; create off "main" instead, or pass --even-though-parent-landed to proceed\n',
+    stderr:
+      'parent "gadget" landed into "main"; build on that instead, or pass --even-though-parent-archived to proceed\n',
     exitCode: 1,
   });
   expect(await repo.git("branch", "--list", "widgets")).toBe("");
   expect(await repo.cabaret("dev", "log", "widgets")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("create", "widgets", "--parent", "gadget", "--even-though-parent-landed")).toEqual({
+  expect(await repo.cabaret("create", "widgets", "--parent", "gadget", "--even-though-parent-archived")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,

@@ -42,37 +42,33 @@ import {
 import { currentSelf, isSelf } from "./self.js";
 import { reviewLeft } from "./summary.js";
 
-/** The create checks the user may explicitly override. */
-export interface CreateOverrides {
-  /** Create off a parent that has landed. */
-  readonly parentLanded: boolean;
-  /** Create off a parent that is archived. */
-  readonly parentArchived: boolean;
-}
-
 /**
- * The parent has landed: it is frozen where its code merged into `into`, so
- * a change created off it would need an immediate reparent. The message
- * states the fact and the fix; each frontend attaches its own override
- * remedy before showing it.
+ * The parent is archived — set aside as not landing, or done because a land
+ * archived it — so building on it would stack work on a dead end. A landed
+ * parent's error names where its code went, since that is the parent to
+ * build on instead. The message states the fact and the fix; each frontend
+ * attaches its own override remedy before showing it.
  */
-export class LandedParentError extends UserError {
+export class ArchivedParentError extends UserError {
   constructor(
     readonly parent: ChangeName,
-    readonly into: ChangeName,
+    readonly landedInto?: ChangeName,
   ) {
-    super(`parent ${JSON.stringify(parent)} has landed; create off ${JSON.stringify(into)} instead`);
+    super(
+      landedInto === undefined
+        ? `parent ${JSON.stringify(parent)} is archived; run \`cab archive --undo\` first`
+        : `parent ${JSON.stringify(parent)} landed into ${JSON.stringify(landedInto)}; build on that instead`,
+    );
   }
 }
 
-/**
- * The parent is archived — set aside as not landing — so a change created
- * off it would stack work on a dead end. As with `LandedParentError`, each
- * frontend attaches its own override remedy before showing it.
- */
-export class ArchivedParentError extends UserError {
-  constructor(readonly parent: ChangeName) {
-    super(`parent ${JSON.stringify(parent)} is archived; run \`cab archive --undo\` first`);
+/** Fail unless `parent` may be built on: an archived parent is a dead end. */
+function assertParentLive(parent: ChangeName, parentEntries: readonly LogEntry[]): void {
+  if (currentArchived(parentEntries)) {
+    throw new ArchivedParentError(
+      parent,
+      landedMerge(parentEntries) !== undefined ? currentParent(parent, parentEntries) : undefined,
+    );
   }
 }
 
@@ -83,8 +79,8 @@ export class ArchivedParentError extends UserError {
  * with the last revision shared with the parent as its base. Parent and
  * adopted branch alike read freshest — the descendant-most of the local tip
  * and origin's last-fetched copy — and diverged readings fail until synced.
- * A parent that is itself a change must be live: landed and archived parents
- * fail, short of the matching override. The change must not already exist.
+ * An archived parent is a dead end and fails, short of the override. The
+ * change must not already exist.
  * Review starts with nobody asked — the change is a draft until widened —
  * though the owner may record self-review at any stage. `permanent` marks
  * the change as structure expected to outlive its lands.
@@ -94,7 +90,7 @@ export async function createChange(
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  overrides: CreateOverrides,
+  evenThoughParentArchived: boolean,
   owner?: UserName,
   permanent = false,
 ): Promise<void> {
@@ -104,15 +100,8 @@ export async function createChange(
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
-  const parentEntries = await backend.readLog(parent);
-  if (currentArchived(parentEntries)) {
-    if (landedMerge(parentEntries) !== undefined) {
-      if (!overrides.parentLanded) {
-        throw new LandedParentError(parent, currentParent(parent, parentEntries));
-      }
-    } else if (!overrides.parentArchived) {
-      throw new ArchivedParentError(parent);
-    }
+  if (!evenThoughParentArchived) {
+    assertParentLive(parent, await backend.readLog(parent));
   }
   const parentReading = await freshestReading(backend, parent);
   if (parentReading.kind === "none") {
@@ -824,26 +813,45 @@ export async function reparentLandedChildren(
   return moved;
 }
 
+/** The reparent checks the user may explicitly override. */
+export interface ReparentOverrides {
+  /** Reparent a change the current user does not own. */
+  readonly notOwner: boolean;
+  /** Reparent onto an archived parent. */
+  readonly parentArchived: boolean;
+  /** Reparent onto a parent whose local reading has diverged from origin's. */
+  readonly parentDiverged: boolean;
+}
+
 /**
  * Update `change`'s parent. This is a metadata/log change only, and does not
- * touch code without a subsequent rebase.
+ * touch code without a subsequent rebase — which is why a diverged parent is
+ * overridable here: no reading is chosen until that rebase, which arbitrates
+ * with its own override.
  */
 export async function reparentChange(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  override: boolean,
+  overrides: ReparentOverrides,
 ): Promise<void> {
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
   const entries = await backend.readLog(change);
-  await requireOwner(backend, change, entries, override);
+  await requireOwner(backend, change, entries, overrides.notOwner);
+  if (!overrides.parentArchived) {
+    assertParentLive(parent, await backend.readLog(parent));
+  }
   // The same liveness `create` demands: a parent is a branch — local or
   // origin's fetched copy — change log or not.
-  if ((await freshestReading(backend, parent)).kind === "none") {
+  const reading = await freshestReading(backend, parent);
+  if (reading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
+  if (reading.kind === "diverged" && !overrides.parentDiverged) {
+    throw new DivergedParentError(parent);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-parent", parent } },

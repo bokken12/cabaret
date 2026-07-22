@@ -1267,7 +1267,13 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
 async function reparentSelection(backend: Backend, change: ChangeName): Promise<void> {
   const parent = await pickParent(backend, change);
   if (parent !== undefined) {
-    await confirmNotOwner("Reparent Anyway", (override) => reparentChange(backend, now, change, parent, override));
+    await confirmNotOwner("Reparent Anyway", (override) =>
+      reparentChange(backend, now, change, parent, {
+        notOwner: override,
+        parentArchived: false,
+        parentDiverged: false,
+      }),
+    );
   }
 }
 
@@ -1379,7 +1385,7 @@ async function promptCreate(backend: Backend, parent: ChangeName, prompt: string
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent, { parentLanded: false, parentArchived: false });
+  await createChange(backend, now, change, parent, false);
   return change;
 }
 
@@ -1745,7 +1751,13 @@ export function activate(context: vscode.ExtensionContext): void {
         // created but never spliced in.
         const parent = await promptCreate(backend, grandparent, `Name for a parent of ${child}`);
         if (parent !== undefined) {
-          await confirmNotOwner("Reparent Anyway", (override) => reparentChange(backend, now, child, parent, override));
+          await confirmNotOwner("Reparent Anyway", (override) =>
+            reparentChange(backend, now, child, parent, {
+              notOwner: override,
+              parentArchived: false,
+              parentDiverged: false,
+            }),
+          );
         }
       }),
     ),
