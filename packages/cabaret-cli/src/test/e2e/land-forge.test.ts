@@ -96,6 +96,27 @@ test("a forge land retargets the children's forge changes", async () => {
   `);
 });
 
+test("land retargets a forge change the log's parent moved away from", async () => {
+  const forge = new FakeForge();
+  const repo = await makePr(forge);
+  // A second landable parent, present on the forge so it can merge into it.
+  await repo.git("branch", "develop", "main");
+  await repo.git("push", "-q", "origin", "develop");
+  await repo.cabaret("reparent", "gadget", "develop");
+  // No sync between the reparent and the land: the land names the parent,
+  // so it retargets the forge change itself.
+  expect(await repo.cabaret("land")).toEqual({
+    stdout: "merged github.com/test-org/widgets#1\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(PR)).parent).toBe("develop");
+  expect((await forge.getChange(PR)).state).toBe("merged");
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
+    '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-parent","parent":"develop"}',
+  );
+});
+
 test("land squashes the change's forge change when configured", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);
