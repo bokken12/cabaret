@@ -433,7 +433,9 @@ test("fetch opens the forge change reviewing left due while unreachable", async 
   await repo.cabaret("fetch");
   const origin = await repo.git("remote", "get-url", "origin");
   await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
-  expect((await repo.cabaret("widen")).stdout).toBe("reviewing owner\norigin unreachable; sync to publish\n");
+  expect((await repo.cabaret("reviewing", "widen")).stdout).toBe(
+    "reviewing owner\norigin unreachable; sync to publish\n",
+  );
   await repo.git("remote", "set-url", "origin", origin);
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "opened github.com/test-org/widgets#1\n" + "fetched github.com/test-org/widgets: 0 updated forge changes\n",

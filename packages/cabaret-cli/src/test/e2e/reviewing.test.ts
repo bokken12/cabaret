@@ -37,11 +37,15 @@ test("widen steps to the next level with review to do, skipping levels that ask 
   await repo.cabaret("reviewing", "set", "none");
   await repo.cabaret("reviewers", "add", "bob@example.com");
   // The owner has review left, so the fresh draft widens to them first.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing owner\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing owner\n", stderr: "", exitCode: 0 });
   // bob still owes the diff, so the next step is the reviewers.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing reviewers\n", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
-  expect((await repo.cabaret("widen")).stderr).toBe('everyone is already reviewing "gadget"\n');
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({
+    stdout: "reviewing reviewers\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("reviewing", "widen")).stderr).toBe('everyone is already reviewing "gadget"\n');
 });
 
 test("widen from a draft skips an owner who already read the whole diff", async () => {
@@ -51,7 +55,7 @@ test("widen from a draft skips an owner who already read the whole diff", async 
   // Self-review of a draft needs no widening: the owner is never nudged.
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   // Nobody is a reviewer either, so the first level with anything to ask is everyone.
-  expect(await repo.cabaret("widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing everyone\n", stderr: "", exitCode: 0 });
 });
 
 test("obligations reach a user's home only once the reviewing set includes them", async () => {
@@ -92,7 +96,7 @@ test("no forge change opens while reviewing is none; leaving none opens one read
   await expect(forge.getChange(PR)).rejects.toThrow("no PR 1");
   // Leaving none is the attention act, and its write-through opens the
   // forge change ready — never as a draft.
-  expect((await repo.cabaret("widen")).stdout).toContain("opened github.com/test-org/widgets#1");
+  expect((await repo.cabaret("reviewing", "widen")).stdout).toContain("opened github.com/test-org/widgets#1");
   expect((await forge.getChange(PR)).draft).toBe(false);
   // Reviewing back to none marks the existing forge change a draft.
   expect((await repo.cabaret("reviewing", "set", "none")).stdout).toContain(

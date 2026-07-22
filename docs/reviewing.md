@@ -18,7 +18,7 @@ rather than freezing its members.
 ## Widening
 
 Review normally widens one step at a time — the owner finishes self-review,
-adds reviewers, widens to them, and finally widens to everyone. `widen` takes
+adds reviewers, widens to them, and finally widens to everyone. `reviewing widen` takes
 the next step, skipping any level that would ask nothing of anyone: a level
 asks something when a user it newly adds still has review left, so an owner
 who already read the whole diff is skipped, as are reviewers who have (or a

@@ -690,6 +690,18 @@ FLAGS
 ARGUMENTS
   reviewing  reviewing set to record
 
+### cab reviewing widen
+
+USAGE
+  cab reviewing widen [--change value]
+  cab reviewing widen --help
+
+Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
+
+FLAGS
+     [--change]  Change to widen (defaults to current)
+  -h  --help     Print help information and exit
+
 ### cab setup list
 
 USAGE
@@ -765,18 +777,6 @@ FLAGS
 
 ARGUMENTS
   [change]  change to open (defaults to the home page)
-
-## cab widen
-
-USAGE
-  cab widen [--change value]
-  cab widen --help
-
-Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
-
-FLAGS
-     [--change]  Change to widen (defaults to current)
-  -h  --help     Print help information and exit
 
 ### cab workspace list
 
