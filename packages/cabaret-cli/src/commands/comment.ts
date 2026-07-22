@@ -26,8 +26,8 @@ export const comment = buildCommand({
   },
   async func(this: LocalContext, flags: { change?: string }, text: string) {
     const backend = await this.backend();
-    const { change } = await resolveChange(backend, flags.change);
-    await backend.appendLog(change, [
+    const change = await resolveChange(backend, flags.change);
+    await backend.appendLog(change.id, [
       { timestamp: this.now(), user: await backend.currentUser(), action: { kind: "comment", text } },
     ]);
     await writeThrough(this, backend, change);

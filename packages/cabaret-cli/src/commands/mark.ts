@@ -39,19 +39,19 @@ export const mark = buildCommand({
     ...args: string[]
   ) {
     const backend = await this.backend();
-    const { change } = await resolveChange(backend, flags.change);
-    const snapshot = await changeSnapshot(backend, change);
-    assertNoConflict(change, snapshot.conflicts);
+    const change = await resolveChange(backend, flags.change);
+    const snapshot = await changeSnapshot(backend, change.name);
+    assertNoConflict(change.name, snapshot.conflicts);
     if (!snapshot.asked && !flags.evenThoughNotReviewing) {
-      throw new NotReviewingError(change, snapshot.reviewing, snapshot.user);
+      throw new NotReviewingError(change.name, snapshot.reviewing, snapshot.user);
     }
     if (snapshot.left.size === 0) {
-      throw new UserError(`nothing is left to review in ${JSON.stringify(change)}`);
+      throw new UserError(`nothing is left to review in ${JSON.stringify(change.name)}`);
     }
     const tip = await backend.resolveCommit(flags.tip);
     const files = selectFiles(backend, [...snapshot.left.keys()], args, true, "file with review left");
     await backend.appendLog(
-      change,
+      change.id,
       files.map((file) => ({
         timestamp: this.now(),
         user: snapshot.user,

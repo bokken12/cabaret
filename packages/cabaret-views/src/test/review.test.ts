@@ -3,6 +3,7 @@ import {
   type ChangedFile,
   type LogEntry,
   parseBranchName,
+  parseChangeId,
   parseCommitHash,
   parseFilePath,
   type Revision,
@@ -739,6 +740,7 @@ test("diffDoc as another user names them in the title", () => {
 
 function snapshotWith(files: readonly string[], conflicts: readonly string[] = []): ChangeSnapshot {
   return {
+    id: parseChangeId("ab".repeat(16)),
     change: widgets,
     user: userName("alice@example.com"),
     as: undefined,

@@ -440,6 +440,17 @@ FLAGS
      [--remote]  Also delete every log on origin (unrecoverable) [default = false]
   -h  --help     Print help information and exit
 
+### cab dev migrate-ids
+
+USAGE
+  cab dev migrate-ids
+  cab dev migrate-ids --help
+
+Move logs from the name-keyed ref layout onto id-keyed refs, locally and on origin. Run once per repository, with every machine's cabaret updated first.
+
+FLAGS
+  -h --help  Print help information and exit
+
 ## cab diff
 
 USAGE

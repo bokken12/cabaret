@@ -275,7 +275,7 @@ test("fetch turns a teammate's forge change into a change to review", async () =
   expect(log).toContain('"action":{"kind":"set-forge","forge":"github.com/test-org/widgets","id":1}');
   // The import published: origin holds the log, and fetching again refreshes
   // the change rather than re-importing it.
-  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).not.toBe("");
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/*")).not.toBe("");
   expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
 });
 
@@ -551,7 +551,7 @@ test("fetch prunes the change of a closed forge change when nobody engaged with 
     exitCode: 0,
   });
   expect((await repo.cabaret("dev", "log", "their-feature")).stdout).toBe("");
-  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/their-feature")).toBe("");
+  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/*")).toBe("");
 });
 
 test("fetch archives the change of a closed forge change once someone engaged with it", async () => {

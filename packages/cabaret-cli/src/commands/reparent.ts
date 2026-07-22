@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { reparentChange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { evenThoughNotOwner, writeThrough } from "./shared.js";
+import { evenThoughNotOwner, resolveChange, writeThrough } from "./shared.js";
 
 export const reparent = buildCommand({
   docs: {
@@ -40,12 +40,12 @@ export const reparent = buildCommand({
     parent: string,
   ) {
     const backend = await this.backend();
-    const name = backend.parseName(change);
-    await reparentChange(backend, this.now, name, backend.parseName(parent), {
+    const target = await resolveChange(backend, change);
+    await reparentChange(backend, this.now, target, backend.parseName(parent), {
       notOwner: flags.evenThoughNotOwner,
       parentArchived: flags.evenThoughParentArchived,
       parentDiverged: flags.evenThoughParentDiverged,
     });
-    await writeThrough(this, backend, name);
+    await writeThrough(this, backend, target);
   },
 });

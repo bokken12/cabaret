@@ -1,4 +1,5 @@
 import {
+  allChanges,
   type Backend,
   type ChangeName,
   type ChangeNode,
@@ -9,6 +10,7 @@ import {
   type FilePath,
   isReviewing,
   isSelf,
+  type NamedChange,
   reviewOwed,
   type Self,
   selfAs,
@@ -110,10 +112,15 @@ type ChangeReading =
     }
   | { readonly kind: "broken"; readonly message: string };
 
-async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
-  const entries = await backend.readLog(change);
-  const diff = await changeDiff(backend, change, entries);
-  const summary = await summarizeChange(backend, change, entries, self.user, diff);
+async function readChange(
+  backend: Backend,
+  self: Self,
+  change: NamedChange,
+  all: readonly NamedChange[],
+): Promise<ChangeReading> {
+  const entries = change.entries;
+  const diff = await changeDiff(backend, change.name, entries);
+  const summary = await summarizeChange(backend, change, self.user, diff, all);
   // Obligations ask nothing of a user outside the reviewing set — a
   // membership the log alone decides, sparing the obligations files of
   // most changes. An empty reviewLeft already counts the user toward
@@ -127,11 +134,11 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
     (!summary.archived || summary.landed !== undefined) &&
     summary.conflicts.length === 0 &&
     (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
-    isReviewing(self, change, entries);
+    isReviewing(self, change.name, entries);
   return {
     kind: "read",
     summary,
-    parent: currentParent(change, entries),
+    parent: currentParent(change.name, entries),
     owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
   };
 }
@@ -140,12 +147,13 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const acting = await selfAs(backend, as);
   const self = acting.self;
   const workspaces = await workspaceNotes(backend);
-  const changes = [...(await backend.listChanges())].sort();
+  const all = await allChanges(backend);
+  const changes = [...all].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.
   const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
     try {
-      return await readChange(backend, self, change);
+      return await readChange(backend, self, change, all);
     } catch (error) {
       // Only state problems isolate to their change; a bug still throws.
       if (!(error instanceof UserError)) {
@@ -161,16 +169,16 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   changes.forEach((change, index) => {
     const reading = readings[index];
     if (reading === undefined) {
-      throw new Error(`change read no reading: ${change}`);
+      throw new Error(`change read no reading: ${change.id}`);
     }
     if (reading.kind === "broken") {
-      broken.push({ change, message: reading.message });
+      broken.push({ change: change.name, message: reading.message });
       return;
     }
-    summaries.set(change, reading.summary);
-    parents.set(change, reading.parent);
+    summaries.set(change.name, reading.summary);
+    parents.set(change.name, reading.parent);
     if (reading.owed.length > 0) {
-      owedFiles.set(change, reading.owed);
+      owedFiles.set(change.name, reading.owed);
     }
   });
   const summary = (change: ChangeName): ChangeSummary => {

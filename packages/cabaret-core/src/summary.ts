@@ -34,6 +34,7 @@ import {
 } from "./backend.js";
 import { diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
+import { allChanges, type NamedChange, resolveNamed } from "./naming.js";
 import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
@@ -145,12 +146,13 @@ export interface ChangeSummary {
  */
 export async function summarizeChange(
   backend: Backend,
-  change: ChangeName,
-  entries: readonly LogEntry[],
+  change: NamedChange,
   user: UserName,
   diff: ChangeDiff,
+  all: readonly NamedChange[],
 ): Promise<ChangeSummary> {
-  const parent = currentParent(change, entries);
+  const entries = change.entries;
+  const parent = currentParent(change.name, entries);
   const landed = landedMerge(entries);
   const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
@@ -172,8 +174,8 @@ export async function summarizeChange(
         staleParent = observed;
       }
     }
-    origin = await originStanding(backend, change, tip);
-    const parentEntries = await backend.readLog(parent);
+    origin = await originStanding(backend, change.name, tip);
+    const parentEntries = resolveNamed(all, parent)?.entries ?? [];
     if (finished(parentEntries)) {
       deadParent = "landed";
     } else if (currentArchived(parentEntries)) {
@@ -211,9 +213,9 @@ export async function summarizeChange(
   }
   const readings = {
     kind: "change" as const,
-    change,
+    change: change.name,
     parent,
-    owner: currentOwner(change, entries),
+    owner: currentOwner(change.name, entries),
     reviewers: currentReviewers(entries),
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
@@ -287,10 +289,10 @@ export async function summarizeTrunk(backend: Backend, change: ChangeName): Prom
  * when named outright.
  */
 export async function knownChanges(backend: Backend): Promise<readonly ChangeName[]> {
-  const changes = await backend.listChanges();
-  const names = new Set<ChangeName>(changes);
+  const changes = await allChanges(backend);
+  const names = new Set<ChangeName>(changes.map((change) => change.name));
   for (const change of changes) {
-    names.add(currentParent(change, await backend.readLog(change)));
+    names.add(currentParent(change.name, change.entries));
   }
   return [...names].sort();
 }

@@ -42,8 +42,8 @@ export const review = buildCommand({
     // Config is read even when the flag preempts it, so a misconfigured
     // cabaret.* key fails the same way on every invocation.
     const context = flags.context ?? (await readConfig(backend)).context;
-    const { change } = await resolveChange(backend, flags.change);
-    const snapshot = await changeSnapshot(backend, change);
+    const { name } = await resolveChange(backend, flags.change);
+    const snapshot = await changeSnapshot(backend, name);
     const page = reviewPage(snapshot);
     // Conflicts preempt review, and a change with nothing left has nothing
     // to narrow: the page says so either way.

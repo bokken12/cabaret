@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { rebaseChain, rebaseChange, resolveRange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
+import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec, resolveChange } from "./shared.js";
 
 export const rebase = buildCommand({
   docs: {
@@ -45,8 +45,7 @@ export const rebase = buildCommand({
     const backend = await this.backend();
     const overrides = { notOwner: flags.evenThoughNotOwner, parentDiverged: flags.evenThoughParentDiverged };
     if (spec === undefined || spec.kind === "one") {
-      const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
-      await rebaseChange(backend, this.now, target, await backend.readLog(target), overrides);
+      await rebaseChange(backend, this.now, await resolveChange(backend, spec?.change), overrides);
       return;
     }
     const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));

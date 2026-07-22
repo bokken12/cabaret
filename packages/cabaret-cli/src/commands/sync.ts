@@ -49,7 +49,7 @@ export const sync = buildCommand({
   },
   async func(this: LocalContext, flags: { change?: string }) {
     const backend = await this.backend();
-    const { change } = await resolveChange(backend, flags.change);
+    const change = await resolveChange(backend, flags.change);
     let forge: Forge | undefined;
     try {
       forge = await this.forge();
@@ -59,6 +59,6 @@ export const sync = buildCommand({
       }
     }
     const result = await syncChange(backend, this.now, forge, change);
-    reportSync(this, change, forge?.locator, result);
+    reportSync(this, change.name, forge?.locator, result);
   },
 });

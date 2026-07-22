@@ -44,6 +44,32 @@ export function parseBranchName(raw: string): ChangeName {
   return raw as ChangeName;
 }
 
+/**
+ * A change's permanent identity: random, minted at create, immutable. Log
+ * refs are keyed by it, so renaming a change never moves a ref; names are
+ * log state (`set-name`) resolved through `naming.ts`.
+ */
+export type ChangeId = Branded<string, "ChangeId">;
+
+const CHANGE_ID = /^[0-9a-f]{32}$/;
+
+export function parseChangeId(raw: string): ChangeId {
+  if (!CHANGE_ID.test(raw)) {
+    throw new UserError(`not a change id: ${JSON.stringify(raw)}`);
+  }
+  return raw as ChangeId;
+}
+
+// WebCrypto exists in every supported runtime but is absent from the bare
+// es2025 lib this platform-agnostic package compiles against.
+declare const crypto: { getRandomValues(array: Uint8Array): Uint8Array };
+
+/** Mint a fresh `ChangeId`: 16 random bytes as lowercase hex. */
+export function mintChangeId(): ChangeId {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("") as ChangeId;
+}
+
 /** A repository-relative file path, as named in diffs. Obtain via `parseFilePath`. */
 export type FilePath = Branded<string, "FilePath">;
 
@@ -671,14 +697,14 @@ export interface Backend {
    * entries — a push landing on a ref origin moved re-fetches and converges,
    * so no appended entry is ever lost to staleness.
    */
-  syncLog(change: ChangeName): Promise<void>;
+  syncLog(change: ChangeId): Promise<void>;
 
   /**
    * Sync every log with the `origin` remote — every change with a log here or
-   * fetched from there — and return their names, sorted. Reads last-fetched
+   * fetched from there — and return their ids, sorted. Reads last-fetched
    * logs, as `syncLog` does.
    */
-  syncLogs(): Promise<readonly ChangeName[]>;
+  syncLogs(): Promise<readonly ChangeId[]>;
 
   /**
    * Merge origin's reading into every branch of `changes` whose readings
@@ -702,17 +728,17 @@ export interface Backend {
   /**
    * Delete the review state this repository holds: every change's log and the
    * fetched copies of origin's logs. Branches and commits are untouched, and
-   * origin keeps its logs, so syncing restores them. Returns the names of the
+   * origin keeps its logs, so syncing restores them. Returns the ids of the
    * changes whose logs were deleted, sorted.
    */
-  wipeReviewState(): Promise<readonly ChangeName[]>;
+  wipeReviewState(): Promise<readonly ChangeId[]>;
 
   /**
    * Delete every change's log on the `origin` remote — for every user of the
-   * repository, with no way to recover them. Returns the names of the changes
+   * repository, with no way to recover them. Returns the ids of the changes
    * whose logs were deleted, sorted.
    */
-  wipeOriginLogs(): Promise<readonly ChangeName[]>;
+  wipeOriginLogs(): Promise<readonly ChangeId[]>;
 
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
@@ -727,11 +753,11 @@ export interface Backend {
   changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;
 
   /**
-   * The name of every change, sorted by name: one per log ref. Only
-   * `appendLog` creates logs and every log starts nonempty, so each named
-   * change exists — though a landed change's branch may be gone.
+   * The id of every change, sorted: one per log ref. Only `appendLog`
+   * creates logs and every log starts nonempty, so each id names a change
+   * that exists — though a landed change's branch may be gone.
    */
-  listChanges(): Promise<readonly ChangeName[]>;
+  listChanges(): Promise<readonly ChangeId[]>;
 
   /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
@@ -743,17 +769,17 @@ export interface Backend {
    * changes, add a batched or cached parent index to the backend rather than
    * memoizing in each caller.
    */
-  readLog(change: ChangeName): Promise<readonly LogEntry[]>;
+  readLog(change: ChangeId): Promise<readonly LogEntry[]>;
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
-  appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void>;
+  appendLog(change: ChangeId, entries: readonly LogEntry[]): Promise<void>;
 
   /**
    * Delete `change`'s log everywhere this backend reaches: locally, the
    * fetched copy of origin's, and origin's own. Gone for every user — callers
    * decide a log holds nothing worth keeping before deleting it.
    */
-  deleteLog(change: ChangeName): Promise<void>;
+  deleteLog(change: ChangeId): Promise<void>;
 }
 
 /**
