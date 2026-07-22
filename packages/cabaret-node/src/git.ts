@@ -929,14 +929,9 @@ export class GitBackend implements Backend {
     for (let attempt = 0; pending.length > 0; attempt++) {
       // Each change's log settles independently, so settling the batch
       // concurrently costs one round trip's latency, not `pending.length`'s.
-      let merged = 0;
-      onProgress?.({ kind: "merging-logs", merged, logs: pending.length });
+      onProgress?.({ kind: "merging-logs", logs: pending.length });
       const withTips = await Promise.all(
-        pending.map(async (change) => {
-          const entry = { change, tip: await this.settleLog(change) };
-          onProgress?.({ kind: "merging-logs", merged: ++merged, logs: pending.length });
-          return entry;
-        }),
+        pending.map(async (change) => ({ change, tip: await this.settleLog(change) })),
       );
       const settled = withTips.filter(
         (entry): entry is { change: ChangeName; tip: Revision } => entry.tip !== undefined,

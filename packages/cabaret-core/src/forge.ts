@@ -744,9 +744,8 @@ export async function landAsConfigured(
 }
 
 /**
- * What a fetch is doing right now, for hosts to show while it runs. Unlike a
- * `FetchEvent`, nothing here is an outcome: each report supersedes the last,
- * so a long fetch is never silent.
+ * A fetch's phases, reported as each begins so a long fetch is never silent.
+ * Unlike a `FetchEvent`, nothing here is an outcome.
  */
 export type FetchProgress = SyncProgress | { readonly kind: "fetching-origin" } | { readonly kind: "sweeping" };
 

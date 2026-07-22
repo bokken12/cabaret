@@ -14,12 +14,6 @@ export interface LocalContext extends CommandContext {
   readonly forge: () => Promise<Forge>;
   /** The current time. */
   readonly now: () => TimestampMs;
-  /**
-   * Show `text` as a transient status line, replacing the last one;
-   * `undefined` clears it. Off a terminal it shows nothing, so redirected
-   * output carries only real results.
-   */
-  readonly progress: (text: string | undefined) => void;
 }
 
 export function buildContext(process: NodeJS.Process): LocalContext {
@@ -32,12 +26,5 @@ export function buildContext(process: NodeJS.Process): LocalContext {
     backend: () => openBackend(process.cwd()),
     forge: () => openForge(process.cwd()),
     now: () => timestampMs(Date.now()),
-    progress: (text) => {
-      if (process.stderr.isTTY === true) {
-        // \r\x1b[K returns to column 0 and erases, so each line replaces the
-        // last and a clear leaves the terminal where it started.
-        process.stderr.write(text === undefined ? "\r\x1b[K" : `\r\x1b[K${text}`);
-      }
-    },
   };
 }

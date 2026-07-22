@@ -456,12 +456,12 @@ export interface Workspace {
 }
 
 /**
- * What a log sync is doing right now, for hosts to show while it runs. Each
- * report supersedes the last: progress is a live status line, not a record —
- * durable outcomes come back in return values.
+ * A log sync's phases, reported as each begins so hosts can narrate a long
+ * sync. Progress is not a record: durable outcomes come back in return
+ * values.
  */
 export type SyncProgress =
-  | { readonly kind: "merging-logs"; readonly merged: number; readonly logs: number }
+  | { readonly kind: "merging-logs"; readonly logs: number }
   | { readonly kind: "pushing-logs"; readonly logs: number };
 
 /**

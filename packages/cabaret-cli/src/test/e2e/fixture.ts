@@ -133,8 +133,6 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
         return forge;
       },
       now: () => timestampMs(clock++),
-      // Tests capture streams, never a terminal, where progress shows nothing.
-      progress: () => {},
     };
     await run(app, argv, context);
     await pinFetched(dir);

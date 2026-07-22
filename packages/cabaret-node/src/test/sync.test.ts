@@ -172,9 +172,7 @@ test("syncLogs reports merging and pushing as it goes, and a synced repo reports
   const first: SyncProgress[] = [];
   await a.backend.syncLogs((progress) => first.push(progress));
   expect(first).toEqual([
-    { kind: "merging-logs", merged: 0, logs: 2 },
-    { kind: "merging-logs", merged: 1, logs: 2 },
-    { kind: "merging-logs", merged: 2, logs: 2 },
+    { kind: "merging-logs", logs: 2 },
     { kind: "pushing-logs", logs: 2 },
   ]);
   const again: SyncProgress[] = [];
