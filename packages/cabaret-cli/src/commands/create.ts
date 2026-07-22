@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { createChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { parseUser } from "./shared.js";
+import { parseUser, writeThrough } from "./shared.js";
 
 export const create = buildCommand({
   docs: {
@@ -37,5 +37,6 @@ export const create = buildCommand({
     const name = backend.parseName(change);
     const parent = flags.parent === undefined ? await backend.currentChange() : backend.parseName(flags.parent);
     await createChange(backend, this.now, name, parent, flags.owner);
+    await writeThrough(this, backend, name);
   },
 });

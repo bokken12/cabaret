@@ -136,10 +136,9 @@ test("sync closes the forge change of an archived change, and reopens on undo", 
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("archive");
-  expect((await repo.cabaret("sync")).stdout).toBe(
-    'closed github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
-  );
+  // The archive itself carries the close to the forge; sync finds it settled.
+  expect((await repo.cabaret("archive")).stdout).toBe("closed github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   expect((await forge.getChange(PR)).state).toBe("closed");
   // The close was observed; syncing again moves nothing, and a fetch mirrors
   // nothing back.
@@ -147,14 +146,12 @@ test("sync closes the forge change of an archived change, and reopens on undo", 
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\nfetched github.com/test-org/widgets: 0 open forge changes\n",
   );
-  // A reparent recorded while archived reaches the forge in the same sync
-  // that reopens it.
+  // A reparent recorded while archived waits — a closed forge change is not
+  // retargeted — and reaches the forge with the undo that reopens it.
   await repo.git("branch", "develop", "main");
   await repo.cabaret("reparent", "gadget", "develop");
-  await repo.cabaret("archive", "--undo");
-  expect((await repo.cabaret("sync")).stdout).toBe(
-    'reopened github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
-  );
+  expect((await repo.cabaret("archive", "--undo")).stdout).toContain("reopened github.com/test-org/widgets#1");
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   const reopened = await forge.getChange(PR);
   expect({ state: reopened.state, parent: reopened.parent }).toEqual({ state: "open", parent: "develop" });
 });

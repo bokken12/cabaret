@@ -544,6 +544,8 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
     │ base         │ 1ac0b33426d0                   │
     │ workspace    │ .                              │
     ╰──────────────┴────────────────────────────────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -556,7 +558,12 @@ test("show notes the forge change's stale target and makes sync the step", async
   await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
-  await repo.cabaret("reparent", "gadget", "trunk");
+  // Reparented while origin is unreachable: the write-through skips, so the
+  // forge change still targets main until a sync republishes.
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("reparent", "gadget", "trunk")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -573,6 +580,8 @@ test("show notes the forge change's stale target and makes sync the step", async
     │ base         │ 1ac0b33426d0                                     │
     │ workspace    │ .                                                │
     ╰──────────────┴──────────────────────────────────────────────────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
