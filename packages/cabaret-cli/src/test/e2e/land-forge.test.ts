@@ -93,7 +93,7 @@ test("a forge land retargets the children's forge changes", async () => {
     │ workspace    │ .                             │
     ╰──────────────┴───────────────────────────────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });

@@ -388,7 +388,7 @@ export function homeDoc(page: HomePage, now: TimestampMs): Doc {
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
       ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as, now)]),
-      ...fetchedFooter(page.fetched),
+      ...fetchedFooter(page.fetched, now),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

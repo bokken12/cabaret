@@ -112,7 +112,7 @@ test("show renders an imported change like any other", async () => {
     Files to review:
       their.txt
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });
@@ -545,7 +545,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
     │ workspace    │ .                              │
     ╰──────────────┴────────────────────────────────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });
@@ -581,7 +581,7 @@ test("show notes the forge change's stale target and makes sync the step", async
     │ workspace    │ .                                                │
     ╰──────────────┴──────────────────────────────────────────────────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });

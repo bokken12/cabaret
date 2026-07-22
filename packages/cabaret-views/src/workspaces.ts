@@ -11,6 +11,7 @@ import {
   type Workspace,
 } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
+import { age } from "./fetched.js";
 import { type Cell, table } from "./table.js";
 
 /**
@@ -45,26 +46,6 @@ export interface WorkspaceNote {
 /** The "dirty" note, dating the edits when the dirty files gave a time. */
 export function dirtyNote(dirty: Dirty, now: TimestampMs): string {
   return dirty.at === undefined ? "dirty" : `dirty ${age(dirty.at, now)}`;
-}
-
-/** How long ago `at` was, floored to its largest fitting unit. */
-function age(at: TimestampMs, now: TimestampMs): string {
-  const minutes = Math.floor((now - at) / 60_000);
-  if (minutes < 1) {
-    return "<1m";
-  }
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  if (days < 7) {
-    return `${days}d`;
-  }
-  return `${Math.floor(days / 7)}w`;
 }
 
 /** Each checked-out change's workspace note, from the current workspace's point of view. */
