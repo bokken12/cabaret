@@ -43,8 +43,8 @@ test("land merges the child into its parent with a marked merge commit", async (
     {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
-    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
-    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
 });
@@ -716,8 +716,8 @@ test("landing leaves landed children where they landed", async () => {
     {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
-    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
 });

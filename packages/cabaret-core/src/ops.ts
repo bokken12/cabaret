@@ -35,6 +35,7 @@ import {
   assertObligationsSatisfied,
   isSatisfied,
   landBlockers,
+  type ObligationStatus,
   obligationStatuses,
   outstanding,
   UnreviewedParentError,
@@ -565,41 +566,103 @@ export async function prepareLand(
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
   }
-  // A trunk parent has no log and owes nothing. The parent's diff is
-  // measured to `onto`, the freshest reading the land merges onto.
-  let settling: PreparedLand["settling"];
-  if (parentEntries.length > 0) {
-    const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
-    const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
-    const blockers = landBlockers(statuses);
-    if (blockers.length > 0 && !overrides.parentUnreviewed) {
-      throw new UnreviewedParentError(parent, blockers);
-    }
-    // Settling asks who still expects to read the parent, whatever kind of
-    // review they owe: follow review left there means the landed diff joins
-    // that catch-up rather than fast-forwarding past it. Who the landed diff
-    // answers to is read from the parent's obligations over that diff itself
-    // — the parent's own diff may be empty, as on a permanent change
-    // between cycles, and its obligations then name nobody.
-    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-    const landingStatuses = await obligationStatuses(
-      backend,
-      parentEntries,
-      currentOwner(parent, parentEntries),
-      await diffBetween(backend, base, tip),
-    );
-    const users = new Set(landingStatuses.flatMap(({ obligation }) => obligation.require.of));
-    const owing = new Set(unsatisfied.flatMap(outstanding));
-    settling = {
-      parentBase: parentDiff.base,
-      fulfilled: [...users].filter((user) => !owing.has(user)).sort(),
-      unfulfilled: [...owing].sort(),
-    };
+  const settled = await landSettling(backend, parent, parentEntries, base, tip, onto);
+  if (settled !== undefined && settled.blockers.length > 0 && !overrides.parentUnreviewed) {
+    throw new UnreviewedParentError(parent, settled.blockers);
   }
   // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.
   const user = await backend.currentUser();
-  return { parent, base, onto, tip, user, settling };
+  return { parent, base, onto, tip, user, settling: settled?.settling };
+}
+
+/**
+ * Where the diff `base..tip` landing onto `onto` settles its review, read
+ * from the parent's obligations as they stand — with the outstanding
+ * blocking statuses beside it, for the land op to enforce before anything
+ * moves. Undefined for a trunk parent, which has no log and owes nothing.
+ *
+ * Settling asks who still expects to read the parent, whatever kind of
+ * review they owe: follow review left there means the landed diff joins
+ * that catch-up rather than fast-forwarding past it. Who the landed diff
+ * answers to is read from the parent's obligations over that diff itself —
+ * the parent's own diff may be empty, as on a permanent change between
+ * cycles, and its obligations then name nobody.
+ */
+export async function landSettling(
+  backend: Backend,
+  parent: ChangeName,
+  parentEntries: readonly LogEntry[],
+  base: Revision,
+  tip: Revision,
+  onto: Revision,
+): Promise<
+  | {
+      readonly settling: NonNullable<PreparedLand["settling"]>;
+      readonly blockers: readonly ObligationStatus[];
+    }
+  | undefined
+> {
+  if (parentEntries.length === 0) {
+    return undefined;
+  }
+  const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
+  const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
+  const unsatisfied = statuses.filter((status) => !isSatisfied(status));
+  const landingStatuses = await obligationStatuses(
+    backend,
+    parentEntries,
+    currentOwner(parent, parentEntries),
+    await diffBetween(backend, base, tip),
+  );
+  const users = new Set(landingStatuses.flatMap(({ obligation }) => obligation.require.of));
+  const owing = new Set(unsatisfied.flatMap(outstanding));
+  return {
+    settling: {
+      parentBase: parentDiff.base,
+      fulfilled: [...users].filter((user) => !owing.has(user)).sort(),
+      unfulfilled: [...owing].sort(),
+    },
+    blockers: landBlockers(statuses),
+  };
+}
+
+/**
+ * The review entries a landing settles, per `settling`: each user the
+ * parent still expects review from reads the landed diff combined into the
+ * parent's catch-up, so their review of the target records as complete
+ * (`target`, over `base..tip`); everyone else answers to the target's log
+ * for it, so their review of the parent records through the landing commit
+ * (`parent`, over the parent base to `merge`). The target's half must
+ * append atomically with the land entry.
+ */
+export async function settlingEntries(
+  backend: Backend,
+  now: () => TimestampMs,
+  { base, onto, tip, settling }: Pick<PreparedLand, "base" | "onto" | "tip" | "settling">,
+  merge: Revision,
+): Promise<{ readonly target: readonly LogEntry[]; readonly parent: readonly LogEntry[] }> {
+  if (settling === undefined) {
+    return { target: [], parent: [] };
+  }
+  const review = (reviewer: UserName, file: FilePath, from: Revision, to: Revision): LogEntry => ({
+    timestamp: now(),
+    user: reviewer,
+    action: { kind: "review", file, base: from, tip: to },
+  });
+  let target: readonly LogEntry[] = [];
+  if (settling.unfulfilled.length > 0) {
+    const files = await backend.changedFiles(base, tip);
+    target = settling.unfulfilled.flatMap((reviewer) => files.map(({ path }) => review(reviewer, path, base, tip)));
+  }
+  let parent: readonly LogEntry[] = [];
+  if (settling.fulfilled.length > 0) {
+    const landed = await backend.changedFiles(onto, merge);
+    parent = settling.fulfilled.flatMap((reviewer) =>
+      landed.map(({ path }) => review(reviewer, path, settling.parentBase, merge)),
+    );
+  }
+  return { target, parent };
 }
 
 /**
@@ -634,31 +697,16 @@ export async function recordLand(
 ): Promise<void> {
   const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
-  const review = (reviewer: UserName, file: FilePath, from: Revision, to: Revision): LogEntry => ({
-    timestamp: now(),
-    user: reviewer,
-    action: { kind: "review", file, base: from, tip: to },
-  });
-  let settled: LogEntry[] = [];
-  if (settling !== undefined && settling.unfulfilled.length > 0) {
-    const files = await backend.changedFiles(base, tip);
-    settled = settling.unfulfilled.flatMap((reviewer) => files.map(({ path }) => review(reviewer, path, base, tip)));
-  }
+  const settled = await settlingEntries(backend, now, { base, onto, tip, settling }, merge.commit);
   const permanent = currentPermanent(entries);
   await backend.appendLog(target, [
     ...pin,
-    ...settled,
+    ...settled.target,
     { timestamp: now(), user, action: { kind: "land", merge: merge.commit, ...(merge.parents > 1 ? {} : { tip }) } },
     ...(permanent ? [] : [{ timestamp: now(), user, action: { kind: "set-archived", archived: true } as const }]),
   ]);
-  if (settling !== undefined && settling.fulfilled.length > 0) {
-    const landed = await backend.changedFiles(onto, merge.commit);
-    await backend.appendLog(
-      parent,
-      settling.fulfilled.flatMap((reviewer) =>
-        landed.map(({ path }) => review(reviewer, path, settling.parentBase, merge.commit)),
-      ),
-    );
+  if (settled.parent.length > 0) {
+    await backend.appendLog(parent, settled.parent);
   }
   if (permanent) {
     const conflicts = await advancePastLand(backend, now, target, base, merge, tip);

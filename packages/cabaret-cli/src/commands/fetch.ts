@@ -29,6 +29,13 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
       if (event.landed) {
         context.process.stdout.write(`${name} was merged; recorded the land\n`);
       }
+      if (event.reparented !== undefined) {
+        for (const child of event.reparented.children) {
+          context.process.stdout.write(
+            `reparented ${JSON.stringify(child)} onto ${JSON.stringify(event.reparented.onto)}\n`,
+          );
+        }
+      }
       if (event.parent !== undefined) {
         context.process.stdout.write(`${name} was retargeted; reparented onto ${JSON.stringify(event.parent)}\n`);
       }

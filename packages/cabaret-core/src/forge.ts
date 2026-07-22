@@ -37,10 +37,12 @@ import {
   type LandOverrides,
   type LandPublication,
   landChange,
+  landSettling,
   prepareLand,
   pushAdvances,
   recordLand,
   reparentLandedChildren,
+  settlingEntries,
 } from "./ops.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
 
@@ -489,12 +491,8 @@ export function planArchivedPush(
  * from no reviewed history, so the entry records the head that merged as the
  * change's tip.
  *
- * TODO: a merge observed here bypassed `recordLand`, so nothing settled the
- * landed diff's review — it reads as unreviewed work in both the parent and
- * the landed change until someone reviews it. The observer should settle it
- * the way the land op does, evaluated as of the observation; writing the
- * land entry is the guard that keeps racing observers from each settling.
- * An ordinary change's children are likewise not walked to the parent.
+ * A merge observed here bypassed `recordLand`, so `absorbForgeChange`
+ * draws the land's conclusions itself, evaluated as of the observation.
  */
 export function observedLand(
   now: () => TimestampMs,
@@ -765,6 +763,8 @@ export interface AbsorbResult {
   readonly landed: boolean;
   /** The parent a forge-side retarget mirrored in, when one did. */
   readonly parent?: ChangeName | undefined;
+  /** The landed change's children, moved onto `onto` to follow the code; undefined when none moved. */
+  readonly reparented?: { readonly onto: ChangeName; readonly children: readonly ChangeName[] } | undefined;
   /** The reviewing set a forge-side draft toggle mirrored in, when one did. */
   readonly reviewing?: Reviewing | undefined;
   /** The archived state a forge-side close or reopen mirrored in, when one did. */
@@ -774,11 +774,13 @@ export interface AbsorbResult {
 /**
  * Absorb one tracked change's forge activity into its log: comments the log
  * lacks — new ones, and new versions of ones edited in place — the land a
- * merged forge change implies (a permanent change's branch and base then
- * advance past the landing, as the land op advances them), and a forge-side
- * retarget as an observed `set-parent`. Only a forge parent that moved
- * since last observed mirrors in, so a local reparent awaiting publication
- * is never overridden — and a
+ * merged forge change implies, concluded as the land op concludes: the
+ * landed diff's review settles per the parent's obligations as of the
+ * observation, an ordinary change archives and its children walk to its
+ * parent, and a permanent change's branch and base advance past the
+ * landing. Also a forge-side retarget as an observed `set-parent` — only a
+ * forge parent that moved since last observed mirrors in, so a local
+ * reparent awaiting publication is never overridden — and a
  * forge-side reviewer change as mirrored add/remove entries, a forge-side
  * draft toggle as a mirrored `set-reviewing`, and a forge-side close or
  * reopen as a mirrored `set-archived`, on the same observation principle.
@@ -800,14 +802,36 @@ export async function absorbForgeChange(
   ];
   // A landing commit that has not arrived — the parent not yet fetched —
   // defers the whole land observation: recording it without the commit
-  // could not advance a permanent change past it, and a fetch carries it.
+  // could not settle or advance past it, and a fetch carries it.
+  const merge = forgeChange.merge;
   let landing = observedLand(now, user, forge.locator, forgeChange, entries);
+  if (landing !== undefined && merge !== undefined && !(await backend.hasRevision(merge.commit))) {
+    landing = undefined;
+  }
+  // The landing concludes as `recordLand` concludes, evaluated as of the
+  // observation: settling is computed while the log still reads pre-land
+  // and appended atomically with the land entry — writing the entry is the
+  // guard that keeps racing observers from each settling. A landing the
+  // base already passed — an earlier cycle's merge mirrored in late —
+  // concluded a cycle the change has already left behind, so it records
+  // alone.
+  let concluding: { readonly parent: ChangeName; readonly settledParent: readonly LogEntry[] } | undefined;
   if (
     landing !== undefined &&
-    forgeChange.merge !== undefined &&
-    !(await backend.hasRevision(forgeChange.merge.commit))
+    merge !== undefined &&
+    !(await backend.isAncestor(merge.commit, currentBase(change, entries)))
   ) {
-    landing = undefined;
+    const parent = currentParent(change, entries);
+    // The pinned base is the landed cycle's base: the parent has already
+    // absorbed the merge, so a fresh merge-base reading would collapse the
+    // landed diff to nothing — the reason the land op pins it.
+    const base = currentBase(change, entries);
+    const tip = forgeChange.tip;
+    const onto = await backend.mergedOnto(merge.commit);
+    const settling = (await landSettling(backend, parent, await backend.readLog(parent), base, tip, onto))?.settling;
+    const settled = await settlingEntries(backend, now, { base, onto, tip, settling }, merge.commit);
+    additions.push(...settled.target);
+    concluding = { parent, settledParent: settled.parent };
   }
   if (landing !== undefined) {
     additions.push(landing);
@@ -843,19 +867,26 @@ export async function absorbForgeChange(
   if (additions.length > 0) {
     await backend.appendLog(change, additions);
   }
-  if (
-    landing !== undefined &&
-    forgeChange.merge !== undefined &&
-    currentPermanent(entries) &&
-    // A landing the base already passed — an earlier cycle's merge mirrored
-    // in late — concluded a cycle the change has already left behind.
-    !(await backend.isAncestor(forgeChange.merge.commit, currentBase(change, entries)))
-  ) {
-    // The land is recorded, so the cycle turns over as the land op turns it:
-    // the branch advances past the landing and the base pins. A conflicting
-    // merge — work committed since the landing colliding with it — commits
-    // its markers for the owner to fix, as a join would.
-    await advancePastLand(backend, now, change, currentBase(change, entries), forgeChange.merge, forgeChange.tip);
+  let reparented: AbsorbResult["reparented"];
+  if (concluding !== undefined && merge !== undefined) {
+    if (concluding.settledParent.length > 0) {
+      await backend.appendLog(concluding.parent, concluding.settledParent);
+    }
+    if (currentPermanent(entries)) {
+      // The cycle turns over as the land op turns it: the branch advances
+      // past the landing and the base pins. A conflicting merge — work
+      // committed since the landing colliding with it — commits its markers
+      // for the owner to fix, as a join would.
+      await advancePastLand(backend, now, change, currentBase(change, entries), merge, forgeChange.tip);
+    } else {
+      // The land archived the change, so its children follow the code to
+      // its parent, their forge changes retargeted with them.
+      const children = await reparentLandedChildren(backend, now, change, concluding.parent);
+      await retargetLandedChildren(backend, now, forge, children, concluding.parent);
+      if (children.length > 0) {
+        reparented = { onto: concluding.parent, children };
+      }
+    }
   }
   const mirroredReviewing = reviewing[0]?.action;
   const mirroredArchived = archived[0]?.action;
@@ -864,6 +895,7 @@ export async function absorbForgeChange(
     reviewers: mirrored.length,
     landed: landing !== undefined,
     ...(retargeted ? { parent: forgeChange.parent } : {}),
+    ...(reparented === undefined ? {} : { reparented }),
     ...(mirroredReviewing?.kind === "set-reviewing" ? { reviewing: mirroredReviewing.reviewing } : {}),
     ...(mirroredArchived?.kind === "set-archived" ? { archived: mirroredArchived.archived } : {}),
   };

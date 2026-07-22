@@ -178,6 +178,11 @@ export function settledLines(locator: string | undefined, result: ReconcileResul
     if (absorbed.landed) {
       lines.push(`${name} was merged; recorded the land`);
     }
+    if (absorbed.reparented !== undefined) {
+      for (const child of absorbed.reparented.children) {
+        lines.push(`reparented ${JSON.stringify(child)} onto ${JSON.stringify(absorbed.reparented.onto)}`);
+      }
+    }
     if (absorbed.parent !== undefined) {
       lines.push(`${name} was retargeted; reparented onto ${JSON.stringify(absorbed.parent)}`);
     }
