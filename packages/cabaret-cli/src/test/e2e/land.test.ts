@@ -142,7 +142,7 @@ test("land refuses a parent that itself landed", async () => {
   await repo.cabaret("land", "child", "--even-though-unreviewed");
   await repo.cabaret("land", "parent", "--even-though-unreviewed");
   const merge = await repo.git("rev-parse", "main");
-  await repo.cabaret("create", "late", "--parent", "parent");
+  await repo.cabaret("create", "late", "--parent", "parent", "--even-though-parent-landed");
   await repo.git("checkout", "-q", "late");
   await repo.write("late.txt", "late work\n");
   await repo.git("add", "-A");
