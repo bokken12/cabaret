@@ -30,7 +30,6 @@ import {
   type LandOverrides,
   landAsConfigured,
   landChain,
-  lookupChange,
   NotOwnerError,
   NotReviewingError,
   type RebaseOverrides,
@@ -44,6 +43,7 @@ import {
   requireNamed,
   resolveChain,
   resolveChange,
+  resolveNamed,
   reviewerSummary,
   type SetupAudit,
   setArchived,
@@ -494,7 +494,7 @@ async function stepUp(provider: PageProvider): Promise<void> {
     return;
   }
   const backend = await openBackend();
-  const found = await lookupChange(backend, page.change);
+  const found = resolveNamed(await allChanges(backend), page.change);
   if (found === undefined) {
     vscode.window.showInformationMessage(`cabaret: ${page.change} has no parent`);
     return;

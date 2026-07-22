@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, test } from "vitest";
 import { addChange, makeRepo } from "./fixture.js";
 
@@ -176,16 +174,3 @@ test("wipe --remote deletes origin's logs too", async () => {
   });
 });
 
-test("resolution keeps the name index beside the shared git dir, and wipe clears it", async () => {
-  const repo = await makeRepo();
-  await repo.cabaret("create", "gadget");
-  await repo.cabaret("reviewing", "show", "--change", "gadget");
-  const gitDir = await repo.git("rev-parse", "--path-format=absolute", "--git-common-dir");
-  const index = join(gitDir, "cabaret", "names.json");
-  const [id, state] = (await repo.git("for-each-ref", "--format=%(refname) %(objectname)", "refs/cabaret/log/"))
-    .replace("refs/cabaret/log/", "")
-    .split(" ");
-  expect(JSON.parse(await readFile(index, "utf8"))).toEqual([{ id, name: "gadget", state }]);
-  await repo.cabaret("dev", "wipe");
-  await expect(readFile(index, "utf8")).rejects.toThrow();
-});

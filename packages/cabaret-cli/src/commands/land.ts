@@ -1,10 +1,10 @@
 import { buildCommand } from "@stricli/core";
 import {
-  type Change,
   currentName,
   currentParent,
   landAsConfigured,
   landChain,
+  type Change,
   readConfig,
   reconcileChange,
   resolveRange,

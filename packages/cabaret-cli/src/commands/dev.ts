@@ -4,8 +4,8 @@ import {
   changeDiff,
   currentSelf,
   formatLogEntry,
-  lookupChange,
   requireNamed,
+  resolveNamed,
   reviewOwed,
   soleUser,
   type UserName,
@@ -35,7 +35,7 @@ export const dev = buildRouteMap({
       async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
         const backend = await this.backend();
         const name = change === undefined ? await backend.currentChange() : backend.parseName(change);
-        const entries = (await lookupChange(backend, name))?.entries ?? [];
+        const entries = resolveNamed(await allChanges(backend), name)?.entries ?? [];
         this.process.stdout.write(entries.map(formatLogEntry).join(""));
       },
     }),

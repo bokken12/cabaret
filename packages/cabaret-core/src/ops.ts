@@ -33,7 +33,7 @@ import {
 import type { LandMethod } from "./config.js";
 import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { allChanges, type Change, lookupChange, requireNamed, resolveNamed } from "./naming.js";
+import { allChanges, type Change, requireNamed, resolveNamed } from "./naming.js";
 import {
   assertObligationsSatisfied,
   isSatisfied,
@@ -100,14 +100,14 @@ export async function createChange(
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
+  const all = await allChanges(backend);
   // Only live claims block the name: archiving releases it, and the archived
   // holder stays reachable by resolution's recency rules.
-  const held = await lookupChange(backend, change);
-  if (held !== undefined && !currentArchived(held.entries)) {
+  if (all.some((held) => currentName(held.id, held.entries) === change && !currentArchived(held.entries))) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
   if (!evenThoughParentArchived) {
-    assertParentLive(parent, (await lookupChange(backend, parent))?.entries ?? []);
+    assertParentLive(parent, resolveNamed(all, parent)?.entries ?? []);
   }
   const parentReading = await freshestReading(backend, parent);
   if (parentReading.kind === "none") {
@@ -497,7 +497,11 @@ export interface LandOverrides {
  * parent moved on, and with its review obligations satisfied — and resolve
  * the endpoints the landing writes. `overrides` skips the checks it names.
  */
-export async function prepareLand(backend: Backend, target: Change, overrides: LandOverrides): Promise<PreparedLand> {
+export async function prepareLand(
+  backend: Backend,
+  target: Change,
+  overrides: LandOverrides,
+): Promise<PreparedLand> {
   const entries = target.entries;
   const name = currentName(target.id, entries);
   assertNotArchived(name, entries);
@@ -506,7 +510,7 @@ export async function prepareLand(backend: Backend, target: Change, overrides: L
   // An archived parent is set aside — or done, when a land archived it — so
   // landing into it would bury the work. A parent that is not a change (no
   // log) cannot be.
-  const parentChange = await lookupChange(backend, parent);
+  const parentChange = resolveNamed(await allChanges(backend), parent);
   const parentEntries = parentChange?.entries ?? [];
   if (currentArchived(parentEntries)) {
     throw landedMerge(parentEntries) !== undefined
@@ -540,12 +544,16 @@ export async function prepareLand(backend: Backend, target: Change, overrides: L
   // a squash literally duplicating the commits.
   const landed = landedMerge(entries);
   if (landed !== undefined && (!(await backend.hasRevision(landed)) || !(await backend.isAncestor(landed, base)))) {
-    throw new UserError(`${JSON.stringify(name)} landed at ${landed}; run \`cab rebase\` to start its next cycle`);
+    throw new UserError(
+      `${JSON.stringify(name)} landed at ${landed}; run \`cab rebase\` to start its next cycle`,
+    );
   }
   // Commits that change nothing — say, the merges a reopened change's rebase
   // wrote — would land as an empty commit on the parent.
   if ((await backend.changedFiles(base, tip)).length === 0) {
-    throw new UserError(`nothing to land: ${JSON.stringify(name)} changes nothing against ${JSON.stringify(parent)}`);
+    throw new UserError(
+      `nothing to land: ${JSON.stringify(name)} changes nothing against ${JSON.stringify(parent)}`,
+    );
   }
   assertNoConflict(name, await conflictsBetween(backend, base, tip));
   if (base !== onto) {
@@ -668,7 +676,9 @@ export async function recordLand(
     } else {
       const conflicts = await backend.mergeOnto(name, base, merge.commit, `Merge land of '${name}'`);
       if (conflicts.length > 0) {
-        throw new Error(`merging ${JSON.stringify(name)}'s own landed content conflicted in ${conflicts.join(", ")}`);
+        throw new Error(
+          `merging ${JSON.stringify(name)}'s own landed content conflicted in ${conflicts.join(", ")}`,
+        );
       }
       next = await requireTip(backend, name);
     }
@@ -755,7 +765,7 @@ export async function landChain(
   // before any merge moves.
   const firstName = currentName(first.id, first.entries);
   let parent = currentParent(firstName, first.entries);
-  let parentEntries = (await lookupChange(backend, parent))?.entries ?? [];
+  let parentEntries = resolveNamed(await allChanges(backend), parent)?.entries ?? [];
   for (const change of chain) {
     const name = currentName(change.id, change.entries);
     if (!currentArchived(change.entries) && currentArchived(parentEntries)) {
@@ -844,7 +854,7 @@ export async function reparentChange(
   }
   await requireOwner(backend, change, overrides.notOwner);
   if (!overrides.parentArchived) {
-    assertParentLive(parent, (await lookupChange(backend, parent))?.entries ?? []);
+    assertParentLive(parent, resolveNamed(await allChanges(backend), parent)?.entries ?? []);
   }
   // The same liveness `create` demands: a parent is a branch — local or
   // origin's fetched copy — change log or not.

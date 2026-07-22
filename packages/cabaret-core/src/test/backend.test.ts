@@ -321,7 +321,9 @@ test("currentName takes the set-name with the greatest timestamp, and fails with
   });
   const id = parseChangeId("0".repeat(32));
   expect(() => currentName(id, [])).toThrow(`log has no name: ${id}`);
-  expect(() => currentName(id, [entry(5, { kind: "set-archived", archived: true })])).toThrow(`log has no name: ${id}`);
+  expect(() => currentName(id, [entry(5, { kind: "set-archived", archived: true })])).toThrow(
+    `log has no name: ${id}`,
+  );
   expect(
     currentName(id, [
       entry(9, { kind: "set-name", name: parseBranchName("renamed") }),

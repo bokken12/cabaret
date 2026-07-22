@@ -1,17 +1,18 @@
 import {
+  allChanges,
   type Backend,
-  type Change,
   type ChangeName,
   defaultContext,
   type FilePath,
   type Forge,
   isConnectivityError,
+  type Change,
   parseContext,
   patternMatches,
   pushAdvances,
   type ReconcileResult,
   reconcileChange,
-  resolveChange as resolveByName,
+  requireNamed,
   UserError,
   type UserName,
   userName,
@@ -42,7 +43,7 @@ export function changeFlag(act: string) {
  */
 export async function resolveChange(backend: Backend, flagged: string | undefined): Promise<Change> {
   const name = flagged === undefined ? await backend.currentChange() : backend.parseName(flagged);
-  return resolveByName(backend, name);
+  return requireNamed(await allChanges(backend), name);
 }
 
 /** Parse a user argument, rejecting the empty string. */
