@@ -715,17 +715,30 @@ export class GitBackend implements Backend {
   }
 
   async syncLogs(): Promise<readonly ChangeName[]> {
-    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
-    const names = new Set<ChangeName>();
+    const out = await git(this.root, [
+      "for-each-ref",
+      "--format=%(refname) %(objectname)",
+      LOG_REF_PREFIX,
+      REMOTE_LOG_REF_PREFIX,
+    ]);
+    const locals = new Map<ChangeName, Revision>();
+    const remotes = new Map<ChangeName, Revision>();
     for (const line of out.split("\n")) {
       if (line === "") {
         continue;
       }
-      const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
-      names.add(parseBranchName(line.slice(prefix.length)));
+      const space = line.indexOf(" ");
+      const ref = line.slice(0, space);
+      const oid = parseCommitHash(line.slice(space + 1));
+      const side = ref.startsWith(LOG_REF_PREFIX) ? locals : remotes;
+      const prefix = side === locals ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
+      side.set(parseBranchName(ref.slice(prefix.length)), oid);
     }
-    const changes = [...names].sort();
-    await this.publishLogs(changes);
+    const changes = [...new Set([...locals.keys(), ...remotes.keys()])].sort();
+    // A log whose two refs agree already carries origin's content, so only
+    // the disagreeing ones settle and push: one ref listing covers the whole
+    // repository, with no per-change probes.
+    await this.publishLogs(changes.filter((change) => locals.get(change) !== remotes.get(change)));
     return changes;
   }
 
