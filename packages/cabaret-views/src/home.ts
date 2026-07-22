@@ -6,11 +6,13 @@ import {
   type ChangeSummary,
   changeDiff,
   changeForest,
+  currentArchived,
   currentParent,
   type FilePath,
   isReviewing,
   isSelf,
   type NamedChange,
+  resolveNamed,
   reviewOwed,
   type Self,
   selfAs,
@@ -166,6 +168,17 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const parents = new Map<ChangeName, ChangeName>();
   const owedFiles = new Map<ChangeName, readonly FilePath[]>();
   const broken: BrokenChange[] = [];
+  // The page's maps are name-keyed, so a name claimed twice renders as its
+  // arbitration winner — never hiding a live change behind an archived
+  // twin — and the loser files as a broken row rather than vanishing. A
+  // live tie renders the roster's first instead of failing the page.
+  const canonicalOf = (name: ChangeName): NamedChange | undefined => {
+    try {
+      return resolveNamed(changes, name);
+    } catch {
+      return changes.find((change) => change.name === name && !currentArchived(change.entries));
+    }
+  };
   changes.forEach((change, index) => {
     const reading = readings[index];
     if (reading === undefined) {
@@ -173,6 +186,11 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
     }
     if (reading.kind === "broken") {
       broken.push({ change: change.name, message: reading.message });
+      return;
+    }
+    const winner = canonicalOf(change.name);
+    if (winner !== undefined && winner.id !== change.id) {
+      broken.push({ change: change.name, message: "hidden behind another change with the same name" });
       return;
     }
     summaries.set(change.name, reading.summary);

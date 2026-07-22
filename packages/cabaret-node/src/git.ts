@@ -779,7 +779,7 @@ export class GitBackend implements Backend {
     }
   }
 
-  async wipeReviewState(): Promise<readonly ChangeId[]> {
+  async wipeReviewState(): Promise<number> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", CABARET_REF_PREFIX]);
     const refs = out.split("\n").filter((line) => line !== "");
     if (refs.length > 0) {
@@ -788,19 +788,20 @@ export class GitBackend implements Backend {
     }
     // The directory holds only stale caches from older versions.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
-    // Every ref was deleted whatever its vintage; only id-keyed ones report.
-    const ids = new Set<ChangeId>();
+    // Counted whatever the ref layout: a wipe clearing pre-id refs is the
+    // remedy the fetch error names, and it should say what it cleared.
+    const wiped = new Set<string>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
       for (const ref of refs) {
-        if (ref.startsWith(prefix) && /^[0-9a-f]{32}$/.test(ref.slice(prefix.length))) {
-          ids.add(parseChangeId(ref.slice(prefix.length)));
+        if (ref.startsWith(prefix)) {
+          wiped.add(ref.slice(prefix.length));
         }
       }
     }
-    return [...ids].sort();
+    return wiped.size;
   }
 
-  async wipeOriginLogs(): Promise<readonly ChangeId[]> {
+  async wipeOriginLogs(): Promise<number> {
     const out = await git(this.root, ["ls-remote", "origin", `${CABARET_REF_PREFIX}*`]);
     const refs = out
       .split("\n")
@@ -815,10 +816,7 @@ export class GitBackend implements Backend {
     if (refs.length > 0) {
       await git(this.root, ["push", "--quiet", "origin", ...refs.map((ref) => `:${ref}`)]);
     }
-    return refs
-      .filter((ref) => ref.startsWith(LOG_REF_PREFIX) && /^[0-9a-f]{32}$/.test(ref.slice(LOG_REF_PREFIX.length)))
-      .map((ref) => parseChangeId(ref.slice(LOG_REF_PREFIX.length)))
-      .sort();
+    return refs.filter((ref) => ref.startsWith(LOG_REF_PREFIX)).length;
   }
 
   /** Fetch every log on `origin` into the remote-log namespace. */

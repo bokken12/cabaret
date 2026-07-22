@@ -121,12 +121,10 @@ export const dev = buildRouteMap({
       async func(this: LocalContext, flags: { remote: boolean }) {
         const backend = await this.backend();
         const wiped = await backend.wipeReviewState();
-        this.process.stdout.write(`wiped the logs of ${wiped.length} change${wiped.length === 1 ? "" : "s"}\n`);
+        this.process.stdout.write(`wiped the logs of ${wiped} change${wiped === 1 ? "" : "s"}\n`);
         if (flags.remote) {
           const origin = await backend.wipeOriginLogs();
-          this.process.stdout.write(
-            `wiped the logs of ${origin.length} change${origin.length === 1 ? "" : "s"} on origin\n`,
-          );
+          this.process.stdout.write(`wiped the logs of ${origin} change${origin === 1 ? "" : "s"} on origin\n`);
         }
       },
     }),

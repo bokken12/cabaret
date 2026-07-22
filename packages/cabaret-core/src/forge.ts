@@ -1,6 +1,7 @@
 import type { Branded } from "cabaret-util";
 import {
   type Backend,
+  type ChangeId,
   type ChangeName,
   compareLogEntries,
   currentArchived,
@@ -19,11 +20,11 @@ import {
   type LogEntry,
   landTitle,
   landTrailer,
-  mintChangeId,
   observedForgeArchived,
   observedForgeParent,
   observedForgeReviewers,
   observedForgeReviewing,
+  parseChangeId,
   type Reviewing,
   type Revision,
   type TimestampMs,
@@ -169,6 +170,20 @@ export interface Forge {
  * immutable, so the hash is permanent; both sync directions use it to
  * recognize a comment they have seen before.
  */
+/**
+ * The id an import mints, hashed from the forge change's own identity:
+ * clones importing the same forge change concurrently converge on one log
+ * ref instead of minting duplicate changes.
+ */
+async function importedChangeId(locator: ForgeLocator, id: ForgeChangeId): Promise<ChangeId> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${locator}#${id}`));
+  return parseChangeId(
+    Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 32),
+  );
+}
+
 export async function commentHash(entry: LogEntry): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(formatLogEntry(entry)));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -1046,7 +1061,7 @@ export async function fetchForge(
       ...planReviewerPull(now, user, forge.locator, [], forgeChange.reviewers),
       ...(await planPull(forge.locator, [], full)),
     ];
-    await backend.appendLog(mintChangeId(), additions);
+    await backend.appendLog(await importedChangeId(forge.locator, forgeChange.id), additions);
     onEvent({
       kind: "imported",
       id: forgeChange.id,

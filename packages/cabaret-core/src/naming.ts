@@ -20,6 +20,10 @@ export interface NamedChange {
  * resolution and every whole-repo view. Sorted by name (ids break ties), so
  * iteration order is deterministic and identical on every machine; ids are
  * random, so their order means nothing.
+ *
+ * TODO: this reads every log per call, and commands sweep it more than
+ * once; a verify-on-use name index should replace the sweeps before repos
+ * grow large.
  */
 export async function allChanges(backend: Backend): Promise<readonly NamedChange[]> {
   const changes: NamedChange[] = [];
@@ -45,6 +49,9 @@ function lastActivity(entries: readonly LogEntry[]): number {
  * resolution arbitrates: live claims beat archived ones, archived claims
  * resolve by most recent activity, and a genuine tie among live claims is
  * an error naming the contenders' ids.
+ *
+ * TODO: fetch should nudge the later claimant of a live collision; until
+ * the rename command exists, the ambiguity error is the only surface.
  */
 export function resolveNamed(changes: readonly NamedChange[], name: ChangeName): NamedChange | undefined {
   const claims = changes.filter((change) => change.name === name);
@@ -65,15 +72,34 @@ export function resolveNamed(changes: readonly NamedChange[], name: ChangeName):
   );
 }
 
-/** As `resolveNamed`, but failing when no change claims `name`. */
+/**
+ * As `resolveNamed`, but failing when no change claims `name` — after
+ * trying `name` as an id prefix, which is how the ambiguity error's "use an
+ * id" advice resolves. Names win: prefixes only match when no change wears
+ * the name.
+ */
 export function requireNamed(changes: readonly NamedChange[], name: ChangeName): NamedChange {
   const found = resolveNamed(changes, name);
-  if (found === undefined) {
-    throw new UserError(
-      `change does not exist: ${JSON.stringify(name)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
-    );
+  if (found !== undefined) {
+    return found;
   }
-  return found;
+  if (/^[0-9a-f]{4,32}$/.test(name)) {
+    const matches = changes.filter((change) => change.id.startsWith(name));
+    if (matches.length === 1 && matches[0] !== undefined) {
+      return matches[0];
+    }
+    if (matches.length > 1) {
+      throw new UserError(
+        `ambiguous id prefix ${JSON.stringify(name)}: ${matches
+          .map(({ id }) => id)
+          .sort()
+          .join(", ")}`,
+      );
+    }
+  }
+  throw new UserError(
+    `change does not exist: ${JSON.stringify(name)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
+  );
 }
 
 /** Resolve `name` to its change, failing when no change claims it. */

@@ -728,17 +728,17 @@ export interface Backend {
   /**
    * Delete the review state this repository holds: every change's log and the
    * fetched copies of origin's logs. Branches and commits are untouched, and
-   * origin keeps its logs, so syncing restores them. Returns the ids of the
-   * changes whose logs were deleted, sorted.
+   * origin keeps its logs, so syncing restores them. Returns how many
+   * changes' logs were deleted, whatever ref layout they used.
    */
-  wipeReviewState(): Promise<readonly ChangeId[]>;
+  wipeReviewState(): Promise<number>;
 
   /**
    * Delete every change's log on the `origin` remote — for every user of the
-   * repository, with no way to recover them. Returns the ids of the changes
-   * whose logs were deleted, sorted.
+   * repository, with no way to recover them. Returns how many changes' logs
+   * were deleted, whatever ref layout they used.
    */
-  wipeOriginLogs(): Promise<readonly ChangeId[]>;
+  wipeOriginLogs(): Promise<number>;
 
   /** The contents of `file` at `commit`, or undefined if no file exists there. */
   readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
