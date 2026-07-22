@@ -30,6 +30,11 @@ export const create = buildCommand({
         brief: "The new change's owner (defaults to you)",
         optional: true,
       },
+      permanent: {
+        kind: "boolean",
+        brief: "Mark the new change permanent: structure expected to outlive its lands",
+        default: false,
+      },
       evenThoughParentLanded: {
         kind: "boolean",
         brief: "Proceed even though the parent has landed",
@@ -44,7 +49,13 @@ export const create = buildCommand({
   },
   async func(
     this: LocalContext,
-    flags: { parent?: string; owner?: UserName; evenThoughParentLanded: boolean; evenThoughParentArchived: boolean },
+    flags: {
+      parent?: string;
+      owner?: UserName;
+      permanent: boolean;
+      evenThoughParentLanded: boolean;
+      evenThoughParentArchived: boolean;
+    },
     change: string,
   ) {
     const backend = await this.backend();
@@ -57,6 +68,7 @@ export const create = buildCommand({
       parent,
       { parentLanded: flags.evenThoughParentLanded, parentArchived: flags.evenThoughParentArchived },
       flags.owner,
+      flags.permanent,
     );
   },
 });

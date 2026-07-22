@@ -543,6 +543,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     }),
     fc.record({ kind: fc.constant("set-reviewing" as const), reviewing: fc.constantFrom(...REVIEWING) }),
     fc.record({ kind: fc.constant("set-archived" as const), archived: fc.boolean() }),
+    fc.record({ kind: fc.constant("set-permanent" as const), permanent: fc.boolean() }),
     fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),

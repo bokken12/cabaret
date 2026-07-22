@@ -11,6 +11,7 @@ import {
   currentBase,
   currentOwner,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
   diffBetween,
@@ -86,7 +87,8 @@ export class ArchivedParentError extends UserError {
  * A parent that is itself a change must be live: landed and archived parents
  * fail, short of the matching override. The change must not already exist.
  * Review starts with nobody asked — the change is a draft until widened —
- * though the owner may record self-review at any stage.
+ * though the owner may record self-review at any stage. `permanent` marks
+ * the change as structure expected to outlive its lands.
  */
 export async function createChange(
   backend: Backend,
@@ -95,6 +97,7 @@ export async function createChange(
   parent: ChangeName,
   overrides: CreateOverrides,
   owner?: UserName,
+  permanent = false,
 ): Promise<void> {
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
@@ -142,6 +145,7 @@ export async function createChange(
     { timestamp: now(), user, action: { kind: "set-base", base } },
     { timestamp: now(), user, action: { kind: "set-owner", owner: owner ?? user } },
     { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "none" } },
+    ...(permanent ? [{ timestamp: now(), user, action: { kind: "set-permanent", permanent } as const }] : []),
   ]);
 }
 
@@ -175,8 +179,29 @@ export async function setArchived(
 ): Promise<void> {
   assertChangeExists(change, entries);
   assertNotLanded(change, entries);
+  if (archived && currentPermanent(entries)) {
+    throw new UserError(`change is permanent: ${JSON.stringify(change)}; run \`cab permanent set false\` first`);
+  }
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-archived", archived } },
+  ]);
+}
+
+/**
+ * Record whether `change` is permanent — structure expected to outlive its
+ * lands rather than archive on them. A landed change is frozen.
+ */
+export async function setPermanent(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+  permanent: boolean,
+): Promise<void> {
+  assertChangeExists(change, entries);
+  assertNotLanded(change, entries);
+  await backend.appendLog(change, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-permanent", permanent } },
   ]);
 }
 
