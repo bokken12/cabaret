@@ -358,7 +358,8 @@ export class GitBackend implements Backend {
     if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) {
       throw new UserError(`path is outside the repository: ${JSON.stringify(raw)}`);
     }
-    return parseFilePath(path);
+    // Tab completion leaves a trailing separator on a directory.
+    return parseFilePath(path.endsWith(sep) ? path.slice(0, -1) : path);
   }
 
   async currentChange(): Promise<ChangeName> {
@@ -1093,16 +1094,16 @@ export class GitBackend implements Backend {
   }
 
   async commit(message: string, paths: readonly FilePath[]): Promise<void> {
-    try {
-      await git(this.root, ["add", "--all", ...(paths.length === 0 ? [] : ["--", ...paths])]);
-    } catch (error) {
-      const unmatched =
-        error instanceof Error ? /pathspec '.*' did not match any files/.exec(error.message)?.[0] : undefined;
-      if (unmatched !== undefined) {
-        throw new UserError(unmatched);
-      }
-      throw error;
-    }
+    // The index is not a user surface: unstaging first means commit stages
+    // from the worktree alone, so a selection narrows correctly even when
+    // something was staged by hand. `:(literal)` keeps a path with glob
+    // characters naming just itself.
+    await git(this.root, ["reset", "--quiet"]);
+    await git(this.root, [
+      "add",
+      "--all",
+      ...(paths.length === 0 ? [] : ["--", ...paths.map((path) => `:(literal)${path}`)]),
+    ]);
     // `diff --cached --quiet` exits 1 exactly when something is staged; any
     // other failure is real.
     let staged = false;
@@ -1118,6 +1119,37 @@ export class GitBackend implements Backend {
       throw new UserError("nothing to commit");
     }
     await git(this.root, ["commit", "--quiet", "--message", message]);
+  }
+
+  async editedFiles(): Promise<readonly FilePath[]> {
+    // -z delimits with NULs and disables path quoting; a rename or copy entry
+    // carries its source as one extra NUL-separated field. Submodules are
+    // dropped to match `changedFiles`.
+    const out = await git(this.root, [
+      "status",
+      "--porcelain",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=all",
+    ]);
+    const fields = out.split("\0");
+    const files: FilePath[] = [];
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      if (field === undefined || field === "") {
+        continue;
+      }
+      files.push(parseFilePath(field.slice(3)));
+      if (/[RC]/.test(field.slice(0, 2))) {
+        i += 1;
+        const source = fields[i];
+        if (source === undefined || source === "") {
+          throw new Error(`status entry ${JSON.stringify(field)} names no source`);
+        }
+        files.push(parseFilePath(source));
+      }
+    }
+    return files;
   }
 
   mergeBase(a: Revision, b: Revision): Promise<Revision> {

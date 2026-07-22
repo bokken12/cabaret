@@ -234,6 +234,64 @@ test("fetch passes by an unreviewing change without asking the forge", async () 
   expect((await repo.cabaret("dev", "log")).stdout).not.toContain('"kind":"set-forge"');
 });
 
+test("fetch defers opening a forge change until the head adds commits", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await repo.cabaret("create", "gadget");
+  await repo.cabaret("reviewing", "set", "everyone", "--change", "gadget");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
+      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("dev", "log", "gadget")).stdout).not.toContain('"kind":"set-forge"');
+  await repo.git("checkout", "-q", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      'pushed "gadget" to origin\n' +
+      "opened github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 0 updated forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(PR)).state).toBe("open");
+});
+
+test("fetch defers an empty change even when the parent's readings are diverged", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await repo.cabaret("create", "gadget");
+  await repo.cabaret("reviewing", "set", "everyone", "--change", "gadget");
+  // Origin's main advances while the local branch keeps a commit of its own:
+  // diverged readings, and origin's side already contains gadget's head.
+  const root = await repo.git("rev-parse", "main");
+  await repo.write("origin-side.txt", "origin work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "origin work");
+  await repo.git("push", "-q", "origin", "main");
+  await repo.git("reset", "-q", "--hard", root);
+  await repo.write("local-side.txt", "local work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "local work");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
+      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("dev", "log", "gadget")).stdout).not.toContain('"kind":"set-forge"');
+});
+
 /** A teammate's branch, committed and pushed to origin but absent locally, as a forge change's head would be. */
 async function pushTeammateBranch(repo: TestRepo, branch: ChangeName): Promise<string> {
   await repo.git("checkout", "-qb", branch);
@@ -379,7 +437,9 @@ test("fetch opens the forge change reviewing left due while unreachable", async 
   await repo.cabaret("fetch");
   const origin = await repo.git("remote", "get-url", "origin");
   await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
-  expect((await repo.cabaret("widen")).stdout).toBe("reviewing owner\norigin unreachable; sync to publish\n");
+  expect((await repo.cabaret("reviewing", "widen")).stdout).toBe(
+    "reviewing owner\norigin unreachable; sync to publish\n",
+  );
   await repo.git("remote", "set-url", "origin", origin);
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "opened github.com/test-org/widgets#1\n" + "fetched github.com/test-org/widgets: 0 updated forge changes\n",

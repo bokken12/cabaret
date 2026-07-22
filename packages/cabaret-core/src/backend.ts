@@ -577,11 +577,17 @@ export interface Backend {
 
   /**
    * Commit this workspace's edits — modified, added, and deleted files alike
-   * — to the checked-out branch with `message`. `paths`, each a path or one
-   * of the backend's native patterns, restrict what is committed; empty
-   * commits everything. Fails when there is nothing to commit.
+   * — to the checked-out branch with `message`. `paths`, each taken
+   * literally, restrict what is committed; empty commits everything. Fails
+   * when there is nothing to commit.
    */
   commit(message: string, paths: readonly FilePath[]): Promise<void>;
+
+  /**
+   * The files this workspace edits, relative to the checked-out tip:
+   * modified, added, and deleted alike, with both endpoints of a move.
+   */
+  editedFiles(): Promise<readonly FilePath[]>;
 
   /** Whether this clone holds `revision`'s objects. */
   hasRevision(revision: Revision): Promise<boolean>;

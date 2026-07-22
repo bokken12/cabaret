@@ -94,8 +94,9 @@ export const contextFlag = {
  * argument with a glob character is a gitignore-style pattern against
  * repo-relative paths, and matching nothing is a mistake worth stopping on —
  * a typo would otherwise silently select nothing. Any other argument is a path,
- * resolved the way every command resolves one; one naming a file outside
- * `candidates` is an error under `strict` (marking it would record nothing)
+ * resolved the way every command resolves one; it selects the candidate it
+ * names and every candidate under it as a directory. One naming nothing in
+ * `candidates` is an error under `strict` (selecting it would do nothing)
  * and otherwise appends the file, for a viewer to answer "nothing here"
  * about.
  */
@@ -122,10 +123,14 @@ export function selectFiles(
       }
     } else {
       const file = backend.resolveFile(raw);
-      if (candidates.includes(file)) {
-        selected.add(file);
+      const prefix = file === "." ? "" : `${file}/`;
+      const matches = candidates.filter((candidate) => candidate === file || candidate.startsWith(prefix));
+      if (matches.length > 0) {
+        for (const match of matches) {
+          selected.add(match);
+        }
       } else if (strict) {
-        throw new UserError(`no review left in ${file}`);
+        throw new UserError(`no ${what} matches ${JSON.stringify(raw)}`);
       } else if (!appended.includes(file)) {
         appended.push(file);
       }

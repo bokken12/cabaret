@@ -30,7 +30,7 @@ import { rebase } from "./commands/rebase.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
 import { reviewers } from "./commands/reviewers.js";
-import { reviewing, widen } from "./commands/reviewing.js";
+import { reviewing } from "./commands/reviewing.js";
 import { setup } from "./commands/setup.js";
 import { show } from "./commands/show.js";
 import { sync } from "./commands/sync.js";
@@ -98,7 +98,6 @@ const routes = buildRouteMap({
     sync,
     todos,
     tui,
-    widen,
     workspace,
   },
 });

@@ -49,13 +49,13 @@ USAGE
   cab commit <file>...
   cab commit --help
 
-Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed to the named files or patterns.
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed — a file or directory, or a gitignore-style pattern against repo-relative paths.
 
 FLAGS
   -h --help  Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to commit (defaults to every edit)
+  file...  files, directories, or patterns to commit (defaults to every edit)
 
 ### cab config list
 
@@ -446,7 +446,7 @@ USAGE
   cab diff [--change value] [--context value] <file>...
   cab diff --help
 
-Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
+Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a file or directory, or a gitignore-style pattern against repo-relative paths.
 
 FLAGS
      [--change]   Change to diff (defaults to current)
@@ -454,7 +454,7 @@ FLAGS
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to show (defaults to every changed file)
+  file...  files, directories, or patterns to show (defaults to every changed file)
 
 ## cab fetch
 
@@ -526,7 +526,7 @@ FLAGS
   -h  --help                        Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to mark reviewed
+  file...  files, directories, or patterns to mark reviewed
 
 ### cab owner show
 
@@ -631,7 +631,7 @@ FLAGS
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to show (defaults to everything left)
+  file...  files, directories, or patterns to show (defaults to everything left)
 
 ### cab reviewers add
 
@@ -689,6 +689,18 @@ FLAGS
 
 ARGUMENTS
   reviewing  reviewing set to record
+
+### cab reviewing widen
+
+USAGE
+  cab reviewing widen [--change value]
+  cab reviewing widen --help
+
+Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
+
+FLAGS
+     [--change]  Change to widen (defaults to current)
+  -h  --help     Print help information and exit
 
 ### cab setup list
 
@@ -765,18 +777,6 @@ FLAGS
 
 ARGUMENTS
   [change]  change to open (defaults to the home page)
-
-## cab widen
-
-USAGE
-  cab widen [--change value]
-  cab widen --help
-
-Widen a change's reviewing set to the next level with review to do — owner, reviewers, everyone — skipping levels whose users have already read the whole diff.
-
-FLAGS
-     [--change]  Change to widen (defaults to current)
-  -h  --help     Print help information and exit
 
 ### cab workspace list
 

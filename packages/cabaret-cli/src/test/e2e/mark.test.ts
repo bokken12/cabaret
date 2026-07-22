@@ -38,6 +38,21 @@ test("mark records review of files at the given tip", async () => {
   });
 });
 
+test("mark on a directory records review of the files under it", async () => {
+  const repo = await makeChange({ "readme.md": "hi\n", "src/a.ts": "a\n", "src/b.ts": "b\n" });
+  const base = await repo.git("rev-parse", "trunk");
+  const tip = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("mark", "--tip", tip, "src")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("dev", "log")).stdout).toBe(
+    '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/b.ts","base":"${base}","tip":"${tip}"}}\n`,
+  );
+});
+
 test("mark requires the tip, so a mark always states what was read", async () => {
   const repo = await makeChange({ "src/a.ts": "a\n" });
   const result = await repo.cabaret("mark", "src/a.ts");
@@ -132,7 +147,7 @@ test("a pattern matching no file with review left fails", async () => {
   });
   expect(await repo.cabaret("mark", "--tip", "HEAD", "trunk.txt")).toEqual({
     stdout: "",
-    stderr: "no review left in trunk.txt\n",
+    stderr: 'no file with review left matches "trunk.txt"\n',
     exitCode: 1,
   });
 });

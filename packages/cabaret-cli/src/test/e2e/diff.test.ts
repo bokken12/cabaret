@@ -58,6 +58,57 @@ test("a pattern narrows the diff to matching files", async () => {
   `);
 });
 
+test("a directory narrows the diff to the files under it", async () => {
+  const repo = await makeChange({
+    "greeting.txt": "hello\n",
+    "src/lib.ts": "export const answer = 42;\n",
+    "src/util.ts": "export const twice = (n: number) => n * 2;\n",
+  });
+  const invocation = await repo.cabaret("diff", "src");
+  expect(invocation).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "src/lib.ts in main
+
+    -1,0 +1,1
+    +|export const answer = 42;
+
+    src/util.ts in main
+
+    -1,0 +1,1
+    +|export const twice = (n: number) => n * 2;
+    ",
+    }
+  `);
+  expect(await repo.cabaret("diff", "src/")).toEqual(invocation);
+});
+
+test("dot diffs the directory the command runs in", async () => {
+  const repo = await makeChange({ "docs/guide.md": "# Guide\nRead me.\n", "notes.txt": "alpha\n" });
+  expect((await repo.cabaretIn("docs", "diff", ".")).stdout).toMatchInlineSnapshot(`
+    "docs/guide.md in main
+
+    -1,0 +1,2
+    +|# Guide
+    +|Read me.
+    "
+  `);
+  expect((await repo.cabaret("diff", ".")).stdout).toMatchInlineSnapshot(`
+    "docs/guide.md in main
+
+    -1,0 +1,2
+    +|# Guide
+    +|Read me.
+
+    notes.txt in main
+
+    -1,0 +1,1
+    +|alpha
+    "
+  `);
+});
+
 test("a named file outside the change answers with no differences", async () => {
   const repo = await makeRepo();
   await repo.write("untouched.txt", "untouched\n");
