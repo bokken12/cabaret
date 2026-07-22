@@ -344,7 +344,8 @@ export class GitBackend implements Backend {
     if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) {
       throw new UserError(`path is outside the repository: ${JSON.stringify(raw)}`);
     }
-    return parseFilePath(path);
+    // Tab completion leaves a trailing separator on a directory.
+    return parseFilePath(path.endsWith(sep) ? path.slice(0, -1) : path);
   }
 
   async currentChange(): Promise<ChangeName> {

@@ -446,7 +446,7 @@ USAGE
   cab diff [--change value] [--context value] <file>...
   cab diff --help
 
-Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a path, or a gitignore-style pattern against repo-relative paths.
+Show a change's diff: each changed file, base to tip. Arguments narrow what is shown — a file or directory, or a gitignore-style pattern against repo-relative paths.
 
 FLAGS
      [--change]   Change to diff (defaults to current)
