@@ -36,7 +36,11 @@ function created(name: string, parent: string, at: number): readonly LogEntry[] 
   const user = userName("alice@example.com");
   return [
     { timestamp: timestampMs(at), user, action: { kind: "set-name", name: parseBranchName(name) } },
-    { timestamp: timestampMs(at + 1), user, action: { kind: "set-parent", parent: parseBranchName(parent) } },
+    {
+      timestamp: timestampMs(at + 1),
+      user,
+      action: { kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } },
+    },
     { timestamp: timestampMs(at + 2), user, action: { kind: "set-base", base: parseCommitHash("0".repeat(40)) } },
     { timestamp: timestampMs(at + 3), user, action: { kind: "set-owner", owner: user } },
   ];
@@ -60,7 +64,11 @@ test("resolveChain follows a reparent over the original parent", async () => {
     base: created("base", "main", 100),
     moved: [
       ...created("moved", "elsewhere", 200),
-      { timestamp: timestampMs(400), user, action: { kind: "set-parent", parent: parseBranchName("base") } },
+      {
+        timestamp: timestampMs(400),
+        user,
+        action: { kind: "set-parent", parent: { kind: "branch", name: parseBranchName("base") } },
+      },
     ],
   };
   const changes = ["base", "moved"].map(parseBranchName);

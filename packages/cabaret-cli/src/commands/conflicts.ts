@@ -1,6 +1,7 @@
 import { buildCommand } from "@stricli/core";
-import { changeBase, changeTip, conflictMarkers, lookupChange } from "cabaret-core";
+import { changeBase, changeTip, conflictMarkers } from "cabaret-core";
 import type { LocalContext } from "../context.js";
+import { resolveChange } from "./shared.js";
 
 export const conflicts = buildCommand({
   docs: {
@@ -25,10 +26,9 @@ export const conflicts = buildCommand({
   },
   async func(this: LocalContext, _flags: Record<never, never>, change?: string) {
     const backend = await this.backend();
-    const target = change === undefined ? await backend.currentChange() : backend.parseName(change);
-    const entries = (await lookupChange(backend, target))?.entries ?? [];
-    const base = await changeBase(backend, target, entries);
-    const tip = await changeTip(backend, target, entries);
+    const named = await resolveChange(backend, change);
+    const base = await changeBase(backend, named);
+    const tip = await changeTip(backend, named);
     for (const { path: file } of await backend.changedFiles(base, tip)) {
       const content = await backend.readFile(tip, file);
       if (content === undefined) {

@@ -67,7 +67,7 @@ export const dev = buildRouteMap({
             if (owed.length > 0) {
               const { id } = requireNamed(all, summary.change);
               const entries = await backend.readLog(id);
-              const diff = await changeDiff(backend, summary.change, entries);
+              const diff = await changeDiff(backend, { id, entries });
               // Obligations are per identity: only demands `identity`'s own
               // review can satisfy are marked, so a file owed to an alias
               // alone stays owed.

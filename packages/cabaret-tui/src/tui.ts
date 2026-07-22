@@ -10,7 +10,7 @@ import {
   createChange,
   currentArchived,
   currentName,
-  currentParent,
+  currentParentRef,
   currentSelf,
   type Forge,
   fetchForge,
@@ -20,6 +20,7 @@ import {
   landAsConfigured,
   landChain,
   lookupChange,
+  parentDesignator,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -28,6 +29,7 @@ import {
   reparentChange,
   resolveChain,
   resolveChange,
+  resolveNamed,
   setArchived,
   setReviewing,
   syncChange,
@@ -122,15 +124,17 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
       Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
     parent: async (change) => {
       const found = await lookupChange(backend, change);
-      return found === undefined ? undefined : currentParent(currentName(found.id, found.entries), found.entries);
+      return found === undefined ? undefined : parentDesignator(backend, currentParentRef(found.id, found.entries));
     },
     self: () => currentSelf(backend),
     children: async (change) => {
       const all = await allChanges(backend);
+      const target = resolveNamed(all, change);
       return all
         .flatMap((other) => {
-          const name = currentName(other.id, other.entries);
-          return currentParent(name, other.entries) === change ? [name] : [];
+          const ref = currentParentRef(other.id, other.entries);
+          const points = ref.kind === "change" ? ref.id === target?.id : ref.name === change;
+          return points ? [currentName(other.id, other.entries)] : [];
         })
         .sort();
     },

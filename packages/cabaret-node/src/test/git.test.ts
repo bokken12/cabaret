@@ -123,8 +123,16 @@ test("readLog parses the log file into entries", async () => {
 
   const backend = await GitBackend.open(repo);
   expect(await backend.readLog(featureId)).toEqual([
-    { timestamp: 1748000000000, user: "alice@example.com", action: { kind: "set-parent", parent: "main" } },
-    { timestamp: 1748000060000, user: "bob@example.com", action: { kind: "set-parent", parent: "trunk" } },
+    {
+      timestamp: 1748000000000,
+      user: "alice@example.com",
+      action: { kind: "set-parent", parent: { kind: "branch", name: "main" } },
+    },
+    {
+      timestamp: 1748000060000,
+      user: "bob@example.com",
+      action: { kind: "set-parent", parent: { kind: "branch", name: "trunk" } },
+    },
   ]);
 });
 
@@ -151,9 +159,14 @@ test("changeBase is the last revision shared with the change's parent", async ()
   const gadgetId = mintChangeId();
   await backend.appendLog(gadgetId, [
     {
+      timestamp: timestampMs(1747999999999),
+      user: userName("alice@example.com"),
+      action: { kind: "set-name", name: parseBranchName("gadget") },
+    },
+    {
       timestamp: timestampMs(1748000000000),
       user: userName("alice@example.com"),
-      action: { kind: "set-parent", parent: parseBranchName("trunk") },
+      action: { kind: "set-parent", parent: { kind: "branch", name: parseBranchName("trunk") } },
     },
     {
       timestamp: timestampMs(1748000000001),
@@ -162,7 +175,7 @@ test("changeBase is the last revision shared with the change's parent", async ()
     },
   ]);
   const entries = await backend.readLog(gadgetId);
-  expect(await changeBase(backend, parseBranchName("gadget"), entries)).toBe(root);
+  expect(await changeBase(backend, { id: gadgetId, entries })).toBe(root);
 });
 
 /**
@@ -197,14 +210,15 @@ async function plumbChange(change: string, tip: string, parent: string, base: st
   await git("update-ref", `refs/heads/${change}`, tip);
   const backend = await GitBackend.open(repo);
   await backend.appendLog(idOf(change), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName(parent) }),
+    logEntry(1747999999999, { kind: "set-name", name: parseBranchName(change) }),
+    logEntry(1748000000000, { kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } }),
     logEntry(1748000000001, { kind: "set-base", base: parseCommitHash(base) }),
   ]);
 }
 
 async function changeBaseOf(change: string): Promise<string> {
   const backend = await GitBackend.open(repo);
-  return changeBase(backend, parseBranchName(change), await backend.readLog(idOf(change)));
+  return changeBase(backend, { id: idOf(change), entries: await backend.readLog(idOf(change)) });
 }
 
 test("changeBase keeps the stored base when the parent was rewritten", async () => {
@@ -332,10 +346,11 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
 test("changeTip fails when the land merge is absent from the clone", async () => {
   const backend = await GitBackend.open(repo);
   const entries = [
+    logEntry(1747999999999, { kind: "set-name", name: parseBranchName("ghost-merge") }),
     logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) }),
     logEntry(1748000000001, { kind: "set-archived", archived: true }),
   ];
-  await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
+  await expect(changeTip(backend, { id: mintChangeId(), entries })).rejects.toThrow(
     `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cab fetch\``,
   );
 });
@@ -344,6 +359,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
   const backend = await GitBackend.open(repo);
   const merge = await plumbCommit("squash land whose reviewed tip is gone");
   const entries = [
+    logEntry(1747999999999, { kind: "set-name", name: parseBranchName("ghost-tip") }),
     logEntry(1748000000000, {
       kind: "land",
       merge: parseCommitHash(merge),
@@ -351,7 +367,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
     }),
     logEntry(1748000000001, { kind: "set-archived", archived: true }),
   ];
-  await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
+  await expect(changeTip(backend, { id: mintChangeId(), entries })).rejects.toThrow(
     `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,
   );
 });
@@ -470,9 +486,10 @@ test("advance fast-forwards a branch checked out in a sibling worktree, carrying
   await git("worktree", "remove", linked);
 });
 
-test("changeBase fails on a change that does not exist", async () => {
+test("changeBase fails on an empty log", async () => {
   const backend = await GitBackend.open(repo);
-  await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
+  const id = mintChangeId();
+  await expect(changeBase(backend, { id, entries: [] })).rejects.toThrow(`log has no name: ${id}`);
 });
 
 /** A bare origin holding branches `main` and `extra`, and an empty repo with it as `origin`. */
@@ -766,7 +783,7 @@ test("deleteLog deletes the log locally and on origin, tolerating a repeat", asy
     const widgetsId = mintChangeId();
     await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
     await backend.appendLog(widgetsId, [
-      logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("main") }),
+      logEntry(1748000000000, { kind: "set-parent", parent: { kind: "branch", name: parseBranchName("main") } }),
     ]);
     await backend.syncLog(widgetsId);
     expect(await gitIn(origin, "for-each-ref", "refs/cabaret/")).not.toBe("");
@@ -792,7 +809,9 @@ test("listChanges names every change with a log, sorted by id", async () => {
     expect(await backend.listChanges()).toEqual([]);
     const ids = [mintChangeId(), mintChangeId(), mintChangeId()];
     for (const id of ids) {
-      await backend.appendLog(id, [logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("main") })]);
+      await backend.appendLog(id, [
+        logEntry(1748000000000, { kind: "set-parent", parent: { kind: "branch", name: parseBranchName("main") } }),
+      ]);
     }
     expect(await backend.listChanges()).toEqual([...ids].sort());
   } finally {
@@ -1026,7 +1045,10 @@ test("reads see refs and objects written after the session started", async () =>
   const backend = await GitBackend.open(repo);
   const lateId = mintChangeId();
   expect(await backend.readLog(lateId)).toEqual([]);
-  const entry = logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") });
+  const entry = logEntry(1748000000000, {
+    kind: "set-parent",
+    parent: { kind: "branch", name: parseBranchName("feature") },
+  });
   await backend.appendLog(lateId, [entry]);
   expect(await backend.readLog(lateId)).toEqual([entry]);
 });

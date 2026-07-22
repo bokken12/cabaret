@@ -7,7 +7,6 @@ import {
   type ChangeSummary,
   changeDiff,
   currentComments,
-  currentName,
   type FilePath,
   fileLabel,
   forgeChangeUrl,
@@ -66,7 +65,7 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
     };
   }
   const entries = found.entries;
-  const diff = await changeDiff(backend, currentName(found.id, entries), entries);
+  const diff = await changeDiff(backend, found);
   const summary = await summarizeChange(backend, found, acting.self.user, diff, all);
   // An archived change asks nothing while set aside — a land settles what
   // it archives — and a malformed policy tallies nobody: the next step row

@@ -76,14 +76,20 @@ export interface ChangeSnapshot {
 }
 
 export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
-  // A log-less branch still views as a change — an empty log reads as
-  // nothing reviewed — it just has no id to record review against.
   const named = await lookupChange(backend, change);
-  const entries = named?.entries ?? [];
-  const name = named === undefined ? change : currentName(named.id, named.entries);
-  const [diff, acting] = await Promise.all([changeDiff(backend, name, entries), selfAs(backend, as)]);
+  // TODO: view a log-less branch as a degenerate change — nothing reviewed,
+  // no id to record against — instead of failing; its diff needs a base read
+  // no log informs.
+  if (named === undefined) {
+    throw new UserError(
+      `change does not exist: ${JSON.stringify(change)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
+    );
+  }
+  const entries = named.entries;
+  const name = currentName(named.id, named.entries);
+  const [diff, acting] = await Promise.all([changeDiff(backend, named), selfAs(backend, as)]);
   return {
-    id: named?.id,
+    id: named.id,
     change: name,
     user: acting.self.user,
     as: acting.as,

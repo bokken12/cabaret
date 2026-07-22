@@ -1,6 +1,7 @@
 import {
   type Backend,
   brain,
+  type Change,
   type ChangeDiff,
   type ChangedFile,
   type ChangeName,
@@ -10,7 +11,7 @@ import {
   currentForgeChange,
   currentName,
   currentOwner,
-  currentParent,
+  currentParentRef,
   currentPermanent,
   currentReviewers,
   currentReviewing,
@@ -32,11 +33,12 @@ import {
   type Reviewing,
   type Revision,
   requireTip,
+  shortChangeId,
   type UserName,
 } from "./backend.js";
 import { diffViewEmpty, rebasedView, renderDiff } from "./diff.js";
 import { UserError } from "./error.js";
-import { allChanges, type Change, resolveNamed } from "./naming.js";
+import { allChanges, resolveNamed } from "./naming.js";
 import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
@@ -155,7 +157,17 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const entries = change.entries;
   const name = currentName(change.id, entries);
-  const parent = currentParent(name, entries);
+  // The parent resolves from the roster in hand — a change arm by id, a
+  // branch arm through name arbitration — reading nothing extra; an
+  // unfetched change parent shows as its short id and reads as missing.
+  const ref = currentParentRef(change.id, entries);
+  const parentChange = ref.kind === "change" ? all.find(({ id }) => id === ref.id) : resolveNamed(all, ref.name);
+  const parent =
+    parentChange !== undefined
+      ? currentName(parentChange.id, parentChange.entries)
+      : ref.kind === "branch"
+        ? ref.name
+        : shortChangeId(ref.id);
   const landed = landedMerge(entries);
   const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
@@ -178,7 +190,7 @@ export async function summarizeChange(
       }
     }
     origin = await originStanding(backend, name, tip);
-    const parentEntries = resolveNamed(all, parent)?.entries ?? [];
+    const parentEntries = parentChange?.entries ?? [];
     if (finished(parentEntries)) {
       deadParent = "landed";
     } else if (currentArchived(parentEntries)) {
@@ -202,13 +214,13 @@ export async function summarizeChange(
         }
         // A trunk parent has no log to put obligations on, so only a change
         // parent reads. The diff is the one `land` would check.
-        if (parentEntries.length > 0) {
+        if (parentChange !== undefined) {
           parentReview = async () =>
             obligationsReading(
               backend,
               parentEntries,
               currentOwner(parent, parentEntries),
-              await diffBetween(backend, await changeBase(backend, parent, parentEntries), parentTip),
+              await diffBetween(backend, await changeBase(backend, parentChange), parentTip),
             );
         }
       }
@@ -295,9 +307,13 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
   const changes = await allChanges(backend);
   const names = new Set<ChangeName>();
   for (const change of changes) {
-    const name = currentName(change.id, change.entries);
-    names.add(name);
-    names.add(currentParent(name, change.entries));
+    names.add(currentName(change.id, change.entries));
+    // A change parent speaks for itself when iterated; only a branch arm
+    // names something no log answers for.
+    const ref = currentParentRef(change.id, change.entries);
+    if (ref.kind === "branch") {
+      names.add(ref.name);
+    }
   }
   return [...names].sort();
 }

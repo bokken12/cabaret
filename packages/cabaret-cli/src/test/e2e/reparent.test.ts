@@ -118,7 +118,10 @@ test("reparent refuses an archived parent until overridden", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("dev", "log", "widgets")).stdout).toContain('"kind":"set-parent","parent":"gadget"');
+  // The parent records as gadget's id: the reference survives renames.
+  expect((await repo.cabaret("dev", "log", "widgets")).stdout).toContain(
+    '"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}',
+  );
 });
 
 test("reparent refuses a landed parent, naming where the code went", async () => {
