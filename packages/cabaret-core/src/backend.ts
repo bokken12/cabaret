@@ -759,6 +759,15 @@ export interface Backend {
   changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;
 
   /**
+   * The paths of files that differ between `base` and `tip` by more than
+   * whitespace: in existence, in mode, or in line content beyond spacing,
+   * blank lines, and a trailing newline. A changed file absent here differs
+   * only in whitespace. Paths name each side of the diff as it stands there —
+   * a moved file appears under both its old and new paths.
+   */
+  nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>>;
+
+  /**
    * The id of every change, sorted: one per log ref. Only `appendLog`
    * creates logs and every log starts nonempty, so each id names a change
    * that exists — though a landed change's branch may be gone.

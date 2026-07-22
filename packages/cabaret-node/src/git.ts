@@ -1026,6 +1026,30 @@ export class GitBackend implements Backend {
     return files;
   }
 
+  async nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>> {
+    // -w and --ignore-blank-lines make git drop a file whose only line
+    // changes are spacing, blank lines, or a trailing newline, while a file
+    // changed in existence, mode, or solid content stays listed. Rename
+    // detection stays off so each side answers under its own path.
+    const out = await git(this.root, [
+      "diff",
+      "-w",
+      "--ignore-blank-lines",
+      "--no-renames",
+      "--name-only",
+      "--ignore-submodules=all",
+      "-z",
+      base,
+      tip,
+    ]);
+    return new Set(
+      out
+        .split("\0")
+        .filter((path) => path !== "")
+        .map(parseFilePath),
+    );
+  }
+
   async tip(branch: ChangeName): Promise<Revision | undefined> {
     return this.commitAt(parseBranchName(`refs/heads/${branch}`));
   }

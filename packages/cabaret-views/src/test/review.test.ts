@@ -682,7 +682,7 @@ test("diffDoc folds each four-way block's hunks to their headers", () => {
   ]);
 });
 
-test("diffDoc with an empty diff points at marking the file reviewed", () => {
+test("diffDoc reads equal contents of a due file as its mode changing", () => {
   const doc = diffDoc(
     diffPageWith({
       tip: fake("3"),
@@ -693,7 +693,34 @@ test("diffDoc with an empty diff points at marking the file reviewed", () => {
   expect(docText(doc)).toMatchInlineSnapshot(`
     "api.ts in widgets (up to 333333333333)
 
-    No differences left to read."
+    File mode changed."
+  `);
+});
+
+test("diffDoc notes a creation and a deletion their hunks cannot show", () => {
+  const created = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      view: { kind: "two", prev: undefined, next: "\n" },
+    }),
+  );
+  expect(docText(created)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    File created."
+  `);
+  const deleted = diffDoc(
+    diffPageWith({
+      tip: fake("3"),
+      source: undefined,
+      view: { kind: "two", prev: "", next: undefined },
+    }),
+  );
+  expect(docText(deleted)).toMatchInlineSnapshot(`
+    "api.ts in widgets (up to 333333333333)
+
+    File deleted."
   `);
 });
 

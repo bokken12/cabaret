@@ -88,6 +88,8 @@ function repoBackend(opts: {
   conflicting?: Record<string, readonly string[]>;
   /** File texts by commit digit, for `readFile`; an unlisted file reads as absent. */
   contents?: Record<string, Record<string, string>>;
+  /** Paths per `<base><tip>` digit pair changed only in whitespace, dropped from `nonWhitespaceChanges`. */
+  whitespaceOnly?: Record<string, readonly string[]>;
   /** Second parents of merge commits, for `mergedTip`. */
   tips?: Record<string, string>;
   /** Origin's last-fetched branch tips, for `originTip`. */
@@ -115,6 +117,7 @@ function repoBackend(opts: {
     | "isAncestor"
     | "chainMerges"
     | "changedFiles"
+    | "nonWhitespaceChanges"
     | "mergeConflicts"
     | "readFile"
     | "readLog"
@@ -202,6 +205,14 @@ function repoBackend(opts: {
       // "old.ts -> new.ts" names a move and "old.ts => new.ts" a copy; a
       // bare path a plain change.
       return files.map(sourced);
+    },
+    async nonWhitespaceChanges(base, tip) {
+      const whitespace = new Set(opts.whitespaceOnly?.[`${base[0]}${tip[0]}`] ?? []);
+      return new Set(
+        (await stub.changedFiles(base, tip))
+          .flatMap(({ path, source }) => (source === undefined ? [path] : [path, source.path]))
+          .filter((path) => !whitespace.has(path as string)),
+      );
     },
     async readFile(commit, file) {
       return opts.contents?.[commit[0] as string]?.[file as string];
@@ -732,6 +743,76 @@ test("reviewLeft extends from a reviewed tip", async () => {
   // a.ts changed again after the reviewed tip 2; b.ts did not, so it is done.
   expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
     files({ "a.ts": { kind: "extend", from: fake("2") } }),
+  );
+});
+
+test("reviewLeft discharges a fresh file whose whole diff is whitespace", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["solid.ts", "spacing.ts"] },
+    whitespaceOnly: { "02": ["spacing.ts"] },
+    contents: {
+      "0": { "spacing.ts": "alpha  beta\n" },
+      "2": { "spacing.ts": "alpha beta \n" },
+    },
+  });
+  // spacing.ts changed only in whitespace, which its diff renders as
+  // nothing: no review is owed there.
+  expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
+    files({ "solid.ts": { kind: "fresh", source: undefined } }),
+  );
+});
+
+test("reviewLeft keeps a file whose spacing git overlooks but the diff shows", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["gap.ts"] },
+    whitespaceOnly: { "02": ["gap.ts"] },
+    // git's whitespace-ignoring equality erases the space entirely, but the
+    // diff separates "wordgap" from "word gap" and renders the change.
+    contents: {
+      "0": { "gap.ts": "wordgap\n" },
+      "2": { "gap.ts": "word gap\n" },
+    },
+  });
+  expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
+    files({ "gap.ts": { kind: "fresh", source: undefined } }),
+  );
+});
+
+test("reviewLeft keeps a file created with nothing visible inside", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "0", feature: "2" },
+    changed: { "02": ["blank.ts"] },
+    whitespaceOnly: { "02": ["blank.ts"] },
+    // The creation renders no hunks — blank lines are all there is — but a
+    // file appearing is a tree change its reviewer acknowledges.
+    contents: { "2": { "blank.ts": "\n\n" } },
+  });
+  expect(await leftFor(backend, created("main", "0"), alice, fake("0"), fake("2"))).toEqual(
+    files({ "blank.ts": { kind: "fresh", source: undefined } }),
+  );
+});
+
+test("reviewLeft discharges an extension that only reflows whitespace", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "0", feature: "3" },
+    changed: { "03": ["indent.ts", "logic.ts"], "13": ["indent.ts", "logic.ts"] },
+    whitespaceOnly: { "13": ["indent.ts"] },
+    contents: {
+      "1": { "indent.ts": "if (ready) {\ngo()\n}\n" },
+      "3": { "indent.ts": "if (ready) {\n  go()\n}\n" },
+    },
+  });
+  // Both files were reviewed at tip 1 and changed since, but indent.ts only
+  // re-indented: reading onward from the reviewed tip would show nothing.
+  const entries = [...created("main", "0"), entry(review("indent.ts", "0", "1")), entry(review("logic.ts", "0", "1"))];
+  expect(await leftFor(backend, entries, alice, fake("0"), fake("3"))).toEqual(
+    files({ "logic.ts": { kind: "extend", from: fake("1") } }),
   );
 });
 

@@ -573,15 +573,27 @@ function fourWayDiffNodes(
 }
 
 /**
- * The note standing in for hunks when a due file's diff renders empty — a
- * pure move or copy, or a tree diff listing changes patdiff shows no hunks
- * for, like a mode-only change. Marking the file reviewed is how the
- * reviewer clears it either way.
+ * The note standing in for hunks when a due file's diff renders empty: what
+ * the tree records that the hunks cannot show — a pure move or copy, a mode
+ * change, or a file created or deleted with nothing visible inside. Marking
+ * the file reviewed is how the reviewer clears it either way.
  */
-export function emptyDiffNote(source: FileSource | undefined): string {
-  return source === undefined
-    ? "No differences left to read."
-    : `${source.copied ? "Copied" : "Moved"} with no content changes.`;
+export function emptyDiffNote(source: FileSource | undefined, view: DiffView): string {
+  if (source !== undefined) {
+    return `${source.copied ? "Copied" : "Moved"} with no content changes.`;
+  }
+  if (view.kind === "two") {
+    if (view.prev === undefined) {
+      return "File created.";
+    }
+    if (view.next === undefined) {
+      return "File deleted.";
+    }
+    if (view.prev === view.next) {
+      return "File mode changed.";
+    }
+  }
+  return "No differences left to read.";
 }
 
 /** One file's diff body: its hunks, or the note that nothing is left to read there. */
@@ -595,7 +607,7 @@ function fileBodyNodes(
   const body =
     view.kind === "two" ? twoWayDiffNodes(change, file, view, context) : fourWayDiffNodes(change, file, view, context);
   if (body.length === 0) {
-    return [{ spans: [span(emptyDiffNote(source))] }];
+    return [{ spans: [span(emptyDiffNote(source, view))] }];
   }
   return body;
 }

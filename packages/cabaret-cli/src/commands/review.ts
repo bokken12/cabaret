@@ -82,7 +82,7 @@ export const review = buildCommand({
           : renderDiff4({ file, revs: view.revs, contents: view.contents, color, context })
               .map((line) => `${line.text}\n`)
               .join("");
-      this.process.stdout.write(rendered === "" ? `${emptyDiffNote(filePage.left.source)}\n` : rendered);
+      this.process.stdout.write(rendered === "" ? `${emptyDiffNote(filePage.left.source, view)}\n` : rendered);
     }
     if (shown.length === 0) {
       return;
