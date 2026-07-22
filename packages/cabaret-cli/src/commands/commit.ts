@@ -1,6 +1,6 @@
 import { buildCommand } from "@stricli/core";
 import type { LocalContext } from "../context.js";
-import { pushTip, selectFiles } from "./shared.js";
+import { pushTip, resolveChange, selectFiles } from "./shared.js";
 
 export const commit = buildCommand({
   docs: {
@@ -25,7 +25,7 @@ export const commit = buildCommand({
   },
   async func(this: LocalContext, _flags: Record<never, never>, ...args: string[]) {
     const backend = await this.backend();
-    const change = await backend.currentChange();
+    const { change } = await resolveChange(backend, undefined);
     const files = selectFiles(backend, await backend.editedFiles(), args, true, "edit");
     await backend.commit(change, files);
     await pushTip(this, backend, change);

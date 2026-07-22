@@ -24,6 +24,7 @@ test("commit carries its tip to origin, and holds it quietly offline", async () 
 
 test("commit records every edit under the change's name: no message to compose", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "tidy");
   await repo.write("kept.txt", "old\n");
   await repo.write("doomed.txt", "doomed\n");
   await repo.git("add", "-A");
@@ -34,7 +35,7 @@ test("commit records every edit under the change's name: no message to compose",
   expect(await repo.cabaret("commit")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("status", "--porcelain")).toBe("");
   expect(await repo.git("show", "--stat", "--format=%s", "HEAD")).toMatchInlineSnapshot(`
-    "main
+    "tidy
 
      doomed.txt | 1 -
      fresh.txt  | 1 +
@@ -45,6 +46,7 @@ test("commit records every edit under the change's name: no message to compose",
 
 test("arguments narrow the commit, leaving other edits in the workspace", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "tidy");
   await repo.write("wanted.txt", "wanted\n");
   await repo.write("unwanted.txt", "unwanted\n");
   expect(await repo.cabaret("commit", "wanted.txt")).toEqual({
@@ -53,7 +55,7 @@ test("arguments narrow the commit, leaving other edits in the workspace", async 
     exitCode: 0,
   });
   expect(await repo.git("show", "--stat", "--format=%s", "HEAD")).toMatchInlineSnapshot(`
-    "main
+    "tidy
 
      wanted.txt | 1 +
      1 file changed, 1 insertion(+)"
@@ -63,6 +65,7 @@ test("arguments narrow the commit, leaving other edits in the workspace", async 
 
 test("a pattern argument commits the files it matches", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "gadget");
   await repo.write("src/a.ts", "a\n");
   await repo.write("src/b.ts", "b\n");
   await repo.write("notes.md", "notes\n");
@@ -76,6 +79,7 @@ test("a pattern argument commits the files it matches", async () => {
 
 test("paths resolve relative to the invoking directory", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "gadget");
   await repo.write("src/a.ts", "a\n");
   await repo.write("other.txt", "other\n");
   expect(await repo.cabaretIn("src", "commit", "a.ts")).toEqual({
@@ -88,6 +92,7 @@ test("paths resolve relative to the invoking directory", async () => {
 
 test("a clean workspace has nothing to commit", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "tidy");
   expect(await repo.cabaret("commit")).toEqual({
     stdout: "",
     stderr: "nothing to commit\n",
@@ -97,6 +102,7 @@ test("a clean workspace has nothing to commit", async () => {
 
 test("a path matching no edit is a mistake worth stopping on", async () => {
   const repo = await makeRepo();
+  await addChange(repo, "tidy");
   await repo.write("real.txt", "real\n");
   expect(await repo.cabaret("commit", "unreal.txt")).toEqual({
     stdout: "",
@@ -104,6 +110,19 @@ test("a path matching no edit is a mistake worth stopping on", async () => {
     exitCode: 1,
   });
   expect(await repo.git("status", "--porcelain")).toBe("?? real.txt");
+});
+
+test("commit refuses a branch that is no change, leaving no commit", async () => {
+  const repo = await makeRepo();
+  await repo.write("stray.txt", "stray\n");
+  const head = await repo.git("rev-parse", "HEAD");
+  expect(await repo.cabaret("commit")).toEqual({
+    stdout: "",
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("rev-parse", "HEAD")).toBe(head);
+  expect(await repo.git("status", "--porcelain")).toBe("?? stray.txt");
 });
 
 test("a directory argument commits the edits under it, deletions included", async () => {
