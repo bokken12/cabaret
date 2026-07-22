@@ -173,3 +173,4 @@ test("wipe --remote deletes origin's logs too", async () => {
     exitCode: 0,
   });
 });
+

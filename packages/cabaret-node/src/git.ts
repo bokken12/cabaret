@@ -6,14 +6,17 @@ import {
   type Backend,
   type ChainMerge,
   type ChangedFile,
+  type ChangeId,
   type ChangeName,
   type ConfigScope,
+  currentName,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
   type LogEntry,
   mergeLogs,
   parseBranchName,
+  parseChangeId,
   parseCommitHash,
   parseFilePath,
   parseLog,
@@ -254,8 +257,8 @@ class ObjectReader {
 const CABARET_REF_PREFIX = "refs/cabaret/";
 
 /**
- * Where changes' logs live: under this namespace, a ref mirroring each
- * change's branch name, whose tree holds the log text in a single file.
+ * Where changes' logs live: under this namespace, a ref per change id,
+ * whose tree holds the log text in a single file.
  */
 const LOG_REF_PREFIX = `${CABARET_REF_PREFIX}log/`;
 
@@ -269,12 +272,23 @@ const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
  */
 export const LOG_FETCH_REFSPEC = `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`;
 
-function logRef(change: ChangeName): ChangeName {
-  return parseBranchName(`${LOG_REF_PREFIX}${change}`);
+
+/** The id a log ref is keyed by; a pre-id ref names the reset that clears it. */
+function logRefId(ref: string, prefix: string): ChangeId {
+  const suffix = ref.slice(prefix.length);
+  try {
+    return parseChangeId(suffix);
+  } catch {
+    throw new UserError(`log ref predates change ids: ${ref}; run \`cab dev wipe --remote\` to reset review state`);
+  }
 }
 
-function remoteLogRef(change: ChangeName): ChangeName {
-  return parseBranchName(`${REMOTE_LOG_REF_PREFIX}${change}`);
+function logRef(change: ChangeId): string {
+  return `${LOG_REF_PREFIX}${change}`;
+}
+
+function remoteLogRef(change: ChangeId): string {
+  return `${REMOTE_LOG_REF_PREFIX}${change}`;
 }
 
 /** Path of the log file within a log ref's tree. */
@@ -708,21 +722,21 @@ export class GitBackend implements Backend {
     return joined.sort();
   }
 
-  async syncLog(change: ChangeName): Promise<void> {
+  async syncLog(change: ChangeId): Promise<void> {
     await this.publishLogs([change]);
   }
 
-  async syncLogs(): Promise<readonly ChangeName[]> {
+  async syncLogs(): Promise<readonly ChangeId[]> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
-    const names = new Set<ChangeName>();
+    const ids = new Set<ChangeId>();
     for (const line of out.split("\n")) {
       if (line === "") {
         continue;
       }
       const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
-      names.add(parseBranchName(line.slice(prefix.length)));
+      ids.add(logRefId(line, prefix));
     }
-    const changes = [...names].sort();
+    const changes = [...ids].sort();
     await this.publishLogs(changes);
     return changes;
   }
@@ -766,7 +780,7 @@ export class GitBackend implements Backend {
     }
   }
 
-  async wipeReviewState(): Promise<readonly ChangeName[]> {
+  async wipeReviewState(): Promise<number> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", CABARET_REF_PREFIX]);
     const refs = out.split("\n").filter((line) => line !== "");
     if (refs.length > 0) {
@@ -775,18 +789,20 @@ export class GitBackend implements Backend {
     }
     // The directory holds only stale caches from older versions.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
-    const names = new Set<ChangeName>();
+    // Counted whatever the ref layout: a wipe clearing pre-id refs is the
+    // remedy the fetch error names, and it should say what it cleared.
+    const wiped = new Set<string>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
       for (const ref of refs) {
         if (ref.startsWith(prefix)) {
-          names.add(parseBranchName(ref.slice(prefix.length)));
+          wiped.add(ref.slice(prefix.length));
         }
       }
     }
-    return [...names].sort();
+    return wiped.size;
   }
 
-  async wipeOriginLogs(): Promise<readonly ChangeName[]> {
+  async wipeOriginLogs(): Promise<number> {
     const out = await git(this.root, ["ls-remote", "origin", `${CABARET_REF_PREFIX}*`]);
     const refs = out
       .split("\n")
@@ -801,10 +817,7 @@ export class GitBackend implements Backend {
     if (refs.length > 0) {
       await git(this.root, ["push", "--quiet", "origin", ...refs.map((ref) => `:${ref}`)]);
     }
-    return refs
-      .filter((ref) => ref.startsWith(LOG_REF_PREFIX))
-      .map((ref) => parseBranchName(ref.slice(LOG_REF_PREFIX.length)))
-      .sort();
+    return refs.filter((ref) => ref.startsWith(LOG_REF_PREFIX)).length;
   }
 
   /** Fetch every log on `origin` into the remote-log namespace. */
@@ -819,7 +832,7 @@ export class GitBackend implements Backend {
    * persistent failure surfaces. Returns the tip `change`'s log should be
    * published at, or undefined when it already matches `origin`'s copy.
    */
-  private async settleLog(change: ChangeName): Promise<Revision | undefined> {
+  private async settleLog(change: ChangeId): Promise<Revision | undefined> {
     for (let attempt = 0; ; attempt++) {
       try {
         const local = await this.commitAt(logRef(change));
@@ -853,7 +866,7 @@ export class GitBackend implements Backend {
    * `--porcelain` reports each ref's outcome on one line regardless of the
    * command's overall exit code, which is nonzero whenever any ref failed.
    */
-  private async pushLogs(pending: readonly { change: ChangeName; tip: Revision }[]): Promise<readonly ChangeName[]> {
+  private async pushLogs(pending: readonly { change: ChangeId; tip: Revision }[]): Promise<readonly ChangeId[]> {
     const byRef = new Map(pending.map(({ change }) => [logRef(change), change]));
     let out: string;
     try {
@@ -873,14 +886,14 @@ export class GitBackend implements Backend {
       }
       out = stdout;
     }
-    const rejected: ChangeName[] = [];
+    const rejected: ChangeId[] = [];
     for (const line of out.split("\n")) {
       const [flag, refspec] = line.split("\t");
       if (flag !== "!") {
         continue;
       }
       const to = refspec?.split(":")[1];
-      const change = to === undefined ? undefined : byRef.get(parseBranchName(to));
+      const change = to === undefined ? undefined : byRef.get(to);
       if (change !== undefined) {
         rejected.push(change);
       }
@@ -902,7 +915,7 @@ export class GitBackend implements Backend {
    * moved since it was settled comes back from `pushLogs` rejected; retried
    * against a fresh fetch, bounded so a persistent failure surfaces.
    */
-  private async publishLogs(changes: readonly ChangeName[]): Promise<void> {
+  private async publishLogs(changes: readonly ChangeId[]): Promise<void> {
     let pending = changes;
     for (let attempt = 0; pending.length > 0; attempt++) {
       // Each change's log settles independently, so settling the batch
@@ -910,9 +923,7 @@ export class GitBackend implements Backend {
       const withTips = await Promise.all(
         pending.map(async (change) => ({ change, tip: await this.settleLog(change) })),
       );
-      const settled = withTips.filter(
-        (entry): entry is { change: ChangeName; tip: Revision } => entry.tip !== undefined,
-      );
+      const settled = withTips.filter((entry): entry is { change: ChangeId; tip: Revision } => entry.tip !== undefined);
       if (settled.length === 0) {
         return;
       }
@@ -1330,15 +1341,15 @@ export class GitBackend implements Backend {
     };
   }
 
-  async listChanges(): Promise<readonly ChangeName[]> {
+  async listChanges(): Promise<readonly ChangeId[]> {
     const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX]);
     return out
       .split("\n")
       .filter((line) => line !== "")
-      .map((line) => parseBranchName(line.slice(LOG_REF_PREFIX.length)));
+      .map((line) => logRefId(line, LOG_REF_PREFIX));
   }
 
-  async readLog(change: ChangeName): Promise<readonly LogEntry[]> {
+  async readLog(change: ChangeId): Promise<readonly LogEntry[]> {
     const ref = logRef(change);
     // Pinning the read at the resolved tip keeps it consistent under a
     // concurrent append moving the ref.
@@ -1355,7 +1366,7 @@ export class GitBackend implements Backend {
     return parseLog(log, parseCommitHash, parseBranchName);
   }
 
-  async appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void> {
+  async appendLog(change: ChangeId, entries: readonly LogEntry[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
@@ -1387,7 +1398,7 @@ export class GitBackend implements Backend {
     }
   }
 
-  async deleteLog(change: ChangeName): Promise<void> {
+  async deleteLog(change: ChangeId): Promise<void> {
     // One transaction for the local refs, so a failure partway deletes
     // neither; origin's copy goes second, so a push failure leaves the local
     // refs deleted and a re-run only the push to redo.
@@ -1403,7 +1414,7 @@ export class GitBackend implements Backend {
   }
 
   /** The commit `ref` points at, or undefined if `ref` does not exist. */
-  private async commitAt(ref: ChangeName): Promise<Revision | undefined> {
+  private async commitAt(ref: string): Promise<Revision | undefined> {
     const response = await this.reader.request("info", `${ref}^{commit}`);
     return response === undefined ? undefined : parseCommitHash(response.oid);
   }

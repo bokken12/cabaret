@@ -8,6 +8,7 @@ import {
   type ForgeSource,
   type LogEntry,
   parseBranchName,
+  parseChangeId,
   parseForgeLocator,
   planArchivedPull,
   planArchivedPush,
@@ -44,8 +45,13 @@ test("publish resolves its identity before mutating the forge", async () => {
       { currentUser } as unknown as Backend,
       testClock(),
       { locator: FORGE, createChange } as unknown as Forge,
-      change,
-      [{ timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } }],
+      {
+        id: parseChangeId("0".repeat(32)),
+        entries: [
+          { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-name", name: change } },
+          { timestamp: timestampMs(1750000000000), user: alice, action: { kind: "set-parent", parent } },
+        ],
+      },
       undefined,
     ),
   ).rejects.toBe(identityError);

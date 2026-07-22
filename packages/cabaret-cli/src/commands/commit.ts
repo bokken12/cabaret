@@ -1,4 +1,5 @@
 import { buildCommand } from "@stricli/core";
+import { currentName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { pushTip, resolveChange, selectFiles } from "./shared.js";
 
@@ -25,9 +26,10 @@ export const commit = buildCommand({
   },
   async func(this: LocalContext, _flags: Record<never, never>, ...args: string[]) {
     const backend = await this.backend();
-    const { change } = await resolveChange(backend, undefined);
+    const change = await resolveChange(backend, undefined);
+    const name = currentName(change.id, change.entries);
     const files = selectFiles(backend, await backend.editedFiles(), args, true, "edit");
-    await backend.commit(change, files);
-    await pushTip(this, backend, change);
+    await backend.commit(name, files);
+    await pushTip(this, backend, name);
   },
 });

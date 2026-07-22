@@ -1,16 +1,23 @@
 import { buildCommand } from "@stricli/core";
 import {
-  type ChangeName,
+  currentName,
   currentParent,
-  type LogEntry,
   landAsConfigured,
   landChain,
+  type Change,
   readConfig,
   reconcileChange,
   resolveRange,
 } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { type ChangeSpec, evenThoughNotOwner, forgeIfAny, parseChangeSpec, settledLines } from "./shared.js";
+import {
+  type ChangeSpec,
+  evenThoughNotOwner,
+  forgeIfAny,
+  parseChangeSpec,
+  resolveChange,
+  settledLines,
+} from "./shared.js";
 
 /** The escape hatch for the review-obligations check on `land`. */
 const evenThoughUnreviewed = {
@@ -68,7 +75,7 @@ export const land = buildCommand({
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
-    const landOne = async (change: ChangeName, _entries: readonly LogEntry[]) => {
+    const landOne = async (change: Change) => {
       // Lands write through like any command: the reconcile settles the
       // forge change — a pending retarget included — before the land reads
       // it, and the land proceeds on the settled log.
@@ -77,21 +84,20 @@ export const land = buildCommand({
       for (const line of settledLines(forge?.locator, settled)) {
         this.process.stdout.write(`${line}\n`);
       }
-      const entries = await backend.readLog(change);
+      const current = { ...change, entries: await backend.readLog(change.id) };
       const { merged, reparented, publication } = await landAsConfigured(
         backend,
         this.now,
         this.forge,
         config,
-        change,
-        entries,
+        current,
         {
           notOwner: flags.evenThoughNotOwner,
           unreviewed: flags.evenThoughUnreviewed,
           parentUnreviewed: flags.evenThoughParentUnreviewed,
         },
       );
-      const parent = currentParent(change, entries);
+      const parent = currentParent(currentName(current.id, current.entries), current.entries);
       if (merged !== undefined) {
         this.process.stdout.write(`merged ${merged.forge}#${merged.id}\n`);
       }
@@ -116,8 +122,7 @@ export const land = buildCommand({
       }
     };
     if (spec === undefined || spec.kind === "one") {
-      const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
-      await landOne(target, await backend.readLog(target));
+      await landOne(await resolveChange(backend, spec?.change));
     } else {
       const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));
       await landChain(backend, chain, landOne);

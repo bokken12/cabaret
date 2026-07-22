@@ -11,8 +11,8 @@ async function recordReviewer(
   kind: "add-reviewer" | "remove-reviewer",
 ): Promise<void> {
   const backend = await ctx.backend();
-  const { change: target } = await resolveChange(backend, change);
-  await backend.appendLog(target, [
+  const target = await resolveChange(backend, change);
+  await backend.appendLog(target.id, [
     { timestamp: ctx.now(), user: await backend.currentUser(), action: { kind, reviewer } },
   ]);
   await writeThrough(ctx, backend, target);

@@ -1,5 +1,5 @@
 import { buildCommand } from "@stricli/core";
-import { type ChangeName, type Forge, type SyncResult, syncChange } from "cabaret-core";
+import { type ChangeName, currentName, type Forge, type SyncResult, syncChange } from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
 import { changeFlag, resolveChange, settledLines } from "./shared.js";
@@ -49,7 +49,7 @@ export const sync = buildCommand({
   },
   async func(this: LocalContext, flags: { change?: string }) {
     const backend = await this.backend();
-    const { change } = await resolveChange(backend, flags.change);
+    const change = await resolveChange(backend, flags.change);
     let forge: Forge | undefined;
     try {
       forge = await this.forge();
@@ -59,6 +59,6 @@ export const sync = buildCommand({
       }
     }
     const result = await syncChange(backend, this.now, forge, change);
-    reportSync(this, change, forge?.locator, result);
+    reportSync(this, currentName(change.id, change.entries), forge?.locator, result);
   },
 });

@@ -1,9 +1,11 @@
 import {
+  allChanges,
   type Backend,
   type ChangeName,
   currentArchived,
   finished,
   type ReclaimedWorkspace,
+  resolveNamed,
   type Workspace,
 } from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
@@ -79,11 +81,11 @@ export interface WorkspacesPage {
 }
 
 export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> {
-  const changes = new Set(await backend.listChanges());
+  const changes = await allChanges(backend);
   const rows: WorkspaceRow[] = [];
   for (const workspace of await backend.workspaces()) {
-    const change = workspace.change !== undefined && changes.has(workspace.change) ? workspace.change : undefined;
-    const entries = change === undefined ? [] : await backend.readLog(change);
+    const change = workspace.change === undefined ? undefined : resolveNamed(changes, workspace.change);
+    const entries = change?.entries ?? [];
     rows.push({
       workspace,
       display: displayPath(backend.root, workspace.path),

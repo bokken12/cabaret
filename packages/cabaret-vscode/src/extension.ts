@@ -1,12 +1,15 @@
 import {
   addChangeWorkspace,
+  allChanges,
   applySetup,
   auditSetup,
   type Backend,
+  type Change,
   type ChangeName,
   checkoutChange,
   createChange,
   currentArchived,
+  currentName,
   currentParent,
   currentSelf,
   DirtyWorkspaceError,
@@ -25,7 +28,6 @@ import {
   isConnectivityError,
   knownChanges,
   type LandOverrides,
-  type LogEntry,
   landAsConfigured,
   landChain,
   NotOwnerError,
@@ -38,7 +40,10 @@ import {
   reclaimWorkspaces,
   removeChangeWorkspace,
   reparentChange,
+  requireNamed,
   resolveChain,
+  resolveChange,
+  resolveNamed,
   reviewerSummary,
   type SetupAudit,
   setArchived,
@@ -488,12 +493,16 @@ async function stepUp(provider: PageProvider): Promise<void> {
     return;
   }
   const backend = await openBackend();
-  const entries = await backend.readLog(page.change);
-  if (entries.length === 0) {
+  const found = resolveNamed(await allChanges(backend), page.change);
+  if (found === undefined) {
     vscode.window.showInformationMessage(`cabaret: ${page.change} has no parent`);
     return;
   }
-  await openPage(provider, { kind: "show", change: currentParent(page.change, entries), as: page.as });
+  await openPage(provider, {
+    kind: "show",
+    change: currentParent(currentName(found.id, found.entries), found.entries),
+    as: page.as,
+  });
 }
 
 /**
@@ -516,9 +525,10 @@ async function stepDown(provider: PageProvider): Promise<void> {
   }
   const backend = await openBackend();
   const children: ChangeName[] = [];
-  for (const other of await backend.listChanges()) {
-    if (currentParent(other, await backend.readLog(other)) === page.change) {
-      children.push(other);
+  for (const other of await allChanges(backend)) {
+    const name = currentName(other.id, other.entries);
+    if (currentParent(name, other.entries) === page.change) {
+      children.push(name);
     }
   }
   if (children.length === 0) {
@@ -1062,10 +1072,11 @@ async function syncSelection(backend: Backend, changes: readonly ChangeName[]): 
       throw error;
     }
   }
+  const all = await allChanges(backend);
   const synced: string[] = [];
   let offline = false;
   for (const change of changes) {
-    const result = await syncChange(backend, now, forge, change);
+    const result = await syncChange(backend, now, forge, requireNamed(all, change));
     offline ||= result.offline;
     const conflicts = result.joined?.conflicts ?? [];
     if (conflicts.length > 0) {
@@ -1191,7 +1202,7 @@ async function rebaseSelection(backend: Backend, changes: readonly ChangeName[])
   const only = changes.length === 1 ? changes[0] : undefined;
   const rebaseAll = async (overrides: RebaseOverrides) => {
     if (only !== undefined) {
-      await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
+      await rebaseChange(backend, now, await resolveChange(backend, only), overrides);
     } else {
       await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
     }
@@ -1227,12 +1238,12 @@ async function rebaseSelection(backend: Backend, changes: readonly ChangeName[])
 async function landSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const config = await readConfig(backend);
   const landAll = async (overrides: LandOverrides) => {
-    const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
-      await landAsConfigured(backend, now, openForge, config, change, entries, overrides);
+    const landOne = async (change: Change) => {
+      await landAsConfigured(backend, now, openForge, config, change, overrides);
     };
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only !== undefined) {
-      await landOne(only, await backend.readLog(only));
+      await landOne(await resolveChange(backend, only));
     } else {
       await landChain(backend, await resolveChain(backend, changes), landOne);
     }
@@ -1269,10 +1280,11 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
 
 /** Reparent `change` onto a picked parent, confirming an ownership override. */
 async function reparentSelection(backend: Backend, change: ChangeName): Promise<void> {
+  const named = await resolveChange(backend, change);
   const parent = await pickParent(backend, change);
   if (parent !== undefined) {
     await confirmNotOwner("Reparent Anyway", (override) =>
-      reparentChange(backend, now, change, parent, {
+      reparentChange(backend, now, named, parent, {
         notOwner: override,
         parentArchived: false,
         parentDiverged: false,
@@ -1283,7 +1295,7 @@ async function reparentSelection(backend: Backend, change: ChangeName): Promise<
 
 /** Widen reviewing of `change` one notch and report where it landed. */
 async function widenSelection(backend: Backend, change: ChangeName): Promise<void> {
-  const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+  const { to } = await widenReviewing(backend, now, await resolveChange(backend, change));
   vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
 }
 
@@ -1663,11 +1675,12 @@ export function activate(context: vscode.ExtensionContext): void {
         if (raw === undefined) {
           return;
         }
+        const all = await allChanges(backend);
         const done = new Set<ChangeName>();
         await confirmNotOwner("Set Owner Anyway", async (override) => {
           for (const change of changes) {
             if (!done.has(change)) {
-              await transferChange(backend, now, change, userName(raw), override);
+              await transferChange(backend, now, requireNamed(all, change), userName(raw), override);
               done.add(change);
             }
           }
@@ -1684,19 +1697,21 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("cabaret.disableReviewing", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
+        const all = await allChanges(backend);
         for (const change of changes) {
-          await setReviewing(backend, now, change, await backend.readLog(change), "none");
+          await setReviewing(backend, now, requireNamed(all, change), "none");
         }
       }),
     ),
     vscode.commands.registerCommand("cabaret.toggleArchived", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
+        const all = await allChanges(backend);
         const archived: ChangeName[] = [];
         const unarchived: ChangeName[] = [];
         for (const change of changes) {
-          const entries = await backend.readLog(change);
-          const target = !currentArchived(entries);
-          await setArchived(backend, now, change, entries, target);
+          const named = requireNamed(all, change);
+          const target = !currentArchived(named.entries);
+          await setArchived(backend, now, named, target);
           (target ? archived : unarchived).push(change);
         }
         const report = [
@@ -1749,14 +1764,15 @@ export function activate(context: vscode.ExtensionContext): void {
         // child hangs from it. Its branch starts at the grandparent's tip, so
         // the child's next rebase lands where a rebase onto the grandparent
         // would have.
-        const grandparent = currentParent(child, await backend.readLog(child));
+        const named = await resolveChange(backend, child);
+        const grandparent = currentParent(currentName(named.id, named.entries), named.entries);
         // TODO: check ownership of `child` before creating the parent, so a
         // declined ownership confirmation does not leave the new change
         // created but never spliced in.
         const parent = await promptCreate(backend, grandparent, `Name for a parent of ${child}`);
         if (parent !== undefined) {
           await confirmNotOwner("Reparent Anyway", (override) =>
-            reparentChange(backend, now, child, parent, {
+            reparentChange(backend, now, named, parent, {
               notOwner: override,
               parentArchived: false,
               parentDiverged: false,

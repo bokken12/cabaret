@@ -1,14 +1,19 @@
 import {
+  allChanges,
   type Backend,
+  type Change,
   type ChangeName,
   type ChangeNode,
   type ChangeSummary,
   changeDiff,
   changeForest,
+  currentArchived,
+  currentName,
   currentParent,
   type FilePath,
   isReviewing,
   isSelf,
+  resolveNamed,
   reviewOwed,
   type Self,
   selfAs,
@@ -110,10 +115,16 @@ type ChangeReading =
     }
   | { readonly kind: "broken"; readonly message: string };
 
-async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
-  const entries = await backend.readLog(change);
-  const diff = await changeDiff(backend, change, entries);
-  const summary = await summarizeChange(backend, change, entries, self.user, diff);
+async function readChange(
+  backend: Backend,
+  self: Self,
+  change: Change,
+  all: readonly Change[],
+): Promise<ChangeReading> {
+  const entries = change.entries;
+  const name = currentName(change.id, entries);
+  const diff = await changeDiff(backend, name, entries);
+  const summary = await summarizeChange(backend, change, self.user, diff, all);
   // Obligations ask nothing of a user outside the reviewing set — a
   // membership the log alone decides, sparing the obligations files of
   // most changes. An empty reviewLeft already counts the user toward
@@ -127,11 +138,11 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
     (!summary.archived || summary.landed !== undefined) &&
     summary.conflicts.length === 0 &&
     (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
-    isReviewing(self, change, entries);
+    isReviewing(self, name, entries);
   return {
     kind: "read",
     summary,
-    parent: currentParent(change, entries),
+    parent: currentParent(name, entries),
     owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
   };
 }
@@ -140,12 +151,17 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const acting = await selfAs(backend, as);
   const self = acting.self;
   const workspaces = await workspaceNotes(backend);
-  const changes = [...(await backend.listChanges())].sort();
+  const all = await allChanges(backend);
+  const changes = [...all].sort((a, b) => {
+    const aName = currentName(a.id, a.entries);
+    const bName = currentName(b.id, b.entries);
+    return aName < bName ? -1 : aName > bName ? 1 : 0;
+  });
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.
   const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
     try {
-      return await readChange(backend, self, change);
+      return await readChange(backend, self, change, all);
     } catch (error) {
       // Only state problems isolate to their change; a bug still throws.
       if (!(error instanceof UserError)) {
@@ -158,19 +174,38 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
   const parents = new Map<ChangeName, ChangeName>();
   const owedFiles = new Map<ChangeName, readonly FilePath[]>();
   const broken: BrokenChange[] = [];
+  // The page's maps are name-keyed, so a name claimed twice renders as its
+  // arbitration winner — never hiding a live change behind an archived
+  // twin — and the loser files as a broken row rather than vanishing. A
+  // live tie renders the roster's first instead of failing the page.
+  const canonicalOf = (name: ChangeName): Change | undefined => {
+    try {
+      return resolveNamed(changes, name);
+    } catch {
+      return changes.find(
+        (change) => currentName(change.id, change.entries) === name && !currentArchived(change.entries),
+      );
+    }
+  };
   changes.forEach((change, index) => {
     const reading = readings[index];
     if (reading === undefined) {
-      throw new Error(`change read no reading: ${change}`);
+      throw new Error(`change read no reading: ${change.id}`);
     }
+    const name = currentName(change.id, change.entries);
     if (reading.kind === "broken") {
-      broken.push({ change, message: reading.message });
+      broken.push({ change: name, message: reading.message });
       return;
     }
-    summaries.set(change, reading.summary);
-    parents.set(change, reading.parent);
+    const winner = canonicalOf(name);
+    if (winner !== undefined && winner.id !== change.id) {
+      broken.push({ change: name, message: "hidden behind another change with the same name" });
+      return;
+    }
+    summaries.set(name, reading.summary);
+    parents.set(name, reading.parent);
     if (reading.owed.length > 0) {
-      owedFiles.set(change, reading.owed);
+      owedFiles.set(name, reading.owed);
     }
   });
   const summary = (change: ChangeName): ChangeSummary => {
