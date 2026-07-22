@@ -738,7 +738,8 @@ export type FetchEvent =
   | { readonly kind: "archived"; readonly id: ForgeChangeId; readonly change: ChangeName }
   | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName }
   | ({ readonly kind: "published"; readonly change: ChangeName } & PublishResult)
-  | { readonly kind: "pushed"; readonly change: ChangeName };
+  | { readonly kind: "pushed"; readonly change: ChangeName }
+  | { readonly kind: "joined"; readonly change: ChangeName };
 
 /** What absorbing the forge's side of a change recorded, for hosts to narrate. */
 export interface AbsorbResult {
@@ -949,6 +950,9 @@ export async function fetchForge(
   // forge changes nobody holds.
   await backend.syncLogs();
   const tracked = await backend.listChanges();
+  for (const change of await backend.joinBranches(tracked)) {
+    onEvent({ kind: "joined", change });
+  }
   for (const change of await pushAdvances(backend, tracked)) {
     onEvent({ kind: "pushed", change });
   }

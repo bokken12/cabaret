@@ -1,5 +1,58 @@
 import { expect, test } from "vitest";
+import { FakeForge } from "./fake-forge.js";
 import { addChange, makeClone, makeRepo, shownComments, shownLog } from "./fixture.js";
+
+test("fetch joins cleanly diverged readings and carries the join back out", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  const clone = await makeClone(repo, "bob@example.com", forge);
+  await clone.git("checkout", "-q", "gadget");
+  // Each machine commits its own file: diverged readings, clean to merge.
+  await repo.write("from-alice.txt", "alice work\n");
+  await repo.git("add", "-A");
+  await repo.cabaret("commit");
+  await clone.write("from-bob.txt", "bob work\n");
+  await clone.git("add", "-A");
+  await clone.git("commit", "-qm", "bob work");
+  // The clone's fetch joins ambiently — no sync asked — and pushes the join,
+  // which the first machine's fetch then follows by descent.
+  const fetched = (await clone.cabaret("fetch")).stdout;
+  expect(fetched).toContain('merged origin\'s copy of "gadget"');
+  expect(fetched).toContain('pushed "gadget" to origin');
+  expect(await clone.git("show", "gadget:from-alice.txt")).toBe("alice work");
+  expect(await clone.git("show", "gadget:from-bob.txt")).toBe("bob work");
+  expect((await repo.cabaret("fetch")).stdout).toContain('advanced "gadget"');
+  expect(await repo.git("show", "gadget:from-bob.txt")).toBe("bob work");
+});
+
+test("fetch leaves a conflicted divergence for sync", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.git("push", "-q", "origin", "main");
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  const clone = await makeClone(repo, "bob@example.com", forge);
+  await clone.git("checkout", "-q", "gadget");
+  // Both machines edit the same file: the join would conflict.
+  await repo.write("gadget.txt", "alice version\n");
+  await repo.git("add", "-A");
+  await repo.cabaret("commit");
+  await clone.write("gadget.txt", "bob version\n");
+  await clone.git("add", "-A");
+  await clone.git("commit", "-qm", "bob version");
+  const tip = await clone.git("rev-parse", "gadget");
+  // The fetch attempts nothing it cannot finish cleanly: the branch holds
+  // its position, markerless, until a sync consents to the conflict.
+  const fetched = (await clone.cabaret("fetch")).stdout;
+  expect(fetched).not.toContain("merged origin's copy");
+  expect(await clone.git("rev-parse", "gadget")).toBe(tip);
+  expect(await clone.git("show", "gadget:gadget.txt")).toBe("bob version");
+  const synced = await clone.cabaret("sync", "--change", "gadget");
+  expect(synced.stdout).toContain("conflicts in gadget.txt");
+});
 
 test("fetch carries a change's log to a fresh machine verbatim", async () => {
   const alice = await makeRepo();

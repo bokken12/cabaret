@@ -55,6 +55,9 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
     case "archived":
       context.process.stdout.write(`${locator}#${event.id} was closed; archived ${JSON.stringify(event.change)}\n`);
       return;
+    case "joined":
+      context.process.stdout.write(`merged origin's copy of ${JSON.stringify(event.change)}\n`);
+      return;
     case "pushed":
       context.process.stdout.write(`pushed ${JSON.stringify(event.change)} to origin\n`);
       return;
@@ -105,9 +108,12 @@ export const fetch = buildCommand({
       }
     }
     if (forge === undefined) {
-      const { synced, advanced, pushed } = await fetchLocal(backend);
+      const { synced, advanced, joined, pushed } = await fetchLocal(backend);
       for (const change of advanced) {
         this.process.stdout.write(`advanced ${JSON.stringify(change)}\n`);
+      }
+      for (const change of joined) {
+        this.process.stdout.write(`merged origin's copy of ${JSON.stringify(change)}\n`);
       }
       for (const change of pushed) {
         this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);

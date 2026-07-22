@@ -27,6 +27,8 @@ export interface FetchedLocal {
   readonly advanced: readonly ChangeName[];
   /** The branches pushed, origin having trailed them by descent. */
   readonly pushed: readonly ChangeName[];
+  /** The diverged branches whose readings merged without conflict. */
+  readonly joined: readonly ChangeName[];
 }
 
 /**
@@ -40,7 +42,8 @@ export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
   const synced = await backend.syncLogs();
-  return { synced, advanced, pushed: await pushAdvances(backend, synced) };
+  const joined = await backend.joinBranches(synced);
+  return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
 }
 
 /** What a per-change reconcile settled, for hosts to narrate. */

@@ -656,6 +656,57 @@ export class GitBackend implements Backend {
     return advanced.sort();
   }
 
+  async joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]> {
+    const homes = await this.branchHomes();
+    const joined: ChangeName[] = [];
+    for (const branch of changes) {
+      const tip = await this.tip(branch);
+      const origin = await this.originTip(branch);
+      if (tip === undefined || origin === undefined || tip === origin) {
+        continue;
+      }
+      if ((await this.isAncestor(tip, origin)) || (await this.isAncestor(origin, tip))) {
+        continue;
+      }
+      // The probe merges trees without touching any worktree; a conflicted
+      // pair is sync's business, and there is nothing to retry until a
+      // reading moves.
+      let tree: string;
+      try {
+        tree = (await git(this.root, ["merge-tree", "--write-tree", tip, origin])).trim();
+      } catch {
+        continue;
+      }
+      const message = `Merge origin's '${branch}' into ${branch}`;
+      const home = homes.get(branch);
+      if (home === undefined) {
+        const commit = (await git(this.root, ["commit-tree", tree, "-p", tip, "-p", origin, "-m", message])).trim();
+        // CAS on the tip read above: a branch moved concurrently stays put.
+        try {
+          await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, tip]);
+        } catch {
+          continue;
+        }
+      } else {
+        // A worktree holds the branch: the join carries its index and
+        // working tree along, so only a clean worktree still on the branch
+        // moves — a dirty one keeps its line of work in place.
+        try {
+          const status = await git(home, ["status", "--porcelain=v2", "--branch"]);
+          const lines = status.split("\n").filter((line) => line !== "");
+          if (!lines.includes(`# branch.head ${branch}`) || lines.some((line) => !line.startsWith("# "))) {
+            continue;
+          }
+          await git(home, ["merge", "--no-ff", "-m", message, origin]);
+        } catch {
+          continue;
+        }
+      }
+      joined.push(branch);
+    }
+    return joined.sort();
+  }
+
   async syncLog(change: ChangeName): Promise<void> {
     await this.publishLogs([change]);
   }
