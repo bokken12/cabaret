@@ -1259,20 +1259,7 @@ export async function publishForgeChange(
     // reviewing leaves none and the head reaches origin, and archiving asks
     // for no new one. The change replicates regardless — its branch and log
     // are already at origin.
-<<<<<<< 6ef95c33e166151dc34178fb017adab8c186ab59
-    if (
-      currentArchived(entries) ||
-      currentReviewing(entries) === "none" ||
-      (await backend.originTip(name)) === undefined
-    ) {
-||||||| 0bde4b89c5b1ee2b575d41c9a61dfabed9ae4461
-    if (
-      currentArchived(entries) ||
-      currentReviewing(entries) === "none" ||
-      (await backend.originTip(change)) === undefined
-    ) {
-=======
-    const head = await backend.originTip(change);
+    const head = await backend.originTip(name);
     if (currentArchived(entries) || currentReviewing(entries) === "none" || head === undefined) {
       return undefined;
     }
@@ -1281,7 +1268,6 @@ export async function publishForgeChange(
     // waits until it does.
     const parentTip = await backend.originTip(parent);
     if (parentTip !== undefined && (await backend.isAncestor(head, parentTip))) {
->>>>>>> 6c7f3e6652721d92e93c2c50de069eb188085222
       return undefined;
     }
     forgeChange = await forge.createChange(name, parent, name);

@@ -49,51 +49,6 @@ export const reviewing = buildRouteMap({
         await writeThrough(this, backend, change);
       },
     }),
-<<<<<<< 6ef95c33e166151dc34178fb017adab8c186ab59
-  },
-});
-
-export const widen = buildCommand({
-  docs: {
-    brief: "Widen who is asked to review a change",
-    fullDescription:
-      "Widen a change's reviewing set to the next level with review to do — " +
-      "owner, reviewers, everyone — skipping levels whose users have already " +
-      "read the whole diff.",
-  },
-  parameters: {
-    positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag("widen") },
-  },
-  async func(this: LocalContext, flags: { change?: string }) {
-    const backend = await this.backend();
-    const change = await resolveChange(backend, flags.change);
-    const { to } = await widenReviewing(backend, this.now, change);
-    this.process.stdout.write(`reviewing ${to}\n`);
-    await writeThrough(this, backend, change);
-||||||| 0bde4b89c5b1ee2b575d41c9a61dfabed9ae4461
-  },
-});
-
-export const widen = buildCommand({
-  docs: {
-    brief: "Widen who is asked to review a change",
-    fullDescription:
-      "Widen a change's reviewing set to the next level with review to do — " +
-      "owner, reviewers, everyone — skipping levels whose users have already " +
-      "read the whole diff.",
-  },
-  parameters: {
-    positional: { kind: "tuple", parameters: [] },
-    flags: { change: changeFlag("widen") },
-  },
-  async func(this: LocalContext, flags: { change?: string }) {
-    const backend = await this.backend();
-    const { change, entries } = await resolveChange(backend, flags.change);
-    const { to } = await widenReviewing(backend, this.now, change, entries);
-    this.process.stdout.write(`reviewing ${to}\n`);
-    await writeThrough(this, backend, change);
-=======
     widen: buildCommand({
       docs: {
         brief: "Widen who is asked to review a change",
@@ -108,12 +63,11 @@ export const widen = buildCommand({
       },
       async func(this: LocalContext, flags: { change?: string }) {
         const backend = await this.backend();
-        const { change, entries } = await resolveChange(backend, flags.change);
-        const { to } = await widenReviewing(backend, this.now, change, entries);
+        const change = await resolveChange(backend, flags.change);
+        const { to } = await widenReviewing(backend, this.now, change);
         this.process.stdout.write(`reviewing ${to}\n`);
         await writeThrough(this, backend, change);
       },
     }),
->>>>>>> 6c7f3e6652721d92e93c2c50de069eb188085222
   },
 });
