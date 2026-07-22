@@ -678,6 +678,15 @@ export interface Backend {
    */
   syncLogs(): Promise<readonly ChangeName[]>;
 
+  /**
+   * Merge origin's reading into every branch of `changes` whose readings
+   * have genuinely diverged, when the merge is conflict-free: an idle branch
+   * joins in place, a clean workspace's tree follows, a dirty one holds its
+   * branch put, and a join that would conflict is left for `sync`. Returns
+   * what joined, sorted.
+   */
+  joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]>;
+
   /** Origin's forge sweep record as last fetched, or undefined when none is known. */
   forgeSweepState(): Promise<string | undefined>;
 

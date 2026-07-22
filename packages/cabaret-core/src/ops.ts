@@ -838,7 +838,9 @@ export async function pushAdvances(backend: Backend, changes: readonly ChangeNam
       // A lease rejection means the last-fetched reading trailed the remote —
       // a racer pushed, or the readings truly diverged; either way the next
       // fetch reads fresh and joins. Anything else surfaces.
-      if (/stale info|non-fast-forward|\[rejected\]|failed to push/i.test(error instanceof Error ? error.message : "")) {
+      if (
+        /stale info|non-fast-forward|\[rejected\]|failed to push/i.test(error instanceof Error ? error.message : "")
+      ) {
         continue;
       }
       throw error;

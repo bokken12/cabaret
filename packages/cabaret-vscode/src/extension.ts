@@ -884,6 +884,8 @@ function describeFetchEvent(event: FetchEvent): string | undefined {
       return `published ${event.change}`;
     case "pushed":
       return `pushed ${event.change}`;
+    case "joined":
+      return `joined ${event.change}`;
   }
 }
 
