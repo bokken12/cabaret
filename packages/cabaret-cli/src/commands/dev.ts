@@ -8,10 +8,8 @@ import {
   resolveNamed,
   reviewOwed,
   soleUser,
-  UserError,
   type UserName,
 } from "cabaret-core";
-import { GitBackend } from "cabaret-node";
 import { homePage, type ReviewNode } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { parseUser } from "./shared.js";
@@ -130,27 +128,6 @@ export const dev = buildRouteMap({
             `wiped the logs of ${origin.length} change${origin.length === 1 ? "" : "s"} on origin\n`,
           );
         }
-      },
-    }),
-    "migrate-ids": buildCommand({
-      docs: {
-        brief: "Move name-keyed log refs onto change ids",
-        fullDescription:
-          "Move logs from the name-keyed ref layout onto id-keyed refs, " +
-          "locally and on origin. Run once per repository, with every " +
-          "machine's cabaret updated first.",
-      },
-      parameters: {},
-      async func(this: LocalContext, _flags: Record<never, never>) {
-        const backend = await this.backend();
-        if (!(backend instanceof GitBackend)) {
-          throw new UserError("migrate-ids requires the git backend");
-        }
-        const migrated = await backend.migrateLogRefs(this.now);
-        for (const { name, id } of migrated) {
-          this.process.stdout.write(`migrated ${JSON.stringify(name)} to ${id}\n`);
-        }
-        this.process.stdout.write(`migrated ${migrated.length} log${migrated.length === 1 ? "" : "s"}\n`);
       },
     }),
   },

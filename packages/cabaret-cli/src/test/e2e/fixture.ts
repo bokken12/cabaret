@@ -31,8 +31,6 @@ export interface Invocation {
 
 export interface TestRepo {
   git(...args: string[]): Promise<string>;
-  /** Like `git`, feeding `stdin` to the command. */
-  gitStdin(stdin: string, ...args: string[]): Promise<string>;
   /** Write `content` to `path` in the working tree, creating directories as needed. */
   write(path: string, content: string): Promise<void>;
   /** Run `cab <argv>` against this repo in-process, capturing all output. */
@@ -115,14 +113,6 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
     return stdout.trimEnd();
   };
 
-  const gitStdin = async (stdin: string, ...args: string[]) => {
-    const pending = execFileAsync("git", args, { cwd: dir });
-    pending.child.stdin?.end(stdin);
-    const { stdout } = await pending;
-    await pinFetched(dir);
-    return stdout.trimEnd();
-  };
-
   let clock = clockStart;
   const cabaretIn = async (subdir: string, ...argv: string[]) => {
     const captured = { stdout: "", stderr: "" };
@@ -158,7 +148,6 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
 
   return {
     git,
-    gitStdin,
     write,
     cabaret,
     cabaretIn,

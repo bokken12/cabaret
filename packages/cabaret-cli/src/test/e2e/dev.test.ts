@@ -174,38 +174,3 @@ test("wipe --remote deletes origin's logs too", async () => {
   });
 });
 
-test("migrate-ids moves a name-keyed log onto an id, here and on origin", async () => {
-  const repo = await makeRepo();
-  const root = await repo.git("rev-parse", "main");
-  await repo.git("branch", "feature");
-  // A log in the pre-id layout: a ref named by the branch, no set-name entry.
-  const log =
-    `{"timestamp":1747000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n` +
-    `{"timestamp":1747000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-    `{"timestamp":1747000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n`;
-  const blob = await repo.gitStdin(log, "hash-object", "-w", "--stdin");
-  const tree = await repo.gitStdin(`100644 blob ${blob}\tlog\n`, "mktree");
-  const commit = await repo.git("commit-tree", tree, "-m", "cabaret log");
-  await repo.git("update-ref", "refs/cabaret/log/feature", commit);
-  await repo.git("push", "-q", "origin", "refs/cabaret/log/feature:refs/cabaret/log/feature");
-
-  const migrated = await repo.cabaret("dev", "migrate-ids");
-  expect(migrated.exitCode).toBe(0);
-  const id = /^migrated "feature" to ([0-9a-f]{32})\n/.exec(migrated.stdout)?.[1];
-  if (id === undefined) {
-    throw new Error(`no id in: ${migrated.stdout}`);
-  }
-  expect(migrated.stdout).toBe(`migrated "feature" to ${id}\nmigrated 1 log\n`);
-
-  // The log answers to its name, now recorded as set-name; the old refs are
-  // gone here and on origin, and the id-keyed ref replicated.
-  expect((await repo.cabaret("dev", "log", "feature")).stdout).toBe(
-    `${log}{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"feature"}}\n`,
-  );
-  expect(await repo.git("for-each-ref", "--format=%(refname)", "refs/cabaret/log/")).toBe(`refs/cabaret/log/${id}`);
-  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/*")).toContain(`refs/cabaret/log/${id}`);
-  expect(await repo.git("ls-remote", "origin", "refs/cabaret/log/feature")).toBe("");
-
-  // Idempotent: a second run finds nothing name-keyed.
-  expect((await repo.cabaret("dev", "migrate-ids")).stdout).toBe("migrated 0 logs\n");
-});

@@ -15,7 +15,6 @@ import {
   LAND_TRAILER,
   type LogEntry,
   mergeLogs,
-  mintChangeId,
   parseBranchName,
   parseChangeId,
   parseCommitHash,
@@ -272,6 +271,17 @@ const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
  * remote's logs — even a rebuilt one — is acceptable to observe.
  */
 export const LOG_FETCH_REFSPEC = `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`;
+
+
+/** The id a log ref is keyed by; a pre-id ref names the reset that clears it. */
+function logRefId(ref: string, prefix: string): ChangeId {
+  const suffix = ref.slice(prefix.length);
+  try {
+    return parseChangeId(suffix);
+  } catch {
+    throw new UserError(`log ref predates change ids: ${ref}; run \`cab dev wipe --remote\` to reset review state`);
+  }
+}
 
 function logRef(change: ChangeId): string {
   return `${LOG_REF_PREFIX}${change}`;
@@ -723,7 +733,7 @@ export class GitBackend implements Backend {
         continue;
       }
       const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
-      ids.add(parseChangeId(line.slice(prefix.length)));
+      ids.add(logRefId(line, prefix));
     }
     const changes = [...ids].sort();
     await this.publishLogs(changes);
@@ -778,10 +788,11 @@ export class GitBackend implements Backend {
     }
     // The directory holds only stale caches from older versions.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
+    // Every ref was deleted whatever its vintage; only id-keyed ones report.
     const ids = new Set<ChangeId>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
       for (const ref of refs) {
-        if (ref.startsWith(prefix)) {
+        if (ref.startsWith(prefix) && /^[0-9a-f]{32}$/.test(ref.slice(prefix.length))) {
           ids.add(parseChangeId(ref.slice(prefix.length)));
         }
       }
@@ -805,75 +816,9 @@ export class GitBackend implements Backend {
       await git(this.root, ["push", "--quiet", "origin", ...refs.map((ref) => `:${ref}`)]);
     }
     return refs
-      .filter((ref) => ref.startsWith(LOG_REF_PREFIX))
+      .filter((ref) => ref.startsWith(LOG_REF_PREFIX) && /^[0-9a-f]{32}$/.test(ref.slice(LOG_REF_PREFIX.length)))
       .map((ref) => parseChangeId(ref.slice(LOG_REF_PREFIX.length)))
       .sort();
-  }
-
-  /**
-   * Move name-keyed log refs — the layout before change ids — onto id-keyed
-   * refs: merge each old ref's local and origin copies, record the ref's
-   * name as `set-name` when the log never did, publish the log under a
-   * fresh id, and delete the old refs everywhere. One-shot and deliberate:
-   * requires origin reachable so no clone is left splitting the log, and a
-   * repository holding only id-keyed refs is untouched. Returns what moved.
-   */
-  async migrateLogRefs(now: () => TimestampMs): Promise<readonly { name: ChangeName; id: ChangeId }[]> {
-    await this.fetchLogs();
-    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
-    const names = new Set<string>();
-    for (const line of out.split("\n")) {
-      if (line === "") {
-        continue;
-      }
-      const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
-      const suffix = line.slice(prefix.length);
-      if (!/^[0-9a-f]{32}$/.test(suffix)) {
-        names.add(suffix);
-      }
-    }
-    const user = await this.currentUser();
-    const migrated: { name: ChangeName; id: ChangeId }[] = [];
-    for (const raw of [...names].sort()) {
-      const name = parseBranchName(raw);
-      let entries: readonly LogEntry[] = [];
-      for (const ref of [`${LOG_REF_PREFIX}${raw}`, `${REMOTE_LOG_REF_PREFIX}${raw}`]) {
-        const tip = await this.commitAt(ref);
-        const text = tip === undefined ? undefined : await this.readFile(tip, parseFilePath(LOG_PATH));
-        if (text !== undefined) {
-          entries = mergeLogs(entries, parseLog(text, parseCommitHash, parseBranchName));
-        }
-      }
-      if (entries.length === 0) {
-        continue;
-      }
-      if (currentName(entries) === undefined) {
-        entries = mergeLogs(entries, [{ timestamp: now(), user, action: { kind: "set-name", name } }]);
-      }
-      const id = mintChangeId();
-      await this.appendLog(id, entries);
-      await git(this.root, ["push", "--quiet", "origin", `${logRef(id)}:${logRef(id)}`]);
-      const tip = await this.commitAt(logRef(id));
-      if (tip === undefined) {
-        throw new Error(`migrated log vanished: ${logRef(id)}`);
-      }
-      await git(this.root, ["update-ref", "--stdin"], `update ${remoteLogRef(id)} ${tip}\n`);
-      await git(
-        this.root,
-        ["update-ref", "--stdin"],
-        `delete ${LOG_REF_PREFIX}${raw}\ndelete ${REMOTE_LOG_REF_PREFIX}${raw}\n`,
-      );
-      try {
-        await git(this.root, ["push", "--quiet", "origin", `:${LOG_REF_PREFIX}${raw}`]);
-      } catch (error) {
-        // Another machine deleting the same old ref concurrently is not a failure.
-        if (!(error instanceof Error && error.message.includes("remote ref does not exist"))) {
-          throw error;
-        }
-      }
-      migrated.push({ name, id });
-    }
-    return migrated;
   }
 
   /** Fetch every log on `origin` into the remote-log namespace. */
@@ -1371,7 +1316,7 @@ export class GitBackend implements Backend {
     return out
       .split("\n")
       .filter((line) => line !== "")
-      .map((line) => parseChangeId(line.slice(LOG_REF_PREFIX.length)));
+      .map((line) => logRefId(line, LOG_REF_PREFIX));
   }
 
   async readLog(change: ChangeId): Promise<readonly LogEntry[]> {
