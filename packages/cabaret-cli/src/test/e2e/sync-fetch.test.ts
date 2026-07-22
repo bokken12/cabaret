@@ -298,6 +298,84 @@ test("a second machine's fetch adopts the published import instead of re-importi
   expect(await clone.cabaret("dev", "log", "their-feature")).toEqual(await repo.cabaret("dev", "log", "their-feature"));
 });
 
+test("fetch publishes intent recorded while origin was unreachable", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("reviewers", "add", "github:carol")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
+  // The change's forge side is untouched, so no sweep carries it; the fetch
+  // notices the pending intent itself and finishes the write-through's job.
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "updated 1 reviewer on github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 0 updated forge changes\n",
+  );
+  expect((await forge.getChange(PR)).reviewers).toEqual(["github:carol"]);
+});
+
+test("fetch posts a pending comment when the sweep carries the change", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  await repo.cabaret("comment", "wrote this offline");
+  await repo.git("remote", "set-url", "origin", origin);
+  // A teammate's comment bumps the forge change into the sweep, whose
+  // absorb-then-publish carries the pending comment out with it.
+  forge.comment(PR, "carol", "anything new here?");
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 1 comment from github.com/test-org/widgets#1\n" +
+      "posted 1 comment to github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
+  );
+  const posted = await forge.listComments(PR);
+  expect(posted.map(({ body }) => body)).toEqual([
+    "anything new here?",
+    expect.stringMatching(/^wrote this offline\n\n<!-- cabaret:[0-9a-f]{64} -->$/),
+  ]);
+});
+
+test("fetch opens the forge change reviewing left due while unreachable", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "none");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("widen")).stdout).toBe("reviewing owner\norigin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "opened github.com/test-org/widgets#1\n" + "fetched github.com/test-org/widgets: 0 updated forge changes\n",
+  );
+  expect((await forge.getChange(PR)).state).toBe("open");
+});
+
+test("fetch retargets a forge change a reparent moved while unreachable", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  await repo.cabaret("fetch");
+  await repo.git("branch", "develop", "main");
+  await repo.git("push", "-q", "origin", "develop");
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("reparent", "gadget", "develop")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
+  await repo.cabaret("fetch");
+  expect((await forge.getChange(PR)).parent).toBe("develop");
+});
+
 test("a since sweep never asks the forge change by change", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);

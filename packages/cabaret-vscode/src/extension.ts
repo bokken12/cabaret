@@ -880,6 +880,8 @@ function describeFetchEvent(event: FetchEvent): string | undefined {
       return `archived ${event.change}`;
     case "pruned":
       return `pruned ${event.change}`;
+    case "published":
+      return `published ${event.change}`;
   }
 }
 

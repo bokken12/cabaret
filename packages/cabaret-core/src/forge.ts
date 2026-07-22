@@ -735,7 +735,8 @@ export type FetchEvent =
   | { readonly kind: "skipped"; readonly id: ForgeChangeId; readonly change: ChangeName; readonly reason: string }
   | ({ readonly kind: "absorbed"; readonly id: ForgeChangeId; readonly change: ChangeName } & AbsorbResult)
   | { readonly kind: "archived"; readonly id: ForgeChangeId; readonly change: ChangeName }
-  | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName };
+  | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName }
+  | ({ readonly kind: "published"; readonly change: ChangeName } & PublishResult);
 
 /** What absorbing the forge's side of a change recorded, for hosts to narrate. */
 export interface AbsorbResult {
@@ -867,6 +868,30 @@ function formatSweepRecord(record: ReadonlyMap<string, number>): string {
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([key, ms]) => `${key} ${ms}\n`)
     .join("");
+}
+
+/**
+ * Whether `entries` carry intent the forge has not been shown: an attribute
+ * whose current value differs from its last forge observation. Comments are
+ * invisible here — pushed ones leave no local trace — and converge through
+ * write-through, sync, and the change's own appearances in the sweep.
+ */
+function unpublishedIntent(forge: ForgeLocator, change: ChangeName, entries: readonly LogEntry[]): boolean {
+  const reviewers = currentReviewers(entries);
+  const observedReviewers = observedForgeReviewers(entries, forge);
+  if (reviewers.length !== observedReviewers.size || reviewers.some((user) => !observedReviewers.has(user))) {
+    return true;
+  }
+  const observedReviewing = observedForgeReviewing(entries, forge);
+  if (observedReviewing !== undefined && (currentReviewing(entries) === "none") !== (observedReviewing === "none")) {
+    return true;
+  }
+  const observedArchived = observedForgeArchived(entries, forge);
+  if (observedArchived !== undefined && currentArchived(entries) !== observedArchived) {
+    return true;
+  }
+  const observedParent = observedForgeParent(entries, forge);
+  return observedParent !== undefined && currentParent(change, entries) !== observedParent;
 }
 
 /**
@@ -1005,30 +1030,39 @@ export async function fetchForge(
       }
       const recorded = currentForgeChange(entries);
       let bulk: SweptChange | undefined;
-      let forgeChange: ForgeChange;
+      let forgeChange: ForgeChange | undefined;
       if (recorded !== undefined) {
         if (recorded.forge !== forge.locator) {
           return undefined;
         }
         bulk = byId.get(recorded.id);
-        if (bulk === undefined && sweep.coverage === "since") {
-          // Absent from a since sweep: the forge has not touched it.
+        if (bulk === undefined && sweep.coverage === "since" && !unpublishedIntent(forge.locator, change, entries)) {
+          // Absent from a since sweep with nothing pending: converged.
           return undefined;
         }
-        // A tracked change absent from the open sweep merged or closed since;
-        // fetched live so this fetch still records its land.
+        // Fetched live when the sweep did not carry it: an open-sweep absence
+        // merged or closed, and a since-sweep absence has intent to publish.
         forgeChange = bulk?.change ?? (await forge.getChange(recorded.id));
       } else {
         // An untracked branch's open forge change is adopted without asking
         // the forge change by change.
         bulk = byHead.get(change);
-        if (bulk === undefined) {
+        if (bulk !== undefined) {
+          forgeChange = bulk.change;
+          await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
+        } else if (
+          currentArchived(entries) ||
+          currentReviewing(entries) === "none" ||
+          (await backend.originTip(change)) === undefined
+        ) {
           return undefined;
+        } else {
+          // A forge change is due — reviewing left none while the forge was
+          // unreachable, say — so the sweep finishes the write-through's job.
+          forgeChange = await syncedForgeChange(backend, now, user, forge, change, entries);
         }
-        forgeChange = bulk.change;
-        await backend.appendLog(change, adoptionEntries(now, user, forge.locator, forgeChange, change, entries));
       }
-      if (forgeChange.state === "closed") {
+      if (forgeChange?.state === "closed") {
         // Mirror the close in as archived before judging engagement: the
         // observation carries a source, so a pure import stays prunable.
         const mirror = planArchivedPull(now, user, forge.locator, entries, true);
@@ -1038,8 +1072,30 @@ export async function fetchForge(
         return { change, id: forgeChange.id, archived: mirror.length > 0 };
       }
       const comments = bulk !== undefined && !bulk.commentsTruncated ? bulk.comments : undefined;
-      const absorbed = await absorbForgeChange(backend, now, user, forge, change, entries, forgeChange, comments);
-      onEvent({ kind: "absorbed", id: forgeChange.id, change, ...absorbed });
+      if (forgeChange !== undefined) {
+        const absorbed = await absorbForgeChange(backend, now, user, forge, change, entries, forgeChange, comments);
+        onEvent({ kind: "absorbed", id: forgeChange.id, change, ...absorbed });
+      }
+      const published = await publishForgeChange(
+        backend,
+        now,
+        forge,
+        change,
+        await backend.readLog(change),
+        forgeChange,
+        comments,
+      );
+      if (
+        published !== undefined &&
+        (published.opened ||
+          published.reviewers > 0 ||
+          published.comments > 0 ||
+          published.draft !== undefined ||
+          published.state !== undefined ||
+          published.archived !== undefined)
+      ) {
+        onEvent({ kind: "published", change, ...published });
+      }
       return undefined;
     }),
   );
@@ -1117,6 +1173,7 @@ export async function publishForgeChange(
   change: ChangeName,
   entries: readonly LogEntry[],
   found: ForgeChange | undefined,
+  comments?: readonly ForgeComment[],
 ): Promise<PublishResult | undefined> {
   const parent = currentParent(change, entries);
   const user = await backend.currentUser();
@@ -1233,7 +1290,7 @@ export async function publishForgeChange(
       await backend.appendLog(change, additions);
     }
   }
-  const bodies = await planPush(entries, await forge.listComments(forgeChange.id), user);
+  const bodies = await planPush(entries, comments ?? (await forge.listComments(forgeChange.id)), user);
   for (const body of bodies) {
     await forge.addComment(forgeChange.id, body);
   }
