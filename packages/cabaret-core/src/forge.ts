@@ -1140,7 +1140,9 @@ export async function publishForgeChange(
   let forgeChange = found;
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
-    if (currentArchived(entries)) {
+    // A forge change cannot exist before its head reaches origin, and
+    // archiving asks for no new one.
+    if (currentArchived(entries) || (await backend.originTip(change)) === undefined) {
       return undefined;
     }
     forgeChange = await forge.createChange(change, parent, change, currentReviewing(entries) === "none");
