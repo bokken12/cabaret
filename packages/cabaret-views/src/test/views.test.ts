@@ -725,7 +725,7 @@ test("showDoc rows the change's workspace, noting dirtiness", () => {
 test("showDoc renders a landed change without a files section", () => {
   const doc = showDoc({
     as: undefined,
-    summary: summary("widgets", { landed: fake("5"), nextStep: "landed" }),
+    summary: summary("widgets", { landed: fake("5"), archived: true, nextStep: "landed" }),
     comments: [],
     workspace: undefined,
     remaining: [],

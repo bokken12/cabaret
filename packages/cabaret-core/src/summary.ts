@@ -18,6 +18,7 @@ import {
   type FileSource,
   type ForgeChangeId,
   type ForgeLocator,
+  finished,
   freshestReading,
   LAND_SCAN,
   type LandMerge,
@@ -111,7 +112,7 @@ export interface ChangeSummary {
         readonly staleParent: ChangeName | undefined;
       }
     | undefined;
-  /** The merge that landed the change, or undefined if it has not landed. */
+  /** The merge of the change's latest land, or undefined if it has never landed. */
   readonly landed: Revision | undefined;
   /** The changes landed into this one, oldest first. */
   readonly included: readonly LandMerge[];
@@ -151,19 +152,20 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
+  const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
   const left = reviewLeftFiles(await reviewLeft(backend, entries, user, diff));
-  // A landed change is frozen, so nothing about its surroundings bears on it.
-  // These are all local readings — origin's tip is whatever was last fetched
-  // — so summarizing never makes a remote query.
+  // A finished change is frozen, so nothing about its surroundings bears on
+  // it. These are all local readings — origin's tip is whatever was last
+  // fetched — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
   let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
   let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
   let parentReview: (() => Promise<ObligationsReading>) | undefined;
-  if (landed === undefined) {
+  if (!frozen) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
       if (observed !== undefined && observed !== parent) {
@@ -172,7 +174,7 @@ export async function summarizeChange(
     }
     origin = await originStanding(backend, change, tip);
     const parentEntries = await backend.readLog(parent);
-    if (landedMerge(parentEntries) !== undefined) {
+    if (finished(parentEntries)) {
       deadParent = "landed";
     } else if (currentArchived(parentEntries)) {
       deadParent = "archived";
@@ -225,8 +227,8 @@ export async function summarizeChange(
     deadParent,
     parentOrigin,
     staleBase: stale?.kind,
-    // A landed change is frozen; only live code is worth scanning for markers.
-    conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
+    // A finished change is frozen; only live code is worth scanning for markers.
+    conflicts: frozen ? [] : await changeConflicts(backend, diff),
     reviewLeft: left,
   };
   return { ...readings, nextStep: await nextStep(backend, readings, entries, user, diff, stale, parentReview) };
@@ -294,9 +296,9 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
 }
 
 /**
- * What must happen next, from the summary's other readings. A landed change
- * is done and an archived one is set aside, so both read as their terminal
- * step before anything else. An origin the
+ * What must happen next, from the summary's other readings. An archived
+ * change is set aside — done, when a land archived it, which reads as
+ * `landed` — so it reads as its terminal step before anything else. An origin the
  * tip trails or diverged from outranks everything: each reading below is a
  * question about revisions this clone may lack, and either way syncing
  * mends it — the join absorbs origin's copy, committing any conflicts for
@@ -350,11 +352,8 @@ async function nextStep(
   stale: { readonly parentTip: Revision } | undefined,
   parentReview: (() => Promise<ObligationsReading>) | undefined,
 ): Promise<NextStep> {
-  if (readings.landed !== undefined) {
-    return "landed";
-  }
   if (readings.archived) {
-    return "archived";
+    return readings.landed !== undefined ? "landed" : "archived";
   }
   if (readings.origin === "behind" || readings.origin === "diverged") {
     return "sync";

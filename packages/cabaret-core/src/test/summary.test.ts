@@ -640,6 +640,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     // Reviewed against base 0, but the change's base is 1: stale outright.
     entry(review("a.ts", "0", "4")),
     entry({ kind: "land", merge: fake("5") }),
+    entry({ kind: "set-archived", archived: true }),
   ];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
     kind: "change",
@@ -651,7 +652,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     forgeChange: { forge: "github.com/test-org/widgets", id: 7, staleParent: undefined },
     landed: fake("5"),
     included: [],
-    archived: false,
+    archived: true,
     permanent: false,
     base: fake("1"),
     tip: fake("4"),
@@ -1188,7 +1189,13 @@ test("a change whose parent has landed must reparent, review left or not", async
     history: { "1": "0", "2": "1" },
     branches: { main: "1", gadget: "1", "gadget-ui": "2" },
     changed: { "12": ["ui.ts"] },
-    logs: { gadget: [...created("main", "0"), entry({ kind: "land", merge: fake("9") })] },
+    logs: {
+      gadget: [
+        ...created("main", "0"),
+        entry({ kind: "land", merge: fake("9") }),
+        entry({ kind: "set-archived", archived: true }),
+      ],
+    },
   };
   const ui = parseBranchName("gadget-ui");
   expect(await summarize(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({

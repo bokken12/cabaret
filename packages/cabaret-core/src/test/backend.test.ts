@@ -3,7 +3,6 @@ import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
   assertNotArchived,
-  assertNotLanded,
   brain,
   type ChangeName,
   currentArchived,
@@ -12,6 +11,7 @@ import {
   currentParent,
   currentReviewers,
   type FilePath,
+  finished,
   forgeChangeId,
   forgeChangeUrl,
   formatLogEntry,
@@ -415,19 +415,27 @@ test("currentReviewers folds each user's latest add/remove; observedForgeReviewe
   expect(observedForgeReviewers(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toEqual(new Set());
 });
 
-test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
+test("landedMerge finds the land entry, and finished asks for archived alongside it", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
-  const change = parseBranchName("feature");
   const unlanded = [entry(5, { kind: "set-parent", parent: parseBranchName("main") })];
   expect(landedMerge(unlanded)).toBeUndefined();
-  expect(() => assertNotLanded(change, unlanded)).not.toThrow();
+  expect(finished(unlanded)).toBe(false);
   const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
   expect(landedMerge(landed)).toBe(SHA1);
-  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
+  // Landed but live — permanent structure, or reopened — is not finished.
+  expect(finished(landed)).toBe(false);
+  expect(finished([...landed, entry(10, { kind: "set-archived", archived: true })])).toBe(true);
+  expect(
+    finished([
+      ...landed,
+      entry(10, { kind: "set-archived", archived: true }),
+      entry(11, { kind: "set-archived", archived: false }),
+    ]),
+  ).toBe(false);
 });
 
 test("currentArchived takes the set-archived with the greatest timestamp, and assertNotArchived rejects it", () => {

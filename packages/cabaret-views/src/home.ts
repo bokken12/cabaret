@@ -51,14 +51,14 @@ export interface HomePage {
   /** Whose home this is when not the current user's own, as `selfAs` resolves it. */
   readonly as: UserName | undefined;
   /**
-   * Unlanded changes with an unsatisfied obligation the user's review can
-   * still count toward. A change nobody asked the user to review stays off
-   * the page, however much of it they have not read, except as an ancestor
+   * Changes with an unsatisfied obligation the user's review can still
+   * count toward. A change nobody asked the user to review stays off the
+   * page, however much of it they have not read, except as an ancestor
    * kept so an owed descendant reads in place.
    */
   readonly review: readonly ReviewNode[];
   /**
-   * The user's unlanded changes. A change that is landed or someone else's
+   * The user's live changes. A change that is archived or someone else's
    * stays only while kept children hang from it.
    */
   readonly owned: readonly OwnedNode[];
@@ -91,9 +91,9 @@ export interface WorkspaceNode {
 /** A workspace and what its change's log says of its usefulness. */
 export interface HeldWorkspace {
   readonly workspace: WorkspaceNote;
-  /** Whether the change has landed, leaving the workspace ready to remove. */
+  /** Whether the change finished — landed and archived — leaving the workspace ready to remove. */
   readonly landed: boolean;
-  /** Whether the change is archived, likewise leaving the workspace idle. */
+  /** Whether the change is archived without landing, likewise leaving the workspace idle. */
   readonly archived: boolean;
 }
 
@@ -120,11 +120,11 @@ async function readChange(backend: Backend, self: Self, change: ChangeName): Pro
   // every obligation — though it says nothing about their aliases, whose
   // obligations each count that identity's own reviews. A change with
   // conflict markers asks review of nobody: fixing them rewrites the
-  // tip, so reading it now is wasted. A landed change still asks: the
-  // follow review its landing left in place stays owed until reviewers
-  // catch up.
+  // tip, so reading it now is wasted. A landed change still asks, archived
+  // with the land or not: the follow review its landing left in place
+  // stays owed until reviewers catch up.
   const asked =
-    !summary.archived &&
+    (!summary.archived || summary.landed !== undefined) &&
     summary.conflicts.length === 0 &&
     (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
     isReviewing(self, change, entries);
@@ -184,7 +184,7 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
     nodes.flatMap((node) => {
       const candidate = summary(node.change);
       const children = pruneOwned(node.children);
-      const mine = candidate.landed === undefined && !candidate.archived && isSelf(self, candidate.owner);
+      const mine = !candidate.archived && isSelf(self, candidate.owner);
       return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
@@ -199,10 +199,11 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
       const children = pruneWorkspaces(node.children);
       const workspace = workspaces.get(node.change);
       const candidate = summary(node.change);
+      const finished = candidate.landed !== undefined && candidate.archived;
       const held =
         workspace === undefined
           ? undefined
-          : { workspace, landed: candidate.landed !== undefined, archived: candidate.archived };
+          : { workspace, landed: finished, archived: candidate.archived && !finished };
       return held !== undefined || children.length > 0 ? [{ change: node.change, held, children }] : [];
     });
   // A workspace on a branch that is no change still shows — its name still

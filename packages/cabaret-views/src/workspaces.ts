@@ -2,7 +2,7 @@ import {
   type Backend,
   type ChangeName,
   currentArchived,
-  landedMerge,
+  finished,
   type ReclaimedWorkspace,
   type Workspace,
 } from "cabaret-core";
@@ -67,9 +67,9 @@ export interface WorkspaceRow {
   readonly display: string;
   /** Whether the checked-out branch is a change. */
   readonly isChange: boolean;
-  /** Whether that change has landed, leaving the workspace ready to remove. */
+  /** Whether that change finished — landed and archived — leaving the workspace ready to remove. */
   readonly landed: boolean;
-  /** Whether that change is archived, likewise leaving the workspace idle. */
+  /** Whether that change is archived without landing, likewise leaving the workspace idle. */
   readonly archived: boolean;
 }
 
@@ -88,8 +88,8 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
       workspace,
       display: displayPath(backend.root, workspace.path),
       isChange: change !== undefined,
-      landed: landedMerge(entries) !== undefined,
-      archived: currentArchived(entries),
+      landed: finished(entries),
+      archived: currentArchived(entries) && !finished(entries),
     });
   }
   return { rows };

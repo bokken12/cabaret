@@ -1,11 +1,9 @@
 import {
   assertChangeExists,
-  assertNotLanded,
   type Backend,
   type ChangeName,
   currentArchived,
   ensureBranch,
-  landedMerge,
   type Workspace,
 } from "./backend.js";
 import type { Config } from "./config.js";
@@ -66,14 +64,13 @@ export function workspacePath(primary: string, change: ChangeName): string {
 async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
-  assertNotLanded(change, entries);
   await ensureBranch(backend, change);
 }
 
 /**
  * Create a workspace with `change` checked out, at `path` or the
  * `workspacePath` default, and return where it went. The change must be a
- * real, unlanded change without a workspace already.
+ * real change without a workspace already.
  */
 export async function addChangeWorkspace(backend: Backend, change: ChangeName, path?: string): Promise<string> {
   await assertCheckoutable(backend, change);
@@ -120,8 +117,9 @@ export interface ReclaimedWorkspace {
 }
 
 /**
- * Remove every workspace whose change has landed or is archived — the ones
- * pages nudge about — and return what happened to each. With `all`, every
+ * Remove every workspace whose change is archived — set aside, or done
+ * because landing archived it; the ones pages nudge about — and return what
+ * happened to each. With `all`, every
  * workspace holding its branch cleanly goes: removing one costs nothing the
  * branch does not keep, which frees space when it is needed. Either way a
  * dirty workspace keeps its uncommitted work, and the primary and current
@@ -136,7 +134,7 @@ export async function reclaimWorkspaces(backend: Backend, all: boolean): Promise
       continue;
     }
     const entries = await backend.readLog(change);
-    if (!all && landedMerge(entries) === undefined && !currentArchived(entries)) {
+    if (!all && !currentArchived(entries)) {
       continue;
     }
     const outcome = primary ? "primary" : path === backend.root ? "current" : dirty ? "dirty" : "removed";

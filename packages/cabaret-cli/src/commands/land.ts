@@ -38,14 +38,14 @@ export const land = buildCommand({
       "land-via local (or forge) picks one side " +
       "unconditionally. A change whose parent moved on lands as it stands " +
       "when it merges cleanly onto the new tip; `cab rebase` first when " +
-      "it conflicts. Children of the landed change are reparented onto its " +
-      "parent, where their code now lives, and their forge changes " +
-      "retargeted to match. A landed change can no longer be " +
-      "rebased, reparented, or transferred, though reviewing it is " +
-      "still recorded. A range `ancestor..descendant` lands every change " +
-      "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
-      "skipping changes that already landed; when one fails, the landings " +
-      "before it stand, and rerunning the range resumes.",
+      "it conflicts. Landing concludes the change: it archives, and its " +
+      "children are reparented onto its parent, where their code now " +
+      "lives, their forge changes retargeted to match. A permanent change " +
+      "stays live instead, at the landing commit with an empty diff, ready " +
+      "for its next cycle of work. A range `ancestor..descendant` lands " +
+      "every change after `ancestor` on `descendant`'s parent chain, " +
+      "`descendant` first, skipping archived changes; when one fails, the " +
+      "landings before it stand, and rerunning the range resumes.",
   },
   parameters: {
     positional: {
