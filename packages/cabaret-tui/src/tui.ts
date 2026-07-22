@@ -19,6 +19,7 @@ import {
   knownChanges,
   landAsConfigured,
   landChain,
+  lookupChange,
   readConfig,
   rebaseChain,
   rebaseChange,
@@ -27,7 +28,6 @@ import {
   reparentChange,
   resolveChain,
   resolveChange,
-  resolveNamed,
   setArchived,
   setReviewing,
   syncChange,
@@ -121,7 +121,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     mark: (snapshot, file, evenThoughNotReviewing) =>
       Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
     parent: async (change) => {
-      const found = resolveNamed(await allChanges(backend), change);
+      const found = await lookupChange(backend, change);
       return found === undefined ? undefined : currentParent(currentName(found.id, found.entries), found.entries);
     },
     self: () => currentSelf(backend),

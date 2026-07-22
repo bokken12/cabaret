@@ -649,13 +649,7 @@ export async function landOnForge(
       `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(name)}'s tip; run \`cab sync\` first`,
     );
   }
-  const merge = await forge.landChange(
-    forgeChange.id,
-    method,
-    prepared.tip,
-    landTitle(name),
-    landTrailer(name),
-  );
+  const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(name), landTrailer(name));
   // Fetch before recording: the settling entries read the merge commit, which
   // arrives with the parent.
   await backend.fetch(parent);
@@ -756,9 +750,7 @@ export async function landAsConfigured(
     forge = await openForge();
     const forgeChange = await syncedForgeChange(backend, now, await backend.currentUser(), forge, change);
     if (forgeChange === undefined) {
-      throw new UserError(
-        `no forge change for ${JSON.stringify(name)} on ${forge.locator}; run \`cab sync\` first`,
-      );
+      throw new UserError(`no forge change for ${JSON.stringify(name)} on ${forge.locator}; run \`cab sync\` first`);
     }
     await landOnForge(backend, now, forge, change, forgeChange, config.landMethod, overrides);
     merged = { forge: forge.locator, id: forgeChange.id };
@@ -1097,11 +1089,7 @@ export async function fetchForge(
           return undefined;
         }
         bulk = byId.get(recorded.id);
-        if (
-          bulk === undefined &&
-          sweep.coverage === "since" &&
-          !unpublishedIntent(forge.locator, name, entries)
-        ) {
+        if (bulk === undefined && sweep.coverage === "since" && !unpublishedIntent(forge.locator, name, entries)) {
           // Absent from a since sweep with nothing pending: converged.
           return undefined;
         }

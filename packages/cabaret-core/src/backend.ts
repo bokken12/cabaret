@@ -766,6 +766,24 @@ export interface Backend {
   listChanges(): Promise<readonly ChangeId[]>;
 
   /**
+   * Every change's log position in one cheap read: each id with an opaque
+   * token that changes whenever its log does. What cache verification
+   * compares against, without reading any log.
+   */
+  logStates(): Promise<ReadonlyMap<ChangeId, string>>;
+
+  /**
+   * A locally stored derivation, as `writeCache` last stored it — or
+   * undefined when never written, unreadable, or wiped. Caches hold only
+   * derivable state: local to this repository, never replicated, safe to
+   * lose at any time.
+   */
+  readCache(key: string): Promise<string | undefined>;
+
+  /** Store a derivation under `key`, replacing what was there. */
+  writeCache(key: string, content: string): Promise<void>;
+
+  /**
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    *
