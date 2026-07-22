@@ -261,7 +261,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     │ master │      │
     ╰────────┴──────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
   // Review marks record revisions, not branches, so reviewing needs no branch.
@@ -290,7 +290,7 @@ test("an adopted change reads, reviews, and materializes without ever running fe
     │ master │      │
     ╰────────┴──────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
   // An operation that moves the branch creates it from origin's copy.
@@ -413,7 +413,7 @@ test("fetch imports an open forge change, and home lists it when review is owed"
     │ gadget │      │
     ╰────────┴──────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });
@@ -454,7 +454,7 @@ test("your own forge change joins the changes you own through the recorded alias
     │ main   │      │
     ╰────────┴──────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });

@@ -270,6 +270,6 @@ export function showDoc(page: ShowPage, now: TimestampMs): Doc {
       nodes.push({ spans: [] }, s);
     }
   }
-  nodes.push(...fetchedFooter(page.fetched));
+  nodes.push(...fetchedFooter(page.fetched, now));
   return layout(nodes);
 }
