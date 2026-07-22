@@ -38,7 +38,7 @@ test("reviewers add and remove append entries, latest per user winning", async (
   expect(await shownReviewers(repo, "feature")).toBe("│ reviewers │ carol@example.com │");
 });
 
-test("reviewers add fails on a change that does not exist, and on a landed change", async () => {
+test("reviewers add fails on a change that does not exist, and still writes on a landed one", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("reviewers", "add", "bob@example.com")).toEqual({
     stdout: "",
@@ -48,10 +48,10 @@ test("reviewers add fails on a change that does not exist, and on a landed chang
   await addChange(repo, "feature");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.cabaret("land");
-  const { stderr, exitCode } = await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature");
-  expect({ stderr: stderr.replace(/merge [0-9a-f]{40}/, "merge <hash>"), exitCode }).toEqual({
-    stderr: 'change has landed: "feature" (merge <hash>)\n',
-    exitCode: 1,
+  expect(await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
   });
 });
 

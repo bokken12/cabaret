@@ -260,7 +260,7 @@ test("changeBase fails when the stored base and merge-base are unrelated", async
   await expect(changeBaseOf("child-merged")).rejects.toThrow('base of "child-merged" is ambiguous');
 });
 
-/** Record `change` as landed by `merge`, optionally at a squash-recorded tip. */
+/** Record `change` as finished: landed by `merge` — optionally at a squash-recorded tip — and archived with it. */
 async function plumbLand(change: string, merge: string, tip?: string): Promise<void> {
   const backend = await GitBackend.open(repo);
   await backend.appendLog(parseBranchName(change), [
@@ -269,6 +269,7 @@ async function plumbLand(change: string, merge: string, tip?: string): Promise<v
       merge: parseCommitHash(merge),
       ...(tip === undefined ? {} : { tip: parseCommitHash(tip) }),
     }),
+    logEntry(1748000000003, { kind: "set-archived", archived: true }),
   ]);
 }
 
@@ -313,7 +314,10 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
 
 test("changeTip fails when the land merge is absent from the clone", async () => {
   const backend = await GitBackend.open(repo);
-  const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
+  const entries = [
+    logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
+  ];
   await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
     `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cab fetch\``,
   );
@@ -328,6 +332,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
       merge: parseCommitHash(merge),
       tip: parseCommitHash("feed".repeat(10)),
     }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
   ];
   await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
     `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,

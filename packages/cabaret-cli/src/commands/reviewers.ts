@@ -1,5 +1,5 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { assertNotLanded, type UserName } from "cabaret-core";
+import type { UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { changeFlag, parseUser, resolveChange, writeThrough } from "./shared.js";
 
@@ -11,9 +11,7 @@ async function recordReviewer(
   kind: "add-reviewer" | "remove-reviewer",
 ): Promise<void> {
   const backend = await ctx.backend();
-  const { change: target, entries } = await resolveChange(backend, change);
-  // A landed change is frozen: its obligations were settled when it landed.
-  assertNotLanded(target, entries);
+  const { change: target } = await resolveChange(backend, change);
   await backend.appendLog(target, [
     { timestamp: ctx.now(), user: await backend.currentUser(), action: { kind, reviewer } },
   ]);

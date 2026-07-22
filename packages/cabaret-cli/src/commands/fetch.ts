@@ -42,7 +42,9 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
           `${name} was marked ${event.reviewing === "none" ? "draft" : "ready"}; reviewing ${event.reviewing}\n`,
         );
       }
-      if (event.archived !== undefined) {
+      // A land archives the change as part of concluding it; the land line
+      // already tells that story.
+      if (event.archived !== undefined && !event.landed) {
         context.process.stdout.write(
           `${name} was ${event.archived ? "closed; archived the change" : "reopened; unarchived the change"}\n`,
         );

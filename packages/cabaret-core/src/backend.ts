@@ -1012,22 +1012,20 @@ export function observedForgeReviewers(entries: readonly LogEntry[], forge: Forg
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
-/** The merge that landed the change, or undefined if it has not landed. */
+/** The merge of the change's latest land, or undefined if it has never landed. */
 export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
   return latestAction(entries, "land")?.merge;
 }
 
 /**
- * Fail if `change` has landed. Landing is final: the change's code is frozen
- * in its parent, so entries that would alter what there is to review may no
- * longer be written. Review state is not code, so `review` and `forget` stay
- * allowed and do not call this.
+ * Whether the change is finished: landed, and archived with the landing —
+ * either atomically by an ordinary land, or by hand afterwards. A finished
+ * change's diff readings freeze at the cycle that landed; a change that
+ * landed but stays live — permanent structure, or one reopened by
+ * unarchiving — reads on, its next rebase starting the next cycle.
  */
-export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
-  const merge = landedMerge(entries);
-  if (merge !== undefined) {
-    throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
-  }
+export function finished(entries: readonly LogEntry[]): boolean {
+  return landedMerge(entries) !== undefined && currentArchived(entries);
 }
 
 /**
@@ -1100,10 +1098,13 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   too new is harmless, since a merge-base cannot reach past the change's
  *   own history, so the freshest reading wins by being deepest, and the
  *   change's own ancestry arbitrates between diverged readings.
- * - Once the change lands, its parent's history contains the change itself,
- *   so a parent reading's merge-base would slide to the change's own tip and
- *   erase its diff. The land merge freezes the history the change landed
- *   onto as its first parent, so that becomes the one reading instead.
+ * - Once the change finishes — lands and archives — its parent's history
+ *   contains the change itself, so a parent reading's merge-base would slide
+ *   to the change's own tip and erase its diff. The land merge freezes the
+ *   history the change landed onto as its first parent, so that becomes the
+ *   one reading instead. A change that landed but stays live reads its
+ *   parent as ever: its base advancing past the land is exactly how its next
+ *   cycle begins.
  *
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
@@ -1115,7 +1116,7 @@ export async function changeBase(
 ): Promise<Revision> {
   const stored = currentBase(change, entries);
   const tip = await changeTip(backend, change, entries);
-  const landed = landedMerge(entries);
+  const landed = finished(entries) ? landedMerge(entries) : undefined;
   let readings: readonly Revision[];
   if (landed !== undefined) {
     readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
@@ -1165,15 +1166,15 @@ export async function changeBase(
 }
 
 /**
- * The tip of `change`: the revision its diff is computed up to. A landed
+ * The tip of `change`: the revision its diff is computed up to. A finished
  * change is frozen at the tip it landed as — a merge carries it as its second
  * parent, and a squash, whose commit descends from no reviewed history,
  * records it in the land entry instead; the branch may since be gone or moved
- * on. An unlanded change's tip is its branch, pinned to the branch namespace
+ * on. A live change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
 export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
-  const landed = latestAction(entries, "land");
+  const landed = finished(entries) ? latestAction(entries, "land") : undefined;
   if (landed === undefined) {
     return requireTip(backend, change);
   }

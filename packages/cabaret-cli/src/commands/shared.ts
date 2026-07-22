@@ -187,7 +187,9 @@ export function settledLines(locator: string | undefined, result: ReconcileResul
         `${name} was marked ${absorbed.reviewing === "none" ? "draft" : "ready"}; reviewing ${absorbed.reviewing}`,
       );
     }
-    if (absorbed.archived !== undefined) {
+    // A land archives the change as part of concluding it; the land line
+    // already tells that story.
+    if (absorbed.archived !== undefined && !absorbed.landed) {
       lines.push(
         `${name} was ${absorbed.archived ? "closed; archived the change" : "reopened; unarchived the change"}`,
       );

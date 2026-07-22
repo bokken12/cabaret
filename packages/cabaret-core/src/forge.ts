@@ -6,6 +6,7 @@ import {
   currentArchived,
   currentForgeChange,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
   type ForgeChange,
@@ -13,9 +14,9 @@ import {
   type ForgeComment,
   type ForgeLocator,
   type ForgeMerge,
+  finished,
   formatLogEntry,
   type LogEntry,
-  landedMerge,
   landTitle,
   landTrailer,
   observedForgeArchived,
@@ -479,9 +480,9 @@ export function planArchivedPush(
 
 /**
  * The land entry a merged `forgeChange` implies, or undefined when `entries`
- * already record one: however the merge is observed, it means the change
+ * already record it: however the merge is observed, it means the change
  * landed. A single-parent landing commit (a squash or rebase merge) descends
- * from no reviewed history, so the entry freezes the head that merged as the
+ * from no reviewed history, so the entry records the head that merged as the
  * change's tip.
  *
  * TODO: a merge observed here bypassed `recordLand`, so nothing settled the
@@ -489,8 +490,10 @@ export function planArchivedPush(
  * the landed change until someone reviews it. The observer should settle it
  * the way the land op does, evaluated as of the observation; writing the
  * land entry is the guard that keeps racing observers from each settling.
- * Reaching the merges made while untracked also means fetch reading closed
- * forge changes, which it skips today.
+ * The land's other conclusions are likewise still the user's: children are
+ * not walked to the parent, and a permanent change's branch stays put until
+ * its next rebase. Reaching the merges made while untracked also means
+ * fetch reading closed forge changes, which it skips today.
  */
 export function observedLand(
   now: () => TimestampMs,
@@ -499,7 +502,14 @@ export function observedLand(
   forgeChange: ForgeChange,
   entries: readonly LogEntry[],
 ): LogEntry | undefined {
-  if (forgeChange.state !== "merged" || forgeChange.merge === undefined || landedMerge(entries) !== undefined) {
+  if (forgeChange.state !== "merged" || forgeChange.merge === undefined) {
+    return undefined;
+  }
+  // Recorded already — locally, or by an earlier observation — means this
+  // merge is accounted for; a land entry with another merge is an earlier
+  // cycle's, and this one still mirrors in.
+  const merge = forgeChange.merge.commit;
+  if (entries.some(({ action }) => action.kind === "land" && action.merge === merge)) {
     return undefined;
   }
   const { commit, parents } = forgeChange.merge;
@@ -692,9 +702,10 @@ async function retargetLandedChildren(
  * Land `change` where `config` says: on the forge — merging its forge change —
  * when `landVia` is "forge", or "auto" with a forge change recorded in the
  * log; locally otherwise. `openForge` is consulted only for a forge land, so
- * local lands need no forge at all. Either way the landed change's children
- * are then reparented onto its parent, where their code now lives; a forge
- * land also retargets their forge changes to follow.
+ * local lands need no forge at all. An ordinary change archives with the
+ * land, so its children are then reparented onto its parent, where their
+ * code now lives — a forge land also retargets their forge changes to
+ * follow; a permanent change stays their parent, live at the landing commit.
  */
 export async function landAsConfigured(
   backend: Backend,
@@ -720,6 +731,9 @@ export async function landAsConfigured(
     }
     await landOnForge(backend, now, forge, change, entries, forgeChange, config.landMethod, overrides);
     merged = { forge: forge.locator, id: forgeChange.id };
+  }
+  if (currentPermanent(entries)) {
+    return { merged, reparented: undefined, publication };
   }
   const onto = currentParent(change, entries);
   const children = await reparentLandedChildren(backend, now, change, onto);
@@ -801,11 +815,14 @@ export async function absorbForgeChange(
   const reviewing =
     forgeChange.state === "open" ? planReviewingPull(now, user, forge.locator, entries, forgeChange.draft) : [];
   additions.push(...reviewing);
-  // A closed forge change mirrors in as archived, a reopened one as live; a
-  // merged one has landed, which the land entry already records.
+  // A closed forge change mirrors in as archived, a reopened one as live. A
+  // merged one has landed: an ordinary change archives with the land it
+  // mirrors in, as the land op would have; a permanent one lives on.
   const archived =
     forgeChange.state === "merged"
-      ? []
+      ? landing !== undefined && !currentPermanent(entries)
+        ? [archivedObservation(now, user, forge.locator, true)]
+        : []
       : planArchivedPull(now, user, forge.locator, entries, forgeChange.state === "closed");
   additions.push(...archived);
   if (additions.length > 0) {
@@ -1025,7 +1042,9 @@ export async function fetchForge(
   const refreshed = await Promise.all(
     tracked.map(async (change): Promise<PruneCandidate | undefined> => {
       const entries = await backend.readLog(change);
-      if (landedMerge(entries) !== undefined) {
+      // A finished change converged when its land archived it; one that
+      // landed but lives on — permanent structure — keeps syncing.
+      if (finished(entries)) {
         return undefined;
       }
       const recorded = currentForgeChange(entries);

@@ -36,7 +36,7 @@ export interface ShowPage {
   /** Whose reading this is when not the current user's own, as `selfAs` resolves it. */
   readonly as: UserName | undefined;
   readonly comments: readonly ChangeComment[];
-  /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
+  /** Per-reviewer tallies of unsatisfied obligations; empty once archived. */
   readonly remaining: readonly ReviewerTally[];
   /** The change's workspace on this device, when it has one. */
   readonly workspace: WorkspaceNote | undefined;
@@ -63,11 +63,11 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
   }
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
-  // A landed change has no review to demand, whatever state it landed in;
-  // an archived one asks nothing while set aside; a malformed policy tallies
-  // nobody — the next step row already says whose fix it awaits.
+  // An archived change asks nothing while set aside — a land settles what
+  // it archives — and a malformed policy tallies nobody: the next step row
+  // already says whose fix it awaits.
   let remaining: readonly ReviewerTally[] = [];
-  if (summary.landed === undefined && !summary.archived) {
+  if (!summary.archived) {
     const reading = await obligationsReading(backend, entries, summary.owner, diff);
     if (reading.kind === "read") {
       remaining = reviewerTallies(reading.statuses.filter((status) => !isSatisfied(status)));
@@ -199,7 +199,7 @@ export function showDoc(page: ShowPage): Doc {
     if (summary.reviewers.length > 0) {
       attributes.push(["reviewers", summary.reviewers.join(", ")]);
     }
-    if (summary.landed === undefined) {
+    if (summary.landed === undefined || !summary.archived) {
       attributes.push(["reviewing", summary.reviewing]);
     }
     if (summary.permanent) {
