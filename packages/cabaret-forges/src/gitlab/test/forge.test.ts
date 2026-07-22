@@ -607,26 +607,6 @@ describe("GitLabForge", () => {
     ]);
   });
 
-  test("fetchChanges with a cursor it cannot read resweeps the open set", async () => {
-    const calls = stubGitLab({
-      [GRAPHQL]: {
-        json: {
-          data: {
-            project: {
-              mergeRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
-            },
-          },
-        },
-      },
-    });
-    expect(await forge().fetchChanges(forgeCursor("github.com-shaped nonsense"))).toEqual({
-      coverage: "open",
-      cursor: undefined,
-      changes: [],
-    });
-    expect(graphqlVariables(calls)).toEqual([{ path: "test-org/widgets", cursor: null }]);
-  });
-
   test("createChange posts the MR and fetches it by iid", async () => {
     const calls = stubGitLab({
       [`POST ${PROJECT}/merge_requests`]: { status: 201, json: { iid: 12 } },

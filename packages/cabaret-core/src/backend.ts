@@ -684,6 +684,16 @@ export interface Backend {
    */
   syncLogs(): Promise<readonly ChangeName[]>;
 
+  /** Origin's forge sweep record as last fetched, or undefined when none is known. */
+  forgeSweepState(): Promise<string | undefined>;
+
+  /**
+   * Replace origin's forge sweep record, unless it moved since last
+   * fetched — a racer's advance serves in this one's stead, so the record
+   * never regresses and losing the race skips rather than retries.
+   */
+  publishForgeSweepState(content: string): Promise<void>;
+
   /**
    * Delete the review state this repository holds: every change's log and the
    * fetched copies of origin's logs. Branches and commits are untouched, and

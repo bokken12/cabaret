@@ -101,11 +101,15 @@ rewrites. The forge exchange carries metadata — state, parent, title,
 draft, reviewers, comments, approvals, merges.
 
 Fetch reads forge activity incrementally: changes enumerate in the forge's
-last-updated order, and a per-clone cursor marks how far absorption has
-reached, so an idle poll costs one request and a busy one costs only the
-delta. The cursor overlaps generously on each sweep — absorption is
-idempotent, so re-reading is free — and an occasional full sweep backstops
-the activity that forges fail to surface in update order.
+last-updated order, and a cursor marks how far absorption has reached, so
+an idle poll costs one request and a busy one costs only the delta. The
+cursor is itself shared state: absorption lands in the logs before it
+advances, so it holds for anyone who has unioned them, joins by max like
+any grow-only fact, and rides origin alongside the logs — whichever
+machine sweeps first spares the rest the same reading. The cursor overlaps
+generously on each sweep — absorption is idempotent, so re-reading is
+free — and an occasional full sweep backstops the activity that forges
+fail to surface in update order.
 
 ## Offline
 
