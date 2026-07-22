@@ -84,10 +84,10 @@ test("sync opens a draft for an unreviewing change and marks it ready when revie
   await addChange(repo, "gadget");
   expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
   expect((await forge.getChange(PR)).draft).toBe(true);
-  // Widening past none is local intent the next sync asserts on the forge.
-  await repo.cabaret("widen");
-  expect((await repo.cabaret("sync")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
+  // The widen itself asserts readiness on the forge; sync finds it settled.
+  expect((await repo.cabaret("widen")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
   expect((await forge.getChange(PR)).draft).toBe(false);
+  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
   // Settled: syncing again moves nothing.
   expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
 });

@@ -21,7 +21,10 @@ Push and pull are therefore not distinct operations, just transport.
 ## Replication and attention
 
 Because joins always exist, replication needs no consent: everything
-shared moves as soon as transport allows. Every fetch unions logs both
+shared moves as soon as transport allows. A command that appends to a log
+carries its own append out — pushing the log and settling the forge
+change on its way — so shared state moves at the speed of the mutation,
+with the ambient sweep as the retry loop. Every fetch unions logs both
 ways, pushes branch advances, fast-forwards branches whose moves lose
 nothing, commits clean joins, and reconciles forge changes in both
 directions. Replication is not publication in any social sense — attention

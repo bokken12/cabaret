@@ -4,13 +4,17 @@ import {
   type ChangeName,
   defaultContext,
   type FilePath,
+  type Forge,
   type LogEntry,
   parseContext,
   patternMatches,
+  type ReconcileResult,
+  reconcileChange,
   UserError,
   type UserName,
   userName,
 } from "cabaret-core";
+import { NoForgeError } from "cabaret-node";
 import { type Doc, docText } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 
@@ -144,5 +148,88 @@ export function writeDoc(context: LocalContext, doc: Doc): void {
   context.process.stdout.write(`${docText(doc)}\n`);
   for (const error of doc.errors) {
     context.process.stderr.write(`${error}\n`);
+  }
+}
+
+/** The forge fronting origin, or undefined when origin has none. */
+export async function forgeIfAny(context: LocalContext): Promise<Forge | undefined> {
+  try {
+    return await context.forge();
+  } catch (error) {
+    if (!(error instanceof NoForgeError)) {
+      throw error;
+    }
+    return undefined;
+  }
+}
+
+/** What a reconcile settled, one line per movement, in the CLI's voice. */
+export function settledLines(locator: string | undefined, result: ReconcileResult): string[] {
+  const lines: string[] = [];
+  const s = (n: number): string => (n === 1 ? "" : "s");
+  const { absorbed, published } = result;
+  if (published === undefined) {
+    return lines;
+  }
+  const name = `${locator}#${published.id}`;
+  if (absorbed !== undefined) {
+    if (absorbed.landed) {
+      lines.push(`${name} was merged; recorded the land`);
+    }
+    if (absorbed.parent !== undefined) {
+      lines.push(`${name} was retargeted; reparented onto ${JSON.stringify(absorbed.parent)}`);
+    }
+    if (absorbed.reviewers > 0) {
+      lines.push(`updated ${absorbed.reviewers} reviewer${s(absorbed.reviewers)} from ${name}`);
+    }
+    if (absorbed.reviewing !== undefined) {
+      lines.push(
+        `${name} was marked ${absorbed.reviewing === "none" ? "draft" : "ready"}; reviewing ${absorbed.reviewing}`,
+      );
+    }
+    if (absorbed.archived !== undefined) {
+      lines.push(
+        `${name} was ${absorbed.archived ? "closed; archived the change" : "reopened; unarchived the change"}`,
+      );
+    }
+    if (absorbed.comments > 0) {
+      lines.push(`fetched ${absorbed.comments} comment${s(absorbed.comments)} from ${name}`);
+    }
+  }
+  if (published.opened) {
+    lines.push(`opened ${name}`);
+  }
+  if (published.reviewers > 0) {
+    lines.push(`updated ${published.reviewers} reviewer${s(published.reviewers)} on ${name}`);
+  }
+  if (published.draft !== undefined) {
+    lines.push(`marked ${name} ${published.draft ? "draft" : "ready for review"}`);
+  }
+  if (published.state !== undefined) {
+    lines.push(`${published.state === "closed" ? "closed" : "reopened"} ${name}`);
+  }
+  if (published.archived !== undefined) {
+    lines.push(`${name} was ${published.archived ? "closed; archived the change" : "reopened; unarchived the change"}`);
+  }
+  if (published.comments > 0) {
+    lines.push(`posted ${published.comments} comment${s(published.comments)} to ${name}`);
+  }
+  return lines;
+}
+
+/**
+ * Push `change`'s log and settle its forge change, as every command that
+ * appends to a log does on its way out: the append was the publication
+ * intent, so carrying it asks no further consent.
+ */
+export async function writeThrough(context: LocalContext, backend: Backend, change: ChangeName): Promise<void> {
+  const forge = await forgeIfAny(context);
+  const result = await reconcileChange(backend, context.now, forge, change);
+  if (result.offline) {
+    context.process.stdout.write("origin unreachable; sync to publish\n");
+    return;
+  }
+  for (const line of settledLines(forge?.locator, result)) {
+    context.process.stdout.write(`${line}\n`);
   }
 }

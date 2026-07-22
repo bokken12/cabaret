@@ -5,13 +5,10 @@ import {
   type ChangeSummary,
   changeDiff,
   changeForest,
-  currentArchived,
-  currentOwner,
   currentParent,
   type FilePath,
   isReviewing,
   isSelf,
-  landedMerge,
   reviewOwed,
   type Self,
   selfAs,
@@ -28,36 +25,20 @@ import { type Cell, type Column, tableParts } from "./table.js";
 import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
-export type OwnedNode =
-  | {
-      readonly kind: "owned";
-      readonly summary: ChangeSummary;
-      readonly children: readonly OwnedNode[];
-    }
-  | {
-      /** Kept only so its descendants hang somewhere; hosts dim it. */
-      readonly kind: "context";
-      readonly change: ChangeName;
-      /** What the log says became of the change, when it is done. */
-      readonly step: "landed" | "archived" | undefined;
-      readonly children: readonly OwnedNode[];
-    };
+export interface OwnedNode {
+  readonly summary: ChangeSummary;
+  /** Kept only so its descendants hang somewhere; hosts dim it. */
+  readonly context: boolean;
+  readonly children: readonly OwnedNode[];
+}
 
 /** A change in the review forest and the changes stacked on it. */
-export type ReviewNode =
-  | {
-      readonly kind: "owed";
-      readonly summary: ChangeSummary;
-      /** Files still awaiting the user; never empty. */
-      readonly owed: readonly FilePath[];
-      readonly children: readonly ReviewNode[];
-    }
-  | {
-      /** An ancestor kept only so an owed descendant reads in place; hosts dim it. */
-      readonly kind: "context";
-      readonly change: ChangeName;
-      readonly children: readonly ReviewNode[];
-    };
+export interface ReviewNode {
+  readonly summary: ChangeSummary;
+  /** Files still awaiting the user; empty on an ancestor kept only for context. */
+  readonly owed: readonly FilePath[];
+  readonly children: readonly ReviewNode[];
+}
 
 /** A change the page could not read, and what went wrong. */
 export interface BrokenChange {
@@ -119,60 +100,38 @@ export interface HeldWorkspace {
 /** Changes read at once: each reading costs several git processes. */
 const READ_CONCURRENCY = 8;
 
-/**
- * What a change's log alone answers: enough to place the change in the
- * forests and to see whether anything on this page could need its code.
- */
-interface Glance {
-  readonly parent: ChangeName;
-  readonly owner: UserName;
-  readonly landed: boolean;
-  readonly archived: boolean;
-}
-
 /** One change's readings for the page, or what broke reading them. */
 type ChangeReading =
   | {
-      readonly kind: "full";
-      readonly glance: Glance;
+      readonly kind: "read";
       readonly summary: ChangeSummary;
+      readonly parent: ChangeName;
       readonly owed: readonly FilePath[];
     }
-  | { readonly kind: "glanced"; readonly glance: Glance }
   | { readonly kind: "broken"; readonly message: string };
 
 async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
   const entries = await backend.readLog(change);
-  const glance: Glance = {
-    parent: currentParent(change, entries),
-    owner: currentOwner(change, entries),
-    landed: landedMerge(entries) !== undefined,
-    archived: currentArchived(entries),
-  };
-  // The log alone decides whose attention a change could hold: obligations
-  // ask nothing of a user outside the reviewing set, an archived change
-  // asks nobody, and the owned section wants only the user's own live
-  // changes. Everything else — most changes, in a large organization —
-  // stops here, its diff and obligations never read. A landed change can
-  // still ask: the follow review its landing left in place stays owed
-  // until reviewers catch up.
-  const owned = !glance.landed && !glance.archived && isSelf(self, glance.owner);
-  const reviewing = !glance.archived && isReviewing(self, change, entries);
-  if (!owned && !reviewing) {
-    return { kind: "glanced", glance };
-  }
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, self.user, diff);
-  // An empty reviewLeft already counts the user toward every obligation —
-  // though it says nothing about their aliases, whose obligations each
-  // count that identity's own reviews. A change with conflict markers asks
-  // review of nobody: fixing them rewrites the tip, so reading it now is
-  // wasted.
-  const asked = reviewing && summary.conflicts.length === 0 && (summary.reviewLeft.length > 0 || self.aliases.size > 0);
+  // Obligations ask nothing of a user outside the reviewing set — a
+  // membership the log alone decides, sparing the obligations files of
+  // most changes. An empty reviewLeft already counts the user toward
+  // every obligation — though it says nothing about their aliases, whose
+  // obligations each count that identity's own reviews. A change with
+  // conflict markers asks review of nobody: fixing them rewrites the
+  // tip, so reading it now is wasted. A landed change still asks: the
+  // follow review its landing left in place stays owed until reviewers
+  // catch up.
+  const asked =
+    !summary.archived &&
+    summary.conflicts.length === 0 &&
+    (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
+    isReviewing(self, change, entries);
   return {
-    kind: "full",
-    glance,
+    kind: "read",
     summary,
+    parent: currentParent(change, entries),
     owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
   };
 }
@@ -195,8 +154,9 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
       return { kind: "broken", message: error.message };
     }
   });
-  const glances = new Map<ChangeName, Glance>();
-  const fulls = new Map<ChangeName, { readonly summary: ChangeSummary; readonly owed: readonly FilePath[] }>();
+  const summaries = new Map<ChangeName, ChangeSummary>();
+  const parents = new Map<ChangeName, ChangeName>();
+  const owedFiles = new Map<ChangeName, readonly FilePath[]>();
   const broken: BrokenChange[] = [];
   changes.forEach((change, index) => {
     const reading = readings[index];
@@ -207,64 +167,48 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
       broken.push({ change, message: reading.message });
       return;
     }
-    glances.set(change, reading.glance);
-    if (reading.kind === "full") {
-      fulls.set(change, { summary: reading.summary, owed: reading.owed });
+    summaries.set(change, reading.summary);
+    parents.set(change, reading.parent);
+    if (reading.owed.length > 0) {
+      owedFiles.set(change, reading.owed);
     }
   });
-  const glance = (change: ChangeName): Glance => {
-    const found = glances.get(change);
+  const summary = (change: ChangeName): ChangeSummary => {
+    const found = summaries.get(change);
     if (found === undefined) {
-      throw new Error(`change vanished while glancing: ${change}`);
+      throw new Error(`change vanished while summarizing: ${change}`);
     }
     return found;
   };
   const pruneOwned = (nodes: readonly ChangeNode[]): OwnedNode[] =>
-    nodes.flatMap((node): readonly OwnedNode[] => {
+    nodes.flatMap((node) => {
+      const candidate = summary(node.change);
       const children = pruneOwned(node.children);
-      const { landed, archived, owner } = glance(node.change);
-      const mine = !landed && !archived && isSelf(self, owner);
-      if (mine) {
-        // The same reading readChange calls owned, so the full read always ran.
-        const summary = fulls.get(node.change)?.summary;
-        if (summary === undefined) {
-          throw new Error(`owned change read no summary: ${node.change}`);
-        }
-        return [{ kind: "owned", summary, children }];
-      }
-      return children.length > 0
-        ? [
-            {
-              kind: "context",
-              change: node.change,
-              step: landed ? "landed" : archived ? "archived" : undefined,
-              children,
-            },
-          ]
-        : [];
+      const mine = candidate.landed === undefined && !candidate.archived && isSelf(self, candidate.owner);
+      return mine || children.length > 0 ? [{ summary: candidate, context: !mine, children }] : [];
     });
   const pruneReview = (nodes: readonly ChangeNode[]): ReviewNode[] =>
-    nodes.flatMap((node): readonly ReviewNode[] => {
+    nodes.flatMap((node) => {
       const children = pruneReview(node.children);
-      const full = fulls.get(node.change);
-      if (full !== undefined && full.owed.length > 0) {
-        return [{ kind: "owed", summary: full.summary, owed: full.owed, children }];
-      }
-      return children.length > 0 ? [{ kind: "context", change: node.change, children }] : [];
+      const owed = owedFiles.get(node.change) ?? [];
+      return owed.length > 0 || children.length > 0 ? [{ summary: summary(node.change), owed, children }] : [];
     });
-  const forest = changeForest(new Map([...glances].map(([change, { parent }]) => [change, parent])));
+  const forest = changeForest(parents);
   const pruneWorkspaces = (nodes: readonly ChangeNode[]): WorkspaceNode[] =>
     nodes.flatMap((node) => {
       const children = pruneWorkspaces(node.children);
       const workspace = workspaces.get(node.change);
-      const { landed, archived } = glance(node.change);
-      const held = workspace === undefined ? undefined : { workspace, landed, archived };
+      const candidate = summary(node.change);
+      const held =
+        workspace === undefined
+          ? undefined
+          : { workspace, landed: candidate.landed !== undefined, archived: candidate.archived };
       return held !== undefined || children.length > 0 ? [{ change: node.change, held, children }] : [];
     });
   // A workspace on a branch that is no change still shows — its name still
   // opens a page — flat, with the log-borne notes blank.
   const loose = [...workspaces].flatMap(([change, workspace]): WorkspaceNode[] =>
-    glances.has(change) ? [] : [{ change, held: { workspace, landed: false, archived: false }, children: [] }],
+    summaries.has(change) ? [] : [{ change, held: { workspace, landed: false, archived: false }, children: [] }],
   );
   return {
     as: acting.as,
@@ -293,22 +237,17 @@ function treeRows<N extends { readonly children: readonly N[] }>(
 }
 
 /**
- * A cell naming `summary`'s change in its status paint. The tree guide rides
- * alongside untargeted and plain — structure, like the table chrome —
+ * A cell naming `summary`'s change. The tree guide rides alongside untargeted,
  * keeping the link on exactly the name.
  */
-function changeCell(summary: ChangeSummary, guide: string, as: UserName | undefined): Cell {
+function changeCell(summary: ChangeSummary, guide: string, as: UserName | undefined, style?: "context"): Cell {
+  // The name wears its change's status paint; the guide is structure, like
+  // the table chrome, so only context's whole-row dimming reaches it.
   const name = span(summary.change, {
-    style: stepStyle(summary.nextStep),
+    style: style ?? stepStyle(summary.nextStep),
     target: { kind: "change", change: summary.change, as },
   });
-  return guide === "" ? name : [span(guide), name];
-}
-
-/** A context ancestor's cell: the whole row dims, tree guide included, the link staying on the name. */
-function contextCell(change: ChangeName, guide: string, as: UserName | undefined): Cell {
-  const name = span(change, { style: "context", target: { kind: "change", change, as } });
-  return guide === "" ? name : [span(guide, { style: "context" }), name];
+  return guide === "" ? name : [span(guide, { style }), name];
 }
 
 /**
@@ -378,16 +317,14 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
 }
 
 export function homeDoc(page: HomePage): Doc {
-  const reviewRows = treeRows(page.review).map(({ node, guide }): readonly Cell[] =>
-    node.kind === "owed"
-      ? [changeCell(node.summary, guide, page.as), span(String(node.owed.length))]
-      : [contextCell(node.change, guide, page.as), span("")],
-  );
-  const ownedRows = treeRows(page.owned).map(({ node, guide }): readonly Cell[] =>
-    node.kind === "owned"
-      ? [changeCell(node.summary, guide, page.as), stepSpan(node.summary, page.as)]
-      : [contextCell(node.change, guide, page.as), span(node.step ?? "", { style: "context" })],
-  );
+  const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
+    const style = owed.length === 0 ? "context" : undefined;
+    return [changeCell(summary, guide, page.as, style), span(owed.length === 0 ? "" : String(owed.length))];
+  });
+  const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
+    const style = context ? "context" : undefined;
+    return [changeCell(summary, guide, page.as, style), stepSpan(summary, page.as, style)];
+  });
   const title = page.as === undefined ? "Home" : `Home as ${page.as}`;
   return layout(
     [
