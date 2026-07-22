@@ -2,6 +2,7 @@ import { buildCommand } from "@stricli/core";
 import { type FetchEvent, type Forge, fetchForge, fetchLocal } from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
+import { settledLines } from "./shared.js";
 
 /** Report one thing the fetch did, in the CLI's voice. */
 function reportFetchEvent(context: LocalContext, locator: string, event: FetchEvent): void {
@@ -54,6 +55,12 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
     case "archived":
       context.process.stdout.write(`${locator}#${event.id} was closed; archived ${JSON.stringify(event.change)}\n`);
       return;
+    case "published": {
+      for (const line of settledLines(locator, { offline: false, absorbed: undefined, published: event })) {
+        context.process.stdout.write(`${line}\n`);
+      }
+      return;
+    }
     case "pruned":
       context.process.stdout.write(
         `${locator}#${event.id} was closed; removed unreviewed change ${JSON.stringify(event.change)}\n`,
