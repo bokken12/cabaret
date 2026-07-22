@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -9,7 +9,6 @@ import {
   type ChangeId,
   type ChangeName,
   type ConfigScope,
-  currentName,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
@@ -271,7 +270,6 @@ const REMOTE_LOG_REF_PREFIX = `${CABARET_REF_PREFIX}remote-log/`;
  * remote's logs — even a rebuilt one — is acceptable to observe.
  */
 export const LOG_FETCH_REFSPEC = `+${LOG_REF_PREFIX}*:${REMOTE_LOG_REF_PREFIX}*`;
-
 
 /** The id a log ref is keyed by; a pre-id ref names the reset that clears it. */
 function logRefId(ref: string, prefix: string): ChangeId {
@@ -1371,6 +1369,44 @@ export class GitBackend implements Backend {
       .split("\n")
       .filter((line) => line !== "")
       .map((line) => logRefId(line, LOG_REF_PREFIX));
+  }
+
+  async logStates(): Promise<ReadonlyMap<ChangeId, string>> {
+    const out = await git(this.root, ["for-each-ref", "--format=%(refname) %(objectname)", LOG_REF_PREFIX]);
+    const states = new Map<ChangeId, string>();
+    for (const line of out.split("\n")) {
+      if (line === "") {
+        continue;
+      }
+      const [ref, oid] = line.split(" ");
+      if (ref === undefined || oid === undefined) {
+        throw new Error(`malformed for-each-ref line: ${JSON.stringify(line)}`);
+      }
+      states.set(logRefId(ref, LOG_REF_PREFIX), oid);
+    }
+    return states;
+  }
+
+  /** Caches live beside the shared git dir, so every workspace reads one copy; `dev wipe` clears them. */
+  private cachePath(key: string): string {
+    return join(this.gitDir, "cabaret", key);
+  }
+
+  async readCache(key: string): Promise<string | undefined> {
+    try {
+      return await readFile(this.cachePath(key), "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+
+  async writeCache(key: string, content: string): Promise<void> {
+    await mkdir(join(this.gitDir, "cabaret"), { recursive: true });
+    // Written beside then renamed, so a concurrent reader never sees a
+    // torn write; racing writers both derive from the logs, so either wins.
+    const tmp = this.cachePath(`.${key}.${process.pid}.tmp`);
+    await writeFile(tmp, content);
+    await rename(tmp, this.cachePath(key));
   }
 
   async readLog(change: ChangeId): Promise<readonly LogEntry[]> {

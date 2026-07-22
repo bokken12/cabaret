@@ -1,5 +1,4 @@
 import {
-  allChanges,
   assertNoConflict,
   type Backend,
   type ChangedFile,
@@ -14,13 +13,13 @@ import {
   type FilePath,
   type FileSource,
   fileLabel,
+  lookupChange,
   mayRecordReview,
   NotReviewingError,
   type Reviewing,
   type ReviewLeft,
   type Revision,
   rebasedView,
-  resolveNamed,
   reviewLeft,
   reviewLeftFiles,
   selfAs,
@@ -78,7 +77,7 @@ export interface ChangeSnapshot {
 export async function changeSnapshot(backend: Backend, change: ChangeName, as?: UserName): Promise<ChangeSnapshot> {
   // A log-less branch still views as a change — an empty log reads as
   // nothing reviewed — it just has no id to record review against.
-  const named = resolveNamed(await allChanges(backend), change);
+  const named = await lookupChange(backend, change);
   const entries = named?.entries ?? [];
   const name = named === undefined ? change : currentName(named.id, named.entries);
   const [diff, acting] = await Promise.all([changeDiff(backend, name, entries), selfAs(backend, as)]);
