@@ -50,7 +50,16 @@ export const create = buildCommand({
     const backend = await this.backend();
     const name = backend.parseName(change);
     const parent = flags.parent === undefined ? await backend.currentChange() : backend.parseName(flags.parent);
-    await createChange(backend, this.now, name, parent, flags.evenThoughParentArchived, flags.owner, flags.permanent);
+    await createChange(
+      backend,
+      this.now,
+      name,
+      parent,
+      flags.evenThoughParentArchived,
+      flags.owner,
+      flags.permanent,
+      this.mint,
+    );
     await writeThrough(this, backend, await resolveChange(backend, name));
   },
 });

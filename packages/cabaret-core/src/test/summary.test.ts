@@ -238,7 +238,7 @@ function entry(action: LogAction): LogEntry {
 /** The entries `create` seeds a log with: parented on `parent`, based at `base`, owned by alice. */
 function created(parent: string, base: string): LogEntry[] {
   return [
-    entry({ kind: "set-parent", parent: parseBranchName(parent) }),
+    entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName(parent) } }),
     entry({ kind: "set-base", base: fake(base) }),
     entry({ kind: "set-owner", owner: alice }),
   ];
@@ -272,7 +272,7 @@ async function summarize(
     ] as const,
   };
   const all = [named, ...(await allChanges(backend))];
-  return summarizeChange(backend, named, user, await changeDiff(backend, change, entries), all);
+  return summarizeChange(backend, named, user, await changeDiff(backend, named), all);
 }
 
 /** The id the `index`th log of a `repoBackend` is keyed by. */
@@ -1270,8 +1270,11 @@ test("a reviewed change whose forge change targets its old parent syncs to retar
   const entries = [
     ...created("relic", "1"),
     entry({ kind: "set-forge", forge, id: forgeChangeId(103) }),
-    { ...entry({ kind: "set-parent", parent: parseBranchName("relic") }), source: { forge } },
-    { ...entry({ kind: "set-parent", parent: parseBranchName("main") }), timestamp: timestampMs(1748000000001) },
+    { ...entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName("relic") } }), source: { forge } },
+    {
+      ...entry({ kind: "set-parent", parent: { kind: "branch", name: parseBranchName("main") } }),
+      timestamp: timestampMs(1748000000001),
+    },
     entry(review("gizmo.ts", "1", "2")),
   ];
   expect(await summarize(backend, gizmo, entries, alice)).toEqual({

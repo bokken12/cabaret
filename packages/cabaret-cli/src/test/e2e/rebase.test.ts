@@ -134,7 +134,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   );
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"aaf2e0dc48428bf54d4b9aae694d45311d1d89ab"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -301,7 +301,7 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -374,7 +374,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   `);
   expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"b"}}
-    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000001"}}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
@@ -384,7 +384,7 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
   `);
   expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"c"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":{"id":"00000000000000000000000000000002"}}}
     {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
     {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
