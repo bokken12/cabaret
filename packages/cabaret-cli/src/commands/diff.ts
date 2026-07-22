@@ -15,7 +15,7 @@ export const diff = buildCommand({
     positional: {
       kind: "array",
       parameter: {
-        brief: "files or patterns to show (defaults to every changed file)",
+        brief: "files, directories, or patterns to show (defaults to every changed file)",
         placeholder: "file",
         parse: String,
       },

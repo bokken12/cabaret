@@ -27,7 +27,7 @@ export const review = buildCommand({
     positional: {
       kind: "array",
       parameter: {
-        brief: "files or patterns to show (defaults to everything left)",
+        brief: "files, directories, or patterns to show (defaults to everything left)",
         placeholder: "file",
         parse: String,
       },

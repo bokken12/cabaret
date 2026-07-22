@@ -146,7 +146,7 @@ test("a pattern matching no file with review left fails", async () => {
   });
   expect(await repo.cabaret("mark", "--tip", "HEAD", "trunk.txt")).toEqual({
     stdout: "",
-    stderr: "no review left in trunk.txt\n",
+    stderr: 'no file with review left matches "trunk.txt"\n',
     exitCode: 1,
   });
 });

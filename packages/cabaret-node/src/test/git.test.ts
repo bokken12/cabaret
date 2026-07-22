@@ -783,6 +783,33 @@ test("listChanges names every change with a log, sorted by name", async () => {
   }
 });
 
+test("editedFiles lists modified, added, and deleted files, with both endpoints of a move", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+  try {
+    await gitIn(dir, "init", "-q");
+    await writeFile(join(dir, "kept.txt"), "old\n");
+    await writeFile(join(dir, "doomed.txt"), "doomed\n");
+    await writeFile(join(dir, "wandering.txt"), "wandering\n");
+    await gitIn(dir, "add", "-A");
+    await gitIn(dir, "commit", "-qm", "setup");
+    await writeFile(join(dir, "kept.txt"), "new\n");
+    await gitIn(dir, "rm", "-q", "doomed.txt");
+    await gitIn(dir, "mv", "wandering.txt", "settled.txt");
+    await mkdir(join(dir, "fresh"));
+    await writeFile(join(dir, "fresh", "new.txt"), "fresh\n");
+    const backend = await GitBackend.open(dir);
+    expect([...(await backend.editedFiles())].sort()).toEqual([
+      "doomed.txt",
+      "fresh/new.txt",
+      "kept.txt",
+      "settled.txt",
+      "wandering.txt",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 /** Commit `files` (path → content) on top of the root commit, returning the commit hash. */
 async function plumbTree(files: Record<string, string>): Promise<string> {
   await git("read-tree", "--empty");

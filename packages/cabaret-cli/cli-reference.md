@@ -49,13 +49,13 @@ USAGE
   cab commit <file>...
   cab commit --help
 
-Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed to the named files or patterns.
+Commit the workspace's edits — modified, added, and deleted files alike — to the current change in one step, with no separate staging and no message to compose: the change is the reviewable unit, so its commits just carry its name. Arguments narrow what is committed — a file or directory, or a gitignore-style pattern against repo-relative paths.
 
 FLAGS
   -h --help  Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to commit (defaults to every edit)
+  file...  files, directories, or patterns to commit (defaults to every edit)
 
 ### cab config list
 
@@ -454,7 +454,7 @@ FLAGS
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to show (defaults to every changed file)
+  file...  files, directories, or patterns to show (defaults to every changed file)
 
 ## cab fetch
 
@@ -526,7 +526,7 @@ FLAGS
   -h  --help                        Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to mark reviewed
+  file...  files, directories, or patterns to mark reviewed
 
 ### cab owner show
 
@@ -631,7 +631,7 @@ FLAGS
   -h  --help      Print help information and exit
 
 ARGUMENTS
-  file...  files or patterns to show (defaults to everything left)
+  file...  files, directories, or patterns to show (defaults to everything left)
 
 ### cab reviewers add
 

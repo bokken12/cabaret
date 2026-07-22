@@ -100,7 +100,7 @@ export const contextFlag = {
  * a typo would otherwise silently select nothing. Any other argument is a path,
  * resolved the way every command resolves one; it selects the candidate it
  * names and every candidate under it as a directory. One naming nothing in
- * `candidates` is an error under `strict` (marking it would record nothing)
+ * `candidates` is an error under `strict` (selecting it would do nothing)
  * and otherwise appends the file, for a viewer to answer "nothing here"
  * about.
  */
@@ -134,7 +134,7 @@ export function selectFiles(
           selected.add(match);
         }
       } else if (strict) {
-        throw new UserError(`no review left in ${file}`);
+        throw new UserError(`no ${what} matches ${JSON.stringify(raw)}`);
       } else if (!appended.includes(file)) {
         appended.push(file);
       }
