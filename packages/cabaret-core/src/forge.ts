@@ -25,6 +25,7 @@ import {
   observedForgeReviewing,
   type Reviewing,
   type Revision,
+  type SyncProgress,
   type TimestampMs,
   type UserName,
 } from "./backend.js";
@@ -742,6 +743,13 @@ export async function landAsConfigured(
   return { merged, reparented: children.length > 0 ? { onto, children, retargeted } : undefined, publication };
 }
 
+/**
+ * What a fetch is doing right now, for hosts to show while it runs. Unlike a
+ * `FetchEvent`, nothing here is an outcome: each report supersedes the last,
+ * so a long fetch is never silent.
+ */
+export type FetchProgress = SyncProgress | { readonly kind: "fetching-origin" } | { readonly kind: "sweeping" };
+
 /** One thing a fetch did, as it happens, so hosts can narrate in their own voice. */
 export type FetchEvent =
   | { readonly kind: "aliased"; readonly alias: UserName }
@@ -934,7 +942,8 @@ function unpublishedIntent(forge: ForgeLocator, change: ChangeName, entries: rea
  * another repository may front a different account — so the declarations
  * land in local config.
  *
- * Everything is reported through `onEvent` as it happens. Two machines
+ * Everything is reported through `onEvent` as it happens, and the current
+ * phase through `opts.onProgress`. Two machines
  * fetching concurrently import the same changes twice; the union merge that
  * log syncing applies keeps both machines' entries, current-stamped so the
  * latest observation of the forge wins every read.
@@ -944,8 +953,9 @@ export async function fetchForge(
   now: () => TimestampMs,
   forge: Forge,
   onEvent: (event: FetchEvent) => void,
-  opts: { readonly full?: boolean } = {},
+  opts: { readonly full?: boolean; readonly onProgress?: (progress: FetchProgress) => void } = {},
 ): Promise<{ readonly coverage: "open" | "since"; readonly swept: number }> {
+  const onProgress = opts.onProgress;
   const forgeSelf = await forge.currentSelf();
   const self = await currentSelf(backend);
   const user = self.user;
@@ -958,6 +968,7 @@ export async function fetchForge(
 
   // The fetch begins with origin: its copies are what every reading below —
   // and every summary after — consults.
+  onProgress?.({ kind: "fetching-origin" });
   await backend.fetchOrigin();
   for (const change of await backend.advanceBranches()) {
     onEvent({ kind: "advanced", change });
@@ -965,7 +976,7 @@ export async function fetchForge(
   // Adopt before importing: a change another machine already imported and
   // published arrives as a log here, keeping this fetch's import phase to
   // forge changes nobody holds.
-  await backend.syncLogs();
+  await backend.syncLogs(onProgress);
   const tracked = await backend.listChanges();
   for (const change of await backend.joinBranches(tracked)) {
     onEvent({ kind: "joined", change });
@@ -980,6 +991,7 @@ export async function fetchForge(
   const lastOpen = Math.min(record.get(`reconciled ${forge.locator}`) ?? Number.NEGATIVE_INFINITY, now());
   const resweep = opts.full === true || lastOpen + RECONCILE_INTERVAL_MS <= now();
   const shared = record.get(`cursor ${forge.locator}`);
+  onProgress?.({ kind: "sweeping" });
   const sweep = await forge.fetchChanges(resweep || shared === undefined ? undefined : forgeCursor(String(shared)));
   // Open changes keyed by head — closed ones neither import nor adopt — with
   // heads sharing a branch collapsed to the lowest id, so every machine
@@ -1130,7 +1142,7 @@ export async function fetchForge(
   const pruneCandidates = refreshed.filter((candidate): candidate is PruneCandidate => candidate !== undefined);
 
   // Publish what this fetch imported and appended.
-  await backend.syncLogs();
+  await backend.syncLogs(onProgress);
 
   // Advanced only now, after the logs published: a crash beforehand leaves
   // the old record, and the next sweep re-reads an overlap absorption

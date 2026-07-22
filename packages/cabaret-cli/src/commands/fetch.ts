@@ -1,8 +1,22 @@
 import { buildCommand } from "@stricli/core";
-import { type FetchEvent, type Forge, fetchForge, fetchLocal } from "cabaret-core";
+import { type FetchEvent, type FetchProgress, type Forge, fetchForge, fetchLocal } from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
 import { settledLines } from "./shared.js";
+
+/** The status line for one moment of fetch progress, in the CLI's voice. */
+function progressText(progress: FetchProgress): string {
+  switch (progress.kind) {
+    case "fetching-origin":
+      return "fetching origin...";
+    case "merging-logs":
+      return `merging logs ${progress.merged}/${progress.logs}...`;
+    case "pushing-logs":
+      return `pushing ${progress.logs} log${progress.logs === 1 ? "" : "s"}...`;
+    case "sweeping":
+      return "sweeping the forge...";
+  }
+}
 
 /** Report one thing the fetch did, in the CLI's voice. */
 function reportFetchEvent(context: LocalContext, locator: string, event: FetchEvent): void {
@@ -109,29 +123,41 @@ export const fetch = buildCommand({
         throw error;
       }
     }
-    if (forge === undefined) {
-      const { synced, advanced, joined, pushed } = await fetchLocal(backend);
-      for (const change of advanced) {
-        this.process.stdout.write(`advanced ${JSON.stringify(change)}\n`);
+    const onProgress = (progress: FetchProgress) => this.progress(progressText(progress));
+    try {
+      if (forge === undefined) {
+        const { synced, advanced, joined, pushed } = await fetchLocal(backend, onProgress);
+        this.progress(undefined);
+        for (const change of advanced) {
+          this.process.stdout.write(`advanced ${JSON.stringify(change)}\n`);
+        }
+        for (const change of joined) {
+          this.process.stdout.write(`merged origin's copy of ${JSON.stringify(change)}\n`);
+        }
+        for (const change of pushed) {
+          this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);
+        }
+        this.process.stdout.write(`synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin\n`);
+        return;
       }
-      for (const change of joined) {
-        this.process.stdout.write(`merged origin's copy of ${JSON.stringify(change)}\n`);
-      }
-      for (const change of pushed) {
-        this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);
-      }
-      this.process.stdout.write(`synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin\n`);
-      return;
+      const locator = forge.locator;
+      const { coverage, swept } = await fetchForge(
+        backend,
+        this.now,
+        forge,
+        (event) => {
+          // The status line yields the terminal to each event's durable line.
+          this.progress(undefined);
+          reportFetchEvent(this, locator, event);
+        },
+        { full: flags.full, onProgress },
+      );
+      this.progress(undefined);
+      const kind = coverage === "open" ? "open" : "updated";
+      this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);
+    } finally {
+      // Failing mid-fetch must not leave a stale status line under the error.
+      this.progress(undefined);
     }
-    const locator = forge.locator;
-    const { coverage, swept } = await fetchForge(
-      backend,
-      this.now,
-      forge,
-      (event) => reportFetchEvent(this, locator, event),
-      { full: flags.full },
-    );
-    const kind = coverage === "open" ? "open" : "updated";
-    this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);
   },
 });

@@ -456,6 +456,15 @@ export interface Workspace {
 }
 
 /**
+ * What a log sync is doing right now, for hosts to show while it runs. Each
+ * report supersedes the last: progress is a live status line, not a record —
+ * durable outcomes come back in return values.
+ */
+export type SyncProgress =
+  | { readonly kind: "merging-logs"; readonly merged: number; readonly logs: number }
+  | { readonly kind: "pushing-logs"; readonly logs: number };
+
+/**
  * The operations Cabaret needs from a version-control backend. The
  * implementation (`cabaret-node`) shells out to a local git. "origin" is the
  * one pinned remote every remote operation uses.
@@ -704,9 +713,10 @@ export interface Backend {
   /**
    * Sync every log with the `origin` remote — every change with a log here or
    * fetched from there — and return their names, sorted. Reads last-fetched
-   * logs, as `syncLog` does.
+   * logs, as `syncLog` does. Reports each phase through `onProgress` as it
+   * goes, for hosts to narrate a long sync.
    */
-  syncLogs(): Promise<readonly ChangeName[]>;
+  syncLogs(onProgress?: (progress: SyncProgress) => void): Promise<readonly ChangeName[]>;
 
   /**
    * Merge origin's reading into every branch of `changes` whose readings

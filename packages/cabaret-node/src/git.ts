@@ -21,6 +21,7 @@ import {
   parseLog,
   type Recommendation,
   type Revision,
+  type SyncProgress,
   type TimestampMs,
   timestampMs,
   UserError,
@@ -714,7 +715,7 @@ export class GitBackend implements Backend {
     await this.publishLogs([change]);
   }
 
-  async syncLogs(): Promise<readonly ChangeName[]> {
+  async syncLogs(onProgress?: (progress: SyncProgress) => void): Promise<readonly ChangeName[]> {
     const out = await git(this.root, [
       "for-each-ref",
       "--format=%(refname) %(objectname)",
@@ -738,7 +739,10 @@ export class GitBackend implements Backend {
     // A log whose two refs agree already carries origin's content, so only
     // the disagreeing ones settle and push: one ref listing covers the whole
     // repository, with no per-change probes.
-    await this.publishLogs(changes.filter((change) => locals.get(change) !== remotes.get(change)));
+    await this.publishLogs(
+      changes.filter((change) => locals.get(change) !== remotes.get(change)),
+      onProgress,
+    );
     return changes;
   }
 
@@ -917,13 +921,22 @@ export class GitBackend implements Backend {
    * moved since it was settled comes back from `pushLogs` rejected; retried
    * against a fresh fetch, bounded so a persistent failure surfaces.
    */
-  private async publishLogs(changes: readonly ChangeName[]): Promise<void> {
+  private async publishLogs(
+    changes: readonly ChangeName[],
+    onProgress?: (progress: SyncProgress) => void,
+  ): Promise<void> {
     let pending = changes;
     for (let attempt = 0; pending.length > 0; attempt++) {
       // Each change's log settles independently, so settling the batch
       // concurrently costs one round trip's latency, not `pending.length`'s.
+      let merged = 0;
+      onProgress?.({ kind: "merging-logs", merged, logs: pending.length });
       const withTips = await Promise.all(
-        pending.map(async (change) => ({ change, tip: await this.settleLog(change) })),
+        pending.map(async (change) => {
+          const entry = { change, tip: await this.settleLog(change) };
+          onProgress?.({ kind: "merging-logs", merged: ++merged, logs: pending.length });
+          return entry;
+        }),
       );
       const settled = withTips.filter(
         (entry): entry is { change: ChangeName; tip: Revision } => entry.tip !== undefined,
@@ -931,6 +944,7 @@ export class GitBackend implements Backend {
       if (settled.length === 0) {
         return;
       }
+      onProgress?.({ kind: "pushing-logs", logs: settled.length });
       const rejected = await this.pushLogs(settled);
       if (rejected.length === 0) {
         return;

@@ -12,6 +12,7 @@ import { isConnectivityError } from "./connectivity.js";
 import {
   type AbsorbResult,
   absorbForgeChange,
+  type FetchProgress,
   type Forge,
   type PublishResult,
   publishForgeChange,
@@ -36,12 +37,17 @@ export interface FetchedLocal {
  * origin's copies, fast-forward branches whose moves lose nothing — a clean
  * workspace's working tree follows its branch; a dirty one holds it put —
  * and merge every change's log with origin's. `fetchForge` runs the same
- * steps and absorbs forge activity besides.
+ * steps and absorbs forge activity besides. The current phase is reported
+ * through `onProgress`, for hosts to show while the fetch runs.
  */
-export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
+export async function fetchLocal(
+  backend: Backend,
+  onProgress?: (progress: FetchProgress) => void,
+): Promise<FetchedLocal> {
+  onProgress?.({ kind: "fetching-origin" });
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
-  const synced = await backend.syncLogs();
+  const synced = await backend.syncLogs(onProgress);
   const joined = await backend.joinBranches(synced);
   return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
 }
