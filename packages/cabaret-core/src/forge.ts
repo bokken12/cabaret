@@ -655,7 +655,7 @@ export async function landOnForge(
       `${forge.locator}#${forgeChange.id} is not at ${JSON.stringify(name)}'s tip; run \`cab sync\` first`,
     );
   }
-  const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(name), landTrailer(name));
+  const merge = await forge.landChange(forgeChange.id, method, prepared.tip, landTitle(name), landTrailer(change.id));
   // Fetch before recording: the settling entries read the merge commit, which
   // arrives with the parent.
   await backend.fetch(parent);
