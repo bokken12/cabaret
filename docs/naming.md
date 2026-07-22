@@ -20,8 +20,8 @@ Humans see names.
 A change's name is log state: `create` records the initial name,
 `set-name` renames. The branch mirrors the current name — renaming a
 change renames its branch locally and at origin, and retargets the forge
-change where the forge supports it (GitHub renames the branch under a PR;
-GitLab cannot, and there the forge branch keeps the old name).
+change where the forge supports it (GitHub renames the branch under a
+PR); on a forge that cannot, the forge branch keeps the old name.
 
 A branch left on a former name is a stale alias: fetch recognizes any
 name in a log's history and joins the branch's commits into the change's
