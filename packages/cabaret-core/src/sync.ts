@@ -1,8 +1,8 @@
 import {
   type Backend,
-  currentName,
   type ChangeName,
   conflictsBetween,
+  currentName,
   ensureBranch,
   type FilePath,
   landedMerge,
