@@ -62,7 +62,7 @@ function foldTexts(doc: Doc): (string | undefined)[][] {
 }
 
 test("homeDoc lays out both sections as trees, ancestors kept for context", () => {
-  const gadget = summary("gadget", { landed: fake("5"), nextStep: "landed", tip: fake("3") });
+  const gadget = parseBranchName("gadget");
   const gizmo = summary("gizmo", {
     parent: parseBranchName("gadget"),
     reviewLeft: left("gizmo.ts", "shared.ts"),
@@ -74,12 +74,21 @@ test("homeDoc lays out both sections as trees, ancestors kept for context", () =
   const doc = homeDoc({
     as: undefined,
     review: [
-      { summary: gadget, owed: [], children: [{ summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }] },
+      {
+        kind: "context",
+        change: gadget,
+        children: [{ kind: "owed", summary: gizmo, owed: files("gizmo.ts", "shared.ts"), children: [] }],
+      },
     ],
     owned: [
-      { summary: gadget, context: true, children: [{ summary: gizmo, context: false, children: [] }] },
-      { summary: rusty, context: false, children: [] },
-      { summary: widgets, context: false, children: [] },
+      {
+        kind: "context",
+        change: gadget,
+        step: "landed",
+        children: [{ kind: "owned", summary: gizmo, children: [] }],
+      },
+      { kind: "owned", summary: rusty, children: [] },
+      { kind: "owned", summary: widgets, children: [] },
     ],
     broken: [],
     workspaces: [],
@@ -172,17 +181,10 @@ test("homeDoc with nothing to do keeps both sections, empty", () => {
 
 test("homeDoc lists the changes checked out on this device in their stacks", () => {
   const gadget = summary("gadget", { reviewLeft: left("gadget.ts") });
-  const widgets = summary("widgets", {});
-  const relic = summary("relic", {
-    parent: parseBranchName("widgets"),
-    landed: fake("5"),
-    nextStep: "landed",
-    tip: fake("3"),
-  });
   const doc = homeDoc({
     as: undefined,
-    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
-    owned: [{ summary: gadget, context: false, children: [] }],
+    review: [{ kind: "owed", summary: gadget, owed: files("gadget.ts"), children: [] }],
+    owned: [{ kind: "owned", summary: gadget, children: [] }],
     broken: [],
     workspaces: [
       {
@@ -191,11 +193,11 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
         children: [],
       },
       {
-        change: widgets.change,
+        change: parseBranchName("widgets"),
         held: undefined,
         children: [
           {
-            change: relic.change,
+            change: parseBranchName("relic"),
             held: {
               workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: true },
               landed: true,
@@ -264,8 +266,8 @@ test("homeDoc as another user names them and keeps their identity on every chang
   const gadget = summary("gadget", { owner: userName("bob@example.com"), reviewLeft: left("gadget.ts") });
   const doc = homeDoc({
     as: userName("bob@example.com"),
-    review: [{ summary: gadget, owed: files("gadget.ts"), children: [] }],
-    owned: [{ summary: gadget, context: false, children: [] }],
+    review: [{ kind: "owed", summary: gadget, owed: files("gadget.ts"), children: [] }],
+    owned: [{ kind: "owned", summary: gadget, children: [] }],
     broken: [],
     workspaces: [],
     fetched: undefined,
@@ -298,7 +300,7 @@ test("homeDoc carries broken changes as doc errors, named for their change", () 
   const doc = homeDoc({
     as: undefined,
     review: [],
-    owned: [{ summary: summary("widgets", {}), context: false, children: [] }],
+    owned: [{ kind: "owned", summary: summary("widgets", {}), children: [] }],
     broken: [
       { change: parseBranchName("gizmo"), message: 'unknown revision: "refs/heads/gizmo"' },
       { change: parseBranchName("relic"), message: 'parent branch of "relic" does not exist: "gone"' },
@@ -788,8 +790,8 @@ test("next steps an action performs link to running it, the rest staying bare", 
     as: undefined,
     review: [],
     owned: [
-      { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
-      { summary: summary("widgets", { nextStep: "fix conflicts" }), context: false, children: [] },
+      { kind: "owned", summary: summary("gizmo", { nextStep: "rebase" }), children: [] },
+      { kind: "owned", summary: summary("widgets", { nextStep: "fix conflicts" }), children: [] },
     ],
     broken: [],
     workspaces: [],
