@@ -35,11 +35,12 @@ test("create --permanent starts the change permanent", async () => {
   });
   expect(await repo.cabaret("dev", "log", "umbrella")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-permanent","permanent":true}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"umbrella"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${tip}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-permanent","permanent":true}}\n',
     stderr: "",
     exitCode: 0,
   });

@@ -132,6 +132,7 @@ export async function createChange(
     base = await backend.mergeBase(parentTip, existing.tip);
   }
   await backend.appendLog(change, [
+    { timestamp: now(), user, action: { kind: "set-name", name: change } },
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
     { timestamp: now(), user, action: { kind: "set-base", base } },
     { timestamp: now(), user, action: { kind: "set-owner", owner: owner ?? user } },
