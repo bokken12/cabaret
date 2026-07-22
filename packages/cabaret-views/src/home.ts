@@ -27,7 +27,7 @@ import { type Doc, type Line, layout, type Node, section, span } from "./doc.js"
 import { fetchedFooter } from "./fetched.js";
 import { stepSpan, stepStyle } from "./steps.js";
 import { type Cell, type Column, tableParts } from "./table.js";
-import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
+import { dirtyNote, type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** A change to act on and the changes stacked on it. */
 export interface OwnedNode {
@@ -324,7 +324,7 @@ function forestSection<N extends { readonly children: readonly N[] }>(
  * stack. An ancestor kept only to situate dims; a landed or archived note
  * wears nudge paint, inviting the workspace's reclaiming.
  */
-function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined): Node {
+function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined, now: TimestampMs): Node {
   const rows = treeRows(forest).map(({ node: { change, held }, guide }): readonly Cell[] => {
     const style = held === undefined ? "context" : undefined;
     const name = span(change, { style, target: { kind: "change", change, as } });
@@ -332,7 +332,7 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
       held === undefined
         ? []
         : [
-            ...(held.workspace.dirty ? ["dirty"] : []),
+            ...(held.workspace.dirty === undefined ? [] : [dirtyNote(held.workspace.dirty, now)]),
             ...(held.landed ? ["landed"] : []),
             ...(held.archived ? ["archived"] : []),
           ];
@@ -352,7 +352,7 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
   );
 }
 
-export function homeDoc(page: HomePage): Doc {
+export function homeDoc(page: HomePage, now: TimestampMs): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
     return [changeCell(summary, guide, page.as, style), span(owed.length === 0 ? "" : String(owed.length))];
@@ -388,7 +388,7 @@ export function homeDoc(page: HomePage): Doc {
       ),
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
-      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as)]),
+      ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as, now)]),
       ...fetchedFooter(page.fetched),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),

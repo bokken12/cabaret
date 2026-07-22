@@ -465,14 +465,20 @@ export interface ForgeComment {
 /** Where a config write lands: this repository, or the person's global config. */
 export type ConfigScope = "local" | "global";
 
+/** Uncommitted edits dirtying a workspace. */
+export interface Dirty {
+  /** When a dirty file was last written, by file mtime; undefined when only deletions are pending. */
+  readonly at: TimestampMs | undefined;
+}
+
 /** One workspace of the repository: a working tree and what it has checked out. */
 export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
   /** The branch checked out there, or undefined when none is (a detached HEAD). */
   readonly change: ChangeName | undefined;
-  /** Whether the working tree or index differs from the checkout, untracked files included. */
-  readonly dirty: boolean;
+  /** How the working tree or index differs from the checkout, untracked files included; undefined when clean. */
+  readonly dirty: Dirty | undefined;
   /** Whether this is the repository's primary working tree, which cannot be removed. */
   readonly primary: boolean;
 }

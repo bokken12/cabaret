@@ -13,7 +13,7 @@ const list = buildCommand({
   docs: { brief: "List this repository's workspaces" },
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
-    writeDoc(this, workspacesDoc(await workspacesPage(await this.backend())));
+    writeDoc(this, workspacesDoc(await workspacesPage(await this.backend()), this.now()));
   },
 });
 

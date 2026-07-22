@@ -35,6 +35,6 @@ export const show = buildCommand({
       target = backend.parseName(change);
     }
     const page = await showPage(backend, target);
-    writeDoc(this, showDoc(page));
+    writeDoc(this, showDoc(page, this.now()));
   },
 });

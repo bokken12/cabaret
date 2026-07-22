@@ -224,6 +224,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     let snapshot: ChangeSnapshot | undefined;
     let viewed: ViewedDiffs | undefined;
     const doc = await renderPage(backend, target, {
+      now,
       context: (await readConfig(backend)).context,
       onSnapshot: (read) => {
         snapshot = read;

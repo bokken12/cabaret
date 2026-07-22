@@ -30,7 +30,7 @@ import { type Doc, type Line, layout, type Node, type Section, type Span, sectio
 import { fetchedFooter } from "./fetched.js";
 import { stepSpan } from "./steps.js";
 import { type Cell, table } from "./table.js";
-import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
+import { dirtyNote, type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** What the show page displays. */
 export interface ShowPage {
@@ -194,7 +194,7 @@ function commentsSection(comments: readonly ChangeComment[]): Section | undefine
   return section({ spans: [span("Comments:", { style: "heading" })] }, body);
 }
 
-export function showDoc(page: ShowPage): Doc {
+export function showDoc(page: ShowPage, now: TimestampMs): Doc {
   const summary = page.summary;
   // Each row notes how its own reading disagrees with what it should track.
   // A trunk's log never declared anything, so only its history's rows appear.
@@ -245,7 +245,13 @@ export function showDoc(page: ShowPage): Doc {
     attributes.push(["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])]);
   }
   if (page.workspace !== undefined) {
-    attributes.push(["workspace", noted(page.workspace.display, page.workspace.dirty ? "dirty" : undefined)]);
+    attributes.push([
+      "workspace",
+      noted(
+        page.workspace.display,
+        page.workspace.dirty === undefined ? undefined : dirtyNote(page.workspace.dirty, now),
+      ),
+    ]);
   }
   // No target: the heading names the page itself.
   const heading = span(page.as === undefined ? summary.change : `${summary.change} as ${page.as}`, {

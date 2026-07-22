@@ -9,6 +9,6 @@ export const home = buildCommand({
   async func(this: LocalContext, _flags: Record<never, never>) {
     const backend = await this.backend();
     const page = await homePage(backend);
-    writeDoc(this, homeDoc(page));
+    writeDoc(this, homeDoc(page, this.now()));
   },
 });

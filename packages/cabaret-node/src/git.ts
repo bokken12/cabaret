@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -9,6 +9,7 @@ import {
   type ChangeId,
   type ChangeName,
   type ConfigScope,
+  type Dirty,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
@@ -1107,9 +1108,48 @@ export class GitBackend implements Backend {
         path,
         change,
         primary,
-        dirty: (await git(path, ["status", "--porcelain"])) !== "",
+        dirty: await this.dirtiness(path),
       })),
     );
+  }
+
+  /**
+   * The workspace's uncommitted edits, dated by the dirty files' mtimes —
+   * undefined when clean. `-z` keeps special-character paths literal;
+   * `--untracked-files=all` lists files inside untracked directories, whose
+   * own mtimes would only date entry churn.
+   */
+  private async dirtiness(path: string): Promise<Dirty | undefined> {
+    const out = await git(path, ["status", "--porcelain", "-z", "--untracked-files=all"]);
+    if (out === "") {
+      return undefined;
+    }
+    const fields = out.split("\0");
+    const files: string[] = [];
+    for (let i = 0; i < fields.length; i += 1) {
+      const field = fields[i];
+      if (field === undefined || field === "") {
+        continue;
+      }
+      files.push(field.slice(3));
+      // A rename's origin path rides in a field of its own, naming nothing on disk.
+      if (field.startsWith("R") || field.startsWith("C")) {
+        i += 1;
+      }
+    }
+    const times = await Promise.all(
+      files.map(async (file) => {
+        try {
+          // lstat: a dirty symlink dates from the link itself, even broken.
+          return (await lstat(join(path, file))).mtimeMs;
+        } catch {
+          // Deleted: no file left to date.
+          return undefined;
+        }
+      }),
+    );
+    const known = times.filter((time): time is number => time !== undefined);
+    return { at: known.length === 0 ? undefined : timestampMs(Math.round(Math.max(...known))) };
   }
 
   async addWorkspace(path: string, change: ChangeName): Promise<void> {
