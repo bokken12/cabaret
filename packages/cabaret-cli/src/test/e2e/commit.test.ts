@@ -1,5 +1,22 @@
 import { expect, test } from "vitest";
-import { makeRepo } from "./fixture.js";
+import { addChange, makeRepo } from "./fixture.js";
+
+test("commit carries its tip to origin, and holds it quietly offline", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.write("gadget.txt", "more gadget work\n");
+  expect((await repo.cabaret("commit")).stdout).toBe("");
+  // The tip replicated with the commit: origin holds it without a sync.
+  expect((await repo.git("ls-remote", "--heads", "origin", "gadget")).split("\t")[0]).toBe(await repo.git("rev-parse", "gadget"));
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  await repo.write("gadget.txt", "offline gadget work\n");
+  expect((await repo.cabaret("commit")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
+  // The ambient sweep is the retry loop: the next fetch carries the tip.
+  expect((await repo.cabaret("fetch")).stdout).toContain('pushed "gadget" to origin');
+  expect((await repo.git("ls-remote", "--heads", "origin", "gadget")).split("\t")[0]).toBe(await repo.git("rev-parse", "gadget"));
+});
 
 test("commit records every edit under the change's name: no message to compose", async () => {
   const repo = await makeRepo();

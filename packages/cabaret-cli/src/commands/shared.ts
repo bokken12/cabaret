@@ -5,9 +5,11 @@ import {
   defaultContext,
   type FilePath,
   type Forge,
+  isConnectivityError,
   type LogEntry,
   parseContext,
   patternMatches,
+  pushAdvances,
   type ReconcileResult,
   reconcileChange,
   UserError,
@@ -231,5 +233,21 @@ export async function writeThrough(context: LocalContext, backend: Backend, chan
   }
   for (const line of settledLines(forge?.locator, result)) {
     context.process.stdout.write(`${line}\n`);
+  }
+}
+
+/**
+ * Push `change`'s branch when origin trails it, as commands that move a tip
+ * do on their way out: the commit was already substrate, so carrying it asks
+ * no further consent. Quiet offline — a later fetch carries it.
+ */
+export async function pushTip(context: LocalContext, backend: Backend, change: ChangeName): Promise<void> {
+  try {
+    await pushAdvances(backend, [change]);
+  } catch (error) {
+    if (!isConnectivityError(error)) {
+      throw error;
+    }
+    context.process.stdout.write("origin unreachable; sync to publish\n");
   }
 }

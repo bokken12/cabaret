@@ -7,7 +7,7 @@ test("fetch carries a change's log to a fresh machine verbatim", async () => {
   await alice.cabaret("mark", "--tip", "HEAD", "widgets.txt");
   await alice.git("push", "-q", "origin", "main");
   expect(await alice.cabaret("fetch")).toEqual({
-    stdout: "synced 1 change with origin\n",
+    stdout: 'pushed "widgets" to origin\nsynced 1 change with origin\n',
     stderr: "",
     exitCode: 0,
   });

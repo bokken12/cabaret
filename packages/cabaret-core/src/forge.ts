@@ -34,6 +34,7 @@ import {
   type LandPublication,
   landChange,
   prepareLand,
+  pushAdvances,
   recordLand,
   reparentLandedChildren,
 } from "./ops.js";
@@ -736,7 +737,8 @@ export type FetchEvent =
   | ({ readonly kind: "absorbed"; readonly id: ForgeChangeId; readonly change: ChangeName } & AbsorbResult)
   | { readonly kind: "archived"; readonly id: ForgeChangeId; readonly change: ChangeName }
   | { readonly kind: "pruned"; readonly id: ForgeChangeId; readonly change: ChangeName }
-  | ({ readonly kind: "published"; readonly change: ChangeName } & PublishResult);
+  | ({ readonly kind: "published"; readonly change: ChangeName } & PublishResult)
+  | { readonly kind: "pushed"; readonly change: ChangeName };
 
 /** What absorbing the forge's side of a change recorded, for hosts to narrate. */
 export interface AbsorbResult {
@@ -947,6 +949,9 @@ export async function fetchForge(
   // forge changes nobody holds.
   await backend.syncLogs();
   const tracked = await backend.listChanges();
+  for (const change of await pushAdvances(backend, tracked)) {
+    onEvent({ kind: "pushed", change });
+  }
   const existing = new Set(tracked);
 
   const record = parseSweepRecord(await backend.forgeSweepState());
