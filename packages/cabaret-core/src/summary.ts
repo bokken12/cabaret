@@ -29,7 +29,6 @@ import {
   landsAmong,
   type ModeChange,
   observedForgeParent,
-  parseChangeId,
   type ReviewedDiff,
   type Reviewing,
   type Revision,
@@ -236,7 +235,7 @@ export async function summarizeChange(
     reviewing: currentReviewing(entries),
     forgeChange: tracked && { ...tracked, staleParent },
     landed,
-    included: labeledLands(diff.lands, all),
+    included: diff.lands,
     archived: currentArchived(entries),
     permanent: currentPermanent(entries),
     base,
@@ -287,34 +286,14 @@ export interface TrunkSummary {
   readonly truncated: boolean;
 }
 
-/** Summarize a branch with no log. `all` labels its included lands, as in `summarizeChange`. */
-export async function summarizeTrunk(
-  backend: Backend,
-  change: ChangeName,
-  all: readonly Change[],
-): Promise<TrunkSummary> {
+/** Summarize a branch with no log. */
+export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
   const tip = await requireTip(backend, change);
   const [origin, { merges, more }] = await Promise.all([
     originStanding(backend, change, tip),
     backend.chainMerges(undefined, tip, LAND_SCAN),
   ]);
-  return { kind: "trunk", change, tip, origin, included: labeledLands(landsAmong(merges), all), truncated: more };
-}
-
-/**
- * Lands labeled for display: an id-designating trailer resolves to the
- * change's current name — surviving renames — or its short id when the log
- * is not in this clone; a name-valued trailer stands as written.
- */
-function labeledLands(lands: readonly LandMerge[], all: readonly Change[]): readonly LandMerge[] {
-  return lands.map((land) => {
-    if (!/^[0-9a-f]{32}$/.test(land.change)) {
-      return land;
-    }
-    const id = parseChangeId(land.change);
-    const found = all.find((change) => change.id === id);
-    return { ...land, change: found === undefined ? shortChangeId(id) : currentName(found.id, found.entries) };
-  });
+  return { kind: "trunk", change, tip, origin, included: landsAmong(merges), truncated: more };
 }
 
 /**

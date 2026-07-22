@@ -1008,28 +1008,6 @@ test("review left extends from a settled land and diffs from a rewritten reviewe
   });
 });
 
-test("included lands with id trailers label by current name, or short id when the log is absent", async () => {
-  const backend = repoBackend({
-    history: { "1": "0", "2": "1", "3": "2" },
-    branches: { main: "0", feature: "3" },
-    // Two id-trailer lands — one whose change this clone holds, one whose
-    // log it lacks — and one trailer from history predating id trailers.
-    merges: [
-      { change: fixtureChangeId(0), commit: "1", onto: "0" },
-      { change: "f".repeat(32), commit: "2", onto: "1" },
-      { change: "old-style", commit: "3", onto: "2" },
-    ],
-    changed: { "03": ["a.ts"] },
-    logs: { gizmo: created("main", "0") },
-  });
-  const summary = await summarize(backend, feature, [...created("main", "0"), entry(review("a.ts", "0", "3"))], alice);
-  expect(summary.included).toEqual([
-    { change: "gizmo", commit: fake("1"), onto: fake("0") },
-    { change: "ffffffff", commit: fake("2"), onto: fake("1") },
-    { change: "old-style", commit: fake("3"), onto: fake("2") },
-  ]);
-});
-
 test("a change behind origin's copy must sync, before anything else", async () => {
   // Origin's widgets moved to 2 while the local branch still sits at 1.
   const backend = repoBackend({

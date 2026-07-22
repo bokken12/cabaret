@@ -784,7 +784,7 @@ export async function landChange(
   if ((await ensureBranch(backend, parent)) !== onto) {
     await backend.advance(parent, onto);
   }
-  const message = landMessage(currentName(target.id, target.entries), target.id);
+  const message = landMessage(currentName(target.id, target.entries));
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, message)

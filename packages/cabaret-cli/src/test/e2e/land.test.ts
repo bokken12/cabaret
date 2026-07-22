@@ -35,9 +35,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
   const _merge = await repo.git("rev-parse", "parent");
   expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${parentTip}\n${childTip}`);
-  expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe(
-    "Land child\n\nCabaret-Landed: 00000000000000000000000000000002",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
     "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
@@ -46,7 +44,7 @@ test("land merges the child into its parent with a marked merge commit", async (
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
-    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"6d437b8e043d22fe4ab1d087449ffad75ba755ae"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
     {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -78,7 +76,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
-    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"d449f45b8ed5feca7f6959c1c15431b2fdc9e2e5"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"a12744b45f14e8c634ed5853621952f22c519cf4"}}
     {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -298,18 +296,18 @@ test("parent work on both sides of a land reads as one diff", async () => {
       "stdout": "Review parent
     =============
 
-    Reviewing up to ad0296d32405.
+    Reviewing up to b51dcf25203e.
 
       parent.txt
 
-    parent.txt in parent (up to ad0296d32405)
+    parent.txt in parent (up to b51dcf25203e)
 
     -1,0 +1,2
     +|parent v1
     +|parent v2
 
     Record review of what you have read:
-      cabaret mark --change parent --tip ad0296d32405 parent.txt
+      cabaret mark --change parent --tip b51dcf25203e parent.txt
     ",
     }
   `);
@@ -372,11 +370,11 @@ test("a review between two lands leaves only the later span", async () => {
       "stdout": "Review parent
     =============
 
-    Reviewing up to 4a1d66c4d169.
+    Reviewing up to 0a5396e9799e.
 
       parent.txt
 
-    parent.txt in parent (up to 4a1d66c4d169)
+    parent.txt in parent (up to 0a5396e9799e)
 
     -1,2 +1,3
       parent v1
@@ -384,7 +382,7 @@ test("a review between two lands leaves only the later span", async () => {
     +|parent v3
 
     Record review of what you have read:
-      cabaret mark --change parent --tip 4a1d66c4d169 parent.txt
+      cabaret mark --change parent --tip 0a5396e9799e parent.txt
     ",
     }
   `);
@@ -495,7 +493,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52"}}
     {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52","tip":"507301964aa048e3c7abc9c06e703506da66e2de"}}
-    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"380471e06a1a98de0de1d973f38b903fa7aa2cee"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"4b7d5d8dc5ee966b6af2d0a61e06197c6e7f11e1"}}
     {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -524,17 +522,17 @@ test("a cherry-picked land commit reads as unreviewed work", async () => {
       "stdout": "Review copy
     ===========
 
-    Reviewing up to b634c0351fa3.
+    Reviewing up to 0e445ff5818d.
 
       child.txt
 
-    child.txt in copy (up to b634c0351fa3)
+    child.txt in copy (up to 0e445ff5818d)
 
     -1,0 +1,1
     +|child work
 
     Record review of what you have read:
-      cabaret mark --tip b634c0351fa3 child.txt
+      cabaret mark --tip 0e445ff5818d child.txt
     ",
     }
   `);
@@ -598,7 +596,7 @@ test("a range lands the whole chain, deepest first", async () => {
     {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000025,"user":"alice@example.com","action":{"kind":"land","merge":"65af374261c0160550935f13a40671b5075ba3f1"}}
+    {"timestamp":1748000000025,"user":"alice@example.com","action":{"kind":"land","merge":"5a1836b67314c288a076153aa26a99fd7e7cdf09"}}
     {"timestamp":1748000000026,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -609,9 +607,9 @@ test("a range lands the whole chain, deepest first", async () => {
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
-    {"timestamp":1748000000021,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"b509f381f3ed9332671724f5a29c54f5f54a8754"}}
-    {"timestamp":1748000000022,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"b509f381f3ed9332671724f5a29c54f5f54a8754"}}
-    {"timestamp":1748000000023,"user":"alice@example.com","action":{"kind":"land","merge":"a02d5c0b87c09f00c4a3399278e8e8c597bf5c61"}}
+    {"timestamp":1748000000021,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000022,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000023,"user":"alice@example.com","action":{"kind":"land","merge":"1c36ebc08432a44e2e4b3ced6ffe8c2372c7da5f"}}
     {"timestamp":1748000000024,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -623,7 +621,7 @@ test("a range lands the whole chain, deepest first", async () => {
     {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
     {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
     {"timestamp":1748000000018,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5","tip":"cf71bf0d7f3e2f4be8063d5dd5444a4f4ef167ea"}}
-    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"land","merge":"b509f381f3ed9332671724f5a29c54f5f54a8754"}}
+    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"land","merge":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
     {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -727,7 +725,7 @@ test("landing leaves landed children where they landed", async () => {
     {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
     {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
     {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"6d437b8e043d22fe4ab1d087449ffad75ba755ae"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
     {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
     "
   `);
@@ -836,9 +834,7 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
   // second parent; the log freezes the tip the squash does not carry.
   const squash = await repo.git("rev-parse", "parent");
   expect(await repo.git("show", "--no-patch", "--format=%P", "parent")).toBe(parentTip);
-  expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe(
-    "Land child\n\nCabaret-Landed: 00000000000000000000000000000002",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   expect((await repo.cabaret("dev", "log", "child")).stdout).toContain(
     `{"kind":"land","merge":"${squash}","tip":"${childTip}"}`,

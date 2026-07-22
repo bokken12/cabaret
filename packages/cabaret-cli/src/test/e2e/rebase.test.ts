@@ -553,8 +553,8 @@ test("a rebase keeps main's own movement out of review", async () => {
     │ owner     │ alice@example.com │
     │ reviewing │ none              │
     │ parent    │ main              │
-    │ tip       │ 320dc6b3d82e      │
-    │ base      │ 5db2385aafd7      │
+    │ tip       │ 244470f9ef1a      │
+    │ base      │ 5e19fa6beaa9      │
     │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
@@ -586,17 +586,17 @@ test("a rebase keeps main's own movement out of review", async () => {
     "Review feature
     ==============
 
-    Reviewing up to 320dc6b3d82e.
+    Reviewing up to 244470f9ef1a.
 
       plain.txt
 
-    plain.txt in feature (up to 320dc6b3d82e)
+    plain.txt in feature (up to 244470f9ef1a)
 
     -1,0 +1,1
     +|plain work
 
     Record review of what you have read:
-      cabaret mark --change feature --tip 320dc6b3d82e plain.txt
+      cabaret mark --change feature --tip 244470f9ef1a plain.txt
     "
   `);
 });

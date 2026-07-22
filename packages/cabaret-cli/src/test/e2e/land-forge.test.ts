@@ -33,9 +33,7 @@ test("land merges the change's forge change and fetches the result", async () =>
   // trailer and all, so the parent's reviewers skip the diff it brings in.
   const merge = await repo.git("rev-parse", "main");
   expect(await repo.git("rev-parse", "main^1", "main^2")).toBe(`${mainBefore}\n${tip}`);
-  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe(
-    "Land gadget\n\nCabaret-Landed: 00000000000000000000000000000001",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   expect((await repo.git("ls-remote", "origin", "main")).split("\t")[0]).toBe(merge);
   expect((await forge.getChange(PR)).state).toBe("merged");
   expect((await repo.cabaret("dev", "log")).stdout).toContain(`{"kind":"land","merge":"${merge}"}`);
@@ -135,9 +133,7 @@ test("land squashes the change's forge change when configured", async () => {
   });
   const squash = await repo.git("rev-parse", "main");
   expect(await repo.git("show", "--no-patch", "--format=%P", "main")).toBe(mainBefore);
-  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe(
-    "Land gadget\n\nCabaret-Landed: 00000000000000000000000000000001",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   expect(await repo.git("show", "main:gadget.txt")).toBe("gadget work");
   expect((await repo.cabaret("dev", "log")).stdout).toContain(`{"kind":"land","merge":"${squash}","tip":"${tip}"}`);
 });
@@ -149,9 +145,7 @@ test("land stays off the forge when cabaret.landVia is local, forge change or no
   expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
   // Local main took the land merge and pushed it; the forge change itself was
   // never merged.
-  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe(
-    "Land gadget\n\nCabaret-Landed: 00000000000000000000000000000001",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   expect((await repo.git("ls-remote", "origin", "main")).split("\t")[0]).toBe(await repo.git("rev-parse", "main"));
   expect((await forge.getChange(PR)).state).toBe("open");
 });
@@ -209,9 +203,7 @@ test("land via forge from the parent's checkout fast-forwards it, working tree i
     exitCode: 0,
   });
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("main");
-  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe(
-    "Land gadget\n\nCabaret-Landed: 00000000000000000000000000000001",
-  );
+  expect(await repo.git("log", "--format=%B", "-1", "main")).toBe("Land gadget\n\nCabaret-Landed: gadget");
   // The checked-out main fast-forwarded for real: the file is on disk.
   expect(await repo.git("status", "--porcelain")).toBe("");
   expect(await repo.git("show", "HEAD:gadget.txt")).toBe("gadget work");

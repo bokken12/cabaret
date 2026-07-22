@@ -1350,8 +1350,8 @@ export class GitBackend implements Backend {
   }
 
   // Tab-delimit the fields: %P holds space-separated parents, and the
-  // trailer value is a change designator, so neither can contain a tab.
-  // `unfold` keeps a folded trailer value to one line.
+  // trailer value is a branch name, so neither can contain a tab. `unfold`
+  // keeps a folded trailer value to one line.
   private static readonly CHAIN_LOG_FORMAT =
     `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`;
 
