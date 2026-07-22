@@ -16,6 +16,7 @@ import {
   type ForgeMerge,
   finished,
   formatLogEntry,
+  freshestReading,
   type LogEntry,
   landTitle,
   landTrailer,
@@ -1221,11 +1222,14 @@ export async function publishForgeChange(
     // reviewing leaves none and the head reaches origin, and archiving asks
     // for no new one. The change replicates regardless — its branch and log
     // are already at origin.
-    if (
-      currentArchived(entries) ||
-      currentReviewing(entries) === "none" ||
-      (await backend.originTip(change)) === undefined
-    ) {
+    const head = await backend.originTip(change);
+    if (currentArchived(entries) || currentReviewing(entries) === "none" || head === undefined) {
+      return undefined;
+    }
+    // Forges refuse a change whose head adds no commits over its parent;
+    // opening waits until it does.
+    const parentReading = await freshestReading(backend, parent);
+    if (parentReading.kind === "fresh" && (await backend.isAncestor(head, parentReading.tip))) {
       return undefined;
     }
     forgeChange = await forge.createChange(change, parent, change);

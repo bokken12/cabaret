@@ -233,6 +233,35 @@ test("fetch passes by an unreviewing change without asking the forge", async () 
   expect((await repo.cabaret("dev", "log")).stdout).not.toContain('"kind":"set-forge"');
 });
 
+test("fetch defers opening a forge change until the head adds commits", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await repo.cabaret("create", "gadget");
+  await repo.cabaret("reviewing", "set", "everyone", "--change", "gadget");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
+      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await repo.cabaret("dev", "log", "gadget")).stdout).not.toContain('"kind":"set-forge"');
+  await repo.git("checkout", "-q", "gadget");
+  await repo.write("gadget.txt", "gadget work\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "gadget work");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      'pushed "gadget" to origin\n' +
+      "opened github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 0 updated forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(PR)).state).toBe("open");
+});
+
 /** A teammate's branch, committed and pushed to origin but absent locally, as a forge change's head would be. */
 async function pushTeammateBranch(repo: TestRepo, branch: ChangeName): Promise<string> {
   await repo.git("checkout", "-qb", branch);
