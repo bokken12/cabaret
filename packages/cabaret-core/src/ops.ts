@@ -790,3 +790,25 @@ export async function transferChange(
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-owner", owner } },
   ]);
 }
+
+/**
+ * Push every branch of `changes` that origin trails by descent — replication,
+ * not publication: attention never rides a push, and a diverged branch is a
+ * join's business, not a push's. Returns what moved, in `changes` order.
+ */
+export async function pushAdvances(backend: Backend, changes: readonly ChangeName[]): Promise<readonly ChangeName[]> {
+  const pushed: ChangeName[] = [];
+  for (const change of changes) {
+    const tip = await backend.tip(change);
+    if (tip === undefined) {
+      continue;
+    }
+    const origin = await backend.originTip(change);
+    if (origin === tip || (origin !== undefined && !(await backend.isAncestor(origin, tip)))) {
+      continue;
+    }
+    await backend.push(change);
+    pushed.push(change);
+  }
+  return pushed;
+}

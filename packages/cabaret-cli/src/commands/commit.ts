@@ -1,5 +1,6 @@
 import { buildCommand } from "@stricli/core";
 import type { LocalContext } from "../context.js";
+import { pushTip } from "./shared.js";
 
 export const commit = buildCommand({
   docs: {
@@ -28,5 +29,6 @@ export const commit = buildCommand({
       change,
       args.map((raw) => backend.resolveFile(raw)),
     );
+    await pushTip(this, backend, change);
   },
 });

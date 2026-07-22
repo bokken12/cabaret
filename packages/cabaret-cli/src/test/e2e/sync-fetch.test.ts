@@ -190,6 +190,7 @@ test("fetch adopts the branch's open forge change when the log names none", asyn
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
       "fetched 1 comment from github.com/test-org/widgets#1\n" +
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
@@ -198,12 +199,34 @@ test("fetch adopts the branch's open forge change when the log names none", asyn
   );
 });
 
-test("fetch passes by a change with no forge change", async () => {
+test("fetch alone carries a ready change from local to an open forge change", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
+  // One ambient sweep pushes the branch, sees reviewing has left none, and
+  // opens the forge change: nothing about publication needed a sync.
   expect(await repo.cabaret("fetch")).toEqual({
-    stdout: "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stdout:
+      "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
+      "opened github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await forge.getChange(PR)).state).toBe("open");
+});
+
+test("fetch passes by an unreviewing change without asking the forge", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "none");
+  expect(await repo.cabaret("fetch")).toEqual({
+    stdout:
+      "recorded github:alice as an alias\n" +
+      'pushed "gadget" to origin\n' +
+      "fetched github.com/test-org/widgets: 0 open forge changes\n",
     stderr: "",
     exitCode: 0,
   });

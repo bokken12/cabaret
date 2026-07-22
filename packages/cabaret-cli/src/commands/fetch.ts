@@ -55,6 +55,9 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
     case "archived":
       context.process.stdout.write(`${locator}#${event.id} was closed; archived ${JSON.stringify(event.change)}\n`);
       return;
+    case "pushed":
+      context.process.stdout.write(`pushed ${JSON.stringify(event.change)} to origin\n`);
+      return;
     case "published": {
       for (const line of settledLines(locator, { offline: false, absorbed: undefined, published: event })) {
         context.process.stdout.write(`${line}\n`);
@@ -102,9 +105,12 @@ export const fetch = buildCommand({
       }
     }
     if (forge === undefined) {
-      const { synced, advanced } = await fetchLocal(backend);
+      const { synced, advanced, pushed } = await fetchLocal(backend);
       for (const change of advanced) {
         this.process.stdout.write(`advanced ${JSON.stringify(change)}\n`);
+      }
+      for (const change of pushed) {
+        this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);
       }
       this.process.stdout.write(`synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin\n`);
       return;

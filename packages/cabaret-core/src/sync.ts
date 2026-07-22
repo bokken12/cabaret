@@ -17,7 +17,7 @@ import {
   publishForgeChange,
   syncedForgeChange,
 } from "./forge.js";
-import { assertNoConflict } from "./ops.js";
+import { assertNoConflict, pushAdvances } from "./ops.js";
 
 /** What the ambient half of a fetch moved, for hosts to narrate. */
 export interface FetchedLocal {
@@ -25,6 +25,8 @@ export interface FetchedLocal {
   readonly synced: readonly ChangeName[];
   /** The branches fast-forwarded onto origin's fresh copies. */
   readonly advanced: readonly ChangeName[];
+  /** The branches pushed, origin having trailed them by descent. */
+  readonly pushed: readonly ChangeName[];
 }
 
 /**
@@ -38,7 +40,7 @@ export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
   const synced = await backend.syncLogs();
-  return { synced, advanced };
+  return { synced, advanced, pushed: await pushAdvances(backend, synced) };
 }
 
 /** What a per-change reconcile settled, for hosts to narrate. */
