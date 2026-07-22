@@ -277,15 +277,14 @@ export class ForgejoForge implements Forge {
     return this.toChange(PrSchema.parse(data));
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
-    // Creation cannot mark a draft, so a draft opens under the work-in-progress
-    // title prefix. The response names the new PR; fetching by its number —
-    // never by head, which could race another PR on the same branch — reuses
-    // the one query that maps a PR.
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
+    // The response names the new PR; fetching by its number — never by head,
+    // which could race another PR on the same branch — reuses the one query
+    // that maps a PR.
     const data = await this.client.post(`${this.api}/pulls`, {
       head,
       base: parent,
-      title: draft ? `WIP: ${title}` : title,
+      title,
     });
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }

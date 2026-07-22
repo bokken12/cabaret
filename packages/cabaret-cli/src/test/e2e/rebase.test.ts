@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, shownLog, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -110,7 +110,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   await repo.write("shared.txt", "from parent\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "parent work");
-  const oldBase = await repo.git("rev-parse", "parent");
+  const _oldBase = await repo.git("rev-parse", "parent");
   await repo.cabaret("create", "child");
   await repo.git("checkout", "-q", "child");
   await repo.write("shared.txt", "from child\n");
@@ -132,16 +132,14 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   expect(await repo.git("show", "child:shared.txt")).toBe(
     `<<<<<<< ${tipBefore}\nfrom child\n=======\nfrom parent, amended\n>>>>>>> ${onto}`,
   );
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${oldBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"${onto}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"aaf2e0dc48428bf54d4b9aae694d45311d1d89ab"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"38504647eb6283c6596aabb6eac12b4273a383dd"}}
+    "
+  `);
   expect(await repo.cabaret("conflicts", "child")).toEqual({
     stdout: `shared.txt:1: <<<<<<< ${tipBefore}\n`,
     stderr: "",
@@ -294,22 +292,20 @@ test("rebase pins the base after an out-of-band rebase, surviving a later parent
   await repo.git("commit", "-qm", "more parent work");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
-  const createdBase = await repo.git("rev-parse", "child~2");
-  const advanced = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "child~2");
+  const _advanced = await repo.git("rev-parse", "parent");
   // The child sits on the parent's tip, so there is nothing to replay; but
   // rebase must still pin the base there, since the merge-base alone would
   // slide back once the parent is rewritten.
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"fb9614990d7a450df016bb6152c809b7d82cba4d"}}
+    "
+  `);
   // Rewrite the parent's tip; without the pinned base the merge-base would
   // fall back and pull the parent's commits into the child's diff.
   await repo.git("checkout", "-q", "parent");
@@ -334,24 +330,24 @@ test("rebase fails on a change that does not exist", async () => {
 
 test("a range rebases each change onto its parent, ancestormost first", async () => {
   const repo = await makeRepo();
-  const root = await repo.git("rev-parse", "main");
+  const _root = await repo.git("rev-parse", "main");
   await addChange(repo, "a");
-  const aOld = await repo.git("rev-parse", "a");
+  const _aOld = await repo.git("rev-parse", "a");
   await addChange(repo, "b");
-  const bOld = await repo.git("rev-parse", "b");
+  const _bOld = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
   await repo.git("checkout", "-q", "main");
   await repo.write("trunk.txt", "trunk work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk work");
-  const mainNew = await repo.git("rev-parse", "main");
+  const _mainNew = await repo.git("rev-parse", "main");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
     "Merge branch 'b' into c\nc work\nb work\na work\nroot",
   );
   // Each change merged its parent's merged tip, so the trunk's work reaches
   // the top of the stack and nothing of the parent line is left in a diff.
-  const [aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
+  const [_aNew, bNew] = [await repo.git("rev-parse", "a"), await repo.git("rev-parse", "b")];
   expect(await repo.git("rev-parse", "c^2")).toBe(bNew);
   expect(await repo.git("show", "c:trunk.txt")).toBe("trunk work");
   expect(await repo.cabaret("review", "--change", "c", "b.txt")).toEqual({
@@ -364,36 +360,33 @@ test("a range rebases each change onto its parent, ancestormost first", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("dev", "log", "a")).toEqual({
-    stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-base","base":"${mainNew}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "b")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aOld}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-base","base":"${aNew}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "c")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bOld}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"${bNew}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "a")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-base","base":"5ea531675f501df58bfcc7b0fa4180baf4e20791"}}
+    "
+  `);
+  expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-base","base":"c487be5ad4f41d90666600afefa27b092e939521"}}
+    "
+  `);
+  expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"set-base","base":"457863f7a5da1c56012d5a09dbfaace94bb67a8f"}}
+    "
+  `);
 });
 
 test("a range stops at a conflicted change and a rerun resumes once fixed", async () => {

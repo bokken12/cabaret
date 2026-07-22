@@ -539,7 +539,6 @@ describe("GitHubForge", () => {
       parseBranchName("new-work"),
       parseBranchName("parent-branch"),
       "New work",
-      false,
     );
     expect(created).toEqual({
       id: 12,
@@ -553,7 +552,7 @@ describe("GitHubForge", () => {
       reviewers: [],
     });
     expect(calls[0]?.body).toBe(
-      JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "", draft: false }),
+      JSON.stringify({ title: "New work", head: "new-work", base: "parent-branch", body: "" }),
     );
   });
 

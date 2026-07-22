@@ -117,6 +117,7 @@ test("review-all marks as your writing identity alone; --for marks as another", 
 test("review-all leaves a draft alone", async () => {
   const repo = await makeRepo();
   await addChange(repo, "widgets");
+  await repo.cabaret("reviewing", "set", "none", "--change", "widgets");
   const before = await repo.cabaret("dev", "log", "widgets");
 
   expect(await repo.cabaret("dev", "review-all")).toEqual({ stdout: "nothing owed\n", stderr: "", exitCode: 0 });

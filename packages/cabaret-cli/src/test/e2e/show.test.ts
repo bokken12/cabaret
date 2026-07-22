@@ -15,9 +15,9 @@ test("show renders the current change's status page", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -45,9 +45,9 @@ test("show renders the comments on a change, oldest first, above the files", asy
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.004Z alice@example.com
+      2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.005Z alice@example.com
+      2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly
@@ -336,7 +336,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     ├───────────┼──────────────────────────────┤
     │ next step │ sync                         │
     │ owner     │ alice@example.com            │
-    │ reviewing │ none                         │
+    │ reviewing │ everyone                     │
     │ parent    │ main                         │
     │ tip       │ f37230616d25 (behind origin) │
     │ base      │ 1ac0b33426d0                 │
@@ -408,7 +408,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     ├───────────┼───────────────────┤
     │ next step │ reparent          │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ gadget (landed)   │
     │ tip       │ 03c72c897f10      │
     │ base      │ f37230616d25      │
@@ -471,7 +471,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     ├───────────┼─────────────────────────────────────┤
     │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
-    │ reviewing │ none                                │
+    │ reviewing │ everyone                            │
     │ parent    │ main                                │
     │ tip       │ 7eccbe63002f (diverged from origin) │
     │ base      │ 1ac0b33426d0                        │
@@ -544,6 +544,8 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
     │ base         │ 1ac0b33426d0                   │
     │ workspace    │ .                              │
     ╰──────────────┴────────────────────────────────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -556,7 +558,12 @@ test("show notes the forge change's stale target and makes sync the step", async
   await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
-  await repo.cabaret("reparent", "gadget", "trunk");
+  // Reparented while origin is unreachable: the write-through skips, so the
+  // forge change still targets main until a sync republishes.
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("reparent", "gadget", "trunk")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -573,6 +580,8 @@ test("show notes the forge change's stale target and makes sync the step", async
     │ base         │ 1ac0b33426d0                                     │
     │ workspace    │ .                                                │
     ╰──────────────┴──────────────────────────────────────────────────╯
+
+    fetched 00:00, 2025-01-01
     "
   `);
 });
@@ -594,9 +603,9 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ 7eccbe63002f      │
     │ base      │ 1ac0b33426d0      │

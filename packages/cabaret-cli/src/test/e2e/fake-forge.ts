@@ -162,8 +162,8 @@ export class FakeForge implements Forge {
     return this.toChange(id, this.pr(id));
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
-    return this.getChange(this.openPr(this.tokenLogin, head, parent, title, draft));
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
+    return this.getChange(this.openPr(this.tokenLogin, head, parent, title));
   }
 
   async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {

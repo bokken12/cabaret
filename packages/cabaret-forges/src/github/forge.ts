@@ -297,7 +297,7 @@ export class GitHubForge implements Forge {
     return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
     // The creation response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch —
     // reuses the one query that maps a PR.
@@ -307,7 +307,6 @@ export class GitHubForge implements Forge {
       head,
       base: parent,
       body: "",
-      draft,
     });
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }

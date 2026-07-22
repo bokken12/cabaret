@@ -120,8 +120,8 @@ export interface Forge {
 
   getChange(id: ForgeChangeId): Promise<ForgeChange>;
 
-  /** Open a change merging `head` into `parent`, as a draft when `draft`. `head` must already be pushed. */
-  createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange>;
+  /** Open a change merging `head` into `parent`, ready for review. `head` must already be pushed. */
+  createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange>;
 
   /** Retarget an open change's parent branch. */
   setParent(id: ForgeChangeId, parent: ChangeName): Promise<void>;
@@ -1132,10 +1132,18 @@ export async function publishForgeChange(
   let forgeChange = found;
   const opened = forgeChange === undefined;
   if (forgeChange === undefined) {
-    if (currentArchived(entries)) {
+    // The forge change is the change's attention artifact: none exists until
+    // reviewing leaves none and the head reaches origin, and archiving asks
+    // for no new one. The change replicates regardless — its branch and log
+    // are already at origin.
+    if (
+      currentArchived(entries) ||
+      currentReviewing(entries) === "none" ||
+      (await backend.originTip(change)) === undefined
+    ) {
       return undefined;
     }
-    forgeChange = await forge.createChange(change, parent, change, currentReviewing(entries) === "none");
+    forgeChange = await forge.createChange(change, parent, change);
     await backend.appendLog(change, [
       {
         timestamp: now(),

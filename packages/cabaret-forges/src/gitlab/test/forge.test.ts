@@ -636,7 +636,6 @@ describe("GitLabForge", () => {
       parseBranchName("new-work"),
       parseBranchName("parent-branch"),
       "New work",
-      false,
     );
     expect(created).toEqual({
       id: 12,
