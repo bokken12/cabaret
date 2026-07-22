@@ -167,12 +167,14 @@ export function widerReviewing(reviewing: Reviewing): Reviewing | undefined {
 
 /** An action that can be recorded in a change's log. Revisions and names it records are in the owning backend's formats. */
 export type LogAction =
+  | { readonly kind: "set-name"; readonly name: ChangeName }
   | { readonly kind: "set-parent"; readonly parent: ChangeName }
   | { readonly kind: "set-base"; readonly base: Revision }
   | { readonly kind: "set-owner"; readonly owner: UserName }
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "set-archived"; readonly archived: boolean }
+  | { readonly kind: "set-permanent"; readonly permanent: boolean }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
@@ -211,6 +213,7 @@ function logEntrySchema(
 ): z.ZodType<LogEntry> {
   const revision = z.string().transform(parseRevision);
   const action = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("set-name"), name: z.string().transform(parseName) }),
     z.object({ kind: z.literal("set-parent"), parent: z.string().transform(parseName) }),
     z.object({ kind: z.literal("set-base"), base: revision }),
     z.object({ kind: z.literal("set-owner"), owner: z.string().min(1).transform(userName) }),
@@ -221,6 +224,7 @@ function logEntrySchema(
     }),
     z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
     z.object({ kind: z.literal("set-archived"), archived: z.boolean() }),
+    z.object({ kind: z.literal("set-permanent"), permanent: z.boolean() }),
     z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({
@@ -546,14 +550,6 @@ export interface Backend {
   checkout(change: ChangeName): Promise<void>;
 
   /**
-   * Rename change `from` to `to`: move its branch and its log to the new name
-   * in one all-or-nothing transaction, retargeting HEAD when `from` is checked
-   * out. Fails if `to`'s branch or log already exists, or if either of
-   * `from`'s refs moves concurrently.
-   */
-  rename(from: ChangeName, to: ChangeName): Promise<void>;
-
-  /**
    * Commit this workspace's edits — modified, added, and deleted files alike
    * — to the checked-out branch with `message`. `paths`, each a path or one
    * of the backend's native patterns, restrict what is committed; empty
@@ -683,6 +679,25 @@ export interface Backend {
    * logs, as `syncLog` does.
    */
   syncLogs(): Promise<readonly ChangeName[]>;
+
+  /**
+   * Merge origin's reading into every branch of `changes` whose readings
+   * have genuinely diverged, when the merge is conflict-free: an idle branch
+   * joins in place, a clean workspace's tree follows, a dirty one holds its
+   * branch put, and a join that would conflict is left for `sync`. Returns
+   * what joined, sorted.
+   */
+  joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]>;
+
+  /** Origin's forge sweep record as last fetched, or undefined when none is known. */
+  forgeSweepState(): Promise<string | undefined>;
+
+  /**
+   * Replace origin's forge sweep record, unless it moved since last
+   * fetched — a racer's advance serves in this one's stead, so the record
+   * never regresses and losing the race skips rather than retries.
+   */
+  publishForgeSweepState(content: string): Promise<void>;
 
   /**
    * Delete the review state this repository holds: every change's log and the
@@ -828,6 +843,11 @@ export function assertChangeExists(change: ChangeName, entries: readonly LogEntr
   }
 }
 
+/** The name from the log's latest `set-name`, or undefined when the log never recorded one. */
+export function currentName(entries: readonly LogEntry[]): ChangeName | undefined {
+  return latestAction(entries, "set-name")?.name;
+}
+
 /** The parent from the log's latest `set-parent`; `create` starts every log with one, so a missing parent is an error. */
 export function currentParent(change: ChangeName, entries: readonly LogEntry[]): ChangeName {
   assertChangeExists(change, entries);
@@ -884,6 +904,16 @@ export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
  */
 export function currentArchived(entries: readonly LogEntry[]): boolean {
   return latestAction(entries, "set-archived")?.archived ?? false;
+}
+
+/**
+ * Whether the change is permanent — structure expected to outlive its lands,
+ * like a long-lived umbrella others stack work under — from the log's latest
+ * `set-permanent`. A log that never set one reads as ordinary: the change is
+ * done when it lands.
+ */
+export function currentPermanent(entries: readonly LogEntry[]): boolean {
+  return latestAction(entries, "set-permanent")?.permanent ?? false;
 }
 
 /**
@@ -998,22 +1028,20 @@ export function observedForgeReviewers(entries: readonly LogEntry[], forge: Forg
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
-/** The merge that landed the change, or undefined if it has not landed. */
+/** The merge of the change's latest land, or undefined if it has never landed. */
 export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
   return latestAction(entries, "land")?.merge;
 }
 
 /**
- * Fail if `change` has landed. Landing is final: the change's code is frozen
- * in its parent, so entries that would alter what there is to review may no
- * longer be written. Review state is not code, so `review` and `forget` stay
- * allowed and do not call this.
+ * Whether the change is finished: landed, and archived with the landing —
+ * either atomically by an ordinary land, or by hand afterwards. A finished
+ * change's diff readings freeze at the cycle that landed; a change that
+ * landed but stays live — permanent structure, or one reopened by
+ * unarchiving — reads on, its next rebase starting the next cycle.
  */
-export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
-  const merge = landedMerge(entries);
-  if (merge !== undefined) {
-    throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
-  }
+export function finished(entries: readonly LogEntry[]): boolean {
+  return landedMerge(entries) !== undefined && currentArchived(entries);
 }
 
 /**
@@ -1086,10 +1114,13 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   too new is harmless, since a merge-base cannot reach past the change's
  *   own history, so the freshest reading wins by being deepest, and the
  *   change's own ancestry arbitrates between diverged readings.
- * - Once the change lands, its parent's history contains the change itself,
- *   so a parent reading's merge-base would slide to the change's own tip and
- *   erase its diff. The land merge freezes the history the change landed
- *   onto as its first parent, so that becomes the one reading instead.
+ * - Once the change finishes — lands and archives — its parent's history
+ *   contains the change itself, so a parent reading's merge-base would slide
+ *   to the change's own tip and erase its diff. The land merge freezes the
+ *   history the change landed onto as its first parent, so that becomes the
+ *   one reading instead. A change that landed but stays live reads its
+ *   parent as ever: its base advancing past the land is exactly how its next
+ *   cycle begins.
  *
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
@@ -1101,7 +1132,7 @@ export async function changeBase(
 ): Promise<Revision> {
   const stored = currentBase(change, entries);
   const tip = await changeTip(backend, change, entries);
-  const landed = landedMerge(entries);
+  const landed = finished(entries) ? landedMerge(entries) : undefined;
   let readings: readonly Revision[];
   if (landed !== undefined) {
     readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
@@ -1151,15 +1182,15 @@ export async function changeBase(
 }
 
 /**
- * The tip of `change`: the revision its diff is computed up to. A landed
+ * The tip of `change`: the revision its diff is computed up to. A finished
  * change is frozen at the tip it landed as — a merge carries it as its second
  * parent, and a squash, whose commit descends from no reviewed history,
  * records it in the land entry instead; the branch may since be gone or moved
- * on. An unlanded change's tip is its branch, pinned to the branch namespace
+ * on. A live change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
 export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
-  const landed = latestAction(entries, "land");
+  const landed = finished(entries) ? latestAction(entries, "land") : undefined;
   if (landed === undefined) {
     return requireTip(backend, change);
   }

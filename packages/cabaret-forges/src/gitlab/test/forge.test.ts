@@ -1,4 +1,4 @@
-import { forgeChangeId, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
+import { forgeChangeId, forgeCursor, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { GitLabClient, parseGitLabRemote } from "../client.js";
 import { GitLabForge } from "../forge.js";
@@ -409,7 +409,7 @@ describe("GitLabForge", () => {
     expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
-  test("fetchOpenChanges follows the pagination cursor, carrying non-system notes and their cap", async () => {
+  test("fetchChanges follows the pagination cursor, carrying non-system notes and their cap", async () => {
     const calls = stubGitLab({
       [GRAPHQL]: [
         {
@@ -427,6 +427,7 @@ describe("GitLabForge", () => {
                       author: { username: "alice" },
                       state: "opened",
                       draft: false,
+                      updatedAt: "2026-05-02T10:00:00Z",
                       mergeCommitSha: null,
                       reviewers: { nodes: [] },
                       notes: {
@@ -451,6 +452,7 @@ describe("GitLabForge", () => {
                     },
                     {
                       iid: "5",
+                      updatedAt: "2026-05-02T11:30:00Z",
                       sourceBranch: "second",
                       diffHeadSha: "23456789abcdef0123456789abcdef0123456789",
                       targetBranch: "first",
@@ -477,6 +479,7 @@ describe("GitLabForge", () => {
                   nodes: [
                     {
                       iid: "6",
+                      updatedAt: "2026-05-01T09:00:00Z",
                       sourceBranch: "third",
                       diffHeadSha: "3456789abcdef0123456789abcdef0123456789a",
                       targetBranch: "main",
@@ -497,63 +500,110 @@ describe("GitLabForge", () => {
         },
       ],
     });
-    expect(await forge().fetchOpenChanges()).toEqual([
-      {
-        change: {
-          id: 4,
-          head: "first",
-          tip: "123456789abcdef0123456789abcdef012345678",
-          parent: "main",
-          title: "First",
-          author: "gitlab:alice",
-          state: "open",
-          draft: false,
-          reviewers: [],
-        },
-        comments: [
-          {
-            id: "101",
-            author: "gitlab:bob",
-            body: "please take a look",
-            updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+    expect(await forge().fetchChanges(undefined)).toEqual({
+      coverage: "open",
+      cursor: String(Date.parse("2026-05-02T11:25:00Z")),
+      changes: [
+        {
+          change: {
+            id: 4,
+            head: "first",
+            tip: "123456789abcdef0123456789abcdef012345678",
+            parent: "main",
+            title: "First",
+            author: "gitlab:alice",
+            state: "open",
+            draft: false,
+            reviewers: [],
           },
-        ],
-        commentsTruncated: false,
-      },
-      {
-        change: {
-          id: 5,
-          head: "second",
-          tip: "23456789abcdef0123456789abcdef0123456789",
-          parent: "first",
-          title: "Second",
-          author: "gitlab:bob",
-          state: "open",
-          draft: false,
-          reviewers: [],
+          comments: [
+            {
+              id: "101",
+              author: "gitlab:bob",
+              body: "please take a look",
+              updatedAt: Date.parse("2026-05-01T00:00:00Z"),
+            },
+          ],
+          commentsTruncated: false,
         },
-        comments: [],
-        commentsTruncated: false,
-      },
-      {
-        change: {
-          id: 6,
-          head: "third",
-          tip: "3456789abcdef0123456789abcdef0123456789a",
-          parent: "main",
-          title: "Third",
-          author: "gitlab:alice",
-          state: "open",
-          draft: false,
-          reviewers: [],
+        {
+          change: {
+            id: 5,
+            head: "second",
+            tip: "23456789abcdef0123456789abcdef0123456789",
+            parent: "first",
+            title: "Second",
+            author: "gitlab:bob",
+            state: "open",
+            draft: false,
+            reviewers: [],
+          },
+          comments: [],
+          commentsTruncated: false,
         },
-        comments: [],
-        commentsTruncated: true,
-      },
-    ]);
+        {
+          change: {
+            id: 6,
+            head: "third",
+            tip: "3456789abcdef0123456789abcdef0123456789a",
+            parent: "main",
+            title: "Third",
+            author: "gitlab:alice",
+            state: "open",
+            draft: false,
+            reviewers: [],
+          },
+          comments: [],
+          commentsTruncated: true,
+        },
+      ],
+    });
     expect(graphqlVariables(calls)).toEqual([
       { path: "test-org/widgets", cursor: null },
       { path: "test-org/widgets", cursor: "CUR1" },
+    ]);
+  });
+
+  test("fetchChanges with a cursor asks the server for what moved since, keeping every state", async () => {
+    const node = (iid: string, updatedAt: string, extra: Record<string, unknown> = {}) => ({
+      iid,
+      sourceBranch: `branch-${iid}`,
+      diffHeadSha: `${iid.repeat(40).slice(0, 40)}`,
+      targetBranch: "main",
+      title: `Change ${iid}`,
+      author: { username: "alice" },
+      state: "opened",
+      draft: false,
+      updatedAt,
+      mergeCommitSha: null,
+      reviewers: { nodes: [] },
+      notes: { nodes: [], pageInfo: { hasNextPage: false } },
+      ...extra,
+    });
+    const calls = stubGitLab({
+      [GRAPHQL]: {
+        json: {
+          data: {
+            project: {
+              mergeRequests: {
+                nodes: [node("7", "2026-06-10T12:00:00Z", { state: "closed" }), node("4", "2026-06-10T09:00:00Z")],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        },
+      },
+    });
+    const since = Date.parse("2026-06-01T00:00:00Z");
+    const sweep = await forge().fetchChanges(forgeCursor(String(since)));
+    expect(sweep.coverage).toBe("since");
+    expect(sweep.cursor).toBe(String(Date.parse("2026-06-10T11:55:00Z")));
+    expect(sweep.changes.map(({ change }) => [change.id, change.state])).toEqual([
+      [7, "closed"],
+      [4, "open"],
+    ]);
+    expect(graphqlVariables(calls)).toEqual([
+      { path: "test-org/widgets", updatedAfter: "2026-06-01T00:00:00.000Z", cursor: null },
     ]);
   });
 
@@ -586,7 +636,6 @@ describe("GitLabForge", () => {
       parseBranchName("new-work"),
       parseBranchName("parent-branch"),
       "New work",
-      false,
     );
     expect(created).toEqual({
       id: 12,

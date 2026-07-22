@@ -10,6 +10,7 @@ import {
   currentForgeChange,
   currentOwner,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
   diffBetween,
@@ -17,6 +18,7 @@ import {
   type FileSource,
   type ForgeChangeId,
   type ForgeLocator,
+  finished,
   freshestReading,
   LAND_SCAN,
   type LandMerge,
@@ -32,7 +34,7 @@ import {
 } from "./backend.js";
 import { diffViewEmpty, rebasedView } from "./diff.js";
 import { UserError } from "./error.js";
-import { landBlockers, type ObligationStatus, obligationStatuses, outstanding } from "./obligations.js";
+import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -80,10 +82,12 @@ export type NextStep =
   | "reparent"
   | "fix conflicts"
   | "add code"
+  | "fix obligations"
   | "review"
   | "review in parent"
   | "add reviewers"
   | "widen reviewing"
+  | "await review"
   | "resolve parent divergence"
   | "rebase"
   | "land"
@@ -108,12 +112,14 @@ export interface ChangeSummary {
         readonly staleParent: ChangeName | undefined;
       }
     | undefined;
-  /** The merge that landed the change, or undefined if it has not landed. */
+  /** The merge of the change's latest land, or undefined if it has never landed. */
   readonly landed: Revision | undefined;
   /** The changes landed into this one, oldest first. */
   readonly included: readonly LandMerge[];
   /** Whether the change is archived: set aside as not landing, reversibly. */
   readonly archived: boolean;
+  /** Whether the change is permanent: structure expected to outlive its lands. */
+  readonly permanent: boolean;
   readonly base: Revision;
   readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
@@ -146,19 +152,20 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
+  const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
   const left = reviewLeftFiles(await reviewLeft(backend, entries, user, diff));
-  // A landed change is frozen, so nothing about its surroundings bears on it.
-  // These are all local readings — origin's tip is whatever was last fetched
-  // — so summarizing never makes a remote query.
+  // A finished change is frozen, so nothing about its surroundings bears on
+  // it. These are all local readings — origin's tip is whatever was last
+  // fetched — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
   let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
   let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
-  let parentReview: (() => Promise<readonly ObligationStatus[]>) | undefined;
-  if (landed === undefined) {
+  let parentReview: (() => Promise<ObligationsReading>) | undefined;
+  if (!frozen) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
       if (observed !== undefined && observed !== parent) {
@@ -167,7 +174,7 @@ export async function summarizeChange(
     }
     origin = await originStanding(backend, change, tip);
     const parentEntries = await backend.readLog(parent);
-    if (landedMerge(parentEntries) !== undefined) {
+    if (finished(parentEntries)) {
       deadParent = "landed";
     } else if (currentArchived(parentEntries)) {
       deadParent = "archived";
@@ -192,7 +199,7 @@ export async function summarizeChange(
         // parent reads. The diff is the one `land` would check.
         if (parentEntries.length > 0) {
           parentReview = async () =>
-            obligationStatuses(
+            obligationsReading(
               backend,
               parentEntries,
               currentOwner(parent, parentEntries),
@@ -213,14 +220,15 @@ export async function summarizeChange(
     landed,
     included: diff.lands,
     archived: currentArchived(entries),
+    permanent: currentPermanent(entries),
     base,
     tip,
     origin,
     deadParent,
     parentOrigin,
     staleBase: stale?.kind,
-    // A landed change is frozen; only live code is worth scanning for markers.
-    conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
+    // A finished change is frozen; only live code is worth scanning for markers.
+    conflicts: frozen ? [] : await changeConflicts(backend, diff),
     reviewLeft: left,
   };
   return { ...readings, nextStep: await nextStep(backend, readings, entries, user, diff, stale, parentReview) };
@@ -288,9 +296,9 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
 }
 
 /**
- * What must happen next, from the summary's other readings. A landed change
- * is done and an archived one is set aside, so both read as their terminal
- * step before anything else. An origin the
+ * What must happen next, from the summary's other readings. An archived
+ * change is set aside — done, when a land archived it, which reads as
+ * `landed` — so it reads as its terminal step before anything else. An origin the
  * tip trails or diverged from outranks everything: each reading below is a
  * question about revisions this clone may lack, and either way syncing
  * mends it — the join absorbs origin's copy, committing any conflicts for
@@ -299,13 +307,20 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * operations that move the branch create it from that copy themselves. A
  * dead parent — landed, missing, or archived, all parents `land` refuses —
  * comes next: nothing can land until the change hangs somewhere live. Unresolved
- * conflicts outrank review: markers are not code worth reading. A change
+ * conflicts outrank review: markers are not code worth reading. A malformed
+ * obligations file outranks the review flow it would steer: `fix
+ * obligations` is the owner's step, and no other reading asks anyone for
+ * anything until the policy parses. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
  * exist to widen to. The whole flow asks only while some blocking obligation
  * is unsatisfied: once every one is met, the set gates nothing `land` reads,
  * so the change moves by landing however narrow the set stands — follow
- * review stays owed on the todo page, holding nothing here. A
+ * review stays owed on the todo page, holding nothing here. Blockers the
+ * flow has no ask left for — the set already reads everyone, the user's own
+ * review done — read `await review`: the land waits on review only others
+ * can give, and the step names the wait rather than a land that would
+ * refuse. A
  * forge-tracked draft is the exception — the forge refuses to merge what
  * it shows as a draft — so it widens whatever the obligations say. Review
  * reads bottom-up — a child's diff builds on its parent's — so review the
@@ -335,13 +350,10 @@ async function nextStep(
   user: UserName,
   diff: ChangeDiff,
   stale: { readonly parentTip: Revision } | undefined,
-  parentReview: (() => Promise<readonly ObligationStatus[]>) | undefined,
+  parentReview: (() => Promise<ObligationsReading>) | undefined,
 ): Promise<NextStep> {
-  if (readings.landed !== undefined) {
-    return "landed";
-  }
   if (readings.archived) {
-    return "archived";
+    return readings.landed !== undefined ? "landed" : "archived";
   }
   if (readings.origin === "behind" || readings.origin === "diverged") {
     return "sync";
@@ -354,6 +366,13 @@ async function nextStep(
   }
   if (readings.tip === readings.base) {
     return "add code";
+  }
+  // Every reading below stands on the policy, so a policy nobody can parse
+  // preempts them all: it reads as the owner's step to mend, and asks
+  // review of nobody in the meantime.
+  const reading = await obligationsReading(backend, entries, readings.owner, diff);
+  if (reading.kind === "malformed") {
+    return "fix obligations";
   }
   if (readings.reviewing === "none" && readings.forgeChange !== undefined) {
     return "widen reviewing";
@@ -368,14 +387,11 @@ async function nextStep(
           : readings.reviewing !== "everyone"
             ? "widen reviewing"
             : undefined;
-  if (flow !== undefined) {
-    const statuses = await obligationStatuses(backend, entries, readings.owner, diff);
-    if (landBlockers(statuses).length > 0) {
-      if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
-        return "review in parent";
-      }
-      return flow;
+  if (landBlockers(reading.statuses).length > 0) {
+    if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
+      return "review in parent";
     }
+    return flow ?? "await review";
   }
   if (readings.parentOrigin === "diverged") {
     return "resolve parent divergence";
@@ -383,7 +399,7 @@ async function nextStep(
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";
   }
-  if (parentReview !== undefined && landBlockers(await parentReview()).length > 0) {
+  if (parentReview !== undefined && parentBlocked(await parentReview())) {
     return "review in parent";
   }
   const { forgeChange } = readings;
@@ -392,12 +408,22 @@ async function nextStep(
     : "land";
 }
 
-/** Whether the parent still carries an unsatisfied blocking obligation `user`'s review can count toward. */
-async function owesParentReview(
-  parentReview: () => Promise<readonly ObligationStatus[]>,
-  user: UserName,
-): Promise<boolean> {
-  return landBlockers(await parentReview()).some((status) => outstanding(status).includes(user));
+/**
+ * Whether the parent's own obligations refuse the land: unsatisfied blockers,
+ * or a policy nobody can parse — the parent's page says whose fix that is.
+ */
+function parentBlocked(reading: ObligationsReading): boolean {
+  return reading.kind === "malformed" || landBlockers(reading.statuses).length > 0;
+}
+
+/**
+ * Whether the parent still carries an unsatisfied blocking obligation `user`'s
+ * review can count toward. A malformed parent policy claims nothing here — it
+ * cannot say what anyone owes — so the user's own review proceeds.
+ */
+async function owesParentReview(parentReview: () => Promise<ObligationsReading>, user: UserName): Promise<boolean> {
+  const reading = await parentReview();
+  return reading.kind === "read" && landBlockers(reading.statuses).some((status) => outstanding(status).includes(user));
 }
 
 /**

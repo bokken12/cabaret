@@ -133,8 +133,9 @@ test("an added alias widens who counts as you", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature", "--owner", "agent@example.com");
   await repo.cabaret("config", "alias", "add", "agent@example.com");
-  // Alice may rename the agent's change: the alias makes it hers.
-  expect(await repo.cabaret("rename", "feature", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // Alice may reparent the agent's change: the alias makes it hers.
+  await repo.git("branch", "develop", "main");
+  expect(await repo.cabaret("reparent", "feature", "develop")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("add rejects a duplicate and an empty alias; remove rejects a missing one", async () => {

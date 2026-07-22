@@ -260,7 +260,7 @@ test("changeBase fails when the stored base and merge-base are unrelated", async
   await expect(changeBaseOf("child-merged")).rejects.toThrow('base of "child-merged" is ambiguous');
 });
 
-/** Record `change` as landed by `merge`, optionally at a squash-recorded tip. */
+/** Record `change` as finished: landed by `merge` — optionally at a squash-recorded tip — and archived with it. */
 async function plumbLand(change: string, merge: string, tip?: string): Promise<void> {
   const backend = await GitBackend.open(repo);
   await backend.appendLog(parseBranchName(change), [
@@ -269,6 +269,7 @@ async function plumbLand(change: string, merge: string, tip?: string): Promise<v
       merge: parseCommitHash(merge),
       ...(tip === undefined ? {} : { tip: parseCommitHash(tip) }),
     }),
+    logEntry(1748000000003, { kind: "set-archived", archived: true }),
   ]);
 }
 
@@ -313,7 +314,10 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
 
 test("changeTip fails when the land merge is absent from the clone", async () => {
   const backend = await GitBackend.open(repo);
-  const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
+  const entries = [
+    logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
+  ];
   await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
     `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cab fetch\``,
   );
@@ -328,6 +332,7 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
       merge: parseCommitHash(merge),
       tip: parseCommitHash("feed".repeat(10)),
     }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
   ];
   await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
     `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,
@@ -451,44 +456,6 @@ test("advance fast-forwards a branch checked out in a sibling worktree, carrying
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
-});
-
-test("rename moves nothing when its transaction fails", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("rename source work"));
-  await git("update-ref", "refs/heads/rename-src", tip);
-  await backend.appendLog(parseBranchName("rename-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const logTip = await git("rev-parse", "refs/cabaret/log/rename-src");
-  await git("update-ref", "refs/heads/rename-taken", tip);
-  await git("checkout", "-q", "rename-src");
-  await expect(backend.rename(parseBranchName("rename-src"), parseBranchName("rename-taken"))).rejects.toThrow(
-    /reference already exists/,
-  );
-  // The failed transaction moved nothing, and HEAD is re-attached to the source.
-  expect(await git("symbolic-ref", "HEAD")).toBe("refs/heads/rename-src");
-  expect(await git("rev-parse", "refs/heads/rename-src")).toBe(tip);
-  expect(await git("rev-parse", "refs/cabaret/log/rename-src")).toBe(logTip);
-  await expect(git("rev-parse", "--verify", "refs/cabaret/log/rename-taken")).rejects.toThrow();
-  await git("checkout", "-q", "feature");
-});
-
-test("rename refuses a branch checked out in another worktree", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("worktree work"));
-  await git("update-ref", "refs/heads/wt-src", tip);
-  await backend.appendLog(parseBranchName("wt-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const linked = join(repo, "linked-worktree");
-  await git("worktree", "add", linked, "wt-src");
-  await expect(backend.rename(parseBranchName("wt-src"), parseBranchName("wt-dst"))).rejects.toThrow(
-    'branch is checked out in another worktree: "wt-src"',
-  );
-  expect(await backend.tip(parseBranchName("wt-src"))).toBe(tip);
-  expect(await backend.tip(parseBranchName("wt-dst"))).toBeUndefined();
-  await git("worktree", "remove", linked);
 });
 
 /** A bare origin holding branches `main` and `extra`, and an empty repo with it as `origin`. */
@@ -1018,7 +985,7 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"), false);
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",
@@ -1075,7 +1042,7 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
     let clock = 1748000000000;
     const now = () => timestampMs(clock++);
     for (const change of ["gizmo", "widget", "gadget"]) {
-      await createChange(backend, now, parseBranchName(change), parseBranchName("main"));
+      await createChange(backend, now, parseBranchName(change), parseBranchName("main"), false);
     }
     const config = (workspaceStyle: WorkspaceStyle): Config => ({
       landMethod: "merge",

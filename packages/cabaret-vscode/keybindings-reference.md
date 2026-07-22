@@ -24,7 +24,6 @@ are chosen.
 | `$`     | Step Down             | show, diff                |
 | `! r b` | Rebase                | home, show, review        |
 | `! l`   | Land                  | all                       |
-| `! r n` | Rename                | home, show, review        |
 | `! r p` | Reparent              | home, show, review        |
 | `! o`   | Set Owner             | home, show, review        |
 | `! v`   | Widen Reviewing       | home, show, review        |

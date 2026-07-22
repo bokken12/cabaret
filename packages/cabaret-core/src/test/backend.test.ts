@@ -3,15 +3,16 @@ import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
   assertNotArchived,
-  assertNotLanded,
   brain,
   type ChangeName,
   currentArchived,
   currentBase,
+  currentName,
   currentOwner,
   currentParent,
   currentReviewers,
   type FilePath,
+  finished,
   forgeChangeId,
   forgeChangeUrl,
   formatLogEntry,
@@ -311,6 +312,23 @@ test("parseLog rejects malformed logs", () => {
   }
 });
 
+test("currentName takes the set-name with the greatest timestamp, or undefined without one", () => {
+  const entry = (timestamp: number, action: LogAction): LogEntry => ({
+    timestamp: timestampMs(timestamp),
+    user: userName("alice@example.com"),
+    action,
+  });
+  expect(currentName([])).toBeUndefined();
+  expect(currentName([entry(5, { kind: "set-archived", archived: true })])).toBeUndefined();
+  expect(
+    currentName([
+      entry(9, { kind: "set-name", name: parseBranchName("renamed") }),
+      entry(3, { kind: "set-name", name: parseBranchName("original") }),
+      entry(12, { kind: "set-archived", archived: true }),
+    ]),
+  ).toBe("renamed");
+});
+
 test("currentParent takes the set-parent with the greatest timestamp, regardless of order", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
@@ -415,19 +433,27 @@ test("currentReviewers folds each user's latest add/remove; observedForgeReviewe
   expect(observedForgeReviewers(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toEqual(new Set());
 });
 
-test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
+test("landedMerge finds the land entry, and finished asks for archived alongside it", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
-  const change = parseBranchName("feature");
   const unlanded = [entry(5, { kind: "set-parent", parent: parseBranchName("main") })];
   expect(landedMerge(unlanded)).toBeUndefined();
-  expect(() => assertNotLanded(change, unlanded)).not.toThrow();
+  expect(finished(unlanded)).toBe(false);
   const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
   expect(landedMerge(landed)).toBe(SHA1);
-  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
+  // Landed but live — permanent structure, or reopened — is not finished.
+  expect(finished(landed)).toBe(false);
+  expect(finished([...landed, entry(10, { kind: "set-archived", archived: true })])).toBe(true);
+  expect(
+    finished([
+      ...landed,
+      entry(10, { kind: "set-archived", archived: true }),
+      entry(11, { kind: "set-archived", archived: false }),
+    ]),
+  ).toBe(false);
 });
 
 test("currentArchived takes the set-archived with the greatest timestamp, and assertNotArchived rejects it", () => {
@@ -533,6 +559,7 @@ function logActions(): fc.Arbitrary<LogAction> {
   const users = fc.string({ minLength: 1, unit: "grapheme" }).map(userName);
   const forges = fc.string({ minLength: 1, unit: "grapheme" }).map(parseForgeLocator);
   return fc.oneof(
+    fc.record({ kind: fc.constant("set-name" as const), name: refNames() }),
     fc.record({ kind: fc.constant("set-parent" as const), parent: refNames() }),
     fc.record({ kind: fc.constant("set-base" as const), base: commitHashes() }),
     fc.record({ kind: fc.constant("set-owner" as const), owner: users }),
@@ -543,6 +570,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     }),
     fc.record({ kind: fc.constant("set-reviewing" as const), reviewing: fc.constantFrom(...REVIEWING) }),
     fc.record({ kind: fc.constant("set-archived" as const), archived: fc.boolean() }),
+    fc.record({ kind: fc.constant("set-permanent" as const), permanent: fc.boolean() }),
     fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),

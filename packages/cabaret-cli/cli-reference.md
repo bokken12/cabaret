@@ -387,15 +387,17 @@ ARGUMENTS
 ## cab create
 
 USAGE
-  cab create [--parent value] [--owner value] <change>
+  cab create [--parent value] [--owner value] [--permanent] [--even-though-parent-archived] <change>
   cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
 
 FLAGS
-     [--parent]  The new change's parent (defaults to what is checked out)
-     [--owner]   The new change's owner (defaults to you)
-  -h  --help     Print help information and exit
+     [--parent]                       The new change's parent (defaults to what is checked out)
+     [--owner]                        The new change's owner (defaults to you)
+     [--permanent]                    Mark the new change permanent: structure expected to outlive its lands [default = false]
+     [--even-though-parent-archived]  Proceed even though the parent is archived                             [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   change  name for the new change
@@ -413,6 +415,18 @@ FLAGS
 
 ARGUMENTS
   [change]  change to inspect (defaults to current)
+
+### cab dev review-all
+
+USAGE
+  cab dev review-all [--for value]
+  cab dev review-all --help
+
+Mark every file the home page asks you to review: one `review` entry per owed file, at its change's current tip.
+
+FLAGS
+     [--for]  Identity to mark as (defaults to you)
+  -h  --help  Print help information and exit
 
 ### cab dev wipe
 
@@ -445,13 +459,14 @@ ARGUMENTS
 ## cab fetch
 
 USAGE
-  cab fetch
+  cab fetch [--full]
   cab fetch --help
 
 Fetch remote activity: refresh origin's copies, fast-forward branches origin is strictly ahead of, merge every change's log with origin's, and absorb forge activity — import every open forge change that is not yet a change, refresh tracked ones, record lands, and prune closed imports nobody engaged with. The account the forge credentials authenticate, and its profile emails, are recorded as aliases of you, so their changes read as yours. Without a forge, the origin half still runs.
 
 FLAGS
-  -h --help  Print help information and exit
+     [--full]  Sweep every open forge change, not just what moved since the last fetch [default = false]
+  -h  --help   Print help information and exit
 
 ## cab forget
 
@@ -485,7 +500,7 @@ USAGE
   cab land [--even-though-not-owner] [--even-though-unreviewed] [--even-though-parent-unreviewed] [<change>]
   cab land --help
 
-Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cab config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cab config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cab rebase` first when it conflicts. Children of the landed change are reparented onto its parent, where their code now lives, and their forge changes retargeted to match. A landed change can no longer be rebased, renamed, reparented, or transferred, though reviewing it is still recorded. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping changes that already landed; when one fails, the landings before it stand, and rerunning the range resumes.
+Land a change: write it onto its parent as a commit marked as landing (a merge, or a squash with cab config land-method squash), so the parent's reviewers are not asked to re-review the change's diff, and record the landing in the change's log. A change tracked on a forge lands by merging there and fetching the result; cab config land-via local (or forge) picks one side unconditionally. A change whose parent moved on lands as it stands when it merges cleanly onto the new tip; `cab rebase` first when it conflicts. Landing concludes the change: it archives, and its children are reparented onto its parent, where their code now lives, their forge changes retargeted to match. A permanent change stays live instead, at the landing commit with an empty diff, ready for its next cycle of work. A range `ancestor..descendant` lands every change after `ancestor` on `descendant`'s parent chain, `descendant` first, skipping archived changes; when one fails, the landings before it stand, and rerunning the range resumes.
 
 FLAGS
      [--even-though-not-owner]          Proceed even though you do not own the change                    [default = false]
@@ -541,6 +556,33 @@ FLAGS
 ARGUMENTS
   user  the new owner
 
+### cab permanent show
+
+USAGE
+  cab permanent show [--change value]
+  cab permanent show --help
+
+Show whether a change is permanent
+
+FLAGS
+     [--change]  Change to show (defaults to current)
+  -h  --help     Print help information and exit
+
+### cab permanent set
+
+USAGE
+  cab permanent set [--change value] <permanent>
+  cab permanent set --help
+
+Set whether a change is permanent: structure — an umbrella others stack work under, say — expected to outlive its lands rather than archive on them. A permanent change refuses to archive until set back to false.
+
+FLAGS
+     [--change]  Change to act on (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  permanent  true or false
+
 ## cab rebase
 
 USAGE
@@ -557,33 +599,19 @@ FLAGS
 ARGUMENTS
   [change]  change or ancestor..descendant range to rebase (defaults to current)
 
-## cab rename
-
-USAGE
-  cab rename [--even-though-not-owner] <old> <new>
-  cab rename --help
-
-Rename a change: move its code and its log to the new name together, atomically. Only the change's owner may rename it.
-
-FLAGS
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
-
-ARGUMENTS
-  old  change's old name
-  new  change's new name
-
 ## cab reparent
 
 USAGE
-  cab reparent [--even-though-not-owner] <change> <parent>
+  cab reparent [--even-though-not-owner] [--even-though-parent-archived] [--even-though-parent-diverged] <change> <parent>
   cab reparent --help
 
 Update a change's parent. This is a metadata/log change only, and does not touch code without a subsequent `rebase`. Only the change's owner may reparent it.
 
 FLAGS
-     [--even-though-not-owner]  Proceed even though you do not own the change [default = false]
-  -h  --help                    Print help information and exit
+     [--even-though-not-owner]        Proceed even though you do not own the change               [default = false]
+     [--even-though-parent-archived]  Proceed even though the new parent is archived              [default = false]
+     [--even-though-parent-diverged]  Proceed even though the new parent's readings have diverged [default = false]
+  -h  --help                          Print help information and exit
 
 ARGUMENTS
   change  change to reparent

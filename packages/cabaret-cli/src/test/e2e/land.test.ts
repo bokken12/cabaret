@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
+import { addChange, makeClone, makeRepo, shownLog, type TestRepo } from "./fixture.js";
 
 /**
  * A repo with change `child` (one commit adding child.txt) stacked on change
@@ -33,27 +33,27 @@ test("land merges the child into its parent with a marked merge commit", async (
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The land advances the parent by exactly the merge, without moving HEAD.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
-  const merge = await repo.git("rev-parse", "parent");
+  const _merge = await repo.git("rev-parse", "parent");
   expect(await repo.git("rev-parse", "parent^1", "parent^2")).toBe(`${parentTip}\n${childTip}`);
   expect(await repo.git("log", "--format=%B", "-1", "parent")).toBe("Land child\n\nCabaret-Landed: child");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${parentTip}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
 });
 
 test("land takes a change behind its parent when it merges cleanly", async () => {
   const repo = await makeStack();
   const childTip = await repo.git("rev-parse", "child");
-  const createdBase = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
@@ -68,18 +68,18 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   expect(await repo.git("show", "parent:parent.txt")).toBe("parent v2");
   expect(await repo.git("show", "parent:child.txt")).toBe("child work");
   // The base stays where the reviewed diff was computed, not the tip landed onto.
-  const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${createdBase}","tip":"${childTip}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  const _merge = await repo.git("rev-parse", "parent");
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec","tip":"46080b0eb5bb7b786c38ac54c3b820f9e02586f6"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"land","merge":"a12744b45f14e8c634ed5853621952f22c519cf4"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
 });
 
 test("land squashes a change behind its parent to the merged tree", async () => {
@@ -126,13 +126,55 @@ test("land refuses a change with no commits of its own", async () => {
   });
 });
 
-test("land refuses a change that already landed", async () => {
+test("land archives the change, so landing again is refused as archived", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  const merge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
-    stderr: `change has landed: "child" (merge ${merge})\n`,
+    stderr: 'change is archived: "child"; run `cab archive --undo`\n',
+    exitCode: 1,
+  });
+});
+
+test("a reopened change starts its next cycle with an empty diff and lands new work", async () => {
+  const repo = await makeStack();
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
+  await repo.cabaret("archive", "--undo", "--change", "child");
+  // The parent absorbed the landed work, so the reopened diff is empty.
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: 'nothing to land: "child" has no commits of its own\n',
+    exitCode: 1,
+  });
+  await repo.cabaret("rebase", "child");
+  await repo.git("checkout", "-q", "child");
+  await repo.write("child.txt", "child work v2\n");
+  await repo.git("commit", "-qam", "more child work");
+  expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("show", "parent:child.txt")).toBe("child work v2");
+});
+
+test("a reopened squash-landed change must rebase past its land before landing again", async () => {
+  const repo = await makeStack();
+  await repo.git("config", "cabaret.landMethod", "squash");
+  await repo.cabaret("land", "child", "--even-though-unreviewed");
+  const squash = await repo.git("rev-parse", "parent");
+  await repo.cabaret("archive", "--undo", "--change", "child");
+  // The squash descends from none of the change's history, so the base
+  // cannot slide past the land: landing again would duplicate the commits.
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: `"child" landed at ${squash}; run \`cab rebase\` to start its next cycle\n`,
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "child")).toEqual({
+    stdout: "",
+    stderr: 'nothing to land: "child" changes nothing against "parent"\n',
     exitCode: 1,
   });
 });
@@ -141,15 +183,14 @@ test("land refuses a parent that itself landed", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
   await repo.cabaret("land", "parent", "--even-though-unreviewed");
-  const merge = await repo.git("rev-parse", "main");
-  await repo.cabaret("create", "late", "--parent", "parent");
+  await repo.cabaret("create", "late", "--parent", "parent", "--even-though-parent-archived");
   await repo.git("checkout", "-q", "late");
   await repo.write("late.txt", "late work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "late work");
   expect(await repo.cabaret("land", "late")).toEqual({
     stdout: "",
-    stderr: `change has landed: "parent" (merge ${merge})\n`,
+    stderr: '"late" would land into "parent", which has landed; run `cab reparent` first\n',
     exitCode: 1,
   });
 });
@@ -178,21 +219,20 @@ test("land requires ownership, with the usual override", async () => {
   });
 });
 
-test("a landed change refuses rebase, reparent, and owner set", async () => {
+test("a landed change is archived, not frozen: reparent and owner set still write", async () => {
   const repo = await makeStack();
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  const merge = await repo.git("rev-parse", "parent");
-  for (const argv of [
-    ["rebase", "child"],
-    ["reparent", "child", "main"],
-    ["owner", "set", "bob@example.com", "--change", "child"],
-  ]) {
-    expect(await repo.cabaret(...argv)).toEqual({
-      stdout: "",
-      stderr: `change has landed: "child" (merge ${merge})\n`,
-      exitCode: 1,
-    });
-  }
+  expect(await repo.cabaret("reparent", "child", "main")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("owner", "set", "bob@example.com", "--change", "child")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.cabaret("owner", "show", "--change", "child")).toEqual({
+    stdout: "bob@example.com\n",
+    stderr: "",
+    exitCode: 0,
+  });
 });
 
 test("the diff a land merge brings into the parent needs no review", async () => {
@@ -431,32 +471,32 @@ test("land refuses a diverged parent, moving nothing", async () => {
 
 test("land after an out-of-band rebase pins the base it validated", async () => {
   const repo = await makeStack();
-  const createdBase = await repo.git("rev-parse", "parent");
+  const _createdBase = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "parent");
   await repo.write("parent.txt", "parent v2\n");
   await repo.git("commit", "-qam", "more parent work");
-  const advanced = await repo.git("rev-parse", "parent");
+  const _advanced = await repo.git("rev-parse", "parent");
   await repo.git("checkout", "-q", "child");
   await repo.git("rebase", "-q", "parent");
-  const rebasedTip = await repo.git("rev-parse", "child");
+  const _rebasedTip = await repo.git("rev-parse", "child");
   expect(await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
-  const merge = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${createdBase}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${advanced}"}}\n` +
-      `{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"${advanced}","tip":"${rebasedTip}"}}\n` +
-      `{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"${merge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  const _merge = await repo.git("rev-parse", "parent");
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-base","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"review","file":"child.txt","base":"4de62d006b05d0a4061dd9ee10f2f10145da7b52","tip":"507301964aa048e3c7abc9c06e703506da66e2de"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"4b7d5d8dc5ee966b6af2d0a61e06197c6e7f11e1"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
   // The pinned base keeps the frozen change's diff to its own work.
   expect(await repo.cabaret("review", "--change", "child", "parent.txt")).toEqual({
     stdout: "parent.txt in child\n\nNothing left to review.\n",
@@ -527,13 +567,13 @@ test("a merge without the land trailer still needs review", async () => {
 
 test("a range lands the whole chain, deepest first", async () => {
   const repo = await makeRepo();
-  const root = await repo.git("rev-parse", "main");
+  const _root = await repo.git("rev-parse", "main");
   await addChange(repo, "a");
-  const aTip = await repo.git("rev-parse", "a");
+  const _aTip = await repo.git("rev-parse", "a");
   await addChange(repo, "b");
-  const bTip = await repo.git("rev-parse", "b");
+  const _bTip = await repo.git("rev-parse", "b");
   await addChange(repo, "c");
-  const cTip = await repo.git("rev-parse", "c");
+  const _cTip = await repo.git("rev-parse", "c");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
@@ -544,44 +584,47 @@ test("a range lands the whole chain, deepest first", async () => {
   expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Land b\na work\nroot");
   expect(await repo.git("log", "--format=%s", "--first-parent", "b")).toBe("Land c\nb work\na work\nroot");
   expect(await repo.git("show", "main:c.txt")).toBe("c work");
-  const [mergeA, mergeB, mergeC] = [
+  const [_mergeA, _mergeB, _mergeC] = [
     await repo.git("rev-parse", "main"),
     await repo.git("rev-parse", "a"),
     await repo.git("rev-parse", "b"),
   ];
-  expect(await repo.cabaret("dev", "log", "a")).toEqual({
-    stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeA}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "b")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${aTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
-      `{"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${aTip}","tip":"${mergeC}"}}\n` +
-      `{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeB}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "c")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"${bTip}","tip":"${cTip}"}}\n` +
-      `{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"land","merge":"${mergeC}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "a")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"a"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000025,"user":"alice@example.com","action":{"kind":"land","merge":"5a1836b67314c288a076153aa26a99fd7e7cdf09"}}
+    {"timestamp":1748000000026,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
+  expect(await shownLog(repo, "b")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"b"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000021,"user":"alice@example.com","action":{"kind":"review","file":"b.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000022,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"1986c6b9f2d143044aefce5f7ff385d1a493f5c8","tip":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000023,"user":"alice@example.com","action":{"kind":"land","merge":"1c36ebc08432a44e2e4b3ced6ffe8c2372c7da5f"}}
+    {"timestamp":1748000000024,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
+  expect(await shownLog(repo, "c")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"c"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000017,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000018,"user":"alice@example.com","action":{"kind":"review","file":"c.txt","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5","tip":"cf71bf0d7f3e2f4be8063d5dd5444a4f4ef167ea"}}
+    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"land","merge":"41b6d9ebe2a213c18408013d8ea08541651f983a"}}
+    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
 });
 
 test("a range stops at a failure and a rerun resumes past the landed prefix", async () => {
@@ -623,7 +666,7 @@ test("a range that would land into a landed change refuses before landing anythi
   await addChange(repo, "c");
   await repo.cabaret("land", "a", "--even-though-unreviewed");
   // The land moved b onto main; hanging it back under the landed a jams the chain.
-  await repo.cabaret("reparent", "b", "a");
+  await repo.cabaret("reparent", "b", "a", "--even-though-parent-archived");
   expect(await repo.cabaret("land", "main..c")).toEqual({
     stdout: "",
     stderr: '"b" would land into "a", which has landed; run `cab reparent` first\n',
@@ -636,7 +679,7 @@ test("a range that would land into a landed change refuses before landing anythi
 test("landing a change reparents its children onto where it landed", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  const gadgetTip = await repo.git("rev-parse", "gadget");
+  const _gadgetTip = await repo.git("rev-parse", "gadget");
   await addChange(repo, "gizmo");
   await repo.cabaret("create", "widget", "--parent", "gadget");
   expect(await repo.cabaret("land", "gadget", "--even-though-unreviewed")).toEqual({
@@ -644,55 +687,54 @@ test("landing a change reparents its children onto where it landed", async () =>
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("dev", "log", "gizmo")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
-  expect(await repo.cabaret("dev", "log", "widget")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${gadgetTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "gizmo")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"gizmo"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    {"timestamp":1748000000019,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
+  expect(await shownLog(repo, "widget")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"widget"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"gadget"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"f37230616d25678bd828f699109e7e2446def549"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
 });
 
 test("landing leaves landed children where they landed", async () => {
   const repo = await makeStack();
-  const parentTip = await repo.git("rev-parse", "parent");
+  const _parentTip = await repo.git("rev-parse", "parent");
   await repo.cabaret("land", "child", "--even-though-unreviewed");
-  const childMerge = await repo.git("rev-parse", "parent");
+  const _childMerge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "parent", "--even-though-unreviewed")).toEqual({
     stdout: "",
     stderr: "",
     exitCode: 0,
   });
   // The landed child's parent stays the frozen history it landed into.
-  expect(await repo.cabaret("dev", "log", "child")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${parentTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"land","merge":"${childMerge}"}}\n`,
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "child")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-name","name":"child"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-parent","parent":"parent"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-base","base":"752ee7d4c0d4880960f49e0ea663059ec0b1c5ec"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"land","merge":"ffe9c190e6a150cd7e5e88b2612409e7032b99f0"}}
+    {"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-archived","archived":true}}
+    "
+  `);
 });
 
 test("landing into its own child leaves the cycle for a manual reparent", async () => {
   const repo = await makeRepo();
   await addChange(repo, "outer");
-  const outerTip = await repo.git("rev-parse", "outer");
+  const _outerTip = await repo.git("rev-parse", "outer");
   await addChange(repo, "inner");
   await repo.git("checkout", "-q", "outer");
   await repo.write("outer2.txt", "more outer work\n");
@@ -706,22 +748,22 @@ test("landing into its own child leaves the cycle for a manual reparent", async 
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("dev", "log", "inner")).toEqual({
-    stdout:
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}\n' +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"set-base","base":"${outerTip}"}}\n` +
-      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "inner")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"set-name","name":"inner"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"set-parent","parent":"outer"}}
+    {"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-base","base":"d8e04f0cb85e7ae359016dd142c226595a7d6228"}}
+    {"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+    "
+  `);
 });
 
 test("a range land carries an outside child down with each landing", async () => {
   const repo = await makeRepo();
   await addChange(repo, "a");
   await addChange(repo, "b");
-  const bTip = await repo.git("rev-parse", "b");
+  const _bTip = await repo.git("rev-parse", "b");
   await repo.cabaret("create", "d", "--parent", "b");
   expect(await repo.cabaret("land", "main..b", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
     stdout: 'reparented "d" onto "a"\nreparented "d" onto "main"\n',
@@ -729,17 +771,16 @@ test("a range land carries an outside child down with each landing", async () =>
     exitCode: 0,
   });
   // d followed its code: onto a when b landed there, onto main when a landed.
-  expect(await repo.cabaret("dev", "log", "d")).toEqual({
-    stdout:
-      '{"timestamp":1748000000008,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}\n' +
-      `{"timestamp":1748000000009,"user":"alice@example.com","action":{"kind":"set-base","base":"${bTip}"}}\n` +
-      '{"timestamp":1748000000010,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000011,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}\n' +
-      '{"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n',
-    stderr: "",
-    exitCode: 0,
-  });
+  expect(await shownLog(repo, "d")).toMatchInlineSnapshot(`
+    "{"timestamp":1748000000012,"user":"alice@example.com","action":{"kind":"set-name","name":"d"}}
+    {"timestamp":1748000000013,"user":"alice@example.com","action":{"kind":"set-parent","parent":"b"}}
+    {"timestamp":1748000000014,"user":"alice@example.com","action":{"kind":"set-base","base":"72dd1ac5f70e286ea064d5c9e11468309cd505f5"}}
+    {"timestamp":1748000000015,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000016,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000020,"user":"alice@example.com","action":{"kind":"set-parent","parent":"a"}}
+    {"timestamp":1748000000023,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    "
+  `);
 });
 
 test("a landed change can still be reviewed and forgotten", async () => {

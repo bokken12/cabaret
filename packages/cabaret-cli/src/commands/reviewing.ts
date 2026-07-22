@@ -1,7 +1,7 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
 import { currentReviewing, REVIEWING, type Reviewing, setReviewing, UserError, widenReviewing } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { changeFlag, resolveChange } from "./shared.js";
+import { changeFlag, resolveChange, writeThrough } from "./shared.js";
 
 function parseReviewing(raw: string): Reviewing {
   const value = REVIEWING.find((candidate) => candidate === raw);
@@ -46,6 +46,7 @@ export const reviewing = buildRouteMap({
         const backend = await this.backend();
         const { change, entries } = await resolveChange(backend, flags.change);
         await setReviewing(backend, this.now, change, entries, value);
+        await writeThrough(this, backend, change);
       },
     }),
     widen: buildCommand({
@@ -65,6 +66,7 @@ export const reviewing = buildRouteMap({
         const { change, entries } = await resolveChange(backend, flags.change);
         const { to } = await widenReviewing(backend, this.now, change, entries);
         this.process.stdout.write(`reviewing ${to}\n`);
+        await writeThrough(this, backend, change);
       },
     }),
   },

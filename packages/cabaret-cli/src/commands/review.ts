@@ -1,6 +1,6 @@
 import { buildCommand } from "@stricli/core";
 import { fileLabel, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
-import { changeSnapshot, type DiffPage, diffPage, reviewDoc, reviewPage } from "cabaret-views";
+import { changeSnapshot, type DiffPage, diffPage, emptyDiffNote, reviewDoc, reviewPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { changeFlag, contextFlag, resolveChange, selectFiles, writeDoc } from "./shared.js";
 
@@ -82,12 +82,7 @@ export const review = buildCommand({
           : renderDiff4({ file, revs: view.revs, contents: view.contents, color, context })
               .map((line) => `${line.text}\n`)
               .join("");
-      // A due file's diff can still render empty — a tree diff lists changes
-      // patdiff shows no hunks for, like a mode-only change; marking the
-      // file reviewed is how the reviewer clears it.
-      this.process.stdout.write(
-        rendered === "" ? "No differences left to read; mark the file reviewed to record that.\n" : rendered,
-      );
+      this.process.stdout.write(rendered === "" ? `${emptyDiffNote(filePage.left.source)}\n` : rendered);
     }
     if (shown.length === 0) {
       return;

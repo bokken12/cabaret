@@ -26,12 +26,13 @@ test("mark records review of files at the given tip", async () => {
   });
   expect(await repo.cabaret("dev", "log")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
-      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/b.ts","base":"${base}","tip":"${tip}"}}\n`,
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"main"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      `{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"review","file":"src/b.ts","base":"${base}","tip":"${tip}"}}\n`,
     stderr: "",
     exitCode: 0,
   });

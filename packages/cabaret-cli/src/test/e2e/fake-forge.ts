@@ -6,14 +6,17 @@ import {
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
+  type ForgeCursor,
   type ForgeMerge,
+  type ForgeSweep,
   forgeChangeId,
+  forgeCursor,
   type LandMethod,
-  type OpenChange,
   parseCommitHash,
   parseForgeLocator,
   type Revision,
   type Self,
+  type SweptChange,
   timestampMs,
   type UserName,
   userName,
@@ -43,6 +46,10 @@ interface FakePr {
   readonly requested: Set<string>;
   /** Logins that submitted a review; GitHub reports them as reviewers forever. */
   readonly reviewed: Set<string>;
+  /** When the PR was last touched, as GitHub stamps `updated_at`: every mutation bumps it. */
+  updated: number;
+  /** The head commit the last sweep saw, so the next one notices a push as GitHub would. */
+  seenTip?: Revision;
 }
 
 /** The identity every fake login maps to, as the real GitHub forge mints them. */
@@ -74,11 +81,16 @@ export class FakeForge implements Forge {
   tokenEmail: string | undefined;
   /** The bare repository this forge hosts; `makeRepo` sets it. */
   origin: string | undefined;
-  /** When set, `fetchOpenChanges` caps each change's comments at this many, as real forges do. */
+  /** When set, `fetchChanges` caps each change's comments at this many, as real forges do. */
   commentCap: number | undefined;
   private readonly prs = new Map<ForgeChangeId, FakePr>();
   private clock = 1750000000000;
   private nextComment = 100;
+
+  /** Stamp `pr` touched now, as GitHub bumps `updated_at` on every mutation. */
+  private touch(pr: FakePr): void {
+    pr.updated = this.clock++;
+  }
 
   private async git(...args: string[]): Promise<string> {
     if (this.origin === undefined) {
@@ -118,36 +130,61 @@ export class FakeForge implements Forge {
     return undefined;
   }
 
-  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
-    return Promise.all(
-      [...this.prs]
-        .filter(([, pr]) => pr.state === "open")
-        .map(async ([id, pr]): Promise<OpenChange> => {
-          const comments = await this.listComments(id);
-          const capped = this.commentCap !== undefined && comments.length > this.commentCap;
-          return {
-            change: await this.toChange(id, pr),
-            comments: capped ? comments.slice(0, this.commentCap) : comments,
-            commentsTruncated: capped,
-          };
-        }),
+  async fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    // A push reaches GitHub without touching the API, but bumps the PR all
+    // the same; the sweep is where this forge notices one.
+    for (const pr of this.prs.values()) {
+      const tip = pr.tip ?? (await this.tip(pr.head));
+      if (pr.seenTip !== tip) {
+        pr.seenTip = tip;
+        this.touch(pr);
+      }
+    }
+    const swept =
+      since === undefined
+        ? [...this.prs].filter(([, pr]) => pr.state === "open")
+        : [...this.prs].filter(([, pr]) => pr.updated > Number(since));
+    const changes = await Promise.all(
+      swept.map(async ([id, pr]): Promise<SweptChange> => {
+        const comments = await this.listComments(id);
+        const capped = this.commentCap !== undefined && comments.length > this.commentCap;
+        return {
+          change: await this.toChange(id, pr),
+          comments: capped ? comments.slice(0, this.commentCap) : comments,
+          commentsTruncated: capped,
+        };
+      }),
     );
+    return { coverage: since === undefined ? "open" : "since", changes, cursor: forgeCursor(String(this.clock - 1)) };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
     return this.toChange(id, this.pr(id));
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
-    return this.getChange(this.openPr(this.tokenLogin, head, parent, title, draft));
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
+    // GitHub refuses to open a PR whose head adds nothing over its base.
+    // Branches the hosted repository lacks stay permissive, like `tip`'s
+    // zero hash; `openPr` stays fully permissive for fabricated teammate PRs.
+    const between = await this.git("rev-list", "--count", `refs/heads/${parent}..refs/heads/${head}`).catch(
+      () => undefined,
+    );
+    if (between === "0") {
+      throw new Error(`Validation Failed: No commits between ${parent} and ${head}`);
+    }
+    return this.getChange(this.openPr(this.tokenLogin, head, parent, title));
   }
 
   async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {
-    this.pr(id).base = parent;
+    const pr = this.pr(id);
+    pr.base = parent;
+    this.touch(pr);
   }
 
   async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
-    this.pr(id).draft = draft;
+    const pr = this.pr(id);
+    pr.draft = draft;
+    this.touch(pr);
   }
 
   async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
@@ -156,6 +193,7 @@ export class FakeForge implements Forge {
       throw new Error(`PR ${id} is merged`);
     }
     pr.state = state;
+    this.touch(pr);
   }
 
   async landChange(
@@ -182,6 +220,7 @@ export class FakeForge implements Forge {
     pr.state = "merged";
     pr.merge = { commit, parents: method === "merge" ? 2 : 1 };
     pr.tip = tip;
+    this.touch(pr);
     return pr.merge;
   }
 
@@ -200,13 +239,19 @@ export class FakeForge implements Forge {
 
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
     const pr = this.pr(id);
+    let moved = false;
     for (const user of add) {
-      pr.requested.add(identityLogin(user));
+      const login = identityLogin(user);
+      moved = !pr.requested.has(login) || moved;
+      pr.requested.add(login);
     }
     // Only a pending request can be withdrawn, as on GitHub: a submitted
     // review cannot be unmade.
     for (const user of remove) {
-      pr.requested.delete(identityLogin(user));
+      moved = pr.requested.delete(identityLogin(user)) || moved;
+    }
+    if (moved) {
+      this.touch(pr);
     }
   }
 
@@ -223,23 +268,31 @@ export class FakeForge implements Forge {
       comments: [],
       requested: new Set(),
       reviewed: new Set(),
+      updated: this.clock++,
     });
     return id;
   }
 
   /** The draft toggle, clicked on the forge by a teammate. */
   toggleDraft(id: ForgeChangeId, draft: boolean): void {
-    this.pr(id).draft = draft;
+    const pr = this.pr(id);
+    pr.draft = draft;
+    this.touch(pr);
   }
 
   /** Review requested from `login` on the forge, as by a teammate. */
   requestReviewer(id: ForgeChangeId, login: string): void {
-    this.pr(id).requested.add(login);
+    const pr = this.pr(id);
+    pr.requested.add(login);
+    this.touch(pr);
   }
 
   /** A review request withdrawn on the forge, as by a teammate. */
   withdrawReviewer(id: ForgeChangeId, login: string): void {
-    this.pr(id).requested.delete(login);
+    const pr = this.pr(id);
+    if (pr.requested.delete(login)) {
+      this.touch(pr);
+    }
   }
 
   /** A review submitted by `login`: the pending request completes, and GitHub counts them a reviewer forever. */
@@ -247,28 +300,35 @@ export class FakeForge implements Forge {
     const pr = this.pr(id);
     pr.requested.delete(login);
     pr.reviewed.add(login);
+    this.touch(pr);
   }
 
   /** The close button: the PR is declined without merging. */
   close(id: ForgeChangeId): void {
-    this.pr(id).state = "closed";
+    const pr = this.pr(id);
+    pr.state = "closed";
+    this.touch(pr);
   }
 
   /** A comment posted on the forge by `login`; returns its id. */
   comment(id: ForgeChangeId, login: string, body: string): string {
     const commentId = String(this.nextComment++);
-    this.pr(id).comments.push({ id: commentId, login, body, updatedAt: this.clock++ });
+    const pr = this.pr(id);
+    pr.comments.push({ id: commentId, login, body, updatedAt: this.clock++ });
+    this.touch(pr);
     return commentId;
   }
 
   /** Edit comment `commentId` in place, as the forge does. */
   edit(id: ForgeChangeId, commentId: string, body: string): void {
-    const comment = this.pr(id).comments.find((candidate) => candidate.id === commentId);
+    const pr = this.pr(id);
+    const comment = pr.comments.find((candidate) => candidate.id === commentId);
     if (comment === undefined) {
       throw new Error(`no comment ${commentId} on PR ${id}`);
     }
     comment.body = body;
     comment.updatedAt = this.clock++;
+    this.touch(pr);
   }
 
   /** The merge button, pressed after `mergeCommit` reached the base branch out of band. */
@@ -276,6 +336,7 @@ export class FakeForge implements Forge {
     const pr = this.pr(id);
     pr.state = "merged";
     pr.merge = { commit: mergeCommit, parents };
+    this.touch(pr);
   }
 
   private pr(id: ForgeChangeId): FakePr {

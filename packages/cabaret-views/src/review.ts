@@ -173,9 +173,9 @@ export type MarkReviewedResult =
   /**
    * The file is being marked reviewed at the snapshot's tip. `next` is the
    * next file left in list order, wrapping past the end for files skipped
-   * earlier; undefined when review is done, where the review page takes
-   * over — what to read next changes shape there. `snapshot` has the file
-   * marked off, ready to render those pages from.
+   * earlier; undefined when review is done, where hosts step back out to
+   * the change's own page rather than an emptied review page. `snapshot`
+   * has the file marked off, ready to render those pages from.
    */
   | {
       readonly kind: "marked";
@@ -557,15 +557,30 @@ function fourWayDiffNodes(
   return nodes;
 }
 
+/**
+ * The note standing in for hunks when a due file's diff renders empty — a
+ * pure move or copy, or a tree diff listing changes patdiff shows no hunks
+ * for, like a mode-only change. Marking the file reviewed is how the
+ * reviewer clears it either way.
+ */
+export function emptyDiffNote(source: FileSource | undefined): string {
+  return source === undefined
+    ? "No differences left to read."
+    : `${source.copied ? "Copied" : "Moved"} with no content changes.`;
+}
+
 /** One file's diff body: its hunks, or the note that nothing is left to read there. */
-function fileBodyNodes(change: ChangeName, file: FilePath, view: DiffView, context?: number): Node[] {
+function fileBodyNodes(
+  change: ChangeName,
+  file: FilePath,
+  source: FileSource | undefined,
+  view: DiffView,
+  context?: number,
+): Node[] {
   const body =
     view.kind === "two" ? twoWayDiffNodes(change, file, view, context) : fourWayDiffNodes(change, file, view, context);
   if (body.length === 0) {
-    // A due file's diff can still render empty — a tree diff lists changes
-    // patdiff shows no hunks for, like a mode-only change; marking the file
-    // reviewed is how the reviewer clears it.
-    return [{ spans: [span("No differences left to read; mark the file reviewed to record that.")] }];
+    return [{ spans: [span(emptyDiffNote(source))] }];
   }
   return body;
 }
@@ -584,7 +599,7 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
     nodes.push({ spans: [span("Nothing left to review.")] });
     return layout(nodes);
   }
-  nodes.push(...fileBodyNodes(page.change, page.file, page.left.view, context));
+  nodes.push(...fileBodyNodes(page.change, page.file, page.left.source, page.left.view, context));
   return layout(nodes);
 }
 
@@ -667,7 +682,7 @@ export function diffsDoc(page: DiffsPage, context?: number): Doc {
         }),
       ],
     };
-    nodes.push(section(heading, fileBodyNodes(page.change, file, view, context)));
+    nodes.push(section(heading, fileBodyNodes(page.change, file, source, view, context)));
   });
   return layout(nodes);
 }

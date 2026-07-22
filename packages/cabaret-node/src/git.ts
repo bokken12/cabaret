@@ -280,6 +280,16 @@ function remoteLogRef(change: ChangeName): ChangeName {
 /** Path of the log file within a log ref's tree. */
 const LOG_PATH = "log";
 
+/**
+ * Where the forge sweep record lives: a blob of how far origin's logs have
+ * absorbed the forge. Its copies join by max; the fetch is forced, and the
+ * push leases on the fetched value, skipping when a racer advanced first.
+ */
+const FORGE_REF = `${CABARET_REF_PREFIX}forge/sweep`;
+const REMOTE_FORGE_REF = `${CABARET_REF_PREFIX}remote-forge/sweep`;
+// Wildcarded so a fetch finding no record yet succeeds; an exact refspec fails.
+export const FORGE_FETCH_REFSPEC = `+${CABARET_REF_PREFIX}forge/*:${CABARET_REF_PREFIX}remote-forge/*`;
+
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
   readonly parseRevision = parseCommitHash;
@@ -553,6 +563,8 @@ export class GitBackend implements Backend {
     await fetchRetryingRaces(this.root, [
       "-c",
       `remote.origin.fetch=${LOG_FETCH_REFSPEC}`,
+      "-c",
+      `remote.origin.fetch=${FORGE_FETCH_REFSPEC}`,
       "fetch",
       "--quiet",
       "origin",
@@ -644,6 +656,57 @@ export class GitBackend implements Backend {
     return advanced.sort();
   }
 
+  async joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]> {
+    const homes = await this.branchHomes();
+    const joined: ChangeName[] = [];
+    for (const branch of changes) {
+      const tip = await this.tip(branch);
+      const origin = await this.originTip(branch);
+      if (tip === undefined || origin === undefined || tip === origin) {
+        continue;
+      }
+      if ((await this.isAncestor(tip, origin)) || (await this.isAncestor(origin, tip))) {
+        continue;
+      }
+      // The probe merges trees without touching any worktree; a conflicted
+      // pair is sync's business, and there is nothing to retry until a
+      // reading moves.
+      let tree: string;
+      try {
+        tree = (await git(this.root, ["merge-tree", "--write-tree", tip, origin])).trim();
+      } catch {
+        continue;
+      }
+      const message = `Merge origin's '${branch}' into ${branch}`;
+      const home = homes.get(branch);
+      if (home === undefined) {
+        const commit = (await git(this.root, ["commit-tree", tree, "-p", tip, "-p", origin, "-m", message])).trim();
+        // CAS on the tip read above: a branch moved concurrently stays put.
+        try {
+          await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, tip]);
+        } catch {
+          continue;
+        }
+      } else {
+        // A worktree holds the branch: the join carries its index and
+        // working tree along, so only a clean worktree still on the branch
+        // moves — a dirty one keeps its line of work in place.
+        try {
+          const status = await git(home, ["status", "--porcelain=v2", "--branch"]);
+          const lines = status.split("\n").filter((line) => line !== "");
+          if (!lines.includes(`# branch.head ${branch}`) || lines.some((line) => !line.startsWith("# "))) {
+            continue;
+          }
+          await git(home, ["merge", "--no-ff", "-m", message, origin]);
+        } catch {
+          continue;
+        }
+      }
+      joined.push(branch);
+    }
+    return joined.sort();
+  }
+
   async syncLog(change: ChangeName): Promise<void> {
     await this.publishLogs([change]);
   }
@@ -661,6 +724,45 @@ export class GitBackend implements Backend {
     const changes = [...names].sort();
     await this.publishLogs(changes);
     return changes;
+  }
+
+  async forgeSweepState(): Promise<string | undefined> {
+    try {
+      return await git(this.root, ["cat-file", "blob", REMOTE_FORGE_REF]);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async publishForgeSweepState(content: string): Promise<void> {
+    const blob = (await git(this.root, ["hash-object", "-w", "--stdin"], content)).trim();
+    await git(this.root, ["update-ref", FORGE_REF, blob]);
+    let expected: string;
+    try {
+      expected = (await git(this.root, ["rev-parse", "--verify", REMOTE_FORGE_REF])).trim();
+    } catch {
+      // Never fetched: the lease demands the ref not exist yet.
+      expected = "";
+    }
+    // Advance-or-skip: the lease rejects the push when someone advanced the
+    // record since this fetch read it, and that advance serves in this one's
+    // stead — the record never regresses. `--porcelain` reports the
+    // rejection on stdout whatever the exit code; any other failure surfaces.
+    try {
+      await git(this.root, [
+        "push",
+        "--quiet",
+        "--porcelain",
+        `--force-with-lease=${FORGE_REF}:${expected}`,
+        "origin",
+        `${FORGE_REF}:${FORGE_REF}`,
+      ]);
+    } catch (error) {
+      const stdout = (error as { stdout?: string }).stdout;
+      if (stdout === undefined || !stdout.split("\n").some((line) => line.startsWith("!"))) {
+        throw error;
+      }
+    }
   }
 
   async wipeReviewState(): Promise<readonly ChangeName[]> {
@@ -762,8 +864,10 @@ export class GitBackend implements Backend {
         ...pending.map(({ change, tip }) => `${tip}:${logRef(change)}`),
       ]);
     } catch (error) {
+      // Only a push that reached the remote reports per-ref outcomes; an
+      // empty porcelain is a transport failure, not a rejection.
       const stdout = (error as { stdout?: string }).stdout;
-      if (stdout === undefined) {
+      if (stdout === undefined || stdout === "") {
         throw error;
       }
       out = stdout;
@@ -975,52 +1079,6 @@ export class GitBackend implements Backend {
 
   async checkout(branch: ChangeName): Promise<void> {
     await git(this.root, ["switch", "--quiet", "--end-of-options", branch]);
-  }
-
-  async rename(from: ChangeName, to: ChangeName): Promise<void> {
-    const tip = await this.tip(from);
-    if (tip === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
-    }
-    const log = await this.commitAt(logRef(from));
-    if (log === undefined) {
-      throw new Error(`change has no log: ${JSON.stringify(from)}`);
-    }
-    // One transaction moves the branch and the log together: `create` fails on
-    // an existing target, `delete` compare-and-swaps on the tips read above,
-    // and any failure moves nothing.
-    const transaction =
-      `create refs/heads/${to} ${tip}\n` +
-      `delete refs/heads/${from} ${tip}\n` +
-      `create ${logRef(to)} ${log}\n` +
-      `delete ${logRef(from)} ${log}\n`;
-    // Git refuses to update HEAD and delete its referent in one transaction,
-    // so a checked-out `from` detaches HEAD around the rename instead — a
-    // ref-only move that leaves the index and working tree in place. A crash
-    // here strands a detached HEAD at the tip, never a half-renamed change.
-    const checkedOut = (await this.checkedOutBranch()) === from;
-    if (checkedOut) {
-      await git(this.root, ["update-ref", "--no-deref", "HEAD", tip]);
-    }
-    try {
-      // The transaction does not guard other worktrees' HEADs: deleting a
-      // branch out from under one leaves it on an unborn branch that a later
-      // commit would quietly recreate. With this worktree's HEAD already
-      // detached, any worktree still on `from` is someone else's.
-      const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-      if (worktrees.split("\n").includes(`branch refs/heads/${from}`)) {
-        throw new UserError(`branch is checked out in another worktree: ${JSON.stringify(from)}`);
-      }
-      await git(this.root, ["update-ref", "--stdin"], transaction);
-    } catch (error) {
-      if (checkedOut) {
-        await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${from}`]);
-      }
-      throw error;
-    }
-    if (checkedOut) {
-      await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${to}`]);
-    }
   }
 
   async commit(message: string, paths: readonly FilePath[]): Promise<void> {

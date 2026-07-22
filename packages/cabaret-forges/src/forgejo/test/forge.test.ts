@@ -1,4 +1,4 @@
-import { forgeChangeId, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
+import { forgeChangeId, forgeCursor, parseBranchName, parseCommitHash, UserError, userName } from "cabaret-core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ForgejoClient, parseForgejoRemote } from "../client.js";
 import { ForgejoForge } from "../forge.js";
@@ -56,6 +56,7 @@ function shaOf(n: number): string {
 function openPr(number: number, head: string): Record<string, unknown> {
   return {
     number,
+    updated_at: "2026-05-02T10:00:00Z",
     title: `Change ${number}`,
     user: { login: "alice" },
     state: "open",
@@ -100,6 +101,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/7`]: {
         json: {
           number: 7,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "Add tables",
           user: { login: "alice" },
           state: "open",
@@ -141,6 +143,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/8`]: {
         json: {
           number: 8,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "Fix crash",
           user: { login: "bob" },
           state: "closed",
@@ -181,6 +184,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/9`]: {
         json: {
           number: 9,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "Polish",
           user: { login: "carol" },
           state: "closed",
@@ -210,6 +214,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/10`]: {
         json: {
           number: 10,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "Tidy",
           user: { login: "carol" },
           state: "closed",
@@ -242,6 +247,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/15`]: {
         json: {
           number: 15,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "Hotfix",
           user: { login: "bob" },
           state: "closed",
@@ -269,6 +275,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/11`]: {
         json: {
           number: 11,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "WIP: Abandoned",
           user: null,
           state: "closed",
@@ -337,7 +344,7 @@ describe("ForgejoForge", () => {
     expect(await forge().findChange(parseBranchName("orphan"))).toBeUndefined();
   });
 
-  test("fetchOpenChanges pages past a full page, carrying each PR's whole discussion", async () => {
+  test("fetchChanges pages past a full page, carrying each PR's whole discussion", async () => {
     const routes: Record<string, Route> = {
       [`GET ${REPO}/pulls?state=open&limit=50&page=1`]: {
         json: Array.from({ length: 50 }, (_, i) => openPr(i + 1, `branch-${i + 1}`)),
@@ -352,7 +359,9 @@ describe("ForgejoForge", () => {
       json: [{ id: 301, user: { login: "bob" }, body: "looks good", updated_at: "2026-05-01T00:00:00Z" }],
     };
     stubForgejo(routes);
-    const changes = await forge().fetchOpenChanges();
+    const { changes, coverage, cursor } = await forge().fetchChanges(undefined);
+    expect(coverage).toBe("open");
+    expect(cursor).toBe(String(Date.parse("2026-05-02T09:55:00Z")));
     expect(changes.map(({ change }) => change.id)).toEqual(Array.from({ length: 51 }, (_, i) => i + 1));
     expect(changes[2]).toEqual({
       change: {
@@ -378,12 +387,51 @@ describe("ForgejoForge", () => {
     });
   });
 
+  test("fetchChanges with a cursor lists touched pulls by number, keeping every state", async () => {
+    const closedPr = {
+      number: 7,
+      updated_at: "2026-06-10T12:00:00Z",
+      title: "Change 7",
+      user: { login: "alice" },
+      state: "closed",
+      draft: false,
+      merged: false,
+      merge_commit_sha: null,
+      head: { ref: "branch-7", sha: shaOf(7) },
+      base: { ref: "main" },
+      requested_reviewers: null,
+    };
+    const calls = stubForgejo({
+      [`GET ${REPO}/issues?type=pulls&state=all&since=2026-06-01T00%3A00%3A00.000Z&limit=50&page=1`]: {
+        json: [
+          { number: 7, updated_at: "2026-06-10T12:00:00Z" },
+          { number: 4, updated_at: "2026-06-10T09:00:00Z" },
+        ],
+      },
+      [`GET ${REPO}/pulls/7`]: { json: closedPr },
+      [`GET ${REPO}/pulls/7/reviews?limit=50&page=1`]: { json: [] },
+      [`GET ${REPO}/issues/7/comments`]: { json: [] },
+      [`GET ${REPO}/pulls/4`]: { json: { ...openPr(4, "branch-4"), updated_at: "2026-06-10T09:00:00Z" } },
+      [`GET ${REPO}/pulls/4/reviews?limit=50&page=1`]: { json: [] },
+      [`GET ${REPO}/issues/4/comments`]: { json: [] },
+    });
+    const sweep = await forge().fetchChanges(forgeCursor(String(Date.parse("2026-06-01T00:00:00Z"))));
+    expect(sweep.coverage).toBe("since");
+    expect(sweep.cursor).toBe(String(Date.parse("2026-06-10T11:55:00Z")));
+    expect(sweep.changes.map(({ change }) => [change.id, change.state])).toEqual([
+      [7, "closed"],
+      [4, "open"],
+    ]);
+    expect(calls.filter(({ url }) => url.includes("/issues?"))).toHaveLength(1);
+  });
+
   test("createChange posts the PR and fetches it by number", async () => {
     const calls = stubForgejo({
       [`POST ${REPO}/pulls`]: { status: 201, json: { number: 12 } },
       [`GET ${REPO}/pulls/12`]: {
         json: {
           number: 12,
+          updated_at: "2026-05-02T10:00:00Z",
           title: "New work",
           user: { login: "dave" },
           state: "open",
@@ -398,7 +446,7 @@ describe("ForgejoForge", () => {
       [`GET ${REPO}/pulls/12/reviews?limit=50&page=1`]: { json: [] },
     });
     expect(
-      await forge().createChange(parseBranchName("new-work"), parseBranchName("parent-branch"), "New work", false),
+      await forge().createChange(parseBranchName("new-work"), parseBranchName("parent-branch"), "New work"),
     ).toEqual({
       id: 12,
       head: "new-work",
@@ -411,31 +459,6 @@ describe("ForgejoForge", () => {
       reviewers: [],
     });
     expect(calls[0]?.body).toBe(JSON.stringify({ head: "new-work", base: "parent-branch", title: "New work" }));
-  });
-
-  test("createChange opens a draft under the work-in-progress prefix", async () => {
-    const calls = stubForgejo({
-      [`POST ${REPO}/pulls`]: { status: 201, json: { number: 13 } },
-      [`GET ${REPO}/pulls/13`]: {
-        json: {
-          number: 13,
-          title: "WIP: Sketch",
-          user: { login: "dave" },
-          state: "open",
-          draft: true,
-          merged: false,
-          merge_commit_sha: null,
-          head: { ref: "sketch", sha: "56789abcdef0123456789abcdef0123456789abc" },
-          base: { ref: "main" },
-          requested_reviewers: null,
-        },
-      },
-      [`GET ${REPO}/pulls/13/reviews?limit=50&page=1`]: { json: [] },
-    });
-    expect((await forge().createChange(parseBranchName("sketch"), parseBranchName("main"), "Sketch", true)).draft).toBe(
-      true,
-    );
-    expect(calls[0]?.body).toBe(JSON.stringify({ head: "sketch", base: "main", title: "WIP: Sketch" }));
   });
 
   test("setParent patches the PR's base branch", async () => {

@@ -1,9 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type Forge, UserError } from "cabaret-core";
-import { ForgejoClient, ForgejoForge, parseForgejoRemote } from "cabaret-forgejo";
-import { GitHubForge, githubClient, parseGitHubRemote } from "cabaret-github";
-import { GitLabClient, GitLabForge, parseGitLabRemote } from "cabaret-gitlab";
+import {
+  ForgejoClient,
+  ForgejoForge,
+  GitHubForge,
+  GitLabClient,
+  GitLabForge,
+  githubClient,
+  parseForgejoRemote,
+  parseGitHubRemote,
+  parseGitLabRemote,
+} from "cabaret-forges";
 
 const execFileAsync = promisify(execFile);
 

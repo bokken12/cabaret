@@ -44,14 +44,15 @@ test("workspace add creates a sibling working tree that dir, list, and home repo
     ╭────────┬────────╮
     │ change │ review │
     ├────────┼────────┤
+    │ gizmo  │      1 │
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬─────────────────╮
-    │ change │ next step       │
-    ├────────┼─────────────────┤
-    │ gizmo  │ widen reviewing │
-    ╰────────┴─────────────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gizmo  │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
     ╭────────┬──────╮
@@ -64,7 +65,7 @@ test("workspace add creates a sibling working tree that dir, list, and home repo
   `);
 });
 
-test("workspace add refuses a second workspace, a missing change, and a landed one", async () => {
+test("workspace add refuses a second workspace and a missing change, and takes a landed one", async () => {
   const repo = await makeRepo(undefined, "repo");
   await addChange(repo, "gizmo");
   await addChange(repo, "relic");
@@ -80,7 +81,12 @@ test("workspace add refuses a second workspace, a missing change, and a landed o
   expect((await repo.cabaret("workspace", "add", "phantom")).stderr).toContain("change does not exist");
   await repo.cabaret("mark", "--tip", "relic", "--change", "relic", "relic.txt");
   await repo.cabaret("land", "relic", "--even-though-parent-unreviewed");
-  expect((await repo.cabaret("workspace", "add", "relic")).stderr).toContain("change has landed");
+  // A landed change still checks out — to browse the frozen code, or to reopen it.
+  expect(await repo.cabaret("workspace", "add", "relic")).toEqual({
+    stdout: `${root}-relic\n`,
+    stderr: "",
+    exitCode: 0,
+  });
 });
 
 test("workspace remove refuses a dirty workspace until --even-though-dirty, and needs one to remove", async () => {

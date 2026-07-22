@@ -4,17 +4,20 @@ import {
   type ForgeChange,
   type ForgeChangeId,
   type ForgeComment,
+  type ForgeCursor,
   type ForgeLocator,
   type ForgeMerge,
+  type ForgeSweep,
   forgeAccount,
   forgeChangeId,
+  forgeCursor,
   type LandMethod,
-  type OpenChange,
   parseBranchName,
   parseCommitHash,
   parseForgeLocator,
   type Revision,
   type Self,
+  type SweptChange,
   timestampMs,
   UserError,
   type UserName,
@@ -96,16 +99,28 @@ const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
 }`;
 
 // Comments are capped at their first hundred rather than paginated per PR,
-// keeping the whole sweep to one query per hundred open PRs; the page info
+// keeping the whole sweep to one query per hundred PRs; the page info
 // reports the cap so readers needing more fall back to `listComments`.
-const OPEN_CHANGE_FIELDS =
-  `${PR_FIELDS} comments(first: 100) ` +
+const SWEPT_CHANGE_FIELDS =
+  `${PR_FIELDS} updatedAt comments(first: 100) ` +
   "{ nodes { databaseId author { login } body updatedAt } pageInfo { hasNextPage } }";
 
 const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequests(states: OPEN, first: 100, after: $cursor) {
-      nodes { ${OPEN_CHANGE_FIELDS} }
+      nodes { ${SWEPT_CHANGE_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+// Every state, newest activity first: a since sweep walks down the recency
+// order until it falls below its cursor, so closed and merged changes
+// surface with the rest.
+const FETCH_CHANGES_SINCE = `query ($owner: String!, $repo: String!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(first: 100, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -121,7 +136,8 @@ const FindPrSchema = z.object({
   repository: z.object({ pullRequests: z.object({ nodes: z.array(PrSchema) }) }),
 });
 
-const OpenPrSchema = PrSchema.extend({
+const SweptPrSchema = PrSchema.extend({
+  updatedAt: z.string(),
   comments: z.object({
     nodes: z.array(
       z.object({
@@ -136,14 +152,30 @@ const OpenPrSchema = PrSchema.extend({
   }),
 });
 
-const FetchOpenChangesSchema = z.object({
+const FetchChangesSchema = z.object({
   repository: z.object({
     pullRequests: z.object({
-      nodes: z.array(OpenPrSchema),
+      nodes: z.array(SweptPrSchema),
       pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
     }),
   }),
 });
+
+/**
+ * How far back a minted cursor trails the newest activity a sweep read.
+ * GitHub stamps updates synchronously, but a read may come from a lagging
+ * replica; the overlap re-reads that window, which absorption tolerates.
+ */
+const CURSOR_OVERLAP_MS = 5 * 60 * 1000;
+
+/** The forge-clock epoch milliseconds a cursor resumes from; undefined resweeps the open set. */
+function cursorMs(since: ForgeCursor | undefined): number | undefined {
+  if (since === undefined) {
+    return undefined;
+  }
+  const ms = Number(since);
+  return Number.isNaN(ms) ? undefined : ms;
+}
 
 const GetPrSchema = z.object({
   repository: z.object({ pullRequest: PrSchema }),
@@ -215,7 +247,7 @@ export class GitHubForge implements Forge {
     return found === undefined ? undefined : this.toChange(found);
   }
 
-  private toOpenChange(pr: z.infer<typeof OpenPrSchema>): OpenChange {
+  private toSweptChange(pr: z.infer<typeof SweptPrSchema>): SweptChange {
     const comments = pr.comments.nodes
       .filter((comment) => comment.databaseId !== null)
       .map((comment) => ({
@@ -227,16 +259,37 @@ export class GitHubForge implements Forge {
     return { change: this.toChange(pr), comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
   }
 
-  async fetchOpenChanges(): Promise<readonly OpenChange[]> {
-    const changes: OpenChange[] = [];
+  async fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    const resume = cursorMs(since);
+    const changes: SweptChange[] = [];
+    let newest = 0;
     let cursor: string | null = null;
+    let exhausted = false;
     do {
-      const out: unknown = await this.client.graphql(FETCH_OPEN_CHANGES, { ...this.repo, cursor });
-      const { nodes, pageInfo } = FetchOpenChangesSchema.parse(out).repository.pullRequests;
-      changes.push(...nodes.map(this.toOpenChange, this));
-      cursor = pageInfo.hasNextPage ? pageInfo.endCursor : null;
+      const out: unknown = await this.client.graphql(resume === undefined ? FETCH_OPEN_CHANGES : FETCH_CHANGES_SINCE, {
+        ...this.repo,
+        cursor,
+      });
+      const { nodes, pageInfo } = FetchChangesSchema.parse(out).repository.pullRequests;
+      for (const pr of nodes) {
+        const updated = Date.parse(pr.updatedAt);
+        newest = Math.max(newest, updated);
+        if (resume !== undefined && updated < resume) {
+          // Recency order: everything from here back was absorbed already.
+          exhausted = true;
+          break;
+        }
+        changes.push(this.toSweptChange(pr));
+      }
+      cursor = exhausted || !pageInfo.hasNextPage ? null : pageInfo.endCursor;
     } while (cursor !== null);
-    return changes;
+    // Never regresses: an empty sweep resumes where this one began.
+    const minted = Math.max(resume ?? 0, newest - CURSOR_OVERLAP_MS);
+    return {
+      coverage: resume === undefined ? "open" : "since",
+      changes,
+      cursor: minted > 0 ? forgeCursor(String(minted)) : undefined,
+    };
   }
 
   async getChange(id: ForgeChangeId): Promise<ForgeChange> {
@@ -244,7 +297,7 @@ export class GitHubForge implements Forge {
     return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
   }
 
-  async createChange(head: ChangeName, parent: ChangeName, title: string, draft: boolean): Promise<ForgeChange> {
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
     // The creation response names the new PR; fetching by its number —
     // never by head, which could race another PR on the same branch —
     // reuses the one query that maps a PR.
@@ -254,7 +307,6 @@ export class GitHubForge implements Forge {
       head,
       base: parent,
       body: "",
-      draft,
     });
     return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
   }

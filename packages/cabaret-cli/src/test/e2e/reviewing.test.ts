@@ -16,7 +16,7 @@ async function requirePolicy(repo: TestRepo, ...users: string[]): Promise<void> 
 test("reviewing shows the current set and records a new one", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  // A fresh change is a draft until widened.
+  await repo.cabaret("reviewing", "set", "none");
   expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "none\n", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("reviewing", "set", "owner")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("reviewing", "show")).toEqual({ stdout: "owner\n", stderr: "", exitCode: 0 });
@@ -34,6 +34,7 @@ test("reviewing rejects a value outside the set", async () => {
 test("widen steps to the next level with review to do, skipping levels that ask nothing", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "none");
   await repo.cabaret("reviewers", "add", "bob@example.com");
   // The owner has review left, so the fresh draft widens to them first.
   expect(await repo.cabaret("reviewing", "widen")).toEqual({ stdout: "reviewing owner\n", stderr: "", exitCode: 0 });
@@ -50,6 +51,7 @@ test("widen steps to the next level with review to do, skipping levels that ask 
 test("widen from a draft skips an owner who already read the whole diff", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "none");
   // Self-review of a draft needs no widening: the owner is never nudged.
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   // Nobody is a reviewer either, so the first level with anything to ask is everyone.
@@ -61,6 +63,7 @@ test("obligations reach a user's home only once the reviewing set includes them"
   await requirePolicy(repo, "alice@example.com");
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "set", "owner");
   const aliceHome = async () => {
     await repo.git("config", "user.email", "alice@example.com");
     const { stdout } = await repo.cabaret("home");
@@ -82,18 +85,24 @@ test("obligations reach a user's home only once the reviewing set includes them"
   expect(await aliceHome()).toContain("feature");
 });
 
-test("sync opens a draft for an unreviewing change and marks it ready when review starts", async () => {
+test("no forge change opens while reviewing is none; leaving none opens one ready", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  expect((await repo.cabaret("sync")).stdout).toContain("opened github.com/test-org/widgets#1");
-  expect((await forge.getChange(PR)).draft).toBe(true);
-  // Widening past none is local intent the next sync asserts on the forge.
-  await repo.cabaret("reviewing", "widen");
-  expect((await repo.cabaret("sync")).stdout).toContain("marked github.com/test-org/widgets#1 ready for review");
+  await repo.cabaret("reviewing", "set", "none");
+  // The forge change is the change's attention artifact: an unreviewing sync
+  // replicates the branch and log but opens nothing.
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with origin\n');
+  await expect(forge.getChange(PR)).rejects.toThrow("no PR 1");
+  // Leaving none is the attention act, and its write-through opens the
+  // forge change ready — never as a draft.
+  expect((await repo.cabaret("reviewing", "widen")).stdout).toContain("opened github.com/test-org/widgets#1");
   expect((await forge.getChange(PR)).draft).toBe(false);
-  // Settled: syncing again moves nothing.
-  expect((await repo.cabaret("sync")).stdout).not.toContain("marked");
+  // Reviewing back to none marks the existing forge change a draft.
+  expect((await repo.cabaret("reviewing", "set", "none")).stdout).toContain(
+    "marked github.com/test-org/widgets#1 draft",
+  );
+  expect((await forge.getChange(PR)).draft).toBe(true);
 });
 
 test("a forge-side draft toggle mirrors into the reviewing set on fetch", async () => {
@@ -139,6 +148,7 @@ test("review ahead of the reviewing set nudges, and the flag overrides", async (
   const repo = await makeRepo();
   await repo.git("config", "user.email", "bob@example.com");
   await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "set", "none");
   await repo.git("config", "user.email", "alice@example.com");
   // Only bob, the owner, may review his draft; alice recording review jumps the set.
   expect(await repo.cabaret("mark", "--tip", "feature", "feature.txt", "--change", "feature")).toEqual({

@@ -94,6 +94,22 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", async () 
   expect(stateB).toEqual(stateA);
 });
 
+test("a sweep record publish losing its race skips, and the record never regresses", async () => {
+  const [a, b] = await makeMachines();
+  // Both machines read the record's absence, then race their advances.
+  await a.backend.fetchOrigin();
+  await b.backend.fetchOrigin();
+  await a.backend.publishForgeSweepState("cursor example.com/x/y 2000\n");
+  await b.backend.publishForgeSweepState("cursor example.com/x/y 1000\n");
+  // The loser skipped: a fresh read sees the winner's advance untouched.
+  await b.backend.fetchOrigin();
+  expect(await b.backend.forgeSweepState()).toBe("cursor example.com/x/y 2000\n");
+  // Read-join-write from a fresh read replaces the record outright.
+  await b.backend.publishForgeSweepState("cursor example.com/x/y 3000\n");
+  await a.backend.fetchOrigin();
+  expect(await a.backend.forgeSweepState()).toBe("cursor example.com/x/y 3000\n");
+});
+
 test("concurrent appends converge to byte-identical logs, ties resolved alike", async () => {
   const [a, b] = await makeMachines();
   // The same entry recorded independently on both machines (as two `cab pull`s

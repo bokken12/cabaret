@@ -23,7 +23,6 @@ import {
   rebaseChange,
   reclaimWorkspaces,
   removeChangeWorkspace,
-  renameChange,
   reparentChange,
   resolveChain,
   setArchived,
@@ -158,9 +157,12 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         await landChain(backend, await resolveChain(backend, changes), landOne);
       }
     },
-    rename: (from, to, evenThoughNotOwner) => renameChange(backend, from, to, evenThoughNotOwner),
     reparent: async (change, parent, evenThoughNotOwner) => {
-      await reparentChange(backend, now, change, parent, evenThoughNotOwner);
+      await reparentChange(backend, now, change, parent, {
+        notOwner: evenThoughNotOwner,
+        parentArchived: false,
+        parentDiverged: false,
+      });
     },
     setOwner: (change, owner, evenThoughNotOwner) =>
       transferChange(backend, now, change, userName(owner), evenThoughNotOwner),
@@ -190,7 +192,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     removeWorkspace: (change, evenThoughDirty) => removeChangeWorkspace(backend, change, evenThoughDirty),
     reclaimWorkspaces: async () => reclaimNote(await reclaimWorkspaces(backend, false)),
     create: async (name, parent) => {
-      await createChange(backend, now, name, parent);
+      await createChange(backend, now, name, parent, false);
     },
     changes: () => knownChanges(backend),
     parseName: (raw) => backend.parseName(raw),
@@ -201,8 +203,9 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         const { synced } = await fetchLocal(backend);
         return `synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin`;
       }
-      const { open } = await fetchForge(backend, now, forge, () => {});
-      return `fetched ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`;
+      const { coverage, swept } = await fetchForge(backend, now, forge, () => {});
+      const kind = coverage === "open" ? "open" : "updated";
+      return `fetched ${forge.locator}, ${swept} ${kind} forge change${swept === 1 ? "" : "s"}`;
     },
     sync: async (change) => {
       const forge = await forgeIfAny();

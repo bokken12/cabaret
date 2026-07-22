@@ -25,20 +25,21 @@ test("reviewers add and remove append entries, latest per user winning", async (
     {
       "exitCode": 0,
       "stderr": "",
-      "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
-    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
-    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
-    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
-    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"bob@example.com"}}
-    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"carol@example.com"}}
-    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"remove-reviewer","reviewer":"bob@example.com"}}
+      "stdout": "{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"feature"}}
+    {"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}
+    {"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"1ac0b33426d0417f90ab4eb5ec771b5067e09a9b"}}
+    {"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}
+    {"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+    {"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"bob@example.com"}}
+    {"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"add-reviewer","reviewer":"carol@example.com"}}
+    {"timestamp":1748000000007,"user":"alice@example.com","action":{"kind":"remove-reviewer","reviewer":"bob@example.com"}}
     ",
     }
   `);
   expect(await shownReviewers(repo, "feature")).toBe("│ reviewers │ carol@example.com │");
 });
 
-test("reviewers add fails on a change that does not exist, and on a landed change", async () => {
+test("reviewers add fails on a change that does not exist, and still writes on a landed one", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("reviewers", "add", "bob@example.com")).toEqual({
     stdout: "",
@@ -48,10 +49,10 @@ test("reviewers add fails on a change that does not exist, and on a landed chang
   await addChange(repo, "feature");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.cabaret("land");
-  const { stderr, exitCode } = await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature");
-  expect({ stderr: stderr.replace(/merge [0-9a-f]{40}/, "merge <hash>"), exitCode }).toEqual({
-    stderr: 'change has landed: "feature" (merge <hash>)\n',
-    exitCode: 1,
+  expect(await repo.cabaret("reviewers", "add", "bob@example.com", "--change", "feature")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
   });
 });
 
@@ -111,16 +112,16 @@ test("fetch mirrors forge-side reviewer changes in; a local removal syncs the wi
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
-  // Removing carol locally is intent the next sync carries to the forge.
-  await repo.cabaret("reviewers", "remove", "github:carol");
-  expect((await repo.cabaret("sync")).stdout).toBe(
-    "updated 1 reviewer on github.com/test-org/widgets#1\n" + 'synced "gadget" with github.com/test-org/widgets#1\n',
+  // The removal itself carries the withdrawal to the forge; sync finds it settled.
+  expect((await repo.cabaret("reviewers", "remove", "github:carol")).stdout).toBe(
+    "updated 1 reviewer on github.com/test-org/widgets#1\n",
   );
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   expect((await forge.getChange(PR)).reviewers).toEqual([]);
   // Settled: another fetch re-mirrors nothing.
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   expect(await shownReviewers(repo)).toBeUndefined();
 });
@@ -140,7 +141,7 @@ test("sync absorbs a forge-side request it has not fetched, rather than withdraw
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 
-test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back on the next fetch", async () => {
+test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors straight back", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -149,14 +150,13 @@ test("a reviewer who has reviewed cannot be withdrawn: the removal mirrors back 
   forge.review(PR, "carol");
   await repo.cabaret("fetch");
   await repo.cabaret("reviewers", "remove", "github:carol");
-  // The sync attempts the withdrawal, but the forge cannot unmake the review.
+  // The sync attempts the withdrawal, but the forge cannot unmake the review;
+  // the fresh reading it takes after writing mirrors carol back immediately.
   await repo.cabaret("sync");
   expect((await forge.getChange(PR)).reviewers).toEqual(["github:carol"]);
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "updated 1 reviewer from github.com/test-org/widgets#1\n" +
-      "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
-  );
+  expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
+  // The refused write touched nothing on the forge: the next sweep passes by.
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
   expect(await shownReviewers(repo)).toBe("│ reviewers    │ github:carol                  │");
 });
 

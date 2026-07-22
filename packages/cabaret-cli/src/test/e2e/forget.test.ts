@@ -15,12 +15,13 @@ test("forget appends a forget entry after a review", async () => {
   expect(await repo.cabaret("forget", "src/a.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("dev", "log")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"main"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -39,12 +40,13 @@ test("forget from a subdirectory records repo-relative paths", async () => {
   expect(await repo.cabaretIn("src", "forget", "a.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("dev", "log")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"main"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"forget","file":"src/a.ts"}}\n',
     stderr: "",
     exitCode: 0,
   });
@@ -61,12 +63,13 @@ test("forget --change writes one entry per file to that change's log", async () 
   });
   expect(await repo.cabaret("dev", "log", "gadget")).toEqual({
     stdout:
-      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
-      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
-      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
-      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
-      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"forget","file":"lib/core.ts"}}\n' +
-      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"docs/notes.md"}}\n',
+      '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-name","name":"gadget"}}\n' +
+      '{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-parent","parent":"main"}}\n' +
+      `{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-base","base":"${root}"}}\n` +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      '{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"forget","file":"lib/core.ts"}}\n' +
+      '{"timestamp":1748000000006,"user":"alice@example.com","action":{"kind":"forget","file":"docs/notes.md"}}\n',
     stderr: "",
     exitCode: 0,
   });

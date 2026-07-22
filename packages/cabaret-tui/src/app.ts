@@ -80,7 +80,6 @@ export interface Effects {
   rebase(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<void>;
   /** Land the changes into their parents as configured, with the stack semantics of `rebase`. */
   land(changes: readonly ChangeName[], overrides: LandOverrides): Promise<void>;
-  rename(from: ChangeName, to: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
   reparent(change: ChangeName, parent: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
   setOwner(change: ChangeName, owner: string, evenThoughNotOwner: boolean): Promise<void>;
   /** Widen reviewing one notch; resolves to the set it landed on. */
@@ -549,13 +548,6 @@ export class App {
         const changes = this.actionChanges(view);
         if (changes.length > 0) {
           await this.landFlow(changes, { notOwner: false, unreviewed: false, parentUnreviewed: false });
-        }
-        return "continue";
-      }
-      case "rename": {
-        const from = this.singleChange(view, "rename");
-        if (from !== undefined) {
-          this.input = { prompt: `Rename ${from}`, buffer: from, submit: (raw) => this.renameFlow(view, from, raw) };
         }
         return "continue";
       }
@@ -1043,27 +1035,6 @@ export class App {
         return undefined;
       },
     );
-  }
-
-  private async renameFlow(view: View, from: ChangeName, raw: string): Promise<void> {
-    if (raw === from) {
-      return;
-    }
-    let to: ChangeName;
-    try {
-      to = this.effects.parseName(raw);
-    } catch (error) {
-      this.note = message(error);
-      return;
-    }
-    await this.ownedFlow("Rename", async (override) => {
-      await this.effects.rename(from, to, override);
-      // A show page names its change, so the renamed one cannot re-render;
-      // replace it with the page under the new name.
-      if (view.page.kind === "show" && view.page.change === from) {
-        await this.replace(view, { kind: "show", change: to, as: view.page.as });
-      }
-    });
   }
 
   /**

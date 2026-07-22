@@ -1,6 +1,8 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { formatLogEntry } from "cabaret-core";
+import { changeDiff, currentSelf, formatLogEntry, reviewOwed, soleUser, type UserName } from "cabaret-core";
+import { homePage, type ReviewNode } from "cabaret-views";
 import type { LocalContext } from "../context.js";
+import { parseUser } from "./shared.js";
 
 export const dev = buildRouteMap({
   docs: { brief: "Utilities for developing Cabaret" },
@@ -26,6 +28,64 @@ export const dev = buildRouteMap({
           change === undefined ? await backend.currentChange() : backend.parseName(change),
         );
         this.process.stdout.write(entries.map(formatLogEntry).join(""));
+      },
+    }),
+    "review-all": buildCommand({
+      docs: {
+        brief: "Mark every file owed your review",
+        fullDescription:
+          "Mark every file the home page asks you to review: one `review` " +
+          "entry per owed file, at its change's current tip.",
+      },
+      parameters: {
+        flags: {
+          for: {
+            kind: "parsed",
+            parse: parseUser,
+            brief: "Identity to mark as (defaults to you)",
+            optional: true,
+          },
+        },
+      },
+      async func(this: LocalContext, flags: { for?: UserName }) {
+        const backend = await this.backend();
+        const identity = flags.for ?? (await currentSelf(backend)).user;
+        const page = await homePage(backend, flags.for);
+        let marked = false;
+        const mark = async (nodes: readonly ReviewNode[]): Promise<void> => {
+          for (const { summary, owed, children } of nodes) {
+            if (owed.length > 0) {
+              const entries = await backend.readLog(summary.change);
+              const diff = await changeDiff(backend, summary.change, entries);
+              // Obligations are per identity: only demands `identity`'s own
+              // review can satisfy are marked, so a file owed to an alias
+              // alone stays owed.
+              const files = await reviewOwed(backend, entries, summary.owner, soleUser(identity), diff);
+              if (files.length > 0) {
+                await backend.appendLog(
+                  summary.change,
+                  files.map((file) => ({
+                    timestamp: this.now(),
+                    user: identity,
+                    action: { kind: "review" as const, file, base: diff.base, tip: diff.tip },
+                  })),
+                );
+                marked = true;
+                this.process.stdout.write(
+                  `${summary.change}: marked ${files.length} file${files.length === 1 ? "" : "s"}\n`,
+                );
+              }
+            }
+            await mark(children);
+          }
+        };
+        await mark(page.review);
+        if (!marked) {
+          this.process.stdout.write("nothing owed\n");
+        }
+        for (const { change, message } of page.broken) {
+          this.process.stderr.write(`${change}: ${message}\n`);
+        }
       },
     }),
     wipe: buildCommand({

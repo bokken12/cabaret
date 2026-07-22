@@ -84,6 +84,18 @@ export function parseObligationsFile(text: string): ObligationsFile {
   return ObligationsFileSchema.parse(JSON.parse(text));
 }
 
+/**
+ * An obligations file the policy read could not parse. Mending the policy is
+ * the owner's work alone: pages read this as the change's `fix obligations`
+ * step and ask review of nobody, and only the owner's own actions — a land —
+ * surface the diagnostic itself.
+ */
+export class MalformedObligationsError extends UserError {
+  constructor(path: FilePath, commit: Revision, detail: string) {
+    super(`malformed obligations file ${JSON.stringify(path)} at ${commit.slice(0, 12)}${detail}`);
+  }
+}
+
 /** Read and parse the obligations file at `path` in `commit`'s tree, or undefined if there is none. */
 async function readObligations(
   backend: Backend,
@@ -99,7 +111,7 @@ async function readObligations(
   } catch (cause) {
     const detail =
       cause instanceof z.ZodError ? `\n${z.prettifyError(cause)}` : cause instanceof Error ? `: ${cause.message}` : "";
-    throw new UserError(`malformed obligations file ${JSON.stringify(path)} at ${commit.slice(0, 12)}${detail}`);
+    throw new MalformedObligationsError(path, commit, detail);
   }
 }
 
@@ -166,7 +178,17 @@ export async function changeObligations(
       }
     }
     if (parts.at(-1) === OBLIGATIONS_FILE) {
-      const replaced = await readObligations(backend, base, file);
+      let replaced: ObligationsFile | undefined;
+      try {
+        replaced = await readObligations(backend, base, file);
+      } catch (error) {
+        // A base version nobody can parse states no requirements: the change
+        // fixing a broken policy answers only to the files governing it, or
+        // it could never land.
+        if (!(error instanceof MalformedObligationsError)) {
+          throw error;
+        }
+      }
       for (const rule of replaced?.rules ?? []) {
         obligations.push({ file, source: file, kind: rule.kind, require: rule.require });
       }
@@ -321,11 +343,34 @@ export function outstanding({ obligation, reviewedBy }: ObligationStatus): reado
   return obligation.require.of.filter((user) => !reviewedBy.includes(user));
 }
 
+/** A diff's obligation statuses, or the malformed policy that kept them unread. */
+export type ObligationsReading =
+  | { readonly kind: "read"; readonly statuses: readonly ObligationStatus[] }
+  | { readonly kind: "malformed"; readonly error: MalformedObligationsError };
+
+/** `obligationStatuses`, reading a malformed policy as a reading of its own rather than an error. */
+export async function obligationsReading(
+  backend: Backend,
+  entries: readonly LogEntry[],
+  owner: UserName,
+  diff: ChangeDiff,
+): Promise<ObligationsReading> {
+  try {
+    return { kind: "read", statuses: await obligationStatuses(backend, entries, owner, diff) };
+  } catch (error) {
+    if (error instanceof MalformedObligationsError) {
+      return { kind: "malformed", error };
+    }
+    throw error;
+  }
+}
+
 /**
  * The files of `diff` with an unsatisfied obligation that a review from
  * `self` — any of their identities — can still count toward, sorted by name.
  * Empty exactly when the change needs nothing from them — however much of it
- * they have not read.
+ * they have not read. A malformed policy asks nobody: mending it is the
+ * owner's next step, not review anyone owes.
  */
 export async function reviewOwed(
   backend: Backend,
@@ -334,8 +379,11 @@ export async function reviewOwed(
   self: Self,
   diff: ChangeDiff,
 ): Promise<readonly FilePath[]> {
-  const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const owed = statuses.filter(
+  const reading = await obligationsReading(backend, entries, owner, diff);
+  if (reading.kind === "malformed") {
+    return [];
+  }
+  const owed = reading.statuses.filter(
     (status) => !isSatisfied(status) && outstanding(status).some((user) => isSelf(self, user)),
   );
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();

@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { createChange, type UserName } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { parseUser } from "./shared.js";
+import { parseUser, writeThrough } from "./shared.js";
 
 export const create = buildCommand({
   docs: {
@@ -30,12 +30,27 @@ export const create = buildCommand({
         brief: "The new change's owner (defaults to you)",
         optional: true,
       },
+      permanent: {
+        kind: "boolean",
+        brief: "Mark the new change permanent: structure expected to outlive its lands",
+        default: false,
+      },
+      evenThoughParentArchived: {
+        kind: "boolean",
+        brief: "Proceed even though the parent is archived",
+        default: false,
+      },
     },
   },
-  async func(this: LocalContext, flags: { parent?: string; owner?: UserName }, change: string) {
+  async func(
+    this: LocalContext,
+    flags: { parent?: string; owner?: UserName; permanent: boolean; evenThoughParentArchived: boolean },
+    change: string,
+  ) {
     const backend = await this.backend();
     const name = backend.parseName(change);
     const parent = flags.parent === undefined ? await backend.currentChange() : backend.parseName(flags.parent);
-    await createChange(backend, this.now, name, parent, flags.owner);
+    await createChange(backend, this.now, name, parent, flags.evenThoughParentArchived, flags.owner, flags.permanent);
+    await writeThrough(this, backend, name);
   },
 });

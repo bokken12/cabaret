@@ -260,6 +260,7 @@ test("a change with no commits of its own must add code", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("1"),
     origin: undefined,
@@ -289,6 +290,7 @@ test("a moved file is one reviewLeft entry naming both sides", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -319,6 +321,7 @@ test("files outside the user's brain are left to review", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: undefined,
@@ -341,6 +344,7 @@ test("files outside the user's brain are left to review", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: undefined,
@@ -374,6 +378,7 @@ test("a reviewed change conflicting with its parent's tip must rebase", async ()
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -409,6 +414,7 @@ test("a reviewed change whose parent trails origin reads through to origin's cop
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -441,6 +447,7 @@ test("a parent diverged from origin's copy is the user's to reconcile", async ()
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -471,6 +478,7 @@ test("a trailing parent reads through while review remains", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -503,6 +511,7 @@ test("a parent absent locally reads as origin's copy, not dead", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -535,6 +544,7 @@ test("a parent ahead of origin's copy is current: rebase proceeds on it", async 
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -566,6 +576,7 @@ test("a reviewed change behind a parent it merges cleanly onto may land", async 
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -596,6 +607,7 @@ test("a reviewed change based on its parent's tip may land", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -628,6 +640,7 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     // Reviewed against base 0, but the change's base is 1: stale outright.
     entry(review("a.ts", "0", "4")),
     entry({ kind: "land", merge: fake("5") }),
+    entry({ kind: "set-archived", archived: true }),
   ];
   expect(await summarize(backend, feature, entries, alice)).toEqual({
     kind: "change",
@@ -639,7 +652,8 @@ test("a landed change reports its merge, and a moved-base review counts as left"
     forgeChange: { forge: "github.com/test-org/widgets", id: 7, staleParent: undefined },
     landed: fake("5"),
     included: [],
-    archived: false,
+    archived: true,
+    permanent: false,
     base: fake("1"),
     tip: fake("4"),
     origin: undefined,
@@ -867,6 +881,7 @@ test("review left extends from a settled land and diffs from a rewritten reviewe
     landed: undefined,
     included: [{ change: "gizmo", commit: fake("2"), onto: fake("1") }],
     archived: false,
+    permanent: false,
     base: fake("0"),
     tip: fake("3"),
     origin: undefined,
@@ -898,6 +913,7 @@ test("a change behind origin's copy must sync, before anything else", async () =
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("1"),
     origin: "behind",
@@ -930,6 +946,7 @@ test("a change diverged from origin's copy must sync, review left or not", async
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: "diverged",
@@ -961,6 +978,7 @@ test("a change ahead of origin's copy notes it and moves on", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: "ahead",
@@ -992,6 +1010,7 @@ test("a change with no local branch reads origin's copy, with no origin note", a
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: undefined,
@@ -1022,6 +1041,7 @@ test("a parent with no local branch reads as origin's copy, review still the ste
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: undefined,
@@ -1067,6 +1087,7 @@ test("a reviewed forge-tracked change ahead of origin syncs before landing", asy
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("3"),
     origin: "ahead",
@@ -1150,6 +1171,7 @@ test("a reviewed change whose forge change targets its old parent syncs to retar
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -1167,7 +1189,13 @@ test("a change whose parent has landed must reparent, review left or not", async
     history: { "1": "0", "2": "1" },
     branches: { main: "1", gadget: "1", "gadget-ui": "2" },
     changed: { "12": ["ui.ts"] },
-    logs: { gadget: [...created("main", "0"), entry({ kind: "land", merge: fake("9") })] },
+    logs: {
+      gadget: [
+        ...created("main", "0"),
+        entry({ kind: "land", merge: fake("9") }),
+        entry({ kind: "set-archived", archived: true }),
+      ],
+    },
   };
   const ui = parseBranchName("gadget-ui");
   expect(await summarize(repoBackend(opts), ui, created("gadget", "1"), alice)).toEqual({
@@ -1181,6 +1209,7 @@ test("a change whose parent has landed must reparent, review left or not", async
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -1219,6 +1248,7 @@ test("a change whose parent branch is gone must reparent", async () => {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -1267,6 +1297,7 @@ test("a base under a rewritten parent reads as diverged, review still the step",
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
@@ -1353,6 +1384,69 @@ test("a follow rule holds nothing: the change lands, its review still owed", asy
     entry(review("a.ts", "1", "2")),
   ];
   expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("land");
+});
+
+test("blocking review only others can give reads await review, not land", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: {
+      "2": {
+        ".obligations": `{"rules": [{"match": "a.ts", "kind": "blocking", "require": {"atLeast": 1, "of": ["${bob}"]}}]}`,
+      },
+    },
+  });
+  // Alice's own review is done and the set already reads everyone, but bob's
+  // blocking review is still owed: land would refuse, so the step is the wait.
+  const entries = [...created("main", "1"), entry(review("a.ts", "1", "2"))];
+  expect((await summarize(backend, feature, entries, alice)).nextStep).toBe("await review");
+});
+
+test("an owner's unreviewed change reads await review to a viewer who has read it", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+  });
+  // Bob has read everything, but alice's own blocking self-review remains.
+  const entries = [
+    ...created("main", "1"),
+    { timestamp: timestampMs(1748000000000), user: bob, action: review("a.ts", "1", "2") },
+  ];
+  expect((await summarize(backend, feature, entries, bob)).nextStep).toBe("await review");
+});
+
+test("a malformed obligations file is the step to fix, for every viewer and reviewing set", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1" },
+    branches: { main: "1", feature: "2" },
+    changed: { "12": ["a.ts"] },
+    contents: { "2": { ".obligations": "not json" } },
+  });
+  const narrow = [...created("main", "1"), entry({ kind: "set-reviewing", reviewing: "owner" })];
+  expect((await summarize(backend, feature, narrow, alice)).nextStep).toBe("fix obligations");
+  expect((await summarize(backend, feature, narrow, bob)).nextStep).toBe("fix obligations");
+  // Even fully read under the widest set, the policy preempts the land.
+  const read = [...created("main", "1"), entry(review("a.ts", "1", "2"))];
+  expect((await summarize(backend, feature, read, alice)).nextStep).toBe("fix obligations");
+});
+
+test("a malformed parent policy blocks the land, not the child's own review", async () => {
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2" },
+    branches: { main: "1", widgets: "2", feature: "3" },
+    changed: { "12": ["w.ts"], "23": ["f.ts"] },
+    logs: { widgets: [...created("main", "1"), entry(review("w.ts", "1", "2"))] },
+    contents: { "2": { ".obligations": "not json" } },
+  });
+  // The broken policy cannot say what alice owes the parent, so her own
+  // reading proceeds; once the child is read, the land waits on the parent,
+  // whose own page reads fix obligations.
+  const unread = created("widgets", "2");
+  expect((await summarize(backend, feature, unread, alice)).nextStep).toBe("review");
+  const read = [...created("widgets", "2"), entry(review("f.ts", "2", "3"))];
+  expect((await summarize(backend, feature, read, alice)).nextStep).toBe("review in parent");
 });
 
 test("a forge-tracked draft widens whatever the obligations say", async () => {
@@ -1446,6 +1540,7 @@ test("an archived change reads as archived until the latest set-archived revives
     landed: undefined,
     included: [],
     archived: true,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
