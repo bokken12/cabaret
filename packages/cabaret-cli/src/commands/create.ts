@@ -30,33 +30,12 @@ export const create = buildCommand({
         brief: "The new change's owner (defaults to you)",
         optional: true,
       },
-      evenThoughParentLanded: {
-        kind: "boolean",
-        brief: "Proceed even though the parent has landed",
-        default: false,
-      },
-      evenThoughParentArchived: {
-        kind: "boolean",
-        brief: "Proceed even though the parent is archived",
-        default: false,
-      },
     },
   },
-  async func(
-    this: LocalContext,
-    flags: { parent?: string; owner?: UserName; evenThoughParentLanded: boolean; evenThoughParentArchived: boolean },
-    change: string,
-  ) {
+  async func(this: LocalContext, flags: { parent?: string; owner?: UserName }, change: string) {
     const backend = await this.backend();
     const name = backend.parseName(change);
     const parent = flags.parent === undefined ? await backend.currentChange() : backend.parseName(flags.parent);
-    await createChange(
-      backend,
-      this.now,
-      name,
-      parent,
-      { parentLanded: flags.evenThoughParentLanded, parentArchived: flags.evenThoughParentArchived },
-      flags.owner,
-    );
+    await createChange(backend, this.now, name, parent, flags.owner);
   },
 });

@@ -37,7 +37,6 @@ import {
   rebaseChange,
   reclaimWorkspaces,
   removeChangeWorkspace,
-  renameChange,
   reparentChange,
   resolveChain,
   reviewerSummary,
@@ -1378,7 +1377,7 @@ async function promptCreate(backend: Backend, parent: ChangeName, prompt: string
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent, { parentLanded: false, parentArchived: false });
+  await createChange(backend, now, change, parent);
   return change;
 }
 
@@ -1389,36 +1388,6 @@ async function pickParent(backend: Backend, change: ChangeName): Promise<ChangeN
     placeHolder: `New parent for ${change}`,
   });
   return picked === undefined ? undefined : backend.parseName(picked);
-}
-
-/** Prompt for a new name and rename `from`, following a renamed show page to its new name. */
-async function rename(
-  provider: PageProvider,
-  backend: Backend,
-  editor: vscode.TextEditor,
-  from: ChangeName,
-): Promise<void> {
-  const raw = await vscode.window.showInputBox({
-    prompt: `Rename ${from}`,
-    value: from,
-    validateInput: invalidName(backend),
-  });
-  if (raw === undefined || raw === from) {
-    return;
-  }
-  const to = backend.parseName(raw);
-  if (!(await confirmNotOwner("Rename Anyway", (override) => renameChange(backend, from, to, override)))) {
-    return;
-  }
-  // A show page's URI names the change, so the old page cannot re-render;
-  // forget it before the post-action refresh and replace it with the page
-  // under the new name.
-  const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "show") {
-    provider.forget(editor.document.uri);
-    await closeTabs(editor.document.uri);
-    await openPage(provider, { kind: "show", change: to, as: page.as });
-  }
 }
 
 /** One editor decoration per `Style`; the mapped type keeps the palette exhaustive. */
@@ -1664,14 +1633,6 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("cabaret.land", () =>
       actOnSelection(provider, (backend, _editor, changes) => landSelection(backend, changes)),
-    ),
-    vscode.commands.registerCommand("cabaret.rename", () =>
-      actOnSelection(provider, async (backend, editor, changes) => {
-        const from = singleChange(changes, "rename");
-        if (from !== undefined) {
-          await rename(provider, backend, editor, from);
-        }
-      }),
     ),
     vscode.commands.registerCommand("cabaret.reparent", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {

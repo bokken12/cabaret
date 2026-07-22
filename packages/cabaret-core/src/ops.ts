@@ -42,40 +42,6 @@ import {
 import { currentSelf, isSelf } from "./self.js";
 import { reviewLeft } from "./summary.js";
 
-/** The create checks the user may explicitly override. */
-export interface CreateOverrides {
-  /** Create off a parent that has landed. */
-  readonly parentLanded: boolean;
-  /** Create off a parent that is archived. */
-  readonly parentArchived: boolean;
-}
-
-/**
- * The parent has landed: it is frozen where its code merged into `into`, so
- * a change created off it would need an immediate reparent. The message
- * states the fact and the fix; each frontend attaches its own override
- * remedy before showing it.
- */
-export class LandedParentError extends UserError {
-  constructor(
-    readonly parent: ChangeName,
-    readonly into: ChangeName,
-  ) {
-    super(`parent ${JSON.stringify(parent)} has landed; create off ${JSON.stringify(into)} instead`);
-  }
-}
-
-/**
- * The parent is archived — set aside as not landing — so a change created
- * off it would stack work on a dead end. As with `LandedParentError`, each
- * frontend attaches its own override remedy before showing it.
- */
-export class ArchivedParentError extends UserError {
-  constructor(readonly parent: ChangeName) {
-    super(`parent ${JSON.stringify(parent)} is archived; run \`cab archive --undo\` first`);
-  }
-}
-
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
@@ -83,17 +49,15 @@ export class ArchivedParentError extends UserError {
  * with the last revision shared with the parent as its base. Parent and
  * adopted branch alike read freshest — the descendant-most of the local tip
  * and origin's last-fetched copy — and diverged readings fail until synced.
- * A parent that is itself a change must be live: landed and archived parents
- * fail, short of the matching override. The change must not already exist.
- * Review starts with nobody asked — the change is a draft until widened —
- * though the owner may record self-review at any stage.
+ * The change must not already exist. Review starts with nobody asked — the
+ * change is a draft until widened — though the owner may record self-review
+ * at any stage.
  */
 export async function createChange(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  overrides: CreateOverrides,
   owner?: UserName,
 ): Promise<void> {
   if (change === parent) {
@@ -101,13 +65,6 @@ export async function createChange(
   }
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
-  }
-  const parentEntries = await backend.readLog(parent);
-  if (landedMerge(parentEntries) !== undefined && !overrides.parentLanded) {
-    throw new LandedParentError(parent, currentParent(parent, parentEntries));
-  }
-  if (currentArchived(parentEntries) && !overrides.parentArchived) {
-    throw new ArchivedParentError(parent);
   }
   const parentReading = await freshestReading(backend, parent);
   if (parentReading.kind === "none") {
@@ -789,34 +746,4 @@ export async function transferChange(
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-owner", owner } },
   ]);
-}
-
-/**
- * Rename an unlanded change: move its branch and its log to the new name
- * together, atomically.
- */
-// TODO: rename assumes the change lives only in this repository. Once
-// changes sync with a remote, a raw ref move races concurrent editors —
-// their appends target the old log ref — so a distributed rename likely
-// needs to be recorded in the log itself. Children are similarly untouched:
-// their `set-parent` entries keep naming the old change until a manual
-// `cab reparent`.
-export async function renameChange(
-  backend: Backend,
-  from: ChangeName,
-  to: ChangeName,
-  override: boolean,
-): Promise<void> {
-  const entries = await backend.readLog(from);
-  assertChangeExists(from, entries);
-  assertNotLanded(from, entries);
-  await requireOwner(backend, from, entries, override);
-  if ((await backend.readLog(to)).length > 0) {
-    throw new UserError(`change already exists: ${JSON.stringify(to)}`);
-  }
-  // Origin holding the name counts too: the rename would collide there on push.
-  if ((await freshestReading(backend, to)).kind !== "none") {
-    throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
-  }
-  await backend.rename(from, to);
 }

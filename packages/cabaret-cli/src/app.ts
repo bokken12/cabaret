@@ -1,9 +1,7 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import {
-  ArchivedParentError,
   DirtyWorkspaceError,
   DivergedParentError,
-  LandedParentError,
   NotOwnerError,
   NotReviewingError,
   UnreviewedParentError,
@@ -27,7 +25,6 @@ import { land } from "./commands/land.js";
 import { mark } from "./commands/mark.js";
 import { owner } from "./commands/owner.js";
 import { rebase } from "./commands/rebase.js";
-import { rename } from "./commands/rename.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
 import { reviewers } from "./commands/reviewers.js";
@@ -49,12 +46,6 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof DivergedParentError) {
     return `${error.message}, or pass --even-though-parent-diverged to rebase onto the local reading`;
-  }
-  if (error instanceof LandedParentError) {
-    return `${error.message}, or pass --even-though-parent-landed to proceed`;
-  }
-  if (error instanceof ArchivedParentError) {
-    return `${error.message}, or pass --even-though-parent-archived to proceed`;
   }
   if (error instanceof UnsatisfiedObligationsError) {
     return `review obligations are unsatisfied; pass --even-though-unreviewed to override:\n${error.details.join("\n")}`;
@@ -92,7 +83,6 @@ const routes = buildRouteMap({
     mark,
     owner,
     rebase,
-    rename,
     reparent,
     review,
     reviewers,
