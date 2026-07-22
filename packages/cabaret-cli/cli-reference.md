@@ -387,7 +387,7 @@ ARGUMENTS
 ## cab create
 
 USAGE
-  cab create [--parent value] [--owner value] [--even-though-parent-landed] [--even-though-parent-archived] <change>
+  cab create [--parent value] [--owner value] [--permanent] [--even-though-parent-landed] [--even-though-parent-archived] <change>
   cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
@@ -395,8 +395,9 @@ Create a change, initializing its log with a parent, a base, and an owner. A cha
 FLAGS
      [--parent]                       The new change's parent (defaults to what is checked out)
      [--owner]                        The new change's owner (defaults to you)
-     [--even-though-parent-landed]    Proceed even though the parent has landed                 [default = false]
-     [--even-though-parent-archived]  Proceed even though the parent is archived                [default = false]
+     [--permanent]                    Mark the new change permanent: structure expected to outlive its lands [default = false]
+     [--even-though-parent-landed]    Proceed even though the parent has landed                              [default = false]
+     [--even-though-parent-archived]  Proceed even though the parent is archived                             [default = false]
   -h  --help                          Print help information and exit
 
 ARGUMENTS
@@ -555,6 +556,33 @@ FLAGS
 
 ARGUMENTS
   user  the new owner
+
+### cab permanent show
+
+USAGE
+  cab permanent show [--change value]
+  cab permanent show --help
+
+Show whether a change is permanent
+
+FLAGS
+     [--change]  Change to show (defaults to current)
+  -h  --help     Print help information and exit
+
+### cab permanent set
+
+USAGE
+  cab permanent set [--change value] <permanent>
+  cab permanent set --help
+
+Set whether a change is permanent: structure — an umbrella others stack work under, say — expected to outlive its lands rather than archive on them. A permanent change refuses to archive until set back to false.
+
+FLAGS
+     [--change]  Change to act on (defaults to current)
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  permanent  true or false
 
 ## cab rebase
 

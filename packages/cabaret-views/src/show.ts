@@ -202,6 +202,9 @@ export function showDoc(page: ShowPage): Doc {
     if (summary.landed === undefined) {
       attributes.push(["reviewing", summary.reviewing]);
     }
+    if (summary.permanent) {
+      attributes.push(["permanent", "yes"]);
+    }
     const parentNote =
       summary.deadParent !== undefined
         ? PARENT_NOTES[summary.deadParent]

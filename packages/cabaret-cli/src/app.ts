@@ -26,6 +26,7 @@ import { home } from "./commands/home.js";
 import { land } from "./commands/land.js";
 import { mark } from "./commands/mark.js";
 import { owner } from "./commands/owner.js";
+import { permanent } from "./commands/permanent.js";
 import { rebase } from "./commands/rebase.js";
 import { reparent } from "./commands/reparent.js";
 import { review } from "./commands/review.js";
@@ -90,6 +91,7 @@ const routes = buildRouteMap({
     land,
     mark,
     owner,
+    permanent,
     rebase,
     reparent,
     review,

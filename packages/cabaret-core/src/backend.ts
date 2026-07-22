@@ -173,6 +173,7 @@ export type LogAction =
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "set-archived"; readonly archived: boolean }
+  | { readonly kind: "set-permanent"; readonly permanent: boolean }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
@@ -221,6 +222,7 @@ function logEntrySchema(
     }),
     z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
     z.object({ kind: z.literal("set-archived"), archived: z.boolean() }),
+    z.object({ kind: z.literal("set-permanent"), permanent: z.boolean() }),
     z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({
@@ -886,6 +888,16 @@ export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
  */
 export function currentArchived(entries: readonly LogEntry[]): boolean {
   return latestAction(entries, "set-archived")?.archived ?? false;
+}
+
+/**
+ * Whether the change is permanent — structure expected to outlive its lands,
+ * like a long-lived umbrella others stack work under — from the log's latest
+ * `set-permanent`. A log that never set one reads as ordinary: the change is
+ * done when it lands.
+ */
+export function currentPermanent(entries: readonly LogEntry[]): boolean {
+  return latestAction(entries, "set-permanent")?.permanent ?? false;
 }
 
 /**

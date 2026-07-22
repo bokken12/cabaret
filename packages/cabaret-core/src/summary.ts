@@ -10,6 +10,7 @@ import {
   currentForgeChange,
   currentOwner,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
   diffBetween,
@@ -116,6 +117,8 @@ export interface ChangeSummary {
   readonly included: readonly LandMerge[];
   /** Whether the change is archived: set aside as not landing, reversibly. */
   readonly archived: boolean;
+  /** Whether the change is permanent: structure expected to outlive its lands. */
+  readonly permanent: boolean;
   readonly base: Revision;
   readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
@@ -215,6 +218,7 @@ export async function summarizeChange(
     landed,
     included: diff.lands,
     archived: currentArchived(entries),
+    permanent: currentPermanent(entries),
     base,
     tip,
     origin,

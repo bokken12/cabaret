@@ -31,6 +31,7 @@ function summary(change: string, opts: Partial<ChangeSummary>): ChangeSummary {
     landed: undefined,
     included: [],
     archived: false,
+    permanent: false,
     base: fake("1"),
     tip: fake("2"),
     origin: undefined,
