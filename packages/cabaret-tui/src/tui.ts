@@ -23,7 +23,6 @@ import {
   rebaseChange,
   reclaimWorkspaces,
   removeChangeWorkspace,
-  renameChange,
   reparentChange,
   resolveChain,
   setArchived,
@@ -158,7 +157,6 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
         await landChain(backend, await resolveChain(backend, changes), landOne);
       }
     },
-    rename: (from, to, evenThoughNotOwner) => renameChange(backend, from, to, evenThoughNotOwner),
     reparent: async (change, parent, evenThoughNotOwner) => {
       await reparentChange(backend, now, change, parent, evenThoughNotOwner);
     },

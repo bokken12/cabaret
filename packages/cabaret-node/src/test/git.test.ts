@@ -453,44 +453,6 @@ test("changeBase fails on a change that does not exist", async () => {
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
 });
 
-test("rename moves nothing when its transaction fails", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("rename source work"));
-  await git("update-ref", "refs/heads/rename-src", tip);
-  await backend.appendLog(parseBranchName("rename-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const logTip = await git("rev-parse", "refs/cabaret/log/rename-src");
-  await git("update-ref", "refs/heads/rename-taken", tip);
-  await git("checkout", "-q", "rename-src");
-  await expect(backend.rename(parseBranchName("rename-src"), parseBranchName("rename-taken"))).rejects.toThrow(
-    /reference already exists/,
-  );
-  // The failed transaction moved nothing, and HEAD is re-attached to the source.
-  expect(await git("symbolic-ref", "HEAD")).toBe("refs/heads/rename-src");
-  expect(await git("rev-parse", "refs/heads/rename-src")).toBe(tip);
-  expect(await git("rev-parse", "refs/cabaret/log/rename-src")).toBe(logTip);
-  await expect(git("rev-parse", "--verify", "refs/cabaret/log/rename-taken")).rejects.toThrow();
-  await git("checkout", "-q", "feature");
-});
-
-test("rename refuses a branch checked out in another worktree", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("worktree work"));
-  await git("update-ref", "refs/heads/wt-src", tip);
-  await backend.appendLog(parseBranchName("wt-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const linked = join(repo, "linked-worktree");
-  await git("worktree", "add", linked, "wt-src");
-  await expect(backend.rename(parseBranchName("wt-src"), parseBranchName("wt-dst"))).rejects.toThrow(
-    'branch is checked out in another worktree: "wt-src"',
-  );
-  expect(await backend.tip(parseBranchName("wt-src"))).toBe(tip);
-  expect(await backend.tip(parseBranchName("wt-dst"))).toBeUndefined();
-  await git("worktree", "remove", linked);
-});
-
 /** A bare origin holding branches `main` and `extra`, and an empty repo with it as `origin`. */
 async function makeRemotePair(): Promise<{ dir: string; origin: string }> {
   const origin = await mkdtemp(join(tmpdir(), "cabaret-node-test-origin-"));

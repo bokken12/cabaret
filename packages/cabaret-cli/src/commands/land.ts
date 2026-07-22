@@ -40,7 +40,7 @@ export const land = buildCommand({
       "it conflicts. Children of the landed change are reparented onto its " +
       "parent, where their code now lives, and their forge changes " +
       "retargeted to match. A landed change can no longer be " +
-      "rebased, renamed, reparented, or transferred, though reviewing it is " +
+      "rebased, reparented, or transferred, though reviewing it is " +
       "still recorded. A range `ancestor..descendant` lands every change " +
       "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
       "skipping changes that already landed; when one fails, the landings " +

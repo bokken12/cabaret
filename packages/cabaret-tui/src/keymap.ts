@@ -18,7 +18,6 @@ export type Command =
   | "act-as"
   | "rebase"
   | "land"
-  | "rename"
   | "reparent"
   | "set-owner"
   | "widen-reviewing"
@@ -91,7 +90,6 @@ export const KEYMAP: readonly Binding[] = [
   { keys: ["@"], command: "act-as", label: "Act as User", counterpart: "cabaret.actAs" },
   { keys: ["!", "r", "b"], command: "rebase", label: "Rebase", pages: ACTION_PAGES, counterpart: "cabaret.rebase" },
   { keys: ["!", "l"], command: "land", label: "Land", counterpart: "cabaret.land" },
-  { keys: ["!", "r", "n"], command: "rename", label: "Rename", pages: ACTION_PAGES, counterpart: "cabaret.rename" },
   {
     keys: ["!", "r", "p"],
     command: "reparent",
