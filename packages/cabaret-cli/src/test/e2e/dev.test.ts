@@ -185,9 +185,7 @@ test("resolution keeps the name index beside the shared git dir, and wipe clears
   const [id, state] = (await repo.git("for-each-ref", "--format=%(refname) %(objectname)", "refs/cabaret/log/"))
     .replace("refs/cabaret/log/", "")
     .split(" ");
-  expect(JSON.parse(await readFile(index, "utf8"))).toEqual([
-    { id, name: "gadget", archived: false, activity: 1748000000004, state },
-  ]);
+  expect(JSON.parse(await readFile(index, "utf8"))).toEqual([{ id, name: "gadget", state }]);
   await repo.cabaret("dev", "wipe");
   await expect(readFile(index, "utf8")).rejects.toThrow();
 });

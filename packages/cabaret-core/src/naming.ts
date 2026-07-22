@@ -130,14 +130,17 @@ export function requireNamed(changes: readonly Change[], name: ChangeName): Chan
 }
 
 /**
- * The name index: every change's resolution facts, each pinned to the log
- * state it was folded from. Resolving a name verifies against `logStates` —
- * one cheap read, no log contents — and re-folds only logs that moved, so a
- * warm resolution reads nothing but its winner. Derivable state, local to
- * this repository, never replicated.
+ * The name index: each change's name pinned to the log state it was folded
+ * from — the mapping resolution needs, and nothing folded beyond it.
+ * Resolving a name verifies against `logStates` — one cheap read, no log
+ * contents — re-folds only logs that moved, and then reads just the
+ * claimants (almost always one: the winner). Derivable state, local to this
+ * repository, never replicated.
  */
-interface IndexedChange extends NameFacts {
-  /** The log position the facts were folded at, as `logStates` reports it. */
+interface IndexedName {
+  readonly id: ChangeId;
+  readonly name: ChangeName;
+  /** The log position the name was folded at, as `logStates` reports it. */
   readonly state: string;
 }
 
@@ -148,18 +151,16 @@ const IndexSchema = z.array(
       .string()
       .min(1)
       .transform((raw) => raw as ChangeName),
-    archived: z.boolean(),
-    activity: z.number(),
     state: z.string().min(1),
   }),
-) satisfies z.ZodType<IndexedChange[]>;
+) satisfies z.ZodType<IndexedName[]>;
 
 const INDEX_KEY = "names.json";
 
-/** Read the verified index: held facts where the log has not moved, fresh folds where it has. */
-async function indexedChanges(backend: Backend): Promise<readonly IndexedChange[]> {
+/** Read the verified index: held names where the log has not moved, fresh folds where it has. */
+async function indexedNames(backend: Backend): Promise<readonly IndexedName[]> {
   const states = await backend.logStates();
-  const held = new Map<ChangeId, IndexedChange>();
+  const held = new Map<ChangeId, IndexedName>();
   try {
     const raw = await backend.readCache(INDEX_KEY);
     if (raw !== undefined) {
@@ -168,9 +169,9 @@ async function indexedChanges(backend: Backend): Promise<readonly IndexedChange[
       }
     }
   } catch {
-    // An unreadable index is no index: every fact re-folds below.
+    // An unreadable index is no index: every name re-folds below.
   }
-  const fresh: IndexedChange[] = [];
+  const fresh: IndexedName[] = [];
   let drifted = held.size !== states.size;
   for (const [id, state] of states) {
     const have = held.get(id);
@@ -179,7 +180,7 @@ async function indexedChanges(backend: Backend): Promise<readonly IndexedChange[
       continue;
     }
     drifted = true;
-    fresh.push({ ...factsOf({ id, entries: await backend.readLog(id) }), state });
+    fresh.push({ id, name: currentName(id, await backend.readLog(id)), state });
   }
   if (drifted) {
     await backend.writeCache(INDEX_KEY, JSON.stringify(fresh));
@@ -189,25 +190,30 @@ async function indexedChanges(backend: Backend): Promise<readonly IndexedChange[
 
 /**
  * The change `name` resolves to, read through the name index, or undefined
- * when no change claims it: arbitration runs on indexed facts and only the
- * winner's log is read.
+ * when no change claims it. Only the claimants' logs are read — almost
+ * always one — and arbitration folds their fresh entries, so a claim that
+ * moved since indexing counts as what it is now.
  */
 export async function lookupChange(backend: Backend, name: ChangeName): Promise<Change | undefined> {
-  const winner = arbitrate(await indexedChanges(backend), name);
-  return winner === undefined ? undefined : { id: winner.id, entries: await backend.readLog(winner.id) };
+  const index = await indexedNames(backend);
+  const claims: Change[] = await Promise.all(
+    index.filter((entry) => entry.name === name).map(async ({ id }) => ({ id, entries: await backend.readLog(id) })),
+  );
+  return resolveNamed(claims, name);
 }
 
 /** Resolve `name` to its change through the name index, failing — after trying `name` as an id prefix — when no change claims it. */
 export async function resolveChange(backend: Backend, name: ChangeName): Promise<Change> {
-  const index = await indexedChanges(backend);
-  const winner = arbitrate(index, name) ?? {
-    id: matchIdPrefix(
-      index.map(({ id }) => id),
-      name,
-    ),
-  };
-  if (winner.id !== undefined) {
-    return { id: winner.id, entries: await backend.readLog(winner.id) };
+  const found = await lookupChange(backend, name);
+  if (found !== undefined) {
+    return found;
+  }
+  const matched = matchIdPrefix(
+    (await indexedNames(backend)).map(({ id }) => id),
+    name,
+  );
+  if (matched !== undefined) {
+    return { id: matched, entries: await backend.readLog(matched) };
   }
   throw new UserError(
     `change does not exist: ${JSON.stringify(name)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
