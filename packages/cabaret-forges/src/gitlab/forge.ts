@@ -80,13 +80,13 @@ const FIND_MR = `query ($path: ID!, $branch: String!) {
 }`;
 
 // Notes are capped at the first hundred per MR rather than paginated,
-// keeping the whole sweep to one query per hundred MRs; the page info
+// keeping the whole sweep to one query per page of MRs; the page info
 // reports the cap so readers needing more fall back to `listComments`.
 const SWEPT_CHANGE_FIELDS = `${MR_FIELDS} updatedAt notes(first: 100) { nodes { id author { username } body system updatedAt } pageInfo { hasNextPage } }`;
 
-const FETCH_OPEN_CHANGES = `query ($path: ID!, $cursor: String) {
+const FETCH_OPEN_CHANGES = `query ($path: ID!, $first: Int!, $cursor: String) {
   project(fullPath: $path) {
-    mergeRequests(state: opened, first: 100, after: $cursor) {
+    mergeRequests(state: opened, first: $first, after: $cursor) {
       nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
@@ -95,14 +95,22 @@ const FETCH_OPEN_CHANGES = `query ($path: ID!, $cursor: String) {
 
 // Every state: the server filters to what moved after the cursor, so closed
 // and merged changes surface with the rest.
-const FETCH_CHANGES_SINCE = `query ($path: ID!, $updatedAfter: Time!, $cursor: String) {
+const FETCH_CHANGES_SINCE = `query ($path: ID!, $updatedAfter: Time!, $first: Int!, $cursor: String) {
   project(fullPath: $path) {
-    mergeRequests(updatedAfter: $updatedAfter, sort: UPDATED_DESC, first: 100, after: $cursor) {
+    mergeRequests(updatedAfter: $updatedAfter, sort: UPDATED_DESC, first: $first, after: $cursor) {
       nodes { ${SWEPT_CHANGE_FIELDS} }
       pageInfo { hasNextPage endCursor }
     }
   }
 }`;
+
+/**
+ * Sweeps run close together, so most end within their first page; the query
+ * cost the forge charges scales with the requested page size, so pages start
+ * small and double toward this cap for the sweeps that are far behind.
+ */
+const FIRST_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
 
 const GET_MR = `query ($path: ID!, $iid: String!) {
   project(fullPath: $path) {
@@ -353,15 +361,18 @@ export class GitLabForge implements Forge {
     const changes: Promise<SweptChange>[] = [];
     let newest = 0;
     let cursor: string | null = null;
+    let first = FIRST_PAGE_SIZE;
     do {
       const out: unknown =
         resume === undefined
-          ? await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, cursor })
+          ? await this.client.graphql(FETCH_OPEN_CHANGES, { path: this.project.path, first, cursor })
           : await this.client.graphql(FETCH_CHANGES_SINCE, {
               path: this.project.path,
               updatedAfter: new Date(resume).toISOString(),
+              first,
               cursor,
             });
+      first = Math.min(first * 2, MAX_PAGE_SIZE);
       const { nodes, pageInfo } = this.requireProject(FetchChangesSchema.parse(out).project).mergeRequests;
       for (const mr of nodes) {
         newest = Math.max(newest, Date.parse(mr.updatedAt));

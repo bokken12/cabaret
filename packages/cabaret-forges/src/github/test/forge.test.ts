@@ -435,8 +435,8 @@ describe("GitHubForge", () => {
       ],
     });
     expect(graphqlVariables(calls)).toEqual([
-      { owner: "test-org", repo: "widgets", cursor: null },
-      { owner: "test-org", repo: "widgets", cursor: "CUR1" },
+      { owner: "test-org", repo: "widgets", first: 25, cursor: null },
+      { owner: "test-org", repo: "widgets", first: 50, cursor: "CUR1" },
     ]);
   });
 

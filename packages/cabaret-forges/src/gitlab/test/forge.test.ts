@@ -559,8 +559,8 @@ describe("GitLabForge", () => {
       ],
     });
     expect(graphqlVariables(calls)).toEqual([
-      { path: "test-org/widgets", cursor: null },
-      { path: "test-org/widgets", cursor: "CUR1" },
+      { path: "test-org/widgets", first: 25, cursor: null },
+      { path: "test-org/widgets", first: 50, cursor: "CUR1" },
     ]);
   });
 
@@ -603,7 +603,7 @@ describe("GitLabForge", () => {
       [4, "open"],
     ]);
     expect(graphqlVariables(calls)).toEqual([
-      { path: "test-org/widgets", updatedAfter: "2026-06-01T00:00:00.000Z", cursor: null },
+      { path: "test-org/widgets", updatedAfter: "2026-06-01T00:00:00.000Z", first: 25, cursor: null },
     ]);
   });
 
