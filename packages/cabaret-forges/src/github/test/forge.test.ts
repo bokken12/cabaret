@@ -510,27 +510,6 @@ describe("GitHubForge", () => {
     expect(bodies[0]).not.toContain("states: OPEN");
   });
 
-  test("fetchChanges with a cursor it cannot read resweeps the open set", async () => {
-    const calls = stubGitHub({
-      [GRAPHQL]: {
-        json: {
-          data: {
-            repository: {
-              pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
-            },
-          },
-        },
-      },
-    });
-    expect(await forge().fetchChanges(forgeCursor("gitlab.com-shaped nonsense"))).toEqual({
-      coverage: "open",
-      cursor: undefined,
-      changes: [],
-    });
-    const bodies = calls.map(({ body }) => (JSON.parse(body ?? "{}") as { query?: string }).query ?? "");
-    expect(bodies[0]).toContain("states: OPEN");
-  });
-
   test("createChange posts the PR and fetches it by number", async () => {
     const calls = stubGitHub({
       [`POST ${REPOS}/pulls`]: { status: 201, json: { number: 12 } },

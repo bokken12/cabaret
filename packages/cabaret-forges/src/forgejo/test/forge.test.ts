@@ -425,17 +425,6 @@ describe("ForgejoForge", () => {
     expect(calls.filter(({ url }) => url.includes("/issues?"))).toHaveLength(1);
   });
 
-  test("fetchChanges with a cursor it cannot read resweeps the open set", async () => {
-    stubForgejo({
-      [`GET ${REPO}/pulls?state=open&limit=50&page=1`]: { json: [] },
-    });
-    expect(await forge().fetchChanges(forgeCursor("nonsense"))).toEqual({
-      coverage: "open",
-      cursor: undefined,
-      changes: [],
-    });
-  });
-
   test("createChange posts the PR and fetches it by number", async () => {
     const calls = stubForgejo({
       [`POST ${REPO}/pulls`]: { status: 201, json: { number: 12 } },

@@ -291,9 +291,7 @@ test("a second machine's fetch adopts the published import instead of re-importi
   // The second machine holds its own token.
   forge.tokenLogin = "bob";
   expect((await clone.cabaret("fetch")).stdout).toBe(
-    "recorded github:bob as an alias\n" +
-      "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+    "recorded github:bob as an alias\n" + "fetched github.com/test-org/widgets: 0 updated forge changes\n",
   );
   // Byte-identical logs: the clone adopted the import rather than re-creating it.
   expect(await clone.cabaret("dev", "log", "their-feature")).toEqual(await repo.cabaret("dev", "log", "their-feature"));
@@ -305,7 +303,9 @@ test("a since sweep never asks the forge change by change", async () => {
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
   await repo.cabaret("fetch");
-  expect(await repo.git("config", "cabaret.forge-cursor")).toMatch(/^github\.com\/test-org\/widgets /);
+  expect(await repo.git("cat-file", "blob", "refs/cabaret/forge/sweep")).toMatch(
+    /^cursor github\.com\/test-org\/widgets \d+\nreconciled github\.com\/test-org\/widgets \d+$/,
+  );
   // An untouched tracked change is passed by entirely — no per-change reads.
   forge.getChange = async () => {
     throw new Error("a since sweep must not fetch changes one by one");
@@ -343,18 +343,39 @@ test("fetch --full resweeps the open set on demand", async () => {
   );
 });
 
-test("a cursor from another forge does not resume the sweep", async () => {
+test("a record from another forge does not resume the sweep", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  // A repointed origin can leave a stranger's sweep record behind; the sweep
+  // starts over from the open set rather than resuming it.
+  await repo.write(
+    "stranger.txt",
+    "cursor example.com/other/repo 9999999999999\nreconciled example.com/other/repo 9999999999999\n",
+  );
+  const top = await repo.git("rev-parse", "--show-toplevel");
+  const origin = await repo.git("remote", "get-url", "origin");
+  const blob = await repo.git("-C", origin, "hash-object", "-w", `${top}/stranger.txt`);
+  await repo.git("-C", origin, "update-ref", "refs/cabaret/forge/sweep", blob);
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "recorded github:alice as an alias\n" +
+      "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  );
+});
+
+test("a clone resumes the record another machine advanced", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
   await repo.cabaret("fetch");
-  // A repointed origin leaves a stranger's cursor behind; the sweep starts
-  // over from the open set rather than resuming it.
-  await repo.git("config", "cabaret.forge-cursor", "example.com/other/repo 9999999999999");
-  expect((await repo.cabaret("fetch")).stdout).toBe(
-    "fetched 0 comments from github.com/test-org/widgets#1\n" +
-      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  // The first machine's sweep published its record with its logs, so the
+  // clone's very first fetch resumes instead of resweeping the open set.
+  const clone = await makeClone(repo, "bob@example.com", forge);
+  expect((await clone.cabaret("fetch")).stdout).toBe(
+    "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 updated forge changes\n",
   );
 });
 

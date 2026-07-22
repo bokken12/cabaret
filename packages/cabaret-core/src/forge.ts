@@ -59,16 +59,16 @@ export interface SweptChange {
 }
 
 /**
- * Where a sweep's reading of the forge ends, so the next can resume there.
- * Opaque outside the adapter that minted it, and overlapping by design:
- * absorption is idempotent, so a cursor claims a little less than its sweep
- * read.
+ * Where a sweep's reading of the forge ends — the forge's own clock, as
+ * epoch milliseconds — so a later sweep can resume there, on this machine
+ * or another. Minted overlapping: absorption is idempotent, so a cursor
+ * claims a little less than its sweep read, and copies join by max.
  */
 export type ForgeCursor = Branded<string, "ForgeCursor">;
 
 export function forgeCursor(raw: string): ForgeCursor {
-  if (raw === "") {
-    throw new Error("forge cursor must be nonempty");
+  if (!Number.isFinite(Number(raw)) || raw === "") {
+    throw new Error(`not a forge cursor: ${JSON.stringify(raw)}`);
   }
   return raw as ForgeCursor;
 }
@@ -833,33 +833,40 @@ function pureImport(entries: readonly LogEntry[]): boolean {
 }
 
 /**
- * The config key holding the fetch cursor, prefixed with the locator it reads
- * from so a repointed origin discards it rather than resuming a stranger's.
+ * How long since sweeps may run before an open sweep re-reads everything
+ * still open. Forges move some state without touching a change's update
+ * stamp — a note edit, a refused reviewer withdrawal — so since sweeps
+ * alone drift.
  */
-const CURSOR_KEY = "cabaret.forge-cursor";
-
-/**
- * When the open set was last swept whole, keyed like the cursor. Forges move
- * some state without touching a change's update stamp — a note edit, a
- * refused reviewer withdrawal — so since sweeps alone drift; a daily open
- * sweep re-reads everything still open and re-anchors.
- */
-const RECONCILED_KEY = "cabaret.forge-reconciled";
 const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-/** The stored `key` value for `locator`'s forge; undefined when unset or another forge's. */
-async function forgeState(backend: Backend, key: string, locator: ForgeLocator): Promise<string | undefined> {
-  const raw = await backend.config(key);
-  const space = raw?.indexOf(" ") ?? -1;
-  if (raw === undefined || space === -1 || raw.slice(0, space) !== locator) {
-    return undefined;
+/**
+ * The shared forge sweep record: one `<fact> <locator> <ms>` line per fact —
+ * "cursor", how far absorption has reached on the forge's clock, and
+ * "reconciled", when the open set was last swept whole. Shared because
+ * absorption lands in the logs before the record advances, so any clone
+ * that has unioned origin's logs may resume where the record says. Facts
+ * join by max; an unreadable line reads as absent, so a corrupted copy
+ * costs a resweep and heals on the next publish.
+ */
+function parseSweepRecord(raw: string | undefined): Map<string, number> {
+  const record = new Map<string, number>();
+  for (const line of raw?.split("\n") ?? []) {
+    const parts = line.split(" ");
+    const ms = Number(parts[2]);
+    if (parts.length === 3 && parts[0] !== "" && parts[1] !== "" && Number.isFinite(ms)) {
+      const key = `${parts[0]} ${parts[1]}`;
+      record.set(key, Math.max(ms, record.get(key) ?? 0));
+    }
   }
-  return raw.slice(space + 1);
+  return record;
 }
 
-async function storedCursor(backend: Backend, locator: ForgeLocator): Promise<ForgeCursor | undefined> {
-  const raw = await forgeState(backend, CURSOR_KEY, locator);
-  return raw === undefined ? undefined : forgeCursor(raw);
+function formatSweepRecord(record: ReadonlyMap<string, number>): string {
+  return [...record]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([key, ms]) => `${key} ${ms}\n`)
+    .join("");
 }
 
 /**
@@ -917,9 +924,12 @@ export async function fetchForge(
   const tracked = await backend.listChanges();
   const existing = new Set(tracked);
 
-  const lastOpen = Number(await forgeState(backend, RECONCILED_KEY, forge.locator));
-  const resweep = opts.full === true || !Number.isFinite(lastOpen) || lastOpen + RECONCILE_INTERVAL_MS <= now();
-  const sweep = await forge.fetchChanges(resweep ? undefined : await storedCursor(backend, forge.locator));
+  const record = parseSweepRecord(await backend.forgeSweepState());
+  // Clamped so a peer's fast clock cannot suppress resweeps for long.
+  const lastOpen = Math.min(record.get(`reconciled ${forge.locator}`) ?? Number.NEGATIVE_INFINITY, now());
+  const resweep = opts.full === true || lastOpen + RECONCILE_INTERVAL_MS <= now();
+  const shared = record.get(`cursor ${forge.locator}`);
+  const sweep = await forge.fetchChanges(resweep || shared === undefined ? undefined : forgeCursor(String(shared)));
   // Open changes keyed by head — closed ones neither import nor adopt — with
   // heads sharing a branch collapsed to the lowest id, so every machine
   // imports the same change for a branch with several open forge changes.
@@ -1038,13 +1048,25 @@ export async function fetchForge(
   // Publish what this fetch imported and appended.
   await backend.syncLogs();
 
-  // Recorded only now: a crash beforehand leaves the old cursor, and the next
-  // sweep re-reads an overlap absorption tolerates.
-  if (sweep.cursor !== undefined) {
-    await backend.configSet(CURSOR_KEY, `${forge.locator} ${sweep.cursor}`, "local");
+  // Advanced only now, after the logs published: a crash beforehand leaves
+  // the old record, and the next sweep re-reads an overlap absorption
+  // tolerates. Whoever advances it first spares every other clone the same
+  // sweep.
+  const advance = (key: string, ms: number) => {
+    const prior = record.get(key) ?? 0;
+    record.set(key, Math.max(ms, prior));
+    return ms > prior;
+  };
+  let advanced = false;
+  const minted = Number(sweep.cursor);
+  if (sweep.cursor !== undefined && Number.isFinite(minted)) {
+    advanced = advance(`cursor ${forge.locator}`, minted) || advanced;
   }
   if (sweep.coverage === "open") {
-    await backend.configSet(RECONCILED_KEY, `${forge.locator} ${now()}`, "local");
+    advanced = advance(`reconciled ${forge.locator}`, now()) || advanced;
+  }
+  if (advanced) {
+    await backend.publishForgeSweepState(formatSweepRecord(record));
   }
 
   // Prune closed changes nobody engaged with, judged after the closing sync
