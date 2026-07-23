@@ -140,11 +140,13 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     },
     rebase: async (changes, overrides) => {
       const only = changes.length === 1 ? changes[0] : undefined;
-      if (only !== undefined) {
-        await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
-      } else {
-        await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
-      }
+      const conflicted =
+        only !== undefined
+          ? await rebaseChange(backend, now, only, await backend.readLog(only), overrides)
+          : await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
+      return conflicted === undefined
+        ? undefined
+        : `merged ${conflicted.parent} into ${conflicted.change} with conflicts in ${conflicted.conflicts.join(", ")}; fix the markers and commit`;
     },
     land: async (changes, overrides) => {
       const config = await readConfig(backend);

@@ -121,9 +121,9 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   await repo.git("commit", "-qa", "--amend", "-m", "parent work, amended");
   const onto = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("rebase", "child")).toEqual({
-    stdout: "",
-    stderr: 'merging "parent" into "child" left conflicts in shared.txt; fix the markers and commit\n',
-    exitCode: 1,
+    stdout: 'merged "parent" into "child" with conflicts in shared.txt; fix the markers and commit\n',
+    stderr: "",
+    exitCode: 0,
   });
   // The merge is committed all the same, markers in place and base pinned.
   expect(await repo.git("log", "--format=%s", "--first-parent", "child")).toBe(
@@ -157,10 +157,11 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
     exitCode: 1,
   });
   expect((await repo.cabaret("show", "child")).stdout).toContain("fix conflicts");
-  // Fixing the markers and committing the resolution settles it; the change lands normally.
+  // Fixing the markers and committing the resolution settles it — the
+  // conflicted merge stays in the chain; the change lands normally.
   await repo.git("checkout", "-q", "child");
   await repo.write("shared.txt", "from both\n");
-  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'parent' into child");
+  expect(await repo.cabaret("commit", "shared.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("conflicts", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   await repo.cabaret("mark", "--tip", "child", "shared.txt", "--change", "child");
@@ -400,9 +401,9 @@ test("a range stops at a conflicted change and a rerun resumes once fixed", asyn
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "trunk claims b.txt");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({
-    stdout: "",
-    stderr: 'merging "a" into "b" left conflicts in b.txt; fix the markers and commit\n',
-    exitCode: 1,
+    stdout: 'merged "a" into "b" with conflicts in b.txt; fix the markers and commit\n',
+    stderr: "",
+    exitCode: 0,
   });
   // a made it onto the new trunk; b committed the conflict; c never moved.
   expect(await repo.git("log", "--format=%s", "--first-parent", "a")).toBe("Merge branch 'main' into a\na work\nroot");
@@ -419,7 +420,7 @@ test("a range stops at a conflicted change and a rerun resumes once fixed", asyn
   // Fix the markers and commit; the rerun then finishes the chain.
   await repo.git("checkout", "-q", "b");
   await repo.write("b.txt", "b work\n");
-  await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'a' into b");
+  expect(await repo.cabaret("commit", "b.txt")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.cabaret("rebase", "main..c")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   expect(await repo.git("log", "--format=%s", "--first-parent", "c")).toBe(
     "Merge branch 'b' into c\nc work\nb work\na work\nroot",

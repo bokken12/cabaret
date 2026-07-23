@@ -1223,17 +1223,23 @@ async function confirmNotOwner(button: string, op: (override: boolean) => Promis
  */
 async function rebaseSelection(backend: Backend, changes: readonly ChangeName[]): Promise<void> {
   const only = changes.length === 1 ? changes[0] : undefined;
-  const rebaseAll = async (overrides: RebaseOverrides) => {
-    if (only !== undefined) {
-      await rebaseChange(backend, now, only, await backend.readLog(only), overrides);
-    } else {
-      await rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
-    }
-  };
+  const rebaseAll = async (overrides: RebaseOverrides) =>
+    only !== undefined
+      ? rebaseChange(backend, now, only, await backend.readLog(only), overrides)
+      : rebaseChain(backend, now, await resolveChain(backend, changes), overrides);
   let overrides: RebaseOverrides = { notOwner: false, parentDiverged: false };
   for (;;) {
     try {
-      return await rebaseAll(overrides);
+      const conflicted = await rebaseAll(overrides);
+      // The rebase completed — the markers are the owner's to fix — so the
+      // report informs rather than alarms.
+      if (conflicted !== undefined) {
+        vscode.window.showInformationMessage(
+          `cabaret: merged ${conflicted.parent} into ${conflicted.change} ` +
+            `with conflicts in ${conflicted.conflicts.join(", ")}; fix the markers and commit`,
+        );
+      }
+      return;
     } catch (error) {
       let message: string;
       if (error instanceof NotOwnerError && !overrides.notOwner) {

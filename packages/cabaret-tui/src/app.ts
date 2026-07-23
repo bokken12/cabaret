@@ -77,8 +77,8 @@ export interface Effects {
   children(change: ChangeName): Promise<readonly ChangeName[]>;
   /** The current user and their aliases. */
   self(): Promise<Self>;
-  /** Rebase the changes, one alone or several as a stack, ancestormost first. */
-  rebase(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<void>;
+  /** Rebase the changes, one alone or several as a stack, ancestormost first; a merge leaving markers resolves to its note. */
+  rebase(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<string | undefined>;
   /** Land the changes into their parents as configured, with the stack semantics of `rebase`. */
   land(changes: readonly ChangeName[], overrides: LandOverrides): Promise<void>;
   reparent(change: ChangeName, parent: ChangeName, evenThoughNotOwner: boolean): Promise<void>;
@@ -989,10 +989,7 @@ export class App {
   /** Rebase, asking past each overridable check it trips; a rerun skips the links that already applied. */
   private rebaseFlow(changes: readonly ChangeName[], overrides: RebaseOverrides): Promise<void> {
     return this.attempt(
-      async () => {
-        await this.effects.rebase(changes, overrides);
-        return undefined;
-      },
+      () => this.effects.rebase(changes, overrides),
       (error) => {
         if (error instanceof NotOwnerError && !overrides.notOwner) {
           return {
