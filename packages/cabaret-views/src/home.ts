@@ -3,16 +3,11 @@ import {
   type ChangeName,
   type ChangeNode,
   type ChangeSummary,
-  changeDiff,
+  cachedChangeReading,
   changeForest,
-  currentParent,
   type FilePath,
-  isReviewing,
   isSelf,
-  reviewOwed,
-  type Self,
   selfAs,
-  summarizeChange,
   type TimestampMs,
   UserError,
   type UserName,
@@ -102,51 +97,25 @@ export interface HeldWorkspace {
 const READ_CONCURRENCY = 8;
 
 /** One change's readings for the page, or what broke reading them. */
-type ChangeReading =
-  | {
-      readonly kind: "read";
-      readonly summary: ChangeSummary;
-      readonly parent: ChangeName;
-      readonly owed: readonly FilePath[];
-    }
+type PageReading =
+  | { readonly kind: "read"; readonly summary: ChangeSummary; readonly owed: readonly FilePath[] }
   | { readonly kind: "broken"; readonly message: string };
-
-async function readChange(backend: Backend, self: Self, change: ChangeName): Promise<ChangeReading> {
-  const entries = await backend.readLog(change);
-  const diff = await changeDiff(backend, change, entries);
-  const summary = await summarizeChange(backend, change, entries, self.user, diff);
-  // Obligations ask nothing of a user outside the reviewing set — a
-  // membership the log alone decides, sparing the obligations files of
-  // most changes. An empty reviewLeft already counts the user toward
-  // every obligation — though it says nothing about their aliases, whose
-  // obligations each count that identity's own reviews. A change with
-  // conflict markers asks review of nobody: fixing them rewrites the
-  // tip, so reading it now is wasted. A landed change still asks, archived
-  // with the land or not: the follow review its landing left in place
-  // stays owed until reviewers catch up.
-  const asked =
-    (!summary.archived || summary.landed !== undefined) &&
-    summary.conflicts.length === 0 &&
-    (summary.reviewLeft.length > 0 || self.aliases.size > 0) &&
-    isReviewing(self, change, entries);
-  return {
-    kind: "read",
-    summary,
-    parent: currentParent(change, entries),
-    owed: asked ? await reviewOwed(backend, entries, summary.owner, self, diff) : [],
-  };
-}
 
 export async function homePage(backend: Backend, as?: UserName): Promise<HomePage> {
   const acting = await selfAs(backend, as);
   const self = acting.self;
   const workspaces = await workspaceNotes(backend);
-  const changes = [...(await backend.listChanges())].sort();
+  // One snapshot serves every change: each reading validates its cache
+  // entry against it, and a recompute pins its reads at it, so the page
+  // reads one moment of the repository. The snapshot's logs are the
+  // changes, exactly as `listChanges` names them.
+  const snapshot = await backend.refSnapshot();
+  const changes = [...snapshot.logs.keys()].sort();
   // Each change reads independently; assembling in `changes` order afterwards
   // keeps the page deterministic whatever order the readings finish in.
-  const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<ChangeReading> => {
+  const readings = await mapConcurrent(changes, READ_CONCURRENCY, async (change): Promise<PageReading> => {
     try {
-      return await readChange(backend, self, change);
+      return { kind: "read", ...(await cachedChangeReading(backend, snapshot, self, change)) };
     } catch (error) {
       // Only state problems isolate to their change; a bug still throws.
       if (!(error instanceof UserError)) {
@@ -169,7 +138,7 @@ export async function homePage(backend: Backend, as?: UserName): Promise<HomePag
       return;
     }
     summaries.set(change, reading.summary);
-    parents.set(change, reading.parent);
+    parents.set(change, reading.summary.parent);
     if (reading.owed.length > 0) {
       owedFiles.set(change, reading.owed);
     }

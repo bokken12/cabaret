@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { lstat, readFile, rm, stat } from "node:fs/promises";
-import { isAbsolute, join, normalize, relative, sep } from "node:path";
+import { lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
@@ -622,6 +622,56 @@ export class GitBackend implements Backend {
     }
     return { heads, origins, logs };
   }
+
+  /**
+   * Where cache entry `key` lives: under the common git dir, so every
+   * workspace of the repository shares one cache. Keys come from cabaret
+   * code, but one escaping the cache directory would be a bug worth
+   * failing on before it touches anything else.
+   */
+  private cachePath(key: string): string {
+    const dir = join(this.gitDir, "cabaret", "cache");
+    const path = join(dir, key);
+    if (!path.startsWith(dir + sep)) {
+      throw new Error(`cache key escapes the cache directory: ${JSON.stringify(key)}`);
+    }
+    return path;
+  }
+
+  async readCache(key: string): Promise<string | undefined> {
+    try {
+      return await readFile(this.cachePath(key), "utf8");
+    } catch (error) {
+      // ENOENT means exactly "nothing stored"; a key the filesystem cannot
+      // hold (a branch name outgrowing one filename) never stores at all.
+      if (!["ENOENT", "ENAMETOOLONG"].includes(String((error as { code?: unknown }).code))) {
+        throw error;
+      }
+      return undefined;
+    }
+  }
+
+  async writeCache(key: string, content: string): Promise<void> {
+    const path = this.cachePath(key);
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      // Written whole then renamed, so a concurrent reader sees the old
+      // content or the new, never a torn write. The sequence number keeps
+      // concurrent writers within this process off each other's tmp file.
+      const tmp = `${path}.${process.pid}.${GitBackend.cacheWriteSeq++}.tmp`;
+      await writeFile(tmp, content);
+      await rename(tmp, path);
+    } catch (error) {
+      // A key the filesystem cannot hold is simply never cached: readings
+      // recompute each time, and nothing else breaks.
+      if ((error as { code?: unknown }).code !== "ENAMETOOLONG") {
+        throw error;
+      }
+    }
+  }
+
+  /** Distinguishes concurrent cache writes within one process; the pid separates processes. */
+  private static cacheWriteSeq = 0;
 
   async advanceBranches(): Promise<readonly ChangeName[]> {
     const { heads, origins } = await this.refSnapshot();
