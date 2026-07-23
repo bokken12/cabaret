@@ -46,6 +46,7 @@ test("show page keybindings", () => {
       "r  Review",
       "d  Diff",
       "@  Act as User",
+      "c  Add Comment",
       "^  Step Up",
       "$  Step Down",
       "! r b  Rebase",

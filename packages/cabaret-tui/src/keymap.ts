@@ -12,6 +12,7 @@ export type Command =
   | "review"
   | "diff"
   | "mark"
+  | "comment"
   | "select"
   | "step-up"
   | "step-down"
@@ -81,6 +82,7 @@ export const KEYMAP: readonly Binding[] = [
     pages: ["review", "reviews"],
     counterpart: "cabaret.markReviewed",
   },
+  { keys: ["c"], command: "comment", label: "Add Comment", pages: ["show"], counterpart: "cabaret.comment" },
   // v stands beside V while every selection is line-wise; it takes the
   // character-wise half of vim's split when something consumes ranges.
   { keys: ["v"], command: "select", label: "Select Changes", pages: ["home"] },

@@ -70,6 +70,21 @@ const diffList: Doc = layout([
   { spans: [span("ui.ts", { target: { kind: "file", page: "diff", change: widgets, file: ui } })] },
 ]);
 
+const noted = parseBranchName("noted");
+const bob = userName("bob@example.com");
+const COMMENT_KEY = "c0ffee".repeat(10);
+
+/** A show page whose one comment line jumps to editing, read as `as`. */
+const notedShow = (as?: UserName): Doc =>
+  layout([
+    { spans: [span("noted", { style: "heading" })] },
+    {
+      spans: [
+        span("  c0ffeec0 ship it", { target: { kind: "comment", change: noted, key: COMMENT_KEY, as }, tier: "jump" }),
+      ],
+    },
+  ]);
+
 const pages = new Map<string, Doc>([
   [pagePath({ kind: "home" }), home],
   [pagePath({ kind: "show", change: widgets }), show],
@@ -79,6 +94,8 @@ const pages = new Map<string, Doc>([
     pagePath({ kind: "show", change: parseBranchName("widget2") }),
     layout([{ spans: [span("widget2", { style: "heading" })] }]),
   ],
+  [pagePath({ kind: "show", change: noted }), notedShow()],
+  [pagePath({ kind: "show", change: noted, as: bob }), notedShow(bob)],
   [pagePath({ kind: "reviews", change: widgets }), reviewList],
   [
     pagePath({ kind: "review", change: widgets, file: api }),
@@ -123,6 +140,8 @@ function harness(overrides?: Partial<Effects>, rendered?: (page: Page) => Partia
   const unavailable = (what: string) => () => Promise.reject(new Error(`no ${what} in this harness`));
   const effects: Effects = {
     visitLocation: () => Promise.resolve("visited"),
+    editComment: unavailable("comment editing"),
+    addComment: unavailable("commenting"),
     openUrl: () => Promise.resolve(undefined),
     mark: unavailable("marking"),
     parent: () => Promise.resolve(undefined),
@@ -631,6 +650,50 @@ test("@ swaps the page to a typed identity and back to oneself", async () => {
   await keys("@", "1");
   expect(screen()).toContain("/cabaret/show/widgets");
   expect(screen()).not.toContain("/as/");
+});
+
+test("enter on a comment line opens its edit flow and reports", async () => {
+  const edited: unknown[] = [];
+  const { app, keys, screen } = harness({
+    editComment: (target) => {
+      edited.push(target);
+      return Promise.resolve("comment updated");
+    },
+  });
+  await app.open({ kind: "show", change: noted });
+  await keys("j", "enter");
+  expect(edited).toEqual([{ kind: "comment", change: noted, key: COMMENT_KEY, as: undefined }]);
+  expect(screen()).toContain("comment updated");
+});
+
+test("editing a comment as a borrowed identity asks first; y proceeds", async () => {
+  const edited: unknown[] = [];
+  const { app, keys, screen } = harness({
+    editComment: (target) => {
+      edited.push(target);
+      return Promise.resolve("comment updated");
+    },
+  });
+  await app.open({ kind: "show", change: noted, as: bob });
+  await keys("j", "enter");
+  expect(screen()).toContain("Edit this comment as bob@example.com?");
+  expect(edited).toEqual([]);
+  await keys("y");
+  expect(edited).toEqual([{ kind: "comment", change: noted, key: COMMENT_KEY, as: bob }]);
+});
+
+test("c on a show page composes a comment on its change", async () => {
+  const composed: unknown[] = [];
+  const { app, keys, screen } = harness({
+    addComment: (change, as) => {
+      composed.push({ change, as });
+      return Promise.resolve("comment added");
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("c");
+  expect(composed).toEqual([{ change: widgets, as: undefined }]);
+  expect(screen()).toContain("comment added");
 });
 
 async function click(app: App, x: number, y: number): Promise<void> {

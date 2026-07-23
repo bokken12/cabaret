@@ -232,6 +232,10 @@
         "title": "Cabaret: Mark Reviewed"
       },
       {
+        "command": "cabaret.comment",
+        "title": "Cabaret: Add Comment"
+      },
+      {
         "command": "cabaret.fetch",
         "title": "Cabaret: Fetch Remote Activity"
       },
@@ -339,6 +343,10 @@
           "when": "cabaret.page == 'review'"
         },
         {
+          "command": "cabaret.comment",
+          "when": "cabaret.page == 'show'"
+        },
+        {
           "command": "cabaret.fetch",
           "when": "resourceScheme == cabaret"
         },
@@ -402,6 +410,11 @@
         "command": "cabaret.markReviewed",
         "key": "shift+1 m",
         "when": "editorTextFocus && (cabaret.page == 'review' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.comment",
+        "key": "c",
+        "when": "editorTextFocus && (cabaret.page == 'show') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.stepUp",

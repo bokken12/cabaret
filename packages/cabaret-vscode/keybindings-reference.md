@@ -20,6 +20,7 @@ are chosen.
 | `d`     | Diff                  | show, home, reviews, review        |
 | `@`     | Act as User           | all                                |
 | `! m`   | Mark Reviewed         | review, reviews                    |
+| `c`     | Add Comment           | show                               |
 | `^`     | Step Up               | show, review, diff                 |
 | `$`     | Step Down             | show, review, diff                 |
 | `! r b` | Rebase                | home, show, reviews                |

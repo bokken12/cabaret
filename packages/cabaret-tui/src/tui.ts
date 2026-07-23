@@ -1,4 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { emitKeypressEvents } from "node:readline";
 import { PassThrough } from "node:stream";
@@ -8,8 +10,10 @@ import {
   type ChangeName,
   createChange,
   currentArchived,
+  currentComments,
   currentParent,
   currentSelf,
+  editComment,
   type Forge,
   fetchForge,
   fetchLocal,
@@ -86,6 +90,35 @@ async function visitLocation(
   }
 }
 
+/**
+ * Compose text by suspending the TUI and opening `$EDITOR` on a scratch file
+ * prefilled with `initial`; resolves to what the user left, or an error
+ * message. The file gets a trailing newline for the editor's sake, and one
+ * comes back off, so the text round-trips.
+ */
+function composeInEditor(screen: Screen, name: string, initial: string): string | { readonly error: string } {
+  const [editor, ...args] = (process.env.VISUAL ?? process.env.EDITOR ?? "vi").split(/\s+/);
+  if (editor === undefined || editor.length === 0) {
+    return { error: "no editor: set $EDITOR" };
+  }
+  const dir = mkdtempSync(join(tmpdir(), "cabaret-"));
+  const file = join(dir, name);
+  writeFileSync(file, initial === "" ? "" : `${initial}\n`);
+  screen.leave();
+  process.stdin.setRawMode(false);
+  try {
+    const run = spawnSync(editor, [...args, file], { stdio: "inherit" });
+    if (run.error !== undefined) {
+      return { error: `could not run ${editor}: ${run.error.message}` };
+    }
+    return readFileSync(file, "utf8").replace(/\n$/, "");
+  } finally {
+    process.stdin.setRawMode(true);
+    screen.enter();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Open `url` in the system browser, detached so the TUI keeps the terminal. */
 function openUrl(url: string): Promise<string | undefined> {
   const opener = process.platform === "darwin" ? "open" : "xdg-open";
@@ -119,6 +152,35 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
   };
   const effects: Effects = {
     visitLocation: (target) => visitLocation(backend, screen, target),
+    editComment: async (target) => {
+      const comments = await currentComments(await backend.readLog(target.change));
+      const comment = comments.find(({ key }) => key === target.key);
+      if (comment === undefined) {
+        return "the comment is not in the log; refresh";
+      }
+      const text = composeInEditor(screen, "COMMENT.md", comment.text);
+      if (typeof text !== "string") {
+        return text.error;
+      }
+      if (text === comment.text || text.trim() === "") {
+        return "comment unchanged";
+      }
+      await editComment(backend, now, target.change, target.key, text, target.as);
+      return "comment updated";
+    },
+    addComment: async (change, as) => {
+      const text = composeInEditor(screen, "COMMENT.md", "");
+      if (typeof text !== "string") {
+        return text.error;
+      }
+      if (text.trim() === "") {
+        return "empty comment discarded";
+      }
+      await backend.appendLog(change, [
+        { timestamp: now(), user: as ?? (await backend.currentUser()), action: { kind: "comment", text } },
+      ]);
+      return "comment added";
+    },
     openUrl,
     mark: (snapshot, file, evenThoughNotReviewing) =>
       Promise.resolve(markReviewed(backend, now, snapshot, file, evenThoughNotReviewing)),
