@@ -284,15 +284,6 @@ export function formatLogEntry(entry: LogEntry): string {
   return `${JSON.stringify(WireLogEntrySchema.parse(entry))}\n`;
 }
 
-/** Parse one log line (without its trailing newline), inverting `formatLogEntry`. */
-export function parseLogEntry(
-  line: string,
-  parseRevision: (raw: string) => Revision,
-  parseName: (raw: string) => ChangeName,
-): LogEntry {
-  return parseLogLine(line, logEntrySchema(parseRevision, parseName));
-}
-
 function parseLogLine(line: string, schema: z.ZodType<LogEntry>): LogEntry {
   try {
     return schema.parse(JSON.parse(line));

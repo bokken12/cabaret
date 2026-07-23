@@ -201,7 +201,11 @@ test("create refuses a landed parent until overridden, naming where the code wen
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("mark", "--tip", "gadget", "gadget.txt");
-  expect(await repo.cabaret("land", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "gadget")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.cabaret("create", "widgets", "--parent", "gadget")).toEqual({
     stdout: "",
     stderr:

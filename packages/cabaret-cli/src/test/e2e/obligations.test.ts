@@ -18,13 +18,17 @@ test("land requires the owner's self-review even without obligations files", asy
     exitCode: 1,
   });
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
 test("--even-though-unreviewed lands with obligations unsatisfied", async () => {
   const repo = await makeRepo();
   await addChange(repo, "feature");
-  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
 });
 
 test("land refuses until blocking obligations are satisfied, counting the owner's review", async () => {
@@ -42,7 +46,7 @@ test("land refuses until blocking obligations are satisfied, counting the owner'
     exitCode: 1,
   });
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
 test("a blocking requirement on two users needs both reviews", async () => {
@@ -65,7 +69,7 @@ test("a blocking requirement on two users needs both reviews", async () => {
   await repo.git("config", "user.email", "bob@example.com");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
 test("a follow rule never gates the land, and stays owed after it", async () => {
@@ -77,7 +81,7 @@ test("a follow rule never gates the land, and stays owed after it", async () => 
   await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   // bob's follow review is still outstanding, and no override is needed.
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
   await repo.git("config", "user.email", "bob@example.com");
   expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
     "Home
@@ -131,7 +135,7 @@ test("weakening an obligations file needs sign-off under the policy it replaces"
   await repo.git("config", "user.email", "bob@example.com");
   await repo.cabaret("mark", "--tip", "HEAD", ".obligations");
   await repo.git("config", "user.email", "alice@example.com");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
 test("a malformed obligations file blocks landing with a diagnostic", async () => {
@@ -242,5 +246,5 @@ test("fixing a malformed obligations file needs no sign-off from the unreadable 
   await repo.write(".obligations", `${JSON.stringify({ rules: [] })}\n`);
   await repo.git("commit", "-qam", "mend policy");
   await repo.cabaret("mark", "--tip", "HEAD", ".obligations");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
