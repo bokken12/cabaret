@@ -197,6 +197,49 @@ function postedText(entry: CommentEntry, self: UserName): string {
   return entry.user === self ? entry.action.text : attributedText(entry);
 }
 
+/** One comment's versions, grouped by the key their `edits` name. */
+interface CommentGroup {
+  /** The grouping key: the root's `commentHash` for a native comment, the imported forge comment otherwise. */
+  readonly key: string;
+  /** The earliest version: where the comment sits in display order. */
+  first: TimestampMs;
+  /** The greatest version by `compareLogEntries`: what displays. */
+  latest: CommentEntry;
+  /** Every version with its `commentHash`. */
+  readonly members: { readonly hash: string; readonly entry: CommentEntry }[];
+  /** Whether any version mirrors forge state. */
+  imported: boolean;
+}
+
+async function commentGroups(entries: readonly LogEntry[]): Promise<readonly CommentGroup[]> {
+  const groups = new Map<string, CommentGroup>();
+  for (const entry of commentEntries(entries)) {
+    const hash = await commentHash(entry);
+    const { source } = entry;
+    const key = entry.action.edits ?? (source?.id === undefined ? hash : `${source.forge}#${source.id}`);
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = { key, first: entry.timestamp, latest: entry, members: [], imported: false };
+      groups.set(key, group);
+    } else {
+      if (entry.timestamp < group.first) {
+        group.first = entry.timestamp;
+      }
+      if (compareLogEntries(entry, group.latest) >= 0) {
+        group.latest = entry;
+      }
+    }
+    group.members.push({ hash, entry });
+    group.imported ||= source !== undefined;
+  }
+  return [...groups.values()];
+}
+
+/** Whether `text` reads as a version this group already holds, plain or attributed. */
+function knownText(group: CommentGroup, text: string): boolean {
+  return group.members.some(({ entry }) => text === entry.action.text || text === attributedText(entry));
+}
+
 /**
  * The entries importing what is new on the forge: comments Cabaret has not
  * seen, and new versions of comments since edited in place. Every field of an
@@ -209,18 +252,18 @@ export async function planPull(
   entries: readonly LogEntry[],
   comments: readonly ForgeComment[],
 ): Promise<readonly LogEntry[]> {
-  // Comments that originated here, by hash: what a marker can point back to.
-  const local = new Map<string, CommentEntry>();
-  // The latest imported version of each forge comment already in the log.
-  const imported = new Map<string, CommentEntry>();
-  for (const entry of commentEntries(entries)) {
-    const source = entry.source;
-    if (source === undefined) {
-      local.set(await commentHash(entry), entry);
-    } else if (source.forge === forge && source.id !== undefined) {
-      const prev = imported.get(source.id);
-      if (prev === undefined || compareLogEntries(entry, prev) >= 0) {
-        imported.set(source.id, entry);
+  const groups = await commentGroups(entries);
+  // Which group a forge comment continues: the one already importing it, else
+  // the one whose key or member the body's marker names.
+  const bySource = new Map<string, CommentGroup>();
+  const byHash = new Map<string, CommentGroup>();
+  for (const group of groups) {
+    byHash.set(group.key, group);
+    for (const { hash, entry } of group.members) {
+      byHash.set(hash, group);
+      const source = entry.source;
+      if (source?.forge === forge && source.id !== undefined) {
+        bySource.set(source.id, group);
       }
     }
   }
@@ -231,21 +274,18 @@ export async function planPull(
     if (text === "") {
       continue;
     }
-    const latest = imported.get(comment.id);
-    const origin = hash === undefined ? undefined : local.get(hash);
-    if (latest !== undefined) {
-      if (latest.action.text === text) {
-        continue;
-      }
-    } else if (origin !== undefined && (text === origin.action.text || text === attributedText(origin))) {
-      // Our own push reflected back: the body is the entry's text, plain when
-      // its author pushed it themselves, attributed when someone else did.
+    const group = bySource.get(comment.id) ?? (hash === undefined ? undefined : byHash.get(hash));
+    // A body reading as any version this log already holds teaches nothing: it
+    // is our own push reflected back, or forge state an update has yet to
+    // reach — importing the latter would revert the local edit it trails.
+    if (group !== undefined && knownText(group, text)) {
       continue;
     }
-    // A marker always names the entry the comment is a version of, even one
-    // this log has never held (another user's Cabaret pushed it): once logs
-    // sync, the versions still fall into one group.
-    const edits = latest?.action.edits ?? hash;
+    // The group's key carries into the version, so machines whose logs have
+    // yet to sync still file it under the same group. A marker naming an
+    // entry this log has never held is trusted the same way: markers name
+    // group keys, and the logs will meet.
+    const edits = group?.key ?? hash;
     additions.push({
       timestamp: comment.updatedAt,
       user: comment.author,
@@ -258,9 +298,9 @@ export async function planPull(
 
 /**
  * The bodies to post for comments the forge has not seen: local-origin
- * entries whose hash no marker on the forge carries, oldest first. Listing
- * before posting is what makes a rerun — from this or any other machine — a
- * no-op.
+ * groups no marker on the forge names, each posting its displayed version,
+ * oldest first. Listing before posting is what makes a rerun — from this or
+ * any other machine — a no-op.
  */
 export async function planPush(
   entries: readonly LogEntry[],
@@ -275,15 +315,15 @@ export async function planPush(
     }
   }
   const pending: { readonly entry: CommentEntry; readonly body: string }[] = [];
-  for (const entry of commentEntries(entries)) {
-    if (entry.source !== undefined) {
+  for (const group of await commentGroups(entries)) {
+    if (group.imported || group.members.some(({ hash }) => posted.has(hash))) {
       continue;
     }
-    const hash = await commentHash(entry);
-    if (posted.has(hash)) {
-      continue;
-    }
-    pending.push({ entry, body: `${postedText(entry, self)}\n\n<!-- cabaret:${hash} -->` });
+    // The marker names the group's key, not the displayed version's hash, so
+    // a machine importing a forge-side edit before the logs sync still files
+    // it under this group.
+    const entry = group.latest;
+    pending.push({ entry, body: `${postedText(entry, self)}\n\n<!-- cabaret:${group.key} -->` });
   }
   // Post oldest first, in an order independent of log position so every
   // machine posts the same sequence.
@@ -1342,32 +1382,27 @@ export interface ChangeComment {
   readonly timestamp: TimestampMs;
   readonly user: UserName;
   readonly text: string;
+  /** The group's key: what `commentVersion` supersedes to edit this comment. */
+  readonly group: string;
 }
 
 /**
  * The comments of a change as displayed, oldest first. Versions of one
- * comment — entries whose `edits` names the entry they supersede, and imports
+ * comment — entries whose `edits` names their group's key, and imports
  * sharing a source id — collapse to the version with the greatest timestamp.
  */
 export async function currentComments(entries: readonly LogEntry[]): Promise<readonly ChangeComment[]> {
-  const groups = new Map<string, { first: TimestampMs; latest: CommentEntry }>();
-  for (const entry of commentEntries(entries)) {
-    const { source } = entry;
-    const key =
-      entry.action.edits ?? (source?.id === undefined ? await commentHash(entry) : `${source.forge}#${source.id}`);
-    const group = groups.get(key);
-    if (group === undefined) {
-      groups.set(key, { first: entry.timestamp, latest: entry });
-      continue;
-    }
-    if (entry.timestamp < group.first) {
-      group.first = entry.timestamp;
-    }
-    if (compareLogEntries(entry, group.latest) >= 0) {
-      group.latest = entry;
-    }
-  }
-  return [...groups.values()]
+  return [...(await commentGroups(entries))]
     .sort((a, b) => a.first - b.first)
-    .map(({ latest }) => ({ timestamp: latest.timestamp, user: latest.user, text: latest.action.text }));
+    .map(({ key, latest }) => ({
+      timestamp: latest.timestamp,
+      user: latest.user,
+      text: latest.action.text,
+      group: key,
+    }));
+}
+
+/** The entry replacing the displayed text of the comment group `group` names. */
+export function commentVersion(timestamp: TimestampMs, user: UserName, text: string, group: string): LogEntry {
+  return { timestamp, user, action: { kind: "comment", text, edits: group } };
 }

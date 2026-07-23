@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { expect, test, vi } from "vitest";
 import {
   type Backend,
+  commentHash,
   currentComments,
   type Forge,
   type ForgeComment,
@@ -84,9 +85,11 @@ test("planPull imports an in-place edit as a superseding entry", async () => {
   const entries = [comment(1750000000000, carol, "looks wrong", { forge: FORGE, id: "100" })];
   const comments = [forgeComment("100", carol, "looks wrong (never mind)", 1750000000009)];
   const plan = await planPull(FORGE, entries, comments);
-  expect(plan).toEqual([comment(1750000000009, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" })]);
+  expect(plan).toEqual([
+    comment(1750000000009, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" }, `${FORGE}#100`),
+  ]);
   expect(await currentComments([...entries, ...plan])).toEqual([
-    { timestamp: timestampMs(1750000000009), user: carol, text: "looks wrong (never mind)" },
+    { timestamp: timestampMs(1750000000009), user: carol, text: "looks wrong (never mind)", group: `${FORGE}#100` },
   ]);
 });
 
@@ -117,7 +120,7 @@ test("planPull imports a forge-side edit of a pushed comment as superseding its 
   ]);
   // The versions collapse to one displayed comment, and the pull is settled.
   expect(await currentComments([...entries, ...plan])).toEqual([
-    { timestamp: timestampMs(1750000000009), user: carol, text: "ship it (edited on the forge)" },
+    { timestamp: timestampMs(1750000000009), user: carol, text: "ship it (edited on the forge)", group: hash },
   ]);
   expect(await planPull(FORGE, [...entries, ...plan], [edited])).toEqual([]);
   // The original was pushed once; its entry must not be pushed again.
@@ -134,6 +137,60 @@ test("planPush skips imported comments and orders posts by timestamp", async () 
     expect.stringMatching(/^\*\*bob@example\.com:\*\*\n\nearlier\n/),
     expect.stringMatching(/^later\n/),
   ]);
+});
+
+test("an edited comment posts once: the displayed version, marked with its group's key", async () => {
+  const original = comment(1748000000000, alice, "draft wording");
+  const group = await commentHash(original);
+  const entries = [original, comment(1748000000005, alice, "final wording", undefined, group)];
+  expect(await planPush(entries, [], alice)).toEqual([`final wording\n\n<!-- cabaret:${group} -->`]);
+});
+
+test("a fetch never reverts a local edit awaiting its push", async () => {
+  const original = comment(1748000000000, alice, "draft wording");
+  const group = await commentHash(original);
+  const [body] = await planPush([original], [], alice);
+  if (body === undefined) {
+    throw new Error("nothing planned");
+  }
+  const entries = [original, comment(1748000000005, alice, "final wording", undefined, group)];
+  // The forge still shows the original: an update has yet to reach it.
+  expect(await planPull(FORGE, entries, [forgeComment("100", carol, body, 1750000000009)])).toEqual([]);
+  expect(await currentComments(entries)).toEqual([
+    { timestamp: timestampMs(1748000000005), user: alice, text: "final wording", group },
+  ]);
+});
+
+test("an import into an empty log meets its group when the logs sync", async () => {
+  const original = comment(1748000000000, alice, "draft wording");
+  const group = await commentHash(original);
+  const edited = comment(1748000000005, alice, "final wording", undefined, group);
+  const [body] = await planPush([original, edited], [], alice);
+  if (body === undefined) {
+    throw new Error("nothing planned");
+  }
+  // Another machine, its log yet to sync, imports a forge-side edit.
+  const forgeEdit = forgeComment("100", carol, body.replace("final wording", "landed wording"), 1750000000009);
+  const plan = await planPull(FORGE, [], [forgeEdit]);
+  expect(plan).toEqual([comment(1750000000009, carol, "landed wording", { forge: FORGE, id: "100" }, group)]);
+  // Once the logs meet, the versions still form one comment.
+  expect(await currentComments([original, edited, ...plan])).toEqual([
+    { timestamp: timestampMs(1750000000009), user: carol, text: "landed wording", group },
+  ]);
+});
+
+test("display is a function of the entry set, not log order", async () => {
+  const original = comment(1748000000000, alice, "draft wording");
+  const group = await commentHash(original);
+  const entries = [
+    original,
+    comment(1748000000005, bob, "bob's take", undefined, group),
+    comment(1748000000003, alice, "final wording", undefined, group),
+    comment(1748000000001, bob, "unrelated"),
+  ];
+  const displayed = await currentComments(entries);
+  expect(displayed.map(({ text }) => text)).toEqual(["bob's take", "unrelated"]);
+  expect(await currentComments([...entries].reverse())).toEqual(displayed);
 });
 
 /** A `now` ticking one millisecond per read from a fixed epoch. */

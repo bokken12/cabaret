@@ -703,11 +703,13 @@ test("showDoc renders comments between the remaining review and the files, multi
           timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
           user: alice,
           text: "does this handle empty diffs?",
+          group: "1111111111111111111111111111111111111111111111111111111111111111",
         },
         {
           timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 4)),
           user: userName("bob@example.com"),
           text: "second thoughts:\n\nthe flag name reads oddly",
+          group: "2222222222222222222222222222222222222222222222222222222222222222",
         },
       ],
       fetched: undefined,
