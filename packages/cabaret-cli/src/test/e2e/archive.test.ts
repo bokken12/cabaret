@@ -27,11 +27,11 @@ test("an archived change leaves the home page and archive --undo brings it back"
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────────╮
-    │ change │ note     │
-    ├────────┼──────────┤
-    │ gadget │ archived │
-    ╰────────┴──────────╯
+    ╭────────┬───────────────────╮
+    │ change │ note              │
+    ├────────┼───────────────────┤
+    │ gadget │ current, archived │
+    ╰────────┴───────────────────╯
     "
   `);
   await repo.cabaret("archive", "--undo");
@@ -54,11 +54,11 @@ test("an archived change leaves the home page and archive --undo brings it back"
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────╮
-    │ change │ note │
-    ├────────┼──────┤
-    │ gadget │      │
-    ╰────────┴──────╯
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ gadget │ current │
+    ╰────────┴─────────╯
     "
   `);
 });

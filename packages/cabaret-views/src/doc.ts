@@ -11,7 +11,9 @@ export type ChangeAction = "sync" | "rebase" | "reparent" | "widen reviewing" | 
  * neighbors, for hosts to dim. Ready and blocked pull the eye to a status:
  * a step whose obligations are all met, or one gating work until mended.
  * Nudge marks something worth doing when convenient — a landed change's
- * workspace to reclaim, say — an invitation, not an alarm.
+ * workspace to reclaim, say — an invitation, not an alarm. Here marks the
+ * user's own position — the workspace a page was opened from — orientation
+ * rather than status, so it must not borrow a status color.
  *
  * The diff-of-diffs styles carry a 4-way conflict's second channel: a line
  * present in only the reviewed diff (old) or only the current diff (new),
@@ -29,6 +31,7 @@ export type Style =
   | "ready"
   | "blocked"
   | "nudge"
+  | "here"
   | "old-diff-removed"
   | "old-diff-added"
   | "old-diff-context"

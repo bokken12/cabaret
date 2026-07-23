@@ -97,11 +97,11 @@ test("a follow rule never gates the land, and stays owed after it", async () => 
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭─────────┬────────╮
-    │ change  │ note   │
-    ├─────────┼────────┤
-    │ feature │ landed │
-    ╰─────────┴────────╯
+    ╭─────────┬─────────────────╮
+    │ change  │ note            │
+    ├─────────┼─────────────────┤
+    │ feature │ current, landed │
+    ╰─────────┴─────────────────╯
     "
   `);
 });
@@ -196,11 +196,11 @@ test("a malformed obligations file reads as the owner's step to fix, asking nobo
     ╰─────────┴─────────────────╯
 
     Workspaces on this device:
-    ╭─────────┬──────╮
-    │ change  │ note │
-    ├─────────┼──────┤
-    │ feature │      │
-    ╰─────────┴──────╯
+    ╭─────────┬─────────╮
+    │ change  │ note    │
+    ├─────────┼─────────┤
+    │ feature │ current │
+    ╰─────────┴─────────╯
     "
   `);
   // Not the owner's problem to anyone else: bob is asked nothing, and no
@@ -223,11 +223,11 @@ test("a malformed obligations file reads as the owner's step to fix, asking nobo
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭─────────┬──────╮
-    │ change  │ note │
-    ├─────────┼──────┤
-    │ feature │      │
-    ╰─────────┴──────╯
+    ╭─────────┬─────────╮
+    │ change  │ note    │
+    ├─────────┼─────────┤
+    │ feature │ current │
+    ╰─────────┴─────────╯
     "
   `);
 });
