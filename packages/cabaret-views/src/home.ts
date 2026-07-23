@@ -19,7 +19,7 @@ import {
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
-import { fetchedFooter } from "./fetched.js";
+import { pageFooter } from "./fetched.js";
 import { type Hints, stepHint } from "./hints.js";
 import { stepSpan, stepStyle } from "./steps.js";
 import { type Cell, type Column, tableParts } from "./table.js";
@@ -360,7 +360,7 @@ export function homeDoc(page: HomePage, now: TimestampMs, hints?: Hints): Doc {
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
       ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as, now)]),
-      ...fetchedFooter(page.fetched, now),
+      ...pageFooter(page.fetched, now, hints),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

@@ -60,12 +60,6 @@ export interface RenderOptions {
  * calls the forge.
  */
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions): Promise<Doc> {
-  const doc = await pageDoc(backend, page, options);
-  const footer = hintFooter(options.hints);
-  return footer.length === 0 ? doc : { ...doc, lines: [...doc.lines, ...footer] };
-}
-
-async function pageDoc(backend: Backend, page: Page, options: RenderOptions): Promise<Doc> {
   switch (page.kind) {
     case "home":
       return homeDoc(await homePage(backend, page.as), options.now(), options.hints);
@@ -74,7 +68,7 @@ async function pageDoc(backend: Backend, page: Page, options: RenderOptions): Pr
     case "reviews": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
-      return reviewsDoc(reviewsPage(snapshot));
+      return closing(reviewsDoc(reviewsPage(snapshot)), options.hints);
     }
     case "review": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
@@ -88,12 +82,12 @@ async function pageDoc(backend: Backend, page: Page, options: RenderOptions): Pr
           files: new Map([[page.file, file.left.tip]]),
         });
       }
-      return reviewDoc(file, options.context);
+      return closing(reviewDoc(file, options.context), options.hints);
     }
     case "diffs": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
-      return diffsDoc(diffsPage(snapshot));
+      return closing(diffsDoc(diffsPage(snapshot)), options.hints);
     }
     case "diff": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
@@ -109,7 +103,16 @@ async function pageDoc(backend: Backend, page: Page, options: RenderOptions): Pr
           files: new Map([[page.file, file.diff.tip]]),
         });
       }
-      return diffDoc(file, options.context);
+      return closing(diffDoc(file, options.context), options.hints);
     }
   }
+}
+
+/**
+ * `doc` closing with the hint footer. The snapshot pages take it this way;
+ * home and show fold the hint into the closing line dating their fetch.
+ */
+function closing(doc: Doc, hints: Hints | undefined): Doc {
+  const footer = hintFooter(hints);
+  return footer.length === 0 ? doc : { ...doc, lines: [...doc.lines, ...footer] };
 }

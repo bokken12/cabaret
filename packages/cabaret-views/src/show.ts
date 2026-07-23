@@ -24,7 +24,7 @@ import {
   type UserName,
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
-import { fetchedFooter } from "./fetched.js";
+import { pageFooter } from "./fetched.js";
 import { type Hints, stepHint } from "./hints.js";
 import { stepSpan } from "./steps.js";
 import { type Cell, table } from "./table.js";
@@ -276,6 +276,6 @@ export function showDoc(page: ShowPage, now: TimestampMs, hints?: Hints): Doc {
       nodes.push({ spans: [] }, s);
     }
   }
-  nodes.push(...fetchedFooter(page.fetched, now));
+  nodes.push(...pageFooter(page.fetched, now, hints));
   return layout(nodes);
 }

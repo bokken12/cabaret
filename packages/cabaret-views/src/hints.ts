@@ -19,10 +19,16 @@ export function stepHint(step: NextStep, hints: Hints | undefined): readonly Spa
   return keys === undefined ? [] : [span(` (${keys})`, { style: "context" })];
 }
 
+/** The note pointing at the binding list: `? for keybindings`. */
+export function hintNote(hints: Hints | undefined): string | undefined {
+  return hints === undefined ? undefined : `${hints.help} for keybindings`;
+}
+
 /** The dimmed closing line pointing at the binding list, with its stand-off blank. */
 export function hintFooter(hints: Hints | undefined): readonly Line[] {
-  if (hints === undefined) {
+  const note = hintNote(hints);
+  if (note === undefined) {
     return [];
   }
-  return [{ spans: [] }, { spans: [span(`${hints.help} for keybindings`, { style: "context" })] }];
+  return [{ spans: [] }, { spans: [span(note, { style: "context" })] }];
 }
