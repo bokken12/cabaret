@@ -66,8 +66,8 @@ test("show page keybindings", () => {
   `);
 });
 
-test("review page keybindings", () => {
-  expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
+test("reviews page keybindings", () => {
+  expect(pageHelp(manifest, "reviews").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
       "esc  Step Outside",
@@ -78,9 +78,16 @@ test("review page keybindings", () => {
       "d  Diff",
       "@  Act as User",
       "! m  Mark Reviewed",
-      "^  Step Up",
-      "$  Step Down",
+      "! r b  Rebase",
       "! l  Land",
+      "! r p  Reparent",
+      "! o  Set Owner",
+      "! v  Widen Reviewing",
+      "! d  Disable Reviewing",
+      "! a  Toggle Archived",
+      "! g  Go to Workspace",
+      "! w a  Add Workspace",
+      "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",
@@ -89,7 +96,7 @@ test("review page keybindings", () => {
   `);
 });
 
-test("review-file page keybindings", () => {
+test("review page keybindings", () => {
   expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
