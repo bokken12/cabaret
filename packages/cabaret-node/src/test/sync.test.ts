@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   currentParent,
+  fetchLocal,
   formatLogEntry,
   type LogAction,
   type LogEntry,
   parseBranchName,
+  reconcileChange,
   timestampMs,
   userName,
 } from "cabaret-core";
@@ -162,6 +164,54 @@ test("appends after convergence flow both ways as fast-forwards", async () => {
   expect(await a.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main"), late]);
   const [stateA, stateB] = await logStates([a, b], "widgets");
   expect(stateA).toEqual(stateB);
+});
+
+test("a write-through publishes a new change's branch with its log", async () => {
+  const [a, b] = await makeMachines();
+  await a.git("commit", "--allow-empty", "-m", "root");
+  await a.git("branch", "widgets");
+  const entries = [setParent(1000, "alice@example.com", "main")];
+  await a.backend.appendLog(WIDGETS, entries);
+  await reconcileChange(a.backend, () => timestampMs(2000), undefined, WIDGETS);
+  await b.backend.fetchOrigin();
+  await b.backend.syncLogs();
+  // The change arrives whole: its log and a readable tip in one fetch.
+  expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
+  expect(await b.backend.originTip(WIDGETS)).toBe(await a.backend.tip(WIDGETS));
+});
+
+test("a fetch publishes a new change's branch with its log", async () => {
+  const [a, b] = await makeMachines();
+  await a.git("commit", "--allow-empty", "-m", "root");
+  await a.git("branch", "widgets");
+  const entries = [setParent(1000, "alice@example.com", "main")];
+  await a.backend.appendLog(WIDGETS, entries);
+  const fetched = await fetchLocal(a.backend);
+  expect(fetched.pushed).toEqual(["widgets"]);
+  const { pushed, ...caughtUp } = await fetchLocal(b.backend);
+  expect(caughtUp).toEqual({ synced: ["widgets"], advanced: [], joined: [] });
+  expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
+  expect(await b.backend.originTip(WIDGETS)).toBe(await a.backend.tip(WIDGETS));
+});
+
+test("a branch a racer already published is left where the racer put it", async () => {
+  const [a, b] = await makeMachines();
+  await b.git("commit", "--allow-empty", "-m", "b root");
+  await b.git("branch", "widgets");
+  await b.backend.push(WIDGETS);
+  // a, unfetched, still reads its own log and branch as origin's first.
+  await a.git("commit", "--allow-empty", "-m", "a root");
+  await a.git("branch", "widgets");
+  const entries = [setParent(1000, "alice@example.com", "main")];
+  await a.backend.appendLog(WIDGETS, entries);
+  await reconcileChange(a.backend, () => timestampMs(2000), undefined, WIDGETS);
+  // The log landed; the branch push lost its lease and left b's tip alone.
+  expect(await a.git("ls-remote", "origin", "refs/heads/widgets")).toBe(
+    `${await b.backend.tip(WIDGETS)}\trefs/heads/widgets`,
+  );
+  await b.backend.fetchOrigin();
+  await b.backend.syncLogs();
+  expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
 });
 
 test("syncLogs sweeps every change, local and remote alike, sorted", async () => {

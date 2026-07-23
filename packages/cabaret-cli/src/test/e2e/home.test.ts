@@ -305,8 +305,9 @@ test("a change whose branch is gone goes to stderr without blocking the page", a
   await addChange(repo, "gadget");
   await addChange(repo, "gizmo");
   await repo.cabaret("reviewing", "set", "owner");
-  // Deleting the branch orphans gadget's log: the change can no longer be
-  // read, while gizmo — parented on the missing branch — still can.
+  // Deleting the branch everywhere orphans gadget's log: the change can no
+  // longer be read, while gizmo — parented on the missing branch — still can.
+  await repo.git("push", "-q", "origin", ":refs/heads/gadget");
   await repo.git("branch", "-qD", "gadget");
   const { stdout, stderr, exitCode } = await repo.cabaret("home");
   expect({ stderr, exitCode }).toEqual({
