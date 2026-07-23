@@ -191,8 +191,11 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
     addWorkspace: (change) => addChangeWorkspace(backend, change),
     removeWorkspace: (change, evenThoughDirty) => removeChangeWorkspace(backend, change, evenThoughDirty),
     reclaimWorkspaces: async () => reclaimNote(await reclaimWorkspaces(backend, false)),
-    create: async (name, parent) => {
-      await createChange(backend, now, name, parent);
+    create: async (name, parent, remedy) => {
+      await createChange(backend, now, name, parent, {
+        carry: remedy === "carry",
+        evenThoughParentDirty: remedy === "leave",
+      });
     },
     changes: () => knownChanges(backend),
     parseName: (raw) => backend.parseName(raw),
