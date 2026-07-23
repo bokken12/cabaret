@@ -17,3 +17,5 @@
 {"timestamp":1784779679840,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/home.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"46864f03fa581989750b592aa0f99cde0d7fbaa8"}}
 {"timestamp":1784779702987,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/test/views.test.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"46864f03fa581989750b592aa0f99cde0d7fbaa8"}}
 {"timestamp":1784779706227,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/workspaces.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"46864f03fa581989750b592aa0f99cde0d7fbaa8"}}
+{"timestamp":1784779721190,"user":"me@joel.place","action":{"kind":"land","merge":"88da45e2f1a1fc52e6d5c3eec657b7d6f236d5ee"}}
+{"timestamp":1784779721190,"user":"me@joel.place","action":{"kind":"set-archived","archived":true}}
