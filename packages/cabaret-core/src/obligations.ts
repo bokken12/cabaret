@@ -17,7 +17,7 @@ import {
   userName,
 } from "./backend.js";
 import { UserError } from "./error.js";
-import { currentSelf, isSelf, type Self } from "./self.js";
+import { isSelf, type Self } from "./self.js";
 import { reviewLeft } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
@@ -248,25 +248,6 @@ export function mayRecordReview(self: Self, change: ChangeName, entries: readonl
     isReviewing(self, change, entries) ||
     isSelf(self, currentOwner(change, entries))
   );
-}
-
-/**
- * Fail with `NotReviewingError` unless the current user may record review of
- * `change` (as `mayRecordReview`). Recording ahead of one's turn is usually
- * a mistake (the diff is still being rewritten), but a review is a true
- * statement however early, so the check nudges rather than forbids:
- * frontends offer an override, and an overridden review counts toward
- * obligations like any other.
- */
-export async function assertReviewing(
-  backend: Backend,
-  change: ChangeName,
-  entries: readonly LogEntry[],
-): Promise<void> {
-  const self = await currentSelf(backend);
-  if (!mayRecordReview(self, change, entries)) {
-    throw new NotReviewingError(change, currentReviewing(entries), self.user);
-  }
 }
 
 /** An obligation and the reviews counting toward it. */
