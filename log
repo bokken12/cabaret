@@ -27,3 +27,5 @@
 {"timestamp":1784816249367,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/show.ts","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
 {"timestamp":1784816251851,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/test/views.test.ts","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
 {"timestamp":1784816254279,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/extension.ts","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
+{"timestamp":1784816275326,"user":"me@joel.place","action":{"kind":"land","merge":"e1b212466422ee98ff8200823b0ef169ed4fa362"}}
+{"timestamp":1784816275326,"user":"me@joel.place","action":{"kind":"set-archived","archived":true}}
