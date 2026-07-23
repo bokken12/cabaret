@@ -732,8 +732,12 @@ export class GitBackend implements Backend {
   async forgeSweepState(): Promise<string | undefined> {
     try {
       return await git(this.root, ["cat-file", "blob", REMOTE_FORGE_REF]);
-    } catch {
-      return undefined;
+    } catch (error) {
+      // Exit code 128 means exactly "not a valid object name"; anything else is a real failure.
+      if ((error as { code?: unknown }).code === 128) {
+        return undefined;
+      }
+      throw error;
     }
   }
 

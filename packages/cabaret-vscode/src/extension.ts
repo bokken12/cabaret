@@ -1130,7 +1130,10 @@ async function pollForge(): Promise<{ readonly swept: number } | undefined> {
   let forge: Forge;
   try {
     forge = await openForge({ signIn: false });
-  } catch {
+  } catch (error) {
+    if (!(error instanceof NoForgeError)) {
+      throw error;
+    }
     return undefined;
   }
   return fetchForge(await openBackend(), now, forge, (event) => {
