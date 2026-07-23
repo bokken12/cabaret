@@ -74,18 +74,24 @@ test("planPull imports foreign comments, timestamped and attributed by the forge
     forgeComment("100", carol, "does this handle empty diffs?", 1750000000000),
     forgeComment("101", carol, "second thoughts:\n\nthe flag name reads oddly", 1750000000001),
   ];
-  expect(await planPull(FORGE, entries, comments)).toEqual([
-    comment(1750000000000, carol, "does this handle empty diffs?", { forge: FORGE, id: "100" }),
-    comment(1750000000001, carol, "second thoughts:\n\nthe flag name reads oddly", { forge: FORGE, id: "101" }),
-  ]);
+  expect(await planPull(FORGE, entries, comments)).toEqual({
+    additions: [
+      comment(1750000000000, carol, "does this handle empty diffs?", { forge: FORGE, id: "100" }),
+      comment(1750000000001, carol, "second thoughts:\n\nthe flag name reads oddly", { forge: FORGE, id: "101" }),
+    ],
+    news: 2,
+  });
 });
 
 test("planPull imports an in-place edit as a superseding entry", async () => {
   const entries = [comment(1750000000000, carol, "looks wrong", { forge: FORGE, id: "100" })];
   const comments = [forgeComment("100", carol, "looks wrong (never mind)", 1750000000009)];
   const plan = await planPull(FORGE, entries, comments);
-  expect(plan).toEqual([comment(1750000000009, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" })]);
-  expect(await currentComments([...entries, ...plan])).toEqual([
+  expect(plan).toEqual({
+    additions: [comment(1750000000009, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" })],
+    news: 1,
+  });
+  expect(await currentComments([...entries, ...plan.additions])).toEqual([
     {
       key: `${FORGE}#100`,
       timestamp: timestampMs(1750000000009),
@@ -96,7 +102,7 @@ test("planPull imports an in-place edit as a superseding entry", async () => {
   ]);
 });
 
-test("push then pull does not echo: reflected comments are recognized, plain and attributed", async () => {
+test("push then pull mirrors the reflection — no echo, no news, both directions settled", async () => {
   const entries = [comment(1748000000000, alice, "ship it"), comment(1748000000001, bob, "one nit")];
   const push = await planPush(FORGE, entries, [], alice);
   expect(push).toEqual({
@@ -106,9 +112,23 @@ test("push then pull does not echo: reflected comments are recognized, plain and
     ],
     updates: [],
   });
+  const keys = push.posts.map((body) => /<!-- cabaret:([0-9a-f]{64}) -->/.exec(body)?.[1] ?? "");
   const reflected = push.posts.map((body, index) => forgeComment(String(index), carol, body, 1750000000000 + index));
-  expect(await planPull(FORGE, entries, reflected)).toEqual([]);
-  expect(await planPush(FORGE, entries, reflected, alice)).toEqual({ posts: [], updates: [] });
+  // The reflection mirrors each version — its own author and plain text,
+  // at its own stamp — rather than importing the forge's rendering.
+  const pull = await planPull(FORGE, entries, reflected);
+  expect(pull).toEqual({
+    additions: [
+      comment(1748000000000, alice, "ship it", { forge: FORGE, id: "0" }, keys[0]),
+      comment(1748000000001, bob, "one nit", { forge: FORGE, id: "1" }, keys[1]),
+    ],
+    news: 0,
+  });
+  const mirrored = [...entries, ...pull.additions];
+  expect(await planPull(FORGE, mirrored, reflected)).toEqual({ additions: [], news: 0 });
+  expect(await planPush(FORGE, mirrored, reflected, alice)).toEqual({ posts: [], updates: [] });
+  // Mirrors restate, they do not edit.
+  expect((await currentComments(mirrored)).map(({ edited }) => edited)).toEqual([false, false]);
 });
 
 test("planPull imports a forge-side edit of a pushed comment as superseding its entry", async () => {
@@ -121,11 +141,12 @@ test("planPull imports a forge-side edit of a pushed comment as superseding its 
   // An in-place edit rewrites the visible text; the marker rides along in the raw body.
   const edited = forgeComment("100", carol, `ship it (edited on the forge)\n\n<!-- cabaret:${hash} -->`, 1750000000009);
   const plan = await planPull(FORGE, entries, [edited]);
-  expect(plan).toEqual([
-    comment(1750000000009, carol, "ship it (edited on the forge)", { forge: FORGE, id: "100" }, hash),
-  ]);
+  expect(plan).toEqual({
+    additions: [comment(1750000000009, carol, "ship it (edited on the forge)", { forge: FORGE, id: "100" }, hash)],
+    news: 1,
+  });
   // The versions collapse to one displayed comment, and the pull is settled.
-  expect(await currentComments([...entries, ...plan])).toEqual([
+  expect(await currentComments([...entries, ...plan.additions])).toEqual([
     {
       key: hash,
       timestamp: timestampMs(1750000000009),
@@ -134,9 +155,56 @@ test("planPull imports a forge-side edit of a pushed comment as superseding its 
       edited: true,
     },
   ]);
-  expect(await planPull(FORGE, [...entries, ...plan], [edited])).toEqual([]);
+  expect(await planPull(FORGE, [...entries, ...plan.additions], [edited])).toEqual({ additions: [], news: 0 });
   // The original was pushed once; its entry must not be pushed again.
-  expect(await planPush(FORGE, [...entries, ...plan], [edited], alice)).toEqual({ posts: [], updates: [] });
+  expect(await planPush(FORGE, [...entries, ...plan.additions], [edited], alice)).toEqual({
+    posts: [],
+    updates: [],
+  });
+});
+
+test("a forge revert to older text imports past the mirror, whatever its stamp reads", async () => {
+  const entries = [
+    comment(1750000000000, carol, "looks wrong", { forge: FORGE, id: "100" }),
+    comment(1750000000005, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" }),
+  ];
+  // The revert restores the original text, and the forge even stamps it
+  // before the edit it undoes.
+  const reverted = forgeComment("100", carol, "looks wrong", 1750000000002);
+  const pull = await planPull(FORGE, entries, [reverted]);
+  expect(pull).toEqual({
+    additions: [comment(1750000000006, carol, "looks wrong", { forge: FORGE, id: "100" })],
+    news: 1,
+  });
+  const absorbed = [...entries, ...pull.additions];
+  expect(await currentComments(absorbed)).toEqual([
+    { key: `${FORGE}#100`, timestamp: timestampMs(1750000000006), user: carol, text: "looks wrong", edited: true },
+  ]);
+  // Settled: pulling again finds nothing, and the push does not undo the revert.
+  expect(await planPull(FORGE, absorbed, [reverted])).toEqual({ additions: [], news: 0 });
+  expect(await planPush(FORGE, absorbed, [reverted], alice)).toEqual({ posts: [], updates: [] });
+});
+
+test("a revert concurrent with a local edit settles by timestamp", async () => {
+  const entries = [
+    comment(1750000000000, carol, "looks wrong", { forge: FORGE, id: "100" }),
+    comment(1750000000005, carol, "looks wrong (never mind)", { forge: FORGE, id: "100" }),
+    comment(1750000000009, alice, "resolved in the tests", undefined, `${FORGE}#100`),
+  ];
+  const reverted = forgeComment("100", carol, "looks wrong", 1750000000007);
+  // The revert imports, but the local edit wrote last: it keeps the display,
+  // and the push carries it back out over the revert.
+  const pull = await planPull(FORGE, entries, [reverted]);
+  expect(pull).toEqual({
+    additions: [comment(1750000000007, carol, "looks wrong", { forge: FORGE, id: "100" })],
+    news: 0,
+  });
+  const absorbed = [...entries, ...pull.additions];
+  expect((await currentComments(absorbed)).map(({ text }) => text)).toEqual(["resolved in the tests"]);
+  expect(await planPush(FORGE, absorbed, [reverted], alice)).toEqual({
+    posts: [],
+    updates: [{ id: "100", body: "**alice@example.com:**\n\nresolved in the tests" }],
+  });
 });
 
 test("planPush skips imported comments and orders posts by timestamp", async () => {
@@ -168,14 +236,49 @@ test("a local edit of a pushed comment updates the forge comment in place, marke
     posts: [],
     updates: [{ id: "100", body: `ship it, once the flag lands\n\n<!-- cabaret:${key} -->` }],
   });
-  // The pull does not mistake the stale forge body for a forge-side edit.
-  expect(await planPull(FORGE, entries, [posted])).toEqual([]);
-  // Once the update lands, both directions are settled.
+  // The stale forge body mirrors the version it reflects — never a forge-side edit.
+  expect(await planPull(FORGE, entries, [posted])).toEqual({
+    additions: [comment(1748000000000, alice, "ship it", { forge: FORGE, id: "100" }, key)],
+    news: 0,
+  });
+  // Once the update lands, its reflection mirrors too, and both directions settle.
   const updated = forgeComment("100", alice, `ship it, once the flag lands\n\n<!-- cabaret:${key} -->`, 1750000000001);
-  expect(await planPush(FORGE, entries, [updated], alice)).toEqual({ posts: [], updates: [] });
-  expect(await planPull(FORGE, entries, [updated])).toEqual([]);
+  const mirrored = [...entries, comment(1748000000000, alice, "ship it", { forge: FORGE, id: "100" }, key)];
+  expect(await planPush(FORGE, mirrored, [updated], alice)).toEqual({ posts: [], updates: [] });
+  const pull = await planPull(FORGE, mirrored, [updated]);
+  expect(pull).toEqual({
+    additions: [comment(1750000000000, alice, "ship it, once the flag lands", { forge: FORGE, id: "100" }, key)],
+    news: 0,
+  });
+  expect(await planPull(FORGE, [...mirrored, ...pull.additions], [updated])).toEqual({ additions: [], news: 0 });
   expect(await currentComments(entries)).toEqual([
     { key, timestamp: timestampMs(1750000000000), user: alice, text: "ship it, once the flag lands", edited: true },
+  ]);
+});
+
+test("a stale reflection cannot outrank the edit made since, however the forge stamps it", async () => {
+  const original = comment(1748000000000, alice, "ship it");
+  const [body] = (await planPush(FORGE, [original], [], alice)).posts;
+  if (body === undefined) {
+    throw new Error("nothing planned");
+  }
+  const key = /<!-- cabaret:([0-9a-f]{64}) -->/.exec(body)?.[1];
+  if (key === undefined) {
+    throw new Error("no marker");
+  }
+  // The forge stamps the reflection far ahead of the edit made just after it.
+  const posted = forgeComment("100", alice, body, 1750000000099);
+  const entries = [original, comment(1748000000005, alice, "ship it, once the flag lands", undefined, key)];
+  const pull = await planPull(FORGE, entries, [posted]);
+  // The reflection mirrors at its version's own stamp, so the edit keeps the display.
+  expect(pull).toEqual({
+    additions: [comment(1748000000000, alice, "ship it", { forge: FORGE, id: "100" }, key)],
+    news: 0,
+  });
+  const absorbed = [...entries, ...pull.additions];
+  expect((await currentComments(absorbed)).map(({ text }) => text)).toEqual(["ship it, once the flag lands"]);
+  expect((await planPush(FORGE, absorbed, [posted], alice)).updates).toEqual([
+    { id: "100", body: `ship it, once the flag lands\n\n<!-- cabaret:${key} -->` },
   ]);
 });
 
@@ -190,7 +293,7 @@ test("a local edit of a forge-native comment updates it by its id, unmarked", as
     posts: [],
     updates: [{ id: "100", body: "**alice@example.com:**\n\ndoes this handle empty diffs? (answered below)" }],
   });
-  expect(await planPull(FORGE, entries, [posted])).toEqual([]);
+  expect(await planPull(FORGE, entries, [posted])).toEqual({ additions: [], news: 0 });
   // Gone from the forge entirely, the comment is nobody's to rewrite — and
   // never reposted, which would resurrect it under a new identity.
   expect(await planPush(FORGE, entries, [], alice)).toEqual({ posts: [], updates: [] });
@@ -211,17 +314,22 @@ test("concurrent forge and local edits settle by timestamp once the pull is abso
   // whichever side wrote last.
   const localFirst = [original, comment(1750000000000, alice, "ship it, once the flag lands", undefined, key)];
   const plan = await planPull(FORGE, localFirst, [edited]);
-  expect(plan).toEqual([comment(1750000000005, alice, "ship it — sorry, hold off", { forge: FORGE, id: "100" }, key)]);
+  expect(plan).toEqual({
+    additions: [comment(1750000000005, alice, "ship it — sorry, hold off", { forge: FORGE, id: "100" }, key)],
+    news: 1,
+  });
   // Forge edit written later: it wins the group, and the push leaves it be.
-  expect(await currentComments([...localFirst, ...plan])).toEqual([
+  expect(await currentComments([...localFirst, ...plan.additions])).toEqual([
     { key, timestamp: timestampMs(1750000000005), user: alice, text: "ship it — sorry, hold off", edited: true },
   ]);
-  expect(await planPush(FORGE, [...localFirst, ...plan], [edited], alice)).toEqual({ posts: [], updates: [] });
+  expect(await planPush(FORGE, [...localFirst, ...plan.additions], [edited], alice)).toEqual({
+    posts: [],
+    updates: [],
+  });
   // Local edit written later: it wins the group, and the push rewrites the forge.
   const localLast = [original, comment(1750000000009, alice, "ship it, once the flag lands", undefined, key)];
-  expect(
-    await planPush(FORGE, [...localLast, ...(await planPull(FORGE, localLast, [edited]))], [edited], alice),
-  ).toEqual({
+  const absorbed = [...localLast, ...(await planPull(FORGE, localLast, [edited])).additions];
+  expect(await planPush(FORGE, absorbed, [edited], alice)).toEqual({
     posts: [],
     updates: [{ id: "100", body: `ship it, once the flag lands\n\n<!-- cabaret:${key} -->` }],
   });
@@ -408,7 +516,7 @@ test("pulling what a pull imported is a no-op, and re-planning is byte-identical
     fc.asyncProperty(foreignComments(), async (comments) => {
       const plan = await planPull(FORGE, [], comments);
       expect(await planPull(FORGE, [], comments)).toEqual(plan);
-      expect(await planPull(FORGE, plan, comments)).toEqual([]);
+      expect(await planPull(FORGE, plan.additions, comments)).toEqual({ additions: [], news: 0 });
     }),
   );
 });
@@ -421,14 +529,19 @@ const localComments = () =>
     )
     .map((tuples) => tuples.map(([timestamp, user, text]) => comment(timestamp, user, text)));
 
-test("pushing what a push posted is a no-op, and nothing echoes back", async () => {
+test("pushing what a push posted is a no-op, and reflections mirror without news", async () => {
   await fc.assert(
     fc.asyncProperty(localComments(), async (entries) => {
       const { posts, updates } = await planPush(FORGE, entries, [], alice);
       expect({ posts: posts.length, updates }).toEqual({ posts: entries.length, updates: [] });
       const posted = posts.map((body, index) => forgeComment(String(index), carol, body, 1750000000000 + index));
       expect(await planPush(FORGE, entries, posted, alice)).toEqual({ posts: [], updates: [] });
-      expect(await planPull(FORGE, entries, posted)).toEqual([]);
+      // One mirror per reflection, none of it news; then everything settles.
+      const pull = await planPull(FORGE, entries, posted);
+      expect({ mirrors: pull.additions.length, news: pull.news }).toEqual({ mirrors: entries.length, news: 0 });
+      const mirrored = [...entries, ...pull.additions];
+      expect(await planPull(FORGE, mirrored, posted)).toEqual({ additions: [], news: 0 });
+      expect(await planPush(FORGE, mirrored, posted, alice)).toEqual({ posts: [], updates: [] });
     }),
   );
 });

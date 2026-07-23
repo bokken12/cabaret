@@ -108,6 +108,30 @@ test("fetch imports a forge-side edit as a new version, displayed once", async (
   );
 });
 
+test("a forge revert to a comment's older text imports and displays", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  const commentId = forge.comment(PR, "carol", "looks wrong");
+  await repo.cabaret("fetch");
+  forge.edit(PR, commentId, "looks wrong (never mind)");
+  await repo.cabaret("fetch");
+  // Carol reverts by retyping the original — older text, no marker.
+  forge.edit(PR, commentId, "looks wrong");
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 1 comment from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
+  );
+  expect(await shownComments(repo)).toBe(
+    "Comments:\n  #100 2025-06-15T15:06:40.006Z github:carol (edited)\n    looks wrong\n",
+  );
+  // Settled: nothing further fetches, and sync does not undo the revert.
+  expect((await repo.cabaret("fetch")).stdout).toBe("fetched github.com/test-org/widgets: 0 updated forge changes\n");
+  await repo.cabaret("sync");
+  expect((await forge.listComments(PR)).map(({ body }) => body)).toEqual(["looks wrong"]);
+});
+
 test("a local edit rewrites the pushed forge comment in place, and fetch does not echo it", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
