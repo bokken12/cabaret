@@ -26,7 +26,7 @@ My leaning is towards basing identity on `user.email`. Although it would require
 
 ## Forge Accounts
 
-A forge account is an identity of its own, written as the account under a scheme naming its forge: `github:alice`, `gitlab:alice`, `codeberg:alice`. Everything imported from a forge — change authors, reviewers, comment authors — carries this form.
+A forge account is an identity of its own, written as the account under a scheme naming its forge: `github:alice`, `gitlab:alice`, `codeberg:alice`, `bitbucket:alice`. Everything imported from a forge — change authors, reviewers, comment authors — carries this form.
 
 The identity is minted from the account name alone: the mapping is total and offline, inverts by parsing (which review requests need), and cannot shift when someone edits their profile. A profile's public email would sometimes unify an account with its owner's git identity, but only while shown, and never reliably — that unification is the alias layer's job. The forges' own noreply spellings (`5+alice@users.noreply.github.com` and kin) name the same account wherever an identity is typed.
 

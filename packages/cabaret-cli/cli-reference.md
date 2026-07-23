@@ -302,6 +302,64 @@ FLAGS
      [--local]   Use this repository's config    [default = false]
   -h  --help     Print help information and exit
 
+##### cab config alias bitbucket show
+
+USAGE
+  cab config alias bitbucket show [--global] [--local]
+  cab config alias bitbucket show --help
+
+Show the accounts
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+##### cab config alias bitbucket add
+
+USAGE
+  cab config alias bitbucket add [--global] [--local] <account>
+  cab config alias bitbucket add --help
+
+Add an account
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cab config alias bitbucket remove
+
+USAGE
+  cab config alias bitbucket remove [--global] [--local] <account>
+  cab config alias bitbucket remove --help
+
+Remove an account
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  account  account name, without the scheme
+
+##### cab config alias bitbucket clear
+
+USAGE
+  cab config alias bitbucket clear [--global] [--local]
+  cab config alias bitbucket clear --help
+
+Remove every bitbucket account
+
+FLAGS
+     [--global]  Use the person's global config  [default = false]
+     [--local]   Use this repository's config    [default = false]
+  -h  --help     Print help information and exit
+
 ### cab config context
 
 USAGE

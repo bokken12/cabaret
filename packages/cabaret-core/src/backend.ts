@@ -111,7 +111,7 @@ export function userName(raw: string): UserName {
 }
 
 /** The schemes forge accounts are written under, one per supported forge. */
-export const forgeAccountSchemes = ["github", "gitlab", "codeberg"] as const;
+export const forgeAccountSchemes = ["github", "gitlab", "codeberg", "bitbucket"] as const;
 
 export type ForgeAccountScheme = (typeof forgeAccountSchemes)[number];
 
@@ -145,6 +145,7 @@ const FORGE_CHANGE_ROUTES: Record<string, string> = {
   "github.com": "pull",
   "gitlab.com": "-/merge_requests",
   "codeberg.org": "pulls",
+  "bitbucket.org": "pull-requests",
 };
 
 /** The web page for change `id` on `forge`, or undefined for an unrecognized host. */
