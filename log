@@ -16,3 +16,5 @@
 {"timestamp":1784782880840,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-tui/src/test/app.test.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"315cd07cff0ff5e0a47a0f25fb3b88fa34eb2db6"}}
 {"timestamp":1784782882207,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-tui/src/tui.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"315cd07cff0ff5e0a47a0f25fb3b88fa34eb2db6"}}
 {"timestamp":1784782883902,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/extension.ts","base":"79c2c8c32d50fd44b0e8058d55d87611969ba138","tip":"315cd07cff0ff5e0a47a0f25fb3b88fa34eb2db6"}}
+{"timestamp":1784782898648,"user":"me@joel.place","action":{"kind":"land","merge":"16206fbff4500445cfec45f556294462dba93cb5"}}
+{"timestamp":1784782898648,"user":"me@joel.place","action":{"kind":"set-archived","archived":true}}
