@@ -13,7 +13,7 @@ function reportSync(context: LocalContext, change: ChangeName, locator: string |
     const { conflicts } = result.joined;
     out(
       conflicts.length > 0
-        ? `merged origin's copy of ${JSON.stringify(change)}; conflicts in ${conflicts.join(", ")} — fix the markers and amend`
+        ? `merged origin's copy of ${JSON.stringify(change)}; conflicts in ${conflicts.join(", ")} — fix the markers and commit`
         : `merged origin's copy of ${JSON.stringify(change)}`,
     );
   }
@@ -37,7 +37,7 @@ export const sync = buildCommand({
     brief: "Sync a change with origin and its forge",
     fullDescription:
       "Sync a change: merge origin's copy of its branch into the local one " +
-      "— a conflicted merge commits its markers, to fix and amend — push " +
+      "— a conflicted merge commits its markers, to fix and commit over — push " +
       "the result, reconcile its forge change (opening one if none exists, " +
       "retargeting it, settling comments, reviewers, draft and archived " +
       "state both ways), and sync its log. Offline, the merge against " +

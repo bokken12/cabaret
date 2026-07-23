@@ -155,7 +155,7 @@ test("reviewsDoc with conflicts asks for the fix instead of offering files", () 
     "Review widgets
     ==============
 
-    Unresolved conflicts in api.ts, ui.ts; fix the markers and amend."
+    Unresolved conflicts in api.ts, ui.ts; fix the markers and commit."
   `);
   expect(doc.lines.map((_, i) => targetAt(doc, i))).toEqual([undefined, undefined, undefined, undefined]);
 });
@@ -921,7 +921,7 @@ test("a conflicted snapshot drops its review and refuses to mark, even asked", (
   expect(reviewsPage(snapshot)).toEqual({ change: widgets, conflicts: [parseFilePath("a.ts")], left: undefined });
   const appended: LogEntry[][] = [];
   expect(() => markReviewed(appendOnly(appended), () => at, snapshot, parseFilePath("b.ts"), true)).toThrow(
-    '"widgets" has unresolved conflicts in a.ts; fix the markers and amend',
+    '"widgets" has unresolved conflicts in a.ts; fix the markers and commit',
   );
   expect(appended).toEqual([]);
 });

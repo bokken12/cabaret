@@ -217,7 +217,7 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
       const conflicts = result.joined?.conflicts ?? [];
       const offline = result.offline ? "; origin unreachable \u2014 sync again online to publish" : "";
       if (conflicts.length > 0) {
-        return `merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and amend${offline}`;
+        return `merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and commit${offline}`;
       }
       if (result.offline) {
         return "origin unreachable; synced locally \u2014 sync again online to publish";

@@ -178,13 +178,13 @@ test("mark refuses a change with conflict markers, leaving the log untouched", a
   const before = await repo.cabaret("dev", "log");
   expect(await repo.cabaret("mark", "--tip", "HEAD", "shared.txt")).toEqual({
     stdout: "",
-    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   // The override excuses reviewing ahead of one's turn, not markers.
   expect(await repo.cabaret("mark", "--tip", "HEAD", "--even-though-not-reviewing", "shared.txt")).toEqual({
     stdout: "",
-    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("dev", "log")).toEqual(before);

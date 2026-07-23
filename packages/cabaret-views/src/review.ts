@@ -142,7 +142,7 @@ export function reviewsDoc(page: ReviewsPage): Doc {
     { spans: [span("", proceed)] },
   ];
   if (page.conflicts.length > 0) {
-    lines.push({ spans: [span(`Unresolved conflicts in ${page.conflicts.join(", ")}; fix the markers and amend.`)] });
+    lines.push({ spans: [span(`Unresolved conflicts in ${page.conflicts.join(", ")}; fix the markers and commit.`)] });
     return layout(lines);
   }
   if (page.left === undefined) {

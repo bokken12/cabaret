@@ -669,7 +669,7 @@ USAGE
   cab rebase [--even-though-not-owner] [--even-though-parent-diverged] [<change>]
   cab rebase --help
 
-Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and amend, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
+Move a change onto its parent's tip by merging the tip into the change, then record the new base in the log. A conflicting merge is committed with its markers in place; fix them and `cab commit` the resolution, then continue. Only the change's owner may rebase it. A range `ancestor..descendant` rebases every change after `ancestor` on `descendant`'s parent chain, ancestormost first, skipping changes that have landed; a conflict stops the range there, and rerunning it resumes once the conflict is fixed.
 
 FLAGS
      [--even-though-not-owner]        Proceed even though you do not own the change                                    [default = false]
@@ -824,7 +824,7 @@ USAGE
   cab sync [--change value]
   cab sync --help
 
-Sync a change: merge origin's copy of its branch into the local one — a conflicted merge commits its markers, to fix and amend — push the result, reconcile its forge change (opening one if none exists, retargeting it, settling comments, reviewers, draft and archived state both ways), and sync its log. Offline, the merge against origin's last-fetched copy still runs; syncing again online finishes the exchange.
+Sync a change: merge origin's copy of its branch into the local one — a conflicted merge commits its markers, to fix and commit over — push the result, reconcile its forge change (opening one if none exists, retargeting it, settling comments, reviewers, draft and archived state both ways), and sync its log. Offline, the merge against origin's last-fetched copy still runs; syncing again online finishes the exchange.
 
 FLAGS
      [--change]  Change to sync (defaults to current)

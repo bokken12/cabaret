@@ -9,7 +9,7 @@ export const rebase = buildCommand({
     fullDescription:
       "Move a change onto its parent's tip by merging the tip into the " +
       "change, then record the new base in the log. A conflicting merge is " +
-      "committed with its markers in place; fix them and amend, then " +
+      "committed with its markers in place; fix them and `cab commit` the resolution, then " +
       "continue. Only the change's owner may rebase it. A range " +
       "`ancestor..descendant` rebases every change after `ancestor` on " +
       "`descendant`'s parent chain, ancestormost first, skipping changes " +
