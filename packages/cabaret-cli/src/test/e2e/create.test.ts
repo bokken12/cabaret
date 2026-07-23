@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { addChange, makeClone, makeRepo, type TestRepo } from "./fixture.js";
 
@@ -254,4 +256,85 @@ test("create refuses adopting a branch whose readings have diverged", async () =
     exitCode: 1,
   });
   expect(await repo.cabaret("dev", "log", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("create refuses a dirty parent until carried or overridden", async () => {
+  const repo = await makeRepo();
+  await repo.write("draft.txt", "draft\n");
+  const root = await repo.git("rev-parse", "--show-toplevel");
+  expect(await repo.cabaret("create", "feature")).toEqual({
+    stdout: "",
+    stderr:
+      `parent "main" has uncommitted changes: ${root}; pass --carry to carry them ` +
+      "into the new change, or --even-though-parent-dirty to leave them\n",
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "feature")).toBe("");
+  expect(await repo.cabaret("dev", "log", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+});
+
+test("create --even-though-parent-dirty leaves the edits on the parent", async () => {
+  const repo = await makeRepo();
+  await repo.write("app.txt", "v1\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "app v1");
+  await repo.write("app.txt", "v2\n");
+  expect(await repo.cabaret("create", "feature", "--even-though-parent-dirty")).toEqual({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("main");
+  expect(await repo.git("status", "--porcelain")).toBe(" M app.txt");
+  expect(await repo.git("rev-parse", "feature")).toBe(await repo.git("rev-parse", "main"));
+});
+
+test("create --carry takes the edits to the new change", async () => {
+  const repo = await makeRepo();
+  await repo.write("app.txt", "v1\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "app v1");
+  await repo.write("app.txt", "v2\n");
+  await repo.write("notes.txt", "scratch\n");
+  expect(await repo.cabaret("create", "feature", "--carry")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("feature");
+  expect(await repo.git("status", "--porcelain")).toBe(" M app.txt\n?? notes.txt");
+  expect(await repo.git("rev-parse", "feature")).toBe(await repo.git("rev-parse", "main"));
+});
+
+test("create --carry on a clean parent just checks the new change out", async () => {
+  const repo = await makeRepo();
+  expect(await repo.cabaret("create", "feature", "--carry")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("feature");
+  expect(await repo.git("status", "--porcelain")).toBe("");
+});
+
+test("create --carry needs the parent checked out in this workspace", async () => {
+  const repo = await makeRepo();
+  await repo.git("branch", "trunk");
+  expect(await repo.cabaret("create", "feature", "--parent", "trunk", "--carry")).toEqual({
+    stdout: "",
+    stderr: 'carrying uncommitted changes needs parent "trunk" checked out in this workspace\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "feature")).toBe("");
+});
+
+test("create refuses a parent dirty in another workspace, where carrying cannot reach", async () => {
+  const repo = await makeRepo(undefined, "repo");
+  await repo.cabaret("create", "gizmo");
+  const root = await repo.git("rev-parse", "--show-toplevel");
+  await repo.cabaret("workspace", "add", "gizmo");
+  await writeFile(join(`${root}-gizmo`, "notes.txt"), "scratch\n");
+  expect(await repo.cabaret("create", "widgets", "--parent", "gizmo")).toEqual({
+    stdout: "",
+    stderr: `parent "gizmo" has uncommitted changes: ${root}-gizmo; pass --even-though-parent-dirty to leave them there\n`,
+    exitCode: 1,
+  });
+  expect(await repo.cabaret("create", "widgets", "--parent", "gizmo", "--carry")).toEqual({
+    stdout: "",
+    stderr: 'carrying uncommitted changes needs parent "gizmo" checked out in this workspace\n',
+    exitCode: 1,
+  });
+  expect(await repo.git("branch", "--list", "widgets")).toBe("");
 });

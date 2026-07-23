@@ -1390,7 +1390,7 @@ async function promptCreate(backend: Backend, parent: ChangeName, prompt: string
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent, false);
+  await createChange(backend, now, change, parent);
   return change;
 }
 

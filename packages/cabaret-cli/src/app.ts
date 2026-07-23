@@ -1,6 +1,7 @@
 import { buildApplication, buildRouteMap, text_en } from "@stricli/core";
 import {
   ArchivedParentError,
+  DirtyParentError,
   DirtyWorkspaceError,
   DivergedParentError,
   NotOwnerError,
@@ -63,6 +64,11 @@ function userMessage(error: UserError): string {
   }
   if (error instanceof DirtyWorkspaceError) {
     return `${error.message}; pass --even-though-dirty to override`;
+  }
+  if (error instanceof DirtyParentError) {
+    return error.current
+      ? `${error.message}; pass --carry to carry them into the new change, or --even-though-parent-dirty to leave them`
+      : `${error.message}; pass --even-though-parent-dirty to leave them there`;
   }
   return error.message;
 }

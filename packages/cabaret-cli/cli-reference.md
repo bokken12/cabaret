@@ -445,7 +445,7 @@ ARGUMENTS
 ## cab create
 
 USAGE
-  cab create [--parent value] [--owner value] [--permanent] [--even-though-parent-archived] <change>
+  cab create [--parent value] [--owner value] [--permanent] [--carry] [--even-though-parent-archived] [--even-though-parent-dirty] <change>
   cab create --help
 
 Create a change, initializing its log with a parent, a base, and an owner. A change with no code yet starts at the parent's tip; an existing branch is adopted with the last revision shared with the parent as its base. The change must not already exist.
@@ -453,8 +453,10 @@ Create a change, initializing its log with a parent, a base, and an owner. A cha
 FLAGS
      [--parent]                       The new change's parent (defaults to what is checked out)
      [--owner]                        The new change's owner (defaults to you)
-     [--permanent]                    Mark the new change permanent: structure expected to outlive its lands [default = false]
-     [--even-though-parent-archived]  Proceed even though the parent is archived                             [default = false]
+     [--permanent]                    Mark the new change permanent: structure expected to outlive its lands                 [default = false]
+     [--carry]                        Check the new change out here, carrying uncommitted changes into it                    [default = false]
+     [--even-though-parent-archived]  Proceed even though the parent is archived                                             [default = false]
+     [--even-though-parent-dirty]     Proceed even though the parent's workspace has uncommitted changes, leaving them there [default = false]
   -h  --help                          Print help information and exit
 
 ARGUMENTS

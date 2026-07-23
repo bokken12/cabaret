@@ -41,6 +41,7 @@ import {
 } from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
 import { reviewLeft } from "./summary.js";
+import { changeWorkspace } from "./workspace.js";
 
 /**
  * The parent is archived — set aside as not landing, or done because a land
@@ -73,6 +74,41 @@ function assertParentLive(parent: ChangeName, parentEntries: readonly LogEntry[]
 }
 
 /**
+ * The parent's workspace has uncommitted changes whose destination is
+ * ambiguous: they may be parent work in progress, or the start of the change
+ * being created. The message states only the fact; each frontend attaches
+ * its own remedies — carry the edits into the new change, or leave them —
+ * before showing it. `current` says whether the dirty workspace is the one
+ * the command runs in, where carrying is possible.
+ */
+export class DirtyParentError extends UserError {
+  constructor(
+    readonly parent: ChangeName,
+    readonly path: string,
+    readonly current: boolean,
+  ) {
+    super(`parent ${JSON.stringify(parent)} has uncommitted changes: ${path}`);
+  }
+}
+
+export interface CreateOptions {
+  /** The new change's owner; defaults to the creator. */
+  readonly owner?: UserName | undefined;
+  /** Mark the change permanent: structure expected to outlive its lands. */
+  readonly permanent?: boolean;
+  /** Proceed even though the parent is archived. */
+  readonly evenThoughParentArchived?: boolean;
+  /** Proceed even though the parent's workspace has uncommitted changes, leaving them there. */
+  readonly evenThoughParentDirty?: boolean;
+  /**
+   * Check the new change out in the current workspace, carrying any
+   * uncommitted changes into it. The parent must be checked out here — edits
+   * elsewhere cannot be carried.
+   */
+  readonly carry?: boolean;
+}
+
+/**
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
@@ -81,6 +117,9 @@ function assertParentLive(parent: ChangeName, parentEntries: readonly LogEntry[]
  * and origin's last-fetched copy — and diverged readings fail until synced.
  * An archived parent is a dead end and fails, short of the override. The
  * change must not already exist.
+ * Uncommitted changes in the parent's workspace fail, short of `carry` —
+ * which checks the new change out and takes them along — or the override,
+ * which leaves them on the parent.
  * Review starts with nobody asked — the change is a draft until widened —
  * though the owner may record self-review at any stage. `permanent` marks
  * the change as structure expected to outlive its lands.
@@ -90,10 +129,9 @@ export async function createChange(
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  evenThoughParentArchived: boolean,
-  owner?: UserName,
-  permanent = false,
+  options: CreateOptions = {},
 ): Promise<void> {
+  const { owner, permanent = false, carry = false, evenThoughParentArchived, evenThoughParentDirty } = options;
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
@@ -113,6 +151,15 @@ export async function createChange(
     throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
   }
   const parentTip = parentReading.tip;
+  const parentWorkspace = await changeWorkspace(backend, parent);
+  if (carry && parentWorkspace?.path !== backend.root) {
+    throw new UserError(
+      `carrying uncommitted changes needs parent ${JSON.stringify(parent)} checked out in this workspace`,
+    );
+  }
+  if (parentWorkspace?.dirty && !carry && !evenThoughParentDirty) {
+    throw new DirtyParentError(parent, parentWorkspace.path, parentWorkspace.path === backend.root);
+  }
   // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
@@ -138,6 +185,9 @@ export async function createChange(
     { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "none" } },
     ...(permanent ? [{ timestamp: now(), user, action: { kind: "set-permanent", permanent } as const }] : []),
   ]);
+  if (carry) {
+    await backend.checkout(change);
+  }
 }
 
 /** Record who is asked to review `change`. */
