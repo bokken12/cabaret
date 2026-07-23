@@ -380,6 +380,23 @@ FLAGS
 ARGUMENTS
   [value]  value to set (shows the current value when omitted)
 
+### cab config hints
+
+USAGE
+  cab config hints [--global] [--local] [--unset] [<value>]
+  cab config hints --help
+
+Show key hints on pages, for hosts with keybindings
+
+FLAGS
+     [--global]  Use the person's global config           [default = false]
+     [--local]   Use this repository's config             [default = false]
+     [--unset]   Unset the setting, restoring its default [default = false]
+  -h  --help     Print help information and exit
+
+ARGUMENTS
+  [value]  value to set (shows the current value when omitted)
+
 ### cab config land-method
 
 USAGE

@@ -2,6 +2,7 @@ import {
   type ChangeSummary,
   type Dirty,
   forgeChangeId,
+  type NextStep,
   parseBranchName,
   parseCommitHash,
   parseFilePath,
@@ -859,6 +860,20 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
   );
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 5h ago"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
+  // With hints on, the fetch age and the help key share the one closing line.
+  const hinted = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched,
+    },
+    NOW,
+    { steps: new Map(), help: "?" },
+  );
+  expect(docText(hinted).split("\n").slice(-2)).toEqual(["", "fetched 5h ago · ? for keybindings"]);
 });
 
 test("next steps an action performs link to running it, the rest staying bare", () => {
@@ -940,4 +955,88 @@ test("a review in parent next step opens the parent's review", () => {
     .split("\n")
     .findIndex((text) => text.includes("next step"));
   expect(targetAt(doc, stepLine)).toEqual({ kind: "reviews", change: "widgets" });
+});
+
+test("hints annotate next steps with their keys, steps without keys staying bare", () => {
+  const hints = {
+    steps: new Map<NextStep, string>([
+      ["rebase", "! r b"],
+      ["land", "! l"],
+    ]),
+    help: "?",
+  };
+  const home = homeDoc(
+    {
+      as: undefined,
+      review: [],
+      owned: [
+        { summary: summary("gizmo", { nextStep: "rebase" }), context: false, children: [] },
+        { summary: summary("widgets", { nextStep: "add code" }), context: false, children: [] },
+      ],
+      broken: [],
+      workspaces: [],
+      fetched: undefined,
+    },
+    NOW,
+    hints,
+  );
+  expect(docText(home)).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭─────────┬────────────────╮
+    │ change  │ next step      │
+    ├─────────┼────────────────┤
+    │ gizmo   │ rebase (! r b) │
+    │ widgets │ add code       │
+    ╰─────────┴────────────────╯
+
+    ? for keybindings"
+  `);
+  // The keys stay outside the step's own span, dimmed and inert.
+  const stepRow =
+    home.lines[
+      docText(home)
+        .split("\n")
+        .findIndex((row) => row.includes("rebase"))
+    ];
+  expect(stepRow?.spans.filter(({ text }) => text.includes("(! r b)"))).toEqual([
+    { text: " (! r b)", style: "context", target: undefined, tier: undefined },
+  ]);
+  const show = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { nextStep: "land" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched: undefined,
+    },
+    NOW,
+    hints,
+  );
+  expect(docText(show)).toMatchInlineSnapshot(`
+    "gizmo
+    =====
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ land (! l)        │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 222222222222      │
+    │ base      │ 111111111111      │
+    ╰───────────┴───────────────────╯
+
+    ? for keybindings"
+  `);
 });

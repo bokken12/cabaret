@@ -1,5 +1,6 @@
 export * from "./doc.js";
 export * from "./grammar.js";
+export * from "./hints.js";
 export * from "./home.js";
 export * from "./pages.js";
 export * from "./ranges.js";

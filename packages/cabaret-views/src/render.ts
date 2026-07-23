@@ -1,5 +1,6 @@
 import type { Backend, ChangeName, FilePath, Revision, TimestampMs, UserName } from "cabaret-core";
 import type { Doc } from "./doc.js";
+import { type Hints, hintFooter } from "./hints.js";
 import { homeDoc, homePage } from "./home.js";
 import type { Page } from "./pages.js";
 import {
@@ -41,6 +42,8 @@ export interface RenderOptions {
   readonly now: () => TimestampMs;
   /** Lines of context around diff hunks; `defaultContext` when unset, -1 for whole files. */
   readonly context?: number | undefined;
+  /** Key hints to show on the page, for a host whose keys are still unfamiliar. */
+  readonly hints?: Hints | undefined;
   /** Called when the render displayed diffs, with what they showed. */
   readonly onViewed?: ((viewed: ViewedDiffs) => void) | undefined;
   /**
@@ -59,13 +62,13 @@ export interface RenderOptions {
 export async function renderPage(backend: Backend, page: Page, options: RenderOptions): Promise<Doc> {
   switch (page.kind) {
     case "home":
-      return homeDoc(await homePage(backend, page.as), options.now());
+      return homeDoc(await homePage(backend, page.as), options.now(), options.hints);
     case "show":
-      return showDoc(await showPage(backend, page.change, page.as), options.now());
+      return showDoc(await showPage(backend, page.change, page.as), options.now(), options.hints);
     case "reviews": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
-      return reviewsDoc(reviewsPage(snapshot));
+      return closing(reviewsDoc(reviewsPage(snapshot)), options.hints);
     }
     case "review": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
@@ -79,12 +82,12 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
           files: new Map([[page.file, file.left.tip]]),
         });
       }
-      return reviewDoc(file, options.context);
+      return closing(reviewDoc(file, options.context), options.hints);
     }
     case "diffs": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
-      return diffsDoc(diffsPage(snapshot));
+      return closing(diffsDoc(diffsPage(snapshot)), options.hints);
     }
     case "diff": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
@@ -100,7 +103,16 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
           files: new Map([[page.file, file.diff.tip]]),
         });
       }
-      return diffDoc(file, options.context);
+      return closing(diffDoc(file, options.context), options.hints);
     }
   }
+}
+
+/**
+ * `doc` closing with the hint footer. The snapshot pages take it this way;
+ * home and show fold the hint into the closing line dating their fetch.
+ */
+function closing(doc: Doc, hints: Hints | undefined): Doc {
+  const footer = hintFooter(hints);
+  return footer.length === 0 ? doc : { ...doc, lines: [...doc.lines, ...footer] };
 }

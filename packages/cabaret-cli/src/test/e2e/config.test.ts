@@ -16,6 +16,7 @@ test("list shows defaults on a fresh repo", async () => {
       "stderr": "",
       "stdout": "alias            (none)
     context          3 (default)
+    hints            true (default)
     land-method      merge (default)
     land-via         auto (default)
     workspace-style  shared (default)
@@ -249,6 +250,7 @@ test("a bare setting and list read one scope with --global or --local", async ()
   expect((await repo.cabaret("config", "list", "--global")).stdout).toMatchInlineSnapshot(`
     "alias            agent@example.com
     context          (unset)
+    hints            (unset)
     land-method      (unset)
     land-via         (unset)
     workspace-style  (unset)
@@ -257,6 +259,7 @@ test("a bare setting and list read one scope with --global or --local", async ()
   expect((await repo.cabaret("config", "list", "--local")).stdout).toMatchInlineSnapshot(`
     "alias            (unset)
     context          (unset)
+    hints            (unset)
     land-method      squash
     land-via         (unset)
     workspace-style  (unset)
@@ -269,6 +272,19 @@ test("--global and --local exclude each other", async () => {
   expect(await repo.cabaret("config", "context", "8", "--global", "--local")).toEqual({
     stdout: "",
     stderr: "pass at most one of --global and --local\n",
+    exitCode: 1,
+  });
+});
+
+test("hints normalizes git's boolean spellings and rejects the rest", async () => {
+  const repo = await makeRepo();
+  expect((await repo.cabaret("config", "hints")).stdout).toBe("true (default)\n");
+  expect(await repo.cabaret("config", "hints", "off")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("config", "--global", "cabaret.hints")).toBe("false");
+  expect((await repo.cabaret("config", "hints")).stdout).toBe("false\n");
+  expect(await repo.cabaret("config", "hints", "maybe")).toEqual({
+    stdout: "",
+    stderr: 'config cabaret.hints must be true or false: "maybe"\n',
     exitCode: 1,
   });
 });

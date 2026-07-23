@@ -19,7 +19,8 @@ import {
 } from "cabaret-core";
 import { mapConcurrent } from "cabaret-util";
 import { type Doc, type Line, layout, type Node, section, span } from "./doc.js";
-import { fetchedFooter } from "./fetched.js";
+import { pageFooter } from "./fetched.js";
+import { type Hints, stepHint } from "./hints.js";
 import { stepSpan, stepStyle } from "./steps.js";
 import { type Cell, type Column, tableParts } from "./table.js";
 import { dirtyNote, type WorkspaceNote, workspaceNotes } from "./workspaces.js";
@@ -319,14 +320,17 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
   );
 }
 
-export function homeDoc(page: HomePage, now: TimestampMs): Doc {
+export function homeDoc(page: HomePage, now: TimestampMs, hints?: Hints): Doc {
   const reviewRows = treeRows(page.review).map(({ node: { summary, owed }, guide }): readonly Cell[] => {
     const style = owed.length === 0 ? "context" : undefined;
     return [changeCell(summary, guide, page.as, style), span(owed.length === 0 ? "" : String(owed.length))];
   });
   const ownedRows = treeRows(page.owned).map(({ node: { summary, context }, guide }): readonly Cell[] => {
     const style = context ? "context" : undefined;
-    return [changeCell(summary, guide, page.as, style), stepSpan(summary, page.as, style)];
+    return [
+      changeCell(summary, guide, page.as, style),
+      [stepSpan(summary, page.as, style), ...stepHint(summary.nextStep, hints)],
+    ];
   });
   const title = page.as === undefined ? "Home" : `Home as ${page.as}`;
   return layout(
@@ -356,7 +360,7 @@ export function homeDoc(page: HomePage, now: TimestampMs): Doc {
       // Unlike the sections above, absence needs no showing: no row is not a
       // gap to fill but simply no change checked out on this device.
       ...(page.workspaces.length === 0 ? [] : [{ spans: [] }, workspacesSection(page.workspaces, page.as, now)]),
-      ...fetchedFooter(page.fetched, now),
+      ...pageFooter(page.fetched, now, hints),
     ],
     page.broken.map(({ change, message }) => `${change}: ${message}`),
   );

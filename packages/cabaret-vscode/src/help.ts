@@ -6,7 +6,8 @@
  * grammar fails the manifest test rather than silently missing from help.
  */
 
-import type { Page } from "cabaret-views";
+import type { NextStep } from "cabaret-core";
+import type { Hints, Page } from "cabaret-views";
 
 /** The slice of the extension manifest that help reads. */
 export type Manifest = {
@@ -147,4 +148,33 @@ export function allBindings(manifest: Manifest): Binding[] {
 /** The bindings that apply on `page`, in manifest order. */
 export function pageHelp(manifest: Manifest, page: PageKind): Binding[] {
   return allBindings(manifest).filter(({ scope }) => applies(scope, page));
+}
+
+/** The command that performs each next step, for the steps one command performs. */
+const STEP_COMMANDS: readonly (readonly [NextStep, string])[] = [
+  ["sync", "cabaret.sync"],
+  ["rebase", "cabaret.rebase"],
+  ["reparent", "cabaret.reparent"],
+  ["review", "cabaret.review"],
+  ["widen reviewing", "cabaret.widenReviewing"],
+  ["land", "cabaret.land"],
+];
+
+/** Key hints on `page`: each next step whose command is bound there, and the keys listing the bindings. */
+export function pageHints(manifest: Manifest, page: PageKind): Hints {
+  const bindings = allBindings(manifest);
+  const keysOn = (command: string): string | undefined =>
+    bindings.find((binding) => binding.command === command && applies(binding.scope, page))?.keys;
+  const steps = new Map<NextStep, string>();
+  for (const [step, command] of STEP_COMMANDS) {
+    const keys = keysOn(command);
+    if (keys !== undefined) {
+      steps.set(step, keys);
+    }
+  }
+  const help = keysOn("cabaret.help");
+  if (help === undefined) {
+    throw new Error(`no keybinding lists the bindings on the ${page} page`);
+  }
+  return { steps, help };
 }

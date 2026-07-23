@@ -48,6 +48,7 @@ import {
   workspaceNotes,
 } from "cabaret-views";
 import { App, type Effects, type Source } from "./app.js";
+import { pageHints } from "./keymap.js";
 import { type KeyEvent, keyName, mouseEvent } from "./keys.js";
 import { Screen } from "./screen.js";
 
@@ -229,9 +230,11 @@ export async function runTui(backend: Backend, page: Page = { kind: "home" }): P
   const source: Source = async (target) => {
     let snapshot: ChangeSnapshot | undefined;
     let viewed: ViewedDiffs | undefined;
+    const config = await readConfig(backend);
     const doc = await renderPage(backend, target, {
       now,
-      context: (await readConfig(backend)).context,
+      context: config.context,
+      hints: config.hints ? pageHints(target.kind) : undefined,
       onSnapshot: (read) => {
         snapshot = read;
       },

@@ -1,4 +1,5 @@
-import type { Page } from "cabaret-views";
+import type { NextStep } from "cabaret-core";
+import type { Hints, Page } from "cabaret-views";
 
 export type PageKind = Page["kind"];
 
@@ -202,4 +203,33 @@ for (const shorter of KEYMAP) {
 /** The bindings answering on a page of `kind`, in keymap order. */
 export function bindingsFor(kind: PageKind): readonly Binding[] {
   return KEYMAP.filter(({ pages }) => pages === undefined || pages.includes(kind));
+}
+
+/** The command that performs each next step, for the steps one command performs. */
+const STEP_COMMANDS: readonly (readonly [NextStep, Command])[] = [
+  ["sync", "sync"],
+  ["rebase", "rebase"],
+  ["reparent", "reparent"],
+  ["review", "review"],
+  ["widen reviewing", "widen-reviewing"],
+  ["land", "land"],
+];
+
+/** Key hints on `kind` pages: each next step whose command answers there, and the keys listing the bindings. */
+export function pageHints(kind: PageKind): Hints {
+  const bindings = bindingsFor(kind);
+  const keysOn = (command: Command): string | undefined =>
+    bindings.find((binding) => binding.command === command)?.keys.join(" ");
+  const steps = new Map<NextStep, string>();
+  for (const [step, command] of STEP_COMMANDS) {
+    const keys = keysOn(command);
+    if (keys !== undefined) {
+      steps.set(step, keys);
+    }
+  }
+  const help = keysOn("help");
+  if (help === undefined) {
+    throw new Error(`no keybinding lists the bindings on the ${kind} page`);
+  }
+  return { steps, help };
 }

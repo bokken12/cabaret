@@ -1106,6 +1106,7 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
       landVia: "auto",
       context: undefined,
       workspaceStyle,
+      hints: true,
     });
     const root = await gitIn(dir, "rev-parse", "--show-toplevel");
 
@@ -1163,6 +1164,7 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
       landVia: "auto",
       context: undefined,
       workspaceStyle,
+      hints: true,
     });
     const root = await gitIn(dir, "rev-parse", "--show-toplevel");
     await gitIn(dir, "worktree", "add", "--quiet", `${root}-gadget`, "gadget");

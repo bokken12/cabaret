@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { type Manifest, pageHelp } from "../help.js";
+import { type Manifest, pageHelp, pageHints } from "../help.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as Manifest;
 
@@ -168,4 +168,63 @@ test("a bound command with no title throws", () => {
     },
   };
   expect(() => pageHelp(manifest, "home")).toThrowError(/no title known/);
+});
+
+test("page hints carry the keys behind each next step a binding performs there", () => {
+  const home = pageHints(manifest, "home");
+  expect(home.help).toBe("?");
+  expect([...home.steps]).toMatchInlineSnapshot(`
+    [
+      [
+        "sync",
+        "S",
+      ],
+      [
+        "rebase",
+        "! r b",
+      ],
+      [
+        "reparent",
+        "! r p",
+      ],
+      [
+        "review",
+        "r",
+      ],
+      [
+        "widen reviewing",
+        "! v",
+      ],
+      [
+        "land",
+        "! l",
+      ],
+    ]
+  `);
+  // The review binding does not answer on the reviews page, so the review
+  // step goes bare there while the page-wide actions keep their keys.
+  expect([...pageHints(manifest, "reviews").steps]).toMatchInlineSnapshot(`
+    [
+      [
+        "sync",
+        "S",
+      ],
+      [
+        "rebase",
+        "! r b",
+      ],
+      [
+        "reparent",
+        "! r p",
+      ],
+      [
+        "widen reviewing",
+        "! v",
+      ],
+      [
+        "land",
+        "! l",
+      ],
+    ]
+  `);
 });

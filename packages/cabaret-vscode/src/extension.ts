@@ -80,7 +80,7 @@ import {
 } from "cabaret-views";
 import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
-import { type Manifest, pageHelp } from "./help.js";
+import { type Manifest, pageHelp, pageHints } from "./help.js";
 import { writePageGrammar } from "./language.js";
 
 const SCHEME = "cabaret";
@@ -198,6 +198,8 @@ function showBackgroundSyncError(error: unknown): void {
 class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
+  constructor(private readonly manifest: Manifest) {}
+
   private readonly docs = new Map<string, Doc>();
   /** Per page, the snapshot its doc rendered from: what a mark of the page records. */
   private readonly snapshots = new Map<string, ChangeSnapshot>();
@@ -263,9 +265,12 @@ class PageProvider
     let doc: Doc;
     let snapshot: ChangeSnapshot | undefined;
     try {
-      doc = await renderPage(await openBackend(), parsePagePath(uri.path), {
+      const page = parsePagePath(uri.path);
+      const backend = await openBackend();
+      doc = await renderPage(backend, page, {
         now,
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
+        hints: (await readConfig(backend)).hints ? pageHints(this.manifest, page.kind) : undefined,
         onSnapshot: (rendered) => {
           snapshot = rendered;
         },
@@ -1612,7 +1617,7 @@ export function activate(context: vscode.ExtensionContext): void {
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: writing the page grammar failed — ${message(error)}`);
   }
-  const provider = new PageProvider();
+  const provider = new PageProvider(context.extension.packageJSON as Manifest);
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
   const forgePollLoop = createForgePollLoop(provider);

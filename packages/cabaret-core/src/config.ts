@@ -29,6 +29,31 @@ export interface Config {
   /** Lines of diff context, -1 for whole files; undefined when unset. */
   readonly context: number | undefined;
   readonly workspaceStyle: WorkspaceStyle;
+  /** Whether hosts with keybindings show key hints on their pages. */
+  readonly hints: boolean;
+}
+
+/** Git's boolean literals, so a key set by hand with any of them still reads. */
+const BOOLS: { readonly [raw: string]: boolean } = {
+  true: true,
+  yes: true,
+  on: true,
+  "1": true,
+  false: false,
+  no: false,
+  off: false,
+  "0": false,
+};
+
+function parseBool(key: string, raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) {
+    return fallback;
+  }
+  const value = BOOLS[raw.toLowerCase()];
+  if (value === undefined) {
+    throw new UserError(`config ${key} must be true or false: ${JSON.stringify(raw)}`);
+  }
+  return value;
 }
 
 /** Parse a count of diff context lines from `source`: a nonnegative integer, or -1 for whole files. */
@@ -52,17 +77,19 @@ function parseChoice<T extends string>(key: string, raw: string | undefined, fal
 
 /** Read this repository's Cabaret settings. */
 export async function readConfig(backend: Backend): Promise<Config> {
-  const [method, via, context, style] = await Promise.all([
+  const [method, via, context, style, hints] = await Promise.all([
     backend.config("cabaret.landMethod"),
     backend.config("cabaret.landVia"),
     backend.config("cabaret.context"),
     backend.config("cabaret.workspaceStyle"),
+    backend.config("cabaret.hints"),
   ]);
   return {
     landMethod: parseChoice("cabaret.landMethod", method, "merge", landMethods),
     landVia: parseChoice("cabaret.landVia", via, "auto", landVias),
     context: context === undefined ? undefined : parseContext(context, "config cabaret.context"),
     workspaceStyle: parseChoice("cabaret.workspaceStyle", style, "shared", workspaceStyles),
+    hints: parseBool("cabaret.hints", hints, true),
   };
 }
 
@@ -111,6 +138,15 @@ export const settings: readonly Setting[] = [
     brief: "Lines of diff context, -1 for whole files",
     fallback: String(defaultContext),
     parse: (raw) => String(parseContext(raw)),
+  },
+  {
+    name: "hints",
+    key: "cabaret.hints",
+    scope: "global",
+    multi: false,
+    brief: "Show key hints on pages, for hosts with keybindings",
+    fallback: "true",
+    parse: (raw) => String(parseBool("cabaret.hints", raw, true)),
   },
   {
     name: "land-method",

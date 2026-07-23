@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { type Binding, KEYMAP } from "../keymap.js";
+import { type Binding, KEYMAP, pageHints } from "../keymap.js";
 
 interface Manifest {
   readonly contributes: {
@@ -92,4 +92,63 @@ test("every mirrored TUI binding still exists in the VS Code manifest", () => {
   for (const command of PENDING) {
     expect(commands.has(command), `pending ${command} left the manifest`).toBe(true);
   }
+});
+
+test("page hints carry the keys behind each next step a binding answers there", () => {
+  const home = pageHints("home");
+  expect(home.help).toBe("?");
+  expect([...home.steps]).toMatchInlineSnapshot(`
+    [
+      [
+        "sync",
+        "S",
+      ],
+      [
+        "rebase",
+        "! r b",
+      ],
+      [
+        "reparent",
+        "! r p",
+      ],
+      [
+        "review",
+        "r",
+      ],
+      [
+        "widen reviewing",
+        "! v",
+      ],
+      [
+        "land",
+        "! l",
+      ],
+    ]
+  `);
+  // The review binding does not answer on the reviews page, so the review
+  // step goes bare there while the page-wide actions keep their keys.
+  expect([...pageHints("reviews").steps]).toMatchInlineSnapshot(`
+    [
+      [
+        "sync",
+        "S",
+      ],
+      [
+        "rebase",
+        "! r b",
+      ],
+      [
+        "reparent",
+        "! r p",
+      ],
+      [
+        "widen reviewing",
+        "! v",
+      ],
+      [
+        "land",
+        "! l",
+      ],
+    ]
+  `);
 });
