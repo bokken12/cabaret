@@ -67,6 +67,10 @@ export type Source = (page: Page) => Promise<Rendered>;
 export interface Effects {
   /** Visit a location outside the TUI; resolves to a message when it cannot. */
   visitLocation(target: Extract<Target, { kind: "location" }>): Promise<string | undefined>;
+  /** Rewrite the comment `target` names, composed in the user's editor; resolves to a report. */
+  editComment(target: Extract<Target, { kind: "comment" }>): Promise<string | undefined>;
+  /** Add a comment to `change`, composed in the user's editor; resolves to a report. */
+  addComment(change: ChangeName, as: UserName | undefined): Promise<string | undefined>;
   /** Open an external URL; resolves to a message when it cannot. */
   openUrl(url: string): Promise<string | undefined>;
   /** Record `file` of `snapshot`'s change reviewed. */
@@ -532,6 +536,21 @@ export class App {
       case "mark":
         await this.markAtCursor(view);
         return "continue";
+      case "comment": {
+        const page = view.page;
+        if (page.kind !== "show") {
+          return "continue";
+        }
+        const add = (): Promise<void> => this.attempt(() => this.effects.addComment(page.change, page.as));
+        if (page.as !== undefined) {
+          // The comment will carry the borrowed identity's name, so nothing
+          // here may happen on muscle memory alone.
+          this.ask(`Comment as ${page.as}?`, add);
+          return "continue";
+        }
+        await add();
+        return "continue";
+      }
       case "select":
         view.anchor = view.anchor === undefined ? view.cursor : undefined;
         return "continue";
@@ -765,6 +784,17 @@ export class App {
       case "location":
         this.note = await this.effects.visitLocation(target);
         break;
+      case "comment": {
+        const edit = (): Promise<void> => this.attempt(() => this.effects.editComment(target));
+        if (target.as !== undefined) {
+          // The new version will carry the borrowed identity's name, so
+          // nothing here may happen on muscle memory alone.
+          this.ask(`Edit this comment as ${target.as}?`, edit);
+          break;
+        }
+        await edit();
+        break;
+      }
       case "workspace":
         this.note = `workspace at ${target.path}`;
         break;

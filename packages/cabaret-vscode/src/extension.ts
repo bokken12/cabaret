@@ -5,8 +5,10 @@ import {
   type Backend,
   type ChangeName,
   checkoutChange,
+  commentHash,
   createChange,
   currentArchived,
+  currentComments,
   currentParent,
   currentSelf,
   DirtyParentError,
@@ -14,6 +16,7 @@ import {
   DivergedParentError,
   declinedScopes,
   declineSetup,
+  editComment,
   type FetchEvent,
   type FilePath,
   type Forge,
@@ -44,6 +47,7 @@ import {
   type SetupAudit,
   setArchived,
   setReviewing,
+  shortCommentKey,
   syncChange,
   type TimestampMs,
   timestampMs,
@@ -582,7 +586,7 @@ async function stepOutside(provider: PageProvider): Promise<void> {
 }
 
 /** Enter at the cursor: any of the line's targets answers, links and jumps alike. */
-async function openTarget(provider: PageProvider): Promise<void> {
+async function openTarget(provider: PageProvider, drafts: CommentDrafts): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
@@ -595,11 +599,11 @@ async function openTarget(provider: PageProvider): Promise<void> {
   if (target === undefined) {
     return;
   }
-  await followTarget(provider, target);
+  await followTarget(provider, drafts, target);
 }
 
 /** Open what `target` denotes — the navigation Enter and a link click share. */
-async function followTarget(provider: PageProvider, target: Target): Promise<void> {
+async function followTarget(provider: PageProvider, drafts: CommentDrafts, target: Target): Promise<void> {
   switch (target.kind) {
     case "change":
       await openPage(provider, { kind: "show", change: target.change, as: target.as });
@@ -618,6 +622,9 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "location":
       await visitLocation(provider, target);
       break;
+    case "comment":
+      await editCommentTarget(drafts, target);
+      break;
     case "workspace":
       await openWorkspaceWindow(target.path);
       break;
@@ -627,6 +634,193 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "action":
       await performAction(provider, target);
       break;
+  }
+}
+
+const EDIT_SCHEME = "cabaret-edit";
+
+/** One comment being written: what saving its buffer records. */
+interface CommentDraft {
+  readonly change: ChangeName;
+  readonly as: UserName | undefined;
+  /** The comment new saves rewrite; a fresh draft gains one on its first save. */
+  key: string | undefined;
+  /** The text already recorded (or prefilled), so an unchanged save records nothing. */
+  recorded: string;
+  content: Uint8Array;
+  mtime: number;
+}
+
+/**
+ * The editable buffers behind comment writing, on the `cabaret-edit` scheme.
+ * Each draft is an in-memory file, and saving the buffer is what records the
+ * comment; closing an unsaved buffer abandons the draft. A fresh draft's
+ * first save adds the comment and later saves edit it, so one buffer never
+ * comments twice.
+ */
+class CommentDrafts implements vscode.FileSystemProvider {
+  private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  readonly onDidChangeFile = this.emitter.event;
+  private readonly drafts = new Map<string, CommentDraft>();
+  /** Distinguishes concurrent fresh drafts on one change. */
+  private fresh = 0;
+  constructor(private readonly provider: PageProvider) {}
+
+  /** Show an editor on a draft over the comment `key` names — or a fresh one — prefilled with `text`. */
+  async open(change: ChangeName, key: string | undefined, as: UserName | undefined, text: string): Promise<void> {
+    const name = key === undefined ? `comment-new-${++this.fresh}` : `comment-${shortCommentKey(key).replace("#", "")}`;
+    const uri = vscode.Uri.from({ scheme: EDIT_SCHEME, path: `/${change}/${name}.md` });
+    const held = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri.toString());
+    // A dirty buffer already open on this comment keeps the user's typing;
+    // otherwise the draft starts from the displayed text.
+    if (held === undefined || !held.isDirty) {
+      this.drafts.set(uri.toString(), {
+        change,
+        as,
+        key,
+        recorded: text,
+        content: new TextEncoder().encode(text === "" ? "" : `${text}\n`),
+        mtime: Date.now(),
+      });
+      if (held !== undefined) {
+        this.emitter.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+      }
+    }
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  /** Drop the draft behind a closed buffer. */
+  forget(uri: vscode.Uri): void {
+    this.drafts.delete(uri.toString());
+  }
+
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => {});
+  }
+
+  stat(uri: vscode.Uri): vscode.FileStat {
+    const draft = this.drafts.get(uri.toString());
+    if (draft === undefined) {
+      throw vscode.FileSystemError.FileNotFound(uri);
+    }
+    return { type: vscode.FileType.File, ctime: 0, mtime: draft.mtime, size: draft.content.byteLength };
+  }
+
+  readDirectory(): [string, vscode.FileType][] {
+    return [];
+  }
+
+  createDirectory(): void {}
+
+  readFile(uri: vscode.Uri): Uint8Array {
+    const draft = this.drafts.get(uri.toString());
+    if (draft === undefined) {
+      throw vscode.FileSystemError.FileNotFound(uri);
+    }
+    return draft.content;
+  }
+
+  async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
+    const draft = this.drafts.get(uri.toString());
+    if (draft === undefined) {
+      throw vscode.FileSystemError.FileNotFound(uri);
+    }
+    draft.content = content;
+    draft.mtime = Date.now();
+    // The buffer carries a trailing newline for the editor's sake; one comes
+    // back off, so the text round-trips.
+    const text = new TextDecoder().decode(content).replace(/\n$/, "");
+    if (text === draft.recorded) {
+      return;
+    }
+    if (text.trim() === "") {
+      vscode.window.showInformationMessage("cabaret: empty comment; nothing recorded");
+      return;
+    }
+    const backend = await openBackend();
+    if (draft.key === undefined) {
+      const entry: LogEntry = {
+        timestamp: now(),
+        user: draft.as ?? (await backend.currentUser()),
+        action: { kind: "comment", text },
+      };
+      await backend.appendLog(draft.change, [entry]);
+      draft.key = await commentHash(entry);
+    } else {
+      await editComment(backend, now, draft.change, draft.key, text, draft.as);
+    }
+    draft.recorded = text;
+    this.provider.refreshAll();
+  }
+
+  delete(uri: vscode.Uri): void {
+    this.forget(uri);
+  }
+
+  rename(uri: vscode.Uri): void {
+    throw vscode.FileSystemError.NoPermissions(uri);
+  }
+}
+
+/** A one-time pointer to the save gesture, shown when hints are on. */
+async function draftHint(backend: Backend): Promise<void> {
+  if ((await readConfig(backend)).hints) {
+    vscode.window.setStatusBarMessage("cabaret: save to record the comment; close without saving to discard", 8000);
+  }
+}
+
+/** Enter on a comment: open its draft buffer, prefilled with the displayed version. */
+async function editCommentTarget(drafts: CommentDrafts, target: Extract<Target, { kind: "comment" }>): Promise<void> {
+  // The new version will carry the borrowed identity's name, so nothing here
+  // may happen on muscle memory alone.
+  if (target.as !== undefined) {
+    const choice = await vscode.window.showWarningMessage(
+      `Edit this comment as ${target.as}?`,
+      { modal: true },
+      "Edit",
+    );
+    if (choice === undefined) {
+      return;
+    }
+  }
+  try {
+    const backend = await openBackend();
+    const comment = (await currentComments(await backend.readLog(target.change))).find(({ key }) => key === target.key);
+    if (comment === undefined) {
+      vscode.window.showInformationMessage("cabaret: the comment is not in the log; refresh");
+      return;
+    }
+    await drafts.open(target.change, target.key, target.as, comment.text);
+    await draftHint(backend);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  }
+}
+
+/** Compose a comment on the active page's change, in a draft buffer. */
+async function composeComment(drafts: CommentDrafts): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "home") {
+    return;
+  }
+  // The comment will carry the borrowed identity's name, so nothing here may
+  // happen on muscle memory alone.
+  if (page.as !== undefined) {
+    const choice = await vscode.window.showWarningMessage(`Comment as ${page.as}?`, { modal: true }, "Comment");
+    if (choice === undefined) {
+      return;
+    }
+  }
+  try {
+    await drafts.open(page.change, undefined, page.as, "");
+    await draftHint(await openBackend());
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
   }
 }
 
@@ -1624,6 +1818,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showErrorMessage(`cabaret: writing the page grammar failed — ${message(error)}`);
   }
   const provider = new PageProvider(context.extension.packageJSON as Manifest);
+  const drafts = new CommentDrafts(provider);
   const decorations = createDecorations();
   const repaint = (): void => paintVisible(provider, decorations);
   const forgePollLoop = createForgePollLoop(provider);
@@ -1662,9 +1857,10 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     ...Object.values(decorations),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    vscode.workspace.registerFileSystemProvider(EDIT_SCHEME, drafts, { isCaseSensitive: true }),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
-    vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, target)),
+    vscode.commands.registerCommand("cabaret.followLink", (target: Target) => followTarget(provider, drafts, target)),
     // Rendering, the buffer taking a render's new text, and an editor coming
     // on screen each leave paint stale; all three repaint. The first often
     // paints against a buffer still awaiting the render's text — harmless,
@@ -1680,6 +1876,9 @@ export function activate(context: vscode.ExtensionContext): void {
       if (document.uri.scheme === SCHEME) {
         provider.forget(document.uri);
       }
+      if (document.uri.scheme === EDIT_SCHEME) {
+        drafts.forget(document.uri);
+      }
     }),
     actingStatus,
     vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -1693,7 +1892,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("cabaret.home", () => openPage(provider, { kind: "home" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
-    vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
+    vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider, drafts)),
     vscode.commands.registerCommand("cabaret.stepOutside", () => stepOutside(provider)),
     vscode.commands.registerCommand("cabaret.stepUp", () => stepUp(provider)),
     vscode.commands.registerCommand("cabaret.stepDown", () => stepDown(provider)),
@@ -1702,6 +1901,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.diff", () => enterFamily(provider, "diff")),
     vscode.commands.registerCommand("cabaret.actAs", () => actAs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
+    vscode.commands.registerCommand("cabaret.comment", () => composeComment(drafts)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
     vscode.commands.registerCommand("cabaret.setup", () => runSetup()),
     vscode.commands.registerCommand("cabaret.sync", () =>
