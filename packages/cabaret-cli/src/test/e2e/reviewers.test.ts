@@ -76,16 +76,12 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
-test("sync requests local reviewers on the forge and records the observation", async () => {
+test("a reviewer add reaches the forge write-through, recording the observation", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewers", "add", "github:bob");
-  expect(await repo.cabaret("sync")).toEqual({
-    stdout:
-      "opened github.com/test-org/widgets#1\n" +
-      "updated 1 reviewer on github.com/test-org/widgets#1\n" +
-      'synced "gadget" with github.com/test-org/widgets#1\n',
+  expect(await repo.cabaret("reviewers", "add", "github:bob")).toEqual({
+    stdout: "opened github.com/test-org/widgets#1\n" + "updated 1 reviewer on github.com/test-org/widgets#1\n",
     stderr: "",
     exitCode: 0,
   });

@@ -1255,11 +1255,16 @@ export async function fetchForge(
   for (const change of await backend.advanceBranches()) {
     onEvent({ kind: "advanced", change });
   }
+  // Branches replicate before logs, as in `fetchLocal`: a change created
+  // here whose log debuts at origin in the sync below carries its branch up
+  // first.
+  for (const change of await pushAdvances(backend, await backend.listChanges())) {
+    onEvent({ kind: "pushed", change });
+  }
   // Adopt before importing: a change another machine already imported and
   // published arrives as a log here, keeping this fetch's import phase to
   // forge changes nobody holds.
-  await backend.syncLogs();
-  const tracked = await backend.listChanges();
+  const tracked = await backend.syncLogs();
   for (const change of await backend.joinBranches(tracked)) {
     onEvent({ kind: "joined", change });
   }

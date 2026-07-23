@@ -37,13 +37,22 @@ export interface FetchedLocal {
  * workspace's working tree follows its branch; a dirty one holds it put —
  * and merge every change's log with origin's. `fetchForge` runs the same
  * steps and absorbs forge activity besides.
+ *
+ * Branches replicate before logs: the two halves fail asymmetrically, a
+ * branch without its log reading as merely a branch while a log whose branch
+ * no clone can reach reads as a broken change on every other machine. A
+ * second advance push after the joins carries their merges out in the same
+ * fetch; the two pushes never move the same branch, a join candidate being
+ * no advance until its merge exists.
  */
 export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
+  const pushed = [...(await pushAdvances(backend, await backend.listChanges()))];
   const synced = await backend.syncLogs();
   const joined = await backend.joinBranches(synced);
-  return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
+  pushed.push(...(await pushAdvances(backend, synced)));
+  return { synced, advanced, joined, pushed };
 }
 
 /** What a per-change reconcile settled, for hosts to narrate. */
@@ -99,14 +108,15 @@ async function joinBranch(
 }
 
 /**
- * Reconcile `change`'s shared state without touching its branch or working
- * tree: merge and push its log, and settle its forge change both ways —
- * absorbing the forge's side first, then publishing what remains as local
- * intent, opening a forge change if one is due. The transport half of
- * `syncChange`, which commands run write-through after appending to a log:
- * the append was the publication intent, so carrying it asks no further
- * consent. Every step converges state, so rerunning after any failure
- * resumes where it left off.
+ * Reconcile `change`'s shared state without moving its branch or touching
+ * its working tree: push its branch when origin trails it, merge and push
+ * its log, and settle its forge change both ways — absorbing the forge's
+ * side first, then publishing what remains as local intent, opening a forge
+ * change if one is due. The transport half of `syncChange`, which commands
+ * run write-through after appending to a log: the append was the
+ * publication intent, so carrying it asks no further consent. Every step
+ * converges state, so rerunning after any failure resumes where it left
+ * off. The branch precedes the log, as in `fetchLocal`.
  *
  * Offline — origin unreachable, as `isConnectivityError` reads it — nothing
  * runs and nothing queues; a later reconcile converges. Any other failure
@@ -119,6 +129,7 @@ export async function reconcileChange(
   change: ChangeName,
 ): Promise<ReconcileResult> {
   try {
+    await pushAdvances(backend, [change]);
     await backend.syncLog(change);
     let absorbed: AbsorbResult | undefined;
     let published: PublishResult | undefined;
@@ -143,8 +154,8 @@ export async function reconcileChange(
 
 /**
  * Sync `change` with origin and its forge: merge origin's copy of the branch
- * into the local one (as `joinBranch`), push the result, and reconcile its
- * log and forge change (as `reconcileChange`).
+ * into the local one (as `joinBranch`), and reconcile its branch, log, and
+ * forge change (as `reconcileChange`, which pushes the join's result).
  *
  * Offline, only the join runs, against origin's last-fetched readings.
  */
@@ -165,6 +176,5 @@ export async function syncChange(
     return { offline: true, joined: await joinBranch(backend, change), absorbed: undefined, published: undefined };
   }
   const joined = await joinBranch(backend, change);
-  await backend.push(change);
   return { joined, ...(await reconcileChange(backend, now, forge, change)) };
 }
