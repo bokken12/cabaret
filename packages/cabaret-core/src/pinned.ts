@@ -9,8 +9,9 @@ import type { Backend, ChangeName, RefSnapshot, Revision } from "./backend.js";
  * by them.
  *
  * Presence is treated as monotone — a fetch only adds objects — so probes
- * that found their object are not recorded; only a gc could invalidate one,
- * and everything stored against these reads is a discardable cache anyway.
+ * that found their object are not recorded; only a gc could invalidate one
+ * (or an un-shallowing deepen the ancestry answers), and everything stored
+ * against these reads is a discardable cache anyway.
  */
 export interface RefReads {
   readonly heads: ReadonlyMap<ChangeName, Revision | undefined>;

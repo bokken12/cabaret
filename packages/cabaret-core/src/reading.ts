@@ -134,17 +134,12 @@ const SummarySchema = z.strictObject({
   nextStep: z.enum(NEXT_STEPS),
 }) satisfies z.ZodType<ChangeSummary>;
 
+// Pairs rather than an object: JSON object keys pass through prototype
+// guards (z.record silently drops "__proto__"), and a dropped key would
+// read as a reading with one less dependency — stale forever.
 const ReadsSchema = z
-  .record(z.string(), z.union([z.string(), z.null()]))
-  .transform(
-    (record) =>
-      new Map(
-        Object.entries(record).map(([name, hash]) => [
-          parseBranchName(name),
-          hash === null ? undefined : parseCommitHash(hash),
-        ]),
-      ),
-  );
+  .array(z.tuple([NameSchema, z.union([RevisionSchema, z.null()])]))
+  .transform((pairs) => new Map(pairs.map(([name, hash]) => [name, hash ?? undefined])));
 
 const RefReadsSchema = z.strictObject({
   heads: ReadsSchema,
@@ -181,7 +176,7 @@ export function parseReadingEntry(raw: string): ReadingEntry | undefined {
 
 export function formatReadingEntry(entry: ReadingEntry): string {
   const reads = (map: ReadonlyMap<ChangeName, Revision | undefined>) =>
-    Object.fromEntries([...map].sort(([a], [b]) => (a < b ? -1 : 1)).map(([name, hash]) => [name, hash ?? null]));
+    [...map].sort(([a], [b]) => (a < b ? -1 : 1)).map(([name, hash]) => [name, hash ?? null]);
   const { summary } = entry;
   return JSON.stringify({
     version: READING_CACHE_VERSION,

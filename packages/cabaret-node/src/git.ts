@@ -643,8 +643,9 @@ export class GitBackend implements Backend {
     try {
       return await readFile(this.cachePath(key), "utf8");
     } catch (error) {
-      // ENOENT means exactly "nothing stored"; anything else is a real failure.
-      if ((error as { code?: unknown }).code !== "ENOENT") {
+      // ENOENT means exactly "nothing stored"; a key the filesystem cannot
+      // hold (a branch name outgrowing one filename) never stores at all.
+      if (!["ENOENT", "ENAMETOOLONG"].includes(String((error as { code?: unknown }).code))) {
         throw error;
       }
       return undefined;
@@ -653,14 +654,24 @@ export class GitBackend implements Backend {
 
   async writeCache(key: string, content: string): Promise<void> {
     const path = this.cachePath(key);
-    await mkdir(dirname(path), { recursive: true });
-    // Written whole then renamed, so a concurrent reader sees the old
-    // content or the new, never a torn write.
-    const tmp = `${path}.${process.pid}.tmp`;
-    await writeFile(tmp, content);
-    await rename(tmp, path);
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      // Written whole then renamed, so a concurrent reader sees the old
+      // content or the new, never a torn write. The sequence number keeps
+      // concurrent writers within this process off each other's tmp file.
+      const tmp = `${path}.${process.pid}.${GitBackend.cacheWriteSeq++}.tmp`;
+      await writeFile(tmp, content);
+      await rename(tmp, path);
+    } catch (error) {
+      // A key the filesystem cannot hold is simply never cached: readings
+      // recompute each time, and nothing else breaks.
+      if ((error as { code?: unknown }).code !== "ENAMETOOLONG") {
+        throw error;
+      }
+    }
   }
 
+<<<<<<< acd3756cbdfbec00adaf0167e368b83eaf81e04a
   async listCache(prefix: string): Promise<readonly string[]> {
     const dir = this.cachePath(prefix);
     let found: readonly Dirent[];
@@ -681,6 +692,11 @@ export class GitBackend implements Backend {
   async deleteCache(key: string): Promise<void> {
     await rm(this.cachePath(key), { force: true });
   }
+||||||| 0ca2446cf2013bd4cd082e523604caaa740a3b35
+=======
+  /** Distinguishes concurrent cache writes within one process; the pid separates processes. */
+  private static cacheWriteSeq = 0;
+>>>>>>> fe0dd6b283167dc95822c8cf991c0062f8cc2ce8
 
   async advanceBranches(): Promise<readonly ChangeName[]> {
     const { heads, origins } = await this.refSnapshot();
