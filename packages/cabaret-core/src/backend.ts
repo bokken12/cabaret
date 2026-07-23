@@ -448,6 +448,19 @@ export interface Workspace {
 }
 
 /**
+ * Every ref a change's readings stand on, read together in one query: local
+ * branches (as `tip` reads them), origin's last-fetched copies (as
+ * `originTip`), and each change's log commit — the identity whose entries
+ * `readLogAt` reads. Change readings taken against one snapshot see one
+ * moment of the repository instead of racing whatever moves it meanwhile.
+ */
+export interface RefSnapshot {
+  readonly heads: ReadonlyMap<ChangeName, Revision>;
+  readonly origins: ReadonlyMap<ChangeName, Revision>;
+  readonly logs: ReadonlyMap<ChangeName, Revision>;
+}
+
+/**
  * The operations Cabaret needs from a version-control backend. The
  * implementation (`cabaret-node`) shells out to a local git. "origin" is the
  * one pinned remote every remote operation uses.
@@ -529,6 +542,9 @@ export interface Backend {
    * loses the reading until the next success.
    */
   originFetched(): Promise<TimestampMs | undefined>;
+
+  /** One reading of every branch, origin copy, and log commit, as `RefSnapshot`. */
+  refSnapshot(): Promise<RefSnapshot>;
 
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
@@ -773,6 +789,12 @@ export interface Backend {
    * memoizing in each caller.
    */
   readLog(change: ChangeName): Promise<readonly LogEntry[]>;
+
+  /**
+   * The entries of the log whose commit is `tip`, oldest first: `readLog`
+   * pinned at one commit of the log, however its ref moves meanwhile.
+   */
+  readLogAt(tip: Revision): Promise<readonly LogEntry[]>;
 
   /** Atomically append `entries` to `change`'s log, creating the log if needed. */
   appendLog(change: ChangeName, entries: readonly LogEntry[]): Promise<void>;
