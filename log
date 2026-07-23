@@ -8,3 +8,4 @@
 {"timestamp":1784820190406,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
 {"timestamp":1784820219529,"user":"crouton.ai@gmail.com","action":{"kind":"comment","text":"Testing the new edit flow: this comment will be rewritten in place."}}
 {"timestamp":1784820237324,"user":"crouton.ai@gmail.com","action":{"kind":"comment","text":"Testing the new edit flow: rewritten in place — the marker and comment id survive.","edits":"75eb4261d874fdb39c2be92a4b530f91f30dd15cb70d248cd308f06c62d6aa66"}}
+{"timestamp":1784820240000,"user":"github:crouton-ai","source":{"forge":"github.com/bokken12/cabaret","id":"5060210784"},"action":{"kind":"comment","text":"Testing the new edit flow: rewritten in place — the marker and comment id survive.","edits":"75eb4261d874fdb39c2be92a4b530f91f30dd15cb70d248cd308f06c62d6aa66"}}
