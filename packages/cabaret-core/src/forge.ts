@@ -224,117 +224,238 @@ interface CommentGroup {
   readonly ids: Set<string>;
 }
 
-/** Whether `text` reads as some version of `group` — as written, or under its author's name. */
-function readsAsVersion(group: CommentGroup, text: string): boolean {
-  return group.versions.some((version) => text === version.action.text || text === attributedText(version));
+/** Whether `text` reads as `version` — as written, or under its author's name. */
+function readsAs(version: CommentEntry, text: string): boolean {
+  return text === version.action.text || text === attributedText(version);
+}
+
+/** The later of two comment entries under `compareLogEntries`; folds a reduce. */
+function latestOf(a: CommentEntry | undefined, b: CommentEntry): CommentEntry {
+  return a !== undefined && compareLogEntries(a, b) > 0 ? a : b;
+}
+
+/**
+ * The forge's last known reading of the comment `idKey` names: the latest
+ * version mirroring that forge object — an import, or the mirror a push
+ * records. What the forge shows is news exactly when it differs from this.
+ */
+function lastMirrored(group: CommentGroup, idKey: string): CommentEntry | undefined {
+  return group.versions
+    .filter(({ source }) => source?.id !== undefined && forgeIdKey(source.forge, source.id) === idKey)
+    .reduce<CommentEntry | undefined>(latestOf, undefined);
+}
+
+/**
+ * The entry recording what the forge now shows for the comment `key` names:
+ * the version pushed — or found already settled — re-stamped as mirroring
+ * forge object `id`. Pull compares the forge against this mirror, so a body
+ * it has moved past imports even when it restores older text, while a stale
+ * reflection of the push never does.
+ */
+function observedComment(version: CommentEntry, forge: ForgeLocator, id: string, key: string): CommentEntry {
+  return {
+    timestamp: version.timestamp,
+    user: version.user,
+    source: { forge, id },
+    action: {
+      kind: "comment",
+      text: version.action.text,
+      ...(key === forgeIdKey(forge, id) ? {} : { edits: key }),
+    },
+  };
+}
+
+/** The comment groups of a log, indexed every way sync addresses them. */
+interface CommentIndex {
+  /** By group key. */
+  readonly groups: ReadonlyMap<string, CommentGroup>;
+  /** By the `forge#id` keys of the forge objects a group mirrors. */
+  readonly byId: ReadonlyMap<string, CommentGroup>;
+  /** By each member entry's own hash. */
+  readonly byHash: ReadonlyMap<string, CommentGroup>;
 }
 
 /**
  * Comment entries folded into version groups. An entry belongs to the group
- * its `edits` names; one that names nothing starts a group — keyed by its own
- * hash, or by its forge object when it imports one, so imports of one comment
- * recognize each other without naming a specific entry.
+ * its `edits` names — resolved through entry hashes, so naming any version
+ * of a comment names the comment — and one that names nothing starts a
+ * group: keyed by its own hash, or by its forge object when it imports one,
+ * so imports of one comment recognize each other without naming a specific
+ * entry.
  */
-async function commentGroups(entries: readonly LogEntry[]): Promise<Map<string, CommentGroup>> {
+async function commentIndex(entries: readonly LogEntry[]): Promise<CommentIndex> {
+  const members = commentEntries(entries);
+  const hashes = new Map<string, CommentEntry>();
+  const hashOf = new Map<CommentEntry, string>();
+  for (const entry of members) {
+    const hash = await commentHash(entry);
+    hashes.set(hash, entry);
+    hashOf.set(entry, hash);
+  }
+  const ownHash = (entry: CommentEntry): string => {
+    const hash = hashOf.get(entry);
+    if (hash === undefined) {
+      throw new Error("comment entry outside the index");
+    }
+    return hash;
+  };
+  // What starting a group from `entry` keys it as. Chasing `edits` through
+  // entry hashes cannot cycle: a cycle would need an entry containing its
+  // own hash's preimage.
+  const keyOf = (entry: CommentEntry): string => {
+    const { edits } = entry.action;
+    if (edits !== undefined) {
+      const named = hashes.get(edits);
+      return named === undefined ? edits : keyOf(named);
+    }
+    const { source } = entry;
+    return source?.id === undefined ? ownHash(entry) : forgeIdKey(source.forge, source.id);
+  };
   const groups = new Map<string, CommentGroup>();
-  for (const entry of commentEntries(entries)) {
+  const byId = new Map<string, CommentGroup>();
+  const byHash = new Map<string, CommentGroup>();
+  for (const entry of members) {
     const { source } = entry;
     const id = source?.id === undefined ? undefined : forgeIdKey(source.forge, source.id);
-    const key = entry.action.edits ?? id ?? (await commentHash(entry));
-    const group = groups.get(key);
+    const key = keyOf(entry);
+    let group = groups.get(key);
     if (group === undefined) {
-      groups.set(key, {
-        key,
-        first: entry.timestamp,
-        winner: entry,
-        versions: [entry],
-        ids: new Set(id === undefined ? [] : [id]),
-      });
-      continue;
+      group = { key, first: entry.timestamp, winner: entry, versions: [entry], ids: new Set<string>() };
+      groups.set(key, group);
+    } else {
+      group.versions.push(entry);
+      if (entry.timestamp < group.first) {
+        group.first = entry.timestamp;
+      }
+      if (compareLogEntries(entry, group.winner) >= 0) {
+        group.winner = entry;
+      }
     }
-    group.versions.push(entry);
     if (id !== undefined) {
       group.ids.add(id);
-    }
-    if (entry.timestamp < group.first) {
-      group.first = entry.timestamp;
-    }
-    if (compareLogEntries(entry, group.winner) >= 0) {
-      group.winner = entry;
-    }
-  }
-  return groups;
-}
-
-/** Each group that mirrors a forge object, by its `forge#id` keys. */
-function groupsByForgeId(groups: ReadonlyMap<string, CommentGroup>): Map<string, CommentGroup> {
-  const byId = new Map<string, CommentGroup>();
-  for (const group of groups.values()) {
-    for (const id of group.ids) {
       byId.set(id, group);
     }
+    byHash.set(ownHash(entry), group);
   }
-  return byId;
+  return { groups, byId, byHash };
+}
+
+async function commentGroups(entries: readonly LogEntry[]): Promise<ReadonlyMap<string, CommentGroup>> {
+  return (await commentIndex(entries)).groups;
 }
 
 /**
  * The group `comment` is a reading of: the one already mirroring the forge
- * object, else the one the body's marker names — a marker names the group
- * even when this log has never held it (another user's Cabaret pushed it),
- * so once logs sync the versions still fall into one group.
+ * object, else the one the body's marker names — as a group key, or as any
+ * member's hash, since old pushes marked bodies with the entry posted. A
+ * marker names the group even when this log has never held it (another
+ * user's Cabaret pushed it): once logs sync, the versions still fall into
+ * one group.
  */
 function commentGroupOf(
-  groups: ReadonlyMap<string, CommentGroup>,
-  byId: ReadonlyMap<string, CommentGroup>,
+  index: CommentIndex,
   forge: ForgeLocator,
   comment: ForgeComment,
   marker: string | undefined,
 ): CommentGroup | undefined {
-  return byId.get(forgeIdKey(forge, comment.id)) ?? (marker === undefined ? undefined : groups.get(marker));
+  return (
+    index.byId.get(forgeIdKey(forge, comment.id)) ??
+    (marker === undefined ? undefined : (index.groups.get(marker) ?? index.byHash.get(marker)))
+  );
+}
+
+/** What a pull owes the log. */
+export interface CommentPull {
+  readonly additions: readonly LogEntry[];
+  /** How many additions change what a page displays; mirrors of held versions do not. */
+  readonly news: number;
 }
 
 /**
- * The entries importing what is new on the forge: comments Cabaret has not
- * seen, and new versions of comments since edited in place. What is news is
- * judged by content alone — a body reading as any version the log already
- * holds carries none, however the forge stamps it, since forge clocks and
- * edit stamps agree with nobody — so a stale body awaiting a pushed edit
- * never re-imports. Every field of an imported entry is determined by the
- * forge's data alone — never a local clock or identity — so any two machines
- * pulling the same state append byte-identical lines, which union-merged
- * logs deduplicate.
+ * The entries importing what the forge shows that the log's mirrors do not.
+ * A body is compared against the forge object's last mirror, never against
+ * stamps — forge clocks and edit stamps agree with nobody:
+ *
+ * - A body reading as a version the log holds mirrors that version — its
+ *   text and author, re-stamped as mirroring the forge object. A first
+ *   sighting (the reflection of a push) mirrors at the version's own
+ *   timestamp, so it can never outrank an edit made since; a body the
+ *   mirror has moved away from is the forge restoring older text, and
+ *   writes past the mirror it replaces.
+ * - A body reading as nothing held is a new comment or a foreign edit,
+ *   imported as the forge attributes it, again writing past any mirror.
+ *
+ * Every field is determined by the forge's data and the shared log alone —
+ * never a local clock or identity — so any two machines pulling the same
+ * state append byte-identical lines, which union-merged logs deduplicate.
  */
 export async function planPull(
   forge: ForgeLocator,
   entries: readonly LogEntry[],
   comments: readonly ForgeComment[],
-): Promise<readonly LogEntry[]> {
-  const groups = await commentGroups(entries);
-  const byId = groupsByForgeId(groups);
+): Promise<CommentPull> {
+  const index = await commentIndex(entries);
   const additions: LogEntry[] = [];
+  let news = 0;
   for (const comment of comments) {
     const marker = MARKER.exec(comment.body)?.[1];
     const text = comment.body.replace(MARKER, "");
     if (text === "") {
       continue;
     }
-    const group = commentGroupOf(groups, byId, forge, comment, marker);
-    if (group !== undefined && readsAsVersion(group, text)) {
+    const group = commentGroupOf(index, forge, comment, marker);
+    if (group === undefined) {
+      // A marker always names the group, even one this log has never held
+      // (another user's Cabaret pushed it): once logs sync, the versions
+      // still fall into one group.
+      additions.push({
+        timestamp: comment.updatedAt,
+        user: comment.author,
+        source: { forge, id: comment.id },
+        action: { kind: "comment", text, ...(marker === undefined ? {} : { edits: marker }) },
+      });
+      news += 1;
       continue;
     }
-    // A group keyed by this comment's own forge object needs no naming — the
-    // import's source already places it — keeping imports byte-identical
-    // whether or not older versions were in the log when they were minted.
-    const key = group?.key ?? marker;
-    const edits = key === forgeIdKey(forge, comment.id) ? undefined : key;
-    additions.push({
-      timestamp: comment.updatedAt,
-      user: comment.author,
-      source: { forge, id: comment.id },
-      action: { kind: "comment", text, ...(edits === undefined ? {} : { edits }) },
-    });
+    const mirror = lastMirrored(group, forgeIdKey(forge, comment.id));
+    const shown = group.versions
+      .filter((version) => readsAs(version, text))
+      .reduce<CommentEntry | undefined>(latestOf, undefined);
+    const outpace = (timestamp: TimestampMs): TimestampMs =>
+      mirror === undefined ? timestamp : timestampMs(Math.max(timestamp, mirror.timestamp + 1));
+    let addition: CommentEntry;
+    if (shown !== undefined) {
+      if (mirror !== undefined && readsAs(shown, mirror.action.text)) {
+        continue;
+      }
+      // A body restating the displayed version — a push's reflection —
+      // mirrors at the version's own stamp, never outranking it; only the
+      // forge moving back to an older version carries its stamp, ranking
+      // the revert against edits written concurrently.
+      const restating = mirror === undefined || shown === group.winner;
+      addition = {
+        ...observedComment(shown, forge, comment.id, group.key),
+        timestamp: restating ? outpace(shown.timestamp) : outpace(comment.updatedAt),
+      };
+    } else {
+      // A group keyed by this comment's own forge object needs no naming —
+      // the import's source already places it — keeping imports
+      // byte-identical whether or not older versions were in the log when
+      // they were minted.
+      const edits = group.key === forgeIdKey(forge, comment.id) ? undefined : group.key;
+      addition = {
+        timestamp: outpace(comment.updatedAt),
+        user: comment.author,
+        source: { forge, id: comment.id },
+        action: { kind: "comment", text, ...(edits === undefined ? {} : { edits }) },
+      };
+    }
+    additions.push(addition);
+    if (addition.action.text !== group.winner.action.text && compareLogEntries(addition, group.winner) >= 0) {
+      news += 1;
+    }
   }
-  return additions;
+  return { additions, news };
 }
 
 /** An in-place rewrite of a forge comment that `planPush` owes the forge. */
@@ -368,20 +489,19 @@ export async function planPush(
   comments: readonly ForgeComment[],
   self: UserName,
 ): Promise<CommentPush> {
-  const groups = await commentGroups(entries);
-  const byId = groupsByForgeId(groups);
+  const index = await commentIndex(entries);
   // The forge comment each group already appears as.
   const appearances = new Map<string, ForgeComment>();
   for (const comment of comments) {
     const marker = MARKER.exec(comment.body)?.[1];
-    const group = commentGroupOf(groups, byId, forge, comment, marker);
+    const group = commentGroupOf(index, forge, comment, marker);
     if (group !== undefined && !appearances.has(group.key)) {
       appearances.set(group.key, comment);
     }
   }
   const pending: { readonly winner: CommentEntry; readonly body: string }[] = [];
   const updates: CommentUpdate[] = [];
-  for (const group of groups.values()) {
+  for (const group of index.groups.values()) {
     const { winner } = group;
     if (winner.source !== undefined) {
       // The displayed version mirrors the forge already.
@@ -398,7 +518,7 @@ export async function planPush(
       continue;
     }
     const text = appearance.body.replace(MARKER, "");
-    if (text === winner.action.text || text === attributedText(winner)) {
+    if (readsAs(winner, text)) {
       continue;
     }
     // An update cannot change whom the forge shows as the comment's author.
@@ -407,10 +527,7 @@ export async function planPush(
     // for the same author; any other version names its own.
     const shown = group.versions
       .filter((version) => version.action.text === text)
-      .reduce<CommentEntry | undefined>(
-        (latest, version) => (latest !== undefined && compareLogEntries(latest, version) > 0 ? latest : version),
-        undefined,
-      );
+      .reduce<CommentEntry | undefined>(latestOf, undefined);
     const rewritten = shown !== undefined && shown.user === winner.user ? winner.action.text : attributedText(winner);
     const marker = MARKER.exec(appearance.body)?.[1];
     updates.push({
@@ -888,7 +1005,7 @@ export type FetchEvent =
 
 /** What absorbing the forge's side of a change recorded, for hosts to narrate. */
 export interface AbsorbResult {
-  /** How many comments were imported: new ones, and new versions of edited ones. */
+  /** How many imported comments changed the displayed discussion: new ones, and new versions of edited ones. */
   readonly comments: number;
   /** How many reviewer memberships the forge moved since last observed. */
   readonly reviewers: number;
@@ -924,9 +1041,8 @@ export async function absorbForgeChange(
   forgeChange: ForgeChange,
   comments?: readonly ForgeComment[],
 ): Promise<AbsorbResult> {
-  const additions = [
-    ...(await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)))),
-  ];
+  const pulled = await planPull(forge.locator, entries, comments ?? (await forge.listComments(forgeChange.id)));
+  const additions = [...pulled.additions];
   const landing = observedLand(now, user, forge.locator, forgeChange, entries);
   if (landing !== undefined) {
     additions.push(landing);
@@ -965,7 +1081,7 @@ export async function absorbForgeChange(
   const mirroredReviewing = reviewing[0]?.action;
   const mirroredArchived = archived[0]?.action;
   return {
-    comments: additions.filter(({ action }) => action.kind === "comment").length,
+    comments: pulled.news,
     reviewers: mirrored.length,
     landed: landing !== undefined,
     ...(retargeted ? { parent: forgeChange.parent } : {}),
@@ -1022,10 +1138,30 @@ function formatSweepRecord(record: ReadonlyMap<string, number>): string {
 }
 
 /**
+ * Whether a comment's displayed version has not been shown to the forge:
+ * the group's winner is local-origin and no mirror restates it. A fresh
+ * push reads as unpublished until the next pull mirrors its reflection —
+ * one settling reconcile, not a steady state.
+ */
+async function unpublishedComments(forge: ForgeLocator, entries: readonly LogEntry[]): Promise<boolean> {
+  for (const group of (await commentGroups(entries)).values()) {
+    const { winner } = group;
+    if (winner.source !== undefined) {
+      continue;
+    }
+    const mirror = group.versions
+      .filter(({ source }) => source?.forge === forge && source.id !== undefined)
+      .reduce<CommentEntry | undefined>(latestOf, undefined);
+    if (mirror === undefined || !readsAs(winner, mirror.action.text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Whether `entries` carry intent the forge has not been shown: an attribute
- * whose current value differs from its last forge observation. Comments are
- * invisible here — pushed ones leave no local trace — and converge through
- * write-through, sync, and the change's own appearances in the sweep.
+ * whose current value differs from its last forge observation.
  */
 function unpublishedIntent(forge: ForgeLocator, change: ChangeName, entries: readonly LogEntry[]): boolean {
   const reviewers = currentReviewers(entries);
@@ -1188,7 +1324,7 @@ export async function fetchForge(
       // baseline later pulls compare the forge against.
       reviewingObservation(now, user, forge.locator, forgeChange.draft ? "none" : "everyone"),
       ...planReviewerPull(now, user, forge.locator, [], forgeChange.reviewers),
-      ...(await planPull(forge.locator, [], full)),
+      ...(await planPull(forge.locator, [], full)).additions,
     ];
     await backend.appendLog(forgeChange.head, additions);
     onEvent({
@@ -1221,7 +1357,12 @@ export async function fetchForge(
           return undefined;
         }
         bulk = byId.get(recorded.id);
-        if (bulk === undefined && sweep.coverage === "since" && !unpublishedIntent(forge.locator, change, entries)) {
+        if (
+          bulk === undefined &&
+          sweep.coverage === "since" &&
+          !unpublishedIntent(forge.locator, change, entries) &&
+          !(await unpublishedComments(forge.locator, entries))
+        ) {
           // Absent from a since sweep with nothing pending: converged.
           return undefined;
         }
@@ -1532,7 +1673,8 @@ export async function currentComments(entries: readonly LogEntry[]): Promise<rea
       timestamp: winner.timestamp,
       user: winner.user,
       text: winner.action.text,
-      edited: versions.length > 1,
+      // Mirrors restate a version; only a second wording means an edit.
+      edited: new Set(versions.map(({ action }) => action.text)).size > 1,
     }));
 }
 
