@@ -177,7 +177,22 @@ test("cache reads answer what writes stored, under the shared git dir", async ()
   );
 });
 
-<<<<<<< acd3756cbdfbec00adaf0167e368b83eaf81e04a
+test("concurrent cache writes to one key land whole", async () => {
+  const backend = await GitBackend.open(repo);
+  await Promise.all(
+    Array.from({ length: 16 }, (_, i) => backend.writeCache("summary/alice/race.json", `version ${i}`)),
+  );
+  expect(await backend.readCache("summary/alice/race.json")).toMatch(/^version \d+$/);
+});
+
+test("a key too long for the filesystem never stores, and never fails", async () => {
+  const backend = await GitBackend.open(repo);
+  const key = `summary/alice/${"x".repeat(300)}.json`;
+  await backend.writeCache(key, "content");
+  expect(await backend.readCache(key)).toBeUndefined();
+  await backend.deleteCache(key);
+});
+
 test("listCache names every stored key under a prefix, and deleteCache removes one", async () => {
   const backend = await GitBackend.open(repo);
   expect(await backend.listCache("listing")).toEqual([]);
@@ -195,22 +210,6 @@ test("listCache names every stored key under a prefix, and deleteCache removes o
     "listing/alice/gadget.json",
     "listing/bob/widget.json",
   ]);
-||||||| 0ca2446cf2013bd4cd082e523604caaa740a3b35
-=======
-test("concurrent cache writes to one key land whole", async () => {
-  const backend = await GitBackend.open(repo);
-  await Promise.all(
-    Array.from({ length: 16 }, (_, i) => backend.writeCache("summary/alice/race.json", `version ${i}`)),
-  );
-  expect(await backend.readCache("summary/alice/race.json")).toMatch(/^version \d+$/);
-});
-
-test("a key too long for the filesystem never stores, and never fails", async () => {
-  const backend = await GitBackend.open(repo);
-  const key = `summary/alice/${"x".repeat(300)}.json`;
-  await backend.writeCache(key, "content");
-  expect(await backend.readCache(key)).toBeUndefined();
->>>>>>> fe0dd6b283167dc95822c8cf991c0062f8cc2ce8
 });
 
 test("changeBase is the last revision shared with the change's parent", async () => {

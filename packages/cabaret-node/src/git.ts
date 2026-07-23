@@ -671,7 +671,9 @@ export class GitBackend implements Backend {
     }
   }
 
-<<<<<<< acd3756cbdfbec00adaf0167e368b83eaf81e04a
+  /** Distinguishes concurrent cache writes within one process; the pid separates processes. */
+  private static cacheWriteSeq = 0;
+
   async listCache(prefix: string): Promise<readonly string[]> {
     const dir = this.cachePath(prefix);
     let found: readonly Dirent[];
@@ -690,13 +692,15 @@ export class GitBackend implements Backend {
   }
 
   async deleteCache(key: string): Promise<void> {
-    await rm(this.cachePath(key), { force: true });
+    try {
+      await rm(this.cachePath(key), { force: true });
+    } catch (error) {
+      // A key the filesystem cannot hold never stored anything to remove.
+      if ((error as { code?: unknown }).code !== "ENAMETOOLONG") {
+        throw error;
+      }
+    }
   }
-||||||| 0ca2446cf2013bd4cd082e523604caaa740a3b35
-=======
-  /** Distinguishes concurrent cache writes within one process; the pid separates processes. */
-  private static cacheWriteSeq = 0;
->>>>>>> fe0dd6b283167dc95822c8cf991c0062f8cc2ce8
 
   async advanceBranches(): Promise<readonly ChangeName[]> {
     const { heads, origins } = await this.refSnapshot();
