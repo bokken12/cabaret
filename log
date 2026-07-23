@@ -26,3 +26,4 @@
 {"timestamp":1784813710555,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/keybindings-reference.md","base":"88da45e2f1a1fc52e6d5c3eec657b7d6f236d5ee","tip":"4d9a7a9481579660d014843efd38740f0ccb5c3a"}}
 {"timestamp":1784813711451,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/package.json","base":"88da45e2f1a1fc52e6d5c3eec657b7d6f236d5ee","tip":"4d9a7a9481579660d014843efd38740f0ccb5c3a"}}
 {"timestamp":1784813712282,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/extension.ts","base":"88da45e2f1a1fc52e6d5c3eec657b7d6f236d5ee","tip":"4d9a7a9481579660d014843efd38740f0ccb5c3a"}}
+{"timestamp":1784813713728,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/help.ts","base":"88da45e2f1a1fc52e6d5c3eec657b7d6f236d5ee","tip":"4d9a7a9481579660d014843efd38740f0ccb5c3a"}}
