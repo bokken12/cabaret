@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { FakeForge } from "./fake-forge.js";
 import { makeRepo, tempDir } from "./fixture.js";
 
 // The person-level recommendations write to global config; point it at a
@@ -106,4 +107,59 @@ test("list marks a declined scope; apply applies it anyway", async () => {
   expect(await repo.git("config", "--local", "--get-all", "remote.origin.fetch")).toBe(
     "+refs/heads/*:refs/remotes/origin/*\n+refs/cabaret/log/*:refs/cabaret/remote-log/*",
   );
+});
+
+test("a signed-in forge recommends aliasing its account and profile emails", async () => {
+  const forge = new FakeForge();
+  forge.tokenEmail = "alice@corp.example.com";
+  const repo = await makeRepo(forge);
+  expect((await repo.cabaret("setup", "list")).stdout).toMatchInlineSnapshot(`
+    "merge.conflictStyle     zdiff3 (unset)
+    rerere.enabled          true (unset)
+    remote.origin.fetch     +refs/cabaret/log/*:refs/cabaret/remote-log/* (unset)
+    core.commitGraph        true (unset)
+    fetch.writeCommitGraph  true (unset)
+    cabaret.alias           github:alice (unset)
+    cabaret.alias           alice@corp.example.com (unset)
+    "
+  `);
+  expect(await repo.cabaret("setup", "apply")).toMatchInlineSnapshot(`
+    {
+      "exitCode": 0,
+      "stderr": "",
+      "stdout": "set merge.conflictStyle = zdiff3
+    set rerere.enabled = true
+    added remote.origin.fetch = +refs/cabaret/log/*:refs/cabaret/remote-log/*
+    set core.commitGraph = true
+    set fetch.writeCommitGraph = true
+    added cabaret.alias = github:alice
+    added cabaret.alias = alice@corp.example.com
+    ",
+    }
+  `);
+  expect(await repo.git("config", "--local", "--get-all", "cabaret.alias")).toBe(
+    "github:alice\nalice@corp.example.com",
+  );
+  // Applied aliases count as the current user, so nothing is left to recommend.
+  expect((await repo.cabaret("setup", "list")).stdout).toMatchInlineSnapshot(`
+    "merge.conflictStyle     zdiff3
+    rerere.enabled          true
+    remote.origin.fetch     +refs/cabaret/log/*:refs/cabaret/remote-log/*
+    core.commitGraph        true
+    fetch.writeCommitGraph  true
+    "
+  `);
+});
+
+test("an alias already declared is not re-recommended", async () => {
+  const repo = await makeRepo(new FakeForge());
+  await repo.cabaret("config", "alias", "github", "add", "alice");
+  expect((await repo.cabaret("setup", "list")).stdout).toMatchInlineSnapshot(`
+    "merge.conflictStyle     zdiff3 (unset)
+    rerere.enabled          true (unset)
+    remote.origin.fetch     +refs/cabaret/log/*:refs/cabaret/remote-log/* (unset)
+    core.commitGraph        true (unset)
+    fetch.writeCommitGraph  true (unset)
+    "
+  `);
 });

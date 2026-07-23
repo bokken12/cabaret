@@ -40,6 +40,7 @@ import {
   reparentLandedChildren,
 } from "./ops.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
+import type { Recommendation } from "./setup.js";
 
 // WebCrypto and TextEncoder exist in every supported runtime (Node and
 // browsers alike) but are absent from the bare es2025 lib this
@@ -915,6 +916,34 @@ function unpublishedIntent(forge: ForgeLocator, change: ChangeName, entries: rea
 }
 
 /**
+ * The identities `forge`'s credentials speak for that `self` does not already
+ * cover: the authenticated account, and each email its profile shows.
+ */
+function newAliases(self: Self, forgeSelf: Self): readonly UserName[] {
+  return [forgeSelf.user, ...forgeSelf.aliases].filter((alias) => !isSelf(self, alias));
+}
+
+/**
+ * One `cabaret.alias` recommendation per identity the forge's credentials
+ * speak for that the current user does not already cover — the same
+ * declarations a fetch makes, offered up front so changes read as the
+ * person's before anything is fetched. The association is the repository's,
+ * as another repository may front a different account, so the values land in
+ * local config.
+ */
+export async function aliasRecommendations(backend: Backend, forge: Forge): Promise<readonly Recommendation[]> {
+  const forgeSelf = await forge.currentSelf();
+  const self = await currentSelf(backend);
+  return newAliases(self, forgeSelf).map((alias) => ({
+    key: "cabaret.alias",
+    value: alias,
+    scope: "local",
+    multi: true,
+    brief: `recognizing ${alias} as you`,
+  }));
+}
+
+/**
  * Fetch everything remote, forge included: refresh origin's copies,
  * fast-forward branches whose moves lose nothing (as `advanceBranches`),
  * merge every change's log with origin's, then absorb the forge's sweep —
@@ -949,11 +978,9 @@ export async function fetchForge(
   const forgeSelf = await forge.currentSelf();
   const self = await currentSelf(backend);
   const user = self.user;
-  for (const alias of [forgeSelf.user, ...forgeSelf.aliases]) {
-    if (!isSelf(self, alias)) {
-      await backend.configAdd("cabaret.alias", alias, "local");
-      onEvent({ kind: "aliased", alias });
-    }
+  for (const alias of newAliases(self, forgeSelf)) {
+    await backend.configAdd("cabaret.alias", alias, "local");
+    onEvent({ kind: "aliased", alias });
   }
 
   // The fetch begins with origin: its copies are what every reading below —
