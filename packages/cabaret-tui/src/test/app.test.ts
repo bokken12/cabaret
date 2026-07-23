@@ -1,4 +1,5 @@
 import {
+  DirtyParentError,
   DivergedParentError,
   type FilePath,
   type FileView,
@@ -410,6 +411,46 @@ test("! r b rebases the cursor's change; a stale parent asks and retries with th
   expect(calls).toEqual([
     { changes: [widgets], notOwner: false, parentDiverged: false },
     { changes: [widgets], notOwner: false, parentDiverged: true },
+  ]);
+});
+
+test("! c against a dirty parent offers carrying the edits or leaving them", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    create: (change, parent, remedy) => {
+      calls.push({ change, parent, remedy });
+      return remedy === undefined ? Promise.reject(new DirtyParentError(widgets, "/repo", true)) : Promise.resolve();
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "c", "d", "o", "o", "d", "a", "d", "enter");
+  expect(screen()).toContain("Parent widgets has uncommitted changes");
+  expect(screen()).toContain("1  carry them into doodad");
+  expect(screen()).toContain("2  leave them on widgets");
+  await keys("1");
+  expect(calls).toEqual([
+    { change: parseBranchName("doodad"), parent: widgets, remedy: undefined },
+    { change: parseBranchName("doodad"), parent: widgets, remedy: "carry" },
+  ]);
+});
+
+test("! c against a parent dirty in another workspace asks before leaving the edits", async () => {
+  const calls: object[] = [];
+  const { app, keys, screen } = harness({
+    create: (change, parent, remedy) => {
+      calls.push({ change, parent, remedy });
+      return remedy === undefined
+        ? Promise.reject(new DirtyParentError(widgets, "/elsewhere", false))
+        : Promise.resolve();
+    },
+  });
+  await app.open({ kind: "show", change: widgets });
+  await keys("!", "c", "d", "o", "o", "d", "a", "d", "enter");
+  expect(screen()).toContain("Parent widgets has uncommitted changes at /elsewhere. Create anyway, leaving them? y/n");
+  await keys("y");
+  expect(calls).toEqual([
+    { change: parseBranchName("doodad"), parent: widgets, remedy: undefined },
+    { change: parseBranchName("doodad"), parent: widgets, remedy: "leave" },
   ]);
 });
 

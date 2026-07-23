@@ -1,5 +1,6 @@
 import {
   type ChangeName,
+  DirtyParentError,
   DirtyWorkspaceError,
   DivergedParentError,
   type FilePath,
@@ -95,7 +96,8 @@ export interface Effects {
   removeWorkspace(change: ChangeName, evenThoughDirty: boolean): Promise<string>;
   /** Remove the workspaces of landed and archived changes; resolves to a report for the status row. */
   reclaimWorkspaces(): Promise<string>;
-  create(name: ChangeName, parent: ChangeName): Promise<void>;
+  /** Create a change; `remedy` says what to do with uncommitted changes in the parent's workspace. */
+  create(name: ChangeName, parent: ChangeName, remedy?: "carry" | "leave"): Promise<void>;
   /** Every change a reparent could target. */
   changes(): Promise<readonly ChangeName[]>;
   /** Parse a change name, throwing the grammar's complaint. */
@@ -939,7 +941,7 @@ export class App {
    */
   private async attempt(
     op: () => Promise<string | undefined>,
-    overridable?: (error: unknown) => { readonly question: string; readonly retry: () => Promise<void> } | undefined,
+    overridable?: (error: unknown) => Question | Choice | undefined,
   ): Promise<void> {
     let note: string | undefined;
     try {
@@ -947,7 +949,11 @@ export class App {
     } catch (error) {
       const override = overridable?.(error);
       if (override !== undefined) {
-        this.ask(override.question, override.retry);
+        if ("options" in override) {
+          this.choice = override;
+        } else {
+          this.question = override;
+        }
         return;
       }
       this.current().anchor = undefined;
@@ -972,8 +978,8 @@ export class App {
       (error) =>
         error instanceof NotOwnerError && !overridden
           ? {
-              question: `${error.change} is owned by ${error.owner}, not you. ${verb} anyway?`,
-              retry: () => this.ownedFlow(verb, op, true),
+              text: `${error.change} is owned by ${error.owner}, not you. ${verb} anyway?`,
+              proceed: () => this.ownedFlow(verb, op, true),
             }
           : undefined,
     );
@@ -989,14 +995,14 @@ export class App {
       (error) => {
         if (error instanceof NotOwnerError && !overrides.notOwner) {
           return {
-            question: `${error.change} is owned by ${error.owner}, not you. Rebase anyway?`,
-            retry: () => this.rebaseFlow(changes, { ...overrides, notOwner: true }),
+            text: `${error.change} is owned by ${error.owner}, not you. Rebase anyway?`,
+            proceed: () => this.rebaseFlow(changes, { ...overrides, notOwner: true }),
           };
         }
         if (error instanceof DivergedParentError && !overrides.parentDiverged) {
           return {
-            question: `Local ${error.parent} has diverged from origin's copy. Rebase onto the local reading?`,
-            retry: () => this.rebaseFlow(changes, { ...overrides, parentDiverged: true }),
+            text: `Local ${error.parent} has diverged from origin's copy. Rebase onto the local reading?`,
+            proceed: () => this.rebaseFlow(changes, { ...overrides, parentDiverged: true }),
           };
         }
         return undefined;
@@ -1014,22 +1020,22 @@ export class App {
       (error) => {
         if (error instanceof NotOwnerError && !overrides.notOwner) {
           return {
-            question: `${error.change} is owned by ${error.owner}, not you. Land anyway?`,
-            retry: () => this.landFlow(changes, { ...overrides, notOwner: true }),
+            text: `${error.change} is owned by ${error.owner}, not you. Land anyway?`,
+            proceed: () => this.landFlow(changes, { ...overrides, notOwner: true }),
           };
         }
         if (error instanceof UnsatisfiedObligationsError && !overrides.unreviewed) {
           this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
           return {
-            question: "Review obligations are unsatisfied. Land anyway?",
-            retry: () => this.landFlow(changes, { ...overrides, unreviewed: true }),
+            text: "Review obligations are unsatisfied. Land anyway?",
+            proceed: () => this.landFlow(changes, { ...overrides, unreviewed: true }),
           };
         }
         if (error instanceof UnreviewedParentError && !overrides.parentUnreviewed) {
           this.overlay = ["", " Remaining review:", ...error.details.map((detail) => ` ${detail}`)];
           return {
-            question: `Parent ${error.parent} has unsatisfied review obligations. Land anyway?`,
-            retry: () => this.landFlow(changes, { ...overrides, parentUnreviewed: true }),
+            text: `Parent ${error.parent} has unsatisfied review obligations. Land anyway?`,
+            proceed: () => this.landFlow(changes, { ...overrides, parentUnreviewed: true }),
           };
         }
         return undefined;
@@ -1092,8 +1098,8 @@ export class App {
       (error) =>
         error instanceof DirtyWorkspaceError && !overridden
           ? {
-              question: "This workspace has uncommitted changes. Check out anyway?",
-              retry: () => this.gotoFlow(change, true),
+              text: "This workspace has uncommitted changes. Check out anyway?",
+              proceed: () => this.gotoFlow(change, true),
             }
           : undefined,
     );
@@ -1106,14 +1112,15 @@ export class App {
       (error) =>
         error instanceof DirtyWorkspaceError && !overridden
           ? {
-              question: `The workspace at ${error.path} has uncommitted changes. Discard and remove?`,
-              retry: () => this.removeWorkspaceFlow(change, true),
+              text: `The workspace at ${error.path} has uncommitted changes. Discard and remove?`,
+              proceed: () => this.removeWorkspaceFlow(change, true),
             }
           : undefined,
     );
   }
 
-  private async createFlow(raw: string, parent: ChangeName): Promise<void> {
+  /** Create `raw` under `parent`, asking what a dirty parent workspace's edits should do. */
+  private async createFlow(raw: string, parent: ChangeName, remedy?: "carry" | "leave"): Promise<void> {
     let name: ChangeName;
     try {
       name = this.effects.parseName(raw);
@@ -1121,10 +1128,32 @@ export class App {
       this.note = message(error);
       return;
     }
-    await this.attempt(async () => {
-      await this.effects.create(name, parent);
-      return `created ${name}`;
-    });
+    await this.attempt(
+      async () => {
+        await this.effects.create(name, parent, remedy);
+        return `created ${name}`;
+      },
+      (error) => {
+        if (!(error instanceof DirtyParentError) || remedy !== undefined) {
+          return undefined;
+        }
+        return error.current
+          ? {
+              text: `Parent ${parent} has uncommitted changes`,
+              options: [`carry them into ${name}`, `leave them on ${parent}`],
+              proceed: (index) =>
+                index === 0
+                  ? this.createFlow(raw, parent, "carry")
+                  : index === 1
+                    ? this.createFlow(raw, parent, "leave")
+                    : undefined,
+            }
+          : {
+              text: `Parent ${parent} has uncommitted changes at ${error.path}. Create anyway, leaving them?`,
+              proceed: () => this.createFlow(raw, parent, "leave"),
+            };
+      },
+    );
   }
 
   /**

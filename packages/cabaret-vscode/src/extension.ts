@@ -9,6 +9,7 @@ import {
   currentArchived,
   currentParent,
   currentSelf,
+  DirtyParentError,
   DirtyWorkspaceError,
   DivergedParentError,
   declinedScopes,
@@ -1383,14 +1384,47 @@ function singleChange(changes: readonly ChangeName[], action: string): ChangeNam
   return only;
 }
 
-/** Prompt for a name and create a change with `parent` as its parent, returning the new name. */
+/**
+ * Prompt for a name and create a change with `parent` as its parent,
+ * returning the new name — asking what a dirty parent workspace's edits
+ * should do.
+ */
 async function promptCreate(backend: Backend, parent: ChangeName, prompt: string): Promise<ChangeName | undefined> {
   const raw = await vscode.window.showInputBox({ prompt, validateInput: invalidName(backend) });
   if (raw === undefined) {
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent, false);
+  try {
+    await createChange(backend, now, change, parent);
+  } catch (error) {
+    if (!(error instanceof DirtyParentError)) {
+      throw error;
+    }
+    const carry = "Carry Into New Change";
+    const choice = error.current
+      ? await vscode.window.showWarningMessage(
+          `Parent ${parent} has uncommitted changes.`,
+          { modal: true },
+          carry,
+          "Leave on Parent",
+        )
+      : await vscode.window.showWarningMessage(
+          `Parent ${parent} has uncommitted changes at ${error.path}.`,
+          { modal: true },
+          "Create Anyway",
+        );
+    if (choice === undefined) {
+      return undefined;
+    }
+    await createChange(
+      backend,
+      now,
+      change,
+      parent,
+      choice === carry ? { carry: true } : { evenThoughParentDirty: true },
+    );
+  }
   return change;
 }
 
