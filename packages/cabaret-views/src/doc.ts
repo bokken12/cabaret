@@ -53,6 +53,10 @@ export type Target =
   | { readonly kind: "workspace"; readonly path: string }
   /** An operation on `change`; following the target runs it. */
   | { readonly kind: "action"; readonly change: ChangeName; readonly action: ChangeAction }
+  /** A comment on `change`, by its group's key; following the target edits it as the current user. */
+  | { readonly kind: "comment"; readonly change: ChangeName; readonly group: string }
+  /** The change's description; following the target edits it as the current user. */
+  | { readonly kind: "description"; readonly change: ChangeName }
   /** A web page outside cabaret, e.g. a change's page on its forge. */
   | { readonly kind: "url"; readonly url: string };
 

@@ -753,6 +753,31 @@ test("showDoc renders comments between the remaining review and the files, multi
     ["Comments:", "    the flag name reads oddly"],
     ["Files to review:", "  gadget.ts"],
   ]);
+  // Enter anywhere in a comment edits it — header and body lines alike — but
+  // nothing is advertised as a link, and blank separators stay plain.
+  const editAlice = {
+    kind: "comment",
+    change: "gadget",
+    group: "1111111111111111111111111111111111111111111111111111111111111111",
+  };
+  const editBob = {
+    kind: "comment",
+    change: "gadget",
+    group: "2222222222222222222222222222222222222222222222222222222222222222",
+  };
+  expect(
+    doc.lines.slice(18, 26).map((line, index) => [line.spans.map(({ text }) => text).join(""), targetAt(doc, 18 + index)]),
+  ).toEqual([
+    ["  2025-05-23T11:33:20.003Z alice@example.com", editAlice],
+    ["    does this handle empty diffs?", editAlice],
+    ["", undefined],
+    ["  2025-05-23T11:33:20.004Z bob@example.com", editBob],
+    ["    second thoughts:", editBob],
+    ["", undefined],
+    ["    the flag name reads oddly", editBob],
+    ["", undefined],
+  ]);
+  expect(doc.lines[18]?.spans[0]?.tier).toBe("jump");
 });
 
 test("showDoc rows the change's workspace, noting dirtiness and its age", () => {

@@ -170,20 +170,23 @@ function remainingReview(change: ChangeName, remaining: readonly ReviewerTally[]
 }
 
 /** The comments section: each comment's time and author, then its indented text. */
-function commentsSection(comments: readonly ChangeComment[]): Section | undefined {
+function commentsSection(change: ChangeName, comments: readonly ChangeComment[]): Section | undefined {
   if (comments.length === 0) {
     return undefined;
   }
   const body: Line[] = [];
-  comments.forEach(({ timestamp, user, text }, index) => {
+  comments.forEach(({ timestamp, user, text, group }, index) => {
     // A blank line between comments, since consecutive comments would
     // otherwise run together.
     if (index > 0) {
       body.push({ spans: [] });
     }
-    body.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`)] });
+    // Every line of a comment answers Enter by editing it, so the cursor
+    // need not seek the header; a jump, since a comment is not a place to go.
+    const target = { kind: "comment", change, group } as const;
+    body.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`, { target, tier: "jump" })] });
     for (const line of text.split("\n")) {
-      body.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
+      body.push({ spans: line === "" ? [] : [span(`    ${line}`, { target, tier: "jump" })] });
     }
   });
   return section({ spans: [span("Comments:", { style: "heading" })] }, body);
@@ -257,7 +260,7 @@ export function showDoc(page: ShowPage, now: TimestampMs): Doc {
   for (const s of [
     includedChanges(summary.included, page.as, summary.kind === "trunk" && summary.truncated),
     remainingReview(summary.change, page.remaining),
-    commentsSection(page.comments),
+    commentsSection(summary.change, page.comments),
     summary.kind === "change"
       ? filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as }))
       : undefined,
