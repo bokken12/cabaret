@@ -30,6 +30,7 @@ type PageKind = Page["kind"];
 const PAGE_KINDS: { readonly [K in PageKind]: true } = {
   home: true,
   show: true,
+  reviews: true,
   review: true,
   diffs: true,
   diff: true,
@@ -65,7 +66,7 @@ function parseScope(when: string): Scope {
   }
   const chain = scope.startsWith("(") && scope.endsWith(")") ? scope.slice(1, -1) : scope;
   return chain.split(" || ").map((clause) => {
-    const page = /^cabaret\.page == '(\w+)'$/.exec(clause)?.[1];
+    const page = /^cabaret\.page == '([\w-]+)'$/.exec(clause)?.[1];
     if (page === undefined) {
       throw new Error(`unrecognized keybinding scope: ${scope}`);
     }

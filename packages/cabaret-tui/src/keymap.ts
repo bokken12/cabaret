@@ -9,7 +9,7 @@ export type Command =
   | "refresh"
   | "help"
   | "review"
-  | "diffs"
+  | "diff"
   | "mark"
   | "select"
   | "step-up"
@@ -51,7 +51,7 @@ export interface Binding {
   readonly counterpart?: string | undefined;
 }
 
-const ACTION_PAGES: readonly PageKind[] = ["home", "review", "show"];
+const ACTION_PAGES: readonly PageKind[] = ["home", "reviews", "show"];
 
 export const KEYMAP: readonly Binding[] = [
   { keys: ["enter"], command: "open-target", label: "Open Target at Cursor", counterpart: "cabaret.openTarget" },
@@ -59,32 +59,50 @@ export const KEYMAP: readonly Binding[] = [
   { keys: ["q"], command: "back", label: "Close Page", counterpart: "workbench.action.closeActiveEditor" },
   { keys: ["R"], command: "refresh", label: "Refresh", counterpart: "cabaret.refresh" },
   { keys: ["?"], command: "help", label: "Keybindings", counterpart: "cabaret.help" },
-  { keys: ["r"], command: "review", label: "Review", pages: ["show"], counterpart: "cabaret.review" },
+  {
+    keys: ["r"],
+    command: "review",
+    label: "Review",
+    pages: ["show", "home", "diffs", "diff"],
+    counterpart: "cabaret.review",
+  },
   {
     keys: ["d"],
-    command: "diffs",
-    label: "Review Diffs",
-    pages: ["show", "review"],
-    counterpart: "cabaret.reviewDiffs",
+    command: "diff",
+    label: "Diff",
+    pages: ["show", "home", "reviews", "review"],
+    counterpart: "cabaret.diff",
   },
   {
     keys: ["!", "m"],
     command: "mark",
     label: "Mark Reviewed",
-    pages: ["diff", "review"],
+    pages: ["review", "reviews"],
     counterpart: "cabaret.markReviewed",
   },
   // v stands beside V while every selection is line-wise; it takes the
   // character-wise half of vim's split when something consumes ranges.
   { keys: ["v"], command: "select", label: "Select Changes", pages: ["home"] },
   { keys: ["V"], command: "select", label: "Select Changes", pages: ["home"] },
-  { keys: ["^"], command: "step-up", label: "Step Up", pages: ["diff", "show"], counterpart: "cabaret.stepUp" },
-  { keys: ["$"], command: "step-down", label: "Step Down", pages: ["diff", "show"], counterpart: "cabaret.stepDown" },
+  {
+    keys: ["^"],
+    command: "step-up",
+    label: "Step Up",
+    pages: ["diff", "review", "show"],
+    counterpart: "cabaret.stepUp",
+  },
+  {
+    keys: ["$"],
+    command: "step-down",
+    label: "Step Down",
+    pages: ["diff", "review", "show"],
+    counterpart: "cabaret.stepDown",
+  },
   {
     keys: ["esc"],
     command: "step-outside",
     label: "Step Outside",
-    pages: ["diff", "diffs", "review", "show"],
+    pages: ["diff", "diffs", "review", "reviews", "show"],
     counterpart: "cabaret.stepOutside",
   },
   { keys: ["@"], command: "act-as", label: "Act as User", counterpart: "cabaret.actAs" },

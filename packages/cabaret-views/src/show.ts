@@ -164,7 +164,7 @@ function remainingReview(change: ChangeName, remaining: readonly ReviewerTally[]
   return section(
     { spans: [span("Remaining review:", { style: "heading" })] },
     remaining.map((tally) => ({
-      spans: [span("  "), span(tallyText(tally), { target: { kind: "review", change, as: tally.user } })],
+      spans: [span("  "), span(tallyText(tally), { target: { kind: "reviews", change, as: tally.user } })],
     })),
   );
 }
@@ -259,7 +259,13 @@ export function showDoc(page: ShowPage, now: TimestampMs): Doc {
     remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
     summary.kind === "change"
-      ? filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as }))
+      ? filesToReview(summary.reviewLeft, (file) => ({
+          kind: "file",
+          page: "review",
+          change: summary.change,
+          file,
+          as: page.as,
+        }))
       : undefined,
   ]) {
     if (s !== undefined) {

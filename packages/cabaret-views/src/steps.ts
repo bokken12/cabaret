@@ -49,9 +49,9 @@ export function stepSpan(
     style: style ?? stepStyle(step),
     target:
       step === "review"
-        ? { kind: "review", change, as }
+        ? { kind: "reviews", change, as }
         : step === "review in parent"
-          ? { kind: "review", change: parent, as }
+          ? { kind: "reviews", change: parent, as }
           : action !== undefined
             ? { kind: "action", change, action }
             : undefined,

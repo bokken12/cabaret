@@ -47,7 +47,7 @@ function scope(when: string): "all" | readonly string[] {
   if (when.includes("resourceScheme == cabaret")) {
     return "all";
   }
-  const pages = [...when.matchAll(/cabaret\.page == '(\w+)'/g)].map((match) => match[1] ?? "").sort();
+  const pages = [...when.matchAll(/cabaret\.page == '([\w-]+)'/g)].map((match) => match[1] ?? "").sort();
   if (pages.length === 0) {
     throw new Error(`no TUI reading of when clause: ${when}`);
   }

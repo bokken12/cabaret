@@ -25,7 +25,7 @@ test("styledRanges of an unstyled doc is empty", () => {
 
 test("linkRanges locates advertised links, skipping jump targets and empty spans", () => {
   const change = { kind: "change", change: parseBranchName("gizmo") } as const;
-  const file = { kind: "file", change: change.change, file: parseFilePath("api.ts") } as const;
+  const file = { kind: "file", page: "review", change: change.change, file: parseFilePath("api.ts") } as const;
   const location = { kind: "location", change: change.change, file: file.file, line: 3 } as const;
   const doc = {
     lines: [

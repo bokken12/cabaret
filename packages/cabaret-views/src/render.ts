@@ -11,13 +11,15 @@ import {
   diffsPage,
   reviewDoc,
   reviewPage,
+  reviewsDoc,
+  reviewsPage,
 } from "./review.js";
 import { showDoc, showPage } from "./show.js";
 
 /**
  * The diffs a render displayed: evidence a host records so `mark`'s viewed
- * check can credit the display. Listing files (the review page) is not
- * viewing; only rendered diffs report.
+ * check can credit the display. Listing files (the reviews and diffs pages)
+ * is not viewing; only rendered diffs report.
  */
 export interface ViewedDiffs {
   readonly change: ChangeName;
@@ -42,7 +44,7 @@ export interface RenderOptions {
   /** Called when the render displayed diffs, with what they showed. */
   readonly onViewed?: ((viewed: ViewedDiffs) => void) | undefined;
   /**
-   * Called with the snapshot a review, diffs, or diff page rendered from. A
+   * Called with the snapshot a review or diff page rendered from. A
    * host holds it beside the page, so a mark of the page records what it
    * displayed rather than whatever the change holds by then.
    */
@@ -60,36 +62,42 @@ export async function renderPage(backend: Backend, page: Page, options: RenderOp
       return homeDoc(await homePage(backend, page.as), options.now());
     case "show":
       return showDoc(await showPage(backend, page.change, page.as), options.now());
+    case "reviews": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      return reviewsDoc(reviewsPage(snapshot));
+    }
     case "review": {
       const snapshot = await changeSnapshot(backend, page.change, page.as);
       options.onSnapshot?.(snapshot);
-      return reviewDoc(reviewPage(snapshot));
-    }
-    case "diffs": {
-      const snapshot = await changeSnapshot(backend, page.change, page.as);
-      options.onSnapshot?.(snapshot);
-      const diffs = await diffsPage(backend, snapshot);
-      if (diffs.left !== undefined) {
-        const { tip, files } = diffs.left;
-        options.onViewed?.({
-          change: snapshot.change,
-          user: snapshot.user,
-          base: snapshot.base,
-          files: new Map(files.map(({ file }) => [file, tip])),
-        });
-      }
-      return diffsDoc(diffs, options.context);
-    }
-    case "diff": {
-      const snapshot = await changeSnapshot(backend, page.change, page.as);
-      options.onSnapshot?.(snapshot);
-      const file = await diffPage(backend, snapshot, page.file);
+      const file = await reviewPage(backend, snapshot, page.file);
       if (file.left !== undefined) {
         options.onViewed?.({
           change: snapshot.change,
           user: snapshot.user,
           base: snapshot.base,
           files: new Map([[page.file, file.left.tip]]),
+        });
+      }
+      return reviewDoc(file, options.context);
+    }
+    case "diffs": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      return diffsDoc(diffsPage(snapshot));
+    }
+    case "diff": {
+      const snapshot = await changeSnapshot(backend, page.change, page.as);
+      options.onSnapshot?.(snapshot);
+      const file = await diffPage(backend, snapshot, page.file);
+      // The full diff shows everything up to the tip, so it counts as
+      // having displayed the file for mark's asked-first check.
+      if (file.diff !== undefined) {
+        options.onViewed?.({
+          change: snapshot.change,
+          user: snapshot.user,
+          base: snapshot.base,
+          files: new Map([[page.file, file.diff.tip]]),
         });
       }
       return diffDoc(file, options.context);

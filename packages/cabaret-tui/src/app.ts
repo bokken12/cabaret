@@ -522,14 +522,10 @@ export class App {
         return "continue";
       }
       case "review":
-        if (view.page.kind === "show") {
-          await this.open({ kind: "review", change: view.page.change, as: view.page.as });
-        }
+        await this.enterFamily(view, "review");
         return "continue";
-      case "diffs":
-        if (view.page.kind === "show" || view.page.kind === "review") {
-          await this.open({ kind: "diffs", change: view.page.change, as: view.page.as });
-        }
+      case "diff":
+        await this.enterFamily(view, "diff");
         return "continue";
       case "mark":
         await this.markAtCursor(view);
@@ -676,14 +672,14 @@ export class App {
         return "continue";
       }
       case "step-up":
-        if (view.page.kind === "diff") {
+        if (view.page.kind === "review" || view.page.kind === "diff") {
           await this.stepToFile(view, "prev");
         } else {
           await this.showParent(view);
         }
         return "continue";
       case "step-down":
-        if (view.page.kind === "diff") {
+        if (view.page.kind === "review" || view.page.kind === "diff") {
           await this.stepToFile(view, "next");
         } else {
           await this.showChild(view);
@@ -753,11 +749,16 @@ export class App {
       case "change":
         await this.open({ kind: "show", change: target.change, as: target.as });
         break;
-      case "review":
-        await this.open({ kind: "review", change: target.change, as: target.as });
+      case "reviews":
+        await this.open({ kind: "reviews", change: target.change, as: target.as });
         break;
       case "file":
-        await this.open({ kind: "diff", change: target.change, file: target.file, as: target.as });
+        await this.open({
+          kind: target.page === "review" ? "review" : "diff",
+          change: target.change,
+          file: target.file,
+          as: target.as,
+        });
         break;
       case "location":
         this.note = await this.effects.visitLocation(target);
@@ -791,7 +792,7 @@ export class App {
   }
 
   /**
-   * Mark a file reviewed: the diff page's file, or on the review page the
+   * Mark a file reviewed: the review page's file, or on the reviews page the
    * file the cursor's line resolves to. Marking as a borrowed identity, a
    * never-displayed diff, and reviewing that excludes the user each ask
    * first, mirroring the mark command's overrides.
@@ -799,9 +800,9 @@ export class App {
   private markAtCursor(view: View): Promise<void> | void {
     const page = view.page;
     let file: FilePath;
-    if (page.kind === "diff") {
+    if (page.kind === "review") {
       file = page.file;
-    } else if (page.kind === "review") {
+    } else if (page.kind === "reviews") {
       const target = this.cursorTarget(view);
       if (target?.kind !== "file") {
         this.note = "no file at the cursor";
@@ -877,14 +878,14 @@ export class App {
     for (const other of this.stack) {
       other.stale = true;
     }
-    if (view.page.kind === "diff") {
+    if (view.page.kind === "review") {
       // The marked page has served its purpose: move on to the next file
-      // left, or back to the review page when review is done.
+      // left, or back to the reviews page when review is done.
       await this.replace(
         view,
         result.next === undefined
-          ? { kind: "review", change: view.page.change, as: view.page.as }
-          : { kind: "diff", change: view.page.change, file: result.next, as: view.page.as },
+          ? { kind: "reviews", change: view.page.change, as: view.page.as }
+          : { kind: "review", change: view.page.change, file: result.next, as: view.page.as },
       );
     } else {
       await this.refresh(view);
@@ -1178,9 +1179,49 @@ export class App {
     });
   }
 
-  /** Step a diff page to the file beside it — how a reviewer walks the files left. */
+  /**
+   * The r and d keys: enter `family` from the show page or a home row, or
+   * swap the current review or diff page for its counterpart in the other
+   * family — the same change or file, seen through the other lens. The swap
+   * replaces the page, so stepping outside afterwards does not walk back
+   * through the view left behind.
+   */
+  private async enterFamily(view: View, family: "review" | "diff"): Promise<void> {
+    const page = view.page;
+    const list = family === "review" ? ("reviews" as const) : ("diffs" as const);
+    switch (page.kind) {
+      case "show":
+        await this.open({ kind: list, change: page.change, as: page.as });
+        return;
+      case "home": {
+        const change = this.singleChange(view, family);
+        if (change !== undefined) {
+          await this.open({ kind: list, change, as: page.as });
+        }
+        return;
+      }
+      case "reviews":
+      case "diffs":
+        if (page.kind !== list) {
+          await this.replace(view, { kind: list, change: page.change, as: page.as });
+        }
+        return;
+      case "review":
+      case "diff":
+        if (page.kind !== family) {
+          await this.replace(view, { kind: family, change: page.change, file: page.file, as: page.as });
+        }
+        return;
+    }
+  }
+
+  /**
+   * Step a per-file page to the file beside it — how a reviewer walks a
+   * change's files. A review page walks the files left; a diff page walks
+   * every changed file.
+   */
   private async stepToFile(view: View, side: "prev" | "next"): Promise<void> {
-    if (view.page.kind !== "diff") {
+    if (view.page.kind !== "review" && view.page.kind !== "diff") {
       return;
     }
     const page = view.page;
@@ -1188,17 +1229,21 @@ export class App {
       this.note = "the page rendered without its review state; refresh first";
       return;
     }
-    const neighbors = neighborFiles(view.snapshot.left, page.file);
+    const files =
+      page.kind === "review" ? [...view.snapshot.left.keys()] : view.snapshot.changed.map(({ path }) => path);
+    const neighbors = neighborFiles(files, page.file);
     if (neighbors === undefined) {
-      this.note = `nothing left to review in ${page.file}`;
+      this.note = page.kind === "review" ? `nothing left to review in ${page.file}` : `no changes to ${page.file}`;
       return;
     }
     const file = neighbors[side];
     if (file === undefined) {
-      this.note = `${page.file} is the ${side === "prev" ? "first" : "last"} file left`;
+      this.note = `${page.file} is the ${side === "prev" ? "first" : "last"} file ${
+        page.kind === "review" ? "left" : "changed"
+      }`;
       return;
     }
-    await this.replace(view, { kind: "diff", change: page.change, file, as: page.as });
+    await this.replace(view, { kind: page.kind, change: page.change, file, as: page.as });
   }
 
   /**

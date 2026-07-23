@@ -38,9 +38,6 @@ function literal(text: string): string {
 /** A diff page's hunk header: `-1,5 +1,6`, with a 4-way header's trailing role names allowed. */
 const hunkHeader = "-\\d+,\\d+ \\+\\d+,\\d+";
 
-/** A multi-file page's bar naming a file — or a moved (`->`) or copied (`=>`) file's source too — as `fileBar` renders it. */
-const fileBarLine = "@+ \\S+(?: [-=]> \\S+)? @+$";
-
 /**
  * A 4-way page's hint sentences sit between hunks, so they too must close an
  * open hunk region. The set is closed and shared with the renderer, which
@@ -50,15 +47,15 @@ const hintLine = `(?:${Object.values(Patdiff4.Header.hint).flat().map(literal).j
 
 /**
  * The TextMate grammar for cabaret diff pages. A file's section opens at the
- * line naming it — a diff page's title or a multi-file page's @-bar — and
- * each hunk's body is its own embedded region of the file's language, so an
- * unterminated construct at the end of one hunk cannot bleed into the next.
- * Hunks are begin/while regions: an end pattern would go unchecked while an
- * embedded rule (an open block comment, say) sits on the stack, but a while
- * condition is re-checked at every line start and pops the whole stack at
- * the next structural line. Structural lines themselves stay unscoped: they
- * are chrome, not code. A file of a language nobody claims opens no section,
- * leaving its hunks plain.
+ * page title naming it, and — a page showing one file — runs to the end of
+ * the buffer. Each hunk's body is its own embedded region of the file's
+ * language, so an unterminated construct at the end of one hunk cannot
+ * bleed into the next. Both are begin/while regions: an end pattern would
+ * go unchecked while an embedded rule (an open block comment, say) sits on
+ * the stack, but a while condition is re-checked at every line start and
+ * pops the whole stack at the next structural line. Structural lines
+ * themselves stay unscoped: they are chrome, not code. A file of a language
+ * nobody claims opens no section, leaving its hunks plain.
  */
 export function pageGrammar(languages: readonly EmbeddedLanguage[]): PageGrammar {
   const patterns: GrammarRule[] = [];
@@ -73,14 +70,14 @@ export function pageGrammar(languages: readonly EmbeddedLanguage[]): PageGrammar
     }
     patterns.push({ include: `#file-${id}` });
     repository[`file-${id}`] = {
-      // A moved or copied file's header names its source too; the destination claims the language.
-      begin: `^(?:@+ )?(?:\\S+ [-=]> )?(?:${names.join("|")})(?: @+| in \\S.*)$`,
-      end: `(?=^${fileBarLine})`,
+      // A moved or copied file's title names its source too; the destination claims the language.
+      begin: `^(?:\\S+ [-=]> )?(?:${names.join("|")}) in \\S.*$`,
+      while: "(^|\\G)",
       patterns: [{ include: `#hunks-${id}` }],
     };
     repository[`hunks-${id}`] = {
       begin: `^${hunkHeader}.*$`,
-      while: `(^|\\G)(?!${hunkHeader})(?!${fileBarLine})(?!${hintLine})`,
+      while: `(^|\\G)(?!${hunkHeader})(?!${hintLine})`,
       contentName: `meta.embedded.block.${id}`,
       patterns: [{ include: scope }],
     };

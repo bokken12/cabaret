@@ -45,8 +45,15 @@ export type Style =
 export type Target =
   | { readonly kind: "change"; readonly change: ChangeName; readonly as?: UserName | undefined }
   /** A user's review of `change`: the files they have left to read. */
-  | { readonly kind: "review"; readonly change: ChangeName; readonly as?: UserName | undefined }
-  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath; readonly as?: UserName | undefined }
+  | { readonly kind: "reviews"; readonly change: ChangeName; readonly as?: UserName | undefined }
+  /** One file of `change`, on the `page` family's per-file page: its review left, or its full diff. */
+  | {
+      readonly kind: "file";
+      readonly page: "review" | "diff";
+      readonly change: ChangeName;
+      readonly file: FilePath;
+      readonly as?: UserName | undefined;
+    }
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */
