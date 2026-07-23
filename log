@@ -2,3 +2,4 @@
 {"timestamp":1784831142446,"user":"crouton.ai@gmail.com","action":{"kind":"set-base","base":"08addbe1af362ebcd5f50f68c6b4613b6b2486c7"}}
 {"timestamp":1784831142446,"user":"crouton.ai@gmail.com","action":{"kind":"set-owner","owner":"crouton.ai@gmail.com"}}
 {"timestamp":1784831142446,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+{"timestamp":1784833139699,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
