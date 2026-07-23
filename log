@@ -8,3 +8,4 @@
 {"timestamp":1784817106621,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
 {"timestamp":1784817313863,"user":"me@joel.place","action":{"kind":"set-parent","parent":"main"}}
 {"timestamp":1784817398818,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"main"}}
+{"timestamp":1784821911161,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-cli/src/commands/rebase.ts","base":"fc234a56a0114982a5cbf496dd1930235bb707fc","tip":"ba8f2ffc76586cb7b7b80b7785d4f65ccb44aa60"}}
