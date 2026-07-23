@@ -860,6 +860,20 @@ test("each doc closes with a dimmed line dating the last fetch, when one is know
   );
   expect(docText(show).split("\n").slice(-2)).toEqual(["", "fetched 5h ago"]);
   expect(show.lines.at(-1)?.spans).toEqual(footer);
+  // With hints on, the fetch age and the help key share the one closing line.
+  const hinted = showDoc(
+    {
+      as: undefined,
+      summary: summary("gizmo", { origin: "behind", nextStep: "sync" }),
+      comments: [],
+      workspace: undefined,
+      remaining: [],
+      fetched,
+    },
+    NOW,
+    { steps: new Map(), help: "?" },
+  );
+  expect(docText(hinted).split("\n").slice(-2)).toEqual(["", "fetched 5h ago · ? for keybindings"]);
 });
 
 test("next steps an action performs link to running it, the rest staying bare", () => {
@@ -982,7 +996,9 @@ test("hints annotate next steps with their keys, steps without keys staying bare
     ├─────────┼────────────────┤
     │ gizmo   │ rebase (! r b) │
     │ widgets │ add code       │
-    ╰─────────┴────────────────╯"
+    ╰─────────┴────────────────╯
+
+    ? for keybindings"
   `);
   // The keys stay outside the step's own span, dimmed and inert.
   const stepRow =
@@ -1019,6 +1035,8 @@ test("hints annotate next steps with their keys, steps without keys staying bare
     │ parent    │ main              │
     │ tip       │ 222222222222      │
     │ base      │ 111111111111      │
-    ╰───────────┴───────────────────╯"
+    ╰───────────┴───────────────────╯
+
+    ? for keybindings"
   `);
 });
