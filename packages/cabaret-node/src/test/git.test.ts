@@ -177,6 +177,21 @@ test("cache reads answer what writes stored, under the shared git dir", async ()
   );
 });
 
+test("concurrent cache writes to one key land whole", async () => {
+  const backend = await GitBackend.open(repo);
+  await Promise.all(
+    Array.from({ length: 16 }, (_, i) => backend.writeCache("summary/alice/race.json", `version ${i}`)),
+  );
+  expect(await backend.readCache("summary/alice/race.json")).toMatch(/^version \d+$/);
+});
+
+test("a key too long for the filesystem never stores, and never fails", async () => {
+  const backend = await GitBackend.open(repo);
+  const key = `summary/alice/${"x".repeat(300)}.json`;
+  await backend.writeCache(key, "content");
+  expect(await backend.readCache(key)).toBeUndefined();
+});
+
 test("changeBase is the last revision shared with the change's parent", async () => {
   const backend = await GitBackend.open(repo);
   const root = await git("rev-list", "--max-parents=0", "HEAD");

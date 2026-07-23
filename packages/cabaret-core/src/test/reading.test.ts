@@ -131,6 +131,21 @@ test("reading entries round-trip through their wire format", () => {
   );
 });
 
+test("reads of prototype-named refs survive the wire format", () => {
+  const traps = ["__proto__", "constructor", "toString"].map(parseBranchName);
+  const entry: ReadingEntry = {
+    ...featureEntry(),
+    change: traps[0] as ChangeName,
+    reads: {
+      heads: new Map(traps.map((name, index) => [name, fake(String(index))])),
+      origins: new Map([[traps[0] as ChangeName, undefined]]),
+      logs: new Map(traps.map((name) => [name, fake("c")])),
+      absent: new Set(),
+    },
+  };
+  expect(parseReadingEntry(formatReadingEntry(entry))).toEqual(entry);
+});
+
 test("garbage and other versions' entries read as absent", () => {
   const stored = fc.sample(entries(), { numRuns: 1, seed: 7 })[0];
   if (stored === undefined) {
