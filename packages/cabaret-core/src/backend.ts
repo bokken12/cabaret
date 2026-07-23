@@ -570,6 +570,12 @@ export interface Backend {
    */
   writeCache(key: string, content: string): Promise<void>;
 
+  /** Every key under `prefix/` with content stored, in no particular order. */
+  listCache(prefix: string): Promise<readonly string[]>;
+
+  /** Remove whatever `writeCache` stored at `key`; nothing there is fine. */
+  deleteCache(key: string): Promise<void>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
 

@@ -123,6 +123,8 @@ export function pinBackend(base: Backend, snapshot: RefSnapshot): PinnedBackend 
     deleteLog: () => unavailable("deleteLog"),
     readCache: () => unavailable("readCache"),
     writeCache: () => unavailable("writeCache"),
+    listCache: () => unavailable("listCache"),
+    deleteCache: () => unavailable("deleteCache"),
   };
   return { backend, reads: { heads, origins, logs, absent } };
 }

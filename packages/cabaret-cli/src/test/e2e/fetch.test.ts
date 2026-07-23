@@ -1,3 +1,5 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
 import { addChange, makeClone, makeRepo, shownComments, shownLog } from "./fixture.js";
@@ -116,6 +118,23 @@ test("fetch with nothing to sync reports zero changes", async () => {
     stderr: "",
     exitCode: 0,
   });
+});
+
+test("fetch warms the reading cache and prunes entries of changes now gone", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  const gitDir = await repo.git("rev-parse", "--path-format=absolute", "--git-common-dir");
+  const dir = join(gitDir, "cabaret", "cache", "summary", "alice%40example%2Ecom");
+  // No page has rendered, yet the fetch leaves gadget's reading stored.
+  await repo.cabaret("fetch");
+  const warmed = JSON.parse(await readFile(join(dir, "gadget.json"), "utf8"));
+  expect(warmed.change).toBe("gadget");
+  expect(warmed.summary.nextStep).toBe("review");
+  // An entry whose change no longer exists — however it got there — goes.
+  await writeFile(join(dir, "vanished.json"), JSON.stringify({ ...warmed, change: "vanished" }));
+  await repo.cabaret("fetch");
+  await expect(readFile(join(dir, "vanished.json"), "utf8")).rejects.toThrow("ENOENT");
+  expect(JSON.parse(await readFile(join(dir, "gadget.json"), "utf8"))).toEqual(warmed);
 });
 
 test("fetch fast-forwards a branch behind origin unless a dirty workspace holds it", async () => {
