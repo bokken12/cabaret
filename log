@@ -6,3 +6,4 @@
 {"timestamp":1784817106621,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-forge","forge":"github.com/bokken12/cabaret","id":273}}
 {"timestamp":1784817106621,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"fix-and-commit"}}
 {"timestamp":1784817106621,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
+{"timestamp":1784817313863,"user":"me@joel.place","action":{"kind":"set-parent","parent":"main"}}
