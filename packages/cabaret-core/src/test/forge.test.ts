@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { expect, test, vi } from "vitest";
 import {
   type Backend,
+  commentHash,
   currentComments,
   type Forge,
   type ForgeComment,
@@ -161,6 +162,34 @@ test("planPull imports a forge-side edit of a pushed comment as superseding its 
     posts: [],
     updates: [],
   });
+});
+
+test("naming any version's hash names the comment: stray reposts fold into the group", async () => {
+  const original = comment(1748000000000, alice, "ship it");
+  const edit = comment(1750000000000, alice, "ship it, once the flag lands", undefined, await commentHash(original));
+  // An old push posted the edit as its own comment, marked with the edit
+  // entry's hash rather than the group's key.
+  const strayBody = `**alice@example.com:**\n\nship it, once the flag lands\n\n<!-- cabaret:${await commentHash(edit)} -->`;
+  const stray = forgeComment("101", carol, strayBody, 1750000000005);
+  const pull = await planPull(FORGE, [original, edit], [stray]);
+  // The marker resolves through the edit entry to its group: the stray is a
+  // reflection of the edit, mirrored without outranking it.
+  expect(pull).toEqual({
+    additions: [
+      comment(
+        1750000000000,
+        alice,
+        "ship it, once the flag lands",
+        { forge: FORGE, id: "101" },
+        await commentHash(original),
+      ),
+    ],
+    news: 0,
+  });
+  // One comment displays, not two.
+  expect((await currentComments([original, edit, ...pull.additions])).map(({ text }) => text)).toEqual([
+    "ship it, once the flag lands",
+  ]);
 });
 
 test("a forge revert to older text imports past the mirror, whatever its stamp reads", async () => {
