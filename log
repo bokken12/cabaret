@@ -32,3 +32,5 @@
 {"timestamp":1784829283976,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/show.ts","base":"9dd990613a6a90a6481016c5769329f3fc406a0d","tip":"aa7aafadef87766258868481ba964f43edbc74f7"}}
 {"timestamp":1784829285689,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-views/src/test/views.test.ts","base":"9dd990613a6a90a6481016c5769329f3fc406a0d","tip":"aa7aafadef87766258868481ba964f43edbc74f7"}}
 {"timestamp":1784829295351,"user":"me@joel.place","action":{"kind":"comment","text":"**crouton.ai@gmail.com:**\n\nTesting the new edit flow: rewritten in place — the marker and comment id survive.\n\nEDIT","edits":"1312f87cc6911522757cae9361e87bc1d7db01c482f000c439294c7b935c9f1d"}}
+{"timestamp":1784829512827,"user":"me@joel.place","action":{"kind":"land","merge":"32fb7f43e4af81e8f66a88fe42bbf3519c9789da"}}
+{"timestamp":1784829512827,"user":"me@joel.place","action":{"kind":"set-archived","archived":true}}
