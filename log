@@ -10,3 +10,4 @@
 {"timestamp":1784816359250,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-forge","forge":"github.com/bokken12/cabaret","id":272}}
 {"timestamp":1784816359250,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"main"}}
 {"timestamp":1784816359250,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
+{"timestamp":1784816600177,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-cli/cli-reference.md","base":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2","tip":"fc234a56a0114982a5cbf496dd1930235bb707fc"}}
