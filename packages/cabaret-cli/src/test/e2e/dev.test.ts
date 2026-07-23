@@ -62,12 +62,12 @@ test("review-all marks every owed file, then finds nothing owed", async () => {
     ╰────────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────────┬──────╮
-    │ change     │ note │
-    ├────────────┼──────┤
-    │ widgets    │      │
-    │ └─ gadgets │      │
-    ╰────────────┴──────╯
+    ╭────────────┬─────────╮
+    │ change     │ note    │
+    ├────────────┼─────────┤
+    │ widgets    │         │
+    │ └─ gadgets │ current │
+    ╰────────────┴─────────╯
     "
   `);
   expect(await repo.cabaret("dev", "review-all")).toEqual({

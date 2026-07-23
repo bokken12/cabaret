@@ -202,7 +202,11 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
       workspaces: [
         {
           change: gadget.change,
-          held: { workspace: { path: "/src/widgets", display: ".", dirty: undefined }, landed: false, archived: false },
+          held: {
+            workspace: { path: "/src/widgets", display: ".", current: true, dirty: undefined },
+            landed: false,
+            archived: false,
+          },
           children: [],
         },
         {
@@ -212,7 +216,12 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
             {
               change: relic.change,
               held: {
-                workspace: { path: "/src/widgets-relic", display: "../widgets-relic", dirty: dirtyFor(3 * 24 * 60) },
+                workspace: {
+                  path: "/src/widgets-relic",
+                  display: "../widgets-relic",
+                  current: false,
+                  dirty: dirtyFor(3 * 24 * 60),
+                },
                 landed: true,
                 archived: false,
               },
@@ -247,7 +256,7 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
     ╭──────────┬──────────────────╮
     │ change   │ note             │
     ├──────────┼──────────────────┤
-    │ gadget   │                  │
+    │ gadget   │ current          │
     │ widgets  │                  │
     │ └─ relic │ dirty 3d, landed │
     ╰──────────┴──────────────────╯"
@@ -439,7 +448,7 @@ test("showDoc renders a trunk from its history alone, newest lands first, an ell
         truncated: true,
       },
       comments: [],
-      workspace: { path: "/src/widgets", display: ".", dirty: undefined },
+      workspace: { path: "/src/widgets", display: ".", current: true, dirty: undefined },
       remaining: [],
       fetched: undefined,
     },
@@ -760,7 +769,7 @@ test("showDoc rows the change's workspace, noting dirtiness and its age", () => 
         as: undefined,
         summary: summary("widgets", {}),
         comments: [],
-        workspace: { path: "/src/widgets-tree", display: "../widgets-tree", dirty },
+        workspace: { path: "/src/widgets-tree", display: "../widgets-tree", current: false, dirty },
         remaining: [],
         fetched: undefined,
       },

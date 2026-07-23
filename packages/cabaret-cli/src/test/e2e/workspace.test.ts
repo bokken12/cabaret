@@ -55,12 +55,12 @@ test("workspace add creates a sibling working tree that dir, list, and home repo
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬──────╮
-    │ change │ note │
-    ├────────┼──────┤
-    │ main   │      │
-    │ gizmo  │      │
-    ╰────────┴──────╯
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ main   │ current │
+    │ gizmo  │         │
+    ╰────────┴─────────╯
     "
   `);
 });
@@ -141,12 +141,12 @@ test("a landed change stays in the home workspaces section until its workspace i
     ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬────────╮
-    │ change │ note   │
-    ├────────┼────────┤
-    │ main   │        │
-    │ gizmo  │ landed │
-    ╰────────┴────────╯
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ main   │ current │
+    │ gizmo  │ landed  │
+    ╰────────┴─────────╯
     "
   `);
   await repo.cabaret("workspace", "remove", "gizmo");

@@ -286,8 +286,9 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 
 /**
  * The workspaces section: a row per change checked out on this device, in its
- * stack. An ancestor kept only to situate dims; a landed or archived note
- * wears nudge paint, inviting the workspace's reclaiming.
+ * stack. An ancestor kept only to situate dims; the workspace the page was
+ * opened from says "current"; a landed or archived note wears nudge paint,
+ * inviting the workspace's reclaiming.
  */
 function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined, now: TimestampMs): Node {
   const rows = treeRows(forest).map(({ node: { change, held }, guide }): readonly Cell[] => {
@@ -297,6 +298,7 @@ function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | unde
       held === undefined
         ? []
         : [
+            ...(held.workspace.current ? ["current"] : []),
             ...(held.workspace.dirty === undefined ? [] : [dirtyNote(held.workspace.dirty, now)]),
             ...(held.landed ? ["landed"] : []),
             ...(held.archived ? ["archived"] : []),

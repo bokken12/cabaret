@@ -38,6 +38,8 @@ export interface WorkspaceNote {
   readonly path: string;
   /** The path as read from the current workspace, for display. */
   readonly display: string;
+  /** Whether this is the workspace the page was opened from. */
+  readonly current: boolean;
   readonly dirty: Dirty | undefined;
 }
 
@@ -51,7 +53,7 @@ export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<Chan
   const notes = new Map<ChangeName, WorkspaceNote>();
   for (const { path, change, dirty } of await backend.workspaces()) {
     if (change !== undefined) {
-      notes.set(change, { path, display: displayPath(backend.root, path), dirty });
+      notes.set(change, { path, display: displayPath(backend.root, path), current: path === backend.root, dirty });
     }
   }
   return notes;
