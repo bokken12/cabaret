@@ -4,3 +4,4 @@
 {"timestamp":1784832465059,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"none"}}
 {"timestamp":1784834402075,"user":"crouton.ai@gmail.com","action":{"kind":"set-parent","parent":"makerepo-hosts-main"}}
 {"timestamp":1784834407031,"user":"crouton.ai@gmail.com","action":{"kind":"set-base","base":"2ad7bbdb365511469a8174e27e81a030d1c8639c"}}
+{"timestamp":1784835669434,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
