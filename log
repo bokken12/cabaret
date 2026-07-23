@@ -12,3 +12,4 @@
 {"timestamp":1784815339136,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
 {"timestamp":1784816133496,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/help.ts","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"7d6eb07598ec70a5c4fb22d3bbfb29b3b4da816d"}}
 {"timestamp":1784816147454,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/test/help.test.ts","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
+{"timestamp":1784816150404,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-cli/cli-reference.md","base":"04629500f369c40f1d07d51b6dec96c99a00f9db","tip":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
