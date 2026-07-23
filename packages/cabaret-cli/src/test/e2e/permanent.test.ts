@@ -63,7 +63,11 @@ test("landing a permanent change keeps it live at the landing commit", async () 
   await addChange(repo, "umbrella");
   await repo.cabaret("permanent", "set", "true");
   await repo.cabaret("mark", "--tip", "umbrella", "umbrella.txt");
-  expect(await repo.cabaret("land", "umbrella")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "umbrella")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   const merge = await repo.git("rev-parse", "main");
   // The branch advanced to the land merge and the base pinned there: an
   // empty diff, ready for the next cycle of work.
@@ -90,7 +94,11 @@ test("a permanent umbrella keeps its children and lands cycle after cycle", asyn
   expect(leafLog).toContain('"kind":"set-parent","parent":"umbrella"');
   expect(leafLog).not.toContain('"kind":"set-parent","parent":"main"');
   // The umbrella grew by the leaf's land; its second cycle lands that into main.
-  expect(await repo.cabaret("land", "umbrella")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "umbrella")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.git("show", "main:leaf.txt")).toBe("leaf work");
   const log = (await repo.cabaret("dev", "log", "umbrella")).stdout;
   expect(log.match(/"kind":"land"/g)?.length).toBe(2);
@@ -104,7 +112,11 @@ test("a permanent change squash-lands and carries on append-only", async () => {
   await repo.cabaret("permanent", "set", "true");
   await repo.cabaret("mark", "--tip", "umbrella", "umbrella.txt");
   const oldTip = await repo.git("rev-parse", "umbrella");
-  expect(await repo.cabaret("land", "umbrella")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "umbrella")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   const squash = await repo.git("rev-parse", "main");
   // The squash descends from none of the branch's history, so it merged in:
   // the old tip stays an ancestor, and the branch's tree matches main's.
@@ -116,7 +128,7 @@ test("a permanent change squash-lands and carries on append-only", async () => {
   await repo.write("umbrella.txt", "umbrella work v2\n");
   await repo.git("commit", "-qam", "second cycle");
   expect(await repo.cabaret("land", "umbrella", "--even-though-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });

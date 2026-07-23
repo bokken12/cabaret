@@ -406,7 +406,11 @@ test("land into a plain branch that is not a change", async () => {
   await repo.write("feature.txt", "feature work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "feature work");
-  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   // All fixture commits share one pinned date, so pin the order too.
   expect(await repo.git("log", "--topo-order", "--format=%s", "main")).toBe("Land feature\nfeature work\nroot");
 });
@@ -572,7 +576,7 @@ test("a range lands the whole chain, deepest first", async () => {
   await addChange(repo, "c");
   const _cTip = await repo.git("rev-parse", "c");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -645,7 +649,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
       "--even-though-parent-unreviewed",
     ),
   ).toEqual({
-    stdout: "",
+    stdout: 'pushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -677,7 +681,7 @@ test("landing a change reparents its children onto where it landed", async () =>
   await addChange(repo, "gizmo");
   await repo.cabaret("create", "widget", "--parent", "gadget");
   expect(await repo.cabaret("land", "gadget", "--even-though-unreviewed")).toEqual({
-    stdout: 'reparented "gizmo" onto "main"\nreparented "widget" onto "main"\n',
+    stdout: 'pushed "main" to origin\nreparented "gizmo" onto "main"\nreparented "widget" onto "main"\n',
     stderr: "",
     exitCode: 0,
   });
@@ -706,7 +710,7 @@ test("landing leaves landed children where they landed", async () => {
   await repo.cabaret("land", "child", "--even-though-unreviewed");
   const _childMerge = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "parent", "--even-though-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -756,7 +760,7 @@ test("a range land carries an outside child down with each landing", async () =>
   const _bTip = await repo.git("rev-parse", "b");
   await repo.cabaret("create", "d", "--parent", "b");
   expect(await repo.cabaret("land", "main..b", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: 'reparented "d" onto "a"\nreparented "d" onto "main"\n',
+    stdout: 'reparented "d" onto "a"\npushed "main" to origin\nreparented "d" onto "main"\n',
     stderr: "",
     exitCode: 0,
   });
@@ -896,5 +900,9 @@ test("land into a reviewed parent and onto a trunk parent both pass the parent c
   await repo.cabaret("mark", "--tip", "HEAD", "child.txt");
   expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   // The parent's own parent is main, a trunk with no log: it owes nothing.
-  expect(await repo.cabaret("land", "parent")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "parent")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
 });

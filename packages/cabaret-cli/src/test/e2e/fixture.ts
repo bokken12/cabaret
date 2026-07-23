@@ -159,12 +159,12 @@ function wrapRepo(dir: string, forge: Forge | undefined, clockStart: number): Te
 
 /**
  * A throwaway repo on `main` with one empty root commit, the identity
- * `alice@example.com`, and a bare `origin` remote, removed when the current
- * test finishes. Each repo's clock starts at a fixed epoch and ticks one
- * millisecond per read, so all command output is deterministic. `forge`, when
- * given, is what the `gh` commands talk to; without it they fail. `nest`
- * places the repo in a subdirectory of that name, so sibling workspaces get
- * deterministic relative paths.
+ * `alice@example.com`, and a bare `origin` remote hosting `main`, removed
+ * when the current test finishes. Each repo's clock starts at a fixed epoch
+ * and ticks one millisecond per read, so all command output is
+ * deterministic. `forge`, when given, is what the `gh` commands talk to;
+ * without it they fail. `nest` places the repo in a subdirectory of that
+ * name, so sibling workspaces get deterministic relative paths.
  */
 export async function makeRepo(forge?: Forge, nest?: string): Promise<TestRepo> {
   let dir = await tempDir("cabaret-e2e-");
@@ -180,6 +180,9 @@ export async function makeRepo(forge?: Forge, nest?: string): Promise<TestRepo> 
   const origin = await tempDir("cabaret-e2e-origin-");
   await execFileAsync("git", ["init", "-q", "--bare", origin]);
   await repo.git("remote", "add", "origin", origin);
+  // Hosted like any real trunk: forge changes target origin's copy of the
+  // parent, so a trunk origin never heard of would defer them all.
+  await repo.git("push", "-q", "origin", "main");
   if (forge instanceof FakeForge) {
     forge.origin = origin;
   }

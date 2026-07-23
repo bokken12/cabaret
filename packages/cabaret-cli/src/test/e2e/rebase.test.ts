@@ -194,7 +194,11 @@ test("a change lands cleanly after a rebase", async () => {
   await repo.git("commit", "-qm", "trunk work");
   expect(await repo.cabaret("rebase", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   await repo.cabaret("mark", "--tip", "feature", "feature.txt", "--change", "feature");
-  expect(await repo.cabaret("land", "feature")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "feature")).toEqual({
+    stdout: 'pushed "main" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.git("show", "main:feature.txt")).toBe("feature work");
   expect(await repo.git("show", "main:trunk.txt")).toBe("trunk work");
 });
