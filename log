@@ -18,3 +18,4 @@
 {"timestamp":1784829575043,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/keybindings-reference.md","base":"aa7aafadef87766258868481ba964f43edbc74f7","tip":"65f0a3b50518cbe17be1185a8692a285c60ff349"}}
 {"timestamp":1784829577095,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/package.json","base":"aa7aafadef87766258868481ba964f43edbc74f7","tip":"65f0a3b50518cbe17be1185a8692a285c60ff349"}}
 {"timestamp":1784829630106,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/extension.ts","base":"aa7aafadef87766258868481ba964f43edbc74f7","tip":"65f0a3b50518cbe17be1185a8692a285c60ff349"}}
+{"timestamp":1784829631365,"user":"me@joel.place","action":{"kind":"review","file":"packages/cabaret-vscode/src/test/help.test.ts","base":"aa7aafadef87766258868481ba964f43edbc74f7","tip":"65f0a3b50518cbe17be1185a8692a285c60ff349"}}
