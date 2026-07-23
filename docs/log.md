@@ -23,6 +23,6 @@ Where the `action` may be any of (incomplete)
 - `forget` a `file`
     - possibly this could be melded into `review`?
 - `land` the change, recording the `merge` commit that landed it in the parent; the change is frozen from then on, though review state may still be recorded
-- `comment` with `text`; an optional `edits` names the hash of the entry it supersedes, so versions of one comment display as the latest
+- `comment` with `text`; an optional `edits` names the comment it is a new version of (the original entry's hash, or the forge object for a forge-native comment), so versions of one comment display as the latest
 
 Logs entries written by one version of Cabaret must always be readable by all future versions of Cabaret, and so actions will likely be versioned. We do not make the same guarantee that newer versions always be readable by older versions.

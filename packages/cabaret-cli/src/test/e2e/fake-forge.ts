@@ -237,6 +237,10 @@ export class FakeForge implements Forge {
     this.comment(id, this.tokenLogin, body);
   }
 
+  async updateComment(id: ForgeChangeId, comment: string, body: string): Promise<void> {
+    this.edit(id, comment, body);
+  }
+
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
     const pr = this.pr(id);
     let moved = false;

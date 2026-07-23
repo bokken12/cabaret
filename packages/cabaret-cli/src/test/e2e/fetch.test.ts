@@ -104,8 +104,8 @@ test("concurrent work on two machines merges into one identical log", async () =
   const aliceLog = await alice.cabaret("dev", "log", "widgets");
   expect(await bob.cabaret("dev", "log", "widgets")).toEqual(aliceLog);
   expect(await shownComments(alice, "widgets")).toBe(
-    "Comments:\n  2025-05-23T11:33:20.005Z alice@example.com\n    does this handle empty diffs?\n\n" +
-      "  2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",
+    "Comments:\n  0c0b9bca 2025-05-23T11:33:20.005Z alice@example.com\n    does this handle empty diffs?\n\n" +
+      "  9c2701ae 2025-05-23T11:35:00.000Z bob@example.com\n    looks good overall\n",
   );
 });
 

@@ -82,7 +82,7 @@ test("fetch imports comments under forge identities, and again is a no-op", asyn
     exitCode: 0,
   });
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-06-15T15:06:40.001Z github:carol\n    does this handle empty diffs?\n",
+    "Comments:\n  #100 2025-06-15T15:06:40.001Z github:carol\n    does this handle empty diffs?\n",
   );
   expect(await repo.cabaret("fetch")).toEqual({
     stdout: "fetched github.com/test-org/widgets: 0 updated forge changes\n",
@@ -104,7 +104,70 @@ test("fetch imports a forge-side edit as a new version, displayed once", async (
       "fetched github.com/test-org/widgets: 1 updated forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-06-15T15:06:40.004Z github:carol\n    looks wrong (never mind)\n",
+    "Comments:\n  #100 2025-06-15T15:06:40.004Z github:carol (edited)\n    looks wrong (never mind)\n",
+  );
+});
+
+test("a local edit rewrites the pushed forge comment in place, and fetch does not echo it", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("comment", "ship it");
+  await repo.cabaret("sync");
+  const [posted] = await forge.listComments(PR);
+  const key = /^ {2}([0-9a-f]{8}) /m.exec(await shownComments(repo))?.[1];
+  if (posted === undefined || key === undefined) {
+    throw new Error("nothing posted");
+  }
+  expect(await repo.cabaret("comment", "--edit", key, "ship it, once the flag lands")).toEqual({
+    stdout: "updated 1 comment on github.com/test-org/widgets#1\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  // Same forge comment, new body, marker intact.
+  expect(await forge.listComments(PR)).toEqual([
+    {
+      id: posted.id,
+      author: posted.author,
+      body: posted.body.replace("ship it", "ship it, once the flag lands"),
+      updatedAt: expect.any(Number),
+    },
+  ]);
+  // The rewrite does not echo back as a fetched comment.
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "recorded github:alice as an alias\n" +
+      "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 open forge change\n",
+  );
+  // The comment keeps its key across versions, and displays as its latest.
+  expect(await shownComments(repo)).toBe(
+    `Comments:\n  ${key} 2025-05-23T11:33:20.010Z alice@example.com (edited)\n    ship it, once the flag lands\n`,
+  );
+});
+
+test("a local edit of a forge-native comment rewrites it on the forge, attributed to its editor", async () => {
+  const forge = new FakeForge();
+  const repo = await makeRepo(forge);
+  await addChange(repo, "gadget");
+  await repo.cabaret("sync");
+  forge.comment(PR, "carol", "does this handle empty diffs?");
+  await repo.cabaret("fetch");
+  expect(await repo.cabaret("comment", "--edit", "#100", "never mind, found the test")).toEqual({
+    stdout: "updated 1 comment on github.com/test-org/widgets#1\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  // The forge still shows carol as the author, so the new version names who wrote it.
+  expect((await forge.listComments(PR)).map(({ author, body }) => ({ author, body }))).toEqual([
+    { author: "github:carol", body: "**alice@example.com:**\n\nnever mind, found the test" },
+  ]);
+  // The rewrite does not echo back as a fetched comment.
+  expect((await repo.cabaret("fetch")).stdout).toBe(
+    "fetched 0 comments from github.com/test-org/widgets#1\n" +
+      "fetched github.com/test-org/widgets: 1 updated forge change\n",
+  );
+  expect(await shownComments(repo)).toBe(
+    "Comments:\n  #100 2025-06-15T15:06:40.002Z alice@example.com (edited)\n    never mind, found the test\n",
   );
 });
 
@@ -123,8 +186,8 @@ test("fetch does not echo comments sync posted", async () => {
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
   expect(await shownComments(repo)).toBe(
-    "Comments:\n  2025-05-23T11:33:20.005Z bob@example.com\n    one nit\n\n" +
-      "  2025-05-23T11:33:20.006Z alice@example.com\n    ship it\n",
+    "Comments:\n  c88c9bc7 2025-05-23T11:33:20.005Z bob@example.com\n    one nit\n\n" +
+      "  dca17e78 2025-05-23T11:33:20.006Z alice@example.com\n    ship it\n",
   );
 });
 
@@ -323,7 +386,7 @@ test("fetch turns a teammate's forge change into a change to review", async () =
   await expect(repo.git("rev-parse", "--verify", "refs/heads/their-feature")).rejects.toThrow();
   expect(await repo.git("rev-parse", "refs/remotes/origin/their-feature")).toBe(theirTip);
   expect(await shownComments(repo, "their-feature")).toBe(
-    "Comments:\n  2025-06-15T15:06:40.001Z github:carol\n    please take a look\n",
+    "Comments:\n  #100 2025-06-15T15:06:40.001Z github:carol\n    please take a look\n",
   );
   const log = (await repo.cabaret("dev", "log", "their-feature")).stdout;
   expect(log).toContain(

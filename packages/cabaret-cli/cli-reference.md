@@ -34,13 +34,14 @@ FLAGS
 ## cab comment
 
 USAGE
-  cab comment [--change value] <text>
+  cab comment [--change value] [--edit key] <text>
   cab comment --help
 
-Add a comment to a change. Appends one `comment` entry to the change's log; `show` displays the comments.
+Add a comment to a change. Appends one `comment` entry to the change's log; `show` displays the comments. With `--edit`, rewrites a comment instead: the text becomes the displayed version of the comment named.
 
 FLAGS
      [--change]  Change to comment on (defaults to current)
+     [--edit]    Comment to rewrite, by the key `show` displays
   -h  --help     Print help information and exit
 
 ARGUMENTS

@@ -56,6 +56,8 @@ export type Target =
     }
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
+  /** One comment on `change`, as `currentComments` keys it; following the target edits it. */
+  | { readonly kind: "comment"; readonly change: ChangeName; readonly key: string; readonly as?: UserName | undefined }
   /** A workspace's directory: `path` is absolute. */
   | { readonly kind: "workspace"; readonly path: string }
   /** An operation on `change`; following the target runs it. */
