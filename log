@@ -10,3 +10,4 @@
 {"timestamp":1784815990366,"user":"crouton.ai@gmail.com","action":{"kind":"review","file":"packages/cabaret-vscode/src/test/help.test.ts","base":"7d6eb07598ec70a5c4fb22d3bbfb29b3b4da816d","tip":"2ec9f1ad6bb97be791df8ee03ba2491610d53f1e"}}
 {"timestamp":1784816147473,"user":"crouton.ai@gmail.com","action":{"kind":"set-base","base":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
 {"timestamp":1784816275459,"user":"me@joel.place","action":{"kind":"set-parent","parent":"main"}}
+{"timestamp":1784816277596,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"main"}}
