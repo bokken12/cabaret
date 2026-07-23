@@ -1,3 +1,4 @@
+import { mapConcurrent } from "cabaret-util";
 import { z } from "zod";
 import {
   type Backend,
@@ -19,9 +20,10 @@ import {
   type UserName,
   userName,
 } from "./backend.js";
+import { UserError } from "./error.js";
 import { isReviewing, reviewOwed } from "./obligations.js";
 import { pinBackend, type RefReads } from "./pinned.js";
-import type { Self } from "./self.js";
+import { currentSelf, type Self } from "./self.js";
 import { type ChangeSummary, NEXT_STEPS, summarizeChange } from "./summary.js";
 
 /** One change's readings for a page: its summary, and what review it asks of the user. */
@@ -297,4 +299,50 @@ export async function cachedChangeReading(
     }),
   );
   return reading;
+}
+
+/** Readings recomputed at once while warming, matching what pages read at. */
+const WARM_CONCURRENCY = 8;
+
+/**
+ * Bring the reading cache fully current for the current user: recompute and
+ * store every change's reading whose entry no longer answers, and drop the
+ * entries — any user's — of changes that no longer exist. Fetch warms after
+ * moving refs, so pages pay for what a fetch moved as it lands rather than
+ * on their next view. A change whose reading fails to compute (a
+ * `UserError`, read as broken wherever it shows) has nothing to store and
+ * does not interrupt the rest.
+ */
+export async function warmReadings(backend: Backend): Promise<void> {
+  const self = await currentSelf(backend);
+  const snapshot = await backend.refSnapshot();
+  await mapConcurrent([...snapshot.logs.keys()], WARM_CONCURRENCY, async (change) => {
+    try {
+      await cachedChangeReading(backend, snapshot, self, change);
+    } catch (error) {
+      if (!(error instanceof UserError)) {
+        throw error;
+      }
+    }
+  });
+  for (const key of await backend.listCache("summary")) {
+    const change = keyChange(key);
+    if (change === undefined || !snapshot.logs.has(change)) {
+      await backend.deleteCache(key);
+    }
+  }
+}
+
+/** The change named by a reading key, or undefined for anything else stored under the prefix. */
+function keyChange(key: string): ChangeName | undefined {
+  const segments = key.split("/");
+  const last = segments[2];
+  if (segments.length !== 3 || last === undefined || !last.endsWith(".json")) {
+    return undefined;
+  }
+  try {
+    return parseBranchName(decodeURIComponent(last.slice(0, -".json".length)));
+  } catch {
+    return undefined;
+  }
 }

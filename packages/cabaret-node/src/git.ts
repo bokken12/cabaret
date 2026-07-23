@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -673,6 +674,34 @@ export class GitBackend implements Backend {
   /** Distinguishes concurrent cache writes within one process; the pid separates processes. */
   private static cacheWriteSeq = 0;
 
+  async listCache(prefix: string): Promise<readonly string[]> {
+    const dir = this.cachePath(prefix);
+    let found: readonly Dirent[];
+    try {
+      found = await readdir(dir, { recursive: true, withFileTypes: true });
+    } catch (error) {
+      // ENOENT means exactly "nothing stored under the prefix".
+      if ((error as { code?: unknown }).code !== "ENOENT") {
+        throw error;
+      }
+      return [];
+    }
+    return found
+      .filter((entry) => entry.isFile() && !entry.name.endsWith(".tmp"))
+      .map((entry) => [prefix, ...relative(dir, join(entry.parentPath, entry.name)).split(sep)].join("/"));
+  }
+
+  async deleteCache(key: string): Promise<void> {
+    try {
+      await rm(this.cachePath(key), { force: true });
+    } catch (error) {
+      // A key the filesystem cannot hold never stored anything to remove.
+      if ((error as { code?: unknown }).code !== "ENAMETOOLONG") {
+        throw error;
+      }
+    }
+  }
+
   async advanceBranches(): Promise<readonly ChangeName[]> {
     const { heads, origins } = await this.refSnapshot();
     // Homes from the worktree list rather than `workspaces()`, whose
@@ -835,7 +864,7 @@ export class GitBackend implements Backend {
       // One transaction, so a failure partway through deletes nothing.
       await git(this.root, ["update-ref", "--stdin"], refs.map((ref) => `delete ${ref}\n`).join(""));
     }
-    // The directory holds only stale caches from older versions.
+    // The directory holds only caches derived from the state being wiped.
     await rm(join(this.gitDir, "cabaret"), { recursive: true, force: true });
     const names = new Set<ChangeName>();
     for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {

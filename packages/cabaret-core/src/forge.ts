@@ -40,6 +40,7 @@ import {
   recordLand,
   reparentLandedChildren,
 } from "./ops.js";
+import { warmReadings } from "./reading.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
 import type { Recommendation } from "./setup.js";
 
@@ -1462,6 +1463,10 @@ export async function fetchForge(
       onEvent({ kind: "archived", id, change });
     }
   }
+
+  // With every ref settled, recompute what the fetch displaced: the cost of
+  // the movement lands here, and the next page view answers from the cache.
+  await warmReadings(backend);
 
   return { coverage: sweep.coverage, swept: sweep.changes.length };
 }

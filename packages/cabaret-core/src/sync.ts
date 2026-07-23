@@ -18,6 +18,7 @@ import {
   syncedForgeChange,
 } from "./forge.js";
 import { assertNoConflict, pushAdvances } from "./ops.js";
+import { warmReadings } from "./reading.js";
 
 /** What the ambient half of a fetch moved, for hosts to narrate. */
 export interface FetchedLocal {
@@ -43,7 +44,11 @@ export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   const advanced = await backend.advanceBranches();
   const synced = await backend.syncLogs();
   const joined = await backend.joinBranches(synced);
-  return { synced, advanced, joined, pushed: await pushAdvances(backend, synced) };
+  const pushed = await pushAdvances(backend, synced);
+  // With every ref settled, recompute what the fetch displaced: the cost of
+  // the movement lands here, and the next page view answers from the cache.
+  await warmReadings(backend);
+  return { synced, advanced, joined, pushed };
 }
 
 /** What a per-change reconcile settled, for hosts to narrate. */

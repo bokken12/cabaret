@@ -190,6 +190,26 @@ test("a key too long for the filesystem never stores, and never fails", async ()
   const key = `summary/alice/${"x".repeat(300)}.json`;
   await backend.writeCache(key, "content");
   expect(await backend.readCache(key)).toBeUndefined();
+  await backend.deleteCache(key);
+});
+
+test("listCache names every stored key under a prefix, and deleteCache removes one", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.listCache("listing")).toEqual([]);
+  await backend.writeCache("listing/alice/widget.json", "widget");
+  await backend.writeCache("listing/alice/gadget.json", "gadget");
+  await backend.writeCache("listing/bob/widget.json", "widget");
+  expect([...(await backend.listCache("listing"))].sort()).toEqual([
+    "listing/alice/gadget.json",
+    "listing/alice/widget.json",
+    "listing/bob/widget.json",
+  ]);
+  await backend.deleteCache("listing/alice/widget.json");
+  await backend.deleteCache("listing/alice/never-stored.json");
+  expect([...(await backend.listCache("listing"))].sort()).toEqual([
+    "listing/alice/gadget.json",
+    "listing/bob/widget.json",
+  ]);
 });
 
 test("changeBase is the last revision shared with the change's parent", async () => {
