@@ -6,6 +6,7 @@ export * from "./error.js";
 export * from "./forge.js";
 export * from "./obligations.js";
 export * from "./ops.js";
+export * from "./pinned.js";
 export * from "./self.js";
 export * from "./setup.js";
 export * from "./summary.js";

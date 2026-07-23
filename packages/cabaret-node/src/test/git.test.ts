@@ -130,9 +130,36 @@ test("fails fast on a log ref whose tree lacks the log file", async () => {
   await git("update-ref", "refs/cabaret/log/malformed", root);
 
   const backend = await GitBackend.open(repo);
-  await expect(backend.readLog(parseBranchName("malformed"))).rejects.toThrow(
-    "log ref has no log file: refs/cabaret/log/malformed",
-  );
+  await expect(backend.readLog(parseBranchName("malformed"))).rejects.toThrow(`log commit has no log file: ${root}`);
+});
+
+test("refSnapshot reads branches, origin copies, and log commits together", async () => {
+  const backend = await GitBackend.open(repo);
+  const feature = await git("rev-parse", "refs/heads/feature");
+  const snapped = await git("commit-tree", `${feature}^{tree}`, "-p", feature, "-m", "snapped work");
+  await git("update-ref", "refs/heads/snapped", snapped);
+  await git("update-ref", "refs/remotes/origin/snapped", feature);
+  // origin/HEAD is a pointer at origin's default branch, not a branch itself.
+  await git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/snapped");
+  await backend.appendLog(parseBranchName("snapped"), [
+    {
+      timestamp: timestampMs(1748000000000),
+      user: userName("alice@example.com"),
+      action: { kind: "set-parent", parent: parseBranchName("feature") },
+    },
+  ]);
+  const snapshot = await backend.refSnapshot();
+  expect(snapshot.heads.get(parseBranchName("snapped"))).toBe(snapped);
+  expect(snapshot.origins.get(parseBranchName("snapped"))).toBe(feature);
+  expect(snapshot.origins.has(parseBranchName("HEAD"))).toBe(false);
+  const logTip = snapshot.logs.get(parseBranchName("snapped"));
+  expect(logTip).toBe(await git("rev-parse", "refs/cabaret/log/snapped"));
+  if (logTip === undefined) {
+    throw new Error("log commit missing from snapshot");
+  }
+  // The snapshot's log commit reads as exactly the entries the ref holds.
+  expect(await backend.readLogAt(logTip)).toEqual(await backend.readLog(parseBranchName("snapped")));
+  await git("update-ref", "-d", "refs/remotes/origin/HEAD");
 });
 
 test("changeBase is the last revision shared with the change's parent", async () => {

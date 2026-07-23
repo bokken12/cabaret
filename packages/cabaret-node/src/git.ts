@@ -20,6 +20,7 @@ import {
   parseFilePath,
   parseLog,
   type Recommendation,
+  type RefSnapshot,
   type Revision,
   type TimestampMs,
   timestampMs,
@@ -593,15 +594,17 @@ export class GitBackend implements Backend {
     }
   }
 
-  async advanceBranches(): Promise<readonly ChangeName[]> {
+  async refSnapshot(): Promise<RefSnapshot> {
     const out = await git(this.root, [
       "for-each-ref",
       "--format=%(refname) %(objectname)",
       "refs/heads/",
       "refs/remotes/origin/",
+      LOG_REF_PREFIX,
     ]);
     const heads = new Map<ChangeName, Revision>();
     const origins = new Map<ChangeName, Revision>();
+    const logs = new Map<ChangeName, Revision>();
     for (const line of out.split("\n")) {
       if (line === "") {
         continue;
@@ -611,10 +614,17 @@ export class GitBackend implements Backend {
       const oid = parseCommitHash(line.slice(space + 1));
       if (ref.startsWith("refs/heads/")) {
         heads.set(parseBranchName(ref.slice("refs/heads/".length)), oid);
+      } else if (ref.startsWith(LOG_REF_PREFIX)) {
+        logs.set(parseBranchName(ref.slice(LOG_REF_PREFIX.length)), oid);
       } else if (ref !== "refs/remotes/origin/HEAD") {
         origins.set(parseBranchName(ref.slice("refs/remotes/origin/".length)), oid);
       }
     }
+    return { heads, origins, logs };
+  }
+
+  async advanceBranches(): Promise<readonly ChangeName[]> {
+    const { heads, origins } = await this.refSnapshot();
     // Homes from the worktree list rather than `workspaces()`, whose
     // dirtiness reading costs a status scan per worktree — too heavy for a
     // background cadence; only the worktrees of branches origin is strictly
@@ -1412,18 +1422,18 @@ export class GitBackend implements Backend {
   }
 
   async readLog(change: ChangeName): Promise<readonly LogEntry[]> {
-    const ref = logRef(change);
     // Pinning the read at the resolved tip keeps it consistent under a
     // concurrent append moving the ref.
-    const tip = await this.commitAt(ref);
-    if (tip === undefined) {
-      return [];
-    }
+    const tip = await this.commitAt(logRef(change));
+    return tip === undefined ? [] : this.readLogAt(tip);
+  }
+
+  async readLogAt(tip: Revision): Promise<readonly LogEntry[]> {
     const log = await this.readFile(tip, parseFilePath(LOG_PATH));
-    // A log ref whose tree lacks the log file is malformed; surface it rather
-    // than masking it as an empty log.
+    // A log commit whose tree lacks the log file is malformed; surface it
+    // rather than masking it as an empty log.
     if (log === undefined) {
-      throw new Error(`log ref has no ${LOG_PATH} file: ${ref}`);
+      throw new Error(`log commit has no ${LOG_PATH} file: ${tip}`);
     }
     return parseLog(log, parseCommitHash, parseBranchName);
   }
