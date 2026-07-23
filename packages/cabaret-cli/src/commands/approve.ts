@@ -16,6 +16,17 @@ function announce(ctx: LocalContext, path: string, values: Readonly<Record<strin
 export const approve = buildCommand({
   docs: { brief: "Approve a change" },
   parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          brief: "change to approve (defaults to current)",
+          placeholder: "change",
+          parse: String,
+          optional: true,
+        },
+      ],
+    },
     flags: {
       allowEmpty: {
         kind: "boolean",
@@ -29,7 +40,7 @@ export const approve = buildCommand({
       },
     },
   },
-  func(this: LocalContext, flags: { allowEmpty: boolean; allowOwner: boolean }) {
-    announce(this, "approve", flags);
+  func(this: LocalContext, flags: { allowEmpty: boolean; allowOwner: boolean }, change?: string) {
+    announce(this, "approve", { ...flags, change });
   },
 });

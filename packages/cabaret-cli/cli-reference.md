@@ -5,7 +5,7 @@
 ## cab approve
 
 USAGE
-  cab approve [--allow-empty] [--allow-owner]
+  cab approve [--allow-empty] [--allow-owner] [<change>]
   cab approve --help
 
 Approve a change
@@ -14,6 +14,9 @@ FLAGS
      [--allow-empty]  Allow approving an empty change  [default = false]
      [--allow-owner]  Allow approving a change you own [default = false]
   -h  --help          Print help information and exit
+
+ARGUMENTS
+  [change]  change to approve (defaults to current)
 
 ## cab archive
 
