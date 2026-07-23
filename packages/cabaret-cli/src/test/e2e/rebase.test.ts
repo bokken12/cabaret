@@ -166,7 +166,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   expect(await repo.cabaret("rebase", "child")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   await repo.cabaret("mark", "--tip", "child", "shared.txt", "--change", "child");
   expect(await repo.cabaret("land", "child", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -546,17 +546,17 @@ test("a rebase keeps main's own movement out of review", async () => {
     "feature
     =======
 
-    ╭───────────┬───────────────────╮
-    │ attribute │ value             │
-    ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
-    │ owner     │ alice@example.com │
-    │ reviewing │ none              │
-    │ parent    │ main              │
-    │ tip       │ 244470f9ef1a      │
-    │ base      │ 5e19fa6beaa9      │
-    │ workspace │ .                 │
-    ╰───────────┴───────────────────╯
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ widen reviewing                │
+    │ owner     │ alice@example.com              │
+    │ reviewing │ none                           │
+    │ parent    │ main                           │
+    │ tip       │ 244470f9ef1a (ahead of origin) │
+    │ base      │ 5e19fa6beaa9                   │
+    │ workspace │ .                              │
+    ╰───────────┴────────────────────────────────╯
 
     Included changes:
       gadget

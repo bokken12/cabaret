@@ -88,7 +88,11 @@ test("a permanent umbrella keeps its children and lands cycle after cycle", asyn
   // Creating off the landed umbrella needs no override: it is live.
   await addChange(repo, "leaf");
   await repo.cabaret("mark", "--tip", "leaf", "--change", "leaf", "leaf.txt");
-  expect(await repo.cabaret("land", "leaf")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "leaf")).toEqual({
+    stdout: 'pushed "umbrella" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   // The leaf landed into the umbrella and archived under it, not walked away.
   const leafLog = (await repo.cabaret("dev", "log", "leaf")).stdout;
   expect(leafLog).toContain('"kind":"set-parent","parent":"umbrella"');
@@ -144,18 +148,18 @@ test("show lists a permanent row only for a permanent change", async () => {
     "umbrella
     ========
 
-    ╭───────────┬───────────────────╮
-    │ attribute │ value             │
-    ├───────────┼───────────────────┤
-    │ next step │ review            │
-    │ owner     │ alice@example.com │
-    │ reviewing │ everyone          │
-    │ permanent │ yes               │
-    │ parent    │ main              │
-    │ tip       │ 29423b4fc10d      │
-    │ base      │ 1ac0b33426d0      │
-    │ workspace │ .                 │
-    ╰───────────┴───────────────────╯
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ review                         │
+    │ owner     │ alice@example.com              │
+    │ reviewing │ everyone                       │
+    │ permanent │ yes                            │
+    │ parent    │ main                           │
+    │ tip       │ 29423b4fc10d (ahead of origin) │
+    │ base      │ 1ac0b33426d0                   │
+    │ workspace │ .                              │
+    ╰───────────┴────────────────────────────────╯
 
     Remaining review:
       alice@example.com: 1 file

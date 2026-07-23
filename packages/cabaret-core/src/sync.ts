@@ -40,15 +40,18 @@ export interface FetchedLocal {
  *
  * Branches replicate before logs: the two halves fail asymmetrically, a
  * branch without its log reading as merely a branch while a log whose branch
- * no clone can reach reads as a broken change on every other machine.
+ * no clone can reach reads as a broken change on every other machine. A
+ * second advance push after the joins carries their merges out in the same
+ * fetch; the two pushes never move the same branch, a join candidate being
+ * no advance until its merge exists.
  */
 export async function fetchLocal(backend: Backend): Promise<FetchedLocal> {
   await backend.fetchOrigin();
   const advanced = await backend.advanceBranches();
-  const changes = await backend.listChanges();
-  const joined = await backend.joinBranches(changes);
-  const pushed = await pushAdvances(backend, changes);
+  const pushed = [...(await pushAdvances(backend, await backend.listChanges()))];
   const synced = await backend.syncLogs();
+  const joined = await backend.joinBranches(synced);
+  pushed.push(...(await pushAdvances(backend, synced)));
   return { synced, advanced, joined, pushed };
 }
 

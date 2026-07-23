@@ -12,17 +12,17 @@ test("show renders the current change's status page", async () => {
     "gadget
     ======
 
-    ╭───────────┬───────────────────╮
-    │ attribute │ value             │
-    ├───────────┼───────────────────┤
-    │ next step │ review            │
-    │ owner     │ alice@example.com │
-    │ reviewing │ everyone          │
-    │ parent    │ main              │
-    │ tip       │ f37230616d25      │
-    │ base      │ 1ac0b33426d0      │
-    │ workspace │ .                 │
-    ╰───────────┴───────────────────╯
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ review                         │
+    │ owner     │ alice@example.com              │
+    │ reviewing │ everyone                       │
+    │ parent    │ main                           │
+    │ tip       │ f37230616d25 (ahead of origin) │
+    │ base      │ 1ac0b33426d0                   │
+    │ workspace │ .                              │
+    ╰───────────┴────────────────────────────────╯
 
     Remaining review:
       alice@example.com: 1 file
@@ -436,17 +436,17 @@ test("show tells a change whose parent branch is gone to reparent", async () => 
     "feature
     =======
 
-    ╭───────────┬────────────────────────╮
-    │ attribute │ value                  │
-    ├───────────┼────────────────────────┤
-    │ next step │ reparent               │
-    │ owner     │ alice@example.com      │
-    │ reviewing │ none                   │
-    │ parent    │ topic (does not exist) │
-    │ tip       │ db5a7532d33d           │
-    │ base      │ 1ac0b33426d0           │
-    │ workspace │ .                      │
-    ╰───────────┴────────────────────────╯
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ reparent                       │
+    │ owner     │ alice@example.com              │
+    │ reviewing │ none                           │
+    │ parent    │ topic (does not exist)         │
+    │ tip       │ db5a7532d33d (ahead of origin) │
+    │ base      │ 1ac0b33426d0                   │
+    │ workspace │ .                              │
+    ╰───────────┴────────────────────────────────╯
 
     Remaining review:
       alice@example.com: 1 file
@@ -600,17 +600,17 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     "gadget
     ======
 
-    ╭───────────┬───────────────────╮
-    │ attribute │ value             │
-    ├───────────┼───────────────────┤
-    │ next step │ review            │
-    │ owner     │ alice@example.com │
-    │ reviewing │ everyone          │
-    │ parent    │ main              │
-    │ tip       │ 7eccbe63002f      │
-    │ base      │ 1ac0b33426d0      │
-    │ workspace │ .                 │
-    ╰───────────┴───────────────────╯
+    ╭───────────┬────────────────────────────────╮
+    │ attribute │ value                          │
+    ├───────────┼────────────────────────────────┤
+    │ next step │ review                         │
+    │ owner     │ alice@example.com              │
+    │ reviewing │ everyone                       │
+    │ parent    │ main                           │
+    │ tip       │ 7eccbe63002f (ahead of origin) │
+    │ base      │ 1ac0b33426d0                   │
+    │ workspace │ .                              │
+    ╰───────────┴────────────────────────────────╯
 
     Remaining review:
       alice@example.com: 1 file

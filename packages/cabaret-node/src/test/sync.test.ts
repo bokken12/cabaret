@@ -188,8 +188,7 @@ test("a fetch publishes a new change's branch with its log", async () => {
   await a.backend.appendLog(WIDGETS, entries);
   const fetched = await fetchLocal(a.backend);
   expect(fetched.pushed).toEqual(["widgets"]);
-  const { pushed, ...caughtUp } = await fetchLocal(b.backend);
-  expect(caughtUp).toEqual({ synced: ["widgets"], advanced: [], joined: [] });
+  expect(await fetchLocal(b.backend)).toEqual({ synced: ["widgets"], advanced: [], joined: [], pushed: [] });
   expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
   expect(await b.backend.originTip(WIDGETS)).toBe(await a.backend.tip(WIDGETS));
 });

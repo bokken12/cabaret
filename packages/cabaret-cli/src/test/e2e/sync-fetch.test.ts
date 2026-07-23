@@ -5,16 +5,19 @@ import { addChange, makeClone, makeRepo, shownComments, type TestRepo } from "./
 
 const PR = forgeChangeId(1);
 
-test("sync pushes the branch, opens a forge change on the parent, and posts comments with markers", async () => {
+test("a write-through pushes the branch, opens a forge change on the parent, and posts comments with markers", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
-  await repo.cabaret("comment", "ship it");
+  // The comment's own write-through finishes publication — branch pushed,
+  // forge change opened, comment posted — leaving sync nothing to carry.
+  expect(await repo.cabaret("comment", "ship it")).toEqual({
+    stdout: "opened github.com/test-org/widgets#1\n" + "posted 1 comment to github.com/test-org/widgets#1\n",
+    stderr: "",
+    exitCode: 0,
+  });
   expect(await repo.cabaret("sync")).toEqual({
-    stdout:
-      "opened github.com/test-org/widgets#1\n" +
-      "posted 1 comment to github.com/test-org/widgets#1\n" +
-      'synced "gadget" with github.com/test-org/widgets#1\n',
+    stdout: 'synced "gadget" with github.com/test-org/widgets#1\n',
     stderr: "",
     exitCode: 0,
   });
@@ -53,14 +56,20 @@ test("sync again is a no-op", async () => {
   expect(await forge.listComments(PR)).toHaveLength(1);
 });
 
-test("sync attributes another user's comment to its author", async () => {
+test("a comment carried by someone else's write-through is attributed to its author", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "none");
   await repo.git("config", "user.email", "bob@example.com");
-  await repo.cabaret("comment", "one nit");
+  // Drafted, bob's comment stays local: nothing is due on the forge yet.
+  expect((await repo.cabaret("comment", "one nit")).stdout).toBe("");
   await repo.git("config", "user.email", "alice@example.com");
-  await repo.cabaret("sync");
+  // Alice's widening opens the forge change and carries bob's comment; the
+  // forge shows her token as the poster, so the body names its author.
+  expect((await repo.cabaret("reviewing", "set", "everyone")).stdout).toBe(
+    "opened github.com/test-org/widgets#1\n" + "posted 1 comment to github.com/test-org/widgets#1\n",
+  );
   const posted = await forge.listComments(PR);
   expect(posted.map(({ body }) => body)).toEqual([
     expect.stringMatching(/^\*\*bob@example\.com:\*\*\n\none nit\n\n<!-- cabaret:[0-9a-f]{64} -->$/),
@@ -195,7 +204,7 @@ test("a local edit of a forge-native comment rewrites it on the forge, attribute
   );
 });
 
-test("fetch does not echo comments sync posted", async () => {
+test("fetch does not echo comments write-throughs posted", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
@@ -211,7 +220,7 @@ test("fetch does not echo comments sync posted", async () => {
   );
   expect(await shownComments(repo)).toBe(
     "Comments:\n  c88c9bc7 2025-05-23T11:33:20.005Z bob@example.com\n    one nit\n\n" +
-      "  dca17e78 2025-05-23T11:33:20.006Z alice@example.com\n    ship it\n",
+      "  2bfa3614 2025-05-23T11:33:20.009Z alice@example.com\n    ship it\n",
   );
 });
 
@@ -273,11 +282,12 @@ test("fetch adopts the branch's open forge change when the log names none", asyn
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
+  // A forge change opened by hand, off cabaret's books, for the pushed head.
+  await repo.git("push", "-q", "origin", "gadget");
   await forge.createChange(parseBranchName("gadget"), parseBranchName("main"), "gadget");
   forge.comment(PR, "carol", "opened this by hand");
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\n" +
-      'pushed "gadget" to origin\n' +
       "fetched 1 comment from github.com/test-org/widgets#1\n" +
       "fetched github.com/test-org/widgets: 1 open forge change\n",
   );
@@ -310,10 +320,7 @@ test("fetch passes by an unreviewing change without asking the forge", async () 
   await addChange(repo, "gadget");
   await repo.cabaret("reviewing", "set", "none");
   expect(await repo.cabaret("fetch")).toEqual({
-    stdout:
-      "recorded github:alice as an alias\n" +
-      'pushed "gadget" to origin\n' +
-      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stdout: "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
     stderr: "",
     exitCode: 0,
   });
@@ -323,14 +330,10 @@ test("fetch passes by an unreviewing change without asking the forge", async () 
 test("fetch defers opening a forge change until the head adds commits", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await repo.git("push", "-q", "origin", "main");
   await repo.cabaret("create", "gadget");
   await repo.cabaret("reviewing", "set", "everyone", "--change", "gadget");
   expect(await repo.cabaret("fetch")).toEqual({
-    stdout:
-      "recorded github:alice as an alias\n" +
-      'pushed "gadget" to origin\n' +
-      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stdout: "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
     stderr: "",
     exitCode: 0,
   });
@@ -353,7 +356,6 @@ test("fetch defers opening a forge change until the head adds commits", async ()
 test("fetch defers an empty change even when the parent's readings are diverged", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await repo.git("push", "-q", "origin", "main");
   await repo.cabaret("create", "gadget");
   await repo.cabaret("reviewing", "set", "everyone", "--change", "gadget");
   // Origin's main advances while the local branch keeps a commit of its own:
@@ -368,10 +370,7 @@ test("fetch defers an empty change even when the parent's readings are diverged"
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "local work");
   expect(await repo.cabaret("fetch")).toEqual({
-    stdout:
-      "recorded github:alice as an alias\n" +
-      'pushed "gadget" to origin\n' +
-      "fetched github.com/test-org/widgets: 0 open forge changes\n",
+    stdout: "recorded github:alice as an alias\n" + "fetched github.com/test-org/widgets: 0 open forge changes\n",
     stderr: "",
     exitCode: 0,
   });

@@ -30,7 +30,7 @@ test("land merges the child into its parent with a marked merge commit", async (
   const childTip = await repo.git("rev-parse", "child");
   const parentTip = await repo.git("rev-parse", "parent");
   await repo.cabaret("mark", "--tip", "HEAD", "child.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "parent" to origin\n', stderr: "", exitCode: 0 });
   // The land advances the parent by exactly the merge, without moving HEAD.
   expect(await repo.git("symbolic-ref", "--short", "HEAD")).toBe("child");
   const _merge = await repo.git("rev-parse", "parent");
@@ -58,7 +58,7 @@ test("land takes a change behind its parent when it merges cleanly", async () =>
   await repo.git("commit", "-qam", "more parent work");
   const advanced = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -88,7 +88,7 @@ test("land squashes a change behind its parent to the merged tree", async () => 
   await repo.git("commit", "-qam", "more parent work");
   const advanced = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("land", "child", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -149,7 +149,7 @@ test("a reopened change starts its next cycle with an empty diff and lands new w
   await repo.write("child.txt", "child work v2\n");
   await repo.git("commit", "-qam", "more child work");
   expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -211,7 +211,7 @@ test("land requires ownership, with the usual override", async () => {
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "child", "--even-though-not-owner", "--even-though-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -390,7 +390,7 @@ test("landing with the parent checked out carries its working tree along", async
   const repo = await makeStack();
   await repo.git("checkout", "-q", "parent");
   expect(await repo.cabaret("land", "child", "--even-though-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -482,7 +482,7 @@ test("land after an out-of-band rebase pins the base it validated", async () => 
   await repo.git("rebase", "-q", "parent");
   const _rebasedTip = await repo.git("rev-parse", "child");
   expect(await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -576,7 +576,7 @@ test("a range lands the whole chain, deepest first", async () => {
   await addChange(repo, "c");
   const _cTip = await repo.git("rev-parse", "c");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: 'pushed "main" to origin\n',
+    stdout: 'pushed "b" to origin\npushed "a" to origin\npushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -632,7 +632,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
   await addChange(repo, "c");
   await repo.cabaret("owner", "set", "bob@example.com", "--change", "b");
   expect(await repo.cabaret("land", "main..c", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "b" to origin\n',
     stderr: '"b" is owned by "bob@example.com", not "alice@example.com"; pass --even-though-not-owner to override\n',
     exitCode: 1,
   });
@@ -649,7 +649,7 @@ test("a range stops at a failure and a rerun resumes past the landed prefix", as
       "--even-though-parent-unreviewed",
     ),
   ).toEqual({
-    stdout: 'pushed "main" to origin\n',
+    stdout: 'pushed "a" to origin\npushed "main" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -739,7 +739,7 @@ test("landing into its own child leaves the cycle for a manual reparent", async 
   // onto itself would knot the cycle tighter, so it stays put.
   await repo.cabaret("reparent", "outer", "inner");
   expect(await repo.cabaret("land", "outer", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "inner" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -760,7 +760,7 @@ test("a range land carries an outside child down with each landing", async () =>
   const _bTip = await repo.git("rev-parse", "b");
   await repo.cabaret("create", "d", "--parent", "b");
   expect(await repo.cabaret("land", "main..b", "--even-though-unreviewed", "--even-though-parent-unreviewed")).toEqual({
-    stdout: 'reparented "d" onto "a"\npushed "main" to origin\nreparented "d" onto "main"\n',
+    stdout: 'pushed "a" to origin\nreparented "d" onto "a"\npushed "main" to origin\nreparented "d" onto "main"\n',
     stderr: "",
     exitCode: 0,
   });
@@ -822,7 +822,11 @@ test("land squashes locally when cabaret.landMethod is squash", async () => {
   await repo.git("config", "cabaret.landMethod", "squash");
   const childTip = await repo.git("rev-parse", "child");
   const parentTip = await repo.git("rev-parse", "parent");
-  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
+    stdout: 'pushed "parent" to origin\n',
+    stderr: "",
+    exitCode: 0,
+  });
   // The land advances the parent by one commit with the child's tree and no
   // second parent; the log freezes the tip the squash does not carry.
   const squash = await repo.git("rev-parse", "parent");
@@ -889,7 +893,7 @@ test("land requires the parent's own review obligations satisfied", async () => 
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "child", "--even-though-parent-unreviewed")).toEqual({
-    stdout: "",
+    stdout: 'pushed "parent" to origin\n',
     stderr: "",
     exitCode: 0,
   });
@@ -898,7 +902,7 @@ test("land requires the parent's own review obligations satisfied", async () => 
 test("land into a reviewed parent and onto a trunk parent both pass the parent check", async () => {
   const repo = await makeStack();
   await repo.cabaret("mark", "--tip", "HEAD", "child.txt");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "parent" to origin\n', stderr: "", exitCode: 0 });
   // The parent's own parent is main, a trunk with no log: it owes nothing.
   expect(await repo.cabaret("land", "parent")).toEqual({
     stdout: 'pushed "main" to origin\n',

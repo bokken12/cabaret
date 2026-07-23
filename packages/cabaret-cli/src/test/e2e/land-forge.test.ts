@@ -153,8 +153,10 @@ test("land stays off the forge when cabaret.landVia is local, forge change or no
 test("land via forge without a forge change fails", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
-  await repo.git("push", "-q", "origin", "main");
   await addChange(repo, "gadget");
+  // Drafted, no write-through opens a forge change, so the land finds none.
+  await repo.cabaret("reviewing", "set", "none");
+  await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("config", "cabaret.landVia", "forge");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
@@ -166,8 +168,16 @@ test("land via forge without a forge change fails", async () => {
 test("land via forge refuses a forge change behind the local tip", async () => {
   const forge = new FakeForge();
   const repo = await makePr(forge);
-  await repo.write("gadget.txt", "gadget work, more\n");
-  await repo.git("commit", "-qam", "more gadget work");
+  // Origin's copy — the forge change's head — is moved onto its own line, so
+  // the land's write-through can push nothing and the tips stay apart: only
+  // a sync's join reconciles them.
+  await repo.git("checkout", "-qb", "detour", "main");
+  await repo.write("detour.txt", "detour\n");
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "detour");
+  await repo.git("push", "-qf", "origin", "detour:gadget");
+  await repo.git("checkout", "-q", "gadget");
+  await repo.git("branch", "-qD", "detour");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
     stdout: "",
