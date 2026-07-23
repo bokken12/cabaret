@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.005Z alice@example.com
+      0c0b9bca 2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.006Z alice@example.com
+      25cfe21f 2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly
@@ -106,7 +106,7 @@ test("show renders an imported change like any other", async () => {
       github:carol: 1 file
 
     Comments:
-      2025-06-15T15:06:40.001Z github:carol
+      #100 2025-06-15T15:06:40.001Z github:carol
         please take a look
 
     Files to review:

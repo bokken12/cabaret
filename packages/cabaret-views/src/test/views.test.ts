@@ -716,14 +716,18 @@ test("showDoc renders comments between the remaining review and the files, multi
       workspace: undefined,
       comments: [
         {
+          key: "1".repeat(64),
           timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 3)),
           user: alice,
           text: "does this handle empty diffs?",
+          edited: false,
         },
         {
+          key: "2".repeat(64),
           timestamp: timestampMs(Date.UTC(2025, 4, 23, 11, 33, 20, 4)),
           user: userName("bob@example.com"),
           text: "second thoughts:\n\nthe flag name reads oddly",
+          edited: true,
         },
       ],
       fetched: undefined,
@@ -749,10 +753,10 @@ test("showDoc renders comments between the remaining review and the files, multi
       bob@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.003Z alice@example.com
+      11111111 2025-05-23T11:33:20.003Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.004Z bob@example.com
+      22222222 2025-05-23T11:33:20.004Z bob@example.com (edited)
         second thoughts:
 
         the flag name reads oddly
@@ -767,6 +771,23 @@ test("showDoc renders comments between the remaining review and the files, multi
     ["Comments:", "    the flag name reads oddly"],
     ["Files to review:", "  gadget.ts"],
   ]);
+  // Every line of a comment — header, text, even its internal blanks —
+  // answers Enter with the comment, keyed for an edit.
+  const lines = docText(doc).split("\n");
+  const commentTarget = (text: string) => targetAt(doc, lines.indexOf(text));
+  expect(commentTarget("  11111111 2025-05-23T11:33:20.003Z alice@example.com")).toEqual({
+    kind: "comment",
+    change: "gadget",
+    key: "1".repeat(64),
+    as: undefined,
+  });
+  expect(commentTarget("    the flag name reads oddly")).toEqual({
+    kind: "comment",
+    change: "gadget",
+    key: "2".repeat(64),
+    as: undefined,
+  });
+  expect(commentTarget("Comments:")).toBeUndefined();
 });
 
 test("showDoc rows the change's workspace, noting dirtiness and its age", () => {

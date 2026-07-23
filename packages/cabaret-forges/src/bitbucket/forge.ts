@@ -382,6 +382,10 @@ export class BitbucketForge implements Forge {
     await this.client.post(`${this.api}/pullrequests/${id}/comments`, { content: { raw: body } });
   }
 
+  async updateComment(id: ForgeChangeId, comment: string, body: string): Promise<void> {
+    await this.client.put(`${this.api}/pullrequests/${id}/comments/${comment}`, { content: { raw: body } });
+  }
+
   /**
    * The uuid of the workspace member `user` names. Only members are
    * searched — nobody else can review — and a nickname several members share

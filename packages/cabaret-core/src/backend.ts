@@ -198,7 +198,7 @@ export type LogAction =
   | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
   | { readonly kind: "forget"; readonly file: FilePath }
   | { readonly kind: "land"; readonly merge: Revision; readonly tip?: Revision | undefined }
-  /** `edits` names the `commentHash` of the entry this comment supersedes: versions of one comment group through it, and the greatest timestamp is displayed. */
+  /** `edits` names the comment this entry is a new version of — its original entry's hash, or `forge#id` for a forge-native comment. Versions group under that key, and the greatest timestamp is displayed. */
   | { readonly kind: "comment"; readonly text: string; readonly edits?: string | undefined };
 
 /** One action recorded in a change's log. */

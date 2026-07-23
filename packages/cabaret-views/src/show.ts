@@ -15,6 +15,7 @@ import {
   type ReviewerTally,
   reviewerTallies,
   selfAs,
+  shortCommentKey,
   shortHash,
   summarizeChange,
   summarizeTrunk,
@@ -171,20 +172,29 @@ function remainingReview(change: ChangeName, remaining: readonly ReviewerTally[]
 }
 
 /** The comments section: each comment's time and author, then its indented text. */
-function commentsSection(comments: readonly ChangeComment[]): Section | undefined {
+function commentsSection(
+  change: ChangeName,
+  as: UserName | undefined,
+  comments: readonly ChangeComment[],
+): Section | undefined {
   if (comments.length === 0) {
     return undefined;
   }
   const body: Line[] = [];
-  comments.forEach(({ timestamp, user, text }, index) => {
+  comments.forEach(({ key, timestamp, user, text, edited }, index) => {
     // A blank line between comments, since consecutive comments would
     // otherwise run together.
     if (index > 0) {
       body.push({ spans: [] });
     }
-    body.push({ spans: [span(`  ${new Date(timestamp).toISOString()} ${user}`)] });
+    // Jump tier: every line of a comment answers Enter with an edit, but a
+    // page of clickable prose would drown the page's real links.
+    const target = { kind: "comment", change, key, as } as const;
+    const opts = { target, tier: "jump" } as const;
+    const header = `  ${shortCommentKey(key)} ${new Date(timestamp).toISOString()} ${user}`;
+    body.push({ spans: [span(noted(header, edited ? "edited" : undefined), opts)] });
     for (const line of text.split("\n")) {
-      body.push({ spans: line === "" ? [] : [span(`    ${line}`)] });
+      body.push({ spans: line === "" ? [span("", opts)] : [span(`    ${line}`, opts)] });
     }
   });
   return section({ spans: [span("Comments:", { style: "heading" })] }, body);
@@ -261,7 +271,7 @@ export function showDoc(page: ShowPage, now: TimestampMs, hints?: Hints): Doc {
   for (const s of [
     includedChanges(summary.included, page.as, summary.kind === "trunk" && summary.truncated),
     remainingReview(summary.change, page.remaining),
-    commentsSection(page.comments),
+    commentsSection(summary.change, page.as, page.comments),
     summary.kind === "change"
       ? filesToReview(summary.reviewLeft, (file) => ({
           kind: "file",

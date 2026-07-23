@@ -223,6 +223,9 @@ export function settledLines(locator: string | undefined, result: ReconcileResul
   if (published.comments > 0) {
     lines.push(`posted ${published.comments} comment${s(published.comments)} to ${name}`);
   }
+  if (published.edits > 0) {
+    lines.push(`updated ${published.edits} comment${s(published.edits)} on ${name}`);
+  }
   return lines;
 }
 

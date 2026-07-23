@@ -356,6 +356,11 @@ export class ForgejoForge implements Forge {
     await this.client.post(`${this.api}/issues/${id}/comments`, { body });
   }
 
+  async updateComment(_id: ForgeChangeId, comment: string, body: string): Promise<void> {
+    // Issue comments are addressed by their own id, not their issue's.
+    await this.client.patch(`${this.api}/issues/comments/${comment}`, { body });
+  }
+
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
     const adding = add.map(accountLogin);
     const removing = remove.map(accountLogin);

@@ -489,6 +489,10 @@ export class GitLabForge implements Forge {
     await this.client.post(`${this.api}/merge_requests/${id}/notes`, { body });
   }
 
+  async updateComment(id: ForgeChangeId, comment: string, body: string): Promise<void> {
+    await this.client.put(`${this.api}/merge_requests/${id}/notes/${comment}`, { body });
+  }
+
   async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
     // GitLab has no add/remove calls: the PUT replaces the whole reviewer
     // list, so the MR's current one is read first and edited.
