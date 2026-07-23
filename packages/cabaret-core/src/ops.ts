@@ -406,7 +406,7 @@ export async function requireOwner(
 export function assertNoConflict(target: ChangeName, conflicts: readonly FilePath[]): void {
   if (conflicts.length > 0) {
     throw new UserError(
-      `${JSON.stringify(target)} has unresolved conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+      `${JSON.stringify(target)} has unresolved conflicts in ${conflicts.join(", ")}; fix the markers and commit`,
     );
   }
 }
@@ -480,7 +480,7 @@ export async function rebaseChange(
   if (conflicts.length > 0) {
     throw new UserError(
       `merging ${JSON.stringify(parent)} into ${JSON.stringify(target)} ` +
-        `left conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+        `left conflicts in ${conflicts.join(", ")}; fix the markers and commit`,
     );
   }
 }

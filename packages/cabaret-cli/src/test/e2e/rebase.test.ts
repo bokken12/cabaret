@@ -122,7 +122,7 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   const onto = await repo.git("rev-parse", "parent");
   expect(await repo.cabaret("rebase", "child")).toEqual({
     stdout: "",
-    stderr: 'merging "parent" into "child" left conflicts in shared.txt; fix the markers and amend\n',
+    stderr: 'merging "parent" into "child" left conflicts in shared.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   // The merge is committed all the same, markers in place and base pinned.
@@ -148,16 +148,16 @@ test("a rebase conflict commits the markers and waits for a fix", async () => {
   // Until the markers are fixed the change is stuck: no rebase, no land.
   expect(await repo.cabaret("rebase", "child")).toEqual({
     stdout: "",
-    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "child")).toEqual({
     stdout: "",
-    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and amend\n',
+    stderr: '"child" has unresolved conflicts in shared.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   expect((await repo.cabaret("show", "child")).stdout).toContain("fix conflicts");
-  // Fixing the markers and amending resolves it; the change lands normally.
+  // Fixing the markers and committing the resolution settles it; the change lands normally.
   await repo.git("checkout", "-q", "child");
   await repo.write("shared.txt", "from both\n");
   await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'parent' into child");
@@ -401,7 +401,7 @@ test("a range stops at a conflicted change and a rerun resumes once fixed", asyn
   await repo.git("commit", "-qm", "trunk claims b.txt");
   expect(await repo.cabaret("rebase", "main..c")).toEqual({
     stdout: "",
-    stderr: 'merging "a" into "b" left conflicts in b.txt; fix the markers and amend\n',
+    stderr: 'merging "a" into "b" left conflicts in b.txt; fix the markers and commit\n',
     exitCode: 1,
   });
   // a made it onto the new trunk; b committed the conflict; c never moved.
@@ -413,10 +413,10 @@ test("a range stops at a conflicted change and a rerun resumes once fixed", asyn
   // Rerunning while unresolved stops at b again.
   expect(await repo.cabaret("rebase", "main..c")).toEqual({
     stdout: "",
-    stderr: '"b" has unresolved conflicts in b.txt; fix the markers and amend\n',
+    stderr: '"b" has unresolved conflicts in b.txt; fix the markers and commit\n',
     exitCode: 1,
   });
-  // Fix the markers and amend; the rerun then finishes the chain.
+  // Fix the markers and commit; the rerun then finishes the chain.
   await repo.git("checkout", "-q", "b");
   await repo.write("b.txt", "b work\n");
   await repo.git("commit", "-qa", "--amend", "-m", "Merge branch 'a' into b");

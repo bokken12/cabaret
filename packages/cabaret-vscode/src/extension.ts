@@ -1104,7 +1104,7 @@ async function syncSelection(backend: Backend, changes: readonly ChangeName[]): 
     const conflicts = result.joined?.conflicts ?? [];
     if (conflicts.length > 0) {
       vscode.window.showWarningMessage(
-        `cabaret: merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and amend`,
+        `cabaret: merged origin's copy of ${change} with conflicts in ${conflicts.join(", ")}; fix the markers and commit`,
       );
     }
     synced.push(result.published === undefined ? `${change}` : `${change} to ${forge?.locator}#${result.published.id}`);
