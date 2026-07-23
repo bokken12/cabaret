@@ -78,22 +78,25 @@ export function changeForest(parents: ReadonlyMap<ChangeName, ChangeName>): read
 }
 
 /** What must happen next to move a change toward landing. */
-export type NextStep =
-  | "sync"
-  | "reparent"
-  | "fix conflicts"
-  | "add code"
-  | "fix obligations"
-  | "review"
-  | "review in parent"
-  | "add reviewers"
-  | "widen reviewing"
-  | "await review"
-  | "resolve parent divergence"
-  | "rebase"
-  | "land"
-  | "landed"
-  | "archived";
+export const NEXT_STEPS = [
+  "sync",
+  "reparent",
+  "fix conflicts",
+  "add code",
+  "fix obligations",
+  "review",
+  "review in parent",
+  "add reviewers",
+  "widen reviewing",
+  "await review",
+  "resolve parent divergence",
+  "rebase",
+  "land",
+  "landed",
+  "archived",
+] as const;
+
+export type NextStep = (typeof NEXT_STEPS)[number];
 
 /** A change's status at a glance, computed from its log for one user. */
 export interface ChangeSummary {

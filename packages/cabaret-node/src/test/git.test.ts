@@ -162,6 +162,21 @@ test("refSnapshot reads branches, origin copies, and log commits together", asyn
   await git("update-ref", "-d", "refs/remotes/origin/HEAD");
 });
 
+test("cache reads answer what writes stored, under the shared git dir", async () => {
+  const backend = await GitBackend.open(repo);
+  expect(await backend.readCache("summary/alice/widget.json")).toBeUndefined();
+  await backend.writeCache("summary/alice/widget.json", "first");
+  expect(await backend.readCache("summary/alice/widget.json")).toBe("first");
+  await backend.writeCache("summary/alice/widget.json", "second");
+  expect(await backend.readCache("summary/alice/widget.json")).toBe("second");
+  await expect(backend.writeCache("../escape", "x")).rejects.toThrow(
+    'cache key escapes the cache directory: "../escape"',
+  );
+  await expect(backend.readCache("summary/../../escape")).rejects.toThrow(
+    'cache key escapes the cache directory: "summary/../../escape"',
+  );
+});
+
 test("changeBase is the last revision shared with the change's parent", async () => {
   const backend = await GitBackend.open(repo);
   const root = await git("rev-list", "--max-parents=0", "HEAD");

@@ -555,6 +555,21 @@ export interface Backend {
   /** One reading of every branch, origin copy, and log commit, as `RefSnapshot`. */
   refSnapshot(): Promise<RefSnapshot>;
 
+  /**
+   * The content `writeCache` last stored at `key`, or undefined when nothing
+   * readable is there. A cache read is never authoritative: whatever is
+   * stored must carry what proves it current, and a caller finding it stale
+   * recomputes as if nothing were stored.
+   */
+  readCache(key: string): Promise<string | undefined>;
+
+  /**
+   * Store `content` at `key` — a `/`-separated path of percent-encoded
+   * segments — atomically replacing any previous content. Concurrent writers
+   * race benignly: one whole write wins.
+   */
+  writeCache(key: string, content: string): Promise<void>;
+
   /** Create branch `name` at `commit`, failing if the branch already exists. */
   create(change: ChangeName, at: Revision): Promise<void>;
 

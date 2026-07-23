@@ -1,3 +1,5 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseBranchName, parseCommitHash } from "cabaret-core";
 import { expect, test } from "vitest";
 import { FakeForge } from "./fake-forge.js";
@@ -620,6 +622,75 @@ test("review is owed only while an obligation is unsatisfied", async () => {
     ├─────────┼─────────┤
     │ feature │ current │
     ╰─────────┴─────────╯
+    "
+  `);
+});
+
+test("home readings answer from the cache until a recorded read moves", async () => {
+  const repo = await makeRepo();
+  await addChange(repo, "gadget");
+  await repo.cabaret("reviewing", "set", "owner");
+  await repo.cabaret("home");
+  // Prove the second view reads the store: plant a step the repository's
+  // state would never produce, and see the page repeat it.
+  const gitDir = await repo.git("rev-parse", "--path-format=absolute", "--git-common-dir");
+  const file = join(gitDir, "cabaret", "cache", "summary", "alice%40example%2Ecom", "gadget.json");
+  const entry = JSON.parse(await readFile(file, "utf8"));
+  entry.summary.nextStep = "rebase";
+  await writeFile(file, JSON.stringify(entry));
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ rebase    │
+    ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ gadget │ current │
+    ╰────────┴─────────╯
+    "
+  `);
+  // Appending to the change's log moves a recorded read: the planted entry
+  // no longer answers, and the recomputed step returns.
+  await repo.cabaret("reviewing", "set", "reviewers");
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
+    ====
+
+    Changes to review:
+    ╭────────┬────────╮
+    │ change │ review │
+    ├────────┼────────┤
+    │ gadget │      1 │
+    ╰────────┴────────╯
+
+    Changes you own:
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
+
+    Workspaces on this device:
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ gadget │ current │
+    ╰────────┴─────────╯
     "
   `);
 });
