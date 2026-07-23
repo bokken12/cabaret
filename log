@@ -1,5 +1,6 @@
-{"timestamp":1784816196571,"user":"crouton.ai@gmail.com","action":{"kind":"set-parent","parent":"hints"}}
 {"timestamp":1784816196571,"user":"crouton.ai@gmail.com","action":{"kind":"set-base","base":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
 {"timestamp":1784816196571,"user":"crouton.ai@gmail.com","action":{"kind":"set-owner","owner":"crouton.ai@gmail.com"}}
+{"timestamp":1784816196571,"user":"crouton.ai@gmail.com","action":{"kind":"set-parent","parent":"hints"}}
 {"timestamp":1784816196571,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"none"}}
+{"timestamp":1784816275405,"user":"me@joel.place","action":{"kind":"set-parent","parent":"main"}}
 {"timestamp":1784816350330,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
