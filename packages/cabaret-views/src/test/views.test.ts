@@ -274,14 +274,10 @@ test("homeDoc lists the changes checked out on this device in their stacks", () 
   expect(doc.lines[line]?.spans.flatMap(({ target }) => (target === undefined ? [] : [target]))).toEqual([
     { kind: "change", change: "relic" },
   ]);
-  // The workspace the page was opened from wears here paint on its name; an
-  // ancestor kept only to situate relic dims; a landed note wears nudge
+  // An ancestor kept only to situate relic dims; a landed note wears nudge
   // paint, inviting the workspace's reclaiming.
   const styled = (row: string) =>
     doc.lines[docText(doc).split("\n").indexOf(row)]?.spans.filter(({ style }) => style !== undefined);
-  expect(styled("│ gadget   │ current          │")).toEqual([
-    { text: "gadget", style: "here", target: { kind: "change", change: "gadget" }, tier: "link" },
-  ]);
   expect(styled("│ widgets  │                  │")).toEqual([
     { text: "widgets", style: "context", target: { kind: "change", change: "widgets" }, tier: "link" },
   ]);

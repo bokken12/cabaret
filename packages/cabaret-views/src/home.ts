@@ -287,18 +287,13 @@ function forestSection<N extends { readonly children: readonly N[] }>(
 /**
  * The workspaces section: a row per change checked out on this device, in its
  * stack. An ancestor kept only to situate dims; the workspace the page was
- * opened from says "current" and wears here paint on its name; a landed or
- * archived note wears nudge paint, inviting the workspace's reclaiming.
+ * opened from says "current"; a landed or archived note wears nudge paint,
+ * inviting the workspace's reclaiming.
  */
 function workspacesSection(forest: readonly WorkspaceNode[], as: UserName | undefined, now: TimestampMs): Node {
   const rows = treeRows(forest).map(({ node: { change, held }, guide }): readonly Cell[] => {
     const style = held === undefined ? "context" : undefined;
-    const name = span(change, {
-      // The guide is structure, so only context's whole-row dimming reaches
-      // it; here paint stays on exactly the name.
-      style: held?.workspace.current ? "here" : style,
-      target: { kind: "change", change, as },
-    });
+    const name = span(change, { style, target: { kind: "change", change, as } });
     const notes =
       held === undefined
         ? []

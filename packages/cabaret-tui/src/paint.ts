@@ -31,7 +31,6 @@ const PAINT: { readonly [S in Style]: StylePaint } = {
   ready: { tc: "38;2;63;185;80", lo: "32", wash: false },
   blocked: { tc: "38;2;248;81;73", lo: "31", wash: false },
   nudge: { tc: "38;2;210;153;34", lo: "33", wash: false },
-  here: { tc: "38;2;88;166;255", lo: "36", wash: false },
   "old-diff-removed": { tc: "48;2;84;46;22", lo: "48;5;94", wash: true, sign: "--" },
   "old-diff-added": { tc: "48;2;64;70;20", lo: "48;5;58", wash: true, sign: "-+" },
   "old-diff-context": { tc: "48;2;52;48;30", lo: "48;5;239", wash: true, sign: "- " },

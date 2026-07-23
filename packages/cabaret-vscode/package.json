@@ -132,16 +132,6 @@
           "highContrast": "#d29922",
           "highContrastLight": "#9a6700"
         }
-      },
-      {
-        "id": "cabaret.hereForeground",
-        "description": "Text marking the user's own position, like the workspace a page was opened from",
-        "defaults": {
-          "dark": "#58a6ff",
-          "light": "#0969da",
-          "highContrast": "#58a6ff",
-          "highContrastLight": "#0969da"
-        }
       }
     ],
     "commands": [

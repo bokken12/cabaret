@@ -1486,9 +1486,6 @@ function createDecorations(): StyleDecorations {
     nudge: vscode.window.createTextEditorDecorationType({
       color: new vscode.ThemeColor("cabaret.nudgeForeground"),
     }),
-    here: vscode.window.createTextEditorDecorationType({
-      color: new vscode.ThemeColor("cabaret.hereForeground"),
-    }),
     // Non-breaking spaces keep the outer sign in its column when the inner
     // position is blank (a context line of just one diff).
     "old-diff-removed": ddiff("removed", "old", "--"),
@@ -1526,7 +1523,6 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
       ready: [],
       blocked: [],
       nudge: [],
-      here: [],
       "old-diff-removed": [],
       "old-diff-added": [],
       "old-diff-context": [],
