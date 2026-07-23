@@ -11,3 +11,5 @@
 {"timestamp":1784816147473,"user":"crouton.ai@gmail.com","action":{"kind":"set-base","base":"d9cc77b63dc3cf011b4636b6bdd3db0baec14ed2"}}
 {"timestamp":1784816275459,"user":"me@joel.place","action":{"kind":"set-parent","parent":"main"}}
 {"timestamp":1784816277596,"user":"me@joel.place","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"main"}}
+{"timestamp":1784816298813,"user":"me@joel.place","action":{"kind":"land","merge":"be1feac4afad26ec9950bd6529ef2d24d5b3bbe5"}}
+{"timestamp":1784816298813,"user":"me@joel.place","action":{"kind":"set-archived","archived":true}}
