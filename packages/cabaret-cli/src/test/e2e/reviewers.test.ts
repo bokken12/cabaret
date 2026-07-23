@@ -73,7 +73,7 @@ test("a reviewer owes the whole diff: land refuses until they have reviewed", as
   expect((await repo.cabaret("home")).stdout).toContain("│ feature │      1 │");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   await repo.git("config", "user.email", "alice@example.com");
-  expect(await repo.cabaret("land")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("land")).toEqual({ stdout: 'pushed "main" to origin\n', stderr: "", exitCode: 0 });
 });
 
 test("sync requests local reviewers on the forge and records the observation", async () => {

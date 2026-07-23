@@ -487,6 +487,8 @@ test("a merged forge change is not imported", async () => {
     ├────────┼─────────┤
     │ main   │ current │
     ╰────────┴─────────╯
+
+    fetched 20w ago
     "
   `);
 });

@@ -393,7 +393,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
   await repo.git("checkout", "-q", "gadget");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   expect(await repo.cabaret("land")).toEqual({
-    stdout: 'reparented "gizmo" onto "main"\n',
+    stdout: 'pushed "main" to origin\nreparented "gizmo" onto "main"\n',
     stderr: "",
     exitCode: 0,
   });
