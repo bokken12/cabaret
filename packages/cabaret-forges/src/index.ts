@@ -1,3 +1,5 @@
+export { BitbucketClient, type BitbucketRepo, parseBitbucketRemote } from "./bitbucket/client.js";
+export { BitbucketForge } from "./bitbucket/forge.js";
 export { ForgejoClient, type ForgejoRepo, parseForgejoRemote } from "./forgejo/client.js";
 export { ForgejoForge } from "./forgejo/forge.js";
 export { type GitHubClient, type GitHubRepo, githubClient, parseGitHubRemote } from "./github/client.js";

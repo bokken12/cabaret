@@ -22,11 +22,13 @@ test("openForge selects the forge named by origin", async () => {
   vi.stubEnv("GH_TOKEN", "github-token");
   vi.stubEnv("GITLAB_TOKEN", "gitlab-token");
   vi.stubEnv("CODEBERG_TOKEN", "codeberg-token");
+  vi.stubEnv("BITBUCKET_TOKEN", "bitbucket-token");
 
   const origins = [
     "https://GitHub.com/Test-Org/Widgets.git",
     "git@gitlab.com:Test-Org/Platform/Widgets.git",
     "ssh://git@codeberg.org/Test-Org/Widgets.git",
+    "https://alice@Bitbucket.org/Test-Org/Widgets.git",
   ] as const;
   const locators = [];
   for (const origin of origins) {
@@ -36,13 +38,14 @@ test("openForge selects the forge named by origin", async () => {
     { origin: "https://GitHub.com/Test-Org/Widgets.git", locator: "github.com/test-org/widgets" },
     { origin: "git@gitlab.com:Test-Org/Platform/Widgets.git", locator: "gitlab.com/test-org/platform/widgets" },
     { origin: "ssh://git@codeberg.org/Test-Org/Widgets.git", locator: "codeberg.org/test-org/widgets" },
+    { origin: "https://alice@Bitbucket.org/Test-Org/Widgets.git", locator: "bitbucket.org/test-org/widgets" },
   ]);
 });
 
 test("openForge rejects an unsupported origin before looking for credentials", async () => {
   const origin = "git@example.com:test-org/widgets.git";
   await expect(openForge(await repository(origin))).rejects.toThrow(
-    `unsupported forge origin: ${JSON.stringify(origin)}; expected github.com, gitlab.com, or codeberg.org`,
+    `unsupported forge origin: ${JSON.stringify(origin)}; expected github.com, gitlab.com, codeberg.org, or bitbucket.org`,
   );
 });
 

@@ -2,12 +2,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type Forge, UserError } from "cabaret-core";
 import {
+  BitbucketClient,
+  BitbucketForge,
   ForgejoClient,
   ForgejoForge,
   GitHubForge,
   GitLabClient,
   GitLabForge,
   githubClient,
+  parseBitbucketRemote,
   parseForgejoRemote,
   parseGitHubRemote,
   parseGitLabRemote,
@@ -15,7 +18,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-type ForgeHost = "github.com" | "gitlab.com" | "codeberg.org";
+type ForgeHost = "github.com" | "gitlab.com" | "codeberg.org" | "bitbucket.org";
 
 /**
  * There is no forge here: origin names no supported forge, or there is no
@@ -25,18 +28,19 @@ type ForgeHost = "github.com" | "gitlab.com" | "codeberg.org";
  */
 export class NoForgeError extends UserError {}
 
-/** The host named by one of the remote URL forms the supported forges accept. */
+/** The host named by one of the remote URL forms the supported forges accept; HTTPS may carry userinfo, as Bitbucket's clone URLs do. */
 function remoteHost(url: string): ForgeHost {
-  const match = /^(?:https:\/\/([^/]+)\/|git@([^:]+):|ssh:\/\/git@([^/]+)\/)/i.exec(url);
+  const match = /^(?:https:\/\/(?:[^@/]+@)?([^/]+)\/|git@([^:]+):|ssh:\/\/git@([^/]+)\/)/i.exec(url);
   const host = (match?.[1] ?? match?.[2] ?? match?.[3])?.toLowerCase();
   switch (host) {
     case "github.com":
     case "gitlab.com":
     case "codeberg.org":
+    case "bitbucket.org":
       return host;
     default:
       throw new NoForgeError(
-        `unsupported forge origin: ${JSON.stringify(url)}; expected github.com, gitlab.com, or codeberg.org`,
+        `unsupported forge origin: ${JSON.stringify(url)}; expected github.com, gitlab.com, codeberg.org, or bitbucket.org`,
       );
   }
 }
@@ -103,6 +107,19 @@ function codebergToken(): string {
   return token;
 }
 
+/**
+ * Bitbucket credentials: an Atlassian API token with the account's email
+ * ($BITBUCKET_EMAIL), or a workspace or repository access token on its own.
+ */
+function bitbucketAuth(): { token: string; email?: string } {
+  const token = envToken("BITBUCKET_TOKEN");
+  if (token === undefined) {
+    throw new UserError("no Bitbucket token: set BITBUCKET_TOKEN (and BITBUCKET_EMAIL for an Atlassian API token)");
+  }
+  const email = envToken("BITBUCKET_EMAIL");
+  return email === undefined ? { token } : { token, email };
+}
+
 /** Open the supported forge named by the `origin` remote of the git repository containing `dir`. */
 export async function openForge(dir: string, auth: ForgeAuth = {}): Promise<Forge> {
   let stdout: string;
@@ -125,6 +142,10 @@ export async function openForge(dir: string, auth: ForgeAuth = {}): Promise<Forg
     case "codeberg.org": {
       const repo = parseForgejoRemote(url);
       return new ForgejoForge(new ForgejoClient(codebergToken()), repo);
+    }
+    case "bitbucket.org": {
+      const repo = parseBitbucketRemote(url);
+      return new BitbucketForge(new BitbucketClient(bitbucketAuth()), repo);
     }
   }
 }
