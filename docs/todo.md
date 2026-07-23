@@ -1,5 +1,16 @@
 # TODO
 
+## Restore rename
+
+`cab rename` (and the TUI/VS Code rename actions) were removed rather than
+wired into eager replication: the old implementation moved the branch and
+log refs raw, which assumed the change lived only in this repository — a
+concurrent editor's appends target the old log ref, origin keeps the old
+name, and the forge change's head branch does not follow. A restored rename
+should be recorded in the log itself (so it replicates and merges like
+every other fact), decide forge-side head-rename semantics, and reparent
+children whose `set-parent` entries name the old change.
+
 ## Actions
 
   set-base <commit> — the natural next one. It's already listed in docs/log.md, the rebase command's docs say it "requires the

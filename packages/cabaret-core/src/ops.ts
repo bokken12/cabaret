@@ -1,16 +1,16 @@
 import {
   assertChangeExists,
   assertNotArchived,
-  assertNotLanded,
   type Backend,
   type ChangeName,
   changeBase,
   changeDiff,
-  conflictedFiles,
+  conflictsBetween,
   currentArchived,
   currentBase,
   currentOwner,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
   diffBetween,
@@ -31,57 +31,166 @@ import {
 import type { LandMethod } from "./config.js";
 import { isConnectivityError } from "./connectivity.js";
 import { UserError } from "./error.js";
-import { assertObligationsSatisfied } from "./obligations.js";
+import {
+  assertObligationsSatisfied,
+  isSatisfied,
+  landBlockers,
+  obligationStatuses,
+  outstanding,
+  UnreviewedParentError,
+} from "./obligations.js";
 import { currentSelf, isSelf } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewLeft } from "./summary.js";
+import { changeWorkspace } from "./workspace.js";
+
+/**
+ * The parent is archived — set aside as not landing, or done because a land
+ * archived it — so building on it would stack work on a dead end. A landed
+ * parent's error names where its code went, since that is the parent to
+ * build on instead. The message states the fact and the fix; each frontend
+ * attaches its own override remedy before showing it.
+ */
+export class ArchivedParentError extends UserError {
+  constructor(
+    readonly parent: ChangeName,
+    readonly landedInto?: ChangeName,
+  ) {
+    super(
+      landedInto === undefined
+        ? `parent ${JSON.stringify(parent)} is archived; run \`cab archive --undo\` first`
+        : `parent ${JSON.stringify(parent)} landed into ${JSON.stringify(landedInto)}; build on that instead`,
+    );
+  }
+}
+
+/** Fail unless `parent` may be built on: an archived parent is a dead end. */
+function assertParentLive(parent: ChangeName, parentEntries: readonly LogEntry[]): void {
+  if (currentArchived(parentEntries)) {
+    throw new ArchivedParentError(
+      parent,
+      landedMerge(parentEntries) !== undefined ? currentParent(parent, parentEntries) : undefined,
+    );
+  }
+}
+
+/**
+ * The parent's workspace has uncommitted changes whose destination is
+ * ambiguous: they may be parent work in progress, or the start of the change
+ * being created. The message states only the fact; each frontend attaches
+ * its own remedies — carry the edits into the new change, or leave them —
+ * before showing it. `current` says whether the dirty workspace is the one
+ * the command runs in, where carrying is possible.
+ */
+export class DirtyParentError extends UserError {
+  constructor(
+    readonly parent: ChangeName,
+    readonly path: string,
+    readonly current: boolean,
+  ) {
+    super(`parent ${JSON.stringify(parent)} has uncommitted changes: ${path}`);
+  }
+}
+
+export interface CreateOptions {
+  /** The new change's owner; defaults to the creator. */
+  readonly owner?: UserName | undefined;
+  /** Mark the change permanent: structure expected to outlive its lands. */
+  readonly permanent?: boolean;
+  /** Proceed even though the parent is archived. */
+  readonly evenThoughParentArchived?: boolean;
+  /** Proceed even though the parent's workspace has uncommitted changes, leaving them there. */
+  readonly evenThoughParentDirty?: boolean;
+  /**
+   * Check the new change out in the current workspace, carrying any
+   * uncommitted changes into it. The parent must be checked out here — edits
+   * elsewhere cannot be carried.
+   */
+  readonly carry?: boolean;
+}
 
 /**
  * Create a change, initializing its log with a parent, a base, and an owner
  * (the current user unless `owner` says otherwise). A branch that does not
  * exist yet is created at the parent's tip; an existing branch is adopted
- * with the last revision shared with the parent as its base. The change must
- * not already exist. Review starts with nobody asked — the change is a draft
- * until widened — though the owner may record self-review at any stage.
+ * with the last revision shared with the parent as its base. Parent and
+ * adopted branch alike read freshest — the descendant-most of the local tip
+ * and origin's last-fetched copy — and diverged readings fail until synced.
+ * An archived parent is a dead end and fails, short of the override. The
+ * change must not already exist.
+ * Uncommitted changes in the parent's workspace fail, short of `carry` —
+ * which checks the new change out and takes them along — or the override,
+ * which leaves them on the parent.
+ * Review starts with nobody asked — the change is a draft until widened —
+ * though the owner may record self-review at any stage. `permanent` marks
+ * the change as structure expected to outlive its lands.
  */
 export async function createChange(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  owner?: UserName,
+  options: CreateOptions = {},
 ): Promise<void> {
+  const { owner, permanent = false, carry = false, evenThoughParentArchived, evenThoughParentDirty } = options;
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
   if ((await backend.readLog(change)).length > 0) {
     throw new UserError(`change already exists: ${JSON.stringify(change)}`);
   }
-  const parentTip = await backend.tip(parent);
-  if (parentTip === undefined) {
+  if (!evenThoughParentArchived) {
+    assertParentLive(parent, await backend.readLog(parent));
+  }
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
+  // Not a `DivergedParentError`: frontends attach rebase's override remedy
+  // to that class, and create offers no override — sync is the way forward.
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const parentTip = parentReading.tip;
+  const parentWorkspace = await changeWorkspace(backend, parent);
+  if (carry && parentWorkspace?.path !== backend.root) {
+    throw new UserError(
+      `carrying uncommitted changes needs parent ${JSON.stringify(parent)} checked out in this workspace`,
+    );
+  }
+  if (parentWorkspace?.dirty && !carry && !evenThoughParentDirty) {
+    throw new DirtyParentError(parent, parentWorkspace.path, parentWorkspace.path === backend.root);
   }
   // Resolve the identity before mutating any ref so a missing identity
   // fails without leaving a branch behind.
   const user = await backend.currentUser();
-  const existing = await backend.tip(change);
+  const existing = await freshestReading(backend, change);
+  if (existing.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(change)} has diverged from origin's copy; sync it first`);
+  }
   // A fresh branch is created at the parent's tip, which is therefore its
   // base; an adopted branch is based where it last shared with the parent.
-  let base: typeof parentTip;
-  if (existing === undefined) {
+  // One adopted from origin's copy alone stays unmaterialized, like an
+  // imported change: the branch appears on engagement.
+  let base: Revision;
+  if (existing.kind === "none") {
     await backend.create(change, parentTip);
     base = parentTip;
   } else {
-    base = await backend.mergeBase(parentTip, existing);
+    base = await backend.mergeBase(parentTip, existing.tip);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user, action: { kind: "set-parent", parent } },
     { timestamp: now(), user, action: { kind: "set-base", base } },
     { timestamp: now(), user, action: { kind: "set-owner", owner: owner ?? user } },
     { timestamp: now(), user, action: { kind: "set-reviewing", reviewing: "none" } },
+    ...(permanent ? [{ timestamp: now(), user, action: { kind: "set-permanent", permanent } as const }] : []),
   ]);
+  if (carry) {
+    await backend.checkout(change);
+  }
 }
 
-/** Record who is asked to review `change`. A landed change is frozen. */
+/** Record who is asked to review `change`. */
 export async function setReviewing(
   backend: Backend,
   now: () => TimestampMs,
@@ -90,7 +199,6 @@ export async function setReviewing(
   reviewing: Reviewing,
 ): Promise<void> {
   assertChangeExists(change, entries);
-  assertNotLanded(change, entries);
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-reviewing", reviewing } },
   ]);
@@ -99,8 +207,8 @@ export async function setReviewing(
 /**
  * Archive `change` — set it aside as not landing — or bring it back. Nothing
  * is deleted: the branch and log stay, todos just stop asking after the
- * change and `land` refuses it until unarchived. A landed change is frozen,
- * so it can move neither way.
+ * change and `land` refuses it until unarchived. Unarchiving a change that
+ * landed reopens it: a rebase then starts its next cycle.
  */
 export async function setArchived(
   backend: Backend,
@@ -110,9 +218,28 @@ export async function setArchived(
   archived: boolean,
 ): Promise<void> {
   assertChangeExists(change, entries);
-  assertNotLanded(change, entries);
+  if (archived && currentPermanent(entries)) {
+    throw new UserError(`change is permanent: ${JSON.stringify(change)}; run \`cab permanent set false\` first`);
+  }
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-archived", archived } },
+  ]);
+}
+
+/**
+ * Record whether `change` is permanent — structure expected to outlive its
+ * lands rather than archive on them.
+ */
+export async function setPermanent(
+  backend: Backend,
+  now: () => TimestampMs,
+  change: ChangeName,
+  entries: readonly LogEntry[],
+  permanent: boolean,
+): Promise<void> {
+  assertChangeExists(change, entries);
+  await backend.appendLog(change, [
+    { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-permanent", permanent } },
   ]);
 }
 
@@ -132,15 +259,13 @@ export async function widenReviewing(
   entries: readonly LogEntry[],
 ): Promise<{ readonly from: Reviewing; readonly to: Reviewing }> {
   assertChangeExists(change, entries);
-  assertNotLanded(change, entries);
   const from = currentReviewing(entries);
   let to = widerReviewing(from);
   if (to === undefined) {
     throw new UserError(`everyone is already reviewing ${JSON.stringify(change)}`);
   }
   const diff = await changeDiff(backend, change, entries);
-  const owes = async (user: UserName): Promise<boolean> =>
-    (await reviewRounds(backend, entries, user, diff)).length > 0;
+  const owes = async (user: UserName): Promise<boolean> => (await reviewLeft(backend, entries, user, diff)).size > 0;
   const owner = currentOwner(change, entries);
   while (to !== "everyone") {
     const added = to === "owner" ? [owner] : currentReviewers(entries).filter((reviewer) => reviewer !== owner);
@@ -303,7 +428,9 @@ export interface RebaseOverrides {
  * still commits, markers in place, for the owner to fix in their own time;
  * the move is complete, so the base is pinned all the same. A change whose
  * files already carry markers must be fixed before it moves again — merging
- * onto them would bake them in as resolved content.
+ * onto them would bake them in as resolved content. Rebasing a change that
+ * has landed starts its next cycle: the parent contains the landed work, so
+ * the base advances past it and the diff empties.
  *
  * TODO: offer a replay-style rebase (`git rebase --onto`) as an alternative
  * once conflicts have a story that never leaves a change mid-operation.
@@ -315,7 +442,6 @@ export async function rebaseChange(
   entries: readonly LogEntry[],
   overrides: RebaseOverrides,
 ): Promise<void> {
-  assertNotLanded(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
   const reading = await freshestReading(backend, parent);
@@ -329,7 +455,7 @@ export async function rebaseChange(
   const base = await changeBase(backend, target, entries);
   // The merge moves the target's branch, so one held only at origin materializes.
   const tip = await ensureBranch(backend, target);
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   // A tip the base already reaches — the parent trailing where the change
   // was built — offers nothing to move; merging it would reverse-diff the
   // newer history, and pinning to it would slide the base backwards and
@@ -361,11 +487,11 @@ export async function rebaseChange(
 
 /**
  * Rebase every change of `chain` onto its parent's tip, ancestormost first so
- * each change's rebase finds its parent already at rest. A landed change is
- * frozen where it landed and is skipped; its descendants still rebase onto
- * its tip. When one change fails — a conflicting merge commits its markers
- * and counts — the rebases before it stand, and rerunning the chain resumes
- * once it is fixed.
+ * each change's rebase finds its parent already at rest. An archived change
+ * is set aside where it stands and is skipped; its descendants still rebase
+ * onto its tip. When one change fails — a conflicting merge commits its
+ * markers and counts — the rebases before it stand, and rerunning the chain
+ * resumes once it is fixed.
  */
 export async function rebaseChain(
   backend: Backend,
@@ -374,7 +500,7 @@ export async function rebaseChain(
   overrides: RebaseOverrides,
 ): Promise<void> {
   for (const { change, entries } of chain) {
-    if (landedMerge(entries) !== undefined) {
+    if (currentArchived(entries)) {
       continue;
     }
     await rebaseChange(backend, now, change, entries, overrides);
@@ -389,6 +515,21 @@ export interface PreparedLand {
   readonly onto: Revision;
   readonly tip: Revision;
   readonly user: UserName;
+  /**
+   * Where the landed diff's review settles per user, from the parent's
+   * obligations as the land found them; undefined for a trunk parent, which
+   * owes no review. `recordLand` writes it into the logs — after the land,
+   * the review entries alone answer, atomically with the landing.
+   */
+  readonly settling:
+    | {
+        readonly parentBase: Revision;
+        /** Users with no review still owed on the parent: the landed diff answers to the landed change's log. */
+        readonly fulfilled: readonly UserName[];
+        /** Users the parent still expects review from: the landed diff joins their catch-up in the parent. */
+        readonly unfulfilled: readonly UserName[];
+      }
+    | undefined;
 }
 
 /** The land checks the user may explicitly override. */
@@ -397,14 +538,16 @@ export interface LandOverrides {
   readonly notOwner: boolean;
   /** Land with review obligations unsatisfied. */
   readonly unreviewed: boolean;
+  /** Land into a parent whose own review obligations are unsatisfied. */
+  readonly parentUnreviewed: boolean;
 }
 
 /**
- * Check that `target` may land now — unlanded, owned by the current user,
- * with an unlanded parent, with commits of its own, free of unresolved
- * conflicts, merging cleanly onto the parent's tip when the parent moved on,
- * and with its review obligations satisfied — and resolve the endpoints the
- * landing writes. `overrides` skips the checks it names.
+ * Check that `target` may land now — live, owned by the current user, with a
+ * live parent, with commits of its own past any earlier land, free of
+ * unresolved conflicts, merging cleanly onto the parent's tip when the
+ * parent moved on, and with its review obligations satisfied — and resolve
+ * the endpoints the landing writes. `overrides` skips the checks it names.
  */
 export async function prepareLand(
   backend: Backend,
@@ -412,33 +555,59 @@ export async function prepareLand(
   entries: readonly LogEntry[],
   overrides: LandOverrides,
 ): Promise<PreparedLand> {
-  assertNotLanded(target, entries);
   assertNotArchived(target, entries);
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
-  // A parent that is itself a landed change is frozen too: landing into it
-  // would grow the code its own land froze. One archived is set aside, so
+  // An archived parent is set aside — or done, when a land archived it — so
   // landing into it would bury the work. A parent that is not a change (an
-  // empty log) can be neither.
+  // empty log) cannot be.
   const parentEntries = await backend.readLog(parent);
-  assertNotLanded(parent, parentEntries);
-  assertNotArchived(parent, parentEntries);
-  const onto = (await backend.tip(parent)) ?? (await backend.originTip(parent));
-  if (onto === undefined) {
+  if (currentArchived(parentEntries)) {
+    throw landedMerge(parentEntries) !== undefined
+      ? new UserError(
+          `${JSON.stringify(target)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+            "run `cab reparent` first",
+        )
+      : new UserError(
+          `${JSON.stringify(target)} would land into ${JSON.stringify(parent)}, which is archived; ` +
+            "run `cab archive --undo` or `cab reparent` first",
+        );
+  }
+  // The land stands on the parent's freshest reading, like a rebase, and
+  // diverged readings fail until synced — a land onto the local reading
+  // alone could never publish.
+  const parentReading = await freshestReading(backend, parent);
+  if (parentReading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
   }
+  if (parentReading.kind === "diverged") {
+    throw new UserError(`local ${JSON.stringify(parent)} has diverged from origin's copy; sync it first`);
+  }
+  const onto = parentReading.tip;
   const base = await changeBase(backend, target, entries);
   const tip = await requireTip(backend, target);
   if (tip === base) {
     throw new UserError(`nothing to land: ${JSON.stringify(target)} has no commits of its own`);
   }
-  assertNoConflict(target, await conflictedFiles(backend, tip, await backend.changedFiles(base, tip)));
+  // A change that landed before lands again only from a base past that land:
+  // a diff still spanning landed work would write it onto the parent twice —
+  // a squash literally duplicating the commits.
+  const landed = landedMerge(entries);
+  if (landed !== undefined && (!(await backend.hasRevision(landed)) || !(await backend.isAncestor(landed, base)))) {
+    throw new UserError(`${JSON.stringify(target)} landed at ${landed}; run \`cab rebase\` to start its next cycle`);
+  }
+  // Commits that change nothing — say, the merges a reopened change's rebase
+  // wrote — would land as an empty commit on the parent.
+  if ((await backend.changedFiles(base, tip)).length === 0) {
+    throw new UserError(`nothing to land: ${JSON.stringify(target)} changes nothing against ${JSON.stringify(parent)}`);
+  }
+  assertNoConflict(target, await conflictsBetween(backend, base, tip));
   if (base !== onto) {
     const conflicts = await backend.mergeConflicts(base, tip, onto);
     if (conflicts.length > 0) {
       throw new UserError(
         `${JSON.stringify(target)} conflicts with the tip of ${JSON.stringify(parent)} ` +
-          `in ${conflicts.join(", ")}; run \`cabaret rebase\` first`,
+          `in ${conflicts.join(", ")}; run \`cab rebase\` first`,
       );
     }
   }
@@ -446,34 +615,117 @@ export async function prepareLand(
     const diff = await diffBetween(backend, base, tip);
     await assertObligationsSatisfied(backend, entries, currentOwner(target, entries), diff);
   }
+  // A trunk parent has no log and owes nothing. The parent's diff is
+  // measured to `onto`, the freshest reading the land merges onto.
+  let settling: PreparedLand["settling"];
+  if (parentEntries.length > 0) {
+    const parentDiff = await diffBetween(backend, await changeBase(backend, parent, parentEntries), onto);
+    const statuses = await obligationStatuses(backend, parentEntries, currentOwner(parent, parentEntries), parentDiff);
+    const blockers = landBlockers(statuses);
+    if (blockers.length > 0 && !overrides.parentUnreviewed) {
+      throw new UnreviewedParentError(parent, blockers);
+    }
+    // Settling asks who still expects to read the parent, whatever kind of
+    // review they owe: follow review left there means the landed diff joins
+    // that catch-up rather than fast-forwarding past it. Who the landed diff
+    // answers to is read from the parent's obligations over that diff itself
+    // — the parent's own diff may be empty, as on a permanent change
+    // between cycles, and its obligations then name nobody.
+    const unsatisfied = statuses.filter((status) => !isSatisfied(status));
+    const landingStatuses = await obligationStatuses(
+      backend,
+      parentEntries,
+      currentOwner(parent, parentEntries),
+      await diffBetween(backend, base, tip),
+    );
+    const users = new Set(landingStatuses.flatMap(({ obligation }) => obligation.require.of));
+    const owing = new Set(unsatisfied.flatMap(outstanding));
+    settling = {
+      parentBase: parentDiff.base,
+      fulfilled: [...users].filter((user) => !owing.has(user)).sort(),
+      unfulfilled: [...owing].sort(),
+    };
+  }
   // Resolve the identity before any ref moves so a missing identity
   // fails without landing anything.
   const user = await backend.currentUser();
-  return { parent, base, onto, tip, user };
+  return { parent, base, onto, tip, user, settling };
 }
 
 /**
  * Record `target`'s landing in its log: pin the base — once the parent
- * contains the change, the merge-base with it is useless, so `changeBase`
- * serves the stored base of a landed change forever — and write the land
- * entry. A landing commit that descends from no reviewed history — a squash,
- * or whatever else the forge chose to write — also freezes the tip that
- * landed.
+ * contains the change, the merge-base with it is useless — and write the
+ * land entry. A landing commit that descends from no reviewed history — a
+ * squash, or whatever else the forge chose to write — also records the tip
+ * that landed.
+ *
+ * The land concludes by what the change is. An ordinary change is done, so
+ * the same append archives it, and its children follow the code to its
+ * parent (`reparentLandedChildren`, the caller's half). A permanent change
+ * outlives the land: its branch advances to the landing commit — a merge
+ * contains the tip; a squash, which descends from none of the change's
+ * history, merges in as content the branch already carries — and the base
+ * pins there, emptying the diff for the next cycle.
+ *
+ * The landing also settles the landed diff's review, per `settling`: a user
+ * the parent still expects review from reads it combined into the parent's
+ * catch-up, so their review of `target` records as complete; everyone else
+ * answers to `target`'s log for it, so their review of the parent records
+ * through the landing commit. After this, the review entries alone say who
+ * has read what — nothing later re-reads the land.
  */
 export async function recordLand(
   backend: Backend,
   now: () => TimestampMs,
   target: ChangeName,
   entries: readonly LogEntry[],
-  { base, tip, user }: PreparedLand,
+  { parent, base, onto, tip, user, settling }: PreparedLand,
   merge: LandedMerge,
 ): Promise<void> {
   const pin: LogEntry[] =
     currentBase(target, entries) === base ? [] : [{ timestamp: now(), user, action: { kind: "set-base", base } }];
+  const review = (reviewer: UserName, file: FilePath, from: Revision, to: Revision): LogEntry => ({
+    timestamp: now(),
+    user: reviewer,
+    action: { kind: "review", file, base: from, tip: to },
+  });
+  let settled: LogEntry[] = [];
+  if (settling !== undefined && settling.unfulfilled.length > 0) {
+    const files = await backend.changedFiles(base, tip);
+    settled = settling.unfulfilled.flatMap((reviewer) => files.map(({ path }) => review(reviewer, path, base, tip)));
+  }
+  const permanent = currentPermanent(entries);
   await backend.appendLog(target, [
     ...pin,
+    ...settled,
     { timestamp: now(), user, action: { kind: "land", merge: merge.commit, ...(merge.parents > 1 ? {} : { tip }) } },
+    ...(permanent ? [] : [{ timestamp: now(), user, action: { kind: "set-archived", archived: true } as const }]),
   ]);
+  if (settling !== undefined && settling.fulfilled.length > 0) {
+    const landed = await backend.changedFiles(onto, merge.commit);
+    await backend.appendLog(
+      parent,
+      settling.fulfilled.flatMap((reviewer) =>
+        landed.map(({ path }) => review(reviewer, path, settling.parentBase, merge.commit)),
+      ),
+    );
+  }
+  if (permanent) {
+    let next: Revision;
+    if (merge.parents > 1) {
+      next = merge.commit;
+      if ((await ensureBranch(backend, target)) !== next) {
+        await backend.advance(target, next);
+      }
+    } else {
+      const conflicts = await backend.mergeOnto(target, base, merge.commit, `Merge land of '${target}'`);
+      if (conflicts.length > 0) {
+        throw new Error(`merging ${JSON.stringify(target)}'s own landed content conflicted in ${conflicts.join(", ")}`);
+      }
+      next = await requireTip(backend, target);
+    }
+    await backend.appendLog(target, [{ timestamp: now(), user, action: { kind: "set-base", base: next } }]);
+  }
 }
 
 /** How a local land's parent advance reached origin, if it could. */
@@ -482,8 +734,6 @@ export type LandPublication =
   | "published"
   /** Origin was unreachable; the parent keeps the land locally until pushed. */
   | "origin-unreachable"
-  /** The local parent does not descend from origin's reading, so pushing could drop origin's work; the land stays local. */
-  | "parent-stale"
   /** Origin never held the parent (or there is no origin): the land is local by nature. */
   | "no-origin";
 
@@ -506,9 +756,13 @@ export async function landChange(
 ): Promise<LandPublication> {
   const prepared = await prepareLand(backend, target, entries, overrides);
   const { parent, base, onto, tip } = prepared;
-  // The landing commit goes onto the parent's branch, so one held only at
-  // origin materializes; the target's own branch is only read.
-  await ensureBranch(backend, parent);
+  // The landing commit goes onto the parent's branch, which the merge
+  // advances from `onto` — the freshest reading — so one held only at origin
+  // materializes and a merely-behind local copy fast-forwards first. The
+  // target's own branch is only read.
+  if ((await ensureBranch(backend, parent)) !== onto) {
+    await backend.advance(parent, onto);
+  }
   const merge =
     method === "merge"
       ? await backend.merge(parent, base, onto, tip, landMessage(target))
@@ -517,15 +771,8 @@ export async function landChange(
     commit: merge,
     parents: method === "merge" ? 2 : 1,
   });
-  const originTip = await backend.originTip(parent);
-  if (originTip === undefined) {
+  if ((await backend.originTip(parent)) === undefined) {
     return "no-origin";
-  }
-  // Only a strict advance of origin's reading pushes: the lease alone would
-  // let a land onto a stale local parent replace origin work this clone has
-  // fetched but never absorbed.
-  if (originTip !== merge && !(await backend.isAncestor(originTip, merge))) {
-    return "parent-stale";
   }
   try {
     await backend.push(parent);
@@ -541,8 +788,10 @@ export async function landChange(
 /**
  * Land every change of `chain` with `land`, deepest first: a change lands
  * into its parent, so the parent's own land must wait until it has absorbed
- * everything below. Changes that already landed are skipped, so a rerun after
- * a mid-chain failure resumes where it left off.
+ * everything below. Archived changes are skipped — a change landed on an
+ * earlier run archived with it — so a rerun after a mid-chain failure
+ * resumes where it left off; a permanent change lands again whenever the
+ * chain below has grown it.
  */
 export async function landChain(
   backend: Backend,
@@ -553,32 +802,28 @@ export async function landChain(
   if (first === undefined) {
     return;
   }
-  // An unlanded change under a landed or archived one can never reach its
-  // ancestor: landing below it would only bury work in a jammed chain, so
-  // refuse before any merge moves.
+  // A live change under an archived one can never reach its ancestor:
+  // landing below it would only bury work in a jammed chain, so refuse
+  // before any merge moves.
   let parent = currentParent(first.change, first.entries);
   let parentEntries = await backend.readLog(parent);
   for (const { change, entries } of chain) {
-    const changeLanded = landedMerge(entries) !== undefined;
-    if (!changeLanded) {
-      if (landedMerge(parentEntries) !== undefined) {
-        throw new UserError(
-          `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
-            "run `cabaret reparent` first",
-        );
-      }
-      if (currentArchived(parentEntries)) {
-        throw new UserError(
-          `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
-            "run `cabaret unarchive` or `cabaret reparent` first",
-        );
-      }
+    if (!currentArchived(entries) && currentArchived(parentEntries)) {
+      throw landedMerge(parentEntries) !== undefined
+        ? new UserError(
+            `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which has landed; ` +
+              "run `cab reparent` first",
+          )
+        : new UserError(
+            `${JSON.stringify(change)} would land into ${JSON.stringify(parent)}, which is archived; ` +
+              "run `cab archive --undo` or `cab reparent` first",
+          );
     }
     parent = change;
     parentEntries = entries;
   }
   for (const { change, entries } of chain.toReversed()) {
-    if (landedMerge(entries) !== undefined) {
+    if (currentArchived(entries)) {
       continue;
     }
     await land(change, entries);
@@ -586,10 +831,11 @@ export async function landChain(
 }
 
 /**
- * Reparent every unlanded child of `landed` onto `parent`, the branch its
- * landing merged into. Landing froze `landed`, so a child pointing at it is
+ * Reparent every child of `landed` onto `parent`, the branch its landing
+ * merged into. The landing archived `landed`, so a child pointing at it is
  * stuck; the move follows the code, changes no child's diff — the base stays
- * pinned — and so asks no owner's leave. Returns the children moved, in
+ * pinned — and so asks no owner's leave. Children finished in their own
+ * right — landed and archived — stay put. Returns the children moved, in
  * `listChanges` order.
  */
 export async function reparentLandedChildren(
@@ -608,7 +854,7 @@ export async function reparentLandedChildren(
       continue;
     }
     const entries = await backend.readLog(change);
-    if (currentParent(change, entries) !== landed || landedMerge(entries) !== undefined) {
+    if (currentParent(change, entries) !== landed || (landedMerge(entries) !== undefined && currentArchived(entries))) {
       continue;
     }
     await backend.appendLog(change, [{ timestamp: now(), user, action: { kind: "set-parent", parent } }]);
@@ -617,26 +863,45 @@ export async function reparentLandedChildren(
   return moved;
 }
 
+/** The reparent checks the user may explicitly override. */
+export interface ReparentOverrides {
+  /** Reparent a change the current user does not own. */
+  readonly notOwner: boolean;
+  /** Reparent onto an archived parent. */
+  readonly parentArchived: boolean;
+  /** Reparent onto a parent whose local reading has diverged from origin's. */
+  readonly parentDiverged: boolean;
+}
+
 /**
  * Update `change`'s parent. This is a metadata/log change only, and does not
- * touch code without a subsequent rebase.
+ * touch code without a subsequent rebase — which is why a diverged parent is
+ * overridable here: no reading is chosen until that rebase, which arbitrates
+ * with its own override.
  */
 export async function reparentChange(
   backend: Backend,
   now: () => TimestampMs,
   change: ChangeName,
   parent: ChangeName,
-  override: boolean,
+  overrides: ReparentOverrides,
 ): Promise<void> {
   if (change === parent) {
     throw new UserError(`change cannot be its own parent: ${JSON.stringify(change)}`);
   }
   const entries = await backend.readLog(change);
-  assertNotLanded(change, entries);
-  await requireOwner(backend, change, entries, override);
-  // The same liveness `create` demands: a parent is a branch, change log or not.
-  if ((await backend.tip(parent)) === undefined) {
+  await requireOwner(backend, change, entries, overrides.notOwner);
+  if (!overrides.parentArchived) {
+    assertParentLive(parent, await backend.readLog(parent));
+  }
+  // The same liveness `create` demands: a parent is a branch — local or
+  // origin's fetched copy — change log or not.
+  const reading = await freshestReading(backend, parent);
+  if (reading.kind === "none") {
     throw new UserError(`parent branch does not exist: ${JSON.stringify(parent)}`);
+  }
+  if (reading.kind === "diverged" && !overrides.parentDiverged) {
+    throw new DivergedParentError(parent);
   }
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-parent", parent } },
@@ -652,7 +917,6 @@ export async function transferChange(
   override: boolean,
 ): Promise<void> {
   const entries = await backend.readLog(change);
-  assertNotLanded(change, entries);
   await requireOwner(backend, change, entries, override);
   await backend.appendLog(change, [
     { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-owner", owner } },
@@ -660,30 +924,35 @@ export async function transferChange(
 }
 
 /**
- * Rename an unlanded change: move its branch and its log to the new name
- * together, atomically.
+ * Push every branch of `changes` that origin trails by descent — replication,
+ * not publication: attention never rides a push, and a diverged branch is a
+ * join's business, not a push's. Returns what moved, in `changes` order.
  */
-// TODO: rename assumes the change lives only in this repository. Once
-// changes sync with a remote, a raw ref move races concurrent editors —
-// their appends target the old log ref — so a distributed rename likely
-// needs to be recorded in the log itself. Children are similarly untouched:
-// their `set-parent` entries keep naming the old change until a manual
-// `cabaret reparent`.
-export async function renameChange(
-  backend: Backend,
-  from: ChangeName,
-  to: ChangeName,
-  override: boolean,
-): Promise<void> {
-  const entries = await backend.readLog(from);
-  assertChangeExists(from, entries);
-  assertNotLanded(from, entries);
-  await requireOwner(backend, from, entries, override);
-  if ((await backend.readLog(to)).length > 0) {
-    throw new UserError(`change already exists: ${JSON.stringify(to)}`);
+export async function pushAdvances(backend: Backend, changes: readonly ChangeName[]): Promise<readonly ChangeName[]> {
+  const pushed: ChangeName[] = [];
+  for (const change of changes) {
+    const tip = await backend.tip(change);
+    if (tip === undefined) {
+      continue;
+    }
+    const origin = await backend.originTip(change);
+    if (origin === tip || (origin !== undefined && !(await backend.isAncestor(origin, tip)))) {
+      continue;
+    }
+    try {
+      await backend.push(change);
+    } catch (error) {
+      // A lease rejection means the last-fetched reading trailed the remote —
+      // a racer pushed, or the readings truly diverged; either way the next
+      // fetch reads fresh and joins. Anything else surfaces.
+      if (
+        /stale info|non-fast-forward|\[rejected\]|failed to push/i.test(error instanceof Error ? error.message : "")
+      ) {
+        continue;
+      }
+      throw error;
+    }
+    pushed.push(change);
   }
-  if ((await backend.tip(to)) !== undefined) {
-    throw new UserError(`branch already exists: ${JSON.stringify(to)}`);
-  }
-  await backend.rename(from, to);
+  return pushed;
 }

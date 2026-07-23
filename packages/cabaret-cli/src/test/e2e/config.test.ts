@@ -16,6 +16,7 @@ test("list shows defaults on a fresh repo", async () => {
       "stderr": "",
       "stdout": "alias            (none)
     context          3 (default)
+    hints            true (default)
     land-method      merge (default)
     land-via         auto (default)
     workspace-style  shared (default)
@@ -133,8 +134,9 @@ test("an added alias widens who counts as you", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "feature", "--owner", "agent@example.com");
   await repo.cabaret("config", "alias", "add", "agent@example.com");
-  // Alice may rename the agent's change: the alias makes it hers.
-  expect(await repo.cabaret("rename", "feature", "gadget")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  // Alice may reparent the agent's change: the alias makes it hers.
+  await repo.git("branch", "develop", "main");
+  expect(await repo.cabaret("reparent", "feature", "develop")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("add rejects a duplicate and an empty alias; remove rejects a missing one", async () => {
@@ -189,11 +191,11 @@ test("a forge alias rejects an email, a schemed identity, and a duplicate", asyn
   const repo = await makeRepo();
   expect(await repo.cabaret("config", "alias", "github", "add", "alice@example.com")).toEqual({
     stdout: "",
-    stderr: "pass the bare account name, e.g. `cabaret config alias github add alice`\n",
+    stderr: "pass the bare account name, e.g. `cab config alias github add alice`\n",
     exitCode: 1,
   });
   expect((await repo.cabaret("config", "alias", "gitlab", "add", "gitlab:alice")).stderr).toBe(
-    "pass the bare account name, e.g. `cabaret config alias gitlab add alice`\n",
+    "pass the bare account name, e.g. `cab config alias gitlab add alice`\n",
   );
   await repo.cabaret("config", "alias", "github", "add", "alice");
   expect(await repo.cabaret("config", "alias", "github", "add", "alice")).toEqual({
@@ -248,6 +250,7 @@ test("a bare setting and list read one scope with --global or --local", async ()
   expect((await repo.cabaret("config", "list", "--global")).stdout).toMatchInlineSnapshot(`
     "alias            agent@example.com
     context          (unset)
+    hints            (unset)
     land-method      (unset)
     land-via         (unset)
     workspace-style  (unset)
@@ -256,6 +259,7 @@ test("a bare setting and list read one scope with --global or --local", async ()
   expect((await repo.cabaret("config", "list", "--local")).stdout).toMatchInlineSnapshot(`
     "alias            (unset)
     context          (unset)
+    hints            (unset)
     land-method      squash
     land-via         (unset)
     workspace-style  (unset)
@@ -268,6 +272,19 @@ test("--global and --local exclude each other", async () => {
   expect(await repo.cabaret("config", "context", "8", "--global", "--local")).toEqual({
     stdout: "",
     stderr: "pass at most one of --global and --local\n",
+    exitCode: 1,
+  });
+});
+
+test("hints normalizes git's boolean spellings and rejects the rest", async () => {
+  const repo = await makeRepo();
+  expect((await repo.cabaret("config", "hints")).stdout).toBe("true (default)\n");
+  expect(await repo.cabaret("config", "hints", "off")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.git("config", "--global", "cabaret.hints")).toBe("false");
+  expect((await repo.cabaret("config", "hints")).stdout).toBe("false\n");
+  expect(await repo.cabaret("config", "hints", "maybe")).toEqual({
+    stdout: "",
+    stderr: 'config cabaret.hints must be true or false: "maybe"\n',
     exitCode: 1,
   });
 });

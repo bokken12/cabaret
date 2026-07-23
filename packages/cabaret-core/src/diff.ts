@@ -9,7 +9,7 @@ export function shortHash(hash: Revision): string {
   return hash.slice(0, 12);
 }
 
-/** The versions a file's round of review compares. */
+/** The versions a file's review compares. */
 export type DiffView =
   /** A plain two-way diff; an absent version diffs against the empty file. */
   | { readonly kind: "two"; readonly prev: string | undefined; readonly next: string | undefined }

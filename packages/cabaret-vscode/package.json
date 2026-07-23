@@ -21,7 +21,7 @@
       {
         "id": "cabaret",
         "filenamePatterns": [
-          "**/cabaret/{diff,diffs,diff-as,diffs-as}/**"
+          "**/cabaret/{diff,diffs,review,reviews}/**"
         ]
       }
     ],
@@ -102,12 +102,42 @@
           "highContrast": "#76e3ea",
           "highContrastLight": "#1b7c83"
         }
+      },
+      {
+        "id": "cabaret.readyForeground",
+        "description": "Text of a status whose obligations are all met, like a change ready to land",
+        "defaults": {
+          "dark": "#3fb950",
+          "light": "#1a7f37",
+          "highContrast": "#3fb950",
+          "highContrastLight": "#1a7f37"
+        }
+      },
+      {
+        "id": "cabaret.blockedForeground",
+        "description": "Text of a status gating work until mended, like unresolved conflicts",
+        "defaults": {
+          "dark": "#f85149",
+          "light": "#cf222e",
+          "highContrast": "#f85149",
+          "highContrastLight": "#cf222e"
+        }
+      },
+      {
+        "id": "cabaret.nudgeForeground",
+        "description": "Text of a status inviting unhurried action, like the reclaimable workspace of a landed change",
+        "defaults": {
+          "dark": "#d29922",
+          "light": "#9a6700",
+          "highContrast": "#d29922",
+          "highContrastLight": "#9a6700"
+        }
       }
     ],
     "commands": [
       {
-        "command": "cabaret.todo",
-        "title": "Cabaret: Todo"
+        "command": "cabaret.home",
+        "title": "Cabaret: Home"
       },
       {
         "command": "cabaret.show",
@@ -116,6 +146,10 @@
       {
         "command": "cabaret.openTarget",
         "title": "Cabaret: Open Target at Cursor"
+      },
+      {
+        "command": "cabaret.stepOutside",
+        "title": "Cabaret: Step Outside"
       },
       {
         "command": "cabaret.refresh",
@@ -134,10 +168,6 @@
         "title": "Cabaret: Land"
       },
       {
-        "command": "cabaret.rename",
-        "title": "Cabaret: Rename"
-      },
-      {
         "command": "cabaret.reparent",
         "title": "Cabaret: Reparent"
       },
@@ -152,6 +182,10 @@
       {
         "command": "cabaret.disableReviewing",
         "title": "Cabaret: Disable Reviewing"
+      },
+      {
+        "command": "cabaret.toggleArchived",
+        "title": "Cabaret: Toggle Archived"
       },
       {
         "command": "cabaret.gotoWorkspace",
@@ -174,20 +208,20 @@
         "title": "Cabaret: Create Parent"
       },
       {
-        "command": "cabaret.showParent",
-        "title": "Cabaret: Show Parent"
+        "command": "cabaret.stepUp",
+        "title": "Cabaret: Step Up"
       },
       {
-        "command": "cabaret.showChild",
-        "title": "Cabaret: Show Child"
+        "command": "cabaret.stepDown",
+        "title": "Cabaret: Step Down"
       },
       {
         "command": "cabaret.review",
         "title": "Cabaret: Review"
       },
       {
-        "command": "cabaret.reviewDiffs",
-        "title": "Cabaret: Review Diffs"
+        "command": "cabaret.diff",
+        "title": "Cabaret: Diff"
       },
       {
         "command": "cabaret.actAs",
@@ -208,12 +242,20 @@
       {
         "command": "cabaret.sync",
         "title": "Cabaret: Sync Change"
+      },
+      {
+        "command": "cabaret.reclaimWorkspaces",
+        "title": "Cabaret: Reclaim Workspaces"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "cabaret.openTarget",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.stepOutside",
           "when": "resourceScheme == cabaret"
         },
         {
@@ -233,10 +275,6 @@
           "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.rename",
-          "when": "resourceScheme == cabaret"
-        },
-        {
           "command": "cabaret.reparent",
           "when": "resourceScheme == cabaret"
         },
@@ -250,6 +288,10 @@
         },
         {
           "command": "cabaret.disableReviewing",
+          "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.toggleArchived",
           "when": "resourceScheme == cabaret"
         },
         {
@@ -273,20 +315,20 @@
           "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.showParent",
-          "when": "cabaret.page == 'show'"
+          "command": "cabaret.stepUp",
+          "when": "resourceScheme == cabaret"
         },
         {
-          "command": "cabaret.showChild",
-          "when": "cabaret.page == 'show'"
+          "command": "cabaret.stepDown",
+          "when": "resourceScheme == cabaret"
         },
         {
           "command": "cabaret.review",
-          "when": "cabaret.page == 'show'"
+          "when": "cabaret.page == 'show' || cabaret.page == 'home' || cabaret.page == 'diffs' || cabaret.page == 'diff'"
         },
         {
-          "command": "cabaret.reviewDiffs",
-          "when": "cabaret.page == 'show' || cabaret.page == 'review'"
+          "command": "cabaret.diff",
+          "when": "cabaret.page == 'show' || cabaret.page == 'home' || cabaret.page == 'reviews' || cabaret.page == 'review'"
         },
         {
           "command": "cabaret.actAs",
@@ -294,7 +336,7 @@
         },
         {
           "command": "cabaret.markReviewed",
-          "when": "cabaret.page == 'diff'"
+          "when": "cabaret.page == 'review'"
         },
         {
           "command": "cabaret.fetch",
@@ -303,6 +345,10 @@
         {
           "command": "cabaret.sync",
           "when": "resourceScheme == cabaret"
+        },
+        {
+          "command": "cabaret.reclaimWorkspaces",
+          "when": "cabaret.page == 'home'"
         }
       ]
     },
@@ -311,6 +357,11 @@
         "command": "cabaret.openTarget",
         "key": "enter",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.stepOutside",
+        "key": "escape",
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'reviews' || cabaret.page == 'review' || cabaret.page == 'diffs' || cabaret.page == 'diff') && !findWidgetVisible && !editorHasSelection && !editorHasMultipleSelections && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "editor.toggleFold",
@@ -335,12 +386,12 @@
       {
         "command": "cabaret.review",
         "key": "r",
-        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'home' || cabaret.page == 'diffs' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.reviewDiffs",
+        "command": "cabaret.diff",
         "key": "d",
-        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'home' || cabaret.page == 'reviews' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.actAs",
@@ -350,67 +401,72 @@
       {
         "command": "cabaret.markReviewed",
         "key": "shift+1 m",
-        "when": "editorTextFocus && (cabaret.page == 'diff' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'review' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.showParent",
+        "command": "cabaret.stepUp",
         "key": "shift+6",
-        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
-        "command": "cabaret.showChild",
+        "command": "cabaret.stepDown",
         "key": "shift+4",
-        "when": "editorTextFocus && cabaret.page == 'show' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'review' || cabaret.page == 'diff') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.rebase",
         "key": "shift+1 r b",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.land",
-        "key": "shift+1 l a",
+        "key": "shift+1 l",
         "when": "editorTextFocus && resourceScheme == cabaret && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
-      },
-      {
-        "command": "cabaret.rename",
-        "key": "shift+1 r n",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.reparent",
         "key": "shift+1 r p",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.setOwner",
         "key": "shift+1 o",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.widenReviewing",
         "key": "shift+1 v",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.disableReviewing",
         "key": "shift+1 d",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.toggleArchived",
+        "key": "shift+1 a",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.gotoWorkspace",
         "key": "shift+1 g",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.addWorkspace",
         "key": "shift+1 w a",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.removeWorkspace",
         "key": "shift+1 w d",
-        "when": "editorTextFocus && (cabaret.page == 'todo' || cabaret.page == 'show' || cabaret.page == 'review') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'reviews') && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
+      },
+      {
+        "command": "cabaret.reclaimWorkspaces",
+        "key": "shift+1 w r",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')"
       },
       {
         "command": "cabaret.createChild",
@@ -447,11 +503,6 @@
           "default": true,
           "description": "Keep branches, cabaret logs, and forge changes synced in the background, so Pull rarely has anything left to wait on"
         },
-        "cabaret.hints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show key hints on pages: keys beside each next step, ? for the full list"
-        },
         "leaderkey.overrides._cabaret": {
           "type": "object",
           "description": "Bindings contributed to the leaderkey extension, active when it is installed",
@@ -459,8 +510,8 @@
             "SPC a": "+Applications",
             "SPC a f": "+Cabaret",
             "SPC a f t": {
-              "name": "Todo",
-              "command": "cabaret.todo"
+              "name": "Home",
+              "command": "cabaret.home"
             },
             "SPC a f s": {
               "name": "Show change",

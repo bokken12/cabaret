@@ -1,5 +1,5 @@
 import { buildCommand, buildRouteMap } from "@stricli/core";
-import { addChangeWorkspace, changeWorkspace, removeChangeWorkspace, UserError } from "cabaret-core";
+import { addChangeWorkspace, changeWorkspace, reclaimWorkspaces, removeChangeWorkspace, UserError } from "cabaret-core";
 import { workspacesDoc, workspacesPage } from "cabaret-views";
 import type { LocalContext } from "../context.js";
 import { writeDoc } from "./shared.js";
@@ -13,7 +13,7 @@ const list = buildCommand({
   docs: { brief: "List this repository's workspaces" },
   parameters: {},
   async func(this: LocalContext, _flags: Record<never, never>) {
-    writeDoc(this, workspacesDoc(await workspacesPage(await this.backend())));
+    writeDoc(this, workspacesDoc(await workspacesPage(await this.backend()), this.now()));
   },
 });
 
@@ -65,6 +65,39 @@ const remove = buildCommand({
   },
 });
 
+const reclaim = buildCommand({
+  docs: {
+    brief: "Remove the workspaces of landed and archived changes",
+    fullDescription:
+      "Remove every workspace whose change has landed or is archived. A workspace " +
+      "with uncommitted changes is kept, as are the primary workspace and the one " +
+      "this command runs in; each is reported.",
+  },
+  parameters: {
+    flags: {
+      all: {
+        kind: "boolean",
+        brief: "Reclaim every clean workspace, not only those of landed and archived changes",
+        default: false,
+      },
+    },
+  },
+  async func(this: LocalContext, flags: { all: boolean }) {
+    const reclaimed = await reclaimWorkspaces(await this.backend(), flags.all);
+    if (reclaimed.length === 0) {
+      this.process.stdout.write("nothing to reclaim\n");
+      return;
+    }
+    for (const { path, outcome } of reclaimed) {
+      this.process.stdout.write(
+        outcome === "removed"
+          ? `removed ${path}\n`
+          : `kept ${path}: ${outcome === "dirty" ? "dirty" : `${outcome} workspace`}\n`,
+      );
+    }
+  },
+});
+
 const dir = buildCommand({
   docs: { brief: "Print the directory of the workspace holding a change" },
   parameters: { positional: changePositional },
@@ -80,5 +113,5 @@ const dir = buildCommand({
 
 export const workspace = buildRouteMap({
   docs: { brief: "Manage workspaces: working trees each holding a checked-out change" },
-  routes: { list, add, remove, dir },
+  routes: { list, add, remove, reclaim, dir },
 });

@@ -6,8 +6,10 @@ import {
   type ChangeName,
   checkoutChange,
   createChange,
+  currentArchived,
   currentParent,
   currentSelf,
+  DirtyParentError,
   DirtyWorkspaceError,
   DivergedParentError,
   declinedScopes,
@@ -34,17 +36,19 @@ import {
   readConfig,
   rebaseChain,
   rebaseChange,
+  reclaimWorkspaces,
   removeChangeWorkspace,
-  renameChange,
   reparentChange,
   resolveChain,
   reviewerSummary,
   type SetupAudit,
+  setArchived,
   setReviewing,
   syncChange,
   type TimestampMs,
   timestampMs,
   transferChange,
+  UnreviewedParentError,
   UnsatisfiedObligationsError,
   UserError,
   type UserName,
@@ -54,17 +58,23 @@ import {
 } from "cabaret-core";
 import { NoForgeError, openBackend as openRepositoryBackend, openForge as openRepositoryForge } from "cabaret-node";
 import {
+  type ChangeSnapshot,
   changeSnapshot,
   type Doc,
+  displayedKey,
   docText,
+  enclosingPage,
+  linkRanges,
   type MarkReviewedResult,
   markReviewed,
+  neighborFiles,
   type Page,
   pagePath,
   parsePagePath,
-  pendingRound,
+  reclaimNote,
   renderPage,
   type Style,
+  styledRanges,
   type Target,
   targetAt,
 } from "cabaret-views";
@@ -72,14 +82,8 @@ import * as vscode from "vscode";
 import { BackoffLoop } from "./backoff.js";
 import { type Manifest, pageHelp, pageHints } from "./help.js";
 import { writePageGrammar } from "./language.js";
-import { linkRanges, styledRanges } from "./ranges.js";
 
 const SCHEME = "cabaret";
-
-/** The `displayedEnds` key for one file's diff as shown to one user against one base. */
-function displayedKey(change: ChangeName, user: UserName, base: Revision, file: FilePath): string {
-  return [change, user, base, file].join("\u0000");
-}
 
 /**
  * The backend for whichever folder `openBackend` last opened: the root,
@@ -111,20 +115,35 @@ function openBackend(): Promise<Backend> {
 }
 
 /** Open the supported forge named by the first workspace folder's origin. */
-async function openForge(): Promise<Forge> {
+async function openForge({ signIn = true }: { signIn?: boolean } = {}): Promise<Forge> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder === undefined) {
     throw new UserError("cabaret needs an open folder inside a repository");
   }
-  return openRepositoryForge(folder.uri.fsPath);
+  return openRepositoryForge(folder.uri.fsPath, { github: () => githubSession(signIn) });
+}
+
+/**
+ * A token from VS Code's built-in GitHub authentication provider. The
+ * session lives in the account store, so one sign-in outlasts restarts —
+ * rescuing the common case of a GUI-launched VS Code whose environment
+ * carries no token. `signIn` gates the sign-in dialog: commands the user
+ * just ran may prompt, while the background poll only reuses a session
+ * already granted, staying invisible in repositories whose forge the user
+ * never asked cabaret to touch.
+ */
+async function githubSession(signIn: boolean): Promise<string> {
+  const session = signIn
+    ? await vscode.authentication.getSession("github", ["repo"], { createIfNone: true })
+    : await vscode.authentication.getSession("github", ["repo"], { silent: true });
+  if (session === undefined) {
+    throw new UserError("no GitHub session");
+  }
+  return session.accessToken;
 }
 
 function backgroundSyncEnabled(): boolean {
   return vscode.workspace.getConfiguration("cabaret").get<boolean>("backgroundSync") ?? true;
-}
-
-function hintsEnabled(): boolean {
-  return vscode.workspace.getConfiguration("cabaret").get<boolean>("hints") ?? true;
 }
 
 /**
@@ -182,8 +201,10 @@ class PageProvider
   constructor(private readonly manifest: Manifest) {}
 
   private readonly docs = new Map<string, Doc>();
-  /** Per displayed diff, the revision it reviewed up to: the evidence `markPageReviewed`'s asked-first check reads. */
-  readonly displayedEnds = new Map<string, Revision>();
+  /** Per page, the snapshot its doc rendered from: what a mark of the page records. */
+  private readonly snapshots = new Map<string, ChangeSnapshot>();
+  /** Per displayed diff, the revisions it was shown up to: the evidence `markPageReviewed`'s asked-first check reads. */
+  readonly displayedEnds = new Map<string, Set<Revision>>();
   /** What each page last reported, so the re-render after every action does not re-toast it. */
   private readonly reported = new Map<string, string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
@@ -212,16 +233,18 @@ class PageProvider
           );
           link.tooltip =
             target.kind === "file"
-              ? `Open ${target.file}`
+              ? `${target.page === "review" ? "Review" : "Diff"} ${target.file}`
               : target.kind === "location"
                 ? `Open ${target.file}:${target.line}`
                 : target.kind === "workspace"
                   ? `Open ${target.path}`
                   : target.kind === "url"
                     ? `Open ${target.url}`
-                    : target.kind === "review"
+                    : target.kind === "reviews"
                       ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
-                      : `Open ${target.change}`;
+                      : target.kind === "action"
+                        ? `${target.action.charAt(0).toUpperCase()}${target.action.slice(1)} ${target.change}`
+                        : `Open ${target.change}`;
           return link;
         });
   }
@@ -240,14 +263,26 @@ class PageProvider
     // Renders can overlap a close or one another, briefly caching a doc out
     // of step with the buffer; the next render resolves it, so no guard.
     let doc: Doc;
+    let snapshot: ChangeSnapshot | undefined;
     try {
       const page = parsePagePath(uri.path);
-      doc = await renderPage(await openBackend(), page, {
+      const backend = await openBackend();
+      doc = await renderPage(backend, page, {
+        now,
         context: vscode.workspace.getConfiguration("cabaret").get<number>("context"),
-        hints: hintsEnabled() ? pageHints(this.manifest, page.kind) : undefined,
+        hints: (await readConfig(backend)).hints ? pageHints(this.manifest, page.kind) : undefined,
+        onSnapshot: (rendered) => {
+          snapshot = rendered;
+        },
         onViewed: (viewed) => {
           for (const [file, end] of viewed.files) {
-            this.displayedEnds.set(displayedKey(viewed.change, viewed.user, viewed.base, file), end);
+            const key = displayedKey(viewed.change, viewed.user, viewed.base, file);
+            let ends = this.displayedEnds.get(key);
+            if (ends === undefined) {
+              ends = new Set();
+              this.displayedEnds.set(key, ends);
+            }
+            ends.add(end);
           }
         },
       });
@@ -258,6 +293,9 @@ class PageProvider
       throw error;
     }
     this.docs.set(uri.toString(), doc);
+    if (snapshot !== undefined) {
+      this.snapshots.set(uri.toString(), snapshot);
+    }
     this.reportErrors(uri, doc.errors);
     // A render whose text matches the buffer emits no document change, so
     // repainting only on document changes would leave pre-render paint stale.
@@ -279,6 +317,11 @@ class PageProvider
 
   doc(uri: vscode.Uri): Doc | undefined {
     return this.docs.get(uri.toString());
+  }
+
+  /** The snapshot behind `uri`'s buffer, when its page renders from one. */
+  snapshot(uri: vscode.Uri): ChangeSnapshot | undefined {
+    return this.snapshots.get(uri.toString());
   }
 
   /**
@@ -307,13 +350,19 @@ class PageProvider
 
   forget(uri: vscode.Uri): void {
     this.docs.delete(uri.toString());
+    this.snapshots.delete(uri.toString());
     // A reopened page's problems are news again.
     this.reported.delete(uri.toString());
   }
 }
 
+/** The canonical URI addressing `page`: one URI, one open copy of the page. */
+function pageUri(page: Page): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+}
+
 async function openPage(provider: PageProvider, page: Page): Promise<void> {
-  const uri = vscode.Uri.from({ scheme: SCHEME, path: pagePath(page) });
+  const uri = pageUri(page);
   // Reopening an already-open page serves the buffer as it stands, so ask for
   // a fresh render alongside.
   if (provider.doc(uri) !== undefined) {
@@ -327,14 +376,14 @@ async function openPage(provider: PageProvider, page: Page): Promise<void> {
  * Show the change being worked on — the one the active cabaret page is about,
  * or the one whose branch is checked out — falling back to picking one when
  * neither resolves, as on a detached HEAD or a branch the logs do not speak
- * for. The todo page surveys every change, so it always picks rather than
+ * for. The home page surveys every change, so it always picks rather than
  * assuming the checked-out branch is the one wanted.
  */
 async function showChange(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   const active =
     editor !== undefined && editor.document.uri.scheme === SCHEME ? parsePagePath(editor.document.uri.path) : undefined;
-  if (active !== undefined && active.kind !== "todo") {
+  if (active !== undefined && active.kind !== "home") {
     await openPage(provider, { kind: "show", change: active.change, as: active.as });
     return;
   }
@@ -365,7 +414,7 @@ function updatePageContext(editor: vscode.TextEditor | undefined): void {
 }
 
 /**
- * Pick a user and reopen the active page as them — the todo page when no
+ * Pick a user and reopen the active page as them — the home page when no
  * cabaret page is active. The list opens on the current user, so swapping
  * back to oneself is a bare confirm; one's aliases follow, and anyone else
  * can be typed in.
@@ -381,7 +430,7 @@ async function actAs(provider: PageProvider): Promise<void> {
       editor !== undefined && editor.document.uri.scheme === SCHEME
         ? parsePagePath(editor.document.uri.path)
         : undefined;
-    const page: Page = active ?? { kind: "todo" };
+    const page: Page = active ?? { kind: "home" };
     const self = await currentSelf(backend);
     type Item = vscode.QuickPickItem & { readonly user: UserName | undefined };
     const items: Item[] = [
@@ -417,20 +466,22 @@ async function actAs(provider: PageProvider): Promise<void> {
   }
 }
 
-/** The show page the active editor displays, when it is one. */
-function shownPage(): Extract<Page, { kind: "show" }> | undefined {
+/**
+ * Step up to the sibling above: from a show page to the parent's show page
+ * — a trunk parent has a page of its own — or from a per-file page to the
+ * file before it.
+ */
+async function stepUp(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return undefined;
+    return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  return page.kind === "show" ? page : undefined;
-}
-
-/** Climb from a show page to the parent's show page; a trunk parent has a page of its own. */
-async function showParent(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page === undefined) {
+  if (page.kind === "review" || page.kind === "diff") {
+    await stepToFile(provider, editor.document.uri, page, "prev");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -442,10 +493,22 @@ async function showParent(provider: PageProvider): Promise<void> {
   await openPage(provider, { kind: "show", change: currentParent(page.change, entries), as: page.as });
 }
 
-/** Descend from a show page to a child's show page, picking one when the change has several children. */
-async function showChild(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page === undefined) {
+/**
+ * Step down to the sibling below: from a show page to a child's show page —
+ * picking one when the change has several children — or from a per-file
+ * page to the file after it.
+ */
+async function stepDown(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const page = parsePagePath(editor.document.uri.path);
+  if (page.kind === "review" || page.kind === "diff") {
+    await stepToFile(provider, editor.document.uri, page, "next");
+    return;
+  }
+  if (page.kind !== "show") {
     return;
   }
   const backend = await openBackend();
@@ -466,6 +529,56 @@ async function showChild(provider: PageProvider): Promise<void> {
   if (child !== undefined) {
     await openPage(provider, { kind: "show", change: backend.parseName(child), as: page.as });
   }
+}
+
+/**
+ * Step a per-file page to the file beside it, replacing the page as marking
+ * reviewed does — stepping is how a reviewer walks a change's files. A
+ * review page walks the files left; a diff page walks every changed file.
+ */
+async function stepToFile(
+  provider: PageProvider,
+  uri: vscode.Uri,
+  page: Extract<Page, { kind: "review" | "diff" }>,
+  side: "prev" | "next",
+): Promise<void> {
+  const backend = await openBackend();
+  const snapshot = await changeSnapshot(backend, page.change, page.as);
+  const files = page.kind === "review" ? [...snapshot.left.keys()] : snapshot.changed.map(({ path }) => path);
+  const neighbors = neighborFiles(files, page.file);
+  if (neighbors === undefined) {
+    vscode.window.showInformationMessage(
+      page.kind === "review"
+        ? `cabaret: nothing left to review in ${page.file}`
+        : `cabaret: no changes to ${page.file}`,
+    );
+    return;
+  }
+  const file = neighbors[side];
+  if (file === undefined) {
+    vscode.window.showInformationMessage(
+      `cabaret: ${page.file} is the ${side === "prev" ? "first" : "last"} file ${
+        page.kind === "review" ? "left" : "changed"
+      }`,
+    );
+    return;
+  }
+  await closeTabs(uri);
+  await openPage(provider, { kind: page.kind, change: page.change, file, as: page.as });
+}
+
+/** Escape: back out to the enclosing page, closing the page left behind. */
+async function stepOutside(provider: PageProvider): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return;
+  }
+  const outer = enclosingPage(parsePagePath(editor.document.uri.path));
+  if (outer === undefined) {
+    return;
+  }
+  await closeTabs(editor.document.uri);
+  await openPage(provider, outer);
 }
 
 /** Enter at the cursor: any of the line's targets answers, links and jumps alike. */
@@ -491,11 +604,16 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "change":
       await openPage(provider, { kind: "show", change: target.change, as: target.as });
       break;
-    case "review":
-      await openPage(provider, { kind: "review", change: target.change, as: target.as });
+    case "reviews":
+      await openPage(provider, { kind: "reviews", change: target.change, as: target.as });
       break;
     case "file":
-      await openPage(provider, { kind: "diff", change: target.change, file: target.file, as: target.as });
+      await openPage(provider, {
+        kind: target.page === "review" ? "review" : "diff",
+        change: target.change,
+        file: target.file,
+        as: target.as,
+      });
       break;
     case "location":
       await visitLocation(provider, target);
@@ -506,6 +624,42 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "url":
       await vscode.env.openExternal(vscode.Uri.parse(target.url));
       break;
+    case "action":
+      await performAction(provider, target);
+      break;
+  }
+}
+
+/**
+ * Run the action a target names on its change, sharing the corresponding
+ * commands' confirmations; errors and re-renders behave as
+ * `actOnSelection`'s do.
+ */
+async function performAction(provider: PageProvider, target: Extract<Target, { kind: "action" }>): Promise<void> {
+  const { change, action } = target;
+  try {
+    const backend = await openBackend();
+    switch (action) {
+      case "sync":
+        await syncSelection(backend, [change]);
+        break;
+      case "rebase":
+        await rebaseSelection(backend, [change]);
+        break;
+      case "reparent":
+        await reparentSelection(backend, change);
+        break;
+      case "widen reviewing":
+        await widenSelection(backend, change);
+        break;
+      case "land":
+        await landSelection(backend, [change]);
+        break;
+    }
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
   }
 }
 
@@ -597,33 +751,58 @@ async function showHelp(manifest: Manifest): Promise<void> {
   }
 }
 
-/** Enter review of the shown change: open its list of files to review. */
-async function review(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page !== undefined) {
-    await openPage(provider, { kind: "review", change: page.change, as: page.as });
-  }
-}
-
-/** Open every diff of the active page's change, one round in one buffer. */
-async function reviewDiffs(provider: PageProvider): Promise<void> {
+/**
+ * The r and d keys: enter `family` from the show page or a home row, or
+ * swap the active review or diff page for its counterpart in the other
+ * family — the same change or file, seen through the other lens. The swap
+ * closes the page it came from, as stepping between files does.
+ */
+async function enterFamily(provider: PageProvider, family: "review" | "diff"): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "todo") {
-    return;
+  const list = family === "review" ? ("reviews" as const) : ("diffs" as const);
+  switch (page.kind) {
+    case "show":
+      await openPage(provider, { kind: list, change: page.change, as: page.as });
+      return;
+    case "home": {
+      const doc = provider.renderedDoc(editor.document.uri);
+      const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+      if (target?.kind !== "change") {
+        vscode.window.showInformationMessage("cabaret: no change at the cursor");
+        return;
+      }
+      await openPage(provider, { kind: list, change: target.change, as: page.as });
+      return;
+    }
+    case "reviews":
+    case "diffs":
+      if (page.kind !== list) {
+        await closeTabs(editor.document.uri);
+        await openPage(provider, { kind: list, change: page.change, as: page.as });
+      }
+      return;
+    case "review":
+    case "diff":
+      if (page.kind !== family) {
+        await closeTabs(editor.document.uri);
+        await openPage(provider, { kind: family, change: page.change, file: page.file, as: page.as });
+      }
+      return;
   }
-  await openPage(provider, { kind: "diffs", change: page.change, as: page.as });
 }
 
 /**
- * Mark a file reviewed: the active diff page's file, or on the review page
- * the file the cursor's line resolves to. From a diff page, move on to the
- * round's next file, or back to the change's review page when the round is
- * done. A mark whose diff this window never displayed asks first. Errors
- * surface as notifications, and every open page re-renders afterwards.
+ * Mark a file reviewed: the active review page's file, or on the reviews
+ * page the file the cursor's line resolves to. The mark records the page's
+ * own snapshot — a change that moved on since the render just leaves the
+ * rest pending — so only a mark whose diff this window never displayed asks
+ * first. From a review page, move on to the next file left; marking the
+ * last file steps back out to the change's own page. Errors surface as
+ * notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -632,9 +811,9 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   const page = parsePagePath(editor.document.uri.path);
   let file: FilePath;
-  if (page.kind === "diff") {
+  if (page.kind === "review") {
     file = page.file;
-  } else if (page.kind === "review") {
+  } else if (page.kind === "reviews") {
     const doc = provider.renderedDoc(editor.document.uri);
     const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
     if (target?.kind !== "file") {
@@ -659,14 +838,16 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   try {
     const backend = await openBackend();
-    const snapshot = await changeSnapshot(backend, page.change, page.as);
-    const pending = pendingRound(snapshot.rounds, file);
+    // An extension-host restart re-syncs the buffer without a render, so a
+    // page can lack its snapshot; the fresh one then read falls under the
+    // never-displayed ask below.
+    const snapshot = provider.snapshot(editor.document.uri) ?? (await changeSnapshot(backend, page.change, page.as));
     if (
-      pending !== undefined &&
-      provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file)) !== pending.end
+      snapshot.left.has(file) &&
+      !provider.displayedEnds.get(displayedKey(snapshot.change, snapshot.user, snapshot.base, file))?.has(snapshot.tip)
     ) {
       const choice = await vscode.window.showWarningMessage(
-        `The current diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,
+        `The diff of ${file} has not been displayed to ${page.as === undefined ? "you" : page.as}.`,
         { modal: true },
         "Mark Reviewed Anyway",
       );
@@ -698,14 +879,16 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
       return;
     }
     await result.recorded;
-    if (page.kind === "diff") {
+    if (result.next === undefined) {
+      // Review is done: fold its pages away — the one being marked and the
+      // reviews page a file-by-file pass leaves open — and land back on the
+      // change, whose canonical URI focuses the tab the pass started from.
       await closeTabs(editor.document.uri);
-      await openPage(
-        provider,
-        result.next === undefined
-          ? { kind: "review", change: page.change, as: page.as }
-          : { kind: "diff", change: page.change, file: result.next, as: page.as },
-      );
+      await closeTabs(pageUri({ kind: "reviews", change: page.change, as: page.as }));
+      await openPage(provider, { kind: "show", change: page.change, as: page.as });
+    } else if (page.kind === "review") {
+      await closeTabs(editor.document.uri);
+      await openPage(provider, { kind: "review", change: page.change, file: result.next, as: page.as });
     }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
@@ -731,6 +914,12 @@ function describeFetchEvent(event: FetchEvent): string | undefined {
       return `archived ${event.change}`;
     case "pruned":
       return `pruned ${event.change}`;
+    case "published":
+      return `published ${event.change}`;
+    case "pushed":
+      return `pushed ${event.change}`;
+    case "joined":
+      return `joined ${event.change}`;
   }
 }
 
@@ -743,10 +932,10 @@ const fetchListeners = new Set<(event: FetchEvent) => void>();
  * budget over. Undefined, not a failure, when there is no supported forge
  * here: most repositories this extension opens will never configure one.
  */
-async function pollForge(): Promise<{ readonly open: number } | undefined> {
+async function pollForge(): Promise<{ readonly swept: number } | undefined> {
   let forge: Forge;
   try {
-    forge = await openForge();
+    forge = await openForge({ signIn: false });
   } catch {
     return undefined;
   }
@@ -765,7 +954,7 @@ async function pollForge(): Promise<{ readonly open: number } | undefined> {
  * `cabaret.backgroundSync` for its own scheduled ticks only: the manual Pull
  * command always actually pulls, via `runNow`.
  */
-function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly open: number } | undefined> {
+function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly swept: number } | undefined> {
   return new BackoffLoop({
     run: pollForge,
     baseIntervalMs: 90_000,
@@ -782,7 +971,7 @@ function createForgePollLoop(provider: PageProvider): BackoffLoop<{ readonly ope
   });
 }
 
-async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly open: number } | undefined>) {
+async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ readonly swept: number } | undefined>) {
   try {
     const forge = await openForge();
     // A notification appears the moment the command fires, rather than
@@ -810,9 +999,9 @@ async function runFetch(provider: PageProvider, forgePollLoop: BackoffLoop<{ rea
         }
       },
     );
-    const open = result?.open ?? 0;
+    const swept = result?.swept ?? 0;
     vscode.window.setStatusBarMessage(
-      `cabaret: fetched ${forge.locator}, ${open} open forge change${open === 1 ? "" : "s"}`,
+      `cabaret: fetched ${forge.locator}, ${swept} forge change${swept === 1 ? "" : "s"}`,
       5000,
     );
   } catch (error) {
@@ -870,7 +1059,7 @@ async function offerSetup(): Promise<void> {
       return;
     }
     const briefs = pending.map(({ rec }) => rec.brief).join(", ");
-    const choice = await vscode.window.showInformationMessage(`cabaret recommends settings: ${briefs}`, "Apply", "No");
+    const choice = await vscode.window.showInformationMessage(`cab recommends settings: ${briefs}`, "Apply", "No");
     if (choice === "Apply") {
       await applyRecommendations(backend, pending);
     } else if (choice === "No") {
@@ -950,7 +1139,7 @@ function invalidName(backend: Backend): (value: string) => string | undefined {
 
 /**
  * The changes an action applies to, ancestormost first: the shown change on a
- * show page; on the todo page, the changes named by the lines the selection
+ * show page; on the home page, the changes named by the lines the selection
  * covers, which is just the cursor's line when nothing is selected.
  */
 function selectedChanges(provider: PageProvider, editor: vscode.TextEditor): readonly ChangeName[] {
@@ -1082,7 +1271,7 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
       await landChain(backend, await resolveChain(backend, changes), landOne);
     }
   };
-  let overrides: LandOverrides = { notOwner: false, unreviewed: false };
+  let overrides: LandOverrides = { notOwner: false, unreviewed: false, parentUnreviewed: false };
   for (;;) {
     try {
       return await landAll(overrides);
@@ -1097,6 +1286,10 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
         message = "Review obligations are unsatisfied.";
         options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
         overrides = { ...overrides, unreviewed: true };
+      } else if (error instanceof UnreviewedParentError && !overrides.parentUnreviewed) {
+        message = `Parent ${error.parent} has unsatisfied review obligations.`;
+        options = { modal: true, detail: ["Remaining review:", ...reviewerSummary(error.unsatisfied)].join("\n") };
+        overrides = { ...overrides, parentUnreviewed: true };
       } else {
         throw error;
       }
@@ -1106,6 +1299,26 @@ async function landSelection(backend: Backend, changes: readonly ChangeName[]): 
       }
     }
   }
+}
+
+/** Reparent `change` onto a picked parent, confirming an ownership override. */
+async function reparentSelection(backend: Backend, change: ChangeName): Promise<void> {
+  const parent = await pickParent(backend, change);
+  if (parent !== undefined) {
+    await confirmNotOwner("Reparent Anyway", (override) =>
+      reparentChange(backend, now, change, parent, {
+        notOwner: override,
+        parentArchived: false,
+        parentDiverged: false,
+      }),
+    );
+  }
+}
+
+/** Widen reviewing of `change` one notch and report where it landed. */
+async function widenSelection(backend: Backend, change: ChangeName): Promise<void> {
+  const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
+  vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
 }
 
 /**
@@ -1145,6 +1358,19 @@ async function gotoSelection(backend: Backend, change: ChangeName): Promise<void
 async function addWorkspaceSelection(backend: Backend, change: ChangeName): Promise<void> {
   const path = await addChangeWorkspace(backend, change);
   await openWorkspaceWindow(path);
+}
+
+/** Remove the workspaces of landed and archived changes, reporting the tally in the status bar. */
+async function runReclaim(provider: PageProvider): Promise<void> {
+  try {
+    const backend = await openBackend();
+    const reclaimed = await reclaimWorkspaces(backend, false);
+    vscode.window.setStatusBarMessage(`cabaret: ${reclaimNote(reclaimed)}`, 5000);
+  } catch (error) {
+    vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
+  } finally {
+    provider.refreshAll();
+  }
 }
 
 /** Remove `change`'s workspace, confirming before uncommitted changes are discarded. */
@@ -1190,14 +1416,47 @@ function singleChange(changes: readonly ChangeName[], action: string): ChangeNam
   return only;
 }
 
-/** Prompt for a name and create a change with `parent` as its parent, returning the new name. */
+/**
+ * Prompt for a name and create a change with `parent` as its parent,
+ * returning the new name — asking what a dirty parent workspace's edits
+ * should do.
+ */
 async function promptCreate(backend: Backend, parent: ChangeName, prompt: string): Promise<ChangeName | undefined> {
   const raw = await vscode.window.showInputBox({ prompt, validateInput: invalidName(backend) });
   if (raw === undefined) {
     return undefined;
   }
   const change = backend.parseName(raw);
-  await createChange(backend, now, change, parent);
+  try {
+    await createChange(backend, now, change, parent);
+  } catch (error) {
+    if (!(error instanceof DirtyParentError)) {
+      throw error;
+    }
+    const carry = "Carry Into New Change";
+    const choice = error.current
+      ? await vscode.window.showWarningMessage(
+          `Parent ${parent} has uncommitted changes.`,
+          { modal: true },
+          carry,
+          "Leave on Parent",
+        )
+      : await vscode.window.showWarningMessage(
+          `Parent ${parent} has uncommitted changes at ${error.path}.`,
+          { modal: true },
+          "Create Anyway",
+        );
+    if (choice === undefined) {
+      return undefined;
+    }
+    await createChange(
+      backend,
+      now,
+      change,
+      parent,
+      choice === carry ? { carry: true } : { evenThoughParentDirty: true },
+    );
+  }
   return change;
 }
 
@@ -1208,36 +1467,6 @@ async function pickParent(backend: Backend, change: ChangeName): Promise<ChangeN
     placeHolder: `New parent for ${change}`,
   });
   return picked === undefined ? undefined : backend.parseName(picked);
-}
-
-/** Prompt for a new name and rename `from`, following a renamed show page to its new name. */
-async function rename(
-  provider: PageProvider,
-  backend: Backend,
-  editor: vscode.TextEditor,
-  from: ChangeName,
-): Promise<void> {
-  const raw = await vscode.window.showInputBox({
-    prompt: `Rename ${from}`,
-    value: from,
-    validateInput: invalidName(backend),
-  });
-  if (raw === undefined || raw === from) {
-    return;
-  }
-  const to = backend.parseName(raw);
-  if (!(await confirmNotOwner("Rename Anyway", (override) => renameChange(backend, from, to, override)))) {
-    return;
-  }
-  // A show page's URI names the change, so the old page cannot re-render;
-  // forget it before the post-action refresh and replace it with the page
-  // under the new name.
-  const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "show") {
-    provider.forget(editor.document.uri);
-    await closeTabs(editor.document.uri);
-    await openPage(provider, { kind: "show", change: to, as: page.as });
-  }
 }
 
 /** One editor decoration per `Style`; the mapped type keeps the palette exhaustive. */
@@ -1313,6 +1542,16 @@ function createDecorations(): StyleDecorations {
       isWholeLine: true,
     }),
     context: vscode.window.createTextEditorDecorationType({ opacity: "0.6" }),
+    // Status foregrounds recolor the text itself: a table cell, not a wash.
+    ready: vscode.window.createTextEditorDecorationType({
+      color: new vscode.ThemeColor("cabaret.readyForeground"),
+    }),
+    blocked: vscode.window.createTextEditorDecorationType({
+      color: new vscode.ThemeColor("cabaret.blockedForeground"),
+    }),
+    nudge: vscode.window.createTextEditorDecorationType({
+      color: new vscode.ThemeColor("cabaret.nudgeForeground"),
+    }),
     // Non-breaking spaces keep the outer sign in its column when the inner
     // position is blank (a context line of just one diff).
     "old-diff-removed": ddiff("removed", "old", "--"),
@@ -1347,6 +1586,9 @@ function paintVisible(provider: PageProvider, decorations: StyleDecorations): vo
       "removed-word": [],
       hunk: [],
       context: [],
+      ready: [],
+      blocked: [],
+      nudge: [],
       "old-diff-removed": [],
       "old-diff-added": [],
       "old-diff-context": [],
@@ -1439,18 +1681,19 @@ export function activate(context: vscode.ExtensionContext): void {
       updateActingStatus(editor);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("cabaret.context") || event.affectsConfiguration("cabaret.hints")) {
+      if (event.affectsConfiguration("cabaret.context")) {
         provider.refreshAll();
       }
     }),
-    vscode.commands.registerCommand("cabaret.todo", () => openPage(provider, { kind: "todo" })),
+    vscode.commands.registerCommand("cabaret.home", () => openPage(provider, { kind: "home" })),
     vscode.commands.registerCommand("cabaret.show", () => showChange(provider)),
     vscode.commands.registerCommand("cabaret.openTarget", () => openTarget(provider)),
-    vscode.commands.registerCommand("cabaret.showParent", () => showParent(provider)),
-    vscode.commands.registerCommand("cabaret.showChild", () => showChild(provider)),
+    vscode.commands.registerCommand("cabaret.stepOutside", () => stepOutside(provider)),
+    vscode.commands.registerCommand("cabaret.stepUp", () => stepUp(provider)),
+    vscode.commands.registerCommand("cabaret.stepDown", () => stepDown(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
-    vscode.commands.registerCommand("cabaret.review", () => review(provider)),
-    vscode.commands.registerCommand("cabaret.reviewDiffs", () => reviewDiffs(provider)),
+    vscode.commands.registerCommand("cabaret.review", () => enterFamily(provider, "review")),
+    vscode.commands.registerCommand("cabaret.diff", () => enterFamily(provider, "diff")),
     vscode.commands.registerCommand("cabaret.actAs", () => actAs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),
@@ -1470,62 +1713,64 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.land", () =>
       actOnSelection(provider, (backend, _editor, changes) => landSelection(backend, changes)),
     ),
-    vscode.commands.registerCommand("cabaret.rename", () =>
-      actOnSelection(provider, async (backend, editor, changes) => {
-        const from = singleChange(changes, "rename");
-        if (from !== undefined) {
-          await rename(provider, backend, editor, from);
-        }
-      }),
-    ),
     vscode.commands.registerCommand("cabaret.reparent", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const change = singleChange(changes, "reparent");
-        if (change === undefined) {
-          return;
-        }
-        const parent = await pickParent(backend, change);
-        if (parent !== undefined) {
-          await confirmNotOwner("Reparent Anyway", (override) =>
-            reparentChange(backend, now, change, parent, override),
-          );
+        if (change !== undefined) {
+          await reparentSelection(backend, change);
         }
       }),
     ),
     vscode.commands.registerCommand("cabaret.setOwner", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
-        const change = singleChange(changes, "set the owner of");
-        if (change === undefined) {
-          return;
-        }
         const raw = await vscode.window.showInputBox({
-          prompt: `New owner for ${change}`,
+          prompt: `New owner for ${changes.join(", ")}`,
           validateInput: (value) => (value === "" ? "owner must be nonempty" : undefined),
         });
-        if (raw !== undefined) {
-          await confirmNotOwner("Set Owner Anyway", (override) =>
-            transferChange(backend, now, change, userName(raw), override),
-          );
+        if (raw === undefined) {
+          return;
         }
+        const done = new Set<ChangeName>();
+        await confirmNotOwner("Set Owner Anyway", async (override) => {
+          for (const change of changes) {
+            if (!done.has(change)) {
+              await transferChange(backend, now, change, userName(raw), override);
+              done.add(change);
+            }
+          }
+        });
       }),
     ),
     vscode.commands.registerCommand("cabaret.widenReviewing", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const change = singleChange(changes, "widen reviewing of");
-        if (change === undefined) {
-          return;
+        if (change !== undefined) {
+          await widenSelection(backend, change);
         }
-        const { to } = await widenReviewing(backend, now, change, await backend.readLog(change));
-        vscode.window.showInformationMessage(`cabaret: ${change} reviewing ${to}`);
       }),
     ),
     vscode.commands.registerCommand("cabaret.disableReviewing", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
-        const change = singleChange(changes, "disable reviewing of");
-        if (change === undefined) {
-          return;
+        for (const change of changes) {
+          await setReviewing(backend, now, change, await backend.readLog(change), "none");
         }
-        await setReviewing(backend, now, change, await backend.readLog(change), "none");
+      }),
+    ),
+    vscode.commands.registerCommand("cabaret.toggleArchived", () =>
+      actOnSelection(provider, async (backend, _editor, changes) => {
+        const archived: ChangeName[] = [];
+        const unarchived: ChangeName[] = [];
+        for (const change of changes) {
+          const entries = await backend.readLog(change);
+          const target = !currentArchived(entries);
+          await setArchived(backend, now, change, entries, target);
+          (target ? archived : unarchived).push(change);
+        }
+        const report = [
+          ...(archived.length > 0 ? [`${archived.join(", ")} archived`] : []),
+          ...(unarchived.length > 0 ? [`${unarchived.join(", ")} unarchived`] : []),
+        ].join("; ");
+        vscode.window.showInformationMessage(`cabaret: ${report}`);
       }),
     ),
     vscode.commands.registerCommand("cabaret.gotoWorkspace", () =>
@@ -1552,6 +1797,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }),
     ),
+    vscode.commands.registerCommand("cabaret.reclaimWorkspaces", () => runReclaim(provider)),
     vscode.commands.registerCommand("cabaret.createChild", () =>
       actOnSelection(provider, async (backend, _editor, changes) => {
         const parent = singleChange(changes, "create a child of");
@@ -1576,7 +1822,13 @@ export function activate(context: vscode.ExtensionContext): void {
         // created but never spliced in.
         const parent = await promptCreate(backend, grandparent, `Name for a parent of ${child}`);
         if (parent !== undefined) {
-          await confirmNotOwner("Reparent Anyway", (override) => reparentChange(backend, now, child, parent, override));
+          await confirmNotOwner("Reparent Anyway", (override) =>
+            reparentChange(backend, now, child, parent, {
+              notOwner: override,
+              parentArchived: false,
+              parentDiverged: false,
+            }),
+          );
         }
       }),
     ),

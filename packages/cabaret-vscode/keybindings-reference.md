@@ -8,30 +8,32 @@ multi-key chord is consecutive keystrokes. `?` on any cabaret page lists
 the bindings that apply there. `docs/keybindings.md` explains how keys
 are chosen.
 
-| Keys    | Action                | Pages              |
-| ------- | --------------------- | ------------------ |
-| `enter` | Open Target at Cursor | all                |
-| `tab`   | Toggle Fold           | all                |
-| `q`     | Close Page            | all                |
-| `R`     | Refresh               | all                |
-| `?`     | Keybindings           | all                |
-| `r`     | Review                | show               |
-| `d`     | Review Diffs          | show, review       |
-| `@`     | Act as User           | all                |
-| `! m`   | Mark Reviewed         | diff, review       |
-| `^`     | Show Parent           | show               |
-| `$`     | Show Child            | show               |
-| `! r b` | Rebase                | todo, show, review |
-| `! l a` | Land                  | all                |
-| `! r n` | Rename                | todo, show, review |
-| `! r p` | Reparent              | todo, show, review |
-| `! o`   | Set Owner             | todo, show, review |
-| `! v`   | Widen Reviewing       | todo, show, review |
-| `! d`   | Disable Reviewing     | todo, show, review |
-| `! g`   | Go to Workspace       | todo, show, review |
-| `! w a` | Add Workspace         | todo, show, review |
-| `! w d` | Remove Workspace      | todo, show, review |
-| `! c`   | Create Child          | all                |
-| `! p`   | Create Parent         | all                |
-| `F`     | Fetch Remote Activity | all                |
-| `S`     | Sync Change           | all                |
+| Keys    | Action                | Pages                              |
+| ------- | --------------------- | ---------------------------------- |
+| `enter` | Open Target at Cursor | all                                |
+| `esc`   | Step Outside          | show, reviews, review, diffs, diff |
+| `tab`   | Toggle Fold           | all                                |
+| `q`     | Close Page            | all                                |
+| `R`     | Refresh               | all                                |
+| `?`     | Keybindings           | all                                |
+| `r`     | Review                | show, home, diffs, diff            |
+| `d`     | Diff                  | show, home, reviews, review        |
+| `@`     | Act as User           | all                                |
+| `! m`   | Mark Reviewed         | review, reviews                    |
+| `^`     | Step Up               | show, review, diff                 |
+| `$`     | Step Down             | show, review, diff                 |
+| `! r b` | Rebase                | home, show, reviews                |
+| `! l`   | Land                  | all                                |
+| `! r p` | Reparent              | home, show, reviews                |
+| `! o`   | Set Owner             | home, show, reviews                |
+| `! v`   | Widen Reviewing       | home, show, reviews                |
+| `! d`   | Disable Reviewing     | home, show, reviews                |
+| `! a`   | Toggle Archived       | home, show, reviews                |
+| `! g`   | Go to Workspace       | home, show, reviews                |
+| `! w a` | Add Workspace         | home, show, reviews                |
+| `! w d` | Remove Workspace      | home, show, reviews                |
+| `! w r` | Reclaim Workspaces    | home                               |
+| `! c`   | Create Child          | all                                |
+| `! p`   | Create Parent         | all                                |
+| `F`     | Fetch Remote Activity | all                                |
+| `S`     | Sync Change           | all                                |

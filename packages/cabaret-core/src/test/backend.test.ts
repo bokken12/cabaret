@@ -3,8 +3,6 @@ import { expect, test } from "vitest";
 import { ZodError } from "zod";
 import {
   assertNotArchived,
-  assertNotLanded,
-  type Backend,
   brain,
   type ChangeName,
   currentArchived,
@@ -13,10 +11,10 @@ import {
   currentParent,
   currentReviewers,
   type FilePath,
+  finished,
   forgeChangeId,
   forgeChangeUrl,
   formatLogEntry,
-  type LandMerge,
   type LogAction,
   type LogEntry,
   landedMerge,
@@ -30,8 +28,6 @@ import {
   parseLog,
   REVIEWING,
   type Revision,
-  remainingSpans,
-  reviewSpans,
   type TimestampMs,
   timestampMs,
   type UserName,
@@ -148,28 +144,6 @@ test("formatLogEntry renders review and forget actions", () => {
   ).toBe('{"timestamp":1748000000002,"user":"carol@example.com","action":{"kind":"forget","file":"docs/log.md"}}\n');
 });
 
-test("formatLogEntry renders set-base actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000003),
-      user: userName("dave@example.com"),
-      action: { kind: "set-base", base: parseCommitHash(OTHER_SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000003,"user":"dave@example.com","action":{"kind":"set-base","base":"${OTHER_SHA1}"}}\n`);
-});
-
-test("formatLogEntry renders set-owner actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000004),
-      user: userName("erin@example.com"),
-      action: { kind: "set-owner", owner: userName("frank@example.com") },
-    }),
-  ).toBe(
-    '{"timestamp":1748000000004,"user":"erin@example.com","action":{"kind":"set-owner","owner":"frank@example.com"}}\n',
-  );
-});
-
 test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys its source before the action", () => {
   expect(
     formatLogEntry({
@@ -190,16 +164,6 @@ test("formatLogEntry renders reviewer actions, and a forge-sourced entry keys it
   ).toBe(
     '{"timestamp":1748000000008,"user":"erin@example.com","source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"remove-reviewer","reviewer":"frank@example.com"}}\n',
   );
-});
-
-test("formatLogEntry renders land actions", () => {
-  expect(
-    formatLogEntry({
-      timestamp: timestampMs(1748000000005),
-      user: userName("grace@example.com"),
-      action: { kind: "land", merge: parseCommitHash(SHA1) },
-    }),
-  ).toBe(`{"timestamp":1748000000005,"user":"grace@example.com","action":{"kind":"land","merge":"${SHA1}"}}\n`);
 });
 
 test("formatLogEntry renders comment actions, escaping newlines", () => {
@@ -355,7 +319,7 @@ test("currentParent takes the set-parent with the greatest timestamp, regardless
   });
   const change = parseBranchName("feature");
   expect(() => currentParent(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
+    'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
   );
   expect(() => currentParent(change, [entry(5, { kind: "forget", file: parseFilePath("a.ts") })])).toThrow(
     'change has no parent: "feature"',
@@ -382,7 +346,7 @@ test("currentBase takes the set-base with the greatest timestamp, regardless of 
   });
   const change = parseBranchName("feature");
   expect(() => currentBase(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
+    'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
   );
   expect(() => currentBase(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no base: "feature"',
@@ -409,7 +373,7 @@ test("currentOwner takes the set-owner with the greatest timestamp, regardless o
   });
   const change = parseBranchName("feature");
   expect(() => currentOwner(change, [])).toThrow(
-    'change does not exist: "feature"; run `cabaret create`, or `cabaret fetch` to import open forge changes',
+    'change does not exist: "feature"; run `cab create`, or `cab fetch` to import open forge changes',
   );
   expect(() => currentOwner(change, [entry(5, { kind: "set-parent", parent: parseBranchName("main") })])).toThrow(
     'change has no owner: "feature"',
@@ -451,19 +415,27 @@ test("currentReviewers folds each user's latest add/remove; observedForgeReviewe
   expect(observedForgeReviewers(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toEqual(new Set());
 });
 
-test("landedMerge finds the land entry, and assertNotLanded rejects it", () => {
+test("landedMerge finds the land entry, and finished asks for archived alongside it", () => {
   const entry = (timestamp: number, action: LogAction): LogEntry => ({
     timestamp: timestampMs(timestamp),
     user: userName("alice@example.com"),
     action,
   });
-  const change = parseBranchName("feature");
   const unlanded = [entry(5, { kind: "set-parent", parent: parseBranchName("main") })];
   expect(landedMerge(unlanded)).toBeUndefined();
-  expect(() => assertNotLanded(change, unlanded)).not.toThrow();
+  expect(finished(unlanded)).toBe(false);
   const landed = [...unlanded, entry(9, { kind: "land", merge: parseCommitHash(SHA1) })];
   expect(landedMerge(landed)).toBe(SHA1);
-  expect(() => assertNotLanded(change, landed)).toThrow(`change has landed: "feature" (merge ${SHA1})`);
+  // Landed but live — permanent structure, or reopened — is not finished.
+  expect(finished(landed)).toBe(false);
+  expect(finished([...landed, entry(10, { kind: "set-archived", archived: true })])).toBe(true);
+  expect(
+    finished([
+      ...landed,
+      entry(10, { kind: "set-archived", archived: true }),
+      entry(11, { kind: "set-archived", archived: false }),
+    ]),
+  ).toBe(false);
 });
 
 test("currentArchived takes the set-archived with the greatest timestamp, and assertNotArchived rejects it", () => {
@@ -481,7 +453,7 @@ test("currentArchived takes the set-archived with the greatest timestamp, and as
   expect(currentArchived(revived)).toBe(false);
   const archived = [entry(5, false), entry(9, true)];
   expect(currentArchived(archived)).toBe(true);
-  expect(() => assertNotArchived(change, archived)).toThrow('change is archived: "feature"; run `cabaret unarchive`');
+  expect(() => assertNotArchived(change, archived)).toThrow('change is archived: "feature"; run `cab archive --undo`');
 });
 
 test("observedForgeArchived reads only entries sourced from the forge", () => {
@@ -497,56 +469,6 @@ test("observedForgeArchived reads only entries sourced from the forge", () => {
   const entries = [entry(5, true, "github.com/test-org/widgets"), entry(9, false)];
   expect(observedForgeArchived(entries, forge)).toBe(true);
   expect(observedForgeArchived(entries, parseForgeLocator("gitlab.com/test-org/widgets"))).toBeUndefined();
-});
-
-/** The fake commit `digit.repeat(40)`, hex digits only. */
-function fake(digit: string): Revision {
-  return parseCommitHash(digit.repeat(40));
-}
-
-/**
- * A backend whose first-parent chain is the fake commits of `digits` (oldest
- * first). Only the members `remainingSpans` touches exist; ancestry is chain
- * order, and anything off the chain is nobody's relative.
- */
-function chainBackend(digits: string): Backend {
-  const chain = [...digits].map(fake);
-  const at = (hash: Revision) => chain.indexOf(hash);
-  const stub: Pick<Backend, "isAncestor"> = {
-    async isAncestor(ancestor, descendant) {
-      return ancestor === descendant || (at(ancestor) !== -1 && at(descendant) !== -1 && at(ancestor) < at(descendant));
-    },
-  };
-  return stub as Backend;
-}
-
-/** A land of a change named for its commit, for terse span fixtures. */
-function landAt(commit: string, onto: string): LandMerge {
-  return { change: parseBranchName(`child-${commit}`), commit: fake(commit), onto: fake(onto) };
-}
-
-test("reviewSpans splits at land merges and remainingSpans resumes from the reviewed tip", async () => {
-  // Lands at 2 (onto 1) and 5 (onto 4); 3-4 and 6-7 are ordinary commits.
-  const backend = chainBackend("01234567");
-  const lands = [landAt("2", "1"), landAt("5", "4")];
-  const span = (start: string, end: string) => ({ start: fake(start), end: fake(end) });
-  const spans = reviewSpans(lands, fake("0"), fake("7"));
-  expect(spans).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
-  // A land right at the base or the tip leaves no span on that side.
-  expect(reviewSpans(lands, fake("1"), fake("5"))).toEqual([span("2", "4")]);
-  // Reviewing up to a land's onto covers everything the land then jumps over.
-  expect(await remainingSpans(backend, spans, fake("1"))).toEqual([span("2", "4"), span("5", "7")]);
-  // A reviewed tip inside a span resumes that span from it.
-  expect(await remainingSpans(backend, spans, fake("3"))).toEqual([span("3", "4"), span("5", "7")]);
-  expect(await remainingSpans(backend, spans, fake("7"))).toEqual([]);
-  // A reviewed tip from outside the chain trims nothing.
-  expect(await remainingSpans(backend, spans, fake("f"))).toEqual([span("0", "1"), span("2", "4"), span("5", "7")]);
-});
-
-test("reviewSpans drops the span between back-to-back lands", () => {
-  expect(reviewSpans([landAt("2", "1"), landAt("3", "2")], fake("0"), fake("3"))).toEqual([
-    { start: fake("0"), end: fake("1") },
-  ]);
 });
 
 test("brain keeps each file's latest review per user and honors forgets by timestamp", () => {
@@ -629,6 +551,7 @@ function logActions(): fc.Arbitrary<LogAction> {
     }),
     fc.record({ kind: fc.constant("set-reviewing" as const), reviewing: fc.constantFrom(...REVIEWING) }),
     fc.record({ kind: fc.constant("set-archived" as const), archived: fc.boolean() }),
+    fc.record({ kind: fc.constant("set-permanent" as const), permanent: fc.boolean() }),
     fc.record({ kind: fc.constant("add-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("remove-reviewer" as const), reviewer: users }),
     fc.record({ kind: fc.constant("review" as const), file: filePaths(), base: commitHashes(), tip: commitHashes() }),

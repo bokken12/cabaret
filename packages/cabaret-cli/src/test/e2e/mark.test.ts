@@ -24,7 +24,7 @@ test("mark records review of files at the given tip", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await repo.cabaret("log")).toEqual({
+  expect(await repo.cabaret("dev", "log")).toEqual({
     stdout:
       '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
       `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
@@ -37,11 +37,26 @@ test("mark records review of files at the given tip", async () => {
   });
 });
 
+test("mark on a directory records review of the files under it", async () => {
+  const repo = await makeChange({ "readme.md": "hi\n", "src/a.ts": "a\n", "src/b.ts": "b\n" });
+  const base = await repo.git("rev-parse", "trunk");
+  const tip = await repo.git("rev-parse", "main");
+  expect(await repo.cabaret("mark", "--tip", tip, "src")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("dev", "log")).stdout).toBe(
+    '{"timestamp":1748000000000,"user":"alice@example.com","action":{"kind":"set-parent","parent":"trunk"}}\n' +
+      `{"timestamp":1748000000001,"user":"alice@example.com","action":{"kind":"set-base","base":"${base}"}}\n` +
+      '{"timestamp":1748000000002,"user":"alice@example.com","action":{"kind":"set-owner","owner":"alice@example.com"}}\n' +
+      '{"timestamp":1748000000003,"user":"alice@example.com","action":{"kind":"set-reviewing","reviewing":"none"}}\n' +
+      `{"timestamp":1748000000004,"user":"alice@example.com","action":{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}}\n` +
+      `{"timestamp":1748000000005,"user":"alice@example.com","action":{"kind":"review","file":"src/b.ts","base":"${base}","tip":"${tip}"}}\n`,
+  );
+});
+
 test("mark requires the tip, so a mark always states what was read", async () => {
   const repo = await makeChange({ "src/a.ts": "a\n" });
   const result = await repo.cabaret("mark", "src/a.ts");
   expect(result.exitCode).toBe(ExitCode.InvalidArgument);
-  expect(await repo.cabaret("log")).toMatchObject({ stderr: "" });
+  expect(await repo.cabaret("dev", "log")).toMatchObject({ stderr: "" });
 });
 
 test("mark --tip resolves a symbolic revision to a full hash", async () => {
@@ -52,20 +67,20 @@ test("mark --tip resolves a symbolic revision to a full hash", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     `{"kind":"review","file":"greeting.txt","base":"${root}","tip":"${root}"}`,
   );
 });
 
 test("mark fails on an unknown tip revision, leaving the log untouched", async () => {
   const repo = await makeChange({ "src/a.ts": "a\n" });
-  const before = await repo.cabaret("log");
+  const before = await repo.cabaret("dev", "log");
   expect(await repo.cabaret("mark", "--tip", "no-such-rev", "src/a.ts")).toEqual({
     stdout: "",
     stderr: 'unknown revision: "no-such-rev"\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log")).toEqual(before);
+  expect(await repo.cabaret("dev", "log")).toEqual(before);
 });
 
 test("a mark at the tip that was read gives partial credit across a race", async () => {
@@ -99,12 +114,12 @@ test("a mark at the tip that was read gives partial credit across a race", async
 test("a pattern marks every matching file, and only those", async () => {
   const repo = await makeChange({ "src/a.ts": "a\n", "src/b.ts": "b\n", "docs/notes.md": "# Notes\n" });
   expect(await repo.cabaret("mark", "--tip", "HEAD", "src/*.ts")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  const marked = (await repo.cabaret("log")).stdout;
+  const marked = (await repo.cabaret("dev", "log")).stdout;
   expect(marked).toContain('"kind":"review","file":"src/a.ts"');
   expect(marked).toContain('"kind":"review","file":"src/b.ts"');
   expect(marked).not.toContain('"file":"docs/notes.md"');
   expect(await repo.cabaret("mark", "--tip", "HEAD", "**")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
-  expect((await repo.cabaret("log")).stdout).toContain('"kind":"review","file":"docs/notes.md"');
+  expect((await repo.cabaret("dev", "log")).stdout).toContain('"kind":"review","file":"docs/notes.md"');
 });
 
 test("review shows nothing left once every file is marked", async () => {
@@ -131,7 +146,7 @@ test("a pattern matching no file with review left fails", async () => {
   });
   expect(await repo.cabaret("mark", "--tip", "HEAD", "trunk.txt")).toEqual({
     stdout: "",
-    stderr: "no review left in trunk.txt\n",
+    stderr: 'no file with review left matches "trunk.txt"\n',
     exitCode: 1,
   });
 });
@@ -145,10 +160,10 @@ test("mark from a subdirectory records repo-relative paths", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     `{"kind":"review","file":"src/a.ts","base":"${base}","tip":"${tip}"}`,
   );
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     `{"kind":"review","file":"top.ts","base":"${base}","tip":"${tip}"}`,
   );
 });
@@ -160,7 +175,7 @@ test("mark refuses a change with conflict markers, leaving the log untouched", a
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "conflicted");
   await repo.cabaret("create", "main", "--parent", "trunk");
-  const before = await repo.cabaret("log");
+  const before = await repo.cabaret("dev", "log");
   expect(await repo.cabaret("mark", "--tip", "HEAD", "shared.txt")).toEqual({
     stdout: "",
     stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
@@ -172,18 +187,18 @@ test("mark refuses a change with conflict markers, leaving the log untouched", a
     stderr: '"main" has unresolved conflicts in shared.txt; fix the markers and amend\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log")).toEqual(before);
+  expect(await repo.cabaret("dev", "log")).toEqual(before);
 });
 
 test("mark rejects a path outside the repository, leaving the log untouched", async () => {
   const repo = await makeChange({ "src/a.ts": "a\n" });
-  const before = await repo.cabaret("log");
+  const before = await repo.cabaret("dev", "log");
   expect(await repo.cabaret("mark", "--tip", "HEAD", "../outside.ts")).toEqual({
     stdout: "",
     stderr: 'path is outside the repository: "../outside.ts"\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log")).toEqual(before);
+  expect(await repo.cabaret("dev", "log")).toEqual(before);
 });
 
 test("mark reads the change's branch even when a tag shadows its name", async () => {
@@ -203,22 +218,22 @@ test("mark reads the change's branch even when a tag shadows its name", async ()
     stderr: "",
     exitCode: 0,
   });
-  expect((await repo.cabaret("log", "gadget")).stdout).toContain(`"tip":"${tip}"`);
+  expect((await repo.cabaret("dev", "log", "gadget")).stdout).toContain(`"tip":"${tip}"`);
 });
 
 test("mark fails on a change that does not exist, leaving the log untouched", async () => {
   const repo = await makeRepo();
   expect(await repo.cabaret("mark", "--tip", "HEAD", "src/a.ts")).toEqual({
     stdout: "",
-    stderr: 'change does not exist: "main"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    stderr: 'change does not exist: "main"; run `cab create`, or `cab fetch` to import open forge changes\n',
     exitCode: 1,
   });
-  expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });
 
 test("mark requires at least one file", async () => {
   const repo = await makeRepo();
   const result = await repo.cabaret("mark", "--tip", "HEAD");
   expect(result.exitCode).toBe(ExitCode.InvalidArgument);
-  expect(await repo.cabaret("log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await repo.cabaret("dev", "log")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
 });

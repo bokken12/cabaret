@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { parseBranchName, parseCommitHash, parseFilePath, type Revision } from "cabaret-core";
-import { type DiffsPage, diffDoc, diffsDoc, docText, type EmbeddedLanguage, pageGrammar } from "cabaret-views";
+import { docText, type EmbeddedLanguage, pageGrammar, reviewDoc } from "cabaret-views";
 import { beforeAll, expect, test } from "vitest";
 import { createOnigScanner, createOnigString, loadWASM } from "vscode-oniguruma";
 import { INITIAL, type IRawGrammar, Registry } from "vscode-textmate";
@@ -84,30 +84,24 @@ function fake(digit: string): Revision {
 
 const widgets = parseBranchName("widgets");
 
-/** Two hunks in one alpha file — the first opens a comment it never closes — then a beta file. */
-const page: DiffsPage = {
-  change: widgets,
-  as: undefined,
-  conflicts: [],
-  round: {
-    end: fake("3"),
-    later: 0,
-    files: [
-      {
-        file: parseFilePath("src/thing.alpha"),
-        view: {
-          kind: "two",
-          prev: "alpha1\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nomega\n",
-          next: "opened /*\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nclosed\n",
-        },
-      },
-      { file: parseFilePath("sub/Betafile"), view: { kind: "two", prev: "x\n", next: "y\n" } },
-    ],
-  },
-};
-
 test("each hunk embeds its file's language, and a comment opened in one hunk stays there", async () => {
-  const rows = await tokenized(docText(diffsDoc(page)));
+  // Two hunks in one alpha file; the first opens a comment it never closes.
+  const doc = reviewDoc({
+    change: widgets,
+    file: parseFilePath("src/thing.alpha"),
+    as: undefined,
+    left: {
+      tip: fake("3"),
+      source: undefined,
+      modes: undefined,
+      view: {
+        kind: "two",
+        prev: "alpha1\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nomega\n",
+        next: "opened /*\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nclosed\n",
+      },
+    },
+  });
+  const rows = await tokenized(docText(doc));
   // Within the first hunk the opened comment runs on: that is the language's truth.
   expect(tokensOf(rows, "four")).toEqual([
     { text: "four", scopes: ["text.cabaret", "meta.embedded.block.alpha", "comment.block.alpha"] },
@@ -116,21 +110,17 @@ test("each hunk embeds its file's language, and a comment opened in one hunk sta
   expect(tokensOf(rows, "seven")).toEqual([
     { text: "seven", scopes: ["text.cabaret", "meta.embedded.block.alpha", "word.alpha"] },
   ]);
-  // The next file's region embeds its own language.
-  expect(tokensOf(rows, "y")).toEqual([
-    { text: "y", scopes: ["text.cabaret", "meta.embedded.block.beta", "word.beta"] },
-  ]);
   // Structural lines are chrome, not code: no embedded scope, no tokens of the language.
   expect(tokensOf(rows, "-7,4 +7,4")).toEqual([{ text: "-7,4 +7,4", scopes: ["text.cabaret"] }]);
-  expect(tokensOf(rows, /^@+ src\/thing\.alpha @+$/).every(({ scopes }) => scopes.length === 1)).toBe(true);
+  expect(tokensOf(rows, /^src\/thing\.alpha in widgets/).every(({ scopes }) => scopes.length === 1)).toBe(true);
 });
 
 test("a single-file diff page's title opens its file's section", async () => {
-  const doc = diffDoc({
+  const doc = reviewDoc({
     change: widgets,
     file: parseFilePath("src/thing.alpha"),
     as: undefined,
-    round: { end: fake("3"), later: 0, view: { kind: "two", prev: "x\n", next: "y\n" } },
+    left: { tip: fake("3"), source: undefined, modes: undefined, view: { kind: "two", prev: "x\n", next: "y\n" } },
   });
   const rows = await tokenized(docText(doc));
   expect(tokensOf(rows, "y")).toEqual([
@@ -140,7 +130,7 @@ test("a single-file diff page's title opens its file's section", async () => {
 
 test("a 4-way page's hint sentence closes the open hunk region", async () => {
   const rows = await tokenized(
-    ["@@@ x.alpha @@@", "-1,1 +1,1", "opened /*", "A change in the feature was reverted", "stranded"].join("\n"),
+    ["x.alpha in widgets", "-1,1 +1,1", "opened /*", "A change in the feature was reverted", "stranded"].join("\n"),
   );
   expect(tokensOf(rows, "A change in the feature was reverted").every(({ scopes }) => scopes.length === 1)).toBe(true);
   expect(tokensOf(rows, "stranded")).toEqual([{ text: "stranded", scopes: ["text.cabaret"] }]);
@@ -149,6 +139,6 @@ test("a 4-way page's hint sentence closes the open hunk region", async () => {
 test("pageGrammar escapes file names into literal patterns", () => {
   const grammar = pageGrammar([{ id: "cpp", scope: "source.cpp", suffixes: [".c++"], basenames: ["c++.cfg"] }]);
   expect(grammar.repository["file-cpp"]?.begin).toBe(
-    "^(?:@+ )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg)(?: @+| in \\S.*)$",
+    "^(?:\\S+ [-=]> )?(?:\\S*\\.c\\+\\+|(?:\\S*/)?c\\+\\+\\.cfg) in \\S.*$",
   );
 });

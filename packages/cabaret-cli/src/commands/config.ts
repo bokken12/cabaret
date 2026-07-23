@@ -100,7 +100,7 @@ function settingCommand(setting: Setting) {
 function forgeAliasRouteMap(setting: Setting, scheme: ForgeAccountScheme) {
   const account = (raw: string): UserName => {
     if (raw === "" || raw.includes("@") || raw.includes(":")) {
-      throw new UserError(`pass the bare account name, e.g. \`cabaret config alias ${scheme} add alice\``);
+      throw new UserError(`pass the bare account name, e.g. \`cab config alias ${scheme} add alice\``);
     }
     return forgeAccount(scheme, raw);
   };

@@ -2,7 +2,7 @@ import { buildCommand } from "@stricli/core";
 import { assertNoConflict, NotReviewingError, UserError } from "cabaret-core";
 import { changeSnapshot } from "cabaret-views";
 import type { LocalContext } from "../context.js";
-import { changeFlag, pendingFiles, resolveChange, selectFiles } from "./shared.js";
+import { changeFlag, resolveChange, selectFiles } from "./shared.js";
 
 export const mark = buildCommand({
   docs: {
@@ -16,7 +16,7 @@ export const mark = buildCommand({
   parameters: {
     positional: {
       kind: "array",
-      parameter: { brief: "files or patterns to mark reviewed", placeholder: "file", parse: String },
+      parameter: { brief: "files, directories, or patterns to mark reviewed", placeholder: "file", parse: String },
       minimum: 1,
     },
     flags: {
@@ -45,11 +45,11 @@ export const mark = buildCommand({
     if (!snapshot.asked && !flags.evenThoughNotReviewing) {
       throw new NotReviewingError(change, snapshot.reviewing, snapshot.user);
     }
-    if (snapshot.rounds.length === 0) {
+    if (snapshot.left.size === 0) {
       throw new UserError(`nothing is left to review in ${JSON.stringify(change)}`);
     }
     const tip = await backend.resolveCommit(flags.tip);
-    const files = selectFiles(backend, pendingFiles(snapshot.rounds), args, true);
+    const files = selectFiles(backend, [...snapshot.left.keys()], args, true, "file with review left");
     await backend.appendLog(
       change,
       files.map((file) => ({

@@ -1,34 +1,33 @@
 import { buildCommand } from "@stricli/core";
+import { fileLabel, readConfig, renderDiff, renderDiff4, shortHash } from "cabaret-core";
 import {
-  defaultContext,
-  parseContext,
-  type Revision,
-  readConfig,
-  renderDiff,
-  renderDiff4,
-  shortHash,
-} from "cabaret-core";
-import { changeSnapshot, type DiffPage, diffPage, reviewDoc, reviewPage } from "cabaret-views";
+  changeSnapshot,
+  emptyDiffNote,
+  modeChangeNote,
+  type ReviewPage,
+  reviewPage,
+  reviewsDoc,
+  reviewsPage,
+} from "cabaret-views";
 import type { LocalContext } from "../context.js";
-import { changeFlag, pendingFiles, resolveChange, selectFiles, writeDoc } from "./shared.js";
+import { changeFlag, contextFlag, resolveChange, selectFiles, writeDoc } from "./shared.js";
 
-/** One file's heading: where its diff reviews up to, and what still follows. */
-function fileTitle(page: DiffPage): string {
-  if (page.round === undefined) {
+/** One file's heading: where its diff reviews up to. */
+function fileTitle(page: ReviewPage): string {
+  if (page.left === undefined) {
     return `${page.file} in ${page.change}`;
   }
-  const { end, later } = page.round;
-  const more = later === 0 ? "" : `; ${later} more round${later === 1 ? "" : "s"} follow${later === 1 ? "s" : ""}`;
-  return `${page.file} in ${page.change} (up to ${shortHash(end)}${more})`;
+  const name = fileLabel(page.file, page.left.source);
+  return `${name} in ${page.change} (up to ${shortHash(page.left.tip)})`;
 }
 
 export const review = buildCommand({
   docs: {
     brief: "Show the diff of a change left for you to review",
     fullDescription:
-      "Show the diff of a change left for you to review: the files of the " +
-      "current review round, then each file's remaining diff. Arguments " +
-      "narrow what is shown — a path, or a gitignore-style pattern against " +
+      "Show the diff of a change left for you to review: the files with " +
+      "review left, then each file's remaining diff. Arguments narrow what " +
+      "is shown — a path, or a gitignore-style pattern against " +
       "repo-relative paths. What is shown is remembered, and `mark` records " +
       "review of it.",
   },
@@ -36,19 +35,14 @@ export const review = buildCommand({
     positional: {
       kind: "array",
       parameter: {
-        brief: "files or patterns to show (defaults to the whole round)",
+        brief: "files, directories, or patterns to show (defaults to everything left)",
         placeholder: "file",
         parse: String,
       },
     },
     flags: {
       change: changeFlag("review"),
-      context: {
-        kind: "parsed",
-        parse: parseContext,
-        brief: `Lines of context around each hunk, -1 for whole files (defaults to the cabaret.context setting, or ${defaultContext})`,
-        optional: true,
-      },
+      context: contextFlag,
     },
   },
   async func(this: LocalContext, flags: { change?: string; context?: number }, ...args: string[]) {
@@ -58,69 +52,59 @@ export const review = buildCommand({
     const context = flags.context ?? (await readConfig(backend)).context;
     const { change } = await resolveChange(backend, flags.change);
     const snapshot = await changeSnapshot(backend, change);
-    const page = reviewPage(snapshot);
-    // Conflicts preempt the round, and a change with nothing left has
-    // nothing to narrow: the page says so either way.
-    if (page.conflicts.length > 0 || (page.round === undefined && args.length === 0)) {
-      writeDoc(this, reviewDoc(page));
+    const page = reviewsPage(snapshot);
+    // Conflicts preempt review, and a change with nothing left has nothing
+    // to narrow: the page says so either way.
+    if (page.conflicts.length > 0 || (page.left === undefined && args.length === 0)) {
+      writeDoc(this, reviewsDoc(page));
       return;
     }
-    // No arguments show the current round; arguments select among every
-    // pending file, so a later round's file can be asked for by name.
     const files =
-      args.length === 0 ? (page.round?.files ?? []) : selectFiles(backend, pendingFiles(snapshot.rounds), args, false);
+      args.length === 0
+        ? (page.left?.files.map(({ path }) => path) ?? [])
+        : selectFiles(backend, [...snapshot.left.keys()], args, false, "file with review left");
     let separate = false;
-    if (page.round !== undefined) {
-      const listed = page.round.files.filter((file) => files.includes(file));
+    if (page.left !== undefined) {
+      const listed = page.left.files.filter(({ path }) => files.includes(path));
       if (listed.length > 0) {
-        writeDoc(this, reviewDoc({ ...page, round: { ...page.round, files: listed } }));
+        writeDoc(this, reviewsDoc({ ...page, left: { ...page.left, files: listed } }));
         separate = true;
       }
     }
     // Stricli's process type omits isTTY, but the runtime process underneath has it.
     const color = (this.process.stdout as { isTTY?: boolean }).isTTY === true;
-    const shown = new Map<string, Revision>();
+    const shown: string[] = [];
     for (const file of files) {
-      const filePage = await diffPage(backend, snapshot, file);
+      const filePage = await reviewPage(backend, snapshot, file);
       this.process.stdout.write(`${separate ? "\n" : ""}${fileTitle(filePage)}\n\n`);
       separate = true;
-      if (filePage.round === undefined) {
+      if (filePage.left === undefined) {
         this.process.stdout.write("Nothing left to review.\n");
         continue;
       }
-      shown.set(file, filePage.round.end);
-      const view = filePage.round.view;
+      shown.push(file);
+      const { source, modes, view } = filePage.left;
       const rendered =
         view.kind === "two"
           ? renderDiff(file, view.prev, view.next, color, context)
           : renderDiff4({ file, revs: view.revs, contents: view.contents, color, context })
               .map((line) => `${line.text}\n`)
               .join("");
-      // A due file's diff can still render empty — a tree diff lists changes
-      // patdiff shows no hunks for, like a mode-only change; marking the
-      // file reviewed is how the reviewer clears it.
-      this.process.stdout.write(
-        rendered === "" ? "No differences left to read; mark the file reviewed to record that.\n" : rendered,
-      );
+      // As `fileBodyNodes` composes it: the mode change when the diff
+      // carries one, then the hunks — or the note that nothing else is left.
+      const notes = [
+        ...(rendered === "" && (source !== undefined || modes === undefined) ? [emptyDiffNote(source, view)] : []),
+        ...(modes === undefined ? [] : [modeChangeNote(modes)]),
+      ];
+      const heading = notes.map((note) => `${note}\n`).join("");
+      this.process.stdout.write(rendered === "" ? heading : heading === "" ? rendered : `${heading}\n${rendered}`);
     }
-    if (shown.size === 0) {
+    if (shown.length === 0) {
       return;
     }
-    // One runnable command per displayed round end, tip pinned to exactly
-    // what was shown.
-    const ends = new Map<Revision, string[]>();
-    for (const [file, end] of shown) {
-      const group = ends.get(end);
-      if (group === undefined) {
-        ends.set(end, [file]);
-      } else {
-        group.push(file);
-      }
-    }
+    // One runnable command, tip pinned to exactly what was shown.
     const changeArg = flags.change === undefined ? "" : ` --change ${flags.change}`;
     this.process.stdout.write("\nRecord review of what you have read:\n");
-    for (const [end, group] of ends) {
-      this.process.stdout.write(`  cabaret mark${changeArg} --tip ${shortHash(end)} ${group.join(" ")}\n`);
-    }
+    this.process.stdout.write(`  cabaret mark${changeArg} --tip ${shortHash(snapshot.tip)} ${shown.join(" ")}\n`);
   },
 });

@@ -1,5 +1,5 @@
 import type { NextStep } from "cabaret-core";
-import { type Line, span } from "./doc.js";
+import { type Line, type Span, span } from "./doc.js";
 
 /**
  * Key hints a host lends its pages while its bindings are still unfamiliar:
@@ -13,10 +13,10 @@ export interface Hints {
   readonly help: string;
 }
 
-/** The step with the keys that trigger it: `rebase (! r b)`. */
-export function hinted(step: NextStep, hints: Hints | undefined): string {
+/** The dimmed keys trailing a next step — `rebase (! r b)` — or nothing for a step without keys. */
+export function stepHint(step: NextStep, hints: Hints | undefined): readonly Span[] {
   const keys = hints?.steps.get(step);
-  return keys === undefined ? step : `${step} (${keys})`;
+  return keys === undefined ? [] : [span(` (${keys})`, { style: "context" })];
 }
 
 /** The dimmed closing line pointing at the binding list, with its stand-off blank. */

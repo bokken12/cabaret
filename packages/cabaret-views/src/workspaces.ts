@@ -1,5 +1,15 @@
-import { type Backend, type ChangeName, currentArchived, landedMerge, type Workspace } from "cabaret-core";
+import {
+  type Backend,
+  type ChangeName,
+  currentArchived,
+  type Dirty,
+  finished,
+  type ReclaimedWorkspace,
+  type TimestampMs,
+  type Workspace,
+} from "cabaret-core";
 import { type Doc, layout, span } from "./doc.js";
+import { age } from "./fetched.js";
 import { type Cell, table } from "./table.js";
 
 /**
@@ -28,7 +38,14 @@ export interface WorkspaceNote {
   readonly path: string;
   /** The path as read from the current workspace, for display. */
   readonly display: string;
-  readonly dirty: boolean;
+  /** Whether this is the workspace the page was opened from. */
+  readonly current: boolean;
+  readonly dirty: Dirty | undefined;
+}
+
+/** The "dirty" note, dating the edits when the dirty files gave a time. */
+export function dirtyNote(dirty: Dirty, now: TimestampMs): string {
+  return dirty.at === undefined ? "dirty" : `dirty ${age(dirty.at, now)}`;
 }
 
 /** Each checked-out change's workspace note, from the current workspace's point of view. */
@@ -36,10 +53,21 @@ export async function workspaceNotes(backend: Backend): Promise<ReadonlyMap<Chan
   const notes = new Map<ChangeName, WorkspaceNote>();
   for (const { path, change, dirty } of await backend.workspaces()) {
     if (change !== undefined) {
-      notes.set(change, { path, display: displayPath(backend.root, path), dirty });
+      notes.set(change, { path, display: displayPath(backend.root, path), current: path === backend.root, dirty });
     }
   }
   return notes;
+}
+
+/** One line reporting a reclaim's outcome, for a host's status row. */
+export function reclaimNote(reclaimed: readonly ReclaimedWorkspace[]): string {
+  const removed = reclaimed.filter(({ outcome }) => outcome === "removed").length;
+  const kept = reclaimed.length - removed;
+  if (reclaimed.length === 0) {
+    return "nothing to reclaim";
+  }
+  const counted = `${removed} workspace${removed === 1 ? "" : "s"}`;
+  return kept === 0 ? `removed ${counted}` : `removed ${counted}, kept ${kept}`;
 }
 
 /** One workspace on the workspaces page. */
@@ -49,9 +77,9 @@ export interface WorkspaceRow {
   readonly display: string;
   /** Whether the checked-out branch is a change. */
   readonly isChange: boolean;
-  /** Whether that change has landed, leaving the workspace ready to remove. */
+  /** Whether that change finished — landed and archived — leaving the workspace ready to remove. */
   readonly landed: boolean;
-  /** Whether that change is archived, likewise leaving the workspace idle. */
+  /** Whether that change is archived without landing, likewise leaving the workspace idle. */
   readonly archived: boolean;
 }
 
@@ -70,17 +98,17 @@ export async function workspacesPage(backend: Backend): Promise<WorkspacesPage> 
       workspace,
       display: displayPath(backend.root, workspace.path),
       isChange: change !== undefined,
-      landed: landedMerge(entries) !== undefined,
-      archived: currentArchived(entries),
+      landed: finished(entries),
+      archived: currentArchived(entries) && !finished(entries),
     });
   }
   return { rows };
 }
 
-export function workspacesDoc(page: WorkspacesPage): Doc {
+export function workspacesDoc(page: WorkspacesPage, now: TimestampMs): Doc {
   const rows = page.rows.map(({ workspace, display, isChange, landed, archived }): readonly Cell[] => {
     const notes = [
-      ...(workspace.dirty ? ["dirty"] : []),
+      ...(workspace.dirty === undefined ? [] : [dirtyNote(workspace.dirty, now)]),
       ...(landed ? ["landed"] : []),
       ...(archived ? ["archived"] : []),
     ];
@@ -93,7 +121,11 @@ export function workspacesDoc(page: WorkspacesPage): Doc {
             style: isChange ? undefined : "context",
             target: { kind: "change", change: workspace.change },
           });
-    return [span(display, { target: { kind: "workspace", path: workspace.path } }), name, span(notes.join(", "))];
+    return [
+      span(display, { target: { kind: "workspace", path: workspace.path } }),
+      name,
+      span(notes.join(", "), { style: landed || archived ? "nudge" : undefined }),
+    ];
   });
   const title = "Workspaces";
   return layout([

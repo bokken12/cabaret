@@ -2,6 +2,7 @@ import { buildCommand } from "@stricli/core";
 import { type FetchEvent, type Forge, fetchForge, fetchLocal } from "cabaret-core";
 import { NoForgeError } from "cabaret-node";
 import type { LocalContext } from "../context.js";
+import { settledLines } from "./shared.js";
 
 /** Report one thing the fetch did, in the CLI's voice. */
 function reportFetchEvent(context: LocalContext, locator: string, event: FetchEvent): void {
@@ -41,7 +42,9 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
           `${name} was marked ${event.reviewing === "none" ? "draft" : "ready"}; reviewing ${event.reviewing}\n`,
         );
       }
-      if (event.archived !== undefined) {
+      // A land archives the change as part of concluding it; the land line
+      // already tells that story.
+      if (event.archived !== undefined && !event.landed) {
         context.process.stdout.write(
           `${name} was ${event.archived ? "closed; archived the change" : "reopened; unarchived the change"}\n`,
         );
@@ -54,6 +57,18 @@ function reportFetchEvent(context: LocalContext, locator: string, event: FetchEv
     case "archived":
       context.process.stdout.write(`${locator}#${event.id} was closed; archived ${JSON.stringify(event.change)}\n`);
       return;
+    case "joined":
+      context.process.stdout.write(`merged origin's copy of ${JSON.stringify(event.change)}\n`);
+      return;
+    case "pushed":
+      context.process.stdout.write(`pushed ${JSON.stringify(event.change)} to origin\n`);
+      return;
+    case "published": {
+      for (const line of settledLines(locator, { offline: false, absorbed: undefined, published: event })) {
+        context.process.stdout.write(`${line}\n`);
+      }
+      return;
+    }
     case "pruned":
       context.process.stdout.write(
         `${locator}#${event.id} was closed; removed unreviewed change ${JSON.stringify(event.change)}\n`,
@@ -75,8 +90,16 @@ export const fetch = buildCommand({
       "profile emails, are recorded as aliases of you, so their changes " +
       "read as yours. Without a forge, the origin half still runs.",
   },
-  parameters: {},
-  async func(this: LocalContext, _flags: Record<never, never>) {
+  parameters: {
+    flags: {
+      full: {
+        kind: "boolean",
+        brief: "Sweep every open forge change, not just what moved since the last fetch",
+        default: false,
+      },
+    },
+  },
+  async func(this: LocalContext, flags: { readonly full: boolean }) {
     const backend = await this.backend();
     let forge: Forge | undefined;
     try {
@@ -87,15 +110,28 @@ export const fetch = buildCommand({
       }
     }
     if (forge === undefined) {
-      const { synced, advanced } = await fetchLocal(backend);
+      const { synced, advanced, joined, pushed } = await fetchLocal(backend);
       for (const change of advanced) {
         this.process.stdout.write(`advanced ${JSON.stringify(change)}\n`);
+      }
+      for (const change of joined) {
+        this.process.stdout.write(`merged origin's copy of ${JSON.stringify(change)}\n`);
+      }
+      for (const change of pushed) {
+        this.process.stdout.write(`pushed ${JSON.stringify(change)} to origin\n`);
       }
       this.process.stdout.write(`synced ${synced.length} change${synced.length === 1 ? "" : "s"} with origin\n`);
       return;
     }
     const locator = forge.locator;
-    const { open } = await fetchForge(backend, this.now, forge, (event) => reportFetchEvent(this, locator, event));
-    this.process.stdout.write(`fetched ${locator}: ${open} open forge change${open === 1 ? "" : "s"}\n`);
+    const { coverage, swept } = await fetchForge(
+      backend,
+      this.now,
+      forge,
+      (event) => reportFetchEvent(this, locator, event),
+      { full: flags.full },
+    );
+    const kind = coverage === "open" ? "open" : "updated";
+    this.process.stdout.write(`fetched ${locator}: ${swept} ${kind} forge change${swept === 1 ? "" : "s"}\n`);
   },
 });

@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "bin": {
-    "cabaret": "./dist/cli.js"
+    "cab": "./dist/cli.js"
   },
   "dependencies": {
     "@stricli/core": "^1.2.8",
     "cabaret-core": "workspace:*",
     "cabaret-node": "workspace:*",
+    "cabaret-tui": "workspace:*",
     "cabaret-views": "workspace:*"
   },
   "scripts": {

@@ -4,25 +4,28 @@ import { type Manifest, pageHelp, pageHints } from "../help.js";
 
 const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as Manifest;
 
-test("todo page keybindings", () => {
-  expect(pageHelp(manifest, "todo").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
+test("home page keybindings", () => {
+  expect(pageHelp(manifest, "home").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "r  Review",
+      "d  Diff",
       "@  Act as User",
       "! r b  Rebase",
-      "! l a  Land",
-      "! r n  Rename",
+      "! l  Land",
       "! r p  Reparent",
       "! o  Set Owner",
       "! v  Widen Reviewing",
       "! d  Disable Reviewing",
+      "! a  Toggle Archived",
       "! g  Go to Workspace",
       "! w a  Add Workspace",
       "! w d  Remove Workspace",
+      "! w r  Reclaim Workspaces",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",
@@ -35,22 +38,23 @@ test("show page keybindings", () => {
   expect(pageHelp(manifest, "show").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
       "r  Review",
-      "d  Review Diffs",
+      "d  Diff",
       "@  Act as User",
-      "^  Show Parent",
-      "$  Show Child",
+      "^  Step Up",
+      "$  Step Down",
       "! r b  Rebase",
-      "! l a  Land",
-      "! r n  Rename",
+      "! l  Land",
       "! r p  Reparent",
       "! o  Set Owner",
       "! v  Widen Reviewing",
       "! d  Disable Reviewing",
+      "! a  Toggle Archived",
       "! g  Go to Workspace",
       "! w a  Add Workspace",
       "! w d  Remove Workspace",
@@ -66,23 +70,17 @@ test("review page keybindings", () => {
   expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
-      "d  Review Diffs",
+      "d  Diff",
       "@  Act as User",
       "! m  Mark Reviewed",
-      "! r b  Rebase",
-      "! l a  Land",
-      "! r n  Rename",
-      "! r p  Reparent",
-      "! o  Set Owner",
-      "! v  Widen Reviewing",
-      "! d  Disable Reviewing",
-      "! g  Go to Workspace",
-      "! w a  Add Workspace",
-      "! w d  Remove Workspace",
+      "^  Step Up",
+      "$  Step Down",
+      "! l  Land",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",
@@ -91,17 +89,21 @@ test("review page keybindings", () => {
   `);
 });
 
-test("diff page keybindings", () => {
-  expect(pageHelp(manifest, "diff").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
+test("review-file page keybindings", () => {
+  expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
+      "esc  Step Outside",
       "tab  Toggle Fold",
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "d  Diff",
       "@  Act as User",
       "! m  Mark Reviewed",
-      "! l a  Land",
+      "^  Step Up",
+      "$  Step Down",
+      "! l  Land",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",
@@ -111,16 +113,20 @@ test("diff page keybindings", () => {
 });
 
 test("help carries the command, so picking an entry can run it", () => {
-  expect(pageHelp(manifest, "diff").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
+  expect(pageHelp(manifest, "review").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
     [
       "enter  cabaret.openTarget",
+      "esc  cabaret.stepOutside",
       "tab  editor.toggleFold",
       "q  workbench.action.closeActiveEditor",
       "R  cabaret.refresh",
       "?  cabaret.help",
+      "d  cabaret.diff",
       "@  cabaret.actAs",
       "! m  cabaret.markReviewed",
-      "! l a  cabaret.land",
+      "^  cabaret.stepUp",
+      "$  cabaret.stepDown",
+      "! l  cabaret.land",
       "! c  cabaret.createChild",
       "! p  cabaret.createParent",
       "F  cabaret.fetch",
@@ -140,18 +146,18 @@ const GUARDED = (scope: string) =>
   `editorTextFocus && ${scope} && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine' || vim.mode == 'VisualBlock')`;
 
 test("a binding outside the when grammar throws rather than going missing", () => {
-  expect(() => pageHelp(bind("x", "resourceScheme == cabaret"), "todo")).toThrowError(/standard guards/);
-  expect(() => pageHelp(bind("x", GUARDED("cabaret.page =~ /show|diff/")), "todo")).toThrowError(
+  expect(() => pageHelp(bind("x", "resourceScheme == cabaret"), "home")).toThrowError(/standard guards/);
+  expect(() => pageHelp(bind("x", GUARDED("cabaret.page =~ /show|diff/")), "home")).toThrowError(
     /unrecognized keybinding scope/,
   );
   expect(() =>
-    pageHelp(bind("x", GUARDED("resourceScheme == cabaret && cabaret.page != 'diff'")), "todo"),
+    pageHelp(bind("x", GUARDED("resourceScheme == cabaret && cabaret.page != 'diff'")), "home"),
   ).toThrowError(/unrecognized keybinding scope/);
-  expect(() => pageHelp(bind("x", GUARDED("cabaret.page == 'shw'")), "todo")).toThrowError(/unknown page kind/);
+  expect(() => pageHelp(bind("x", GUARDED("cabaret.page == 'shw'")), "home")).toThrowError(/unknown page kind/);
 });
 
 test("a shifted key with no known display form throws", () => {
-  expect(() => pageHelp(bind("shift+-", GUARDED("resourceScheme == cabaret")), "todo")).toThrowError(/no shifted form/);
+  expect(() => pageHelp(bind("shift+-", GUARDED("resourceScheme == cabaret")), "home")).toThrowError(/no shifted form/);
 });
 
 test("a bound command with no title throws", () => {
@@ -161,13 +167,43 @@ test("a bound command with no title throws", () => {
       keybindings: [{ command: "cabaret.mystery", key: "m", when: GUARDED("resourceScheme == cabaret") }],
     },
   };
-  expect(() => pageHelp(manifest, "todo")).toThrowError(/no title known/);
+  expect(() => pageHelp(manifest, "home")).toThrowError(/no title known/);
 });
 
 test("page hints carry the keys behind each next step a binding performs there", () => {
-  const todo = pageHints(manifest, "todo");
-  expect(todo.help).toBe("?");
-  expect([...todo.steps]).toMatchInlineSnapshot(`
+  const home = pageHints(manifest, "home");
+  expect(home.help).toBe("?");
+  expect([...home.steps]).toMatchInlineSnapshot(`
+    [
+      [
+        "sync",
+        "S",
+      ],
+      [
+        "rebase",
+        "! r b",
+      ],
+      [
+        "reparent",
+        "! r p",
+      ],
+      [
+        "review",
+        "r",
+      ],
+      [
+        "widen reviewing",
+        "! v",
+      ],
+      [
+        "land",
+        "! l",
+      ],
+    ]
+  `);
+  // The review binding does not answer on the reviews page, so the review
+  // step goes bare there while the page-wide actions keep their keys.
+  expect([...pageHints(manifest, "reviews").steps]).toMatchInlineSnapshot(`
     [
       [
         "sync",
@@ -187,22 +223,7 @@ test("page hints carry the keys behind each next step a binding performs there",
       ],
       [
         "land",
-        "! l a",
-      ],
-    ]
-  `);
-  // The review binding applies on the show page alone, so only there does
-  // the review step carry its key.
-  expect(pageHints(manifest, "show").steps.get("review")).toBe("r");
-  expect([...pageHints(manifest, "diff").steps]).toMatchInlineSnapshot(`
-    [
-      [
-        "sync",
-        "S",
-      ],
-      [
-        "land",
-        "! l a",
+        "! l",
       ],
     ]
   `);

@@ -1,0 +1,463 @@
+import {
+  type ChangeName,
+  type Forge,
+  type ForgeChange,
+  type ForgeChangeId,
+  type ForgeComment,
+  type ForgeCursor,
+  type ForgeLocator,
+  type ForgeMerge,
+  type ForgeSweep,
+  forgeAccount,
+  forgeChangeId,
+  forgeCursor,
+  type LandMethod,
+  parseBranchName,
+  parseCommitHash,
+  parseForgeLocator,
+  type Revision,
+  type Self,
+  type SweptChange,
+  timestampMs,
+  UserError,
+  type UserName,
+  userName,
+} from "cabaret-core";
+import { z } from "zod";
+import { type GitHubClient, type GitHubRepo, isStatus } from "./client.js";
+
+/** The identity for a GitHub account: its login under the `github:` scheme. */
+function accountUser(login: string): UserName {
+  return forgeAccount("github", login);
+}
+
+// Inverts `accountUser`.
+const ACCOUNT = /^github:(.+)$/;
+
+// GitHub's private-commit-email forms name their account just as well, so a
+// pasted noreply address is taken as the account it belongs to.
+const NOREPLY = /^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$/;
+
+/**
+ * The login a Cabaret identity names — `accountUser`'s inverse, also taking
+ * GitHub's noreply email forms. Fails for an identity that names no account:
+ * emails are not searched, since GitHub's matching is too loose for a review
+ * request that must never land on whichever stranger matched first.
+ */
+function accountLogin(user: UserName): string {
+  const login = ACCOUNT.exec(user)?.[1] ?? NOREPLY.exec(user)?.[1];
+  if (login === undefined) {
+    throw new UserError(`${JSON.stringify(user)} names no github.com account; use github:<login>`);
+  }
+  return login;
+}
+
+// The PR fields every query selects. GraphQL rather than REST because the
+// open-changes sweep pages a hundred PRs with their comments in one query —
+// REST would make it N+1.
+// A reviewer who has submitted a review drops out of `reviewRequests`, so the
+// reviewer set is that union'd with `latestReviews` authors.
+const PR_FIELDS =
+  "id number headRefName headRefOid baseRefName title author { login } state isDraft " +
+  "mergeCommit { oid parents { totalCount } } " +
+  "reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } } } } " +
+  "latestReviews(first: 100) { nodes { author { login } } }";
+
+const PrSchema = z.object({
+  // The GraphQL node id, which the draft mutations address PRs by.
+  id: z.string(),
+  number: z.number().transform(forgeChangeId),
+  headRefName: z.string().transform(parseBranchName),
+  headRefOid: z.string().transform(parseCommitHash),
+  baseRefName: z.string().transform(parseBranchName),
+  title: z.string(),
+  // A deleted account's PR has no author; REST's "ghost" stands in.
+  author: z.object({ login: z.string() }).nullable(),
+  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+  isDraft: z.boolean(),
+  mergeCommit: z
+    .object({
+      oid: z.string().transform(parseCommitHash),
+      parents: z.object({ totalCount: z.number() }),
+    })
+    .nullable(),
+  reviewRequests: z.object({
+    // The requested reviewer is a union; the User fragment leaves a team's or
+    // bot's node empty, and GraphQL admits null besides.
+    nodes: z.array(z.object({ requestedReviewer: z.object({ login: z.string().optional() }).nullable() })),
+  }),
+  latestReviews: z.object({
+    // A deleted account's review has no author.
+    nodes: z.array(z.object({ author: z.object({ login: z.string() }).nullable() })),
+  }),
+});
+
+const FIND_PR = `query ($owner: String!, $repo: String!, $branch: String!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(headRefName: $branch, states: OPEN, first: 1) { nodes { ${PR_FIELDS} } }
+  }
+}`;
+
+// Comments are capped at their first hundred rather than paginated per PR,
+// keeping the whole sweep to one query per page of PRs; the page info
+// reports the cap so readers needing more fall back to `listComments`.
+const SWEPT_CHANGE_FIELDS =
+  `${PR_FIELDS} updatedAt comments(first: 100) ` +
+  "{ nodes { databaseId author { login } body updatedAt } pageInfo { hasNextPage } }";
+
+const FETCH_OPEN_CHANGES = `query ($owner: String!, $repo: String!, $first: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: OPEN, first: $first, after: $cursor) {
+      nodes { ${SWEPT_CHANGE_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+// Every state, newest activity first: a since sweep walks down the recency
+// order until it falls below its cursor, so closed and merged changes
+// surface with the rest.
+const FETCH_CHANGES_SINCE = `query ($owner: String!, $repo: String!, $first: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(first: $first, after: $cursor, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes { ${SWEPT_CHANGE_FIELDS} }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+/**
+ * Sweeps run close together, so most end within their first page; the query
+ * cost the forge charges scales with the requested page size, so pages start
+ * small and double toward this cap for the sweeps that are far behind.
+ */
+const FIRST_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
+const GET_PR = `query ($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) { ${PR_FIELDS} }
+  }
+}`;
+
+const FindPrSchema = z.object({
+  repository: z.object({ pullRequests: z.object({ nodes: z.array(PrSchema) }) }),
+});
+
+const SweptPrSchema = PrSchema.extend({
+  updatedAt: z.string(),
+  comments: z.object({
+    nodes: z.array(
+      z.object({
+        // Numbered like REST comment ids; GraphQL admits its absence.
+        databaseId: z.number().nullable(),
+        author: z.object({ login: z.string() }).nullable(),
+        body: z.string(),
+        updatedAt: z.string(),
+      }),
+    ),
+    pageInfo: z.object({ hasNextPage: z.boolean() }),
+  }),
+});
+
+const FetchChangesSchema = z.object({
+  repository: z.object({
+    pullRequests: z.object({
+      nodes: z.array(SweptPrSchema),
+      pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+    }),
+  }),
+});
+
+/**
+ * How far back a minted cursor trails the newest activity a sweep read.
+ * GitHub stamps updates synchronously, but a read may come from a lagging
+ * replica; the overlap re-reads that window, which absorption tolerates.
+ */
+const CURSOR_OVERLAP_MS = 5 * 60 * 1000;
+
+/** The forge-clock epoch milliseconds a cursor resumes from; undefined resweeps the open set. */
+function cursorMs(since: ForgeCursor | undefined): number | undefined {
+  if (since === undefined) {
+    return undefined;
+  }
+  const ms = Number(since);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+const GetPrSchema = z.object({
+  repository: z.object({ pullRequest: PrSchema }),
+});
+
+const IssueCommentSchema = z.object({
+  id: z.number(),
+  user: z.object({ login: z.string() }),
+  body: z.string(),
+  updated_at: z.string(),
+});
+
+/** A `Forge` for a github.com repository, speaking the API directly. */
+export class GitHubForge implements Forge {
+  readonly locator: ForgeLocator;
+
+  constructor(
+    private readonly client: GitHubClient,
+    private readonly repo: GitHubRepo,
+  ) {
+    this.locator = parseForgeLocator(`github.com/${repo.owner}/${repo.repo}`);
+  }
+
+  async currentSelf(): Promise<Self> {
+    const { data } = await this.client.request("GET /user");
+    const { login, email } = z.object({ login: z.string(), email: z.string().nullable() }).parse(data);
+    const aliases = new Set<UserName>();
+    if (email !== null && email !== "") {
+      aliases.add(userName(email));
+    }
+    return { user: accountUser(login), aliases };
+  }
+
+  private toChange(pr: z.infer<typeof PrSchema>): ForgeChange {
+    const logins = new Set(
+      [
+        ...pr.reviewRequests.nodes.map(({ requestedReviewer }) => requestedReviewer?.login),
+        ...pr.latestReviews.nodes.map(({ author }) => author?.login),
+      ].filter((login) => login !== undefined),
+    );
+    return {
+      id: pr.number,
+      head: pr.headRefName,
+      tip: pr.headRefOid,
+      parent: pr.baseRefName,
+      title: pr.title,
+      author: accountUser(pr.author?.login ?? "ghost"),
+      state: pr.state === "OPEN" ? "open" : pr.state === "CLOSED" ? "closed" : "merged",
+      draft: pr.isDraft,
+      reviewers: [...logins].map(accountUser).sort(),
+      ...(pr.mergeCommit === null
+        ? {}
+        : { merge: { commit: pr.mergeCommit.oid, parents: pr.mergeCommit.parents.totalCount } }),
+    };
+  }
+
+  private toComment(comment: z.infer<typeof IssueCommentSchema>): ForgeComment {
+    return {
+      id: String(comment.id),
+      author: accountUser(comment.user.login),
+      body: comment.body,
+      updatedAt: timestampMs(Date.parse(comment.updated_at)),
+    };
+  }
+
+  async findChange(branch: ChangeName): Promise<ForgeChange | undefined> {
+    const out = await this.client.graphql(FIND_PR, { ...this.repo, branch });
+    const found = FindPrSchema.parse(out).repository.pullRequests.nodes[0];
+    return found === undefined ? undefined : this.toChange(found);
+  }
+
+  private toSweptChange(pr: z.infer<typeof SweptPrSchema>): SweptChange {
+    const comments = pr.comments.nodes
+      .filter((comment) => comment.databaseId !== null)
+      .map((comment) => ({
+        id: String(comment.databaseId),
+        author: accountUser(comment.author?.login ?? "ghost"),
+        body: comment.body,
+        updatedAt: timestampMs(Date.parse(comment.updatedAt)),
+      }));
+    return { change: this.toChange(pr), comments, commentsTruncated: pr.comments.pageInfo.hasNextPage };
+  }
+
+  async fetchChanges(since: ForgeCursor | undefined): Promise<ForgeSweep> {
+    const resume = cursorMs(since);
+    const changes: SweptChange[] = [];
+    let newest = 0;
+    let cursor: string | null = null;
+    let first = FIRST_PAGE_SIZE;
+    let exhausted = false;
+    do {
+      const out: unknown = await this.client.graphql(resume === undefined ? FETCH_OPEN_CHANGES : FETCH_CHANGES_SINCE, {
+        ...this.repo,
+        first,
+        cursor,
+      });
+      first = Math.min(first * 2, MAX_PAGE_SIZE);
+      const { nodes, pageInfo } = FetchChangesSchema.parse(out).repository.pullRequests;
+      for (const pr of nodes) {
+        const updated = Date.parse(pr.updatedAt);
+        newest = Math.max(newest, updated);
+        if (resume !== undefined && updated < resume) {
+          // Recency order: everything from here back was absorbed already.
+          exhausted = true;
+          break;
+        }
+        changes.push(this.toSweptChange(pr));
+      }
+      cursor = exhausted || !pageInfo.hasNextPage ? null : pageInfo.endCursor;
+    } while (cursor !== null);
+    // Never regresses: an empty sweep resumes where this one began.
+    const minted = Math.max(resume ?? 0, newest - CURSOR_OVERLAP_MS);
+    return {
+      coverage: resume === undefined ? "open" : "since",
+      changes,
+      cursor: minted > 0 ? forgeCursor(String(minted)) : undefined,
+    };
+  }
+
+  async getChange(id: ForgeChangeId): Promise<ForgeChange> {
+    const out = await this.client.graphql(GET_PR, { ...this.repo, number: id });
+    return this.toChange(GetPrSchema.parse(out).repository.pullRequest);
+  }
+
+  async createChange(head: ChangeName, parent: ChangeName, title: string): Promise<ForgeChange> {
+    // The creation response names the new PR; fetching by its number —
+    // never by head, which could race another PR on the same branch —
+    // reuses the one query that maps a PR.
+    const { data } = await this.client.request("POST /repos/{owner}/{repo}/pulls", {
+      ...this.repo,
+      title,
+      head,
+      base: parent,
+      body: "",
+    });
+    return this.getChange(forgeChangeId(z.object({ number: z.number() }).parse(data).number));
+  }
+
+  async setParent(id: ForgeChangeId, parent: ChangeName): Promise<void> {
+    await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+      ...this.repo,
+      pull_number: id,
+      base: parent,
+    });
+  }
+
+  async setState(id: ForgeChangeId, state: "open" | "closed"): Promise<void> {
+    await this.client.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+      ...this.repo,
+      pull_number: id,
+      state,
+    });
+  }
+
+  async setDraft(id: ForgeChangeId, draft: boolean): Promise<void> {
+    // REST cannot toggle draft state; only the GraphQL mutations can, and
+    // they address the PR by node id, so it is looked up first.
+    const out = await this.client.graphql(GET_PR, { ...this.repo, number: id });
+    const pr = GetPrSchema.parse(out).repository.pullRequest;
+    if (pr.isDraft === draft) {
+      return;
+    }
+    await this.client.graphql(
+      draft
+        ? "mutation ($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { clientMutationId } }"
+        : "mutation ($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }",
+      { id: pr.id },
+    );
+  }
+
+  async landChange(
+    id: ForgeChangeId,
+    method: LandMethod,
+    tip: Revision,
+    title: string,
+    message: string,
+  ): Promise<ForgeMerge> {
+    let data: unknown;
+    try {
+      ({ data } = await this.client.request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge", {
+        ...this.repo,
+        pull_number: id,
+        merge_method: method,
+        commit_title: title,
+        commit_message: message,
+        // GitHub merges only while the head still matches, closing the race
+        // between the caller's validation and this call.
+        sha: tip,
+      }));
+    } catch (error) {
+      // 405 is GitHub refusing the merge as such — the method is disabled in
+      // repository settings, a protection rule is unmet, or the PR does
+      // not merge cleanly — and 409 is a head that moved since `tip` was
+      // validated; both are the user's to resolve, and GitHub's message says
+      // which it was.
+      if (isStatus(error, 405) || isStatus(error, 409)) {
+        throw new UserError(`${this.locator}#${id} did not merge: ${(error as { message?: string }).message ?? ""}`);
+      }
+      throw error;
+    }
+    // GitHub honors `merge_method` exactly — anything it cannot do 405s
+    // above — so the requested shape is the landed shape.
+    return {
+      commit: z.object({ sha: z.string().transform(parseCommitHash) }).parse(data).sha,
+      parents: method === "merge" ? 2 : 1,
+    };
+  }
+
+  async listComments(id: ForgeChangeId): Promise<readonly ForgeComment[]> {
+    // GitHub returns issue comments in creation order — oldest first, as the
+    // interface promises — and paginate walks every page.
+    const data = await this.client.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+      ...this.repo,
+      issue_number: id,
+      per_page: 100,
+    });
+    return z.array(IssueCommentSchema).parse(data).map(this.toComment, this);
+  }
+
+  async addComment(id: ForgeChangeId, body: string): Promise<void> {
+    await this.client.request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+      ...this.repo,
+      issue_number: id,
+      body,
+    });
+  }
+
+  async setReviewers(id: ForgeChangeId, add: readonly UserName[], remove: readonly UserName[]): Promise<void> {
+    const adding = add.map(accountLogin);
+    const removing = remove.map(accountLogin);
+    try {
+      if (adding.length > 0) {
+        await this.client.request("POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
+          ...this.repo,
+          pull_number: id,
+          reviewers: adding,
+        });
+      }
+      // Only a pending request can be withdrawn: GitHub cannot unmake a
+      // submitted review, and naming a login with no pending request fails
+      // the whole call. A reviewer who has reviewed is left as they are (and
+      // mirrors back in on the next pull).
+      if (removing.length > 0) {
+        const { data } = await this.client.request(
+          "GET /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+          {
+            ...this.repo,
+            pull_number: id,
+          },
+        );
+        const pending = new Set(
+          z
+            .object({ users: z.array(z.object({ login: z.string() })) })
+            .parse(data)
+            .users.map(({ login }) => login),
+        );
+        const withdrawable = removing.filter((login) => pending.has(login));
+        if (withdrawable.length > 0) {
+          await this.client.request("DELETE /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers", {
+            ...this.repo,
+            pull_number: id,
+            reviewers: withdrawable,
+          });
+        }
+      }
+    } catch (error) {
+      // 422 is GitHub refusing the reviewer as such — the PR's own author, or
+      // an account that cannot be assigned; its message names the account.
+      if (isStatus(error, 422)) {
+        throw new UserError(
+          `${this.locator}#${id} reviewers not updated: ${(error as { message?: string }).message ?? ""}`,
+        );
+      }
+      throw error;
+    }
+  }
+}

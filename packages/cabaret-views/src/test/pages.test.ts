@@ -1,7 +1,7 @@
 import { type ChangeName, type FilePath, parseBranchName, parseFilePath, type UserName, userName } from "cabaret-core";
 import fc from "fast-check";
 import { expect, test } from "vitest";
-import { type Page, pagePath, parsePagePath } from "../pages.js";
+import { enclosingPage, type Page, pagePath, parsePagePath } from "../pages.js";
 
 function refNames(): fc.Arbitrary<ChangeName> {
   const valid = (raw: string): boolean => {
@@ -29,10 +29,13 @@ function userNames(): fc.Arbitrary<UserName> {
 /** Every page shape, with and without a borrowed identity. */
 function pages(): fc.Arbitrary<Page> {
   const bare = fc.oneof(
-    fc.constant<Page>({ kind: "todo" }),
+    fc.constant<Page>({ kind: "home" }),
     refNames().map((change): Page => ({ kind: "show", change })),
-    refNames().map((change): Page => ({ kind: "review", change })),
+    refNames().map((change): Page => ({ kind: "reviews", change })),
     refNames().map((change): Page => ({ kind: "diffs", change })),
+    fc
+      .record({ change: refNames(), file: filePaths() })
+      .map(({ change, file }): Page => ({ kind: "review", change, file })),
     fc
       .record({ change: refNames(), file: filePaths() })
       .map(({ change, file }): Page => ({ kind: "diff", change, file })),
@@ -58,48 +61,85 @@ test("page paths round-trip for ref names with path and encoding characters", ()
   }
 });
 
-test("diff page paths round-trip for files with colons and slashes", () => {
+test("per-file page paths round-trip for files with colons and slashes", () => {
   // The first `:` ends the change (no ref name contains one); the file keeps
   // the rest, colons and all.
   for (const raw of ["a:b", "src/a.ts", "src/with:colon.ts", "a b.txt"]) {
-    const page: Page = { kind: "diff", change: parseBranchName("feature/x"), file: parseFilePath(raw) };
-    expect(parsePagePath(pagePath(page))).toEqual(page);
+    const review: Page = { kind: "review", change: parseBranchName("feature/x"), file: parseFilePath(raw) };
+    expect(parsePagePath(pagePath(review))).toEqual(review);
+    const diff: Page = { kind: "diff", change: parseBranchName("feature/x"), file: parseFilePath(raw) };
+    expect(parsePagePath(pagePath(diff))).toEqual(diff);
   }
 });
 
 test("as-page paths round-trip for user names full of path and encoding characters", () => {
   // The user's own segment is percent-encoded, so its slashes and colons
   // cannot bleed into the page kind, change, or file.
-  for (const raw of ["github:alice", "a/b@example.com", "100%", "café@example.com", "todo"]) {
+  for (const raw of ["github:alice", "a/b@example.com", "100%", "café@example.com", "home"]) {
     const change = parseBranchName("feature/x");
     const as = userName(raw);
-    const todo: Page = { kind: "todo", as };
-    expect(parsePagePath(pagePath(todo))).toEqual(todo);
-    const review: Page = { kind: "review", change, as };
-    expect(parsePagePath(pagePath(review))).toEqual(review);
+    const home: Page = { kind: "home", as };
+    expect(parsePagePath(pagePath(home))).toEqual(home);
+    const reviews: Page = { kind: "reviews", change, as };
+    expect(parsePagePath(pagePath(reviews))).toEqual(reviews);
     const diff: Page = { kind: "diff", change, file: parseFilePath("src/with:colon.ts"), as };
     expect(parsePagePath(pagePath(diff))).toEqual(diff);
   }
+});
+
+test("stepping outside walks per-file pages to their list, lists to show, show to home, keeping the identity", () => {
+  const change = parseBranchName("feature/x");
+  const as = userName("alice@example.com");
+  const file = parseFilePath("src/a.ts");
+  expect(enclosingPage({ kind: "review", change, file, as })).toEqual({ kind: "reviews", change, as });
+  expect(enclosingPage({ kind: "diff", change, file, as })).toEqual({ kind: "diffs", change, as });
+  expect(enclosingPage({ kind: "reviews", change, as })).toEqual({ kind: "show", change, as });
+  expect(enclosingPage({ kind: "diffs", change })).toEqual({ kind: "show", change, as: undefined });
+  expect(enclosingPage({ kind: "show", change })).toEqual({ kind: "home", as: undefined });
+  expect(enclosingPage({ kind: "home", as })).toBeUndefined();
+});
+
+test("every page reaches home in a few steps outside", () => {
+  fc.assert(
+    fc.property(pages(), (page) => {
+      let current: Page | undefined = page;
+      let steps = 0;
+      while (current !== undefined && current.kind !== "home") {
+        current = enclosingPage(current);
+        steps++;
+      }
+      expect(current).toEqual({ kind: "home", as: page.as });
+      expect(steps).toBeLessThanOrEqual(3);
+    }),
+  );
 });
 
 test("paths that name no page are refused", () => {
   for (const path of [
     "",
     "/",
-    "todo",
-    "/todos",
+    "home",
+    "/homes",
     "/show",
     "/show/",
     "/review/",
     "/diff/x",
-    "/diff/x:",
-    "/diff/:y",
+    "/cabaret/review/",
+    "/cabaret/diff/",
+    "/cabaret/reviews/",
+    "/cabaret/diffs/",
+    "/cabaret/review/x",
+    "/cabaret/diff/x",
+    "/cabaret/diff/x:",
+    "/cabaret/diff/:y",
+    "/cabaret/review/x:",
+    "/cabaret/review/:y",
     "/as/",
     "/as/u",
     "/as/u/",
-    "/as//todo",
+    "/as//home",
     "/as/u/nope",
-    "/as/u/as/v/todo",
+    "/as/u/as/v/home",
   ]) {
     expect(() => parsePagePath(path)).toThrowError(/not a cabaret page/);
   }

@@ -54,6 +54,44 @@ export function parseFilePath(raw: string): FilePath {
   return raw as FilePath;
 }
 
+/** The base-side file a changed file was moved or copied from. */
+export interface FileSource {
+  readonly path: FilePath;
+  /** A copy's source survives at the tip; a move's does not. */
+  readonly copied: boolean;
+}
+
+/** A git file mode: six octal digits, as "100644". Obtain via `parseFileMode`. */
+export type FileMode = Branded<string, "FileMode">;
+
+export function parseFileMode(raw: string): FileMode {
+  if (!/^[0-7]{6}$/.test(raw)) {
+    throw new Error(`not a file mode: ${JSON.stringify(raw)}`);
+  }
+  return raw as FileMode;
+}
+
+/** A file's mode on each side of a diff that changes it. */
+export interface ModeChange {
+  readonly prev: FileMode;
+  readonly next: FileMode;
+}
+
+/** A file a diff changes, named by its path at the diff's tip side. */
+export interface ChangedFile {
+  /** The file's path at the tip — or at the base for a file the diff deletes. */
+  readonly path: FilePath;
+  /** The source the diff moved or copied the file from, when it records one. */
+  readonly source: FileSource | undefined;
+  /** The modes either side, when the file exists on both and they differ — a moved or copied file's from its source. */
+  readonly modes: ModeChange | undefined;
+}
+
+/** `path` alone, or `old -> path` naming a move's source — `=>` a copy's. */
+export function fileLabel(path: FilePath, source: FileSource | undefined): string {
+  return source === undefined ? path : `${source.path} ${source.copied ? "=>" : "->"} ${path}`;
+}
+
 /** A unix timestamp in milliseconds. Obtain via `timestampMs`. */
 export type TimestampMs = Branded<number, "TimestampMs">;
 
@@ -73,7 +111,7 @@ export function userName(raw: string): UserName {
 }
 
 /** The schemes forge accounts are written under, one per supported forge. */
-export const forgeAccountSchemes = ["github", "gitlab", "codeberg"] as const;
+export const forgeAccountSchemes = ["github", "gitlab", "codeberg", "bitbucket"] as const;
 
 export type ForgeAccountScheme = (typeof forgeAccountSchemes)[number];
 
@@ -107,6 +145,7 @@ const FORGE_CHANGE_ROUTES: Record<string, string> = {
   "github.com": "pull",
   "gitlab.com": "-/merge_requests",
   "codeberg.org": "pulls",
+  "bitbucket.org": "pull-requests",
 };
 
 /** The web page for change `id` on `forge`, or undefined for an unrecognized host. */
@@ -153,6 +192,7 @@ export type LogAction =
   | { readonly kind: "set-forge"; readonly forge: ForgeLocator; readonly id: ForgeChangeId }
   | { readonly kind: "set-reviewing"; readonly reviewing: Reviewing }
   | { readonly kind: "set-archived"; readonly archived: boolean }
+  | { readonly kind: "set-permanent"; readonly permanent: boolean }
   | { readonly kind: "add-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "remove-reviewer"; readonly reviewer: UserName }
   | { readonly kind: "review"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision }
@@ -201,6 +241,7 @@ function logEntrySchema(
     }),
     z.object({ kind: z.literal("set-reviewing"), reviewing: z.enum(REVIEWING) }),
     z.object({ kind: z.literal("set-archived"), archived: z.boolean() }),
+    z.object({ kind: z.literal("set-permanent"), permanent: z.boolean() }),
     z.object({ kind: z.literal("add-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({ kind: z.literal("remove-reviewer"), reviewer: z.string().min(1).transform(userName) }),
     z.object({
@@ -338,6 +379,22 @@ export interface LandMerge {
   readonly onto: Revision;
 }
 
+/** A merge on a change's first-parent chain, or a squash land standing among them. */
+export interface ChainMerge {
+  readonly commit: Revision;
+  /** The first parent: what the chain held before the merge. A squash land's sole parent. */
+  readonly onto: Revision;
+  /** The second parent: what the merge brought in. Undefined for a squash land. */
+  readonly merged: Revision | undefined;
+  /** The change the commit's land trailer names, when it carries one. */
+  readonly landed: ChangeName | undefined;
+}
+
+/** The land merges among `merges`, in the same order. */
+export function landsAmong(merges: readonly ChainMerge[]): readonly LandMerge[] {
+  return merges.flatMap(({ commit, onto, landed }) => (landed === undefined ? [] : [{ change: landed, commit, onto }]));
+}
+
 /** The commit that landed a change on its parent branch, however it was written. */
 export interface LandedMerge {
   readonly commit: Revision;
@@ -381,14 +438,20 @@ export interface ForgeComment {
 /** Where a config write lands: this repository, or the person's global config. */
 export type ConfigScope = "local" | "global";
 
+/** Uncommitted edits dirtying a workspace. */
+export interface Dirty {
+  /** When a dirty file was last written, by file mtime; undefined when only deletions are pending. */
+  readonly at: TimestampMs | undefined;
+}
+
 /** One workspace of the repository: a working tree and what it has checked out. */
 export interface Workspace {
   /** Absolute path of the workspace's root directory. */
   readonly path: string;
   /** The branch checked out there, or undefined when none is (a detached HEAD). */
   readonly change: ChangeName | undefined;
-  /** Whether the working tree or index differs from the checkout, untracked files included. */
-  readonly dirty: boolean;
+  /** How the working tree or index differs from the checkout, untracked files included; undefined when clean. */
+  readonly dirty: Dirty | undefined;
   /** Whether this is the repository's primary working tree, which cannot be removed. */
   readonly primary: boolean;
 }
@@ -480,6 +543,13 @@ export interface Backend {
   create(change: ChangeName, at: Revision): Promise<void>;
 
   /**
+   * Fast-forward branch `change` to `to`, which must descend from its tip;
+   * fails on a concurrent move rather than dropping work. Carries a
+   * checked-out `change`'s working tree along.
+   */
+  advance(change: ChangeName, to: Revision): Promise<void>;
+
+  /**
    * Every workspace of the repository, the primary working tree first. A
    * workspace whose directory is gone is not a working tree anymore and is
    * dropped.
@@ -503,12 +573,18 @@ export interface Backend {
   checkout(change: ChangeName): Promise<void>;
 
   /**
-   * Rename change `from` to `to`: move its branch and its log to the new name
-   * in one all-or-nothing transaction, retargeting HEAD when `from` is checked
-   * out. Fails if `to`'s branch or log already exists, or if either of
-   * `from`'s refs moves concurrently.
+   * Commit this workspace's edits — modified, added, and deleted files alike
+   * — to the checked-out branch with `message`. `paths`, each taken
+   * literally, restrict what is committed; empty commits everything. Fails
+   * when there is nothing to commit.
    */
-  rename(from: ChangeName, to: ChangeName): Promise<void>;
+  commit(message: string, paths: readonly FilePath[]): Promise<void>;
+
+  /**
+   * The files this workspace edits, relative to the checked-out tip:
+   * modified, added, and deleted alike, with both endpoints of a move.
+   */
+  editedFiles(): Promise<readonly FilePath[]>;
 
   /** Whether this clone holds `revision`'s objects. */
   hasRevision(revision: Revision): Promise<boolean>;
@@ -571,18 +647,19 @@ export interface Backend {
   squash(into: ChangeName, base: Revision, onto: Revision, tip: Revision, message: string): Promise<Revision>;
 
   /**
-   * The commits carrying the `LAND_TRAILER` trailer among the newest `scan`
-   * commits of `tip`'s first-parent chain, oldest first — land merges, whose
-   * `onto` is their first parent, and squash lands, whose `onto` is their
-   * sole parent — and whether the chain continues past those commits. `base`
-   * stops the walk where a change's history ends; undefined surveys a
-   * long-lived branch, whose history only `scan` bounds.
+   * The merges among the newest `scan` commits of `tip`'s first-parent
+   * chain, oldest first — plus squash lands, single-parent commits carrying
+   * the `LAND_TRAILER` trailer — with `root`, the first parent of the
+   * oldest surveyed commit (undefined at a root commit or an empty survey),
+   * and whether the chain continues past the survey. `base` stops the walk
+   * where the chain enters its ancestry; undefined surveys a long-lived
+   * branch, whose history only `scan` bounds.
    */
-  landMerges(
+  chainMerges(
     base: Revision | undefined,
     tip: Revision,
     scan: number,
-  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }>;
+  ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }>;
 
   /**
    * Push branch `branch` to the `origin` remote, replacing the remote branch
@@ -599,8 +676,8 @@ export interface Backend {
   fetch(change: ChangeName): Promise<void>;
 
   /**
-   * Refresh origin's last-fetched copies wholesale — what `originTip` reads.
-   * Moves no local branch.
+   * Refresh origin's last-fetched copies wholesale — branches (what
+   * `originTip` reads) and change logs alike. Moves no local branch.
    */
   fetchOrigin(): Promise<void>;
 
@@ -616,18 +693,40 @@ export interface Backend {
   advanceBranches(): Promise<readonly ChangeName[]>;
 
   /**
-   * Sync `change`'s log with the `origin` remote: fetch the remote log, merge
-   * it with the local log as `mergeLogs` does, and push the result. Either
+   * Sync `change`'s log with the `origin` remote: merge origin's last-fetched
+   * log with the local one as `mergeLogs` does, and push the result. Either
    * side may be missing; syncing is how a change's review state reaches other
-   * machines.
+   * machines. Reads last-fetched logs; `fetchOrigin` first to absorb fresh
+   * entries — a push landing on a ref origin moved re-fetches and converges,
+   * so no appended entry is ever lost to staleness.
    */
   syncLog(change: ChangeName): Promise<void>;
 
   /**
-   * Sync every log with the `origin` remote — every change with a log here,
-   * there, or both — and return their names, sorted.
+   * Sync every log with the `origin` remote — every change with a log here or
+   * fetched from there — and return their names, sorted. Reads last-fetched
+   * logs, as `syncLog` does.
    */
   syncLogs(): Promise<readonly ChangeName[]>;
+
+  /**
+   * Merge origin's reading into every branch of `changes` whose readings
+   * have genuinely diverged, when the merge is conflict-free: an idle branch
+   * joins in place, a clean workspace's tree follows, a dirty one holds its
+   * branch put, and a join that would conflict is left for `sync`. Returns
+   * what joined, sorted.
+   */
+  joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]>;
+
+  /** Origin's forge sweep record as last fetched, or undefined when none is known. */
+  forgeSweepState(): Promise<string | undefined>;
+
+  /**
+   * Replace origin's forge sweep record, unless it moved since last
+   * fetched — a racer's advance serves in this one's stead, so the record
+   * never regresses and losing the race skips rather than retries.
+   */
+  publishForgeSweepState(content: string): Promise<void>;
 
   /**
    * Delete the review state this repository holds: every change's log and the
@@ -648,11 +747,22 @@ export interface Backend {
   readFile(commit: Revision, file: FilePath): Promise<string | undefined>;
 
   /**
-   * The file paths that differ between `base` and `tip`. A moved file counts
-   * as a delete plus an add, so each path names the same file on both sides;
+   * The files that differ between `base` and `tip`, each named by its path
+   * at `tip` — or at `base` for a file the diff deletes. A moved file is one
+   * entry naming its source, whether or not its contents also changed, and a
+   * file recognizably copied from another carries its source the same way;
    * nested repositories (git submodules) are not files and are never listed.
    */
-  changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]>;
+  changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]>;
+
+  /**
+   * The paths of files that differ between `base` and `tip` by more than
+   * whitespace: in existence, in mode, or in line content beyond spacing,
+   * blank lines, and a trailing newline. A changed file absent here differs
+   * only in whitespace. Paths name each side of the diff as it stands there —
+   * a moved file appears under both its old and new paths.
+   */
+  nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>>;
 
   /**
    * The name of every change, sorted by name: one per log ref. Only
@@ -665,7 +775,7 @@ export interface Backend {
    * The entries of `change`'s log, oldest first. A change whose log ref does
    * not exist yet has the empty log, so no initialization step is needed.
    *
-   * TODO: parent/child queries (the todo forest, the reparent and show-child
+   * TODO: parent/child queries (the home forest, the reparent and show-child
    * pickers) derive the parent relation by reading every change's log through
    * here, one subprocess call each. If that lags once repos hold hundreds of
    * changes, add a batched or cached parent index to the backend rather than
@@ -766,7 +876,7 @@ function latestAction<K extends LogAction["kind"]>(
 export function assertChangeExists(change: ChangeName, entries: readonly LogEntry[]): void {
   if (entries.length === 0) {
     throw new UserError(
-      `change does not exist: ${JSON.stringify(change)}; run \`cabaret create\`, or \`cabaret fetch\` to import open forge changes`,
+      `change does not exist: ${JSON.stringify(change)}; run \`cab create\`, or \`cab fetch\` to import open forge changes`,
     );
   }
 }
@@ -827,6 +937,16 @@ export function currentReviewing(entries: readonly LogEntry[]): Reviewing {
  */
 export function currentArchived(entries: readonly LogEntry[]): boolean {
   return latestAction(entries, "set-archived")?.archived ?? false;
+}
+
+/**
+ * Whether the change is permanent — structure expected to outlive its lands,
+ * like a long-lived umbrella others stack work under — from the log's latest
+ * `set-permanent`. A log that never set one reads as ordinary: the change is
+ * done when it lands.
+ */
+export function currentPermanent(entries: readonly LogEntry[]): boolean {
+  return latestAction(entries, "set-permanent")?.permanent ?? false;
 }
 
 /**
@@ -941,22 +1061,20 @@ export function observedForgeReviewers(entries: readonly LogEntry[], forge: Forg
   return foldReviewers(entries, (entry) => entry.source?.forge === forge);
 }
 
-/** The merge that landed the change, or undefined if it has not landed. */
+/** The merge of the change's latest land, or undefined if it has never landed. */
 export function landedMerge(entries: readonly LogEntry[]): Revision | undefined {
   return latestAction(entries, "land")?.merge;
 }
 
 /**
- * Fail if `change` has landed. Landing is final: the change's code is frozen
- * in its parent, so entries that would alter what there is to review may no
- * longer be written. Review state is not code, so `review` and `forget` stay
- * allowed and do not call this.
+ * Whether the change is finished: landed, and archived with the landing —
+ * either atomically by an ordinary land, or by hand afterwards. A finished
+ * change's diff readings freeze at the cycle that landed; a change that
+ * landed but stays live — permanent structure, or one reopened by
+ * unarchiving — reads on, its next rebase starting the next cycle.
  */
-export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]): void {
-  const merge = landedMerge(entries);
-  if (merge !== undefined) {
-    throw new UserError(`change has landed: ${JSON.stringify(change)} (merge ${merge})`);
-  }
+export function finished(entries: readonly LogEntry[]): boolean {
+  return landedMerge(entries) !== undefined && currentArchived(entries);
 }
 
 /**
@@ -965,7 +1083,7 @@ export function assertNotLanded(change: ChangeName, entries: readonly LogEntry[]
  */
 export function assertNotArchived(change: ChangeName, entries: readonly LogEntry[]): void {
   if (currentArchived(entries)) {
-    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cabaret unarchive\``);
+    throw new UserError(`change is archived: ${JSON.stringify(change)}; run \`cab archive --undo\``);
   }
 }
 
@@ -1029,10 +1147,13 @@ export function brain(entries: readonly LogEntry[], user: UserName): ReadonlyMap
  *   too new is harmless, since a merge-base cannot reach past the change's
  *   own history, so the freshest reading wins by being deepest, and the
  *   change's own ancestry arbitrates between diverged readings.
- * - Once the change lands, its parent's history contains the change itself,
- *   so a parent reading's merge-base would slide to the change's own tip and
- *   erase its diff. The land merge freezes the history the change landed
- *   onto as its first parent, so that becomes the one reading instead.
+ * - Once the change finishes — lands and archives — its parent's history
+ *   contains the change itself, so a parent reading's merge-base would slide
+ *   to the change's own tip and erase its diff. The land merge freezes the
+ *   history the change landed onto as its first parent, so that becomes the
+ *   one reading instead. A change that landed but stays live reads its
+ *   parent as ever: its base advancing past the land is exactly how its next
+ *   cycle begins.
  *
  * A candidate set with no deepest member means the change merged unrelated
  * lines; no winner is principled, so the user declares one by rebasing.
@@ -1044,7 +1165,7 @@ export async function changeBase(
 ): Promise<Revision> {
   const stored = currentBase(change, entries);
   const tip = await changeTip(backend, change, entries);
-  const landed = landedMerge(entries);
+  const landed = finished(entries) ? landedMerge(entries) : undefined;
   let readings: readonly Revision[];
   if (landed !== undefined) {
     readings = (await backend.hasRevision(landed)) ? [await backend.mergedOnto(landed)] : [];
@@ -1062,10 +1183,10 @@ export async function changeBase(
       return stored;
     }
     throw landed !== undefined
-      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cabaret fetch\``)
+      ? new UserError(`land merge of ${JSON.stringify(change)} is not in this clone: ${landed}; run \`cab fetch\``)
       : new UserError(
           `parent branch of ${JSON.stringify(change)} does not exist: ` +
-            `${JSON.stringify(currentParent(change, entries))}; run \`cabaret reparent\``,
+            `${JSON.stringify(currentParent(change, entries))}; run \`cab reparent\``,
         );
   }
   const candidates = new Set<Revision>(await Promise.all(readings.map((reading) => backend.mergeBase(reading, tip))));
@@ -1094,15 +1215,15 @@ export async function changeBase(
 }
 
 /**
- * The tip of `change`: the revision its diff is computed up to. A landed
+ * The tip of `change`: the revision its diff is computed up to. A finished
  * change is frozen at the tip it landed as — a merge carries it as its second
  * parent, and a squash, whose commit descends from no reviewed history,
  * records it in the land entry instead; the branch may since be gone or moved
- * on. An unlanded change's tip is its branch, pinned to the branch namespace
+ * on. A live change's tip is its branch, pinned to the branch namespace
  * so a same-named tag cannot shadow it.
  */
 export async function changeTip(backend: Backend, change: ChangeName, entries: readonly LogEntry[]): Promise<Revision> {
-  const landed = latestAction(entries, "land");
+  const landed = finished(entries) ? latestAction(entries, "land") : undefined;
   if (landed === undefined) {
     return requireTip(backend, change);
   }
@@ -1116,7 +1237,7 @@ export async function changeTip(backend: Backend, change: ChangeName, entries: r
   }
   if (!(await backend.hasRevision(landed.merge))) {
     throw new UserError(
-      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cabaret fetch\``,
+      `land merge of ${JSON.stringify(change)} is not in this clone: ${landed.merge}; run \`cab fetch\``,
     );
   }
   return backend.mergedTip(landed.merge);
@@ -1153,78 +1274,29 @@ export async function conflictedFiles(
   return files.filter((_, index) => marked[index]);
 }
 
-/** One contiguous span of a change's history that a reviewer must review. */
-export interface ReviewSpan {
-  readonly start: Revision;
-  readonly end: Revision;
+/** The files changed between `base` and `tip` whose contents at `tip` carry conflict markers. */
+export async function conflictsBetween(backend: Backend, base: Revision, tip: Revision): Promise<readonly FilePath[]> {
+  return conflictedFiles(
+    backend,
+    tip,
+    (await backend.changedFiles(base, tip)).map(({ path }) => path),
+  );
 }
 
 /**
- * The spans of `base`..`tip` left for a reviewer to review, oldest first,
- * given the land merges on its first-parent chain.
- *
- * The land merges split the history into spans: the diff each merge brings
- * in was already reviewed in the landed child, so what needs review is base
- * → first land's onto, then each land merge → the next land's onto, and
- * finally the last land merge → tip. A span a land merge jumps over entirely
- * (its start is its end) is dropped.
- */
-export function reviewSpans(lands: readonly LandMerge[], base: Revision, tip: Revision): readonly ReviewSpan[] {
-  const spans: ReviewSpan[] = [];
-  let start = base;
-  for (const { commit, onto } of lands) {
-    if (start !== onto) {
-      spans.push({ start, end: onto });
-    }
-    start = commit;
-  }
-  if (start !== tip) {
-    spans.push({ start, end: tip });
-  }
-  return spans;
-}
-
-/**
- * The spans of `spans` past `reviewedTip`, the tip of a reviewer's brain for
- * a review whose base matches the spans' (a moved base invalidates span
- * endpoints, so callers handle that case separately): spans the reviewer has
- * already reviewed past are dropped, and the span containing `reviewedTip`
- * resumes from it.
- */
-export async function remainingSpans(
-  backend: Backend,
-  spans: readonly ReviewSpan[],
-  reviewedTip: Revision,
-): Promise<readonly ReviewSpan[]> {
-  const remaining: ReviewSpan[] = [];
-  for (const span of spans) {
-    if (await backend.isAncestor(span.end, reviewedTip)) {
-      continue;
-    }
-    const inside =
-      (await backend.isAncestor(span.start, reviewedTip)) && (await backend.isAncestor(reviewedTip, span.end));
-    remaining.push(inside ? { start: reviewedTip, end: span.end } : span);
-  }
-  return remaining;
-}
-
-/** A review span and the files its diff changes. */
-export interface SpanDiff extends ReviewSpan {
-  readonly changed: ReadonlySet<FilePath>;
-}
-
-/**
- * A change's diff, read once: its endpoints and review spans, each with the
- * files its diff changes. Everything derived from the diff — summaries,
- * review rounds, obligations — takes one of these, so a page that computes
- * several shares one reading instead of each re-querying the history.
+ * A change's diff, read once: its endpoints, the files changed between them,
+ * and the land merges on the way. Everything derived from the diff —
+ * summaries, review left, obligations — takes one of these, so a page that
+ * computes several shares one reading instead of each re-querying the
+ * history.
  */
 export interface ChangeDiff {
   readonly base: Revision;
   readonly tip: Revision;
   /** The land merges on the first-parent chain, oldest first. */
   readonly lands: readonly LandMerge[];
-  readonly spans: readonly SpanDiff[];
+  /** The files the diff changes, keyed by their `ChangedFile` path. */
+  readonly changed: ReadonlyMap<FilePath, ChangedFile>;
 }
 
 export async function changeDiff(
@@ -1243,36 +1315,38 @@ export async function changeDiff(
 export const LAND_SCAN = 10_000;
 
 /**
- * Every land merge on `base`..`tip`, oldest first. Review spans need the
- * walk complete — a shortened answer would silently misplace them — so a
- * history outrunning `LAND_SCAN` commits, which no one could review anyway,
- * is an error instead.
+ * The complete first-parent chain survey of `base`..`tip`. Review reads
+ * through every land on the chain — a shortened answer would silently drop
+ * some — so a history outrunning `LAND_SCAN` commits, which no one could
+ * review anyway, is an error instead.
  */
-export async function completeLandMerges(
+export async function completeChainMerges(
   backend: Backend,
   base: Revision,
   tip: Revision,
-): Promise<readonly LandMerge[]> {
-  const { lands, more } = await backend.landMerges(base, tip, LAND_SCAN);
+): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined }> {
+  const { merges, root, more } = await backend.chainMerges(base, tip, LAND_SCAN);
   if (more) {
     throw new UserError(`history spans more than ${LAND_SCAN} commits; rebase onto a fresher parent`);
   }
-  return lands;
+  return { merges, root };
 }
 
 /** The diff of `base`..`tip`, for callers that resolved the endpoints themselves. */
 export async function diffBetween(backend: Backend, base: Revision, tip: Revision): Promise<ChangeDiff> {
-  const lands = await completeLandMerges(backend, base, tip);
-  const spans = await Promise.all(
-    reviewSpans(lands, base, tip).map(async (span) => ({
-      ...span,
-      changed: new Set(await backend.changedFiles(span.start, span.end)),
-    })),
-  );
-  return { base, tip, lands, spans };
+  const [{ merges }, changed] = await Promise.all([
+    completeChainMerges(backend, base, tip),
+    backend.changedFiles(base, tip),
+  ]);
+  return { base, tip, lands: landsAmong(merges), changed: changedByPath(changed) };
+}
+
+/** Key `files` by path, the identity every diff-derived structure shares. */
+export function changedByPath(files: readonly ChangedFile[]): ReadonlyMap<FilePath, ChangedFile> {
+  return new Map(files.map((file) => [file.path, file]));
 }
 
 /** The files of `diff` whose contents at its tip still carry conflict markers, sorted by name. */
 export async function changeConflicts(backend: Backend, diff: ChangeDiff): Promise<readonly FilePath[]> {
-  return conflictedFiles(backend, diff.tip, [...new Set(diff.spans.flatMap(({ changed }) => [...changed]))].sort());
+  return conflictedFiles(backend, diff.tip, [...diff.changed.keys()].sort());
 }

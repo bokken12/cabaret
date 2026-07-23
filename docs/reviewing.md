@@ -18,18 +18,18 @@ rather than freezing its members.
 ## Widening
 
 Review normally widens one step at a time — the owner finishes self-review,
-adds reviewers, widens to them, and finally widens to everyone. `widen` takes
+adds reviewers, widens to them, and finally widens to everyone. `reviewing widen` takes
 the next step, skipping any level that would ask nothing of anyone: a level
 asks something when a user it newly adds still has review left, so an owner
 who already read the whole diff is skipped, as are reviewers who have (or a
 change with none), landing on the first level with real review to do or on
-`everyone`. `reviewing <value>` sets the level directly, in either direction;
+`everyone`. `reviewing set <value>` sets the level directly, in either direction;
 narrowing back to `none` is how a change goes back to being a draft.
 
 ## What the set gates
 
-Todos. A change appears as review work only for users the reviewing set
-includes, which the log alone decides — so building a todo page reads the
+Home pages. A change appears as review work only for users the reviewing set
+includes, which the log alone decides — so building a home page reads the
 obligations files of just the changes whose set reaches the user, most of
 which it does not.
 

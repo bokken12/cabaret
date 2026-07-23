@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../cabaret-core"
+    },
+    {
+      "path": "../cabaret-node"
+    },
+    {
+      "path": "../cabaret-util"
+    },
+    {
+      "path": "../cabaret-views"
+    }
+  ]
+}

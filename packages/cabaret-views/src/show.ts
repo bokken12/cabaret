@@ -1,15 +1,17 @@
 import {
   type Backend,
   type ChangeComment,
+  type ChangedFile,
   type ChangeName,
   type ChangeSummary,
   changeDiff,
   currentComments,
   type FilePath,
+  fileLabel,
   forgeChangeUrl,
   isSatisfied,
   type LandMerge,
-  obligationStatuses,
+  obligationsReading,
   type ReviewerTally,
   reviewerTallies,
   selfAs,
@@ -23,9 +25,10 @@ import {
 } from "cabaret-core";
 import { type Doc, type Line, layout, type Node, type Section, type Span, section, span, type Target } from "./doc.js";
 import { fetchedFooter } from "./fetched.js";
-import { type Hints, hinted } from "./hints.js";
+import { type Hints, stepHint } from "./hints.js";
+import { stepSpan } from "./steps.js";
 import { type Cell, table } from "./table.js";
-import { type WorkspaceNote, workspaceNotes } from "./workspaces.js";
+import { dirtyNote, type WorkspaceNote, workspaceNotes } from "./workspaces.js";
 
 /** What the show page displays. */
 export interface ShowPage {
@@ -34,7 +37,7 @@ export interface ShowPage {
   /** Whose reading this is when not the current user's own, as `selfAs` resolves it. */
   readonly as: UserName | undefined;
   readonly comments: readonly ChangeComment[];
-  /** Per-reviewer tallies of unsatisfied obligations; empty once landed. */
+  /** Per-reviewer tallies of unsatisfied obligations; empty once archived. */
   readonly remaining: readonly ReviewerTally[];
   /** The change's workspace on this device, when it has one. */
   readonly workspace: WorkspaceNote | undefined;
@@ -61,14 +64,16 @@ export async function showPage(backend: Backend, change: ChangeName, as?: UserNa
   }
   const diff = await changeDiff(backend, change, entries);
   const summary = await summarizeChange(backend, change, entries, acting.self.user, diff);
-  // A landed change has no review to demand, whatever state it landed in;
-  // an archived one asks nothing while set aside.
-  const remaining =
-    summary.landed === undefined && !summary.archived
-      ? reviewerTallies(
-          (await obligationStatuses(backend, entries, summary.owner, diff)).filter((status) => !isSatisfied(status)),
-        )
-      : [];
+  // An archived change asks nothing while set aside — a land settles what
+  // it archives — and a malformed policy tallies nobody: the next step row
+  // already says whose fix it awaits.
+  let remaining: readonly ReviewerTally[] = [];
+  if (!summary.archived) {
+    const reading = await obligationsReading(backend, entries, summary.owner, diff);
+    if (reading.kind === "read") {
+      remaining = reviewerTallies(reading.statuses.filter((status) => !isSatisfied(status)));
+    }
+  }
   return {
     summary,
     as: acting.as,
@@ -93,6 +98,7 @@ const ORIGIN_NOTES: Record<NonNullable<ChangeSummary["origin"]>, string> = {
 const PARENT_NOTES: Record<NonNullable<ChangeSummary["deadParent"]>, string> = {
   landed: "landed",
   missing: "does not exist",
+  archived: "archived",
 };
 
 const BASE_NOTES: Record<NonNullable<ChangeSummary["staleBase"]>, string> = {
@@ -117,14 +123,14 @@ function header(heading: Span, attributes: readonly (readonly [string, string | 
 }
 
 /** The files section, each row resolving to `target(file)` when one is given. */
-function filesToReview(files: readonly FilePath[], target?: (file: FilePath) => Target): Section | undefined {
+function filesToReview(files: readonly ChangedFile[], target?: (file: FilePath) => Target): Section | undefined {
   if (files.length === 0) {
     return undefined;
   }
   return section(
     { spans: [span("Files to review:", { style: "heading" })] },
-    files.map((file) => ({
-      spans: [span("  "), span(file, target === undefined ? {} : { target: target(file) })],
+    files.map(({ path, source }) => ({
+      spans: [span("  "), span(fileLabel(path, source), { ...(target === undefined ? {} : { target: target(path) }) })],
     })),
   );
 }
@@ -159,7 +165,7 @@ function remainingReview(change: ChangeName, remaining: readonly ReviewerTally[]
   return section(
     { spans: [span("Remaining review:", { style: "heading" })] },
     remaining.map((tally) => ({
-      spans: [span("  "), span(tallyText(tally), { target: { kind: "review", change, as: tally.user } })],
+      spans: [span("  "), span(tallyText(tally), { target: { kind: "reviews", change, as: tally.user } })],
     })),
   );
 }
@@ -184,27 +190,39 @@ function commentsSection(comments: readonly ChangeComment[]): Section | undefine
   return section({ spans: [span("Comments:", { style: "heading" })] }, body);
 }
 
-export function showDoc(page: ShowPage, hints?: Hints): Doc {
+export function showDoc(page: ShowPage, now: TimestampMs, hints?: Hints): Doc {
   const summary = page.summary;
   // Each row notes how its own reading disagrees with what it should track.
   // A trunk's log never declared anything, so only its history's rows appear.
   const attributes: [string, string | Cell][] = [];
   if (summary.kind === "change") {
-    attributes.push(["next step", hinted(summary.nextStep, hints)], ["owner", summary.owner]);
+    attributes.push(
+      ["next step", [stepSpan(summary, page.as), ...stepHint(summary.nextStep, hints)]],
+      ["owner", summary.owner],
+    );
     if (summary.reviewers.length > 0) {
       attributes.push(["reviewers", summary.reviewers.join(", ")]);
     }
-    if (summary.landed === undefined) {
+    if (summary.landed === undefined || !summary.archived) {
       attributes.push(["reviewing", summary.reviewing]);
     }
+    if (summary.permanent) {
+      attributes.push(["permanent", "yes"]);
+    }
+    const parentNote =
+      summary.deadParent !== undefined
+        ? PARENT_NOTES[summary.deadParent]
+        : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin];
     attributes.push([
       "parent",
-      noted(
-        summary.parent,
-        summary.deadParent !== undefined
-          ? PARENT_NOTES[summary.deadParent]
-          : summary.parentOrigin && ORIGIN_NOTES[summary.parentOrigin],
-      ),
+      [
+        // A missing parent has no page to link to.
+        span(
+          summary.parent,
+          summary.deadParent === "missing" ? {} : { target: { kind: "change", change: summary.parent, as: page.as } },
+        ),
+        ...(parentNote === undefined ? [] : [span(` (${parentNote})`)]),
+      ],
     ]);
     if (summary.forgeChange !== undefined) {
       const { forge, id, staleParent } = summary.forgeChange;
@@ -226,7 +244,13 @@ export function showDoc(page: ShowPage, hints?: Hints): Doc {
     attributes.push(["base", noted(shortHash(summary.base), summary.staleBase && BASE_NOTES[summary.staleBase])]);
   }
   if (page.workspace !== undefined) {
-    attributes.push(["workspace", noted(page.workspace.display, page.workspace.dirty ? "dirty" : undefined)]);
+    attributes.push([
+      "workspace",
+      noted(
+        page.workspace.display,
+        page.workspace.dirty === undefined ? undefined : dirtyNote(page.workspace.dirty, now),
+      ),
+    ]);
   }
   // No target: the heading names the page itself.
   const heading = span(page.as === undefined ? summary.change : `${summary.change} as ${page.as}`, {
@@ -239,13 +263,19 @@ export function showDoc(page: ShowPage, hints?: Hints): Doc {
     remainingReview(summary.change, page.remaining),
     commentsSection(page.comments),
     summary.kind === "change"
-      ? filesToReview(summary.reviewLeft, (file) => ({ kind: "file", change: summary.change, file, as: page.as }))
+      ? filesToReview(summary.reviewLeft, (file) => ({
+          kind: "file",
+          page: "review",
+          change: summary.change,
+          file,
+          as: page.as,
+        }))
       : undefined,
   ]) {
     if (s !== undefined) {
       nodes.push({ spans: [] }, s);
     }
   }
-  nodes.push(...fetchedFooter(page.fetched));
+  nodes.push(...fetchedFooter(page.fetched, now));
   return layout(nodes);
 }

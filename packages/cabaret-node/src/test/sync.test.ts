@@ -87,15 +87,32 @@ test("syncLog publishes a log and a fresh machine adopts it verbatim", async () 
   await a.backend.appendLog(WIDGETS, entries);
   await a.backend.syncLog(WIDGETS);
   expect(await b.backend.readLog(WIDGETS)).toEqual([]);
+  await b.backend.fetchOrigin();
   await b.backend.syncLog(WIDGETS);
   expect(await b.backend.readLog(WIDGETS)).toEqual(entries);
   const [stateA, stateB] = await logStates([a, b], "widgets");
   expect(stateB).toEqual(stateA);
 });
 
+test("a sweep record publish losing its race skips, and the record never regresses", async () => {
+  const [a, b] = await makeMachines();
+  // Both machines read the record's absence, then race their advances.
+  await a.backend.fetchOrigin();
+  await b.backend.fetchOrigin();
+  await a.backend.publishForgeSweepState("cursor example.com/x/y 2000\n");
+  await b.backend.publishForgeSweepState("cursor example.com/x/y 1000\n");
+  // The loser skipped: a fresh read sees the winner's advance untouched.
+  await b.backend.fetchOrigin();
+  expect(await b.backend.forgeSweepState()).toBe("cursor example.com/x/y 2000\n");
+  // Read-join-write from a fresh read replaces the record outright.
+  await b.backend.publishForgeSweepState("cursor example.com/x/y 3000\n");
+  await a.backend.fetchOrigin();
+  expect(await a.backend.forgeSweepState()).toBe("cursor example.com/x/y 3000\n");
+});
+
 test("concurrent appends converge to byte-identical logs, ties resolved alike", async () => {
   const [a, b] = await makeMachines();
-  // The same entry recorded independently on both machines (as two `cabaret pull`s
+  // The same entry recorded independently on both machines (as two `cab pull`s
   // of one forge comment would), plus a genuine equal-timestamp conflict.
   const shared = entry(500, "carol@example.com", { kind: "comment", text: "please split this" });
   const aParent = setParent(1000, "alice@example.com", "trunk-a");
@@ -103,7 +120,10 @@ test("concurrent appends converge to byte-identical logs, ties resolved alike", 
   await a.backend.appendLog(WIDGETS, [shared, aParent]);
   await b.backend.appendLog(WIDGETS, [shared, bParent]);
   await a.backend.syncLog(WIDGETS);
+  // b syncs against readings that never saw a's push: the rejected push
+  // re-fetches and merges, so the race itself converges.
   await b.backend.syncLog(WIDGETS);
+  await a.backend.fetchOrigin();
   await a.backend.syncLog(WIDGETS);
   const merged = [shared, aParent, bParent];
   expect(await a.backend.readLog(WIDGETS)).toEqual(merged);
@@ -120,6 +140,7 @@ test("a converged log syncs as a no-op", async () => {
   const [a, b] = await makeMachines();
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
   await a.backend.syncLog(WIDGETS);
+  await b.backend.fetchOrigin();
   await b.backend.syncLog(WIDGETS);
   const before = await logStates([a, b], "widgets");
   await a.backend.syncLog(WIDGETS);
@@ -131,10 +152,12 @@ test("appends after convergence flow both ways as fast-forwards", async () => {
   const [a, b] = await makeMachines();
   await a.backend.appendLog(WIDGETS, [setParent(1000, "alice@example.com", "main")]);
   await a.backend.syncLog(WIDGETS);
+  await b.backend.fetchOrigin();
   await b.backend.syncLog(WIDGETS);
   const late = setParent(2000, "bob@example.com", "trunk");
   await b.backend.appendLog(WIDGETS, [late]);
   await b.backend.syncLog(WIDGETS);
+  await a.backend.fetchOrigin();
   await a.backend.syncLog(WIDGETS);
   expect(await a.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main"), late]);
   const [stateA, stateB] = await logStates([a, b], "widgets");
@@ -148,8 +171,10 @@ test("syncLogs sweeps every change, local and remote alike, sorted", async () =>
   await a.backend.appendLog(parseBranchName("api"), [setParent(1001, "alice@example.com", "main")]);
   expect(await a.backend.syncLogs()).toEqual(["api", "widgets"]);
   await b.backend.appendLog(parseBranchName("docs"), [setParent(1002, "bob@example.com", "main")]);
+  await b.backend.fetchOrigin();
   expect(await b.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
   expect(await b.backend.readLog(WIDGETS)).toEqual([setParent(1000, "alice@example.com", "main")]);
+  await a.backend.fetchOrigin();
   expect(await a.backend.syncLogs()).toEqual(["api", "docs", "widgets"]);
   expect(await a.backend.readLog(parseBranchName("docs"))).toEqual([setParent(1002, "bob@example.com", "main")]);
 });

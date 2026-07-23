@@ -5,13 +5,13 @@ import { addChange, makeRepo } from "./fixture.js";
 
 const PR = forgeChangeId(1);
 
-test("an archived change leaves the todo page and unarchive brings it back", async () => {
+test("an archived change leaves the home page and archive --undo brings it back", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("archive");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -21,22 +21,22 @@ test("an archived change leaves the todo page and unarchive brings it back", asy
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────────╮
-    │ change │ workspace │ note     │
-    ├────────┼───────────┼──────────┤
-    │ gadget │ .         │ archived │
-    ╰────────┴───────────┴──────────╯
+    ╭────────┬───────────────────╮
+    │ change │ note              │
+    ├────────┼───────────────────┤
+    │ gadget │ current, archived │
+    ╰────────┴───────────────────╯
     "
   `);
-  await repo.cabaret("unarchive");
-  expect((await repo.cabaret("todo")).stdout).toMatchInlineSnapshot(`
-    "Todo
+  await repo.cabaret("archive", "--undo");
+  expect((await repo.cabaret("home")).stdout).toMatchInlineSnapshot(`
+    "Home
     ====
 
     Changes to review:
@@ -47,18 +47,18 @@ test("an archived change leaves the todo page and unarchive brings it back", asy
     ╰────────┴────────╯
 
     Changes you own:
-    ╭────────┬────────┬───────────╮
-    │ change │ review │ next step │
-    ├────────┼────────┼───────────┤
-    │ gadget │      1 │ review    │
-    ╰────────┴────────┴───────────╯
+    ╭────────┬───────────╮
+    │ change │ next step │
+    ├────────┼───────────┤
+    │ gadget │ review    │
+    ╰────────┴───────────╯
 
     Workspaces on this device:
-    ╭────────┬───────────┬──────╮
-    │ change │ workspace │ note │
-    ├────────┼───────────┼──────┤
-    │ gadget │ .         │      │
-    ╰────────┴───────────┴──────╯
+    ╭────────┬─────────╮
+    │ change │ note    │
+    ├────────┼─────────┤
+    │ gadget │ current │
+    ╰────────┴─────────╯
     "
   `);
 });
@@ -76,7 +76,7 @@ test("show reads an archived change's next step as archived, demanding no review
     ├───────────┼───────────────────┤
     │ next step │ archived          │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -95,10 +95,10 @@ test("land refuses an archived change until it is unarchived", async () => {
   await repo.cabaret("archive");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "gadget"; run `cabaret unarchive`\n',
+    stderr: 'change is archived: "gadget"; run `cab archive --undo`\n',
     exitCode: 1,
   });
-  await repo.cabaret("unarchive");
+  await repo.cabaret("archive", "--undo");
   expect((await repo.cabaret("land", "--even-though-unreviewed")).exitCode).toBe(0);
 });
 
@@ -109,38 +109,33 @@ test("land refuses a change whose parent is archived", async () => {
   await repo.cabaret("archive", "--change", "parent");
   expect(await repo.cabaret("land", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr: 'change is archived: "parent"; run `cabaret unarchive`\n',
+    stderr: '"child" would land into "parent", which is archived; run `cab archive --undo` or `cab reparent` first\n',
     exitCode: 1,
   });
   expect(await repo.cabaret("land", "main..child", "--even-though-unreviewed")).toEqual({
     stdout: "",
-    stderr:
-      '"child" would land into "parent", which is archived; run `cabaret unarchive` or `cabaret reparent` first\n',
+    stderr: '"child" would land into "parent", which is archived; run `cab archive --undo` or `cab reparent` first\n',
     exitCode: 1,
   });
 });
 
-test("archive refuses a landed change", async () => {
+test("landing archives the change, and archive --undo reopens it", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
   await repo.cabaret("land", "--even-though-unreviewed");
-  const merge = await repo.git("rev-parse", "main");
-  expect(await repo.cabaret("archive")).toEqual({
-    stdout: "",
-    stderr: `change has landed: "gadget" (merge ${merge})\n`,
-    exitCode: 1,
-  });
+  expect((await repo.cabaret("dev", "log", "gadget")).stdout).toContain('{"kind":"set-archived","archived":true}');
+  expect(await repo.cabaret("archive", "--undo")).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  expect((await repo.cabaret("show")).stdout).not.toContain("archived");
 });
 
-test("sync closes the forge change of an archived change, and reopens on unarchive", async () => {
+test("sync closes the forge change of an archived change, and reopens on undo", async () => {
   const forge = new FakeForge();
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("archive");
-  expect((await repo.cabaret("sync")).stdout).toBe(
-    'closed github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
-  );
+  // The archive itself carries the close to the forge; sync finds it settled.
+  expect((await repo.cabaret("archive")).stdout).toBe("closed github.com/test-org/widgets#1\n");
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   expect((await forge.getChange(PR)).state).toBe("closed");
   // The close was observed; syncing again moves nothing, and a fetch mirrors
   // nothing back.
@@ -148,14 +143,12 @@ test("sync closes the forge change of an archived change, and reopens on unarchi
   expect((await repo.cabaret("fetch")).stdout).toBe(
     "recorded github:alice as an alias\nfetched github.com/test-org/widgets: 0 open forge changes\n",
   );
-  // A reparent recorded while archived reaches the forge in the same sync
-  // that reopens it.
+  // A reparent recorded while archived waits — a closed forge change is not
+  // retargeted — and reaches the forge with the undo that reopens it.
   await repo.git("branch", "develop", "main");
   await repo.cabaret("reparent", "gadget", "develop");
-  await repo.cabaret("unarchive");
-  expect((await repo.cabaret("sync")).stdout).toBe(
-    'reopened github.com/test-org/widgets#1\nsynced "gadget" with github.com/test-org/widgets#1\n',
-  );
+  expect((await repo.cabaret("archive", "--undo")).stdout).toContain("reopened github.com/test-org/widgets#1");
+  expect((await repo.cabaret("sync")).stdout).toBe('synced "gadget" with github.com/test-org/widgets#1\n');
   const reopened = await forge.getChange(PR);
   expect({ state: reopened.state, parent: reopened.parent }).toEqual({ state: "open", parent: "develop" });
 });
@@ -174,7 +167,7 @@ test("sync absorbs a forge-side close as an archive instead of reopening", async
     exitCode: 0,
   });
   expect((await forge.getChange(PR)).state).toBe("closed");
-  expect((await repo.cabaret("log")).stdout).toContain(
+  expect((await repo.cabaret("dev", "log")).stdout).toContain(
     '"source":{"forge":"github.com/test-org/widgets"},"action":{"kind":"set-archived","archived":true}',
   );
 });
@@ -189,5 +182,5 @@ test("sync opens no forge change for an archived change", async () => {
     stderr: "",
     exitCode: 0,
   });
-  expect(await forge.fetchOpenChanges()).toEqual([]);
+  expect((await forge.fetchChanges(undefined)).changes).toEqual([]);
 });

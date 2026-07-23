@@ -2,32 +2,40 @@ import {
   type Backend,
   brain,
   type ChangeDiff,
+  type ChangedFile,
   type ChangeName,
+  changeBase,
   changeConflicts,
   currentArchived,
   currentForgeChange,
   currentOwner,
   currentParent,
+  currentPermanent,
   currentReviewers,
   currentReviewing,
+  diffBetween,
   type FilePath,
+  type FileSource,
   type ForgeChangeId,
   type ForgeLocator,
+  finished,
   freshestReading,
   LAND_SCAN,
   type LandMerge,
   type LogEntry,
   landedMerge,
+  landsAmong,
+  type ModeChange,
   observedForgeParent,
   type ReviewedDiff,
   type Reviewing,
   type Revision,
-  remainingSpans,
   requireTip,
   type UserName,
 } from "./backend.js";
-import { type DiffView, diffViewEmpty, rebasedView } from "./diff.js";
+import { diffViewEmpty, rebasedView, renderDiff } from "./diff.js";
 import { UserError } from "./error.js";
+import { landBlockers, type ObligationsReading, obligationsReading, outstanding } from "./obligations.js";
 
 /** A change and the changes parented on it. */
 export interface ChangeNode {
@@ -75,9 +83,12 @@ export type NextStep =
   | "reparent"
   | "fix conflicts"
   | "add code"
+  | "fix obligations"
   | "review"
+  | "review in parent"
   | "add reviewers"
   | "widen reviewing"
+  | "await review"
   | "resolve parent divergence"
   | "rebase"
   | "land"
@@ -102,26 +113,28 @@ export interface ChangeSummary {
         readonly staleParent: ChangeName | undefined;
       }
     | undefined;
-  /** The merge that landed the change, or undefined if it has not landed. */
+  /** The merge of the change's latest land, or undefined if it has never landed. */
   readonly landed: Revision | undefined;
   /** The changes landed into this one, oldest first. */
   readonly included: readonly LandMerge[];
   /** Whether the change is archived: set aside as not landing, reversibly. */
   readonly archived: boolean;
+  /** Whether the change is permanent: structure expected to outlive its lands. */
+  readonly permanent: boolean;
   readonly base: Revision;
   readonly tip: Revision;
   /** How the tip stands relative to origin's last-fetched copy, when they differ. */
   readonly origin: "ahead" | "behind" | "diverged" | undefined;
   /** What became of a parent that can no longer be built on. */
-  readonly deadParent: "landed" | "missing" | undefined;
+  readonly deadParent: "landed" | "missing" | "archived" | undefined;
   /** Set when the parent's local tip and origin's last-fetched copy have diverged: the user's to join. */
   readonly parentOrigin: "diverged" | undefined;
   /** How the base stands relative to a live parent's tip, when they differ. */
   readonly staleBase: "behind" | "diverged" | undefined;
   /** Files whose contents at the tip still carry conflict markers, sorted by name. */
   readonly conflicts: readonly FilePath[];
-  /** Files with review left for the user, sorted by name. */
-  readonly reviewLeft: readonly FilePath[];
+  /** Files with review left for the user, sorted by name; a moved or copied file names its source. */
+  readonly reviewLeft: readonly ChangedFile[];
   readonly nextStep: NextStep;
 }
 
@@ -140,19 +153,20 @@ export async function summarizeChange(
 ): Promise<ChangeSummary> {
   const parent = currentParent(change, entries);
   const landed = landedMerge(entries);
+  const frozen = finished(entries);
   const tracked = currentForgeChange(entries);
   const { base, tip } = diff;
-  const rounds = await reviewRounds(backend, entries, user, diff);
-  const reviewLeft = [...new Set(rounds.flatMap(({ files }) => [...files.keys()]))].sort();
-  // A landed change is frozen, so nothing about its surroundings bears on it.
-  // These are all local readings — origin's tip is whatever was last fetched
-  // — so summarizing never makes a remote query.
+  const left = reviewLeftFiles(await reviewLeft(backend, entries, user, diff));
+  // A finished change is frozen, so nothing about its surroundings bears on
+  // it. These are all local readings — origin's tip is whatever was last
+  // fetched — so summarizing never makes a remote query.
   let origin: ChangeSummary["origin"];
   let staleParent: ChangeName | undefined;
   let deadParent: ChangeSummary["deadParent"];
   let parentOrigin: ChangeSummary["parentOrigin"];
   let stale: { readonly kind: NonNullable<ChangeSummary["staleBase"]>; readonly parentTip: Revision } | undefined;
-  if (landed === undefined) {
+  let parentReview: (() => Promise<ObligationsReading>) | undefined;
+  if (!frozen) {
     if (tracked !== undefined) {
       const observed = observedForgeParent(entries, tracked.forge);
       if (observed !== undefined && observed !== parent) {
@@ -160,8 +174,11 @@ export async function summarizeChange(
       }
     }
     origin = await originStanding(backend, change, tip);
-    if (landedMerge(await backend.readLog(parent)) !== undefined) {
+    const parentEntries = await backend.readLog(parent);
+    if (finished(parentEntries)) {
       deadParent = "landed";
+    } else if (currentArchived(parentEntries)) {
+      deadParent = "archived";
     } else {
       const reading = await freshestReading(backend, parent);
       if (reading.kind === "none") {
@@ -179,6 +196,17 @@ export async function summarizeChange(
         if (parentTip !== base) {
           stale = { kind: (await backend.isAncestor(base, parentTip)) ? "behind" : "diverged", parentTip };
         }
+        // A trunk parent has no log to put obligations on, so only a change
+        // parent reads. The diff is the one `land` would check.
+        if (parentEntries.length > 0) {
+          parentReview = async () =>
+            obligationsReading(
+              backend,
+              parentEntries,
+              currentOwner(parent, parentEntries),
+              await diffBetween(backend, await changeBase(backend, parent, parentEntries), parentTip),
+            );
+        }
       }
     }
   }
@@ -193,17 +221,18 @@ export async function summarizeChange(
     landed,
     included: diff.lands,
     archived: currentArchived(entries),
+    permanent: currentPermanent(entries),
     base,
     tip,
     origin,
     deadParent,
     parentOrigin,
     staleBase: stale?.kind,
-    // A landed change is frozen; only live code is worth scanning for markers.
-    conflicts: landed === undefined ? await changeConflicts(backend, diff) : [],
-    reviewLeft,
+    // A finished change is frozen; only live code is worth scanning for markers.
+    conflicts: frozen ? [] : await changeConflicts(backend, diff),
+    reviewLeft: left,
   };
-  return { ...readings, nextStep: await nextStep(backend, readings, stale) };
+  return { ...readings, nextStep: await nextStep(backend, readings, entries, user, diff, stale, parentReview) };
 }
 
 /**
@@ -244,11 +273,11 @@ export interface TrunkSummary {
 /** Summarize a branch with no log. */
 export async function summarizeTrunk(backend: Backend, change: ChangeName): Promise<TrunkSummary> {
   const tip = await requireTip(backend, change);
-  const [origin, { lands, more }] = await Promise.all([
+  const [origin, { merges, more }] = await Promise.all([
     originStanding(backend, change, tip),
-    backend.landMerges(undefined, tip, LAND_SCAN),
+    backend.chainMerges(undefined, tip, LAND_SCAN),
   ]);
-  return { kind: "trunk", change, tip, origin, included: lands, truncated: more };
+  return { kind: "trunk", change, tip, origin, included: landsAmong(merges), truncated: more };
 }
 
 /**
@@ -268,21 +297,36 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
 }
 
 /**
- * What must happen next, from the summary's other readings. A landed change
- * is done and an archived one is set aside, so both read as their terminal
- * step before anything else. An origin the
+ * What must happen next, from the summary's other readings. An archived
+ * change is set aside — done, when a land archived it, which reads as
+ * `landed` — so it reads as its terminal step before anything else. An origin the
  * tip trails or diverged from outranks everything: each reading below is a
  * question about revisions this clone may lack, and either way syncing
  * mends it — the join absorbs origin's copy, committing any conflicts for
  * fixing. A change with no local
  * branch gates nothing: its readings are origin's copy already, and
  * operations that move the branch create it from that copy themselves. A
- * dead parent comes next: nothing can land until the change hangs somewhere
- * real. Unresolved
- * conflicts outrank review: markers are not code worth reading. A change
+ * dead parent — landed, missing, or archived, all parents `land` refuses —
+ * comes next: nothing can land until the change hangs somewhere live. Unresolved
+ * conflicts outrank review: markers are not code worth reading. A malformed
+ * obligations file outranks the review flow it would steer: `fix
+ * obligations` is the owner's step, and no other reading asks anyone for
+ * anything until the policy parses. A change
  * nobody is reviewing yet moves by widening; once the user's own review is
  * done, a reviewing set short of everyone widens next — after reviewers
- * exist to widen to. A stale base waits for review to finish — the parent
+ * exist to widen to. The whole flow asks only while some blocking obligation
+ * is unsatisfied: once every one is met, the set gates nothing `land` reads,
+ * so the change moves by landing however narrow the set stands — follow
+ * review stays owed on the todo page, holding nothing here. Blockers the
+ * flow has no ask left for — the set already reads everyone, the user's own
+ * review done — read `await review`: the land waits on review only others
+ * can give, and the step names the wait rather than a land that would
+ * refuse. A
+ * forge-tracked draft is the exception — the forge refuses to merge what
+ * it shows as a draft — so it widens whatever the obligations say. Review
+ * reads bottom-up — a child's diff builds on its parent's — so review the
+ * user still owes the parent outranks reading the child. A stale
+ * base waits for review to finish — the parent
  * moving on is routine, and rebasing mid-review churns reviewers — and
  * calls for a rebase only where `land` would refuse it: when the tip no
  * longer merges cleanly onto `stale`'s parent tip. That merge is dry-run
@@ -291,7 +335,10 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
  * own check. The dry-run, like the rebase and land it stands for, is a
  * question about the parent's tip — its freshest reading — so a parent
  * whose readings diverged outranks them: no freshest reading exists until
- * the user joins them. Last, a forge-tracked change syncs before landing when the
+ * the user joins them. A parent with unsatisfied blocking obligations of its
+ * own comes next, whoever owes them: `land` refuses to grow an unreviewed
+ * parent, so the change reads `review in parent` until the parent is
+ * fully reviewed. Last, a forge-tracked change syncs before landing when the
  * forge lags this clone — a tip ahead of origin, or a local reparent the
  * forge change's target has yet to follow — since the forge refuses to land
  * state it has not seen, while a local land reads nothing from origin and
@@ -300,13 +347,14 @@ export async function knownChanges(backend: Backend): Promise<readonly ChangeNam
 async function nextStep(
   backend: Backend,
   readings: Omit<ChangeSummary, "nextStep">,
+  entries: readonly LogEntry[],
+  user: UserName,
+  diff: ChangeDiff,
   stale: { readonly parentTip: Revision } | undefined,
+  parentReview: (() => Promise<ObligationsReading>) | undefined,
 ): Promise<NextStep> {
-  if (readings.landed !== undefined) {
-    return "landed";
-  }
   if (readings.archived) {
-    return "archived";
+    return readings.landed !== undefined ? "landed" : "archived";
   }
   if (readings.origin === "behind" || readings.origin === "diverged") {
     return "sync";
@@ -320,17 +368,31 @@ async function nextStep(
   if (readings.tip === readings.base) {
     return "add code";
   }
-  if (readings.reviewing === "none") {
+  // Every reading below stands on the policy, so a policy nobody can parse
+  // preempts them all: it reads as the owner's step to mend, and asks
+  // review of nobody in the meantime.
+  const reading = await obligationsReading(backend, entries, readings.owner, diff);
+  if (reading.kind === "malformed") {
+    return "fix obligations";
+  }
+  if (readings.reviewing === "none" && readings.forgeChange !== undefined) {
     return "widen reviewing";
   }
-  if (readings.reviewLeft.length > 0) {
-    return "review";
-  }
-  if (readings.reviewing === "owner" && readings.reviewers.length === 0) {
-    return "add reviewers";
-  }
-  if (readings.reviewing !== "everyone") {
-    return "widen reviewing";
+  const flow: NextStep | undefined =
+    readings.reviewing === "none"
+      ? "widen reviewing"
+      : readings.reviewLeft.length > 0
+        ? "review"
+        : readings.reviewing === "owner" && readings.reviewers.length === 0
+          ? "add reviewers"
+          : readings.reviewing !== "everyone"
+            ? "widen reviewing"
+            : undefined;
+  if (landBlockers(reading.statuses).length > 0) {
+    if (flow === "review" && parentReview !== undefined && (await owesParentReview(parentReview, user))) {
+      return "review in parent";
+    }
+    return flow ?? "await review";
   }
   if (readings.parentOrigin === "diverged") {
     return "resolve parent divergence";
@@ -338,28 +400,58 @@ async function nextStep(
   if (stale !== undefined && (await backend.mergeConflicts(readings.base, readings.tip, stale.parentTip)).length > 0) {
     return "rebase";
   }
+  if (parentReview !== undefined && parentBlocked(await parentReview())) {
+    return "review in parent";
+  }
   const { forgeChange } = readings;
   return forgeChange !== undefined && (readings.origin === "ahead" || forgeChange.staleParent !== undefined)
     ? "sync"
     : "land";
 }
 
-/** What a reviewer looks at to review a file in a round. */
-export type FileView =
-  /** The plain diff from `start` to the round's end. */
-  | { readonly kind: "span"; readonly start: Revision }
-  /** The base moved under the review: compare the reviewed diff with the current one. */
-  | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff }
-  /** The reviewed tip left the change's history: diff from its contents. */
-  | { readonly kind: "rewritten"; readonly from: Revision };
-
-/** One round of review: a span of a change's history with review left in it. */
-export interface ReviewRound {
-  /** The revision the round reviews up to: reviewing a file here records `{base, tip: end}`. */
-  readonly end: Revision;
-  /** What to review per file, sorted by name. */
-  readonly files: ReadonlyMap<FilePath, FileView>;
+/**
+ * Whether the parent's own obligations refuse the land: unsatisfied blockers,
+ * or a policy nobody can parse — the parent's page says whose fix that is.
+ */
+function parentBlocked(reading: ObligationsReading): boolean {
+  return reading.kind === "malformed" || landBlockers(reading.statuses).length > 0;
 }
+
+/**
+ * Whether the parent still carries an unsatisfied blocking obligation `user`'s
+ * review can count toward. A malformed parent policy claims nothing here — it
+ * cannot say what anyone owes — so the user's own review proceeds.
+ */
+async function owesParentReview(parentReview: () => Promise<ObligationsReading>, user: UserName): Promise<boolean> {
+  const reading = await parentReview();
+  return reading.kind === "read" && landBlockers(reading.statuses).some((status) => outstanding(status).includes(user));
+}
+
+/**
+ * The files `left` still owes, one entry per path, in `left`'s order. A file
+ * whose view moves or copies it names its source — the first thing its
+ * reviewer will read.
+ */
+export function reviewLeftFiles(left: ReviewLeft): readonly ChangedFile[] {
+  return [...left].map(([path, view]) => ({
+    path,
+    source: view.kind === "fresh" ? view.source : undefined,
+    modes: view.kind === "rebased" ? undefined : view.modes,
+  }));
+}
+
+/** What a reviewer looks at to review a file. Each view carries the mode
+    change its endpoints see, when they see one, for the diff to report. */
+export type FileView =
+  /** No prior review: the plain diff, base to tip — from the file's `source` path when the diff moves or copies it. */
+  | { readonly kind: "fresh"; readonly source: FileSource | undefined; readonly modes: ModeChange | undefined }
+  /** Reviewed at this base: the diff onward from the reviewed tip. */
+  | { readonly kind: "extend"; readonly from: Revision; readonly modes: ModeChange | undefined }
+  /** The base moved under the review: compare the reviewed diff with the current one. */
+  | { readonly kind: "rebased"; readonly reviewed: ReviewedDiff };
+
+/** The review of a change left for one user: what to look at per file, sorted by name. */
+export type ReviewLeft = ReadonlyMap<FilePath, FileView>;
 
 /** Memoize an async derivation per revision: reviews sharing a revision share the answer. */
 function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision: Revision) => Promise<T> {
@@ -375,30 +467,31 @@ function perRevision<T>(compute: (revision: Revision) => Promise<T>): (revision:
 }
 
 /**
- * The rounds of review left for `user` in `diff`, oldest first. Land merges
- * on the first-parent chain order review: everything before a land merge is
- * reviewed — and marked, at the round's end — before anything after it, so a
- * reviewer never reads code newer than a landing they have not absorbed. A
- * file is due in every round whose span it changes and that the user has not
- * reviewed past; a review the spans cannot place (its base moved, or its tip
- * was rewritten out of the history) puts the file's stale knowledge in its
- * earliest round's view, and later rounds assume the earlier ones get
- * recorded. When that view renders empty — the rebase carried the reviewed
- * change cleanly — the file is not due in the round at all.
+ * The review of `diff` left for `user`: per changed file, what to look at —
+ * absent when their latest review of the file covers its current diff. A
+ * file never reviewed shows the whole diff; one reviewed at the current base
+ * shows the diff onward from the reviewed tip; one whose base moved under
+ * the review compares the reviewed diff with the current one.
+ *
+ * A file whose view would render nothing to read — a whitespace-only edit
+ * the diff hides, or a rebase that carried the reviewed diff cleanly — is
+ * discharged silently: nothing can be read there, so nothing is owed. A
+ * moved or copied file stays owed even without content changes, as does a
+ * file whose mode changed or that was created or deleted empty — the tree
+ * change itself is what its reviewer acknowledges.
+ *
+ * The records alone answer: a land needs no reading here, because landing
+ * writes the review it settles (as `recordLand`) — the diff a land brings in
+ * was reviewed under the landed change's log, or joins this change's
+ * catch-up, and either way the entries written at the land say so.
  */
-export async function reviewRounds(
+export async function reviewLeft(
   backend: Backend,
   entries: readonly LogEntry[],
   user: UserName,
   diff: ChangeDiff,
-): Promise<readonly ReviewRound[]> {
+): Promise<ReviewLeft> {
   const { base, tip } = diff;
-  const rounds: {
-    start: Revision;
-    end: Revision;
-    changed: ReadonlySet<FilePath>;
-    files: Map<FilePath, FileView>;
-  }[] = diff.spans.map(({ start, end, changed }) => ({ start, end, changed, files: new Map() }));
   // A review recorded against objects this clone lacks — reviewed where the
   // commits were never pushed — can be neither placed in the history nor
   // diffed from, so the file counts as unreviewed.
@@ -409,88 +502,39 @@ export async function reviewRounds(
       known.delete(file);
     }
   }
-  const tipKept = perRevision((reviewedTip) => backend.isAncestor(reviewedTip, tip));
-  const spansPast = perRevision(
-    async (reviewedTip) =>
-      new Map((await remainingSpans(backend, diff.spans, reviewedTip)).map((span) => [span.end, span])),
+  // The files changed since a reviewed tip, batched per tip: one reading
+  // answers what the diff onward from here touches for every file at once.
+  const changedSince = perRevision(
+    async (from) =>
+      new Map(from === tip ? [] : (await backend.changedFiles(from, tip)).map((changed) => [changed.path, changed])),
   );
-  // The files of the one span that resumes mid-span from the reviewed tip.
-  const resumedFiles = perRevision(async (reviewedTip) => {
-    for (const { start, end } of (await spansPast(reviewedTip)).values()) {
-      if (start === reviewedTip) {
-        return new Set(await backend.changedFiles(start, end));
-      }
+  // Patdiff's whitespace-insensitive line equality is finer than git's, so a
+  // file git still reports under its whitespace-ignoring flags always renders
+  // hunks — one tree-level reading settles almost every file, and only the
+  // rare remainder needs its contents read and diffed to tell.
+  const solidSince = perRevision((from) => backend.nonWhitespaceChanges(from, tip));
+  const rendersEmpty = async (from: Revision, file: FilePath): Promise<boolean> => {
+    if ((await solidSince(from)).has(file)) {
+      return false;
     }
-    // Only consulted for a remaining span whose start differs from its whole
-    // span's, and such a span always starts at the reviewed tip.
-    throw new Error(`no span resumes from reviewed tip ${reviewedTip}`);
-  });
-  const unseenFiles = perRevision(async (reviewedTip) => new Set(await backend.changedFiles(reviewedTip, tip)));
-  for (const file of [...new Set(rounds.flatMap(({ changed }) => [...changed]))].sort()) {
+    const [prev, next] = await Promise.all([backend.readFile(from, file), backend.readFile(tip, file)]);
+    return (prev === undefined) === (next === undefined) && renderDiff(file, prev, next, false) === "";
+  };
+  const left = new Map<FilePath, FileView>();
+  for (const [file, { source, modes }] of [...diff.changed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const reviewed = known.get(file);
-    if (reviewed !== undefined && reviewed.base === base && (await tipKept(reviewed.tip))) {
-      // A review the history can place: what remains is the spans past the
-      // reviewed tip, resuming mid-span when the tip falls inside one.
-      const spans = await spansPast(reviewed.tip);
-      for (const round of rounds) {
-        const span = spans.get(round.end);
-        if (span === undefined) {
-          continue;
-        }
-        const changed = span.start === round.start ? round.changed : await resumedFiles(reviewed.tip);
-        if (changed.has(file)) {
-          round.files.set(file, { kind: "span", start: span.start });
-        }
+    if (reviewed === undefined) {
+      if (source !== undefined || !(await rendersEmpty(base, file))) {
+        left.set(file, { kind: "fresh", source, modes });
       }
-      continue;
-    }
-    // A reviewed tip rewritten out of the change's history cannot be placed
-    // among the first-parent spans, but what the user has not seen is exactly
-    // the diff from its contents — nothing at all when the file comes out
-    // unchanged.
-    if (reviewed !== undefined && reviewed.base === base && !(await unseenFiles(reviewed.tip)).has(file)) {
-      continue;
-    }
-    let first = true;
-    for (const round of rounds) {
-      if (!round.changed.has(file)) {
-        continue;
+    } else if (reviewed.base === base) {
+      const since = (await changedSince(reviewed.tip)).get(file);
+      if (since !== undefined && !(await rendersEmpty(reviewed.tip, file))) {
+        left.set(file, { kind: "extend", from: reviewed.tip, modes: since.modes });
       }
-      const view: FileView =
-        !first || reviewed === undefined
-          ? { kind: "span", start: round.start }
-          : reviewed.base !== base
-            ? { kind: "rebased", reviewed }
-            : { kind: "rewritten", from: reviewed.tip };
-      first = false;
-      if (view.kind !== "span" && (await carriedCleanly(backend, file, view, base, round.end))) {
-        continue;
-      }
-      round.files.set(file, view);
+    } else if (!diffViewEmpty(file, await rebasedView(backend, file, reviewed, base, tip))) {
+      left.set(file, { kind: "rebased", reviewed });
     }
   }
-  return rounds.filter(({ files }) => files.size > 0).map(({ end, files }) => ({ end, files }));
-}
-
-/**
- * Whether an unplaceable review leaves nothing to read up to `end`: the
- * rebase or rewrite carried the reviewed change cleanly, so `file`'s view
- * would render empty and the reviewer's recorded knowledge already covers
- * the round.
- */
-async function carriedCleanly(
-  backend: Backend,
-  file: FilePath,
-  view: Extract<FileView, { kind: "rebased" | "rewritten" }>,
-  base: Revision,
-  end: Revision,
-): Promise<boolean> {
-  let resolved: DiffView;
-  if (view.kind === "rebased") {
-    resolved = await rebasedView(backend, file, view.reviewed, base, end);
-  } else {
-    const [prev, next] = await Promise.all([backend.readFile(view.from, file), backend.readFile(end, file)]);
-    resolved = { kind: "two", prev, next };
-  }
-  return diffViewEmpty(file, resolved);
+  return left;
 }

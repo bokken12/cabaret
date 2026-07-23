@@ -14,6 +14,9 @@
       "path": "../cabaret-node"
     },
     {
+      "path": "../cabaret-tui"
+    },
+    {
       "path": "../cabaret-views"
     }
   ]

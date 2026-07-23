@@ -1,7 +1,7 @@
 import { buildCommand } from "@stricli/core";
 import { reparentChange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { evenThoughNotOwner } from "./shared.js";
+import { evenThoughNotOwner, writeThrough } from "./shared.js";
 
 export const reparent = buildCommand({
   docs: {
@@ -19,16 +19,33 @@ export const reparent = buildCommand({
         { brief: "the new parent", placeholder: "parent", parse: String },
       ],
     },
-    flags: { evenThoughNotOwner },
+    flags: {
+      evenThoughNotOwner,
+      evenThoughParentArchived: {
+        kind: "boolean",
+        brief: "Proceed even though the new parent is archived",
+        default: false,
+      },
+      evenThoughParentDiverged: {
+        kind: "boolean",
+        brief: "Proceed even though the new parent's readings have diverged",
+        default: false,
+      },
+    },
   },
-  async func(this: LocalContext, flags: { evenThoughNotOwner: boolean }, change: string, parent: string) {
+  async func(
+    this: LocalContext,
+    flags: { evenThoughNotOwner: boolean; evenThoughParentArchived: boolean; evenThoughParentDiverged: boolean },
+    change: string,
+    parent: string,
+  ) {
     const backend = await this.backend();
-    await reparentChange(
-      backend,
-      this.now,
-      backend.parseName(change),
-      backend.parseName(parent),
-      flags.evenThoughNotOwner,
-    );
+    const name = backend.parseName(change);
+    await reparentChange(backend, this.now, name, backend.parseName(parent), {
+      notOwner: flags.evenThoughNotOwner,
+      parentArchived: flags.evenThoughParentArchived,
+      parentDiverged: flags.evenThoughParentDiverged,
+    });
+    await writeThrough(this, backend, name);
   },
 });

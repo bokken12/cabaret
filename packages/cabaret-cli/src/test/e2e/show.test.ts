@@ -15,9 +15,9 @@ test("show renders the current change's status page", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -45,9 +45,9 @@ test("show renders the comments on a change, oldest first, above the files", asy
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ f37230616d25      │
     │ base      │ 1ac0b33426d0      │
@@ -58,10 +58,10 @@ test("show renders the comments on a change, oldest first, above the files", asy
       alice@example.com: 1 file
 
     Comments:
-      2025-05-23T11:33:20.004Z alice@example.com
+      2025-05-23T11:33:20.005Z alice@example.com
         does this handle empty diffs?
 
-      2025-05-23T11:33:20.005Z alice@example.com
+      2025-05-23T11:33:20.006Z alice@example.com
         second thoughts:
 
         the flag name reads oddly
@@ -106,16 +106,18 @@ test("show renders an imported change like any other", async () => {
       github:carol: 1 file
 
     Comments:
-      2025-06-15T15:06:40.000Z github:carol
+      2025-06-15T15:06:40.001Z github:carol
         please take a look
 
     Files to review:
       their.txt
+
+    fetched 20w ago
     "
   `);
 });
 
-test("show lists the changes landed into a parent, their diffs out of its review", async () => {
+test("show lists the changes landed into a parent; an unreviewed landing joins its review", async () => {
   const repo = await makeRepo();
   await repo.cabaret("create", "parent");
   await repo.git("checkout", "-q", "parent");
@@ -127,7 +129,7 @@ test("show lists the changes landed into a parent, their diffs out of its review
   await repo.write("child.txt", "child work\n");
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "child work");
-  await repo.cabaret("land", "--even-though-unreviewed");
+  await repo.cabaret("land", "--even-though-unreviewed", "--even-though-parent-unreviewed");
   expect((await repo.cabaret("show", "parent")).stdout).toMatchInlineSnapshot(`
     "parent
     ======
@@ -147,9 +149,10 @@ test("show lists the changes landed into a parent, their diffs out of its review
       child
 
     Remaining review:
-      alice@example.com: 1 file
+      alice@example.com: 2 files
 
     Files to review:
+      child.txt
       parent.txt
     "
   `);
@@ -185,7 +188,7 @@ test("show with no name reads a checked-out trunk once changes acknowledge it", 
   // Standing on a branch no log speaks for keeps the create nudge...
   await repo.git("checkout", "-qb", "scratch");
   expect((await repo.cabaret("show")).stderr).toBe(
-    'change does not exist: "scratch"; run `cabaret create`, or `cabaret fetch` to import open forge changes\n',
+    'change does not exist: "scratch"; run `cab create`, or `cab fetch` to import open forge changes\n',
   );
   // ...but a trunk is acknowledged by its children's parent links.
   await repo.git("checkout", "-q", "main");
@@ -226,12 +229,16 @@ test("show names a branch outright even when no log speaks for it", async () => 
 
 test("show tallies the remaining review per user", async () => {
   const repo = await makeRepo();
-  const policy = { rules: [{ match: "*.txt", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } }] };
+  const policy = {
+    rules: [
+      { match: "*.txt", kind: "blocking", require: { atLeast: 2, of: ["alice@example.com", "bob@example.com"] } },
+    ],
+  };
   await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
   await repo.git("add", "-A");
   await repo.git("commit", "-qm", "policy");
   await addChange(repo, "feature");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "feature
@@ -244,8 +251,41 @@ test("show tallies the remaining review per user", async () => {
     │ owner     │ alice@example.com │
     │ reviewing │ owner             │
     │ parent    │ main              │
-    │ tip       │ 01cd7b3eb0c9      │
-    │ base      │ 7651e9c1eed4      │
+    │ tip       │ f7ec66f69dac      │
+    │ base      │ 36d86cfef878      │
+    │ workspace │ .                 │
+    ╰───────────┴───────────────────╯
+
+    Remaining review:
+      bob@example.com: 1 file
+    "
+  `);
+});
+
+test("show holds the step at await review while only others owe blocking review", async () => {
+  const repo = await makeRepo();
+  const policy = {
+    rules: [{ match: "*.txt", kind: "blocking", require: { atLeast: 1, of: ["bob@example.com"] } }],
+  };
+  await repo.write(".obligations", `${JSON.stringify(policy)}\n`);
+  await repo.git("add", "-A");
+  await repo.git("commit", "-qm", "policy");
+  await addChange(repo, "feature");
+  await repo.cabaret("reviewing", "set", "everyone");
+  await repo.cabaret("mark", "--tip", "HEAD", "feature.txt");
+  expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
+    "feature
+    =======
+
+    ╭───────────┬───────────────────╮
+    │ attribute │ value             │
+    ├───────────┼───────────────────┤
+    │ next step │ await review      │
+    │ owner     │ alice@example.com │
+    │ reviewing │ everyone          │
+    │ parent    │ main              │
+    │ tip       │ 9ca9323bb76a      │
+    │ base      │ 6365470fcd55      │
     │ workspace │ .                 │
     ╰───────────┴───────────────────╯
 
@@ -258,7 +298,7 @@ test("show tallies the remaining review per user", async () => {
 test("show by name reflects review progress", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   const { stdout } = await repo.cabaret("show", "gadget");
   expect(stdout).toMatchInlineSnapshot(`
@@ -268,7 +308,7 @@ test("show by name reflects review progress", async () => {
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ add reviewers     │
+    │ next step │ land              │
     │ owner     │ alice@example.com │
     │ reviewing │ owner             │
     │ parent    │ main              │
@@ -296,7 +336,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
     ├───────────┼──────────────────────────────┤
     │ next step │ sync                         │
     │ owner     │ alice@example.com            │
-    │ reviewing │ none                         │
+    │ reviewing │ everyone                     │
     │ parent    │ main                         │
     │ tip       │ f37230616d25 (behind origin) │
     │ base      │ 1ac0b33426d0                 │
@@ -315,7 +355,7 @@ test("show notes a tip behind origin's copy and makes sync the step", async () =
 test("show notes a stale base on its row while review stays the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.git("checkout", "-q", "main");
   await repo.write("trunk.txt", "trunk work\n");
   await repo.git("add", "-A");
@@ -358,7 +398,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     exitCode: 0,
   });
   // Hang gizmo back under the landed gadget to see the nudge.
-  await repo.cabaret("reparent", "gizmo", "gadget");
+  await repo.cabaret("reparent", "gizmo", "gadget", "--even-though-parent-archived");
   expect((await repo.cabaret("show", "gizmo")).stdout).toMatchInlineSnapshot(`
     "gizmo
     =====
@@ -368,7 +408,7 @@ test("show tells a change whose parent has landed to reparent", async () => {
     ├───────────┼───────────────────┤
     │ next step │ reparent          │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ gadget (landed)   │
     │ tip       │ 03c72c897f10      │
     │ base      │ f37230616d25      │
@@ -431,7 +471,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
     ├───────────┼─────────────────────────────────────┤
     │ next step │ sync                                │
     │ owner     │ alice@example.com                   │
-    │ reviewing │ none                                │
+    │ reviewing │ everyone                            │
     │ parent    │ main                                │
     │ tip       │ 7eccbe63002f (diverged from origin) │
     │ base      │ 1ac0b33426d0                        │
@@ -450,7 +490,7 @@ test("show notes a tip diverged from origin's copy and makes sync the step", asy
 test("show notes a tip ahead of origin's copy without changing the step", async () => {
   const repo = await makeRepo();
   await addChange(repo, "gadget");
-  await repo.cabaret("reviewing", "owner");
+  await repo.cabaret("reviewing", "set", "owner");
   await repo.git("push", "-q", "origin", "gadget");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
@@ -484,7 +524,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.write("gadget.txt", "gadget work v2\n");
   await repo.git("commit", "-qam", "more gadget work");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
@@ -505,7 +545,7 @@ test("show makes sync the step when the forge lacks the reviewed tip", async () 
     │ workspace    │ .                              │
     ╰──────────────┴────────────────────────────────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });
@@ -515,10 +555,15 @@ test("show notes the forge change's stale target and makes sync the step", async
   const repo = await makeRepo(forge);
   await addChange(repo, "gadget");
   await repo.cabaret("sync");
-  await repo.cabaret("reviewing", "everyone");
+  await repo.cabaret("reviewing", "set", "everyone");
   await repo.cabaret("mark", "--tip", "HEAD", "gadget.txt");
   await repo.git("branch", "-q", "trunk", "main");
-  await repo.cabaret("reparent", "gadget", "trunk");
+  // Reparented while origin is unreachable: the write-through skips, so the
+  // forge change still targets main until a sync republishes.
+  const origin = await repo.git("remote", "get-url", "origin");
+  await repo.git("remote", "set-url", "origin", "ssh://127.0.0.1:1/offline.git");
+  expect((await repo.cabaret("reparent", "gadget", "trunk")).stdout).toBe("origin unreachable; sync to publish\n");
+  await repo.git("remote", "set-url", "origin", origin);
   expect((await repo.cabaret("show")).stdout).toMatchInlineSnapshot(`
     "gadget
     ======
@@ -536,7 +581,7 @@ test("show notes the forge change's stale target and makes sync the step", async
     │ workspace    │ .                                                │
     ╰──────────────┴──────────────────────────────────────────────────╯
 
-    fetched 00:00, 2025-01-01
+    fetched 20w ago
     "
   `);
 });
@@ -558,9 +603,9 @@ test("show reads origin's copy even when the branch tracks another remote", asyn
     ╭───────────┬───────────────────╮
     │ attribute │ value             │
     ├───────────┼───────────────────┤
-    │ next step │ widen reviewing   │
+    │ next step │ review            │
     │ owner     │ alice@example.com │
-    │ reviewing │ none              │
+    │ reviewing │ everyone          │
     │ parent    │ main              │
     │ tip       │ 7eccbe63002f      │
     │ base      │ 1ac0b33426d0      │

@@ -1,8 +1,8 @@
 import {
   assertChangeExists,
-  assertNotLanded,
   type Backend,
   type ChangeName,
+  currentArchived,
   ensureBranch,
   type Workspace,
 } from "./backend.js";
@@ -64,14 +64,13 @@ export function workspacePath(primary: string, change: ChangeName): string {
 async function assertCheckoutable(backend: Backend, change: ChangeName): Promise<void> {
   const entries = await backend.readLog(change);
   assertChangeExists(change, entries);
-  assertNotLanded(change, entries);
   await ensureBranch(backend, change);
 }
 
 /**
  * Create a workspace with `change` checked out, at `path` or the
  * `workspacePath` default, and return where it went. The change must be a
- * real, unlanded change without a workspace already.
+ * real change without a workspace already.
  */
 export async function addChangeWorkspace(backend: Backend, change: ChangeName, path?: string): Promise<string> {
   await assertCheckoutable(backend, change);
@@ -107,6 +106,44 @@ export async function removeChangeWorkspace(
   }
   await backend.removeWorkspace(workspace.path, evenThoughDirty);
   return workspace.path;
+}
+
+/** A workspace reclaiming considered, and what it did with it. */
+export interface ReclaimedWorkspace {
+  readonly path: string;
+  readonly change: ChangeName;
+  /** Removed, or kept: dirty guards uncommitted work; primary and current can never go. */
+  readonly outcome: "removed" | "dirty" | "primary" | "current";
+}
+
+/**
+ * Remove every workspace whose change is archived — set aside, or done
+ * because landing archived it; the ones pages nudge about — and return what
+ * happened to each. With `all`, every
+ * workspace holding its branch cleanly goes: removing one costs nothing the
+ * branch does not keep, which frees space when it is needed. Either way a
+ * dirty workspace keeps its uncommitted work, and the primary and current
+ * workspaces stay put; reporting them keeps what the reclaim leaves
+ * standing from reading as a miss. A detached workspace is never touched —
+ * its position lives nowhere else.
+ */
+export async function reclaimWorkspaces(backend: Backend, all: boolean): Promise<readonly ReclaimedWorkspace[]> {
+  const reclaimed: ReclaimedWorkspace[] = [];
+  for (const { path, change, dirty, primary } of await backend.workspaces()) {
+    if (change === undefined) {
+      continue;
+    }
+    const entries = await backend.readLog(change);
+    if (!all && !currentArchived(entries)) {
+      continue;
+    }
+    const outcome = primary ? "primary" : path === backend.root ? "current" : dirty ? "dirty" : "removed";
+    if (outcome === "removed") {
+      await backend.removeWorkspace(path, false);
+    }
+    reclaimed.push({ path, change, outcome });
+  }
+  return reclaimed;
 }
 
 /**

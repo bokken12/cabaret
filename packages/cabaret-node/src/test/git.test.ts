@@ -260,7 +260,7 @@ test("changeBase fails when the stored base and merge-base are unrelated", async
   await expect(changeBaseOf("child-merged")).rejects.toThrow('base of "child-merged" is ambiguous');
 });
 
-/** Record `change` as landed by `merge`, optionally at a squash-recorded tip. */
+/** Record `change` as finished: landed by `merge` — optionally at a squash-recorded tip — and archived with it. */
 async function plumbLand(change: string, merge: string, tip?: string): Promise<void> {
   const backend = await GitBackend.open(repo);
   await backend.appendLog(parseBranchName(change), [
@@ -269,6 +269,7 @@ async function plumbLand(change: string, merge: string, tip?: string): Promise<v
       merge: parseCommitHash(merge),
       ...(tip === undefined ? {} : { tip: parseCommitHash(tip) }),
     }),
+    logEntry(1748000000003, { kind: "set-archived", archived: true }),
   ]);
 }
 
@@ -307,15 +308,18 @@ test("changeBase of a squash-landed change fails when the merge and the stored b
   await plumbChange("squashed-unplaceable", tip, "trunk-squash-gone", "deadbeef".repeat(5));
   await plumbLand("squashed-unplaceable", "cafe".repeat(10), tip);
   await expect(changeBaseOf("squashed-unplaceable")).rejects.toThrow(
-    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cabaret fetch\``,
+    `land merge of "squashed-unplaceable" is not in this clone: ${"cafe".repeat(10)}; run \`cab fetch\``,
   );
 });
 
 test("changeTip fails when the land merge is absent from the clone", async () => {
   const backend = await GitBackend.open(repo);
-  const entries = [logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) })];
+  const entries = [
+    logEntry(1748000000000, { kind: "land", merge: parseCommitHash("beef".repeat(10)) }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
+  ];
   await expect(changeTip(backend, parseBranchName("ghost-merge"), entries)).rejects.toThrow(
-    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cabaret fetch\``,
+    `land merge of "ghost-merge" is not in this clone: ${"beef".repeat(10)}; run \`cab fetch\``,
   );
 });
 
@@ -328,13 +332,14 @@ test("changeTip fails when a squash-recorded tip is absent from the clone", asyn
       merge: parseCommitHash(merge),
       tip: parseCommitHash("feed".repeat(10)),
     }),
+    logEntry(1748000000001, { kind: "set-archived", archived: true }),
   ];
   await expect(changeTip(backend, parseBranchName("ghost-tip"), entries)).rejects.toThrow(
     `landed tip of "ghost-tip" is not in this clone: ${"feed".repeat(10)}`,
   );
 });
 
-test("landMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
+test("chainMerges surveys the newest commits, oldest first, noting a longer chain", async () => {
   const backend = await GitBackend.open(repo);
   // A first-parent chain atop the root: work, a land, more work, another land.
   const work = await plumbCommit("recent work");
@@ -342,39 +347,42 @@ test("landMerges surveys the newest commits, oldest first, noting a longer chain
   const more = await plumbCommit("more recent work", first);
   const second = await plumbCommit("Land second-recent\n\nCabaret-Landed: second-recent", more);
   const tip = parseCommitHash(second);
+  const land = (change: string, commit: string, onto: string) => ({
+    commit,
+    onto,
+    merged: undefined,
+    landed: change,
+  });
   // A scan wide enough for the whole chain (tip, more, first, work, root) sees
-  // both lands and no further history.
-  expect(await backend.landMerges(undefined, tip, 5)).toEqual({
-    lands: [
-      { change: "first-recent", commit: first, onto: work },
-      { change: "second-recent", commit: second, onto: more },
-    ],
+  // both lands and no further history; the oldest surveyed commit is the
+  // parentless root, so the survey has no root of its own.
+  expect(await backend.chainMerges(undefined, tip, 5)).toEqual({
+    merges: [land("first-recent", first, work), land("second-recent", second, more)],
+    root: undefined,
     more: false,
   });
   // A scan of the newest three commits reaches back only to the first land,
   // and notes the chain continuing past it.
-  expect(await backend.landMerges(undefined, tip, 3)).toEqual({
-    lands: [
-      { change: "first-recent", commit: first, onto: work },
-      { change: "second-recent", commit: second, onto: more },
-    ],
+  expect(await backend.chainMerges(undefined, tip, 3)).toEqual({
+    merges: [land("first-recent", first, work), land("second-recent", second, more)],
+    root: work,
     more: true,
   });
-  expect(await backend.landMerges(undefined, tip, 1)).toEqual({
-    lands: [{ change: "second-recent", commit: second, onto: more }],
+  expect(await backend.chainMerges(undefined, tip, 1)).toEqual({
+    merges: [land("second-recent", second, more)],
+    root: more,
     more: true,
   });
   // A base stops the walk where the change's history ends: the same window
   // that continued past three commits is exhausted once `work` bounds it.
-  expect(await backend.landMerges(parseCommitHash(work), tip, 3)).toEqual({
-    lands: [
-      { change: "first-recent", commit: first, onto: work },
-      { change: "second-recent", commit: second, onto: more },
-    ],
+  expect(await backend.chainMerges(parseCommitHash(work), tip, 3)).toEqual({
+    merges: [land("first-recent", first, work), land("second-recent", second, more)],
+    root: work,
     more: false,
   });
-  expect(await backend.landMerges(parseCommitHash(work), tip, 2)).toEqual({
-    lands: [{ change: "second-recent", commit: second, onto: more }],
+  expect(await backend.chainMerges(parseCommitHash(work), tip, 2)).toEqual({
+    merges: [land("second-recent", second, more)],
+    root: first,
     more: true,
   });
 });
@@ -411,47 +419,43 @@ test("create creates at the given commit and refuses to overwrite", async () => 
   await expect(backend.create(parseBranchName("created"), tip)).rejects.toThrow(/git update-ref/);
 });
 
+test("advance fast-forwards to a descendant and refuses anything else", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("advance start"));
+  const next = parseCommitHash(await plumbCommit("advance next", start));
+  const stray = parseCommitHash(await plumbCommit("advance stray", start));
+  await backend.create(parseBranchName("advancing"), start);
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // Already there: nothing to move.
+  await backend.advance(parseBranchName("advancing"), next);
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+  // A sibling does not descend from the tip, so moving there would drop work.
+  await expect(backend.advance(parseBranchName("advancing"), stray)).rejects.toThrow(
+    `cannot advance "advancing": ${stray} does not descend from its tip ${next}`,
+  );
+  expect(await git("rev-parse", "refs/heads/advancing")).toBe(next);
+});
+
+test("advance fast-forwards a branch checked out in a sibling worktree, carrying it along", async () => {
+  const backend = await GitBackend.open(repo);
+  const start = parseCommitHash(await plumbCommit("held start"));
+  const next = parseCommitHash(await plumbCommit("held next", start));
+  await backend.create(parseBranchName("sibling-held"), start);
+  const linked = join(repo, "held-worktree");
+  await git("worktree", "add", "-q", linked, "sibling-held");
+  await backend.advance(parseBranchName("sibling-held"), next);
+  // The ref moved and the worktree followed: HEAD at the new tip, nothing
+  // stranded in its index.
+  expect(await git("rev-parse", "refs/heads/sibling-held")).toBe(next);
+  expect(await gitIn(linked, "rev-parse", "HEAD")).toBe(next);
+  expect(await gitIn(linked, "status", "--porcelain")).toBe("");
+  await git("worktree", "remove", linked);
+});
+
 test("changeBase fails on a change that does not exist", async () => {
   const backend = await GitBackend.open(repo);
   await expect(changeBase(backend, parseBranchName("orphan"), [])).rejects.toThrow('change does not exist: "orphan"');
-});
-
-test("rename moves nothing when its transaction fails", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("rename source work"));
-  await git("update-ref", "refs/heads/rename-src", tip);
-  await backend.appendLog(parseBranchName("rename-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const logTip = await git("rev-parse", "refs/cabaret/log/rename-src");
-  await git("update-ref", "refs/heads/rename-taken", tip);
-  await git("checkout", "-q", "rename-src");
-  await expect(backend.rename(parseBranchName("rename-src"), parseBranchName("rename-taken"))).rejects.toThrow(
-    /reference already exists/,
-  );
-  // The failed transaction moved nothing, and HEAD is re-attached to the source.
-  expect(await git("symbolic-ref", "HEAD")).toBe("refs/heads/rename-src");
-  expect(await git("rev-parse", "refs/heads/rename-src")).toBe(tip);
-  expect(await git("rev-parse", "refs/cabaret/log/rename-src")).toBe(logTip);
-  await expect(git("rev-parse", "--verify", "refs/cabaret/log/rename-taken")).rejects.toThrow();
-  await git("checkout", "-q", "feature");
-});
-
-test("rename refuses a branch checked out in another worktree", async () => {
-  const backend = await GitBackend.open(repo);
-  const tip = parseCommitHash(await plumbCommit("worktree work"));
-  await git("update-ref", "refs/heads/wt-src", tip);
-  await backend.appendLog(parseBranchName("wt-src"), [
-    logEntry(1748000000000, { kind: "set-parent", parent: parseBranchName("feature") }),
-  ]);
-  const linked = join(repo, "linked-worktree");
-  await git("worktree", "add", linked, "wt-src");
-  await expect(backend.rename(parseBranchName("wt-src"), parseBranchName("wt-dst"))).rejects.toThrow(
-    'branch is checked out in another worktree: "wt-src"',
-  );
-  expect(await backend.tip(parseBranchName("wt-src"))).toBe(tip);
-  expect(await backend.tip(parseBranchName("wt-dst"))).toBeUndefined();
-  await git("worktree", "remove", linked);
 });
 
 /** A bare origin holding branches `main` and `extra`, and an empty repo with it as `origin`. */
@@ -480,6 +484,88 @@ test("fetchOrigin refreshes origin readings without creating local branches", as
       expect(await backend.originTip(branch)).toBeDefined();
       expect(await backend.tip(branch)).toBeUndefined();
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Run `run` with a shim `git` prepended to PATH whose first `failures` fetch
+ * invocations fail with `stderr`, everything else passing through to the real
+ * git. Returns how many fetches the shim saw.
+ */
+async function countingFailedFetches(failures: number, stderr: string, run: () => Promise<void>): Promise<number> {
+  const real = (await execFileAsync("/bin/sh", ["-c", "command -v git"])).stdout.trim();
+  const shim = await mkdtemp(join(tmpdir(), "cabaret-node-test-shim-"));
+  const count = join(shim, "count");
+  await writeFile(count, "");
+  await writeFile(join(shim, "stderr"), `${stderr}\n`);
+  const script = [
+    "#!/bin/sh",
+    `[ "$1" = fetch ] || exec "${real}" "$@"`,
+    `printf x >> "${count}"`,
+    `if [ "$(wc -c < "${count}")" -le ${failures} ]; then`,
+    `  cat "${join(shim, "stderr")}" >&2`,
+    "  exit 128",
+    "fi",
+    `exec "${real}" "$@"`,
+  ].join("\n");
+  await writeFile(join(shim, "git"), script, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${shim}:${path}`;
+  try {
+    await run();
+  } finally {
+    process.env.PATH = path;
+  }
+  const seen = (await readFile(count, "utf8")).length;
+  await rm(shim, { recursive: true, force: true });
+  return seen;
+}
+
+const REF_RACE_STDERR =
+  `error: cannot lock ref 'refs/heads/main': is at ${"1234abcd".repeat(5)} but expected ${"5678cdef".repeat(5)}\n` +
+  `error: cannot lock ref 'refs/remotes/origin/main': is at ${"1234abcd".repeat(5)} but expected ${"5678cdef".repeat(5)}`;
+
+test("fetch retries a ref update lost to a concurrent fetch", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(1, REF_RACE_STDERR, () => backend.fetch(parseBranchName("main")));
+    expect(fetches).toBe(2);
+    expect(await backend.tip(parseBranchName("main"))).toBe(await gitIn(origin, "rev-parse", "main"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch surfaces a ref update race that outlasts its retries", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(Number.MAX_SAFE_INTEGER, REF_RACE_STDERR, () =>
+      expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/cannot lock ref/),
+    );
+    expect(fetches).toBe(3);
+    expect(await backend.tip(parseBranchName("main"))).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    await rm(origin, { recursive: true, force: true });
+  }
+});
+
+test("fetch does not retry a failure that is no ref update race", async () => {
+  const { dir, origin } = await makeRemotePair();
+  try {
+    const backend = await GitBackend.open(dir);
+    const fetches = await countingFailedFetches(
+      Number.MAX_SAFE_INTEGER,
+      "fatal: couldn't find remote ref refs/heads/main",
+      () => expect(backend.fetch(parseBranchName("main"))).rejects.toThrow(/couldn't find remote ref/),
+    );
+    expect(fetches).toBe(1);
   } finally {
     await rm(dir, { recursive: true, force: true });
     await rm(origin, { recursive: true, force: true });
@@ -697,17 +783,184 @@ test("listChanges names every change with a log, sorted by name", async () => {
   }
 });
 
+test("editedFiles lists modified, added, and deleted files, with both endpoints of a move", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cabaret-node-test-"));
+  try {
+    await gitIn(dir, "init", "-q");
+    await writeFile(join(dir, "kept.txt"), "old\n");
+    await writeFile(join(dir, "doomed.txt"), "doomed\n");
+    await writeFile(join(dir, "wandering.txt"), "wandering\n");
+    await gitIn(dir, "add", "-A");
+    await gitIn(dir, "commit", "-qm", "setup");
+    await writeFile(join(dir, "kept.txt"), "new\n");
+    await gitIn(dir, "rm", "-q", "doomed.txt");
+    await gitIn(dir, "mv", "wandering.txt", "settled.txt");
+    await mkdir(join(dir, "fresh"));
+    await writeFile(join(dir, "fresh", "new.txt"), "fresh\n");
+    const backend = await GitBackend.open(dir);
+    expect([...(await backend.editedFiles())].sort()).toEqual([
+      "doomed.txt",
+      "fresh/new.txt",
+      "kept.txt",
+      "settled.txt",
+      "wandering.txt",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 /** Commit `files` (path → content) on top of the root commit, returning the commit hash. */
-async function plumbTree(files: Record<string, string>): Promise<string> {
+async function plumbTree(files: Record<string, string>, modes: Record<string, string> = {}): Promise<string> {
   await git("read-tree", "--empty");
   for (const [path, content] of Object.entries(files)) {
     await writeFile(join(repo, "blob-scratch"), content);
     const blob = await git("hash-object", "-w", "--", join(repo, "blob-scratch"));
-    await git("update-index", "--add", "--cacheinfo", `100644,${blob},${path}`);
+    await git("update-index", "--add", "--cacheinfo", `${modes[path] ?? "100644"},${blob},${path}`);
   }
   const tree = await git("write-tree");
   return git("commit-tree", tree, "-m", "tree fixture");
 }
+
+test("changedFiles pairs moved files with their old paths", async () => {
+  const backend = await GitBackend.open(repo);
+  const guide = `opening thoughts\n${"a steady middle line\n".repeat(30)}closing thoughts\n`;
+  const notes = `first entry\n${"another ordinary entry\n".repeat(30)}last entry\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "kept.txt": "kept\n",
+      "edited.txt": "before\n",
+      "moved/guide.txt": guide,
+      "notes.txt": notes,
+      "dropped.txt": "dropped\n",
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree({
+      "kept.txt": "kept\n",
+      "edited.txt": "after\n",
+      "docs/guide.txt": guide,
+      "journal.txt": notes.replace("last entry", "final entry"),
+      "fresh.txt": "fresh\n",
+    }),
+  );
+  // An exact move pairs by hash and an edited one by similarity, both named
+  // by their new path; everything else stays a single-path entry.
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "docs/guide.txt", source: { path: "moved/guide.txt", copied: false } },
+    { path: "dropped.txt", source: undefined },
+    { path: "edited.txt", source: undefined },
+    { path: "fresh.txt", source: undefined },
+    { path: "journal.txt", source: { path: "notes.txt", copied: false } },
+  ]);
+});
+
+test("changedFiles carries the mode pair of a file whose mode changed", async () => {
+  const backend = await GitBackend.open(repo);
+  const script = `#!/bin/sh\n${"a steady command\n".repeat(30)}exit 0\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "install.sh": "setup\n",
+      "run.sh": "go\n",
+      "tools/watch.sh": script,
+      "plain.txt": "text\n",
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree(
+      {
+        "install.sh": "setup\n",
+        "run.sh": "go faster\n",
+        "bin/watch.sh": script,
+        "plain.txt": "more text\n",
+      },
+      { "install.sh": "100755", "run.sh": "100755", "bin/watch.sh": "100755" },
+    ),
+  );
+  // A chmod rides along whether the contents changed, moved, or stayed put;
+  // a content-only change carries no mode pair.
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    {
+      path: "bin/watch.sh",
+      source: { path: "tools/watch.sh", copied: false },
+      modes: { prev: "100644", next: "100755" },
+    },
+    { path: "install.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+    { path: "plain.txt", source: undefined, modes: undefined },
+    { path: "run.sh", source: undefined, modes: { prev: "100644", next: "100755" } },
+  ]);
+});
+
+test("nonWhitespaceChanges drops files changed only in whitespace", async () => {
+  const backend = await GitBackend.open(repo);
+  const essay = `a first line\n${"a body line\n".repeat(10)}a last line\n`;
+  const prev = parseCommitHash(
+    await plumbTree({
+      "spacing.txt": "alpha  beta\n",
+      "blank.txt": "top\nbottom\n",
+      "eof.txt": "tail\n",
+      "logic.txt": "before\n",
+      "script.sh": "run\n",
+      "dropped.txt": "dropped\n",
+      "moved/essay.txt": essay,
+    }),
+  );
+  const next = parseCommitHash(
+    await plumbTree(
+      {
+        "spacing.txt": "alpha beta \n",
+        "blank.txt": "top\n\nbottom\n",
+        "eof.txt": "tail",
+        "logic.txt": "after\n",
+        "script.sh": "run\n",
+        "fresh.txt": "fresh\n",
+        "prose/essay.txt": essay,
+      },
+      { "script.sh": "100755" },
+    ),
+  );
+  // Respacing, a blank line, and a trailing newline all vanish; edited
+  // content, existence, and mode survive, a move under both of its paths.
+  expect(await backend.nonWhitespaceChanges(prev, next)).toEqual(
+    new Set(["logic.txt", "script.sh", "fresh.txt", "dropped.txt", "moved/essay.txt", "prose/essay.txt"]),
+  );
+});
+
+test("changedFiles pairs a copy with its source when the source changed too", async () => {
+  const backend = await GitBackend.open(repo);
+  const charter = `a preamble\n${"a steady article of the charter\n".repeat(30)}a closing article\n`;
+  const prev = parseCommitHash(await plumbTree({ "charter.txt": charter }));
+  const next = parseCommitHash(
+    await plumbTree({
+      "charter.txt": charter.replace("a preamble", "an amended preamble"),
+      "bylaws.txt": charter.replace("a closing article", "a bylaws-specific article"),
+    }),
+  );
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "bylaws.txt", source: { path: "charter.txt", copied: true } },
+    { path: "charter.txt", source: undefined },
+  ]);
+});
+
+test("changedFiles leaves a copy of an untouched file unpaired", async () => {
+  // Only sources modified in the same diff are copy candidates; scanning the
+  // whole tree costs too much in a large repository.
+  const backend = await GitBackend.open(repo);
+  const template = `a header\n${"a boilerplate line\n".repeat(30)}a footer\n`;
+  const prev = parseCommitHash(await plumbTree({ "template.txt": template }));
+  const next = parseCommitHash(await plumbTree({ "template.txt": template, "instance.txt": template }));
+  expect(await backend.changedFiles(prev, next)).toEqual([{ path: "instance.txt", source: undefined }]);
+});
+
+test("changedFiles leaves a wholesale rewrite at a new path unpaired", async () => {
+  const backend = await GitBackend.open(repo);
+  const prev = parseCommitHash(await plumbTree({ "config.old": "alpha\nbeta\ngamma\n" }));
+  const next = parseCommitHash(await plumbTree({ "config.new": "one\ntwo\nthree\nfour\n" }));
+  expect(await backend.changedFiles(prev, next)).toEqual([
+    { path: "config.new", source: undefined },
+    { path: "config.old", source: undefined },
+  ]);
+});
 
 test("readFile round-trips exact contents, keyed by byte-counted sizes", async () => {
   const backend = await GitBackend.open(repo);
@@ -792,25 +1045,41 @@ test("workspaces lists each working tree with its branch and dirtiness, dropping
     const dir = join(base, "repo");
     await mkdir(dir);
     await gitIn(dir, "init", "-qb", "main");
+    await gitIn(dir, "config", "user.email", "alice@example.com");
     await gitIn(dir, "commit", "-qm", "root", "--allow-empty");
     await gitIn(dir, "branch", "gadget");
+    await gitIn(dir, "branch", "shears");
     await gitIn(dir, "branch", "doomed");
     await gitIn(dir, "worktree", "add", "--quiet", join(base, "gadget-tree"), "gadget");
     await gitIn(dir, "worktree", "add", "--quiet", "--detach", join(base, "adrift-tree"));
+    await gitIn(dir, "worktree", "add", "--quiet", join(base, "shears-tree"), "shears");
     await gitIn(dir, "worktree", "add", "--quiet", join(base, "doomed-tree"), "doomed");
-    await writeFile(join(base, "gadget-tree", "junk.txt"), "junk\n");
+    // Two edits in an untracked directory: dirtiness dates from the newest.
+    await mkdir(join(base, "gadget-tree", "junk"));
+    const older = new Date("2026-01-05T06:07:08.000Z");
+    const newer = new Date("2026-01-06T06:07:08.000Z");
+    await writeFile(join(base, "gadget-tree", "junk", "stale.txt"), "junk\n");
+    await utimes(join(base, "gadget-tree", "junk", "stale.txt"), older, older);
+    await writeFile(join(base, "gadget-tree", "junk", "fresh.txt"), "junk\n");
+    await utimes(join(base, "gadget-tree", "junk", "fresh.txt"), newer, newer);
+    // A deletion is the only edit here, leaving the dirtiness undated.
+    await writeFile(join(base, "shears-tree", "doc.txt"), "cut me\n");
+    await gitIn(join(base, "shears-tree"), "add", "doc.txt");
+    await gitIn(join(base, "shears-tree"), "commit", "-qm", "doc");
+    await rm(join(base, "shears-tree", "doc.txt"));
     await rm(join(base, "doomed-tree"), { recursive: true, force: true });
     const backend = await GitBackend.open(dir);
     // Paths as git reports them, symlinks (macOS /tmp) resolved.
     const roots = await Promise.all(
-      [dir, join(base, "adrift-tree"), join(base, "gadget-tree")].map((tree) =>
+      [dir, join(base, "adrift-tree"), join(base, "gadget-tree"), join(base, "shears-tree")].map((tree) =>
         gitIn(tree, "rev-parse", "--show-toplevel"),
       ),
     );
     expect(await backend.workspaces()).toEqual([
-      { path: roots[0], change: "main", dirty: false, primary: true },
-      { path: roots[1], change: undefined, dirty: false, primary: false },
-      { path: roots[2], change: "gadget", dirty: true, primary: false },
+      { path: roots[0], change: "main", dirty: undefined, primary: true },
+      { path: roots[1], change: undefined, dirty: undefined, primary: false },
+      { path: roots[2], change: "gadget", dirty: { at: timestampMs(newer.getTime()) }, primary: false },
+      { path: roots[3], change: "shears", dirty: { at: undefined }, primary: false },
     ]);
   } finally {
     await rm(base, { recursive: true, force: true });
@@ -837,6 +1106,7 @@ test("gotoChange reports a change's workspace, checking one out shared or adding
       landVia: "auto",
       context: undefined,
       workspaceStyle,
+      hints: true,
     });
     const root = await gitIn(dir, "rev-parse", "--show-toplevel");
 
@@ -894,6 +1164,7 @@ test("gotoOffer reports a held change as here and offers ways to bring in an unh
       landVia: "auto",
       context: undefined,
       workspaceStyle,
+      hints: true,
     });
     const root = await gitIn(dir, "rev-parse", "--show-toplevel");
     await gitIn(dir, "worktree", "add", "--quiet", `${root}-gadget`, "gadget");

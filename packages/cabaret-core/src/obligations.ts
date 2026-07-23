@@ -18,7 +18,7 @@ import {
 } from "./backend.js";
 import { UserError } from "./error.js";
 import { currentSelf, isSelf, type Self } from "./self.js";
-import { reviewRounds } from "./summary.js";
+import { reviewLeft } from "./summary.js";
 
 /** The name of the obligations file each directory may contain. */
 export const OBLIGATIONS_FILE = ".obligations";
@@ -31,10 +31,20 @@ export interface Requirement {
   readonly of: readonly UserName[];
 }
 
+/**
+ * The kind of review a requirement demands. Blocking review gates the land:
+ * the change cannot land until the requirement is satisfied. Follow review is
+ * asynchronous: it never gates, but stays owed — through the land and beyond —
+ * until the reviewers catch up.
+ */
+export type ReviewKind = "blocking" | "follow";
+
 /** One rule of an obligations file: the requirement it puts on matching files. */
 export interface ObligationRule {
   /** A gitignore-style pattern, relative to the directory containing the file. */
   readonly match: string;
+  /** The kind of review demanded; follow — the lighter demand — unless the rule says. */
+  readonly kind: ReviewKind;
   readonly require: Requirement;
 }
 
@@ -60,6 +70,7 @@ const ObligationRuleSchema = z.strictObject({
     .string()
     .min(1)
     .refine((pattern) => !pattern.endsWith("/"), { error: "patterns match files, not directories" }),
+  kind: z.enum(["blocking", "follow"]).default("follow"),
   require: RequirementSchema,
 }) satisfies z.ZodType<ObligationRule>;
 
@@ -71,6 +82,18 @@ const ObligationsFileSchema = z.strictObject({
 /** Parse the JSON text of an `.obligations` file. */
 export function parseObligationsFile(text: string): ObligationsFile {
   return ObligationsFileSchema.parse(JSON.parse(text));
+}
+
+/**
+ * An obligations file the policy read could not parse. Mending the policy is
+ * the owner's work alone: pages read this as the change's `fix obligations`
+ * step and ask review of nobody, and only the owner's own actions — a land —
+ * surface the diagnostic itself.
+ */
+export class MalformedObligationsError extends UserError {
+  constructor(path: FilePath, commit: Revision, detail: string) {
+    super(`malformed obligations file ${JSON.stringify(path)} at ${commit.slice(0, 12)}${detail}`);
+  }
 }
 
 /** Read and parse the obligations file at `path` in `commit`'s tree, or undefined if there is none. */
@@ -88,7 +111,7 @@ async function readObligations(
   } catch (cause) {
     const detail =
       cause instanceof z.ZodError ? `\n${z.prettifyError(cause)}` : cause instanceof Error ? `: ${cause.message}` : "";
-    throw new UserError(`malformed obligations file ${JSON.stringify(path)} at ${commit.slice(0, 12)}${detail}`);
+    throw new MalformedObligationsError(path, commit, detail);
   }
 }
 
@@ -109,6 +132,7 @@ export interface Obligation {
   readonly file: FilePath;
   /** The obligations file that put the requirement there, or the implicit standing that did: the owner's self-review, or a reviewer's whole-diff review. */
   readonly source: FilePath | "owner" | "reviewer";
+  readonly kind: ReviewKind;
   readonly require: Requirement;
 }
 
@@ -146,7 +170,7 @@ export async function changeObligations(
       const relative = parts.slice(depth).join("/");
       for (const rule of policy.rules) {
         if (patternMatches(rule.match, relative)) {
-          obligations.push({ file, source, require: rule.require });
+          obligations.push({ file, source, kind: rule.kind, require: rule.require });
         }
       }
       if (policy.root) {
@@ -154,9 +178,19 @@ export async function changeObligations(
       }
     }
     if (parts.at(-1) === OBLIGATIONS_FILE) {
-      const replaced = await readObligations(backend, base, file);
+      let replaced: ObligationsFile | undefined;
+      try {
+        replaced = await readObligations(backend, base, file);
+      } catch (error) {
+        // A base version nobody can parse states no requirements: the change
+        // fixing a broken policy answers only to the files governing it, or
+        // it could never land.
+        if (!(error instanceof MalformedObligationsError)) {
+          throw error;
+        }
+      }
       for (const rule of replaced?.rules ?? []) {
-        obligations.push({ file, source: file, require: rule.require });
+        obligations.push({ file, source: file, kind: rule.kind, require: rule.require });
       }
     }
   }
@@ -248,13 +282,21 @@ export function isSatisfied({ obligation, reviewedBy }: ObligationStatus): boole
 }
 
 /**
- * The status of every obligation on `diff`, owned by `owner`. Only files
- * changed within the change's own review spans are governed: the diff a
- * land merge brings in was reviewed in the landed child, under the child's
- * own obligations. Independent of any rules, every governed file carries the
- * owner's implicit self-review requirement, and one likewise for each of the
+ * The statuses that stand in a land's way: unsatisfied and blocking. Follow
+ * review stays owed — `reviewOwed` keeps asking — but never gates.
+ */
+export function landBlockers(statuses: readonly ObligationStatus[]): readonly ObligationStatus[] {
+  return statuses.filter((status) => !isSatisfied(status) && status.obligation.kind === "blocking");
+}
+
+/**
+ * The status of every obligation on `diff`, owned by `owner`. Every file of
+ * the diff is governed. Independent of any rules, each carries the owner's
+ * implicit self-review requirement, and one likewise for each of the
  * change's reviewers. A user counts toward a requirement exactly when no
- * round of review is left for them on the file.
+ * review of the file is left for them — the diff a land merge brings in
+ * counts through the land's fast-forward, so it answers to the landed
+ * child's obligations, not to re-reading here.
  */
 export async function obligationStatuses(
   backend: Backend,
@@ -262,13 +304,7 @@ export async function obligationStatuses(
   owner: UserName,
   diff: ChangeDiff,
 ): Promise<readonly ObligationStatus[]> {
-  const files = new Set<FilePath>();
-  for (const { changed } of diff.spans) {
-    for (const file of changed) {
-      files.add(file);
-    }
-  }
-  const sorted = [...files].sort();
+  const sorted = [...diff.changed.keys()].sort();
   // An owning reviewer already owes every file as owner; a second identical
   // requirement would only double the noise.
   const standings: readonly (readonly [UserName, "owner" | "reviewer"])[] = [
@@ -277,16 +313,17 @@ export async function obligationStatuses(
       .filter((reviewer) => reviewer !== owner)
       .map((reviewer) => [reviewer, "reviewer"] as const),
   ];
+  // The owner and each reviewer sign off before the land: their standings
+  // block, where a rule blocks only when it says so.
   const obligations: Obligation[] = [
     ...standings.flatMap(([user, source]) =>
-      sorted.map((file) => ({ file, source, require: { atLeast: 1, of: [user] } })),
+      sorted.map((file) => ({ file, source, kind: "blocking" as const, require: { atLeast: 1, of: [user] } })),
     ),
     ...(await changeObligations(backend, diff.base, diff.tip, sorted)),
   ];
   const left = new Map<UserName, ReadonlySet<FilePath>>();
   for (const user of new Set(obligations.flatMap(({ require }) => require.of))) {
-    const rounds = await reviewRounds(backend, entries, user, diff);
-    left.set(user, new Set(rounds.flatMap(({ files: due }) => [...due.keys()])));
+    left.set(user, new Set((await reviewLeft(backend, entries, user, diff)).keys()));
   }
   const covered = (user: UserName, file: FilePath): boolean => {
     const due = left.get(user);
@@ -302,15 +339,38 @@ export async function obligationStatuses(
 }
 
 /** The users who can still count toward the requirement. */
-function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
+export function outstanding({ obligation, reviewedBy }: ObligationStatus): readonly UserName[] {
   return obligation.require.of.filter((user) => !reviewedBy.includes(user));
+}
+
+/** A diff's obligation statuses, or the malformed policy that kept them unread. */
+export type ObligationsReading =
+  | { readonly kind: "read"; readonly statuses: readonly ObligationStatus[] }
+  | { readonly kind: "malformed"; readonly error: MalformedObligationsError };
+
+/** `obligationStatuses`, reading a malformed policy as a reading of its own rather than an error. */
+export async function obligationsReading(
+  backend: Backend,
+  entries: readonly LogEntry[],
+  owner: UserName,
+  diff: ChangeDiff,
+): Promise<ObligationsReading> {
+  try {
+    return { kind: "read", statuses: await obligationStatuses(backend, entries, owner, diff) };
+  } catch (error) {
+    if (error instanceof MalformedObligationsError) {
+      return { kind: "malformed", error };
+    }
+    throw error;
+  }
 }
 
 /**
  * The files of `diff` with an unsatisfied obligation that a review from
  * `self` — any of their identities — can still count toward, sorted by name.
  * Empty exactly when the change needs nothing from them — however much of it
- * they have not read.
+ * they have not read. A malformed policy asks nobody: mending it is the
+ * owner's next step, not review anyone owes.
  */
 export async function reviewOwed(
   backend: Backend,
@@ -319,11 +379,23 @@ export async function reviewOwed(
   self: Self,
   diff: ChangeDiff,
 ): Promise<readonly FilePath[]> {
-  const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const owed = statuses.filter(
+  const reading = await obligationsReading(backend, entries, owner, diff);
+  if (reading.kind === "malformed") {
+    return [];
+  }
+  const owed = reading.statuses.filter(
     (status) => !isSatisfied(status) && outstanding(status).some((user) => isSelf(self, user)),
   );
   return [...new Set(owed.map(({ obligation }) => obligation.file))].sort();
+}
+
+/** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+function obligationDetails(unsatisfied: readonly ObligationStatus[]): readonly string[] {
+  return unsatisfied.map((status) => {
+    const { file, source, require } = status.obligation;
+    const missing = require.atLeast - status.reviewedBy.length;
+    return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
+  });
 }
 
 /**
@@ -333,16 +405,32 @@ export async function reviewOwed(
  * remedy — a flag, a confirmation dialog — before showing it.
  */
 export class UnsatisfiedObligationsError extends UserError {
-  /** One line per unsatisfied obligation: the file, the reviews missing, and the rule's source. */
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
   readonly details: readonly string[];
 
   constructor(readonly unsatisfied: readonly ObligationStatus[]) {
-    const details = unsatisfied.map((status) => {
-      const { file, source, require } = status.obligation;
-      const missing = require.atLeast - status.reviewedBy.length;
-      return `  ${file}: ${missing} more of ${outstanding(status).join(", ")} (${source})`;
-    });
+    const details = obligationDetails(unsatisfied);
     super(`review obligations are unsatisfied:\n${details.join("\n")}`);
+    this.details = details;
+  }
+}
+
+/**
+ * The parent's review obligations block the land: a land absorbs the child
+ * into the parent's diff and advances what its reviewers are asked to hold,
+ * so the parent settles its own pending review first. The message states
+ * only the facts; each frontend attaches its own override remedy.
+ */
+export class UnreviewedParentError extends UserError {
+  /** One line per unsatisfied obligation, as `obligationDetails`. */
+  readonly details: readonly string[];
+
+  constructor(
+    readonly parent: ChangeName,
+    readonly unsatisfied: readonly ObligationStatus[],
+  ) {
+    const details = obligationDetails(unsatisfied);
+    super(`parent ${JSON.stringify(parent)} has unsatisfied review obligations:\n${details.join("\n")}`);
     this.details = details;
   }
 }
@@ -387,16 +475,15 @@ export function reviewerSummary(unsatisfied: readonly ObligationStatus[]): reado
   return reviewerTallies(unsatisfied).map(tallyText);
 }
 
-/** Fail with `UnsatisfiedObligationsError` unless every obligation on `diff` is satisfied. */
+/** Fail with `UnsatisfiedObligationsError` unless every blocking obligation on `diff` is satisfied. */
 export async function assertObligationsSatisfied(
   backend: Backend,
   entries: readonly LogEntry[],
   owner: UserName,
   diff: ChangeDiff,
 ): Promise<void> {
-  const statuses = await obligationStatuses(backend, entries, owner, diff);
-  const unsatisfied = statuses.filter((status) => !isSatisfied(status));
-  if (unsatisfied.length > 0) {
-    throw new UnsatisfiedObligationsError(unsatisfied);
+  const blockers = landBlockers(await obligationStatuses(backend, entries, owner, diff));
+  if (blockers.length > 0) {
+    throw new UnsatisfiedObligationsError(blockers);
   }
 }

@@ -6,10 +6,11 @@ import {
   landAsConfigured,
   landChain,
   readConfig,
+  reconcileChange,
   resolveRange,
 } from "cabaret-core";
 import type { LocalContext } from "../context.js";
-import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
+import { type ChangeSpec, evenThoughNotOwner, forgeIfAny, parseChangeSpec, settledLines } from "./shared.js";
 
 /** The escape hatch for the review-obligations check on `land`. */
 const evenThoughUnreviewed = {
@@ -18,25 +19,33 @@ const evenThoughUnreviewed = {
   default: false,
 } as const;
 
+/** The escape hatch for the parent-obligations check on `land`. */
+const evenThoughParentUnreviewed = {
+  kind: "boolean",
+  brief: "Land even though the parent's review obligations are unsatisfied",
+  default: false,
+} as const;
+
 export const land = buildCommand({
   docs: {
     brief: "Land a change into its parent",
     fullDescription:
       "Land a change: write it onto its parent as a commit marked as landing " +
-      "(a merge, or a squash with cabaret config land-method squash), so " +
+      "(a merge, or a squash with cab config land-method squash), so " +
       "the parent's reviewers are not asked to re-review the change's diff, " +
       "and record the landing in the change's log. A change tracked on a " +
-      "forge lands by merging there and fetching the result; cabaret config " +
+      "forge lands by merging there and fetching the result; cab config " +
       "land-via local (or forge) picks one side " +
       "unconditionally. A change whose parent moved on lands as it stands " +
-      "when it merges cleanly onto the new tip; `cabaret rebase` first when " +
-      "it conflicts. Children of the landed change are reparented onto its " +
-      "parent, where their code now lives. A landed change can no longer be " +
-      "rebased, renamed, reparented, or transferred, though reviewing it is " +
-      "still recorded. A range `ancestor..descendant` lands every change " +
-      "after `ancestor` on `descendant`'s parent chain, `descendant` first, " +
-      "skipping changes that already landed; when one fails, the landings " +
-      "before it stand, and rerunning the range resumes.",
+      "when it merges cleanly onto the new tip; `cab rebase` first when " +
+      "it conflicts. Landing concludes the change: it archives, and its " +
+      "children are reparented onto its parent, where their code now " +
+      "lives, their forge changes retargeted to match. A permanent change " +
+      "stays live instead, at the landing commit with an empty diff, ready " +
+      "for its next cycle of work. A range `ancestor..descendant` lands " +
+      "every change after `ancestor` on `descendant`'s parent chain, " +
+      "`descendant` first, skipping archived changes; when one fails, the " +
+      "landings before it stand, and rerunning the range resumes.",
   },
   parameters: {
     positional: {
@@ -50,16 +59,25 @@ export const land = buildCommand({
         },
       ],
     },
-    flags: { evenThoughNotOwner, evenThoughUnreviewed },
+    flags: { evenThoughNotOwner, evenThoughUnreviewed, evenThoughParentUnreviewed },
   },
   async func(
     this: LocalContext,
-    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean },
+    flags: { evenThoughNotOwner: boolean; evenThoughUnreviewed: boolean; evenThoughParentUnreviewed: boolean },
     spec?: ChangeSpec,
   ) {
     const backend = await this.backend();
     const config = await readConfig(backend);
-    const landOne = async (change: ChangeName, entries: readonly LogEntry[]) => {
+    const landOne = async (change: ChangeName, _entries: readonly LogEntry[]) => {
+      // Lands write through like any command: the reconcile settles the
+      // forge change — a pending retarget included — before the land reads
+      // it, and the land proceeds on the settled log.
+      const forge = await forgeIfAny(this);
+      const settled = await reconcileChange(backend, this.now, forge, change);
+      for (const line of settledLines(forge?.locator, settled)) {
+        this.process.stdout.write(`${line}\n`);
+      }
+      const entries = await backend.readLog(change);
       const { merged, reparented, publication } = await landAsConfigured(
         backend,
         this.now,
@@ -67,7 +85,11 @@ export const land = buildCommand({
         config,
         change,
         entries,
-        { notOwner: flags.evenThoughNotOwner, unreviewed: flags.evenThoughUnreviewed },
+        {
+          notOwner: flags.evenThoughNotOwner,
+          unreviewed: flags.evenThoughUnreviewed,
+          parentUnreviewed: flags.evenThoughParentUnreviewed,
+        },
       );
       const parent = currentParent(change, entries);
       if (merged !== undefined) {
@@ -79,14 +101,17 @@ export const land = buildCommand({
         this.process.stderr.write(
           `warning: origin unreachable; ${JSON.stringify(parent)} keeps the land locally — push it when back online\n`,
         );
-      } else if (publication === "parent-stale") {
-        this.process.stderr.write(
-          `warning: local ${JSON.stringify(parent)} is not current with origin's copy; the land stays local\n`,
-        );
       }
       if (reparented !== undefined) {
+        const retargeted = new Map(reparented.retargeted.map((entry) => [entry.change, entry]));
         for (const child of reparented.children) {
           this.process.stdout.write(`reparented ${JSON.stringify(child)} onto ${JSON.stringify(reparented.onto)}\n`);
+          const forgeChange = retargeted.get(child);
+          if (forgeChange !== undefined) {
+            this.process.stdout.write(
+              `retargeted ${forgeChange.forge}#${forgeChange.id} onto ${JSON.stringify(reparented.onto)}\n`,
+            );
+          }
         }
       }
     };

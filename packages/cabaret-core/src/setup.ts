@@ -14,7 +14,7 @@ export interface Recommendation {
   readonly scope: ConfigScope;
   /** Whether the key accumulates values rather than holding one. */
   readonly multi: boolean;
-  /** What the setting does, phrased to complete "cabaret recommends …". */
+  /** What the setting does, phrased to complete "cab recommends …". */
   readonly brief: string;
   /** Whether the recommendation makes sense in this repository; omitted means always. */
   readonly applies?: (backend: Backend) => Promise<boolean>;
@@ -45,10 +45,13 @@ async function standing(backend: Backend, rec: Recommendation): Promise<Standing
   return current === rec.value ? { kind: "applied" } : { kind: "differs", current };
 }
 
-/** Audit the recommendations that apply to `backend`'s repository. */
-export async function auditSetup(backend: Backend): Promise<readonly SetupAudit[]> {
+/** Audit the recommendations that apply to `backend`'s repository: its own, then any of `extra`. */
+export async function auditSetup(
+  backend: Backend,
+  extra: readonly Recommendation[] = [],
+): Promise<readonly SetupAudit[]> {
   const audits: SetupAudit[] = [];
-  for (const rec of backend.setupRecommendations()) {
+  for (const rec of [...backend.setupRecommendations(), ...extra]) {
     if (rec.applies === undefined || (await rec.applies(backend))) {
       audits.push({ rec, standing: await standing(backend, rec) });
     }

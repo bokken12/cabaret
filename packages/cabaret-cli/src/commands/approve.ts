@@ -10,12 +10,23 @@ function announce(ctx: LocalContext, path: string, values: Readonly<Record<strin
     .filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))
     .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
     .join(", ");
-  ctx.process.stdout.write(`cabaret ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`);
+  ctx.process.stdout.write(`cab ${path}${shown ? ` (${shown})` : ""}: not yet implemented\n`);
 }
 
 export const approve = buildCommand({
   docs: { brief: "Approve a change" },
   parameters: {
+    positional: {
+      kind: "tuple",
+      parameters: [
+        {
+          brief: "change to approve (defaults to current)",
+          placeholder: "change",
+          parse: String,
+          optional: true,
+        },
+      ],
+    },
     flags: {
       allowEmpty: {
         kind: "boolean",
@@ -29,7 +40,7 @@ export const approve = buildCommand({
       },
     },
   },
-  func(this: LocalContext, flags: { allowEmpty: boolean; allowOwner: boolean }) {
-    announce(this, "approve", flags);
+  func(this: LocalContext, flags: { allowEmpty: boolean; allowOwner: boolean }, change?: string) {
+    announce(this, "approve", { ...flags, change });
   },
 });

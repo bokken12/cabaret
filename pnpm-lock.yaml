@@ -35,6 +35,9 @@ importers:
       cabaret-node:
         specifier: workspace:*
         version: link:../cabaret-node
+      cabaret-tui:
+        specifier: workspace:*
+        version: link:../cabaret-tui
       cabaret-views:
         specifier: workspace:*
         version: link:../cabaret-views
@@ -61,16 +64,7 @@ importers:
         specifier: ^4.8.0
         version: 4.8.0
 
-  packages/cabaret-forgejo:
-    dependencies:
-      cabaret-core:
-        specifier: workspace:*
-        version: link:../cabaret-core
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-
-  packages/cabaret-github:
+  packages/cabaret-forges:
     dependencies:
       '@octokit/core':
         specifier: ^7.0.6
@@ -91,29 +85,29 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/cabaret-gitlab:
-    dependencies:
-      cabaret-core:
-        specifier: workspace:*
-        version: link:../cabaret-core
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-
   packages/cabaret-node:
     dependencies:
       cabaret-core:
         specifier: workspace:*
         version: link:../cabaret-core
-      cabaret-forgejo:
+      cabaret-forges:
         specifier: workspace:*
-        version: link:../cabaret-forgejo
-      cabaret-github:
+        version: link:../cabaret-forges
+
+  packages/cabaret-tui:
+    dependencies:
+      cabaret-core:
         specifier: workspace:*
-        version: link:../cabaret-github
-      cabaret-gitlab:
+        version: link:../cabaret-core
+      cabaret-node:
         specifier: workspace:*
-        version: link:../cabaret-gitlab
+        version: link:../cabaret-node
+      cabaret-util:
+        specifier: workspace:*
+        version: link:../cabaret-util
+      cabaret-views:
+        specifier: workspace:*
+        version: link:../cabaret-views
 
   packages/cabaret-util:
     devDependencies:

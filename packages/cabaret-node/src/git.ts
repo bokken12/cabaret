@@ -1,19 +1,22 @@
 import { execFile, spawn } from "node:child_process";
-import { readFile, rm, stat } from "node:fs/promises";
+import { lstat, readFile, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import {
   type Backend,
+  type ChainMerge,
+  type ChangedFile,
   type ChangeName,
   type ConfigScope,
+  type Dirty,
   type FilePath,
   formatLogEntry,
   LAND_TRAILER,
-  type LandMerge,
   type LogEntry,
   mergeLogs,
   parseBranchName,
   parseCommitHash,
+  parseFileMode,
   parseFilePath,
   parseLog,
   type Recommendation,
@@ -66,6 +69,33 @@ async function git(cwd: string, args: readonly string[], stdin?: string): Promis
       throw new GitUnavailableError();
     }
     throw error;
+  }
+}
+
+/**
+ * A ref update losing its compare-and-swap to a concurrent process: the ref
+ * "is at" the winner's value where git "expected" the one it first read. The
+ * losing update aborts atomically, touching nothing.
+ */
+const REF_RACE = /cannot lock ref '[^']+': is at [0-9a-f]+ but expected [0-9a-f]+/;
+
+/**
+ * Run a fetch, given as full git arguments, retrying when it loses a ref
+ * update race to a concurrent fetch of the same refs. A rerun recomputes
+ * every update from the winner's value, so retrying is always sound — and
+ * usually a no-op, the winner having installed the same values. Bounded so
+ * sustained contention still surfaces.
+ */
+async function fetchRetryingRaces(root: string, args: readonly string[]): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await git(root, args);
+      return;
+    } catch (error) {
+      if (attempt >= 2 || !REF_RACE.test((error as Error).message)) {
+        throw error;
+      }
+    }
   }
 }
 
@@ -252,6 +282,16 @@ function remoteLogRef(change: ChangeName): ChangeName {
 /** Path of the log file within a log ref's tree. */
 const LOG_PATH = "log";
 
+/**
+ * Where the forge sweep record lives: a blob of how far origin's logs have
+ * absorbed the forge. Its copies join by max; the fetch is forced, and the
+ * push leases on the fetched value, skipping when a racer advanced first.
+ */
+const FORGE_REF = `${CABARET_REF_PREFIX}forge/sweep`;
+const REMOTE_FORGE_REF = `${CABARET_REF_PREFIX}remote-forge/sweep`;
+// Wildcarded so a fetch finding no record yet succeeds; an exact refspec fails.
+export const FORGE_FETCH_REFSPEC = `+${CABARET_REF_PREFIX}forge/*:${CABARET_REF_PREFIX}remote-forge/*`;
+
 /** A `Backend` that shells out to a local `git`. */
 export class GitBackend implements Backend {
   readonly parseRevision = parseCommitHash;
@@ -282,13 +322,20 @@ export class GitBackend implements Backend {
 
   /** Open the git repository containing `dir`. */
   static async open(dir: string): Promise<GitBackend> {
-    const [root, gitDir, worktreeGitDir, prefix] = await Promise.all([
-      git(dir, ["rev-parse", "--show-toplevel"]),
-      git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      git(dir, ["rev-parse", "--absolute-git-dir"]),
-      git(dir, ["rev-parse", "--show-prefix"]),
+    // One spawn answers all four queries, a line each in argument order.
+    const out = await git(dir, [
+      "rev-parse",
+      "--show-toplevel",
+      "--path-format=absolute",
+      "--git-common-dir",
+      "--absolute-git-dir",
+      "--show-prefix",
     ]);
-    return new GitBackend(root.trimEnd(), gitDir.trimEnd(), worktreeGitDir.trimEnd(), prefix.trimEnd());
+    const [root, gitDir, worktreeGitDir, prefix] = out.split("\n");
+    if (root === undefined || gitDir === undefined || worktreeGitDir === undefined || prefix === undefined) {
+      throw new Error(`rev-parse answered ${JSON.stringify(out)}`);
+    }
+    return new GitBackend(root, gitDir, worktreeGitDir, prefix);
   }
 
   resolveFile(raw: string): FilePath {
@@ -299,7 +346,8 @@ export class GitBackend implements Backend {
     if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) {
       throw new UserError(`path is outside the repository: ${JSON.stringify(raw)}`);
     }
-    return parseFilePath(path);
+    // Tab completion leaves a trailing separator on a directory.
+    return parseFilePath(path.endsWith(sep) ? path.slice(0, -1) : path);
   }
 
   async currentChange(): Promise<ChangeName> {
@@ -323,6 +371,26 @@ export class GitBackend implements Backend {
       }
       throw error;
     }
+  }
+
+  /**
+   * The worktree directory holding each checked-out branch, this workspace's
+   * included. Moving a held branch's ref must go through its home — plumbing
+   * like `update-ref` bypasses git's one-worktree-per-branch protections and
+   * would strand the home's index and working tree on the old commit.
+   */
+  private async branchHomes(): Promise<Map<ChangeName, string>> {
+    const out = await git(this.root, ["worktree", "list", "--porcelain"]);
+    const homes = new Map<ChangeName, string>();
+    for (const block of out.trimEnd().split("\n\n")) {
+      const lines = block.split("\n");
+      const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+      const ref = lines.find((line) => line.startsWith("branch refs/heads/"));
+      if (path !== undefined && ref !== undefined) {
+        homes.set(parseBranchName(ref.slice("branch refs/heads/".length)), path);
+      }
+    }
+    return homes;
   }
 
   async currentUser(): Promise<UserName> {
@@ -470,23 +538,40 @@ export class GitBackend implements Backend {
   async fetch(branch: ChangeName): Promise<void> {
     // Without a leading `+` on the refspec, git refuses a non-fast-forward
     // update, so a diverged local branch fails instead of losing work. Git
-    // also refuses to fetch into a checked-out branch, so that case fetches
-    // origin's reading into its remote-tracking ref and fast-forwards onto
-    // that, carrying the index and working tree along — and still failing on
-    // divergence. Merging FETCH_HEAD instead would race: it is one file
-    // shared by every fetch in the worktree, and a concurrent log fetch
-    // rewrites it to name an unrelated-history log commit as the merge
-    // candidate.
-    if ((await this.checkedOutBranch()) === branch) {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`]);
-      await git(this.root, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
+    // also refuses to fetch into a branch any worktree has checked out, so
+    // that case fetches origin's reading into its remote-tracking ref and
+    // fast-forwards onto that in the branch's home worktree, carrying its
+    // index and working tree along — and still failing on divergence.
+    // Merging FETCH_HEAD instead would race: it is one file shared by every
+    // fetch in the worktree, and a concurrent log fetch rewrites it to name
+    // an unrelated-history log commit as the merge candidate.
+    const home = (await this.branchHomes()).get(branch);
+    if (home === undefined) {
+      await fetchRetryingRaces(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
     } else {
-      await git(this.root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+      await fetchRetryingRaces(this.root, [
+        "fetch",
+        "--quiet",
+        "origin",
+        `refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
+      await git(home, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
     }
   }
 
   async fetchOrigin(): Promise<void> {
-    await git(this.root, ["fetch", "--quiet", "origin"]);
+    // One fetch brings branches and logs alike. The log refspec goes in as
+    // config because a command-line refspec would replace the configured
+    // ones; `-c` adds a value to the multi-valued key instead.
+    await fetchRetryingRaces(this.root, [
+      "-c",
+      `remote.origin.fetch=${LOG_FETCH_REFSPEC}`,
+      "-c",
+      `remote.origin.fetch=${FORGE_FETCH_REFSPEC}`,
+      "fetch",
+      "--quiet",
+      "origin",
+    ]);
   }
 
   async originFetched(): Promise<TimestampMs | undefined> {
@@ -530,20 +615,11 @@ export class GitBackend implements Backend {
         origins.set(parseBranchName(ref.slice("refs/remotes/origin/".length)), oid);
       }
     }
-    // Straight from worktree list rather than `workspaces()`, whose
+    // Homes from the worktree list rather than `workspaces()`, whose
     // dirtiness reading costs a status scan per worktree — too heavy for a
     // background cadence; only the worktrees of branches origin is strictly
     // ahead of get one below.
-    const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-    const homes = new Map<ChangeName, string>();
-    for (const block of worktrees.trimEnd().split("\n\n")) {
-      const lines = block.split("\n");
-      const path = lines.find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
-      const ref = lines.find((line) => line.startsWith("branch refs/heads/"));
-      if (path !== undefined && ref !== undefined) {
-        homes.set(parseBranchName(ref.slice("branch refs/heads/".length)), path);
-      }
-    }
+    const homes = await this.branchHomes();
     const advanced: ChangeName[] = [];
     for (const [branch, tip] of heads) {
       const origin = origins.get(branch);
@@ -583,25 +659,113 @@ export class GitBackend implements Backend {
     return advanced.sort();
   }
 
+  async joinBranches(changes: readonly ChangeName[]): Promise<readonly ChangeName[]> {
+    const homes = await this.branchHomes();
+    const joined: ChangeName[] = [];
+    for (const branch of changes) {
+      const tip = await this.tip(branch);
+      const origin = await this.originTip(branch);
+      if (tip === undefined || origin === undefined || tip === origin) {
+        continue;
+      }
+      if ((await this.isAncestor(tip, origin)) || (await this.isAncestor(origin, tip))) {
+        continue;
+      }
+      // The probe merges trees without touching any worktree; a conflicted
+      // pair is sync's business, and there is nothing to retry until a
+      // reading moves.
+      let tree: string;
+      try {
+        tree = (await git(this.root, ["merge-tree", "--write-tree", tip, origin])).trim();
+      } catch {
+        continue;
+      }
+      const message = `Merge origin's '${branch}' into ${branch}`;
+      const home = homes.get(branch);
+      if (home === undefined) {
+        const commit = (await git(this.root, ["commit-tree", tree, "-p", tip, "-p", origin, "-m", message])).trim();
+        // CAS on the tip read above: a branch moved concurrently stays put.
+        try {
+          await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, tip]);
+        } catch {
+          continue;
+        }
+      } else {
+        // A worktree holds the branch: the join carries its index and
+        // working tree along, so only a clean worktree still on the branch
+        // moves — a dirty one keeps its line of work in place.
+        try {
+          const status = await git(home, ["status", "--porcelain=v2", "--branch"]);
+          const lines = status.split("\n").filter((line) => line !== "");
+          if (!lines.includes(`# branch.head ${branch}`) || lines.some((line) => !line.startsWith("# "))) {
+            continue;
+          }
+          await git(home, ["merge", "--no-ff", "-m", message, origin]);
+        } catch {
+          continue;
+        }
+      }
+      joined.push(branch);
+    }
+    return joined.sort();
+  }
+
   async syncLog(change: ChangeName): Promise<void> {
-    await this.fetchLogs();
     await this.publishLogs([change]);
   }
 
   async syncLogs(): Promise<readonly ChangeName[]> {
-    await this.fetchLogs();
+    const out = await git(this.root, ["for-each-ref", "--format=%(refname)", LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]);
     const names = new Set<ChangeName>();
-    for (const prefix of [LOG_REF_PREFIX, REMOTE_LOG_REF_PREFIX]) {
-      const out = await git(this.root, ["for-each-ref", "--format=%(refname)", prefix]);
-      for (const line of out.split("\n")) {
-        if (line !== "") {
-          names.add(parseBranchName(line.slice(prefix.length)));
-        }
+    for (const line of out.split("\n")) {
+      if (line === "") {
+        continue;
       }
+      const prefix = line.startsWith(LOG_REF_PREFIX) ? LOG_REF_PREFIX : REMOTE_LOG_REF_PREFIX;
+      names.add(parseBranchName(line.slice(prefix.length)));
     }
     const changes = [...names].sort();
     await this.publishLogs(changes);
     return changes;
+  }
+
+  async forgeSweepState(): Promise<string | undefined> {
+    try {
+      return await git(this.root, ["cat-file", "blob", REMOTE_FORGE_REF]);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async publishForgeSweepState(content: string): Promise<void> {
+    const blob = (await git(this.root, ["hash-object", "-w", "--stdin"], content)).trim();
+    await git(this.root, ["update-ref", FORGE_REF, blob]);
+    let expected: string;
+    try {
+      expected = (await git(this.root, ["rev-parse", "--verify", REMOTE_FORGE_REF])).trim();
+    } catch {
+      // Never fetched: the lease demands the ref not exist yet.
+      expected = "";
+    }
+    // Advance-or-skip: the lease rejects the push when someone advanced the
+    // record since this fetch read it, and that advance serves in this one's
+    // stead — the record never regresses. `--porcelain` reports the
+    // rejection on stdout whatever the exit code; any other failure surfaces.
+    try {
+      await git(this.root, [
+        "push",
+        "--quiet",
+        "--porcelain",
+        `--force-with-lease=${FORGE_REF}:${expected}`,
+        "origin",
+        `${FORGE_REF}:${FORGE_REF}`,
+      ]);
+    } catch (error) {
+      const stdout = (error as { stdout?: string }).stdout;
+      if (stdout === undefined || !stdout.split("\n").some((line) => line.startsWith("!"))) {
+        throw error;
+      }
+    }
   }
 
   async wipeReviewState(): Promise<readonly ChangeName[]> {
@@ -647,7 +811,7 @@ export class GitBackend implements Backend {
 
   /** Fetch every log on `origin` into the remote-log namespace. */
   private async fetchLogs(): Promise<void> {
-    await git(this.root, ["fetch", "--quiet", "origin", LOG_FETCH_REFSPEC]);
+    await fetchRetryingRaces(this.root, ["fetch", "--quiet", "origin", LOG_FETCH_REFSPEC]);
   }
 
   /**
@@ -703,8 +867,10 @@ export class GitBackend implements Backend {
         ...pending.map(({ change, tip }) => `${tip}:${logRef(change)}`),
       ]);
     } catch (error) {
+      // Only a push that reached the remote reports per-ref outcomes; an
+      // empty porcelain is a transport failure, not a rejection.
       const stdout = (error as { stdout?: string }).stdout;
-      if (stdout === undefined) {
+      if (stdout === undefined || stdout === "") {
         throw error;
       }
       out = stdout;
@@ -796,24 +962,91 @@ export class GitBackend implements Backend {
     return (response.body ?? Buffer.alloc(0)).toString();
   }
 
-  async changedFiles(base: Revision, tip: Revision): Promise<readonly FilePath[]> {
-    // -z delimits with NULs and disables path quoting; --no-renames keeps a
-    // moved file as a delete plus an add, so each listed path exists under
-    // that name on whichever side has it. Submodules are dropped: a gitlink
-    // is not a file, so readFile could not serve it.
+  async changedFiles(base: Revision, tip: Revision): Promise<readonly ChangedFile[]> {
+    // -z delimits with NULs and disables path quoting. --find-renames pairs
+    // a moved file's two sides into one entry — an unchanged move by hash
+    // alone, an edited one by content similarity — and --find-copies does
+    // the same for a file copied from one modified in the same diff; sources
+    // elsewhere in the tree go unrecognized, as scanning them all
+    // (--find-copies-harder) costs too much in a large repository.
+    // Submodules are dropped: a gitlink is not a file, so readFile could not
+    // serve it.
     const out = await git(this.root, [
       "diff",
-      "--name-only",
-      "--no-renames",
+      "--raw",
+      "--find-renames",
+      "--find-copies",
       "--ignore-submodules=all",
       "-z",
       base,
       tip,
     ]);
-    return out
-      .split("\0")
-      .filter((path) => path !== "")
-      .map(parseFilePath);
+    // Each record is ":<old mode> <new mode> <old hash> <new hash> <status>",
+    // then one path — or two for a rename or copy, source before destination.
+    // The trailing NUL leaves one empty token at the end.
+    const tokens = out.split("\0");
+    const files: ChangedFile[] = [];
+    for (let i = 0; ; ) {
+      const header = tokens[i];
+      if (header === undefined || header === "") {
+        break;
+      }
+      const fields = header.match(/^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z]\d*)$/);
+      const path = tokens[i + 1];
+      if (fields === null || path === undefined) {
+        throw new Error(`malformed diff record ${JSON.stringify(header)}`);
+      }
+      const [, oldMode = "", newMode = "", status = ""] = fields;
+      // A file only one side has changes no mode — it has just one.
+      const modes =
+        oldMode === "000000" || newMode === "000000" || oldMode === newMode
+          ? undefined
+          : { prev: parseFileMode(oldMode), next: parseFileMode(newMode) };
+      if (/^[ADMT]$/.test(status)) {
+        files.push({ path: parseFilePath(path), source: undefined, modes });
+        i += 2;
+      } else if (/^[RC]\d+$/.test(status)) {
+        const to = tokens[i + 2];
+        if (to === undefined) {
+          throw new Error(
+            `${status.startsWith("R") ? "rename" : "copy"} of ${JSON.stringify(path)} names no destination`,
+          );
+        }
+        files.push({
+          path: parseFilePath(to),
+          source: { path: parseFilePath(path), copied: status.startsWith("C") },
+          modes,
+        });
+        i += 3;
+      } else {
+        throw new Error(`unexpected diff status ${JSON.stringify(status)} for ${JSON.stringify(path)}`);
+      }
+    }
+    return files;
+  }
+
+  async nonWhitespaceChanges(base: Revision, tip: Revision): Promise<ReadonlySet<FilePath>> {
+    // -w and --ignore-blank-lines make git drop a file whose only line
+    // changes are spacing, blank lines, or a trailing newline, while a file
+    // changed in existence, mode, or solid content stays listed. Rename
+    // detection stays off so each side answers under its own path.
+    const out = await git(this.root, [
+      "diff",
+      "-w",
+      "--ignore-blank-lines",
+      "--no-renames",
+      "--name-only",
+      "--ignore-submodules=all",
+      "-z",
+      base,
+      tip,
+    ]);
+    return new Set(
+      out
+        .split("\0")
+        .filter((path) => path !== "")
+        .map(parseFilePath),
+    );
   }
 
   async tip(branch: ChangeName): Promise<Revision | undefined> {
@@ -827,6 +1060,17 @@ export class GitBackend implements Backend {
   async create(name: ChangeName, commit: Revision): Promise<void> {
     // The empty old-value makes update-ref fail if the branch already exists.
     await git(this.root, ["update-ref", `refs/heads/${name}`, commit, ""]);
+  }
+
+  async advance(change: ChangeName, to: Revision): Promise<void> {
+    const tip = await this.resolveCommit(`refs/heads/${change}`);
+    if (tip === to) {
+      return;
+    }
+    if (!(await this.isAncestor(tip, to))) {
+      throw new Error(`cannot advance ${JSON.stringify(change)}: ${to} does not descend from its tip ${tip}`);
+    }
+    await this.advanceBranch(change, to, tip);
   }
 
   async workspaces(): Promise<readonly Workspace[]> {
@@ -855,9 +1099,48 @@ export class GitBackend implements Backend {
         path,
         change,
         primary,
-        dirty: (await git(path, ["status", "--porcelain"])) !== "",
+        dirty: await this.dirtiness(path),
       })),
     );
+  }
+
+  /**
+   * The workspace's uncommitted edits, dated by the dirty files' mtimes —
+   * undefined when clean. `-z` keeps special-character paths literal;
+   * `--untracked-files=all` lists files inside untracked directories, whose
+   * own mtimes would only date entry churn.
+   */
+  private async dirtiness(path: string): Promise<Dirty | undefined> {
+    const out = await git(path, ["status", "--porcelain", "-z", "--untracked-files=all"]);
+    if (out === "") {
+      return undefined;
+    }
+    const fields = out.split("\0");
+    const files: string[] = [];
+    for (let i = 0; i < fields.length; i += 1) {
+      const field = fields[i];
+      if (field === undefined || field === "") {
+        continue;
+      }
+      files.push(field.slice(3));
+      // A rename's origin path rides in a field of its own, naming nothing on disk.
+      if (field.startsWith("R") || field.startsWith("C")) {
+        i += 1;
+      }
+    }
+    const times = await Promise.all(
+      files.map(async (file) => {
+        try {
+          // lstat: a dirty symlink dates from the link itself, even broken.
+          return (await lstat(join(path, file))).mtimeMs;
+        } catch {
+          // Deleted: no file left to date.
+          return undefined;
+        }
+      }),
+    );
+    const known = times.filter((time): time is number => time !== undefined);
+    return { at: known.length === 0 ? undefined : timestampMs(Math.round(Math.max(...known))) };
   }
 
   async addWorkspace(path: string, change: ChangeName): Promise<void> {
@@ -872,50 +1155,63 @@ export class GitBackend implements Backend {
     await git(this.root, ["switch", "--quiet", "--end-of-options", branch]);
   }
 
-  async rename(from: ChangeName, to: ChangeName): Promise<void> {
-    const tip = await this.tip(from);
-    if (tip === undefined) {
-      throw new UserError(`branch does not exist: ${JSON.stringify(from)}`);
-    }
-    const log = await this.commitAt(logRef(from));
-    if (log === undefined) {
-      throw new Error(`change has no log: ${JSON.stringify(from)}`);
-    }
-    // One transaction moves the branch and the log together: `create` fails on
-    // an existing target, `delete` compare-and-swaps on the tips read above,
-    // and any failure moves nothing.
-    const transaction =
-      `create refs/heads/${to} ${tip}\n` +
-      `delete refs/heads/${from} ${tip}\n` +
-      `create ${logRef(to)} ${log}\n` +
-      `delete ${logRef(from)} ${log}\n`;
-    // Git refuses to update HEAD and delete its referent in one transaction,
-    // so a checked-out `from` detaches HEAD around the rename instead — a
-    // ref-only move that leaves the index and working tree in place. A crash
-    // here strands a detached HEAD at the tip, never a half-renamed change.
-    const checkedOut = (await this.checkedOutBranch()) === from;
-    if (checkedOut) {
-      await git(this.root, ["update-ref", "--no-deref", "HEAD", tip]);
-    }
+  async commit(message: string, paths: readonly FilePath[]): Promise<void> {
+    // The index is not a user surface: unstaging first means commit stages
+    // from the worktree alone, so a selection narrows correctly even when
+    // something was staged by hand. `:(literal)` keeps a path with glob
+    // characters naming just itself.
+    await git(this.root, ["reset", "--quiet"]);
+    await git(this.root, [
+      "add",
+      "--all",
+      ...(paths.length === 0 ? [] : ["--", ...paths.map((path) => `:(literal)${path}`)]),
+    ]);
+    // `diff --cached --quiet` exits 1 exactly when something is staged; any
+    // other failure is real.
+    let staged = false;
     try {
-      // The transaction does not guard other worktrees' HEADs: deleting a
-      // branch out from under one leaves it on an unborn branch that a later
-      // commit would quietly recreate. With this worktree's HEAD already
-      // detached, any worktree still on `from` is someone else's.
-      const worktrees = await git(this.root, ["worktree", "list", "--porcelain"]);
-      if (worktrees.split("\n").includes(`branch refs/heads/${from}`)) {
-        throw new UserError(`branch is checked out in another worktree: ${JSON.stringify(from)}`);
-      }
-      await git(this.root, ["update-ref", "--stdin"], transaction);
+      await git(this.root, ["diff", "--cached", "--quiet"]);
     } catch (error) {
-      if (checkedOut) {
-        await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${from}`]);
+      if ((error as { code?: unknown }).code !== 1) {
+        throw error;
       }
-      throw error;
+      staged = true;
     }
-    if (checkedOut) {
-      await git(this.root, ["symbolic-ref", "HEAD", `refs/heads/${to}`]);
+    if (!staged) {
+      throw new UserError("nothing to commit");
     }
+    await git(this.root, ["commit", "--quiet", "--message", message]);
+  }
+
+  async editedFiles(): Promise<readonly FilePath[]> {
+    // -z delimits with NULs and disables path quoting; a rename or copy entry
+    // carries its source as one extra NUL-separated field. Submodules are
+    // dropped to match `changedFiles`.
+    const out = await git(this.root, [
+      "status",
+      "--porcelain",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=all",
+    ]);
+    const fields = out.split("\0");
+    const files: FilePath[] = [];
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      if (field === undefined || field === "") {
+        continue;
+      }
+      files.push(parseFilePath(field.slice(3)));
+      if (/[RC]/.test(field.slice(0, 2))) {
+        i += 1;
+        const source = fields[i];
+        if (source === undefined || source === "") {
+          throw new Error(`status entry ${JSON.stringify(field)} names no source`);
+        }
+        files.push(parseFilePath(source));
+      }
+    }
+    return files;
   }
 
   mergeBase(a: Revision, b: Revision): Promise<Revision> {
@@ -978,17 +1274,19 @@ export class GitBackend implements Backend {
   }
 
   /**
-   * Advance `branch` from `expected` to descendant `commit`. A checked-out
-   * `branch` takes a real fast-forward so the index and working tree follow;
-   * otherwise compare-and-swap the ref. Either way a concurrent move of
-   * `branch` fails fast instead of publishing commits the caller never
-   * validated.
+   * Advance `branch` from `expected` to descendant `commit`. A `branch` some
+   * worktree has checked out — this workspace's or a sibling's — takes a real
+   * fast-forward run in that worktree, so its index and working tree follow
+   * (uncommitted edits the move would overwrite fail it); otherwise
+   * compare-and-swap the ref. Either way a concurrent move of `branch` fails
+   * fast instead of publishing commits the caller never validated.
    */
   private async advanceBranch(branch: ChangeName, commit: Revision, expected: Revision): Promise<void> {
-    if ((await this.checkedOutBranch()) === branch) {
-      await git(this.root, ["merge", "--ff-only", commit]);
-    } else {
+    const home = (await this.branchHomes()).get(branch);
+    if (home === undefined) {
       await git(this.root, ["update-ref", `refs/heads/${branch}`, commit, expected]);
+    } else {
+      await git(home, ["merge", "--ff-only", commit]);
     }
   }
 
@@ -1045,36 +1343,46 @@ export class GitBackend implements Backend {
   // Tab-delimit the fields: %P holds space-separated parents, and the
   // trailer value is a branch name, so neither can contain a tab. `unfold`
   // keeps a folded trailer value to one line.
-  private static readonly LAND_LOG_FORMAT =
+  private static readonly CHAIN_LOG_FORMAT =
     `--format=%H%x09%P%x09%(trailers:key=${LAND_TRAILER},valueonly,unfold,separator=%x2C)`;
 
-  /** The land merges among `LAND_LOG_FORMAT` lines, in line order. */
-  private static parseLandLines(lines: readonly string[]): LandMerge[] {
-    const merges: LandMerge[] = [];
+  /** The parent hashes of a `CHAIN_LOG_FORMAT` line. */
+  private static lineParents(line: string): readonly string[] {
+    return (line.split("\t")[1] ?? "").split(" ").filter((parent) => parent !== "");
+  }
+
+  /** The chain merges among `CHAIN_LOG_FORMAT` lines, in line order. */
+  private static parseChainLines(lines: readonly string[]): ChainMerge[] {
+    const merges: ChainMerge[] = [];
     for (const line of lines) {
-      const [commit, parentsField, trailer] = line.split("\t");
-      if (commit === undefined || commit === "" || trailer === undefined || trailer === "") {
+      const [commit, , trailer] = line.split("\t");
+      if (commit === undefined || commit === "") {
         continue;
       }
       // A land merge's onto is its first parent; a squash land's, its sole
-      // parent. Trusting the trailer on a single-parent commit does mean a
-      // cherry-pick of a land commit — which copies the message verbatim —
-      // is skipped too, even though its diff (conflict resolutions included)
-      // may match nothing that was reviewed.
-      const [onto] = (parentsField ?? "").split(" ").filter((parent) => parent !== "");
-      if (onto === undefined) {
+      // parent. The trailer only names what landed — review answers to the
+      // entries the land wrote, so a cherry-pick copying the message claims
+      // nothing.
+      const [onto, merged] = GitBackend.lineParents(line);
+      const landed = trailer === undefined || trailer === "" ? undefined : parseBranchName(trailer);
+      if (onto === undefined || (merged === undefined && landed === undefined)) {
         continue;
       }
-      merges.push({ change: parseBranchName(trailer), commit: parseCommitHash(commit), onto: parseCommitHash(onto) });
+      merges.push({
+        commit: parseCommitHash(commit),
+        onto: parseCommitHash(onto),
+        merged: merged === undefined ? undefined : parseCommitHash(merged),
+        landed,
+      });
     }
     return merges;
   }
 
-  async landMerges(
+  async chainMerges(
     base: Revision | undefined,
     tip: Revision,
     scan: number,
-  ): Promise<{ readonly lands: readonly LandMerge[]; readonly more: boolean }> {
+  ): Promise<{ readonly merges: readonly ChainMerge[]; readonly root: Revision | undefined; readonly more: boolean }> {
     // One commit past the scan tells whether the chain continues; git lists
     // newest first, so the surveyed window is the lines before it, reversed.
     const out = await git(this.root, [
@@ -1082,11 +1390,17 @@ export class GitBackend implements Backend {
       "--first-parent",
       "-n",
       String(scan + 1),
-      GitBackend.LAND_LOG_FORMAT,
+      GitBackend.CHAIN_LOG_FORMAT,
       base === undefined ? tip : `${base}..${tip}`,
     ]);
     const lines = out.split("\n").filter((line) => line !== "");
-    return { lands: GitBackend.parseLandLines(lines.slice(0, scan).reverse()), more: lines.length > scan };
+    const surveyed = lines.slice(0, scan).reverse();
+    const [rootHash] = surveyed[0] === undefined ? [] : GitBackend.lineParents(surveyed[0]);
+    return {
+      merges: GitBackend.parseChainLines(surveyed),
+      root: rootHash === undefined ? undefined : parseCommitHash(rootHash),
+      more: lines.length > scan,
+    };
   }
 
   async listChanges(): Promise<readonly ChangeName[]> {

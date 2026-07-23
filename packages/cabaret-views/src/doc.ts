@@ -1,11 +1,17 @@
 import type { ChangeName, FilePath, UserName } from "cabaret-core";
 
+/** The operations on a change that hosts run from its pages; each host maps them to its own commands. */
+export type ChangeAction = "sync" | "rebase" | "reparent" | "widen reviewing" | "land";
+
 /**
  * Semantic paint for a span; each host maps styles to its own palette. The
  * word styles mark the words that actually changed within a line — over the
  * line's own style on an added or removed line, and alone on a unified line
  * whose kept text is plain. Context marks material shown only to situate its
- * neighbors, for hosts to dim.
+ * neighbors, for hosts to dim. Ready and blocked pull the eye to a status:
+ * a step whose obligations are all met, or one gating work until mended.
+ * Nudge marks something worth doing when convenient — a landed change's
+ * workspace to reclaim, say — an invitation, not an alarm.
  *
  * The diff-of-diffs styles carry a 4-way conflict's second channel: a line
  * present in only the reviewed diff (old) or only the current diff (new),
@@ -20,6 +26,9 @@ export type Style =
   | "removed-word"
   | "hunk"
   | "context"
+  | "ready"
+  | "blocked"
+  | "nudge"
   | "old-diff-removed"
   | "old-diff-added"
   | "old-diff-context"
@@ -36,12 +45,21 @@ export type Style =
 export type Target =
   | { readonly kind: "change"; readonly change: ChangeName; readonly as?: UserName | undefined }
   /** A user's review of `change`: the files they have left to read. */
-  | { readonly kind: "review"; readonly change: ChangeName; readonly as?: UserName | undefined }
-  | { readonly kind: "file"; readonly change: ChangeName; readonly file: FilePath; readonly as?: UserName | undefined }
+  | { readonly kind: "reviews"; readonly change: ChangeName; readonly as?: UserName | undefined }
+  /** One file of `change`, on the `page` family's per-file page: its review left, or its full diff. */
+  | {
+      readonly kind: "file";
+      readonly page: "review" | "diff";
+      readonly change: ChangeName;
+      readonly file: FilePath;
+      readonly as?: UserName | undefined;
+    }
   /** A position in a file's current copy within `change`: `line` is 1-based. */
   | { readonly kind: "location"; readonly change: ChangeName; readonly file: FilePath; readonly line: number }
   /** A workspace's directory: `path` is absolute. */
   | { readonly kind: "workspace"; readonly path: string }
+  /** An operation on `change`; following the target runs it. */
+  | { readonly kind: "action"; readonly change: ChangeName; readonly action: ChangeAction }
   /** A web page outside cabaret, e.g. a change's page on its forge. */
   | { readonly kind: "url"; readonly url: string };
 

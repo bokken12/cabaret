@@ -4,11 +4,10 @@
     { "path": "packages/patdiff" },
     { "path": "packages/cabaret-util" },
     { "path": "packages/cabaret-core" },
-    { "path": "packages/cabaret-forgejo" },
-    { "path": "packages/cabaret-github" },
-    { "path": "packages/cabaret-gitlab" },
+    { "path": "packages/cabaret-forges" },
     { "path": "packages/cabaret-views" },
     { "path": "packages/cabaret-node" },
+    { "path": "packages/cabaret-tui" },
     { "path": "packages/cabaret-cli" },
     { "path": "packages/cabaret-vscode" }
   ]

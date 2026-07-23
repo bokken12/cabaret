@@ -9,6 +9,9 @@ import {
   isReviewing,
   isSatisfied,
   type LogEntry,
+  landBlockers,
+  MalformedObligationsError,
+  type ObligationStatus,
   obligationStatuses,
   parseBranchName,
   parseCommitHash,
@@ -28,19 +31,30 @@ const alice = userName("alice@example.com");
 const bob = userName("bob@example.com");
 const carol = userName("carol@example.com");
 
-/** A rule object as it appears in an `.obligations` file. */
+/** A rule object as it appears in an `.obligations` file, its kind left to the follow default. */
 function rule(match: string, atLeast: number, ...of: readonly string[]) {
   return { match, require: { atLeast, of } };
 }
 
-test("parseObligationsFile accepts the documented shape", () => {
+/** `rule`, demanding blocking review. */
+function blocking(match: string, atLeast: number, ...of: readonly string[]) {
+  return { ...rule(match, atLeast, ...of), kind: "blocking" as const };
+}
+
+test("parseObligationsFile accepts the documented shape, defaulting kind to follow", () => {
   const text = JSON.stringify({
     root: true,
-    rules: [rule("**/*.rs", 2, "alice@example.com", "bob@example.com", "carol@example.com")],
+    rules: [
+      rule("**/*.rs", 2, "alice@example.com", "bob@example.com", "carol@example.com"),
+      blocking("crypto/**", 1, "alice@example.com"),
+    ],
   });
   expect(parseObligationsFile(text)).toEqual({
     root: true,
-    rules: [{ match: "**/*.rs", require: { atLeast: 2, of: [alice, bob, carol] } }],
+    rules: [
+      { match: "**/*.rs", kind: "follow", require: { atLeast: 2, of: [alice, bob, carol] } },
+      { match: "crypto/**", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+    ],
   });
 });
 
@@ -62,9 +76,12 @@ test("parseObligationsFile rejects directory patterns and unknown keys", () => {
   expect(() => parseObligationsFile(JSON.stringify({ rules: [], owner: "alice@example.com" }))).toThrow(
     /Unrecognized key: \\"owner\\"/,
   );
+  expect(() =>
+    parseObligationsFile(JSON.stringify({ rules: [{ ...rule("*.rs", 1, "alice@example.com"), kind: "advisory" }] })),
+  ).toThrow(/Invalid option/);
 });
 
-test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
+test("parseObligationsFile inverts JSON.stringify on any valid file, filling the follow default", () => {
   const user = fc.emailAddress();
   const requirement = fc
     .uniqueArray(user, { minLength: 1, maxLength: 4 })
@@ -73,10 +90,14 @@ test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
     {
       root: fc.boolean(),
       rules: fc.array(
-        fc.record({
-          match: fc.stringMatching(/^[a-z*?[\]/.]+$/).filter((p) => p !== "" && !p.endsWith("/")),
-          require: requirement,
-        }),
+        fc.record(
+          {
+            match: fc.stringMatching(/^[a-z*?[\]/.]+$/).filter((p) => p !== "" && !p.endsWith("/")),
+            kind: fc.constantFrom("blocking", "follow"),
+            require: requirement,
+          },
+          { requiredKeys: ["match", "require"] },
+        ),
         { maxLength: 4 },
       ),
     },
@@ -84,7 +105,10 @@ test("parseObligationsFile inverts JSON.stringify on any valid file", () => {
   );
   fc.assert(
     fc.property(file, (value) => {
-      expect(parseObligationsFile(JSON.stringify(value))).toEqual(value);
+      expect(parseObligationsFile(JSON.stringify(value))).toEqual({
+        ...value,
+        rules: value.rules.map((rule) => ({ kind: "follow", ...rule })),
+      });
     }),
   );
 });
@@ -105,7 +129,7 @@ function repoBackend(opts: {
   trees?: Record<string, Record<string, string>>;
   history?: Record<string, string>;
   changed?: Record<string, readonly string[]>;
-  merges?: readonly { change: string; commit: string; onto: string }[];
+  merges?: readonly { change?: string; commit: string; onto: string; merged?: string }[];
 }): Backend {
   const ancestry = (tip: Revision): Revision[] => {
     const chain = [tip];
@@ -114,9 +138,20 @@ function repoBackend(opts: {
     }
     return chain;
   };
-  const stub: Pick<Backend, "readFile" | "changedFiles" | "landMerges" | "isAncestor" | "hasRevision"> = {
+  const stub: Pick<
+    Backend,
+    "readFile" | "changedFiles" | "nonWhitespaceChanges" | "chainMerges" | "isAncestor" | "hasRevision" | "mergeBase"
+  > = {
     async hasRevision() {
       return true;
+    },
+    async mergeBase(a, b) {
+      const shared = new Set(ancestry(b));
+      const found = ancestry(a).find((commit) => shared.has(commit));
+      if (found === undefined) {
+        throw new Error(`no merge base of ${a} and ${b}`);
+      }
+      return found;
     },
     async readFile(commit, file) {
       return opts.trees?.[commit[0] as string]?.[file as string];
@@ -129,21 +164,27 @@ function repoBackend(opts: {
       if (files === undefined) {
         throw new Error(`unexpected changedFiles query: ${base[0]}..${tip[0]}`);
       }
-      return files.map(parseFilePath);
+      return files.map((name) => ({ path: parseFilePath(name), source: undefined, modes: undefined }));
     },
-    async landMerges(base, tip) {
+    async nonWhitespaceChanges(base, tip) {
+      return new Set((await stub.changedFiles(base, tip)).map(({ path }) => path));
+    },
+    async chainMerges(base, tip) {
       const path = ancestry(tip);
-      const cut = base === undefined ? -1 : path.indexOf(base);
-      const between = new Set(cut === -1 ? path : path.slice(0, cut));
-      const lands = (opts.merges ?? [])
-        .map(({ change, commit, onto }) => ({
-          change: parseBranchName(change),
+      const settled = base === undefined ? new Set<Revision>() : new Set(ancestry(base));
+      const chain = path.filter((commit) => !settled.has(commit));
+      const merges = (opts.merges ?? [])
+        .map(({ change, commit, onto, merged }) => ({
           commit: fake(commit),
           onto: fake(onto),
+          merged: merged === undefined ? undefined : fake(merged),
+          landed: change === undefined ? undefined : parseBranchName(change),
         }))
-        .filter(({ commit }) => between.has(commit))
+        .filter(({ commit }) => chain.includes(commit))
         .sort((a, b) => path.indexOf(b.commit) - path.indexOf(a.commit));
-      return { lands, more: false };
+      const oldest = chain.at(-1);
+      const up = oldest === undefined ? undefined : opts.history?.[oldest[0] as string];
+      return { merges, root: up === undefined ? undefined : fake(up), more: false };
     },
     async isAncestor(ancestor, descendant) {
       return ancestry(descendant).includes(ancestor);
@@ -171,15 +212,20 @@ test("obligations accumulate from every governing file, nearest first", async ()
     trees: {
       "1": {
         ".obligations": policyText([rule("*.rs", 1, alice, bob)]),
-        "crypto/.obligations": policyText([rule("**", 2, alice, bob, carol)]),
+        "crypto/.obligations": policyText([blocking("**", 2, alice, bob, carol)]),
       },
     },
   });
   const files = paths(["crypto/keys.rs", "main.rs", "docs/notes.md"]);
   expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
-    { file: "crypto/keys.rs", source: "crypto/.obligations", require: { atLeast: 2, of: [alice, bob, carol] } },
-    { file: "crypto/keys.rs", source: ".obligations", require: { atLeast: 1, of: [alice, bob] } },
-    { file: "main.rs", source: ".obligations", require: { atLeast: 1, of: [alice, bob] } },
+    {
+      file: "crypto/keys.rs",
+      source: "crypto/.obligations",
+      kind: "blocking",
+      require: { atLeast: 2, of: [alice, bob, carol] },
+    },
+    { file: "crypto/keys.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice, bob] } },
+    { file: "main.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice, bob] } },
   ]);
 });
 
@@ -194,8 +240,8 @@ test("a root obligations file cuts off its ancestors", async () => {
   });
   const files = paths(["vendor/lib.gen.rs", "vendor/notes.md", "src/main.rs"]);
   expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
-    { file: "vendor/lib.gen.rs", source: "vendor/.obligations", require: { atLeast: 1, of: [bob] } },
-    { file: "src/main.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
+    { file: "vendor/lib.gen.rs", source: "vendor/.obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
+    { file: "src/main.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
   ]);
 });
 
@@ -209,15 +255,15 @@ test("a pattern without a slash matches names at any depth; with a slash, the wh
   });
   const files = paths(["deep/nested/lib.rs", "sub/a.txt", "sub/deep/b.txt", "other/sub/c.txt"]);
   expect(await changeObligations(backend, fake("0"), fake("1"), files)).toEqual([
-    { file: "deep/nested/lib.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
-    { file: "sub/a.txt", source: ".obligations", require: { atLeast: 1, of: [bob] } },
+    { file: "deep/nested/lib.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
+    { file: "sub/a.txt", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
   ]);
 });
 
 test("a changed obligations file carries its base version's requirements", async () => {
   const backend = repoBackend({
     trees: {
-      "0": { "crypto/.obligations": policyText([rule("*.rs", 1, carol)]) },
+      "0": { "crypto/.obligations": policyText([blocking("*.rs", 1, carol)]) },
       "1": {
         ".obligations": policyText([rule("**", 1, bob)]),
         "crypto/.obligations": policyText([rule("*.rs", 1, alice)]),
@@ -226,10 +272,16 @@ test("a changed obligations file carries its base version's requirements", async
   });
   // The tip rules of crypto/.obligations do not match the file itself, but
   // the root policy does, and the replaced base version applies in full even
-  // though its own pattern never matched the file either.
+  // though its own pattern never matched the file either — each requirement
+  // demanding the kind of review it states.
   expect(await changeObligations(backend, fake("0"), fake("1"), paths(["crypto/.obligations"]))).toEqual([
-    { file: "crypto/.obligations", source: ".obligations", require: { atLeast: 1, of: [bob] } },
-    { file: "crypto/.obligations", source: "crypto/.obligations", require: { atLeast: 1, of: [carol] } },
+    { file: "crypto/.obligations", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
+    {
+      file: "crypto/.obligations",
+      source: "crypto/.obligations",
+      kind: "blocking",
+      require: { atLeast: 1, of: [carol] },
+    },
   ]);
 });
 
@@ -238,15 +290,29 @@ test("a brand-new obligations file answers only to the tip tree", async () => {
     trees: { "1": { "a/.obligations": policyText([rule("**", 1, alice)]) } },
   });
   expect(await changeObligations(backend, fake("0"), fake("1"), paths(["a/.obligations"]))).toEqual([
-    { file: "a/.obligations", source: "a/.obligations", require: { atLeast: 1, of: [alice] } },
+    { file: "a/.obligations", source: "a/.obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
   ]);
 });
 
 test("a malformed obligations file is a user error naming the file", async () => {
   const backend = repoBackend({ trees: { "1": { ".obligations": "not json" } } });
-  await expect(changeObligations(backend, fake("0"), fake("1"), paths(["a.rs"]))).rejects.toThrow(
-    'malformed obligations file ".obligations" at 111111111111',
-  );
+  const failing = changeObligations(backend, fake("0"), fake("1"), paths(["a.rs"]));
+  await expect(failing).rejects.toThrow(MalformedObligationsError);
+  await expect(failing).rejects.toThrow('malformed obligations file ".obligations" at 111111111111');
+});
+
+test("a malformed base version states no requirements for its replacement", async () => {
+  const backend = repoBackend({
+    trees: {
+      "0": { ".obligations": "not json" },
+      "1": { ".obligations": policyText([rule("**", 1, alice)]) },
+    },
+  });
+  // Only the tip tree's governing rules apply: the unreadable version could
+  // demand nothing, so the change fixing it can land.
+  expect(await changeObligations(backend, fake("0"), fake("1"), paths([".obligations"]))).toEqual([
+    { file: ".obligations", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
+  ]);
 });
 
 function review(user: UserName, file: string, base: string, tip: string): LogEntry {
@@ -267,11 +333,16 @@ test("statuses count the users whose review covers the file", async () => {
   const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
     {
-      obligation: { file: "keys.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
+      obligation: { file: "keys.rs", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
     },
     {
-      obligation: { file: "keys.rs", source: ".obligations", require: { atLeast: 2, of: [alice, bob, carol] } },
+      obligation: {
+        file: "keys.rs",
+        source: ".obligations",
+        kind: "follow",
+        require: { atLeast: 2, of: [alice, bob, carol] },
+      },
       reviewedBy: [alice, carol],
     },
   ]);
@@ -290,38 +361,107 @@ test("a review that stops short of the tip does not count", async () => {
   const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "2"));
   expect(statuses).toEqual([
     {
-      obligation: { file: "a.rs", source: "owner", require: { atLeast: 1, of: [alice] } },
+      obligation: { file: "a.rs", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
     },
     {
-      obligation: { file: "a.rs", source: ".obligations", require: { atLeast: 1, of: [alice] } },
+      obligation: { file: "a.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
       reviewedBy: [alice],
     },
     {
-      obligation: { file: "a.rs", source: ".obligations", require: { atLeast: 1, of: [bob] } },
+      obligation: { file: "a.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
       reviewedBy: [],
     },
   ]);
   expect(statuses.map(isSatisfied)).toEqual([true, true, false]);
 });
 
-test("files changed only by a land merge carry no obligations", async () => {
-  // 2 is a land merge (onto 1): whatever it brought in was reviewed in the
-  // landed child, so only the spans 0-1 and 2-3 are governed here.
+test("the review a land settles counts toward obligations like any other", async () => {
+  // 2 is a land merge (onto 1) bringing in b.rs. alice had covered the
+  // parent, so the land wrote her review through to 2; bob had not, and owes
+  // the combined diff.
   const backend = repoBackend({
-    history: { "1": "0", "2": "1", "3": "2" },
+    history: { "1": "0", "2": "1" },
     merges: [{ change: "gizmo", commit: "2", onto: "1" }],
-    changed: { "01": ["a.rs"], "23": [] },
-    trees: { "3": { ".obligations": policyText([rule("**", 1, alice)]) } },
+    changed: { "02": ["a.rs", "b.rs"] },
+    trees: { "2": { ".obligations": policyText([rule("**", 1, alice), rule("**", 1, bob)]) } },
   });
-  const statuses = await obligationStatuses(backend, [], alice, await diffOf(backend, "0", "3"));
-  expect(statuses.map(({ obligation }) => obligation.file)).toEqual(["a.rs", "a.rs"]);
-  expect(statuses.map(isSatisfied)).toEqual([false, false]);
+  const entries = [review(alice, "a.rs", "0", "2"), review(alice, "b.rs", "0", "2")];
+  const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "2"));
+  expect(statuses).toEqual([
+    {
+      obligation: { file: "a.rs", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "b.rs", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "a.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "a.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
+      reviewedBy: [],
+    },
+    {
+      obligation: { file: "b.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "b.rs", source: ".obligations", kind: "follow", require: { atLeast: 1, of: [bob] } },
+      reviewedBy: [],
+    },
+  ]);
+});
+
+test("a rebase merge is no land: the diff reads current, resolutions included", async () => {
+  // The chain is work 1 then merge 2, which brought in 8 — the base, off the
+  // chain since the parent moved 0 -> 8 under the change. The diff is the
+  // current 8..2, and nothing fast-forwards through the merge.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "8": "0" },
+    merges: [{ commit: "2", onto: "1", merged: "8" }],
+    changed: { "82": ["a.rs"] },
+  });
+  const diff = await diffOf(backend, "8", "2");
+  expect(diff.lands).toEqual([]);
+  expect([...diff.changed.keys()]).toEqual(["a.rs"]);
+});
+
+test("a land on the chain hides nothing the records leave unreviewed", async () => {
+  // Work 1, land 2, then rebase merges 3 and 4 as the parent moved 0 -> 8 -> 9.
+  // No record settles or covers a.rs, so the whole current diff is alice's
+  // to review, landed content included.
+  const backend = repoBackend({
+    history: { "1": "0", "2": "1", "3": "2", "4": "3", "8": "0", "9": "8" },
+    merges: [
+      { change: "gizmo", commit: "2", onto: "1", merged: "c" },
+      { commit: "3", onto: "2", merged: "8" },
+      { commit: "4", onto: "3", merged: "9" },
+    ],
+    changed: { "94": ["a.rs"] },
+  });
+  const diff = await diffOf(backend, "9", "4");
+  expect(diff.lands).toEqual([{ change: "gizmo", commit: fake("2"), onto: fake("1") }]);
+  const statuses = await obligationStatuses(backend, [], alice, diff);
+  expect(statuses).toEqual([
+    {
+      obligation: { file: "a.rs", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [],
+    },
+  ]);
 });
 
 test("reviewerSummary counts each outstanding reviewer's distinct files", () => {
   const status = (file: string, reviewedBy: readonly UserName[], atLeast: number, ...of: readonly UserName[]) => ({
-    obligation: { file: parseFilePath(file), source: "owner" as const, require: { atLeast, of } },
+    obligation: {
+      file: parseFilePath(file),
+      source: "owner" as const,
+      kind: "blocking" as const,
+      require: { atLeast, of },
+    },
     reviewedBy,
   });
   expect(reviewerSummary([])).toEqual([]);
@@ -334,7 +474,32 @@ test("reviewerSummary counts each outstanding reviewer's distinct files", () => 
   ).toEqual(["alice@example.com: 1 file", "bob@example.com: 2 files", "carol@example.com: 1 file"]);
 });
 
-test("reviewOwed lists only files whose unsatisfied obligations await the user", async () => {
+test("landBlockers keeps only unsatisfied blocking obligations", () => {
+  const status = (kind: "blocking" | "follow", reviewedBy: readonly UserName[]): ObligationStatus => ({
+    obligation: {
+      file: parseFilePath("keys.rs"),
+      source: parseFilePath(".obligations"),
+      kind,
+      require: { atLeast: 1, of: [bob] },
+    },
+    reviewedBy,
+  });
+  const blocked = status("blocking", []);
+  expect(landBlockers([status("blocking", [bob]), blocked, status("follow", [])])).toEqual([blocked]);
+});
+
+test("reviewOwed asks nobody while the policy is malformed, the owner included", async () => {
+  const backend = repoBackend({
+    history: { "1": "0" },
+    changed: { "01": ["a.rs"] },
+    trees: { "1": { ".obligations": "not json" } },
+  });
+  const diff = await diffOf(backend, "0", "1");
+  expect(await reviewOwed(backend, [], alice, soleUser(alice), diff)).toEqual([]);
+  expect(await reviewOwed(backend, [], alice, soleUser(bob), diff)).toEqual([]);
+});
+
+test("reviewOwed lists follow and blocking review alike: both await the user", async () => {
   const backend = repoBackend({
     history: { "1": "0" },
     changed: { "01": ["a.rs", "b.rs", "c.md"] },
@@ -360,8 +525,14 @@ test("the owner must review every governed file, rules or none", async () => {
   const entries = [review(alice, "a.txt", "0", "1"), review(bob, "b.txt", "0", "1")];
   const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
-    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [alice] },
-    { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    {
+      obligation: { file: "a.txt", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [alice],
+    },
+    {
+      obligation: { file: "b.txt", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [],
+    },
   ]);
   expect(statuses.map(isSatisfied)).toEqual([true, false]);
 });
@@ -378,10 +549,22 @@ test("a reviewer owes every governed file, like the owner", async () => {
   const entries = [reviewer(bob, "add-reviewer"), review(bob, "a.txt", "0", "1")];
   const statuses = await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"));
   expect(statuses).toEqual([
-    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
-    { obligation: { file: "b.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
-    { obligation: { file: "a.txt", source: "reviewer", require: { atLeast: 1, of: [bob] } }, reviewedBy: [bob] },
-    { obligation: { file: "b.txt", source: "reviewer", require: { atLeast: 1, of: [bob] } }, reviewedBy: [] },
+    {
+      obligation: { file: "a.txt", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [],
+    },
+    {
+      obligation: { file: "b.txt", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [],
+    },
+    {
+      obligation: { file: "a.txt", source: "reviewer", kind: "blocking", require: { atLeast: 1, of: [bob] } },
+      reviewedBy: [bob],
+    },
+    {
+      obligation: { file: "b.txt", source: "reviewer", kind: "blocking", require: { atLeast: 1, of: [bob] } },
+      reviewedBy: [],
+    },
   ]);
   expect(statuses.map(isSatisfied)).toEqual([false, false, true, false]);
 });
@@ -397,7 +580,10 @@ test("a removed reviewer owes nothing, and an owning reviewer owes only as owner
     reviewer(bob, "remove-reviewer", 1748000000001),
   ];
   expect(await obligationStatuses(backend, entries, alice, await diffOf(backend, "0", "1"))).toEqual([
-    { obligation: { file: "a.txt", source: "owner", require: { atLeast: 1, of: [alice] } }, reviewedBy: [] },
+    {
+      obligation: { file: "a.txt", source: "owner", kind: "blocking", require: { atLeast: 1, of: [alice] } },
+      reviewedBy: [],
+    },
   ]);
 });
 
