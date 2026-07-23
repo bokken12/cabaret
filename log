@@ -3,3 +3,6 @@
 {"timestamp":1784815507988,"user":"crouton.ai@gmail.com","action":{"kind":"set-owner","owner":"crouton.ai@gmail.com"}}
 {"timestamp":1784815507988,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"none"}}
 {"timestamp":1784815596503,"user":"crouton.ai@gmail.com","action":{"kind":"set-reviewing","reviewing":"everyone"}}
+{"timestamp":1784815601098,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-forge","forge":"github.com/bokken12/cabaret","id":271}}
+{"timestamp":1784815601098,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-parent","parent":"hints"}}
+{"timestamp":1784815601098,"user":"crouton.ai@gmail.com","source":{"forge":"github.com/bokken12/cabaret"},"action":{"kind":"set-reviewing","reviewing":"everyone"}}
