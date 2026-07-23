@@ -426,7 +426,8 @@ export interface RebaseOverrides {
  * merge moves nothing of the parent's — and diverged readings fail until
  * synced, the override proceeding with the local one. A conflicting merge
  * still commits, markers in place, for the owner to fix in their own time;
- * the move is complete, so the base is pinned all the same. A change whose
+ * the move is complete, so the base is pinned all the same and the markers
+ * are returned rather than thrown. A change whose
  * files already carry markers must be fixed before it moves again — merging
  * onto them would bake them in as resolved content. Rebasing a change that
  * has landed starts its next cycle: the parent contains the landed work, so
@@ -441,7 +442,7 @@ export async function rebaseChange(
   target: ChangeName,
   entries: readonly LogEntry[],
   overrides: RebaseOverrides,
-): Promise<void> {
+): Promise<ConflictedRebase | undefined> {
   await requireOwner(backend, target, entries, overrides.notOwner);
   const parent = currentParent(target, entries);
   const reading = await freshestReading(backend, parent);
@@ -461,7 +462,7 @@ export async function rebaseChange(
   // newer history, and pinning to it would slide the base backwards and
   // pull the parent's commits into the diff.
   if (onto !== base && (await backend.isAncestor(onto, base))) {
-    return;
+    return undefined;
   }
   // When the change already sits on the parent's tip (base === onto), whether
   // because it was just rebased or an out-of-band rebase put it there, there
@@ -477,34 +478,40 @@ export async function rebaseChange(
       { timestamp: now(), user: await backend.currentUser(), action: { kind: "set-base", base: onto } },
     ]);
   }
-  if (conflicts.length > 0) {
-    throw new UserError(
-      `merging ${JSON.stringify(parent)} into ${JSON.stringify(target)} ` +
-        `left conflicts in ${conflicts.join(", ")}; fix the markers and commit`,
-    );
-  }
+  return conflicts.length === 0 ? undefined : { change: target, parent, conflicts };
+}
+
+/** A rebase whose merge left markers: the change carrying them, its parent, and the files to fix. */
+export interface ConflictedRebase {
+  readonly change: ChangeName;
+  readonly parent: ChangeName;
+  readonly conflicts: readonly FilePath[];
 }
 
 /**
  * Rebase every change of `chain` onto its parent's tip, ancestormost first so
  * each change's rebase finds its parent already at rest. An archived change
  * is set aside where it stands and is skipped; its descendants still rebase
- * onto its tip. When one change fails — a conflicting merge commits its
- * markers and counts — the rebases before it stand, and rerunning the chain
- * resumes once it is fixed.
+ * onto its tip. A conflicting merge commits its markers and halts the chain
+ * there, returned for the caller to report: the rebases before it stand,
+ * and rerunning the chain resumes once it is fixed.
  */
 export async function rebaseChain(
   backend: Backend,
   now: () => TimestampMs,
   chain: readonly ChainLink[],
   overrides: RebaseOverrides,
-): Promise<void> {
+): Promise<ConflictedRebase | undefined> {
   for (const { change, entries } of chain) {
     if (currentArchived(entries)) {
       continue;
     }
-    await rebaseChange(backend, now, change, entries, overrides);
+    const conflicted = await rebaseChange(backend, now, change, entries, overrides);
+    if (conflicted !== undefined) {
+      return conflicted;
+    }
   }
+  return undefined;
 }
 
 /** A land's endpoints, resolved once its preconditions have been checked. */

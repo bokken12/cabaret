@@ -416,7 +416,7 @@ test("! r b rebases the cursor's change; a stale parent asks and retries with th
     rebase: (changes, overrides) => {
       calls.push({ changes, ...overrides });
       return overrides.parentDiverged
-        ? Promise.resolve()
+        ? Promise.resolve(undefined)
         : Promise.reject(new DivergedParentError(parseBranchName("main")));
     },
   });
@@ -475,7 +475,7 @@ test("esc abandons a minibuffer input without acting", async () => {
   const { app, keys, screen } = harness({
     create: (change, parent) => {
       calls.push({ change, parent });
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "show", change: widgets });
@@ -489,7 +489,7 @@ test("! r p offers the other changes and reparents onto the pick", async () => {
   const { app, keys, screen } = harness({
     reparent: (change, parent, evenThoughNotOwner) => {
       calls.push({ change, parent, evenThoughNotOwner });
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "show", change: widgets });
@@ -512,7 +512,7 @@ test("enter on a rebase action target runs the rebase", async () => {
     const { app, keys } = harness({
       rebase: (changes) => {
         calls.push(changes);
-        return Promise.resolve();
+        return Promise.resolve(undefined);
       },
     });
     await app.open({ kind: "home" });
@@ -721,7 +721,7 @@ test("V extends a selection the movement keys grow, and a stack rebases together
   const { app, keys, screen } = harness({
     rebase: (changes) => {
       calls.push(changes);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "home" });
@@ -746,7 +746,7 @@ test("dragging selects the rows crossed and lands them as a stack", async () => 
   const { app, keys, frames } = harness({
     land: (changes) => {
       calls.push(changes);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "home" });
@@ -764,7 +764,7 @@ test("a single-change action over a selection asks for a single change", async (
   const { app, keys, screen } = harness({
     create: (change) => {
       calls.push(change);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "home" });
@@ -824,7 +824,7 @@ test("dragging back to the press row collapses the selection with it", async () 
   const { app, keys } = harness({
     rebase: (changes) => {
       calls.push(changes);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "home" });
@@ -892,7 +892,7 @@ test("v selects as V does while every selection is line-wise", async () => {
   const { app, keys } = harness({
     rebase: (changes) => {
       calls.push(changes);
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
   });
   await app.open({ kind: "home" });
@@ -911,4 +911,13 @@ test("! w r reclaims workspaces from home and nowhere else", async () => {
   await app.open({ kind: "show", change: widgets });
   await keys("!", "w", "r");
   expect(screen()).toContain("! w r is undefined");
+});
+
+test("a rebase whose merge leaves markers reports as a note, not an error", async () => {
+  const { app, keys, screen } = harness({
+    rebase: () => Promise.resolve("merged main into widgets with conflicts in a.ts; fix the markers and commit"),
+  });
+  await app.open({ kind: "home" });
+  await keys("j", "!", "r", "b");
+  expect(screen()).toContain("merged main into widgets with conflicts in a.ts; fix the markers and commit");
 });

@@ -1,7 +1,19 @@
 import { buildCommand } from "@stricli/core";
-import { rebaseChain, rebaseChange, resolveRange } from "cabaret-core";
+import { type ConflictedRebase, rebaseChain, rebaseChange, resolveRange } from "cabaret-core";
 import type { LocalContext } from "../context.js";
 import { type ChangeSpec, evenThoughNotOwner, parseChangeSpec } from "./shared.js";
+
+/** The conflicted-merge report: the rebase completed, so it speaks on stdout rather than failing. */
+function report(context: LocalContext, conflicted: ConflictedRebase | undefined): void {
+  if (conflicted === undefined) {
+    return;
+  }
+  const { change, parent, conflicts } = conflicted;
+  context.process.stdout.write(
+    `merged ${JSON.stringify(parent)} into ${JSON.stringify(change)} ` +
+      `with conflicts in ${conflicts.join(", ")}; fix the markers and commit\n`,
+  );
+}
 
 export const rebase = buildCommand({
   docs: {
@@ -46,10 +58,10 @@ export const rebase = buildCommand({
     const overrides = { notOwner: flags.evenThoughNotOwner, parentDiverged: flags.evenThoughParentDiverged };
     if (spec === undefined || spec.kind === "one") {
       const target = spec === undefined ? await backend.currentChange() : backend.parseName(spec.change);
-      await rebaseChange(backend, this.now, target, await backend.readLog(target), overrides);
+      report(this, await rebaseChange(backend, this.now, target, await backend.readLog(target), overrides));
       return;
     }
     const chain = await resolveRange(backend, backend.parseName(spec.ancestor), backend.parseName(spec.descendant));
-    await rebaseChain(backend, this.now, chain, overrides);
+    report(this, await rebaseChain(backend, this.now, chain, overrides));
   },
 });
