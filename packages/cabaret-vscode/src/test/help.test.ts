@@ -12,6 +12,8 @@ test("home page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "r  Review",
+      "d  Diff",
       "@  Act as User",
       "! r b  Rebase",
       "! l  Land",
@@ -42,7 +44,7 @@ test("show page keybindings", () => {
       "R  Refresh",
       "?  Keybindings",
       "r  Review",
-      "d  Review Diffs",
+      "d  Diff",
       "@  Act as User",
       "^  Step Up",
       "$  Step Down",
@@ -73,19 +75,12 @@ test("review page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
-      "d  Review Diffs",
+      "d  Diff",
       "@  Act as User",
       "! m  Mark Reviewed",
-      "! r b  Rebase",
+      "^  Step Up",
+      "$  Step Down",
       "! l  Land",
-      "! r p  Reparent",
-      "! o  Set Owner",
-      "! v  Widen Reviewing",
-      "! d  Disable Reviewing",
-      "! a  Toggle Archived",
-      "! g  Go to Workspace",
-      "! w a  Add Workspace",
-      "! w d  Remove Workspace",
       "! c  Create Child",
       "! p  Create Parent",
       "F  Fetch Remote Activity",
@@ -94,8 +89,8 @@ test("review page keybindings", () => {
   `);
 });
 
-test("diff page keybindings", () => {
-  expect(pageHelp(manifest, "diff").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
+test("review-file page keybindings", () => {
+  expect(pageHelp(manifest, "review").map(({ keys, label }) => `${keys}  ${label}`)).toMatchInlineSnapshot(`
     [
       "enter  Open Target at Cursor",
       "esc  Step Outside",
@@ -103,6 +98,7 @@ test("diff page keybindings", () => {
       "q  Close Page",
       "R  Refresh",
       "?  Keybindings",
+      "d  Diff",
       "@  Act as User",
       "! m  Mark Reviewed",
       "^  Step Up",
@@ -117,7 +113,7 @@ test("diff page keybindings", () => {
 });
 
 test("help carries the command, so picking an entry can run it", () => {
-  expect(pageHelp(manifest, "diff").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
+  expect(pageHelp(manifest, "review").map(({ keys, command }) => `${keys}  ${command}`)).toMatchInlineSnapshot(`
     [
       "enter  cabaret.openTarget",
       "esc  cabaret.stepOutside",
@@ -125,6 +121,7 @@ test("help carries the command, so picking an entry can run it", () => {
       "q  workbench.action.closeActiveEditor",
       "R  cabaret.refresh",
       "?  cabaret.help",
+      "d  cabaret.diff",
       "@  cabaret.actAs",
       "! m  cabaret.markReviewed",
       "^  cabaret.stepUp",

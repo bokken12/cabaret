@@ -417,7 +417,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   const line = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("api.ts"));
-  expect(targetAt(doc, line)).toEqual({ kind: "file", change: "widgets", file: "api.ts" });
+  expect(targetAt(doc, line)).toEqual({ kind: "file", page: "review", change: "widgets", file: "api.ts" });
   // The forge change row opens the change's page on the forge.
   const forge = docText(doc)
     .split("\n")
@@ -427,7 +427,7 @@ test("showDoc renders the attribute table, remaining review, and files left", ()
   const tally = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("bob@example.com: 1 file"));
-  expect(targetAt(doc, tally)).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
+  expect(targetAt(doc, tally)).toEqual({ kind: "reviews", change: "widgets", as: "bob@example.com" });
   // The heading names the page itself, so it goes nowhere.
   expect(targetAt(doc, 0)).toBeUndefined();
 });
@@ -540,8 +540,14 @@ test("showDoc as another user names them and keeps their identity on file and ch
       rendered.findIndex((text) => text.includes(needle)),
     );
   expect(targetOf("widgets-api")).toEqual({ kind: "change", change: "widgets-api", as: "bob@example.com" });
-  expect(targetOf("api.ts")).toEqual({ kind: "file", change: "widgets", file: "api.ts", as: "bob@example.com" });
-  expect(targetOf("bob@example.com: 1 file")).toEqual({ kind: "review", change: "widgets", as: "bob@example.com" });
+  expect(targetOf("api.ts")).toEqual({
+    kind: "file",
+    page: "review",
+    change: "widgets",
+    file: "api.ts",
+    as: "bob@example.com",
+  });
+  expect(targetOf("bob@example.com: 1 file")).toEqual({ kind: "reviews", change: "widgets", as: "bob@example.com" });
 });
 
 test("showDoc lists included changes above the review, each linking to its page", () => {
@@ -915,7 +921,7 @@ test("a review next step opens the change's review, keeping a borrowed identity"
   const stepLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("next step"));
-  expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "gizmo", as: "bob@example.com" });
+  expect(targetAt(doc, stepLine)).toEqual({ kind: "reviews", change: "gizmo", as: "bob@example.com" });
 });
 
 test("a review in parent next step opens the parent's review", () => {
@@ -933,5 +939,5 @@ test("a review in parent next step opens the parent's review", () => {
   const stepLine = docText(doc)
     .split("\n")
     .findIndex((text) => text.includes("next step"));
-  expect(targetAt(doc, stepLine)).toEqual({ kind: "review", change: "widgets" });
+  expect(targetAt(doc, stepLine)).toEqual({ kind: "reviews", change: "widgets" });
 });

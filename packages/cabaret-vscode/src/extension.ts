@@ -231,14 +231,14 @@ class PageProvider
           );
           link.tooltip =
             target.kind === "file"
-              ? `Open ${target.file}`
+              ? `${target.page === "review" ? "Review" : "Diff"} ${target.file}`
               : target.kind === "location"
                 ? `Open ${target.file}:${target.line}`
                 : target.kind === "workspace"
                   ? `Open ${target.path}`
                   : target.kind === "url"
                     ? `Open ${target.url}`
-                    : target.kind === "review"
+                    : target.kind === "reviews"
                       ? `Review ${target.change}${target.as === undefined ? "" : ` as ${target.as}`}`
                       : target.kind === "action"
                         ? `${target.action.charAt(0).toUpperCase()}${target.action.slice(1)} ${target.change}`
@@ -461,20 +461,10 @@ async function actAs(provider: PageProvider): Promise<void> {
   }
 }
 
-/** The show page the active editor displays, when it is one. */
-function shownPage(): Extract<Page, { kind: "show" }> | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return undefined;
-  }
-  const page = parsePagePath(editor.document.uri.path);
-  return page.kind === "show" ? page : undefined;
-}
-
 /**
  * Step up to the sibling above: from a show page to the parent's show page
- * — a trunk parent has a page of its own — or from a file's diff to the
- * previous file left.
+ * — a trunk parent has a page of its own — or from a per-file page to the
+ * file before it.
  */
 async function stepUp(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -482,7 +472,7 @@ async function stepUp(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "diff") {
+  if (page.kind === "review" || page.kind === "diff") {
     await stepToFile(provider, editor.document.uri, page, "prev");
     return;
   }
@@ -500,8 +490,8 @@ async function stepUp(provider: PageProvider): Promise<void> {
 
 /**
  * Step down to the sibling below: from a show page to a child's show page —
- * picking one when the change has several children — or from a file's diff
- * to the next file left.
+ * picking one when the change has several children — or from a per-file
+ * page to the file after it.
  */
 async function stepDown(provider: PageProvider): Promise<void> {
   const editor = vscode.window.activeTextEditor;
@@ -509,7 +499,7 @@ async function stepDown(provider: PageProvider): Promise<void> {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "diff") {
+  if (page.kind === "review" || page.kind === "diff") {
     await stepToFile(provider, editor.document.uri, page, "next");
     return;
   }
@@ -537,30 +527,39 @@ async function stepDown(provider: PageProvider): Promise<void> {
 }
 
 /**
- * Step a diff page to the file beside it, replacing the page as marking
- * reviewed does — stepping is how a reviewer walks the files left.
+ * Step a per-file page to the file beside it, replacing the page as marking
+ * reviewed does — stepping is how a reviewer walks a change's files. A
+ * review page walks the files left; a diff page walks every changed file.
  */
 async function stepToFile(
   provider: PageProvider,
   uri: vscode.Uri,
-  page: Extract<Page, { kind: "diff" }>,
+  page: Extract<Page, { kind: "review" | "diff" }>,
   side: "prev" | "next",
 ): Promise<void> {
   const backend = await openBackend();
-  const neighbors = neighborFiles((await changeSnapshot(backend, page.change, page.as)).left, page.file);
+  const snapshot = await changeSnapshot(backend, page.change, page.as);
+  const files = page.kind === "review" ? [...snapshot.left.keys()] : snapshot.changed.map(({ path }) => path);
+  const neighbors = neighborFiles(files, page.file);
   if (neighbors === undefined) {
-    vscode.window.showInformationMessage(`cabaret: nothing left to review in ${page.file}`);
+    vscode.window.showInformationMessage(
+      page.kind === "review"
+        ? `cabaret: nothing left to review in ${page.file}`
+        : `cabaret: no changes to ${page.file}`,
+    );
     return;
   }
   const file = neighbors[side];
   if (file === undefined) {
     vscode.window.showInformationMessage(
-      `cabaret: ${page.file} is the ${side === "prev" ? "first" : "last"} file left`,
+      `cabaret: ${page.file} is the ${side === "prev" ? "first" : "last"} file ${
+        page.kind === "review" ? "left" : "changed"
+      }`,
     );
     return;
   }
   await closeTabs(uri);
-  await openPage(provider, { kind: "diff", change: page.change, file, as: page.as });
+  await openPage(provider, { kind: page.kind, change: page.change, file, as: page.as });
 }
 
 /** Escape: back out to the enclosing page, closing the page left behind. */
@@ -600,11 +599,16 @@ async function followTarget(provider: PageProvider, target: Target): Promise<voi
     case "change":
       await openPage(provider, { kind: "show", change: target.change, as: target.as });
       break;
-    case "review":
-      await openPage(provider, { kind: "review", change: target.change, as: target.as });
+    case "reviews":
+      await openPage(provider, { kind: "reviews", change: target.change, as: target.as });
       break;
     case "file":
-      await openPage(provider, { kind: "diff", change: target.change, file: target.file, as: target.as });
+      await openPage(provider, {
+        kind: target.page === "review" ? "review" : "diff",
+        change: target.change,
+        file: target.file,
+        as: target.as,
+      });
       break;
     case "location":
       await visitLocation(provider, target);
@@ -742,34 +746,57 @@ async function showHelp(manifest: Manifest): Promise<void> {
   }
 }
 
-/** Enter review of the shown change: open its list of files to review. */
-async function review(provider: PageProvider): Promise<void> {
-  const page = shownPage();
-  if (page !== undefined) {
-    await openPage(provider, { kind: "review", change: page.change, as: page.as });
-  }
-}
-
-/** Open every diff of the active page's change in one buffer. */
-async function reviewDiffs(provider: PageProvider): Promise<void> {
+/**
+ * The r and d keys: enter `family` from the show page or a home row, or
+ * swap the active review or diff page for its counterpart in the other
+ * family — the same change or file, seen through the other lens. The swap
+ * closes the page it came from, as stepping between files does.
+ */
+async function enterFamily(provider: PageProvider, family: "review" | "diff"): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return;
   }
   const page = parsePagePath(editor.document.uri.path);
-  if (page.kind === "home") {
-    return;
+  const list = family === "review" ? ("reviews" as const) : ("diffs" as const);
+  switch (page.kind) {
+    case "show":
+      await openPage(provider, { kind: list, change: page.change, as: page.as });
+      return;
+    case "home": {
+      const doc = provider.renderedDoc(editor.document.uri);
+      const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
+      if (target?.kind !== "change") {
+        vscode.window.showInformationMessage("cabaret: no change at the cursor");
+        return;
+      }
+      await openPage(provider, { kind: list, change: target.change, as: page.as });
+      return;
+    }
+    case "reviews":
+    case "diffs":
+      if (page.kind !== list) {
+        await closeTabs(editor.document.uri);
+        await openPage(provider, { kind: list, change: page.change, as: page.as });
+      }
+      return;
+    case "review":
+    case "diff":
+      if (page.kind !== family) {
+        await closeTabs(editor.document.uri);
+        await openPage(provider, { kind: family, change: page.change, file: page.file, as: page.as });
+      }
+      return;
   }
-  await openPage(provider, { kind: "diffs", change: page.change, as: page.as });
 }
 
 /**
- * Mark a file reviewed: the active diff page's file, or on the review page
- * the file the cursor's line resolves to. The mark records the page's own
- * snapshot — a change that moved on since the render just leaves the rest
- * pending — so only a mark whose diff this window never displayed asks
- * first. From a diff page, move on to the next file left; marking the last
- * file steps back out to the change's own page. Errors surface as
+ * Mark a file reviewed: the active review page's file, or on the reviews
+ * page the file the cursor's line resolves to. The mark records the page's
+ * own snapshot — a change that moved on since the render just leaves the
+ * rest pending — so only a mark whose diff this window never displayed asks
+ * first. From a review page, move on to the next file left; marking the
+ * last file steps back out to the change's own page. Errors surface as
  * notifications, and every open page re-renders afterwards.
  */
 async function markPageReviewed(provider: PageProvider): Promise<void> {
@@ -779,9 +806,9 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
   }
   const page = parsePagePath(editor.document.uri.path);
   let file: FilePath;
-  if (page.kind === "diff") {
+  if (page.kind === "review") {
     file = page.file;
-  } else if (page.kind === "review") {
+  } else if (page.kind === "reviews") {
     const doc = provider.renderedDoc(editor.document.uri);
     const target = doc === undefined ? undefined : targetAt(doc, editor.selection.active.line);
     if (target?.kind !== "file") {
@@ -849,14 +876,14 @@ async function markPageReviewed(provider: PageProvider): Promise<void> {
     await result.recorded;
     if (result.next === undefined) {
       // Review is done: fold its pages away — the one being marked and the
-      // review page a file-by-file pass leaves open — and land back on the
+      // reviews page a file-by-file pass leaves open — and land back on the
       // change, whose canonical URI focuses the tab the pass started from.
       await closeTabs(editor.document.uri);
-      await closeTabs(pageUri({ kind: "review", change: page.change, as: page.as }));
+      await closeTabs(pageUri({ kind: "reviews", change: page.change, as: page.as }));
       await openPage(provider, { kind: "show", change: page.change, as: page.as });
-    } else if (page.kind === "diff") {
+    } else if (page.kind === "review") {
       await closeTabs(editor.document.uri);
-      await openPage(provider, { kind: "diff", change: page.change, file: result.next, as: page.as });
+      await openPage(provider, { kind: "review", change: page.change, file: result.next, as: page.as });
     }
   } catch (error) {
     vscode.window.showErrorMessage(`cabaret: ${message(error)}`);
@@ -1660,8 +1687,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cabaret.stepUp", () => stepUp(provider)),
     vscode.commands.registerCommand("cabaret.stepDown", () => stepDown(provider)),
     vscode.commands.registerCommand("cabaret.help", () => showHelp(context.extension.packageJSON as Manifest)),
-    vscode.commands.registerCommand("cabaret.review", () => review(provider)),
-    vscode.commands.registerCommand("cabaret.reviewDiffs", () => reviewDiffs(provider)),
+    vscode.commands.registerCommand("cabaret.review", () => enterFamily(provider, "review")),
+    vscode.commands.registerCommand("cabaret.diff", () => enterFamily(provider, "diff")),
     vscode.commands.registerCommand("cabaret.actAs", () => actAs(provider)),
     vscode.commands.registerCommand("cabaret.markReviewed", () => markPageReviewed(provider)),
     vscode.commands.registerCommand("cabaret.fetch", () => runFetch(provider, forgePollLoop)),

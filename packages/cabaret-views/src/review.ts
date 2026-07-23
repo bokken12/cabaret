@@ -66,6 +66,8 @@ export interface ChangeSnapshot {
   readonly tip: Revision;
   /** Files whose tip contents still carry conflict markers; review waits while any remain. */
   readonly conflicts: readonly FilePath[];
+  /** Every file the diff changes, sorted by path: what the diff pages show, blind to review state. */
+  readonly changed: readonly ChangedFile[];
   readonly left: ReviewLeft;
 }
 
@@ -83,12 +85,13 @@ export async function changeSnapshot(backend: Backend, change: ChangeName, as?: 
     base: diff.base,
     tip: diff.tip,
     conflicts: await changeConflicts(backend, diff),
+    changed: [...diff.changed.values()].sort((a, b) => (a.path < b.path ? -1 : 1)),
     left: await reviewLeft(backend, entries, acting.self.user, diff),
   };
 }
 
 /** A change's review left: what to read, up to the tip a mark records. */
-export interface ReviewPage {
+export interface ReviewsPage {
   readonly change: ChangeName;
   /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
   readonly as: UserName | undefined;
@@ -105,7 +108,7 @@ export interface ReviewPage {
     | undefined;
 }
 
-export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
+export function reviewsPage(snapshot: ChangeSnapshot): ReviewsPage {
   return {
     change: snapshot.change,
     as: snapshot.as,
@@ -117,13 +120,19 @@ export function reviewPage(snapshot: ChangeSnapshot): ReviewPage {
   };
 }
 
-export function reviewDoc(page: ReviewPage): Doc {
+export function reviewsDoc(page: ReviewsPage): Doc {
   const title = page.as === undefined ? `Review ${page.change}` : `Review ${page.change} as ${page.as}`;
   // The page's whole target is proceeding with review: every line resolves
   // to the first file left, on the jump tier so only the file names read
   // as links, and a file's own line resolves to that file instead. The title
   // offers no way back to the change — here, going deeper means reviewing.
-  const fileTarget = (file: FilePath): Target => ({ kind: "file", change: page.change, file, as: page.as });
+  const fileTarget = (file: FilePath): Target => ({
+    kind: "file",
+    page: "review",
+    change: page.change,
+    file,
+    as: page.as,
+  });
   const first = page.left?.files[0];
   const proceed: { target: Target; tier: TargetTier } | undefined =
     first === undefined ? undefined : { target: fileTarget(first.path), tier: "jump" };
@@ -151,19 +160,18 @@ export function reviewDoc(page: ReviewPage): Doc {
 }
 
 /**
- * The files beside `file` among those left, in name order — where stepping
- * up and down from its diff lands. Undefined with no review of the file
- * left; a missing side means the file ends the list.
+ * The files beside `file` in `files` — where stepping up and down from its
+ * page lands. Undefined when `files` does not name it; a missing side means
+ * the file ends the list.
  */
 export function neighborFiles(
-  left: ReviewLeft,
+  files: readonly FilePath[],
   file: FilePath,
 ): { readonly prev: FilePath | undefined; readonly next: FilePath | undefined } | undefined {
-  if (!left.has(file)) {
+  const at = files.indexOf(file);
+  if (at === -1) {
     return undefined;
   }
-  const files = [...left.keys()];
-  const at = files.indexOf(file);
   return { prev: files[at - 1], next: files[at + 1] };
 }
 
@@ -230,7 +238,7 @@ export function markReviewed(
 }
 
 /** One file's diff left to review. */
-export interface DiffPage {
+export interface ReviewPage {
   readonly change: ChangeName;
   readonly file: FilePath;
   /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
@@ -249,8 +257,8 @@ export interface DiffPage {
     | undefined;
 }
 
-/** Query the diff page for `file`: `snapshot` locates the diff, and only the file contents are read. */
-export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
+/** Query the review page for `file`: `snapshot` locates the diff, and only the file contents are read. */
+export async function reviewPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<ReviewPage> {
   const { change, as, base, tip } = snapshot;
   const view = snapshot.left.get(file);
   if (view === undefined) {
@@ -634,7 +642,7 @@ function fileBodyNodes(
   return nodes;
 }
 
-export function diffDoc(page: DiffPage, context?: number): Doc {
+export function reviewDoc(page: ReviewPage, context?: number): Doc {
   // One header line, then the diff: the diff is what the reviewer came to
   // read, so the page spends no more chrome on it than that.
   const upTo = page.left === undefined ? "" : ` (up to ${shortHash(page.left.tip)})`;
@@ -652,88 +660,111 @@ export function diffDoc(page: DiffPage, context?: number): Doc {
   return layout(nodes);
 }
 
-/** Every file of a change's review left, diffed in one page. */
+/** A change's full diff: every changed file, base to tip, blind to review state. */
 export interface DiffsPage {
   readonly change: ChangeName;
-  /** Whose review the page shows when not the current user's own, as `ChangeSnapshot.as`. */
+  /** The identity the page navigates as; the diff itself is the same for everyone. */
   readonly as: UserName | undefined;
-  /** Files with conflict markers to fix; nonempty exactly when they preempt review. */
-  readonly conflicts: readonly FilePath[];
-  /** Undefined when nothing is left to review, or while conflicts block it. */
-  readonly left:
+  readonly base: Revision;
+  readonly tip: Revision;
+  /** The files the diff changes, sorted by path; a moved or copied file names its source. */
+  readonly files: readonly ChangedFile[];
+}
+
+export function diffsPage(snapshot: ChangeSnapshot): DiffsPage {
+  return {
+    change: snapshot.change,
+    as: snapshot.as,
+    base: snapshot.base,
+    tip: snapshot.tip,
+    files: snapshot.changed,
+  };
+}
+
+export function diffsDoc(page: DiffsPage): Doc {
+  const title = `Diff ${page.change}`;
+  // As on the review page, every line proceeds to the first file, on the
+  // jump tier; a file's own line resolves to that file instead.
+  const fileTarget = (file: FilePath): Target => ({
+    kind: "file",
+    page: "diff",
+    change: page.change,
+    file,
+    as: page.as,
+  });
+  const first = page.files[0];
+  const proceed: { target: Target; tier: TargetTier } | undefined =
+    first === undefined ? undefined : { target: fileTarget(first.path), tier: "jump" };
+  const lines: Line[] = [
+    { spans: [span(title, { style: "heading", ...proceed })] },
+    { spans: [span("=".repeat(title.length), proceed)] },
+    { spans: [span("", proceed)] },
+  ];
+  if (page.files.length === 0) {
+    lines.push({ spans: [span("No changes.")] });
+    return layout(lines);
+  }
+  lines.push(
+    { spans: [span(`Diffing ${shortHash(page.base)}..${shortHash(page.tip)}.`, proceed)] },
+    { spans: [span("", proceed)] },
+  );
+  for (const { path, source } of page.files) {
+    lines.push({ spans: [span("  "), span(fileLabel(path, source), { target: fileTarget(path) })] });
+  }
+  return layout(lines);
+}
+
+/** One file's full diff, base to tip. */
+export interface DiffPage {
+  readonly change: ChangeName;
+  readonly file: FilePath;
+  /** The identity the page navigates as; the diff itself is the same for everyone. */
+  readonly as: UserName | undefined;
+  /** Undefined when the diff does not touch the file. */
+  readonly diff:
     | {
-        /** The tip the diffs review up to: marking a file records `{base, tip}`. */
+        readonly base: Revision;
         readonly tip: Revision;
-        readonly files: readonly {
-          readonly file: FilePath;
-          /** The source the diff moves or copies the file from, when it records one. */
-          readonly source: FileSource | undefined;
-          /** The mode change the diff carries, when its sides' modes differ. */
-          readonly modes: ModeChange | undefined;
-          readonly view: DiffView;
-        }[];
+        /** The source the diff moves or copies the file from, when it records one. */
+        readonly source: FileSource | undefined;
+        /** The mode change the diff carries, when its sides' modes differ. */
+        readonly modes: ModeChange | undefined;
+        readonly view: Extract<DiffView, { kind: "two" }>;
       }
     | undefined;
 }
 
-/** Query the diffs page: one `diffPage` view per file left. */
-export async function diffsPage(backend: Backend, snapshot: ChangeSnapshot): Promise<DiffsPage> {
-  const { change, as, conflicts } = snapshot;
-  if (conflicts.length > 0 || snapshot.left.size === 0) {
-    return { change, as, conflicts, left: undefined };
+/** Query the diff page for `file`: `snapshot` locates the diff, and only the file contents are read. */
+export async function diffPage(backend: Backend, snapshot: ChangeSnapshot, file: FilePath): Promise<DiffPage> {
+  const { change, as, base, tip } = snapshot;
+  const changed = snapshot.changed.find(({ path }) => path === file);
+  if (changed === undefined) {
+    return { change, file, as, diff: undefined };
   }
-  const files = await Promise.all(
-    [...snapshot.left.keys()].map(async (file) => {
-      const page = await diffPage(backend, snapshot, file);
-      if (page.left === undefined) {
-        throw new Error(`${file} is left to review in ${change} but has no diff`);
-      }
-      return { file, source: page.left.source, modes: page.left.modes, view: page.left.view };
-    }),
-  );
-  return { change, as, conflicts, left: { tip: snapshot.tip, files } };
+  const [prev, next] = await Promise.all([
+    backend.readFile(base, changed.source?.path ?? file),
+    backend.readFile(tip, file),
+  ]);
+  return {
+    change,
+    file,
+    as,
+    diff: { base, tip, source: changed.source, modes: changed.modes, view: { kind: "two", prev, next } },
+  };
 }
 
-/**
- * The bar naming a file above its hunks, as patdiff prints one. At least
- * three @s a side keeps a long path's bar reading as a bar — and matching
- * the page grammar's file-section pattern.
- */
-function fileBar(name: string): string {
-  const padded = ` ${name} `;
-  const left = Math.max(3, Math.floor((84 - padded.length) / 2));
-  const right = Math.max(3, 84 - padded.length - left);
-  return "@".repeat(left) + padded + "@".repeat(right);
-}
-
-export function diffsDoc(page: DiffsPage, context?: number): Doc {
-  const upTo = page.left === undefined ? "" : ` (up to ${shortHash(page.left.tip)})`;
-  const title = `Review ${page.change}${page.as === undefined ? "" : ` as ${page.as}`}${upTo}`;
+export function diffDoc(page: DiffPage, context?: number): Doc {
+  const range = page.diff === undefined ? "" : ` (${shortHash(page.diff.base)}..${shortHash(page.diff.tip)})`;
+  const name = fileLabel(page.file, page.diff?.source);
+  const title = `${name} in ${page.change}${range}`;
   const nodes: Node[] = [
     { spans: [span(title, { style: "heading", target: { kind: "change", change: page.change } })] },
     { spans: [] },
   ];
-  if (page.conflicts.length > 0) {
-    nodes.push({ spans: [span(`Unresolved conflicts in ${page.conflicts.join(", ")}; fix the markers and amend.`)] });
+  if (page.diff === undefined) {
+    nodes.push({ spans: [span(`No changes to ${page.file}.`)] });
     return layout(nodes);
   }
-  if (page.left === undefined) {
-    nodes.push({ spans: [span("Nothing left to review.")] });
-    return layout(nodes);
-  }
-  page.left.files.forEach(({ file, source, modes, view }, i) => {
-    if (i > 0) {
-      nodes.push({ spans: [] });
-    }
-    const heading: Line = {
-      spans: [
-        span(fileBar(fileLabel(file, source)), {
-          style: "heading",
-          target: { kind: "file", change: page.change, file, as: page.as },
-        }),
-      ],
-    };
-    nodes.push(section(heading, fileBodyNodes(page.change, file, source, modes, view, context)));
-  });
+  nodes.push(...fileBodyNodes(page.change, page.file, page.diff.source, page.diff.modes, page.diff.view, context));
   return layout(nodes);
 }
