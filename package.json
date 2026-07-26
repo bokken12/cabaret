@@ -1,0 +1,15 @@
+{
+  "name": "cabaret",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "check": "biome check .",
+    "fix": "biome check --write ."
+  },
+  "packageManager": "pnpm@11.3.0",
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.5"
+  }
+}
