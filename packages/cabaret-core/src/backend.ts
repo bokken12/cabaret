@@ -57,10 +57,6 @@ export class Backend {
 
   // TODO(jm): all should avoid writing if already up to date, and return updated change.
 
-  public async forget(_change: ChangeID, _file: FilePath): Promise<void> {
-    throw new Error("unimplemented");
-  }
-
   public async mark(_change: ChangeID, _file: FilePath, _rev: Revision): Promise<void> {
     throw new Error("unimplemented");
   }
