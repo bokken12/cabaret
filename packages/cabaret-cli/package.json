@@ -1,0 +1,21 @@
+{
+  "name": "cabaret-cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "cabaret": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stricli/core": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
