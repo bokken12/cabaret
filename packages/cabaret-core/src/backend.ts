@@ -1,5 +1,4 @@
 import type { ConfigField } from "./config.ts";
-import type { Forge } from "./forge.ts";
 import type { Git } from "./git.ts";
 import type { LogAction } from "./log.ts";
 import type { Change, ChangeID, FileGlob, FilePath, Revision, Username } from "./types.ts";
@@ -9,59 +8,105 @@ export class Backend {
   protected git: Git;
   // TODO-someday(jm): add in forge and wrapping
 
+  public constructor(git: Git) {
+    this.git = git;
+  }
+
   // === internal ===
 
-  private async logAction(change: ChangeID, action: LogAction) {}
+  protected async logAction(_change: ChangeID, _action: LogAction): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
   // === cross-change actions ===
 
-  public async fetch() {}
+  public async fetch(): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async land(change: ChangeID) {}
+  public async land(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
   // === observation ===
 
-  public async conflicts(change: ChangeID) {}
+  // TODO(jm): pin down return types; void is a placeholder.
 
-  public async diff(change: ChangeID) {}
+  public async conflicts(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async read(change: ChangeID): Promise<Change> {}
+  public async diff(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async review(change: ChangeID) {}
+  public async read(_change: ChangeID): Promise<Change> {
+    throw new Error("unimplemented");
+  }
 
-  public async todos(change: ChangeID) {}
+  public async review(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
+
+  public async todos(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
   // === log actions ===
 
   // TODO(jm): all should avoid writing if already up to date, and return updated change.
 
-  public async forget(change: ChangeID, file: FilePath) {}
+  public async forget(_change: ChangeID, _file: FilePath): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async mark(change: ChangeID, file: FilePath, rev: Revision) {}
+  public async mark(_change: ChangeID, _file: FilePath, _rev: Revision): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async rebase(change: ChangeID) {}
+  public async rebase(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async reparent(change: ChangeID) {}
+  public async reparent(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async setArchived(change: ChangeID, archived: boolean) {}
+  public async setArchived(_change: ChangeID, _archived: boolean): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async setOwner(change: ChangeID, owner: Username) {}
+  public async setOwner(_change: ChangeID, _owner: Username): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
   // === config management ===
 
-  public async getConfig<T>(field: ConfigField<T>): Promise<T> {}
+  public async getConfig<T>(_field: ConfigField<T>): Promise<T> {
+    throw new Error("unimplemented");
+  }
 
-  public async setConfig<T>(field: ConfigField<T>, value: T) {}
+  public async setConfig<T>(_field: ConfigField<T>, _value: T): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
   // === workspace management ===
 
-  public async commit(change: ChangeID, files: ReadonlyArray<FileGlob>);
+  public async commit(_change: ChangeID, _files: ReadonlyArray<FileGlob>): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async workspaceAdd(change: ChangeID) {}
+  public async workspaceAdd(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async workspaceRemove(change: ChangeID) {}
+  public async workspaceRemove(_change: ChangeID): Promise<void> {
+    throw new Error("unimplemented");
+  }
 
-  public async workspaceDir(change: ChangeID) {}
+  public async workspaceDir(_change: ChangeID): Promise<string> {
+    throw new Error("unimplemented");
+  }
 }
 
 // TODO-someday(jm): add caching layers.
