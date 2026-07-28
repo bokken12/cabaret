@@ -21,7 +21,8 @@ export class Backend {
   // === cross-change actions ===
 
   public async fetch(): Promise<void> {
-    throw new Error("unimplemented");
+    // TODO(jm): fetch logs, fast-forward, push
+    await this.git.fetch();
   }
 
   public async land(_change: ChangeID): Promise<void> {

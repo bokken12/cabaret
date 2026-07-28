@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-import { buildApplication, buildCommand, type CommandContext, run } from "@stricli/core";
+import { buildApplication, buildRouteMap, run } from "@stricli/core";
+import { fetchCommand } from "./fetch.ts";
 
-// Placeholder root; becomes a buildRouteMap once there are real commands.
-const root = buildCommand({
-  func(this: CommandContext): void {
-    this.process.stdout.write("cabaret: no commands yet\n");
+const root = buildRouteMap({
+  routes: { fetch: fetchCommand },
+  docs: {
+    brief: "Cabaret command-line interface",
   },
-  parameters: {},
-  docs: { brief: "Cabaret command-line interface" },
 });
 
 const app = buildApplication(root, { name: "cabaret" });
