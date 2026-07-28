@@ -19,7 +19,7 @@ export type FilePath = Branded<string, "FilePath">;
 /** Repo-relative glob. */
 export type FileGlob = Branded<string, "FileGlob">;
 
-/** Not comparable to git timestamps. */
+/** Node time resolution. Not comparable to git timestamps. */
 export type TimestampMs = Branded<number, "TimestampMs">;
 
 /**  */
