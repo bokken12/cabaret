@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "bin": {
-    "cabaret": "./dist/cli.js"
+    "cab": "./dist/cli.js"
   },
   "files": [
     "dist"
