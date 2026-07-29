@@ -7,4 +7,4 @@ export type LogAction =
   | { readonly kind: "set-archived"; readonly archived: boolean }
   | { readonly kind: "mark"; readonly file: FilePath; readonly base: Revision; readonly tip: Revision };
 
-export type LogEntry = { timestamp: TimestampMs; action: LogAction };
+export type LogEntry = { readonly timestamp: TimestampMs; readonly user: Username; readonly action: LogAction };
