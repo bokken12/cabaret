@@ -27,12 +27,18 @@ export type FileGlob = Branded<string, "FileGlob">;
 /** Node time resolution. Not comparable to git timestamps. */
 export type TimestampMs = Branded<number, "TimestampMs">;
 
+/** A pair of revisions identifying a diff. */
+export interface Span {
+  readonly base: Revision;
+  readonly tip: Revision;
+}
+
 /** Change info stored in its log. */
 export interface ChangeMeta {
   readonly id: ChangeID;
   readonly owners: ReadonlyArray<Username>;
   readonly parents: ReadonlyArray<ChangeID>;
-  readonly brain: ReadonlyMap<Username, ReadonlyMap<FilePath, Revision>>;
+  readonly brain: ReadonlyMap<Username, ReadonlyMap<FilePath, Span>>;
   // readonly name?: string;
   // readonly archived?: boolean;
   // TODO(jm): some sort of user marker/indicator
