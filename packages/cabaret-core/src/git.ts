@@ -1,8 +1,10 @@
-import { type SimpleGit, simpleGit } from "simple-git";
+import { GitError, type SimpleGit, simpleGit } from "simple-git";
 
 /** Typed interface to `git` onto which Cabaret can translate its operations. */
 export interface Git {
   fetch(): Promise<void>;
+  /** Contents of the file at `ref:path`, or undefined if the ref or path does not exist. */
+  readBlob(ref: string, path: string): Promise<string | undefined>;
 }
 
 // TODO: Add an in-process, memfs-backed IsomorphicGit implementation for tests.
@@ -18,5 +20,14 @@ export class ShellGit implements Git {
 
   public async fetch(): Promise<void> {
     await this.client.fetch();
+  }
+
+  public async readBlob(ref: string, path: string): Promise<string | undefined> {
+    try {
+      return await this.client.show([`${ref}:${path}`]);
+    } catch (e) {
+      if (e instanceof GitError && /invalid object name|does not exist/i.test(e.message)) return undefined;
+      throw e;
+    }
   }
 }
