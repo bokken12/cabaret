@@ -1,6 +1,7 @@
 import type { ConfigField } from "./config.ts";
+import { UserError } from "./error.ts";
 import type { Git } from "./git.ts";
-import type { LogAction } from "./log.ts";
+import { changeLogRef, foldMeta, LOG_FILE, type LogAction, readChangeLog } from "./log.ts";
 import type { Change, ChangeID, FileGlob, FilePath, Revision, Username, ChangeMeta, Base } from "./types.ts";
 
 // TODO(jm): decide on superclass vs interface
@@ -15,14 +16,16 @@ export class Backend {
   // === internal ===
 
   protected async readMeta(change: ChangeID): Promise<ChangeMeta> {
-    throw new Error("unimplemented");
+    const log = await this.git.readBlob(changeLogRef(change), LOG_FILE);
+    if (log === undefined) throw new UserError(`unknown change: ${change}`);
+    return foldMeta(change, readChangeLog(log));
   }
 
   protected async computeBase(change: ChangeMeta): Promise<Base> {
-    if (change.parents.length === 0) {
+    if (change.parents.size === 0) {
       // Feature with no parents has no diff, use the tip as the base
       throw new Error("unimplemented");
-    } else if (change.parents.length === 1) {
+    } else if (change.parents.size === 1) {
       // TODO-someday(jm): allow retained tip under history editing
       // base = gca(tip, parent.tip)
       throw new Error("unimplemented");

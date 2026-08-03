@@ -23,6 +23,9 @@ export const Username = {
   schema: z.string().transform((s) => s as Username),
 };
 
+/** Fully-qualified git refname (`refs/...`). */
+export type Ref = Branded<string, "Ref">;
+
 /** Identifier for a repository version. A commit hash. */
 export type Revision = Branded<string, "Revision">;
 export const Revision = {
@@ -56,9 +59,9 @@ export const Span = {
 /** Change info stored in its log. */
 export interface ChangeMeta {
   readonly id: ChangeID;
-  readonly owners: ReadonlyArray<Username>;
-  readonly parents: ReadonlyArray<ChangeID>;
-  readonly brain: ReadonlyMap<Username, ReadonlyMap<FilePath, Span>>;
+  readonly owners: Set<Username>;
+  readonly parents: Set<ChangeID>;
+  readonly brain: Map<Username, Map<FilePath, Span>>;
   // readonly name?: string;
   // readonly archived?: boolean;
   // TODO(jm): some sort of user marker/indicator
