@@ -19,6 +19,9 @@
       "preset": "recommended",
       "style": {
         "useImportType": "off"
+      },
+      "complexity": {
+        "noBannedTypes": "off"
       }
     }
   },
