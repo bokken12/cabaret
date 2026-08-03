@@ -16,7 +16,7 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,
-    "isolatedDeclarations": true,
+    "isolatedDeclarations": false,
     "rootDir": "${configDir}/src",
     "outDir": "${configDir}/dist",
     "declaration": true,
