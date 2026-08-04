@@ -1,6 +1,6 @@
 import { Maybe, NotUndefined, Option } from "./index.ts";
 
-export type T<Ok, Err> = { kind: "ok"; ok: Ok } | { kind: "err"; err: Err };
+export type T<Ok, Err> = { readonly kind: "ok"; readonly ok: Ok } | { readonly kind: "err"; readonly err: Err };
 
 export function make<Ok, Err>(ok: Ok): T<Ok, Err> {
   return { kind: "ok", ok };
@@ -24,4 +24,20 @@ export function okOpt<Ok, Err>(t: T<Ok, Err>): Option.T<Ok> {
   }
 
   return Option.make(t.ok);
+}
+
+export function map<A, B, Err>(t: T<A, Err>, f: (a: A) => B): T<B, Err> {
+  if (t.kind === "err") {
+    return t;
+  }
+
+  return make(f(t.ok));
+}
+
+export function mapErr<Ok, A, B>(t: T<Ok, A>, f: (a: A) => B): T<Ok, B> {
+  if (t.kind === "ok") {
+    return t;
+  }
+
+  return makeErr(f(t.err));
 }

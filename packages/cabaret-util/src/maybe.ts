@@ -23,7 +23,7 @@ export function value<A extends NU>(t: T<A>, default_: A): A {
 
 export function valueExn<A extends NU>(t: T<A>): A {
   if (t === undefined) {
-    throw new Error("Maybe was undefined");
+    throw new Error("Maybe.valueExn: undefined");
   }
 
   return t;
