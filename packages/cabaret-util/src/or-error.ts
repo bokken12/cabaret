@@ -15,12 +15,12 @@ export function okExn<Ok, Err extends Error>(t: T<Ok, Err>): Ok {
 
 export function tryWith<Ok>(f: () => Ok): T<Ok> {
   try {
-    return Result.make(f());
+    return Result.Ok(f());
   } catch (error) {
     if (error instanceof Error) {
-      return Result.makeErr([error]);
+      return Result.Err([error]);
     } else {
-      return Result.makeErr([new Error("threw non-Error")]);
+      return Result.Err([new Error("threw non-Error")]);
     }
   }
 }
