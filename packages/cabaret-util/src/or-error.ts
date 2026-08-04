@@ -1,11 +1,11 @@
-import { NonemptyIarray, Result, Variant } from "./index.ts";
+import { match, NonemptyIarray, Result } from "./index.ts";
 
 export * from "./result.ts";
 
 export type T<Ok, Err extends Error = Error> = Result.T<Ok, NonemptyIarray.T<Err>>;
 
 export function okExn<Ok, Err extends Error>(t: T<Ok, Err>): Ok {
-  return Variant.match(t, {
+  return match(t, {
     err: (t) => {
       throw new AggregateError(t.err);
     },
