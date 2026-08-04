@@ -1,6 +1,7 @@
 export * as Array from "./array.ts";
 export * as Boolean from "./boolean.ts";
 export * as Iarray from "./iarray.ts";
+export * as Literal from "./literal.ts";
 export * as Maybe from "./maybe.ts";
 export * as NonNull from "./non-null.ts";
 export * as NonemptyArray from "./nonempty-array.ts";
@@ -10,3 +11,4 @@ export * as Option from "./option.ts";
 export * as OrError from "./or-error.ts";
 export * as OrNull from "./or-null.ts";
 export * as Result from "./result.ts";
+export * as Variant from "./variant.ts";

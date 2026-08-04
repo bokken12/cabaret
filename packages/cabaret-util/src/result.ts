@@ -1,4 +1,4 @@
-import { Maybe, NotUndefined, Option } from "./index.ts";
+import { Maybe, NotUndefined, Option, Variant } from "./index.ts";
 
 export type T<Ok, Err> = { readonly kind: "ok"; readonly ok: Ok } | { readonly kind: "err"; readonly err: Err };
 
@@ -11,33 +11,29 @@ export function makeErr<Ok, Err>(err: Err): T<Ok, Err> {
 }
 
 export function ok<Ok extends NotUndefined.T, Err>(t: T<Ok, Err>): Maybe.T<Ok> {
-  if (t.kind === "err") {
-    return undefined;
-  }
-
-  return t.ok;
+  return Variant.match(t, {
+    err: (_) => undefined,
+    ok: (t) => t.ok,
+  });
 }
 
 export function okOpt<Ok, Err>(t: T<Ok, Err>): Option.T<Ok> {
-  if (t.kind === "err") {
-    return Option.none;
-  }
-
-  return Option.make(t.ok);
+  return Variant.match(t, {
+    err: (_) => Option.none,
+    ok: (t) => Option.make(t.ok),
+  });
 }
 
 export function map<A, B, Err>(t: T<A, Err>, f: (a: A) => B): T<B, Err> {
-  if (t.kind === "err") {
-    return t;
-  }
-
-  return make(f(t.ok));
+  return Variant.match(t, {
+    err: (t) => t,
+    ok: (t) => make(f(t.ok)),
+  });
 }
 
 export function mapErr<Ok, A, B>(t: T<Ok, A>, f: (a: A) => B): T<Ok, B> {
-  if (t.kind === "ok") {
-    return t;
-  }
-
-  return makeErr(f(t.err));
+  return Variant.match(t, {
+    ok: (t) => t,
+    err: (t) => makeErr(f(t.err)),
+  });
 }
