@@ -14,3 +14,8 @@ export function map<A, B>(t: T<A>, f: (a: A) => B): T<B> {
   const [head, ...tail] = t;
   return [f(head), ...tail.map(f)];
 }
+
+export function reduce<A>(t: T<A>, f: (acc: A, a: A) => A): A {
+  const [head, ...tail] = t;
+  return tail.reduce(f, head);
+}
