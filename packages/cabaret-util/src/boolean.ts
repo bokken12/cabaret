@@ -1,5 +1,5 @@
-import { IArray } from "./index.ts";
+import { Iarray } from "./index.ts";
 
 export type T = boolean;
 
-export const ALL: IArray.T<T> = [true, false];
+export const ALL: Iarray.T<T> = [true, false];

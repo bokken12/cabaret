@@ -1,10 +1,10 @@
 export * as Array from "./array.ts";
 export * as Boolean from "./boolean.ts";
-export * as IArray from "./i-array.ts";
+export * as Iarray from "./iarray.ts";
 export * as Maybe from "./maybe.ts";
 export * as NonNull from "./non-null.ts";
 export * as NonemptyArray from "./nonempty-array.ts";
-export * as NonemptyIArray from "./nonempty-i-array.ts";
+export * as NonemptyIarray from "./nonempty-iarray.ts";
 export * as NotUndefined from "./not-undefined.ts";
 export * as Option from "./option.ts";
 export * as OrError from "./or-error.ts";

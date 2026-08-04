@@ -1,24 +1,24 @@
-import { NonemptyIArray, Result } from "./index.ts";
+import { NonemptyIarray, Result } from "./index.ts";
 
 export * from "./result.ts";
 
-export type T<Ok, Err extends Error = Error> = Result.T<Ok, NonemptyIArray.T<Err>>;
+export type T<Ok, Err extends Error = Error> = Result.T<Ok, NonemptyIarray.T<Err>>;
 
-export function ok_exn<Ok, Err extends Error>(t: T<Ok, Err>): Ok {
+export function okExn<Ok, Err extends Error>(t: T<Ok, Err>): Ok {
   if (t.kind === "err") {
     throw new AggregateError(t.err);
   }
   return t.ok;
 }
 
-export function try_with<Ok>(f: () => Ok): T<Ok> {
+export function tryWith<Ok>(f: () => Ok): T<Ok> {
   try {
     return Result.make(f());
   } catch (error) {
     if (error instanceof Error) {
-      return Result.make_err([error]);
+      return Result.makeErr([error]);
     } else {
-      return Result.make_err([new Error("threw non-Error")]);
+      return Result.makeErr([new Error("threw non-Error")]);
     }
   }
 }
