@@ -12,7 +12,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": false, // prefer plain imports
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,

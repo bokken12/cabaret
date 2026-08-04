@@ -1,7 +1,8 @@
+/** Optional type via discriminated union. See also `Maybe.T` for niche optimization. */
 export type T<A> = { kind: "some"; val: A } | { kind: "none" };
 
 export const none: T<never> = { kind: "none" };
 
-export function some<A>(a: A): T<A> {
+export function make<A>(a: A): T<A> {
   return { kind: "some", val: a };
 }

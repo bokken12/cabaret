@@ -1,1 +1,1 @@
-export type T<A> = readonly [A, ...[A]];
+export type T<A> = readonly [A, ...A[]];

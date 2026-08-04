@@ -1,1 +1,1 @@
-export type T<A> = [A, ...[A]];
+export type T<A> = [A, ...A[]];

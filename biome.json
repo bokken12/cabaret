@@ -18,7 +18,11 @@
     "rules": {
       "preset": "recommended",
       "style": {
-        "useImportType": "off"
+        "useImportType": "off",
+        "useConsistentObjectDefinitions": {
+          "level": "warn",
+          "options": { "syntax": "shorthand" }
+        }
       },
       "complexity": {
         "noBannedTypes": "off"

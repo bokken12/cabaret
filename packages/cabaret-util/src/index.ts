@@ -1,6 +1,8 @@
 export * as Array from "./array.ts";
+export * as Boolean from "./boolean.ts";
 export * as IArray from "./i-array.ts";
 export * as Maybe from "./maybe.ts";
+export * as NonNull from "./non-null.ts";
 export * as NonemptyArray from "./nonempty-array.ts";
 export * as NonemptyIArray from "./nonempty-i-array.ts";
 export * as NotUndefined from "./not-undefined.ts";
