@@ -120,6 +120,7 @@ export function compileOnly(s: Shape, t: "idle" | Shape): void {
   // _ receives only the unhandled cases
   match(t, { idle: () => 0, circle: (v) => v.radius, _: (rest: { kind: "square"; side: number }) => rest.side });
 
-  // with a catch-all, the null key narrows to the value and _ receives the string
-  match("null" as "null" | null, { null: (x: null) => x, _: (s: "null") => s });
+  // the types stay fused: the null key claims both forms even though a catch-all
+  // takes the string at runtime
+  match("null" as "null" | null, { null: (x: "null" | null) => x, _: () => null });
 }
