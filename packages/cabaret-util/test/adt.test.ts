@@ -126,6 +126,17 @@ test("an untagged member does not impersonate the undefined key", () => {
   `);
 });
 
+test("a kind named null is untagged and routes to the catch-all", () => {
+  type V = null | { kind: "null"; x: number };
+  const f = (v: V) => match(v, { null: () => "the value", _: (o) => `kind null x=${o.x}` });
+  expect([f(null), f({ kind: "null", x: 7 })]).toMatchInlineSnapshot(`
+    [
+      "the value",
+      "kind null x=7",
+    ]
+  `);
+});
+
 test("bigints fuse with numeric keys; functions and symbols only reach _", () => {
   const f = (g: (() => number) | null) => match(g, { null: () => -1, _: (fn) => fn() });
   const g = (v: 1n | 1) => match(v, { 1: (x) => `the ${typeof x}` });
@@ -156,9 +167,13 @@ export function compileOnly(s: Shape, t: "idle" | Shape): void {
   // _ receives only the unhandled cases
   match(t, { idle: () => 0, circle: (v) => v.radius, _: (rest: { kind: "square"; side: number }) => rest.side });
 
-  // the types stay fused: the null key claims both forms even though a catch-all
-  // takes the string at runtime
-  match("null" as "null" | null, { null: (x: "null" | null) => x, _: () => null });
+  // reserved tags are honest in the types: the null key claims only the value,
+  // and _ receives the string
+  match("null" as "null" | null, { null: (x: null) => x, _: (s: "null") => s });
+
+  // exhaustive matches have no catch-all, so reserved strings and kinds fuse into their raw key
+  match("null" as "null" | null, { null: (x: "null" | null) => x });
+  match({ kind: "null" } as { kind: "null" } | null, { null: (x: { kind: "null" } | null) => x });
 
   // @ts-expect-error untagged members have no key, so the match cannot be exhaustive
   match(new Date() as Date | null, { null: () => 0 });
