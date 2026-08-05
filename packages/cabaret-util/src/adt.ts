@@ -7,7 +7,8 @@ export type Enum<T extends Record<string, {}>> = {
 // Primitives with a canonical string representation in `${_}`
 type Literal = string | number | boolean | bigint | null | undefined;
 
-type T = Literal | { readonly kind: string };
+// Values whose every member bears a tag, making exhaustive matching possible
+type Tagged = Literal | { readonly kind: string };
 
 // reserved nullish strings always route to _ in partial matches
 type Reserved = "null" | "undefined";
@@ -44,7 +45,10 @@ export function match<A, K extends PartialTag<A> | "_", R>(
   a: A,
   handlers: { [P in K | "_"]: (v: P extends "_" ? Rest<A, Exclude<K, "_">> : PartialCase<A, P>) => R },
 ): R;
-export function match<A extends T, R>(a: A, handlers: { [P in ExhaustiveTag<A>]: (v: ExhaustiveCase<A, P>) => R }): R;
+export function match<A extends Tagged, R>(
+  a: A,
+  handlers: { [P in ExhaustiveTag<A>]: (v: ExhaustiveCase<A, P>) => R },
+): R;
 export function match(a: unknown, handlers: object): unknown {
   const h = handlers as Partial<Record<string, (v: unknown) => unknown>>;
   const tag =
