@@ -1,4 +1,4 @@
-import { NotUndefined, Option } from "./index.ts";
+import { match, NotUndefined, Option } from "./index.ts";
 
 type NU = NotUndefined.T;
 
@@ -14,27 +14,26 @@ export function makeIf<A, B extends A & NU>(a: A, is: (a: A) => a is B): T<B> {
 }
 
 export function value<A extends NU>(t: T<A>, default_: A): A {
-  if (t === undefined) {
-    return default_;
-  }
-
-  return t;
+  return match(t, {
+    undefined: () => default_,
+    _: (t) => t,
+  });
 }
 
 export function valueExn<A extends NU>(t: T<A>): A {
-  if (t === undefined) {
-    throw new Error("Maybe.valueExn: undefined");
-  }
-
-  return t;
+  return match(t, {
+    undefined: () => {
+      throw new Error("Maybe.valueExn: undefined");
+    },
+    _: (t) => t,
+  });
 }
 
 export function map<A extends NU, B extends NU>(t: T<A>, f: (a: A) => B): T<B> {
-  if (t === undefined) {
-    return undefined;
-  }
-
-  return f(t);
+  return match(t, {
+    undefined: () => undefined,
+    _: (t) => f(t),
+  });
 }
 
 export function toOption<A extends NU>(t: T<A>): Option.T<A> {

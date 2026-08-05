@@ -106,6 +106,42 @@ test("without a catch-all, nullish strings share the explicit key", () => {
   `);
 });
 
+test("untagged members match by nullness and fall through to _", () => {
+  const f = (d: Date | null) => match(d, { null: () => "absent", _: (v) => `at ${v.getTime()}` });
+  expect([f(null), f(new Date(0))]).toMatchInlineSnapshot(`
+    [
+      "absent",
+      "at 0",
+    ]
+  `);
+});
+
+test("an untagged member does not impersonate the undefined key", () => {
+  const f = (d: Date | undefined) => match(d, { undefined: () => "absent", _: (v) => `at ${v.getTime()}` });
+  expect([f(undefined), f(new Date(0))]).toMatchInlineSnapshot(`
+    [
+      "absent",
+      "at 0",
+    ]
+  `);
+});
+
+test("bigints fuse with numeric keys; functions and symbols only reach _", () => {
+  const f = (g: (() => number) | null) => match(g, { null: () => -1, _: (fn) => fn() });
+  const g = (v: 1n | 1) => match(v, { 1: (x) => `the ${typeof x}` });
+  const s = (v: symbol | null) => match(v, { null: () => "nil", _: (x) => typeof x });
+  expect([f(null), f(() => 7), g(1), g(1n), s(null), s(Symbol("x"))]).toMatchInlineSnapshot(`
+    [
+      -1,
+      7,
+      "the number",
+      "the bigint",
+      "nil",
+      "symbol",
+    ]
+  `);
+});
+
 // Compile-only: never called, just typechecked.
 export function compileOnly(s: Shape, t: "idle" | Shape): void {
   // @ts-expect-error missing adt case without _ is rejected
@@ -123,4 +159,10 @@ export function compileOnly(s: Shape, t: "idle" | Shape): void {
   // the types stay fused: the null key claims both forms even though a catch-all
   // takes the string at runtime
   match("null" as "null" | null, { null: (x: "null" | null) => x, _: () => null });
+
+  // @ts-expect-error untagged members have no key, so the match cannot be exhaustive
+  match(new Date() as Date | null, { null: () => 0 });
+
+  // @ts-expect-error an untagged member cannot be claimed by a key
+  match(new Date() as Date | null, { null: () => 0, date: (d: Date) => d, _: () => 0 });
 }
