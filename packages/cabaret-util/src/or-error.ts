@@ -6,10 +6,10 @@ export type T<Ok, Err extends Error = Error> = Result.T<Ok, NonemptyIarray.T<Err
 
 export function okExn<Ok, Err extends Error>(t: T<Ok, Err>): Ok {
   return match(t, {
-    err: (t) => {
+    Err: (t) => {
       throw new AggregateError(t.err);
     },
-    ok: (t) => t.ok,
+    Ok: (t) => t.ok,
   });
 }
 
