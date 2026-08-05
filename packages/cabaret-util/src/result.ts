@@ -1,6 +1,6 @@
-import { ADT, Maybe, match, NotUndefined, Option } from "./index.ts";
+import { Enum, Maybe, match, NotUndefined, Option } from "./index.ts";
 
-export type T<Ok, Err> = ADT<{ ok: { ok: Ok }; err: { err: Err } }>;
+export type T<Ok, Err> = Enum<{ ok: { ok: Ok }; err: { err: Err } }>;
 
 export function Ok<Ok, Err>(ok: Ok): T<Ok, Err> {
   return { kind: "ok", ok };

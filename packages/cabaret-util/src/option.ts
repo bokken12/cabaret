@@ -1,7 +1,7 @@
-import { Maybe, NotUndefined } from "./index.ts";
+import { Enum, Maybe, NotUndefined } from "./index.ts";
 
 /** Optional type via discriminated union. See also `Maybe.T` for niche optimization. */
-export type T<A> = { readonly kind: "some"; readonly val: A } | { readonly kind: "none" };
+export type T<A> = Enum<{ some: { val: A }; none: {} }>;
 
 export const None: T<never> = { kind: "none" };
 

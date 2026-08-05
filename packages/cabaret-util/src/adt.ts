@@ -1,4 +1,5 @@
-export type ADT<T extends Record<string, {}>> = {
+// TODO-someday(jm): generate enum constructors
+export type Enum<T extends Record<string, {}>> = {
   [K in keyof T]: { readonly kind: K } & Readonly<T[K]>;
 }[keyof T];
 

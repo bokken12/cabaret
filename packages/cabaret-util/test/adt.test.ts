@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { ADT, match } from "../src/index.ts";
+import { Enum, match } from "../src/index.ts";
 
-type Shape = ADT<{ circle: { radius: number }; square: { side: number } }>;
+type Shape = Enum<{ circle: { radius: number }; square: { side: number } }>;
 
 const shapes: Shape[] = [
   { kind: "circle", radius: 7 },
@@ -40,7 +40,7 @@ test("exhaustive match over literals", () => {
 });
 
 test("literals and adts fuse in one union", () => {
-  type State = "idle" | null | ADT<{ busy: { task: string } }>;
+  type State = "idle" | null | Enum<{ busy: { task: string } }>;
 
   const show = (s: State) =>
     match(s, {
@@ -59,7 +59,7 @@ test("literals and adts fuse in one union", () => {
 });
 
 test("partial match falls through to _ with the unhandled cases", () => {
-  type State = "idle" | ADT<{ busy: { task: string }; done: { ok: boolean } }>;
+  type State = "idle" | Enum<{ busy: { task: string }; done: { ok: boolean } }>;
   const states: State[] = ["idle", { kind: "busy", task: "paint" }, { kind: "done", ok: true }];
 
   const f = (s: State) =>

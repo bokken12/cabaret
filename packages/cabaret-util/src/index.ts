@@ -1,4 +1,4 @@
-export { ADT, match } from "./adt.ts";
+export { Enum, match } from "./adt.ts";
 
 export * as Array from "./array.ts";
 export * as Boolean from "./boolean.ts";
