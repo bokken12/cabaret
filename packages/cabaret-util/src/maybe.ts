@@ -1,4 +1,4 @@
-import { match, NotUndefined, Option } from "./index.ts";
+import { match, NoResume, NotUndefined, Option } from "./index.ts";
 
 type NU = NotUndefined.T;
 
@@ -40,11 +40,11 @@ export function toOption<A extends NU>(t: T<A>): Option.T<A> {
   return Option.makeIf(t, (a): a is A => a !== undefined);
 }
 
-type Gen<A> = Generator<undefined, A, never>;
+type Gen<A> = Generator<undefined, A, NoResume.T>;
 
 export function* bind<A extends NU>(t: T<A>): Gen<A> {
   if (t === undefined) {
-    return yield t;
+    return NoResume.absurd(yield undefined);
   }
 
   return t;

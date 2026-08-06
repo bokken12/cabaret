@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Enum, match } from "../src/index.ts";
+import { Enum, match, Result } from "../src/index.ts";
 
 type Shape = Enum<{ circle: { radius: number }; square: { side: number } }>;
 
@@ -153,6 +153,63 @@ test("bigints fuse with numeric keys; functions and symbols only reach _", () =>
   `);
 });
 
+test("generator branches pass their yields through to the enclosing generator", () => {
+  const positive = (n: number): Result.T<number, Error> =>
+    n > 0 ? Result.Ok(n) : Result.Err(new Error(`not positive: ${n}`));
+
+  const area = (s: Shape) =>
+    Result.gen(function* () {
+      return yield* match(s, {
+        *circle(v) {
+          return 3 * (yield* Result.bind(positive(v.radius))) ** 2;
+        },
+        *square(v) {
+          return (yield* Result.bind(positive(v.side))) ** 2;
+        },
+      });
+    });
+
+  expect([area({ kind: "circle", radius: 7 }), area({ kind: "square", side: -3 })]).toMatchInlineSnapshot(`
+    [
+      {
+        "kind": "Ok",
+        "ok": 147,
+      },
+      {
+        "err": [Error: not positive: -3],
+        "kind": "Err",
+      },
+    ]
+  `);
+});
+
+test("generator match with a catch-all and a non-yielding branch", () => {
+  const f = (s: "idle" | Shape) =>
+    Result.gen(function* () {
+      return yield* match(s, {
+        *idle() {
+          return yield* Result.bind<number, Error>(Result.Err(new Error("idle")));
+        },
+        *_(v) {
+          return v.kind.length;
+        },
+      });
+    });
+
+  expect([f("idle"), f({ kind: "square", side: 3 })]).toMatchInlineSnapshot(`
+    [
+      {
+        "err": [Error: idle],
+        "kind": "Err",
+      },
+      {
+        "kind": "Ok",
+        "ok": 6,
+      },
+    ]
+  `);
+});
+
 // Compile-only: never called, just typechecked.
 export function compileOnly(s: Shape, t: "idle" | Shape): void {
   // @ts-expect-error missing adt case without _ is rejected
@@ -175,9 +232,18 @@ export function compileOnly(s: Shape, t: "idle" | Shape): void {
   match("null" as "null" | null, { null: (x: "null" | null) => x });
   match({ kind: "null" } as { kind: "null" } | null, { null: (x: { kind: "null" } | null) => x });
 
+  // an exhaustive match with no contextual type still infers R from the branches
+  match(s, { circle: (v) => v.radius, square: (v) => v.side }) satisfies number;
+
   // @ts-expect-error untagged members have no key, so the match cannot be exhaustive
   match(new Date() as Date | null, { null: () => 0 });
 
   // @ts-expect-error an untagged member cannot be claimed by a key
   match(new Date() as Date | null, { null: () => 0, date: (d: Date) => d, _: () => 0 });
+
+  // @ts-expect-error a generator match without a catch-all must be exhaustive
+  match(s, { *circle(v) { return v.radius; } });
+
+  // @ts-expect-error a generator match rejects bogus keys
+  match(s, { *blob() { return 0; }, *_() { return 0; } });
 }

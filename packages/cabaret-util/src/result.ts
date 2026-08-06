@@ -1,4 +1,4 @@
-import { Enum, Maybe, match, NotUndefined, Option } from "./index.ts";
+import { Enum, Maybe, match, NoResume, NotUndefined, Option } from "./index.ts";
 
 export type T<Ok, Err> = Enum<{ Ok: { ok: Ok }; Err: { err: Err } }>;
 
@@ -38,11 +38,11 @@ export function mapErr<Ok, A, B>(t: T<Ok, A>, f: (a: A) => B): T<Ok, B> {
   });
 }
 
-type Gen<Ok, Err> = Generator<Err, Ok, never>;
+type Gen<Ok, Err> = Generator<Err, Ok, NoResume.T>;
 
 export function* bind<Ok, Err extends Error>(t: T<Ok, Err>): Gen<Ok, Err> {
   if (t.kind === "Err") {
-    return yield t.err;
+    return NoResume.absurd(yield t.err);
   }
 
   return t.ok;

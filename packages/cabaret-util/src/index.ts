@@ -5,6 +5,7 @@ export * as Fn from "./fn.ts";
 export * as Generator from "./generator.ts";
 export * as Iarray from "./iarray.ts";
 export * as Maybe from "./maybe.ts";
+export * as NoResume from "./no-resume.ts";
 export * as NonNull from "./non-null.ts";
 export * as NonemptyArray from "./nonempty-array.ts";
 export * as NonemptyIarray from "./nonempty-iarray.ts";

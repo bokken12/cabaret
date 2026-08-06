@@ -41,14 +41,13 @@ type ExhaustiveTag<A> = A extends { kind: infer K extends string } ? K : A exten
 type ExhaustiveCase<A, P> = A extends unknown ? (P extends ExhaustiveTag<A> ? A : never) : never;
 
 // TODO-someday(jm): consider using $ as a separator either for match2 or for disjunction
-// TODO-someday(jm): add a match that passes through generators
 export function match<A, K extends PartialTag<A> | "_", R>(
   a: A,
   handlers: { [P in K | "_"]: (v: P extends "_" ? Rest<A, Exclude<K, "_">> : PartialCase<A, P>) => R },
 ): R;
-export function match<A extends Tagged, R>(
+export function match<A extends Tagged, K extends ExhaustiveTag<A>, R>(
   a: A,
-  handlers: { [P in ExhaustiveTag<A>]: (v: ExhaustiveCase<A, P>) => R },
+  handlers: [ExhaustiveTag<A>] extends [K] ? { [P in K]: (v: ExhaustiveCase<A, P>) => R } : never,
 ): R;
 export function match(a: unknown, handlers: object): unknown {
   const h = handlers as Partial<Record<string, (v: unknown) => unknown>>;
