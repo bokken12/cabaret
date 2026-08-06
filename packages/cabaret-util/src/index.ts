@@ -1,7 +1,8 @@
 export { Enum, match } from "./adt.ts";
-
 export * as Array from "./array.ts";
 export * as Boolean from "./boolean.ts";
+export * as Fn from "./fn.ts";
+export * as Generator from "./generator.ts";
 export * as Iarray from "./iarray.ts";
 export * as Maybe from "./maybe.ts";
 export * as NonNull from "./non-null.ts";

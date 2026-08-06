@@ -37,3 +37,23 @@ export function mapErr<Ok, A, B>(t: T<Ok, A>, f: (a: A) => B): T<Ok, B> {
     Err: (t) => Err(f(t.err)),
   });
 }
+
+type Gen<Ok, Err> = Generator<Err, Ok, never>;
+
+export function* bind<Ok, Err extends Error>(t: T<Ok, Err>): Gen<Ok, Err> {
+  if (t.kind === "Err") {
+    return yield t.err;
+  }
+
+  return t.ok;
+}
+
+export function gen<Ok, Err extends Error>(body: () => Gen<Ok, Err>): T<Ok, Err> {
+  const result = body().next();
+
+  if (!result.done) {
+    return Err(result.value);
+  }
+
+  return Ok(result.value);
+}

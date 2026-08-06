@@ -40,19 +40,22 @@ export function toOption<A extends NU>(t: T<A>): Option.T<A> {
   return Option.makeIf(t, (a): a is A => a !== undefined);
 }
 
-// declare const GEN_IN: unique symbol;
-// declare const GEN_OUT: unique symbol;
+type Gen<A> = Generator<undefined, A, never>;
 
-// type GenIn = typeof GEN_IN;
-// type GenOut = typeof GEN_OUT;
+export function* bind<A extends NU>(t: T<A>): Gen<A> {
+  if (t === undefined) {
+    return yield t;
+  }
 
-// type Gen<A> = Generator<GenIn, A, GenOut>
+  return t;
+}
 
-// function bind<A extends NU>(T<A>): Gen<A>
+export function gen<A extends NU>(body: () => Gen<A>): T<A> {
+  const result = body().next();
 
-// function gen<A>(body: () => Gen<A>): T<A> {
+  if (!result.done) {
+    return undefined;
+  }
 
-// }
-
-// if undefined -> never
-// if A -> A
+  return result.value;
+}

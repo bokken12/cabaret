@@ -20,3 +20,23 @@ export function makeIf<A, B extends A>(a: A, is: (a: A) => a is B): T<B> {
 export function ofMaybe<A extends NotUndefined.T>(maybe: Maybe.T<A>): T<A> {
   return makeIf(maybe, (a): a is A => a !== undefined);
 }
+
+type Gen<A> = Generator<undefined, A, never>;
+
+export function* bind<A>(t: T<A>): Gen<A> {
+  if (t.kind === "None") {
+    return yield undefined;
+  }
+
+  return t.val;
+}
+
+export function gen<A>(body: () => Gen<A>): T<A> {
+  const result = body().next();
+
+  if (!result.done) {
+    return None;
+  }
+
+  return Some(result.value);
+}
