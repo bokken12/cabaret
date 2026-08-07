@@ -28,7 +28,11 @@
         "noBannedTypes": "off",
         "useLiteralKeys": "off"
       },
+      "correctness": {
+        "useYield": "off"
+      },
       "suspicious": {
+        "noExplicitAny": "off",
         "noShadowRestrictedNames": "off"
       }
     }

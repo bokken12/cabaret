@@ -242,8 +242,19 @@ export function compileOnly(s: Shape, t: "idle" | Shape): void {
   match(new Date() as Date | null, { null: () => 0, date: (d: Date) => d, _: () => 0 });
 
   // @ts-expect-error a generator match without a catch-all must be exhaustive
-  match(s, { *circle(v) { return v.radius; } });
+  match(s, {
+    *circle() {
+      return 0;
+    },
+  });
 
-  // @ts-expect-error a generator match rejects bogus keys
-  match(s, { *blob() { return 0; }, *_() { return 0; } });
+  match(s, {
+    // @ts-expect-error a generator match rejects bogus keys
+    *blob() {
+      return 0;
+    },
+    *_() {
+      return 0;
+    },
+  });
 }

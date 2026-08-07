@@ -14,3 +14,4 @@ export * as Option from "./option.ts";
 export * as OrError from "./or-error.ts";
 export * as OrNull from "./or-null.ts";
 export * as Result from "./result.ts";
+export * as Summable from "./summable.ts";
