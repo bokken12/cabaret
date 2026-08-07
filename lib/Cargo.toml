@@ -1,0 +1,8 @@
+[package]
+name = "cabaret-lib"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gix.workspace = true
