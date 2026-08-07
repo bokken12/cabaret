@@ -1,10 +1,7 @@
 # Stack
 
-Most of the tech stack is dictated by the desire to be a VSCode extension, meeting developers where they are:
+Most of the tech stack is dictated by the need to efficiently interact with git. Especially on larger monorepos, shelling out to subprocesses is untenable performance-wise.
 
-- VSCode extensions are built in TypeScript, and so we shall be too in order to avoid heavy FFI or cross-compilation.
-- VSCode extensions run on Node, and so we stick with it to avoid targeting multiple runtimes.
+In this aspect, Rust's ecosystem has a distinct advantage due to [gitoxide](https://github.com/gitoxidelabs/gitoxide), which notably powers JJ, an app with very similar structure/requirements to Cabaret.
 
-Outside of those basics we have more flexibility, but choose to use Biome for linting/formatting, and Vitest for testing.
-
-On other platforms, choices are often made to minimize divergence from the primary VSCode UI: e.g. Shiki formatting.
+Cabaret will also need a thin web/UI layer in TypeScript/Node to power its VSCode extension (and future web UI), but will attempt to keep its main logic in Rust. This will rely heavily on Shiki to unify formatting with VSCode.
