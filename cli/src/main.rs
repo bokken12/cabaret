@@ -10,10 +10,8 @@ enum OwnersCommand {
 }
 
 #[derive(Subcommand)]
-enum Command {
-    Config,
+enum ChangeCommand {
     Diff,
-    Fetch,
     Land,
     Mark,
     Owners {
@@ -22,6 +20,17 @@ enum Command {
     },
     Parents,
     Rebase,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Change {
+        #[command(subcommand)]
+        command: ChangeCommand,
+    },
+    Config,
+    Fetch,
+    Workspace,
 }
 
 #[derive(Parser)]
@@ -46,21 +55,24 @@ fn run() -> Result<(), Box<dyn Error>> {
     let cabaret = Cabaret::open(std::env::current_dir()?)?;
 
     match cli.command {
-        Command::Config => todo!(),
-        Command::Diff => todo!(),
-        Command::Fetch => todo!(),
-        Command::Land => todo!(),
-        Command::Mark => todo!(),
-        Command::Owners { command } => match command {
-            OwnersCommand::Show => todo!(),
-        },
-        Command::Parents => {
-            let change = cabaret.change(&cabaret.current_change()?)?;
-            for parent in &change.parents {
-                println!("{parent}");
+        Command::Change { command } => match command {
+            ChangeCommand::Diff => todo!(),
+            ChangeCommand::Land => todo!(),
+            ChangeCommand::Mark => todo!(),
+            ChangeCommand::Owners { command } => match command {
+                OwnersCommand::Show => todo!(),
+            },
+            ChangeCommand::Parents => {
+                let change = cabaret.change(&cabaret.current_change()?)?;
+                for parent in &change.parents {
+                    println!("{parent}");
+                }
             }
-        }
-        Command::Rebase => todo!(),
+            ChangeCommand::Rebase => todo!(),
+        },
+        Command::Config => todo!(),
+        Command::Fetch => todo!(),
+        Command::Workspace => todo!(),
     }
 
     Ok(())
