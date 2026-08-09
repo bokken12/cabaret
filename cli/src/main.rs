@@ -1,3 +1,7 @@
+use std::error::Error;
+use std::process::ExitCode;
+
+use cabaret_lib::Cabaret;
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -19,8 +23,19 @@ struct Cli {
     command: Command,
 }
 
-fn main() {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cab: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
+    let _cabaret = Cabaret::open(std::env::current_dir()?)?;
 
     match cli.command {
         Command::Config => todo!(),

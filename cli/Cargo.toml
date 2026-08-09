@@ -9,5 +9,5 @@ name = "cab"
 path = "src/main.rs"
 
 [dependencies]
-cab-lib.workspace = true
+cabaret-lib.workspace = true
 clap.workspace = true
