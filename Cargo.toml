@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lib"]
+members = ["cli", "lib"]
 
 [workspace.package]
 version = "0.0.0"
@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.97.1"
 
 [workspace.dependencies]
-cab-lib = { path = "lib" }
+cab-lib = { path = "lib", package = "cabaret-lib" }
 
-clap = "4.6.6"
+clap = { version = "4.6.6", features = ["derive"] }
 gix = "0.86.0"

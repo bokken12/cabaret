@@ -19,9 +19,9 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Diff => todo!()
-        , Command::Mark => todo!()
+        Command::Diff => todo!(),
+        Command::Mark => todo!(),
         Command::Owners => todo!(),
-        Command::Parents => todo!()
+        Command::Parents => todo!(),
     }
 }

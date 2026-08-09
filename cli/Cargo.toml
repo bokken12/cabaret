@@ -4,5 +4,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "cab"
+path = "src/main.rs"
+
 [dependencies]
 cab-lib.workspace = true
+clap.workspace = true
