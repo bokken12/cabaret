@@ -1,8 +1,6 @@
 # Log
 
-The source of truth for each change is its log. The log is append-only, and permits automatic merging. Logs are stored at `refs/cabaret/changes/<name>` in the file named `log`.
-
-TODO(jm): decide on the proper log serialization (jsonl? binary? other?)
+The source of truth for each change is its log. The log is append-only, and permits automatic merging. Logs are stored at `refs/cabaret/changes/<name>` in the file named `log.jsonl`.
 
 Each log entry consists of
 
