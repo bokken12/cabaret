@@ -6,6 +6,7 @@ enum Command {
     Mark,
     Owners,
     Parents,
+    Rebase,
 }
 
 #[derive(Parser)]
@@ -23,5 +24,6 @@ fn main() {
         Command::Mark => todo!(),
         Command::Owners => todo!(),
         Command::Parents => todo!(),
+        Command::Rebase => todo!(),
     }
 }
