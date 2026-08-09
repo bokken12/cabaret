@@ -5,13 +5,21 @@ use cabaret_lib::Cabaret;
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
+enum OwnersCommand {
+    Show,
+}
+
+#[derive(Subcommand)]
 enum Command {
     Config,
     Diff,
     Fetch,
     Land,
     Mark,
-    Owners,
+    Owners {
+        #[command(subcommand)]
+        command: OwnersCommand,
+    },
     Parents,
     Rebase,
 }
@@ -35,7 +43,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let _cabaret = Cabaret::open(std::env::current_dir()?)?;
+    let cabaret = Cabaret::open(std::env::current_dir()?)?;
 
     match cli.command {
         Command::Config => todo!(),
@@ -43,8 +51,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         Command::Fetch => todo!(),
         Command::Land => todo!(),
         Command::Mark => todo!(),
-        Command::Owners => todo!(),
-        Command::Parents => todo!(),
+        Command::Owners { command } => match command {
+            OwnersCommand::Show => todo!(),
+        },
+        Command::Parents => {
+            let change = cabaret.change(&cabaret.current_change()?)?;
+            for parent in &change.parents {
+                println!("{parent}");
+            }
+        }
         Command::Rebase => todo!(),
     }
+
+    Ok(())
 }
