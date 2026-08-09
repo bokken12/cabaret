@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Subcommand)]
 enum Command {
     Diff,
+    Fetch,
     Mark,
     Owners,
     Parents,
@@ -21,6 +22,7 @@ fn main() {
 
     match cli.command {
         Command::Diff => todo!(),
+        Command::Fetch => todo!(),
         Command::Mark => todo!(),
         Command::Owners => todo!(),
         Command::Parents => todo!(),
