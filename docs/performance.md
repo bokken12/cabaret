@@ -4,10 +4,18 @@
 
 Cabaret aims to support large monorepos with many files, as well as large organizations with many contributors and active changes. This means it is mandatory to consider performance and not test only with minimal examples.
 
-## Subprocesses & Batching
+## Gix
 
-Because Cabaret is built on top of `git`, most of its expensive operations do not actually live within its own code. In addition to simply avoiding asking `git` for expensive things, one of the main levers available to Cabaret is to minimize the number of spawned subprocesses via long-running sessions or batching.
+Cabaret aims to avoid expensive subprocess spawning by using the native-rust `gix` crate for as many of its operations as possible.
 
-## Obligations & Home
+## Caching & Invalidation
 
-One particular performance pain point for Cabaret is in rendering the "home" page which notably shows all of a user's outstanding review. Since unlike `CODEOWNERS`, Cabaret's obligations are encoded throughout many files in the tree, and we must read all of them for each change to determine whether a user must review it, this can be very expensive. For operations here we must be particularly careful, e.g. aggressively pruning changes which the current user could not be reviewing before reading through its contents.
+Many of Cabaret's most expensive operations involve reading over some ref's tree. These include reading change logs to compute change state, and even more severe is recursively reading obligations files to compute review obligations.
+
+After performing this sort of an operation, Cabaret can typically cache the result for reuse, recomputing only if it sees the ref has moved.
+
+## Home
+
+By far Cabaret's most expensive page to render is its home page, since it attempts to render a representation of all changes relevant to a user (those they own, must review, or have checked out). This can require computing state for all changes to see which are relevant.
+
+Cabaret is willing to do this sometimes lossily: missing out on spotting new changes to be attentive of until the appropriate fetch omputation has been performed (in the background in most UIs).
