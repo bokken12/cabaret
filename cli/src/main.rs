@@ -2,8 +2,10 @@ use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
 enum Command {
+    Config,
     Diff,
     Fetch,
+    Land,
     Mark,
     Owners,
     Parents,
@@ -21,8 +23,10 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Config => todo!(),
         Command::Diff => todo!(),
         Command::Fetch => todo!(),
+        Command::Land => todo!(),
         Command::Mark => todo!(),
         Command::Owners => todo!(),
         Command::Parents => todo!(),
