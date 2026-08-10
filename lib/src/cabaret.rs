@@ -14,6 +14,7 @@ impl Cabaret {
         Ok(Cabaret { repo })
     }
 
+    // TODO-someday(jm): consider pulling into state
     pub fn current_change(&self) -> Result<ChangeId> {
         let head = self
             .repo

@@ -5,4 +5,4 @@ mod types;
 
 pub use cabaret::Cabaret;
 pub use error::{Error, Result};
-pub use types::{Change, ChangeId, Revision, TimestampMs};
+pub use types::{Change, ChangeId, Identity, Revision, TimestampMs};

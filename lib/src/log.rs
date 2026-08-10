@@ -1,16 +1,16 @@
-use std::collections::BTreeSet;
-
 use gix::Repository;
 use serde::{Deserialize, Serialize};
 
 use crate::cabaret::Cabaret;
 use crate::error::{Error, Result};
-use crate::types::{Change, ChangeId, TimestampMs};
+use crate::types::{Change, ChangeId, Identity, TimestampMs};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case")]
 pub enum LogAction {
+    AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
+    RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
 }
 
@@ -42,13 +42,17 @@ fn read_entries(repo: &Repository, change: &ChangeId) -> Result<Vec<LogEntry>> {
 }
 
 fn change_of_entries(log: &[LogEntry]) -> Change {
-    let mut change = Change {
-        parents: BTreeSet::new(),
-    };
+    let mut change = Change::new();
     for entry in log {
         match &entry.action {
+            LogAction::AddOwner { owner } => {
+                change.owners.insert(owner.clone());
+            }
             LogAction::AddParent { parent } => {
                 change.parents.insert(parent.clone());
+            }
+            LogAction::RemoveOwner { owner } => {
+                change.owners.remove(owner);
             }
             LogAction::RemoveParent { parent } => {
                 change.parents.remove(parent);
@@ -68,6 +72,14 @@ impl Cabaret {
     }
 
     pub fn remove_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
+        todo!()
+    }
+
+    pub fn add_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
+        todo!()
+    }
+
+    pub fn remove_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
         todo!()
     }
 }

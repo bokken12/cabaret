@@ -7,6 +7,23 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[serde(transparent)]
 pub struct TimestampMs(pub u64);
 
+// TODO-someday(joel): rename to "user" or "email"?
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Identity(pub String);
+
+impl From<String> for Identity {
+    fn from(s: String) -> Identity {
+        Identity(s)
+    }
+}
+
+impl fmt::Display for Identity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ChangeId(pub String);
@@ -18,7 +35,7 @@ impl fmt::Display for ChangeId {
 }
 
 impl From<String> for ChangeId {
-    fn from(s: String) -> Self {
+    fn from(s: String) -> ChangeId {
         ChangeId(s)
     }
 }
@@ -40,8 +57,18 @@ impl<'de> Deserialize<'de> for Revision {
     }
 }
 
-// TODO-someday(jm): rename? metdata? info? log data?
+// TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {
-    // TODO-someday(jm): add other relevant data
+    // TODO-someday(joel): add other relevant data
+    pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
+}
+
+impl Change {
+    pub fn new() -> Change {
+        Change {
+            owners: BTreeSet::new(),
+            parents: BTreeSet::new(),
+        }
+    }
 }
