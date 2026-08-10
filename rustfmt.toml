@@ -1,2 +1,8 @@
 max_width = 120
 use_small_heuristics = "Max"
+
+# nightly-only; applied by `cargo +nightly fmt`, ignored by stable
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+fn_single_line = true
+format_code_in_doc_comments = true

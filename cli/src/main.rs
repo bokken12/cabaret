@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::process::ExitCode;
+use std::{error::Error, process::ExitCode};
 
 use cabaret_lib::{Cabaret, ChangeId, Identity};
 use clap::{Parser, Subcommand};

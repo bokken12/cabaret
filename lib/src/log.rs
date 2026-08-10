@@ -1,9 +1,11 @@
 use gix::{ObjectId, Repository};
 use serde::{Deserialize, Serialize};
 
-use crate::cabaret::Cabaret;
-use crate::error::{Error, Result};
-use crate::types::{Change, ChangeId, Identity, TimestampMs};
+use crate::{
+    cabaret::Cabaret,
+    error::{Error, Result},
+    types::{Change, ChangeId, Identity, TimestampMs},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case")]
@@ -37,9 +39,7 @@ impl Change {
 
 const LOG_FILE: &str = "log.jsonl";
 
-fn ref_name(change: &ChangeId) -> String {
-    format!("refs/cabaret/changes/{change}")
-}
+fn ref_name(change: &ChangeId) -> String { format!("refs/cabaret/changes/{change}") }
 
 struct Log {
     head: ObjectId,
@@ -66,9 +66,7 @@ impl Log {
 }
 
 impl Cabaret {
-    pub fn change(&self, change: &ChangeId) -> Result<Change> {
-        Ok(Log::read(&self.repo, change)?.change)
-    }
+    pub fn change(&self, change: &ChangeId) -> Result<Change> { Ok(Log::read(&self.repo, change)?.change) }
 
     fn record(&self, change: &ChangeId, action: LogAction) -> Result<()> {
         let mut log = Log::read(&self.repo, change)?;

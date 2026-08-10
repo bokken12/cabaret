@@ -1,8 +1,11 @@
-use gix::Repository;
 use std::path::Path;
 
-use crate::error::{Error, Result};
-use crate::types::ChangeId;
+use gix::Repository;
+
+use crate::{
+    error::{Error, Result},
+    types::ChangeId,
+};
 
 pub struct Cabaret {
     pub repo: Repository,

@@ -22,15 +22,11 @@ impl TimestampMs {
 pub struct Identity(pub String);
 
 impl From<String> for Identity {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
+    fn from(s: String) -> Self { Self(s) }
 }
 
 impl fmt::Display for Identity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -38,15 +34,11 @@ impl fmt::Display for Identity {
 pub struct ChangeId(pub String);
 
 impl fmt::Display for ChangeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
 }
 
 impl From<String> for ChangeId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
+    fn from(s: String) -> Self { Self(s) }
 }
 
 // TODO-someday(joel): extract serialize-as-hash as its own type?
@@ -74,7 +66,5 @@ pub struct Change {
 }
 
 impl Change {
-    pub const fn new() -> Self {
-        Self { owners: BTreeSet::new(), parents: BTreeSet::new() }
-    }
+    pub const fn new() -> Self { Self { owners: BTreeSet::new(), parents: BTreeSet::new() } }
 }
