@@ -1,12 +1,19 @@
 use std::error::Error;
 use std::process::ExitCode;
 
-use cabaret_lib::Cabaret;
+use cabaret_lib::{Cabaret, ChangeId};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
 enum OwnersCommand {
     Show,
+}
+
+#[derive(Subcommand)]
+enum ParentsCommand {
+    Show,
+    Add { parent: ChangeId },
+    Remove { parent: ChangeId },
 }
 
 #[derive(Subcommand)]
@@ -18,7 +25,10 @@ enum ChangeCommand {
         #[command(subcommand)]
         command: OwnersCommand,
     },
-    Parents,
+    Parents {
+        #[command(subcommand)]
+        command: ParentsCommand,
+    },
     Rebase,
 }
 
@@ -62,10 +72,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             ChangeCommand::Owners { command } => match command {
                 OwnersCommand::Show => todo!(),
             },
-            ChangeCommand::Parents => {
-                let change = cabaret.change(&cabaret.current_change()?)?;
-                for parent in &change.parents {
-                    println!("{parent}");
+            ChangeCommand::Parents { command } => {
+                let mut change = &cabaret.current_change()?;
+                match command {
+                    ParentsCommand::Show => {
+                        let change = cabaret.change(change)?;
+                        for parent in &change.parents {
+                            println!("{parent}");
+                        }
+                    }
+                    ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
+                    ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
                 }
             }
             ChangeCommand::Rebase => todo!(),

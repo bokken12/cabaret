@@ -62,4 +62,12 @@ impl Cabaret {
     pub fn change(&self, change: &ChangeId) -> Result<Change> {
         Ok(change_of_entries(&read_entries(&self.repo, change)?))
     }
+
+    pub fn add_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
+        todo!()
+    }
+
+    pub fn remove_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
+        todo!()
+    }
 }

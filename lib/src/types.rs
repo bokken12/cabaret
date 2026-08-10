@@ -17,6 +17,12 @@ impl fmt::Display for ChangeId {
     }
 }
 
+impl From<String> for ChangeId {
+    fn from(s: String) -> Self {
+        ChangeId(s)
+    }
+}
+
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Revision(pub ObjectId);
@@ -34,6 +40,7 @@ impl<'de> Deserialize<'de> for Revision {
     }
 }
 
+// TODO-someday(jm): rename? metdata? info? log data?
 pub struct Change {
     // TODO-someday(jm): add other relevant data
     pub parents: BTreeSet<ChangeId>,
