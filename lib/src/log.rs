@@ -48,32 +48,20 @@ struct Log {
 }
 
 impl Log {
-    fn read(repo: &Repository, change: &ChangeId) -> Result<Log> {
+    fn read(repo: &Repository, change: &ChangeId) -> Result<Self> {
         let ref_name = ref_name(change);
         let mut reference = repo.find_reference(&ref_name).map_err(Error::new)?;
         let commit = reference.peel_to_commit().map_err(Error::new)?;
         let tree = commit.tree().map_err(Error::new)?;
-        let entry = tree
-            .find_entry(LOG_FILE)
-            .ok_or_else(|| Error::new(format!("{ref_name} has no {LOG_FILE}")))?;
-        let blob = entry
-            .object()
-            .map_err(Error::new)?
-            .try_into_blob()
-            .map_err(Error::new)?;
-        let text = std::str::from_utf8(&blob.data)
-            .map_err(Error::new)?
-            .to_owned();
+        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| Error::new(format!("{ref_name} has no {LOG_FILE}")))?;
+        let blob = entry.object().map_err(Error::new)?.try_into_blob().map_err(Error::new)?;
+        let text = std::str::from_utf8(&blob.data).map_err(Error::new)?.to_owned();
         let mut change = Change::new();
         for line in text.lines() {
             let entry: LogEntry = serde_json::from_str(line).map_err(Error::new)?;
             change.apply(&entry.action);
         }
-        Ok(Log {
-            head: commit.id,
-            text,
-            change,
-        })
+        Ok(Self { head: commit.id, text, change })
     }
 }
 
@@ -92,10 +80,7 @@ impl Cabaret {
 
     fn append(&self, change: &ChangeId, log: Log, action: LogAction) -> Result<()> {
         let message = serde_json::to_string(&action).map_err(Error::new)?;
-        let entry = LogEntry {
-            timestamp: TimestampMs::now(),
-            action,
-        };
+        let entry = LogEntry { timestamp: TimestampMs::now(), action };
         let line = serde_json::to_string(&entry).map_err(Error::new)?;
         let mut text = log.text;
         if !text.is_empty() && !text.ends_with('\n') {
@@ -112,45 +97,23 @@ impl Cabaret {
             }],
         };
         let tree = self.repo.write_object(&tree).map_err(Error::new)?;
-        self.repo
-            .commit(ref_name(change).as_str(), message, tree, [log.head])
-            .map_err(Error::new)?;
+        self.repo.commit(ref_name(change).as_str(), message, tree, [log.head]).map_err(Error::new)?;
         Ok(())
     }
 
     pub fn add_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
-        self.record(
-            change,
-            LogAction::AddParent {
-                parent: parent.clone(),
-            },
-        )
+        self.record(change, LogAction::AddParent { parent: parent.clone() })
     }
 
     pub fn remove_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
-        self.record(
-            change,
-            LogAction::RemoveParent {
-                parent: parent.clone(),
-            },
-        )
+        self.record(change, LogAction::RemoveParent { parent: parent.clone() })
     }
 
     pub fn add_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
-        self.record(
-            change,
-            LogAction::AddOwner {
-                owner: owner.clone(),
-            },
-        )
+        self.record(change, LogAction::AddOwner { owner: owner.clone() })
     }
 
     pub fn remove_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
-        self.record(
-            change,
-            LogAction::RemoveOwner {
-                owner: owner.clone(),
-            },
-        )
+        self.record(change, LogAction::RemoveOwner { owner: owner.clone() })
     }
 }

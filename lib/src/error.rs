@@ -8,7 +8,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub fn new(message: impl Display) -> Self {
-        Error(message.to_string())
+        Self(message.to_string())
     }
 }
 

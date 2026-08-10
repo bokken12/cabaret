@@ -8,11 +8,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct TimestampMs(pub u64);
 
 impl TimestampMs {
-    pub fn now() -> TimestampMs {
+    pub fn now() -> Self {
         let since_epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock is before the Unix epoch");
-        TimestampMs(u64::try_from(since_epoch.as_millis()).expect("timestamp overflows u64"))
+        Self(u64::try_from(since_epoch.as_millis()).expect("timestamp overflows u64"))
     }
 }
 
@@ -22,8 +22,8 @@ impl TimestampMs {
 pub struct Identity(pub String);
 
 impl From<String> for Identity {
-    fn from(s: String) -> Identity {
-        Identity(s)
+    fn from(s: String) -> Self {
+        Self(s)
     }
 }
 
@@ -44,8 +44,8 @@ impl fmt::Display for ChangeId {
 }
 
 impl From<String> for ChangeId {
-    fn from(s: String) -> ChangeId {
-        ChangeId(s)
+    fn from(s: String) -> Self {
+        Self(s)
     }
 }
 
@@ -74,10 +74,7 @@ pub struct Change {
 }
 
 impl Change {
-    pub fn new() -> Change {
-        Change {
-            owners: BTreeSet::new(),
-            parents: BTreeSet::new(),
-        }
+    pub const fn new() -> Self {
+        Self { owners: BTreeSet::new(), parents: BTreeSet::new() }
     }
 }
