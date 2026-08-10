@@ -7,6 +7,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[serde(transparent)]
 pub struct TimestampMs(pub u64);
 
+impl TimestampMs {
+    pub fn now() -> TimestampMs {
+        let since_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is before the Unix epoch");
+        TimestampMs(u64::try_from(since_epoch.as_millis()).expect("timestamp overflows u64"))
+    }
+}
+
 // TODO-someday(joel): rename to "user" or "email"?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
