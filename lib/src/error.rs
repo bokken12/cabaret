@@ -1,16 +1,13 @@
 use std::{fmt, fmt::Display};
 
-#[derive(Debug)]
 pub struct Error(String);
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl Error {
-    pub fn new(message: impl Display) -> Self { Self(message.to_string()) }
+impl<E: Display> From<E> for Error {
+    fn from(message: E) -> Self { Self(message.to_string()) }
 }
 
-impl Display for Error {
+impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
 }
-
-impl std::error::Error for Error {}

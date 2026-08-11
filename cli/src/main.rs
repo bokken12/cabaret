@@ -1,6 +1,6 @@
-use std::{error::Error, process::ExitCode};
+use std::process::ExitCode;
 
-use cabaret_lib::{Cabaret, ChangeId, Identity};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -55,13 +55,13 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("cab: {error}");
+            eprintln!("cab: {error:?}");
             ExitCode::FAILURE
         }
     }
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<()> {
     let cli = Cli::parse();
     let cabaret = Cabaret::open(std::env::current_dir()?)?;
 

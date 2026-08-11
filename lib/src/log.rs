@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cabaret::Cabaret,
-    error::{Error, Result},
+    error::Result,
     types::{Change, ChangeId, Identity, TimestampMs},
 };
 
@@ -50,15 +50,15 @@ struct Log {
 impl Log {
     fn read(repo: &Repository, change: &ChangeId) -> Result<Self> {
         let ref_name = ref_name(change);
-        let mut reference = repo.find_reference(&ref_name).map_err(Error::new)?;
-        let commit = reference.peel_to_commit().map_err(Error::new)?;
-        let tree = commit.tree().map_err(Error::new)?;
-        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| Error::new(format!("{ref_name} has no {LOG_FILE}")))?;
-        let blob = entry.object().map_err(Error::new)?.try_into_blob().map_err(Error::new)?;
-        let text = std::str::from_utf8(&blob.data).map_err(Error::new)?.to_owned();
+        let mut reference = repo.find_reference(&ref_name)?;
+        let commit = reference.peel_to_commit()?;
+        let tree = commit.tree()?;
+        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{ref_name} has no {LOG_FILE}"))?;
+        let blob = entry.object()?.try_into_blob()?;
+        let text = std::str::from_utf8(&blob.data)?.to_owned();
         let mut change = Change::new();
         for line in text.lines() {
-            let entry: LogEntry = serde_json::from_str(line).map_err(Error::new)?;
+            let entry: LogEntry = serde_json::from_str(line)?;
             change.apply(&entry.action);
         }
         Ok(Self { head: commit.id, text, change })
@@ -77,16 +77,16 @@ impl Cabaret {
     }
 
     fn append(&self, change: &ChangeId, log: Log, action: LogAction) -> Result<()> {
-        let message = serde_json::to_string(&action).map_err(Error::new)?;
+        let message = serde_json::to_string(&action)?;
         let entry = LogEntry { timestamp: TimestampMs::now(), action };
-        let line = serde_json::to_string(&entry).map_err(Error::new)?;
+        let line = serde_json::to_string(&entry)?;
         let mut text = log.text;
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
         text.push_str(&line);
         text.push('\n');
-        let blob = self.repo.write_blob(text.as_bytes()).map_err(Error::new)?;
+        let blob = self.repo.write_blob(text.as_bytes())?;
         let tree = gix::objs::Tree {
             entries: vec![gix::objs::tree::Entry {
                 mode: gix::objs::tree::EntryKind::Blob.into(),
@@ -94,8 +94,8 @@ impl Cabaret {
                 oid: blob.detach(),
             }],
         };
-        let tree = self.repo.write_object(&tree).map_err(Error::new)?;
-        self.repo.commit(ref_name(change).as_str(), message, tree, [log.head]).map_err(Error::new)?;
+        let tree = self.repo.write_object(&tree)?;
+        self.repo.commit(ref_name(change).as_str(), message, tree, [log.head])?;
         Ok(())
     }
 
