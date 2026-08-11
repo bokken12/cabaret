@@ -99,7 +99,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             ChangeCommand::Rebase => todo!(),
         },
         Command::Config => todo!(),
-        Command::Fetch => todo!(),
+        Command::Fetch => cabaret.fetch()?,
         Command::Workspace => todo!(),
     }
 
