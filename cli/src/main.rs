@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Result};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Rebase, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -30,7 +30,9 @@ enum ChangeCommand {
         #[command(subcommand)]
         command: ParentsCommand,
     },
-    Rebase,
+    Rebase {
+        onto: Option<ChangeId>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -96,7 +98,19 @@ fn run() -> Result<()> {
                     ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
                 }
             }
-            ChangeCommand::Rebase => todo!(),
+            ChangeCommand::Rebase { onto } => {
+                let change = cabaret.current_change()?;
+                let parents = cabaret.change(&change)?.parents;
+                let onto = choose_parent(&change, &parents, onto)?;
+                match cabaret.rebase(&change, &onto)? {
+                    Rebase::UpToDate => println!("already up to date"),
+                    Rebase::Merged { conflicts } => {
+                        for path in conflicts {
+                            println!("conflicted: {path}");
+                        }
+                    }
+                }
+            }
         },
         Command::Config => todo!(),
         Command::Fetch => cabaret.fetch()?,
@@ -104,4 +118,28 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn choose_parent(
+    change: &ChangeId,
+    parents: &std::collections::BTreeSet<ChangeId>,
+    onto: Option<ChangeId>,
+) -> Result<ChangeId> {
+    match onto {
+        Some(onto) => {
+            if !parents.contains(&onto) {
+                return Err(format!("{onto} is not a parent of {change}").into());
+            }
+            Ok(onto)
+        }
+        None => match parents.len() {
+            0 => Err(format!("{change} has no parents").into()),
+            1 => Ok(parents.first().expect("len is 1").clone()),
+            _ => {
+                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
+                Err(format!("{change} has multiple parents; pass the one to rebase onto: {}", parents.join(", "))
+                    .into())
+            }
+        },
+    }
 }
