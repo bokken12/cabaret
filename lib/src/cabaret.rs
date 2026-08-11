@@ -27,6 +27,6 @@ impl Cabaret {
     // TODO-someday(jm): consider pulling into state
     pub fn current_change(&self) -> Result<ChangeId> {
         let head = self.repo.head_name()?.ok_or("HEAD is detached")?;
-        Ok(ChangeId(head.shorten().to_string()))
+        Ok(head.shorten().to_string().parse()?)
     }
 }

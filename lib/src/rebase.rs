@@ -25,7 +25,7 @@ impl Cabaret {
             return Ok(Rebase::UpToDate);
         }
 
-        let branch = change.branch_ref()?;
+        let branch = change.branch_ref();
         let checked_out = self.repo.head_name()?.is_some_and(|head| head == branch);
         let worktree = if checked_out {
             self.repo.workdir().map(Path::to_owned)
@@ -47,8 +47,8 @@ impl Cabaret {
         // conflict text is identical no matter whose clone performs the rebase.
         let labels = Labels {
             ancestor: Some("base".into()),
-            current: Some(change.0.as_str().into()),
-            other: Some(onto.0.as_str().into()),
+            current: Some(change.as_bstr()),
+            other: Some(onto.as_bstr()),
         };
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.blob_merge.text.conflict = Conflict::Keep {
@@ -83,7 +83,7 @@ impl Cabaret {
     }
 
     fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
-        Ok(self.repo.find_reference(change.branch_ref()?.as_ref())?.peel_to_commit()?.id)
+        Ok(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id)
     }
 
     /// The workdir of the workspace that has `branch` checked out, if any.

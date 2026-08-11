@@ -42,7 +42,7 @@ impl Fixture {
     }
 
     fn rebase(&self, onto: &str) -> cabaret_lib::Result<Rebase> {
-        self.cabaret.rebase(&ChangeId("child".into()), &ChangeId(onto.into()))
+        self.cabaret.rebase(&"child".parse::<ChangeId>().unwrap(), &onto.parse().unwrap())
     }
 
     fn tip(&self, change: &str) -> (ObjectId, Vec<ObjectId>) {
