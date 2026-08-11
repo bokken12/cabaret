@@ -42,8 +42,6 @@ impl Change {
 
 const LOG_FILE: &str = "log.jsonl";
 
-fn ref_name(change: &ChangeId) -> String { format!("refs/cabaret/changes/{change}") }
-
 struct Log {
     head: ObjectId,
     text: String,
@@ -52,11 +50,11 @@ struct Log {
 
 impl Log {
     fn read(repo: &Repository, change: &ChangeId) -> Result<Self> {
-        let ref_name = ref_name(change);
-        let mut reference = repo.find_reference(&ref_name)?;
+        let log_ref = change.log_ref();
+        let mut reference = repo.find_reference(&log_ref)?;
         let commit = reference.peel_to_commit()?;
         let tree = commit.tree()?;
-        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{ref_name} has no {LOG_FILE}"))?;
+        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{} has no {LOG_FILE}", log_ref.as_bstr()))?;
         let blob = entry.object()?.try_into_blob()?;
         let text = std::str::from_utf8(&blob.data)?.to_owned();
         let mut change = Change::new();
@@ -98,7 +96,7 @@ impl Cabaret {
             }],
         };
         let tree = self.repo.write_object(&tree)?;
-        self.repo.commit(ref_name(change).as_str(), message, tree, [log.head])?;
+        self.repo.commit(change.log_ref(), message, tree, [log.head])?;
         Ok(())
     }
 

@@ -41,6 +41,11 @@ impl ChangeId {
         FullName::try_from(format!("refs/heads/{self}")).expect("a partial name is valid under refs/heads/")
     }
 
+    pub fn log_ref(&self) -> FullName {
+        FullName::try_from(format!("refs/cabaret/changes/{self}"))
+            .expect("a partial name is valid under refs/cabaret/changes/")
+    }
+
     pub fn as_bstr(&self) -> &BStr { self.0.as_ref().as_bstr() }
 }
 
