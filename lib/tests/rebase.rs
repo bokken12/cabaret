@@ -53,6 +53,19 @@ impl Fixture {
     fn worktree_file(&self, path: &str) -> String {
         fs::read_to_string(self.repo().workdir().unwrap().join(path)).unwrap()
     }
+
+    /// Register a linked worktree with `branch` checked out, as `git worktree add` would.
+    fn add_workspace(&self, name: &str, branch: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workspace = fs::canonicalize(dir.path()).unwrap();
+        let meta = fs::canonicalize(self.repo().git_dir()).unwrap().join("worktrees").join(name);
+        fs::create_dir_all(&meta).unwrap();
+        fs::write(meta.join("HEAD"), format!("ref: refs/heads/{branch}\n")).unwrap();
+        fs::write(meta.join("commondir"), "../..\n").unwrap();
+        fs::write(meta.join("gitdir"), format!("{}\n", workspace.join(".git").display())).unwrap();
+        fs::write(workspace.join(".git"), format!("gitdir: {}\n", meta.display())).unwrap();
+        (dir, workspace)
+    }
 }
 
 fn write_tree(repo: &gix::Repository, files: Files) -> ObjectId {
@@ -164,6 +177,19 @@ fn rebases_onto_the_named_change() {
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.worktree_file("other.txt"), "other\n");
     assert!(!fixture.repo().workdir().unwrap().join("main.txt").exists());
+}
+
+#[test]
+fn a_change_checked_out_in_another_workspace_refuses_to_rebase() {
+    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("file.txt", "main\n")]);
+    fixture.checkout("main", &[("file.txt", "main\n")]);
+    let (_dir, workspace) = fixture.add_workspace("wt", "child");
+
+    let error = fixture.rebase("main").unwrap_err();
+    assert_eq!(
+        format!("{error:?}"),
+        format!("child is checked out in workspace {}; rebase there", workspace.display())
+    );
 }
 
 #[test]

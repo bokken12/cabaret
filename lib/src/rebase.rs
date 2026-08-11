@@ -26,9 +26,20 @@ impl Cabaret {
             return Ok(Rebase::UpToDate);
         }
 
-        let checked_out =
-            self.repo.head_name()?.is_some_and(|head| head.as_bstr() == branch_ref(change).as_bytes().as_bstr());
-        let worktree = if checked_out { self.repo.workdir().map(Path::to_owned) } else { None };
+        let branch = branch_ref(change);
+        let checked_out = self.repo.head_name()?.is_some_and(|head| head.as_bstr() == branch.as_bytes().as_bstr());
+        let worktree = if checked_out {
+            self.repo.workdir().map(Path::to_owned)
+        } else {
+            // Never move the branch under another workspace: its index and files would be left
+            // describing the old tip, and this rebase cannot see whether it is even clean.
+            if let Some(workspace) = self.workspace_holding(&branch)? {
+                return Err(
+                    format!("{change} is checked out in workspace {}; rebase there", workspace.display()).into()
+                );
+            }
+            None
+        };
         if worktree.is_some() && self.repo.is_dirty()? {
             return Err("working tree has uncommitted changes".into());
         }
@@ -74,6 +85,22 @@ impl Cabaret {
 
     fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
         Ok(self.repo.find_reference(&branch_ref(change))?.peel_to_commit()?.id)
+    }
+
+    /// The workdir of the workspace that has `branch` checked out, if any.
+    fn workspace_holding(&self, branch: &str) -> Result<Option<std::path::PathBuf>> {
+        let mut repos = vec![self.repo.main_repo()?];
+        for proxy in self.repo.worktrees()? {
+            repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
+        }
+        for repo in repos {
+            if repo.workdir().is_some()
+                && repo.head_name()?.is_some_and(|head| head.as_bstr() == branch.as_bytes().as_bstr())
+            {
+                return Ok(repo.workdir().map(Path::to_owned));
+            }
+        }
+        Ok(None)
     }
 
     /// Make the (clean) worktree and index match `tree`.
