@@ -1,7 +1,9 @@
 use std::{collections::BTreeSet, fmt};
 
-use gix::ObjectId;
+use gix::{ObjectId, refs::FullName};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::error::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -32,6 +34,11 @@ impl fmt::Display for Identity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ChangeId(pub String);
+
+impl ChangeId {
+    /// The git branch holding this change's commits.
+    pub fn branch_ref(&self) -> Result<FullName> { Ok(FullName::try_from(format!("refs/heads/{self}"))?) }
+}
 
 impl fmt::Display for ChangeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }

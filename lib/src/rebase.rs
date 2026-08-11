@@ -4,6 +4,7 @@ use gix::{
     ObjectId,
     bstr::{BString, ByteSlice},
     merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
+    refs::FullName,
 };
 
 use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
@@ -13,8 +14,6 @@ pub enum Rebase {
     UpToDate,
     Merged { conflicts: Vec<String> },
 }
-
-fn branch_ref(change: &ChangeId) -> String { format!("refs/heads/{change}") }
 
 impl Cabaret {
     /// Merge `onto`'s tip into `change`. Conflicts are committed immediately with
@@ -26,8 +25,8 @@ impl Cabaret {
             return Ok(Rebase::UpToDate);
         }
 
-        let branch = branch_ref(change);
-        let checked_out = self.repo.head_name()?.is_some_and(|head| head.as_bstr() == branch.as_bytes().as_bstr());
+        let branch = change.branch_ref()?;
+        let checked_out = self.repo.head_name()?.is_some_and(|head| head == branch);
         let worktree = if checked_out {
             self.repo.workdir().map(Path::to_owned)
         } else {
@@ -71,7 +70,7 @@ impl Cabaret {
         conflicts.dedup();
 
         self.repo.commit(
-            branch_ref(change).as_str(),
+            branch,
             format!("rebase onto {onto}"),
             merged_tree,
             [change_tip, parent_tip],
@@ -84,19 +83,17 @@ impl Cabaret {
     }
 
     fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
-        Ok(self.repo.find_reference(&branch_ref(change))?.peel_to_commit()?.id)
+        Ok(self.repo.find_reference(change.branch_ref()?.as_ref())?.peel_to_commit()?.id)
     }
 
     /// The workdir of the workspace that has `branch` checked out, if any.
-    fn workspace_holding(&self, branch: &str) -> Result<Option<std::path::PathBuf>> {
+    fn workspace_holding(&self, branch: &FullName) -> Result<Option<std::path::PathBuf>> {
         let mut repos = vec![self.repo.main_repo()?];
         for proxy in self.repo.worktrees()? {
             repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
         }
         for repo in repos {
-            if repo.workdir().is_some()
-                && repo.head_name()?.is_some_and(|head| head.as_bstr() == branch.as_bytes().as_bstr())
-            {
+            if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == *branch) {
                 return Ok(repo.workdir().map(Path::to_owned));
             }
         }
