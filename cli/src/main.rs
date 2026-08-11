@@ -33,6 +33,7 @@ enum ParentsCommand {
     },
 }
 
+// TODO(joel): allow passing in an alternative --change
 #[derive(Subcommand)]
 enum ChangeCommand {
     Diff,

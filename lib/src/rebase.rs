@@ -45,11 +45,8 @@ impl Cabaret {
 
         // Conflict style and labels are forced rather than read from config so the committed
         // conflict text is identical no matter whose clone performs the rebase.
-        let labels = Labels {
-            ancestor: Some("base".into()),
-            current: Some(change.as_bstr()),
-            other: Some(onto.as_bstr()),
-        };
+        let labels =
+            Labels { ancestor: Some("base".into()), current: Some(change.as_bstr()), other: Some(onto.as_bstr()) };
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.blob_merge.text.conflict = Conflict::Keep {
             style: ConflictStyle::ZealousDiff3,
@@ -69,12 +66,7 @@ impl Cabaret {
         conflicts.sort();
         conflicts.dedup();
 
-        self.repo.commit(
-            branch,
-            format!("rebase onto {onto}"),
-            merged_tree,
-            [change_tip, parent_tip],
-        )?;
+        self.repo.commit(branch, format!("rebase onto {onto}"), merged_tree, [change_tip, parent_tip])?;
 
         if let Some(workdir) = worktree {
             self.checkout(&workdir, merged_tree)?;
@@ -101,7 +93,7 @@ impl Cabaret {
     }
 
     /// Make the (clean) worktree and index match `tree`.
-    // TODO-someday(jm): apply only the delta between the old and new trees; rewriting every
+    // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
     // file on each rebase won't fly in a large repository.
     fn checkout(&self, workdir: &Path, tree: ObjectId) -> Result<()> {
         let mut index = self.repo.index_from_tree(&tree)?;

@@ -14,7 +14,7 @@ impl Cabaret {
         Ok(Self { repo })
     }
 
-    // TODO-someday(jm): fetch refs/cabaret/* too
+    // TODO-someday(joel): fetch refs/cabaret/* too
     pub fn fetch(&self) -> Result<()> {
         let remote = self.repo.find_default_remote(gix::remote::Direction::Fetch).ok_or("no remote configured")??;
         remote
@@ -24,7 +24,7 @@ impl Cabaret {
         Ok(())
     }
 
-    // TODO-someday(jm): consider pulling into state
+    // TODO-someday(joel): consider pulling into state
     pub fn current_change(&self) -> Result<ChangeId> {
         let head = self.repo.head_name()?.ok_or("HEAD is detached")?;
         Ok(head.shorten().to_string().parse()?)
