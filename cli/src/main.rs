@@ -100,7 +100,9 @@ fn run() -> Result<()> {
             }
             ChangeCommand::Rebase { onto } => {
                 let change = cabaret.current_change()?;
-                match cabaret.rebase(&change, onto.as_ref())? {
+                let parents = cabaret.change(&change)?.parents;
+                let onto = choose_parent(&change, &parents, onto)?;
+                match cabaret.rebase(&change, &onto)? {
                     Rebase::UpToDate => println!("already up to date"),
                     Rebase::Merged { conflicts } => {
                         for path in conflicts {
@@ -116,4 +118,28 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn choose_parent(
+    change: &ChangeId,
+    parents: &std::collections::BTreeSet<ChangeId>,
+    onto: Option<ChangeId>,
+) -> Result<ChangeId> {
+    match onto {
+        Some(onto) => {
+            if !parents.contains(&onto) {
+                return Err(format!("{onto} is not a parent of {change}").into());
+            }
+            Ok(onto)
+        }
+        None => match parents.len() {
+            0 => Err(format!("{change} has no parents").into()),
+            1 => Ok(parents.first().expect("len is 1").clone()),
+            _ => {
+                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
+                Err(format!("{change} has multiple parents; pass the one to rebase onto: {}", parents.join(", "))
+                    .into())
+            }
+        },
+    }
 }

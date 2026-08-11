@@ -17,14 +17,11 @@ pub enum Rebase {
 fn branch_ref(change: &ChangeId) -> String { format!("refs/heads/{change}") }
 
 impl Cabaret {
-    /// Merge the parent's tip into `change`. Conflicts are committed immediately with
+    /// Merge `onto`'s tip into `change`. Conflicts are committed immediately with
     /// conflict markers in the affected files, never left as an in-progress merge.
-    pub fn rebase(&self, change: &ChangeId, onto: Option<&ChangeId>) -> Result<Rebase> {
-        let parents = self.change(change)?.parents;
-        let parent = choose_parent(change, &parents, onto)?;
-
+    pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Rebase> {
         let change_tip = self.tip(change)?;
-        let parent_tip = self.tip(parent)?;
+        let parent_tip = self.tip(onto)?;
         if self.repo.merge_base(change_tip, parent_tip)? == parent_tip {
             return Ok(Rebase::UpToDate);
         }
@@ -41,7 +38,7 @@ impl Cabaret {
         let labels = Labels {
             ancestor: Some("base".into()),
             current: Some(change.0.as_str().into()),
-            other: Some(parent.0.as_str().into()),
+            other: Some(onto.0.as_str().into()),
         };
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.blob_merge.text.conflict = Conflict::Keep {
@@ -64,7 +61,7 @@ impl Cabaret {
 
         self.repo.commit(
             branch_ref(change).as_str(),
-            format!("rebase onto {parent}"),
+            format!("rebase onto {onto}"),
             merged_tree,
             [change_tip, parent_tip],
         )?;
@@ -109,30 +106,6 @@ impl Cabaret {
         )?;
         index.write(gix::index::write::Options::default())?;
         Ok(())
-    }
-}
-
-fn choose_parent<'a>(
-    change: &ChangeId,
-    parents: &'a BTreeSet<ChangeId>,
-    onto: Option<&'a ChangeId>,
-) -> Result<&'a ChangeId> {
-    match onto {
-        Some(parent) => {
-            if !parents.contains(parent) {
-                return Err(format!("{parent} is not a parent of {change}").into());
-            }
-            Ok(parent)
-        }
-        None => match parents.len() {
-            0 => Err(format!("{change} has no parents").into()),
-            1 => Ok(parents.first().expect("len is 1")),
-            _ => {
-                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
-                Err(format!("{change} has multiple parents; pass the one to rebase onto: {}", parents.join(", "))
-                    .into())
-            }
-        },
     }
 }
 

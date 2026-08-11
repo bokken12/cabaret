@@ -29,24 +29,6 @@ impl Fixture {
         self.repo().commit(reference, "test", tree, parents.iter().copied()).unwrap().detach()
     }
 
-    fn create_change(&self, change: &str, parents: &[&str]) {
-        let mut text = String::new();
-        for parent in parents {
-            use std::fmt::Write as _;
-            writeln!(text, "{{\"timestamp\":0,\"action\":\"add-parent\",\"parent\":\"{parent}\"}}").unwrap();
-        }
-        let blob = self.repo().write_blob(text.as_bytes()).unwrap().detach();
-        let tree = gix::objs::Tree {
-            entries: vec![gix::objs::tree::Entry {
-                mode: EntryKind::Blob.into(),
-                filename: "log.jsonl".into(),
-                oid: blob,
-            }],
-        };
-        let tree = self.repo().write_object(&tree).unwrap().detach();
-        self.repo().commit(format!("refs/cabaret/changes/{change}"), "create", tree, Vec::<ObjectId>::new()).unwrap();
-    }
-
     fn checkout(&self, change: &str, files: Files) {
         fs::write(self.repo().git_dir().join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
         for (path, content) in files {
@@ -59,8 +41,8 @@ impl Fixture {
         index.write(gix::index::write::Options::default()).unwrap();
     }
 
-    fn rebase(&self, onto: Option<&str>) -> cabaret_lib::Result<Rebase> {
-        self.cabaret.rebase(&ChangeId("child".into()), onto.map(|onto| ChangeId(onto.into())).as_ref())
+    fn rebase(&self, onto: &str) -> cabaret_lib::Result<Rebase> {
+        self.cabaret.rebase(&ChangeId("child".into()), &ChangeId(onto.into()))
     }
 
     fn tip(&self, change: &str) -> (ObjectId, Vec<ObjectId>) {
@@ -103,7 +85,6 @@ fn diverged(base: Files, child: Files, main: Files) -> Fixture {
     let root = fixture.commit("refs/heads/main", base, &[]);
     fixture.commit("refs/heads/child", child, &[root]);
     fixture.commit("refs/heads/main", main, &[root]);
-    fixture.create_change("child", &["main"]);
     fixture.checkout("child", child);
     fixture
 }
@@ -118,7 +99,7 @@ fn merges_the_parent_into_the_change() {
     let (old_child_tip, _) = fixture.tip("child");
     let (main_tip, _) = fixture.tip("main");
 
-    let Rebase::Merged { conflicts } = fixture.rebase(None).unwrap() else { panic!("expected a merge") };
+    let Rebase::Merged { conflicts } = fixture.rebase("main").unwrap() else { panic!("expected a merge") };
 
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.tip("child").1, vec![old_child_tip, main_tip]);
@@ -131,7 +112,7 @@ fn merges_the_parent_into_the_change() {
 fn commits_conflicts_with_markers() {
     let fixture = diverged(&[("greeting.txt", "hello\n")], &[("greeting.txt", "hi\n")], &[("greeting.txt", "hey\n")]);
 
-    let Rebase::Merged { conflicts } = fixture.rebase(None).unwrap() else { panic!("expected a merge") };
+    let Rebase::Merged { conflicts } = fixture.rebase("main").unwrap() else { panic!("expected a merge") };
 
     assert_eq!(conflicts, vec!["greeting.txt".to_string()]);
     assert_eq!(
@@ -150,7 +131,7 @@ fn applies_additions_and_deletions_to_the_worktree() {
         &[("keep.txt", "keep\n"), ("new/nested/file.txt", "new\n")],
     );
 
-    let Rebase::Merged { conflicts } = fixture.rebase(None).unwrap() else { panic!("expected a merge") };
+    let Rebase::Merged { conflicts } = fixture.rebase("main").unwrap() else { panic!("expected a merge") };
 
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.worktree_file("new/nested/file.txt"), "new\n");
@@ -163,48 +144,26 @@ fn applies_additions_and_deletions_to_the_worktree() {
 fn a_second_rebase_is_up_to_date() {
     let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
 
-    assert!(matches!(fixture.rebase(None).unwrap(), Rebase::Merged { .. }));
+    assert!(matches!(fixture.rebase("main").unwrap(), Rebase::Merged { .. }));
     let tip = fixture.tip("child");
 
-    assert!(matches!(fixture.rebase(None).unwrap(), Rebase::UpToDate));
+    assert!(matches!(fixture.rebase("main").unwrap(), Rebase::UpToDate));
     assert_eq!(fixture.tip("child"), tip);
 }
 
 #[test]
-fn multiple_parents_require_choosing_one() {
+fn rebases_onto_the_named_change() {
     let fixture = Fixture::new();
     let root = fixture.commit("refs/heads/main", &[("file.txt", "original\n")], &[]);
     fixture.commit("refs/heads/child", &[("file.txt", "original\n")], &[root]);
     fixture.commit("refs/heads/main", &[("file.txt", "original\n"), ("main.txt", "main\n")], &[root]);
     fixture.commit("refs/heads/other", &[("file.txt", "original\n"), ("other.txt", "other\n")], &[root]);
-    fixture.create_change("child", &["main", "other"]);
     fixture.checkout("child", &[("file.txt", "original\n")]);
 
-    let error = fixture.rebase(None).unwrap_err();
-    assert_eq!(format!("{error:?}"), "child has multiple parents; pass the one to rebase onto: main, other");
-
-    let Rebase::Merged { conflicts } = fixture.rebase(Some("other")).unwrap() else { panic!("expected a merge") };
+    let Rebase::Merged { conflicts } = fixture.rebase("other").unwrap() else { panic!("expected a merge") };
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.worktree_file("other.txt"), "other\n");
     assert!(!fixture.repo().workdir().unwrap().join("main.txt").exists());
-}
-
-#[test]
-fn onto_must_be_an_existing_parent() {
-    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
-
-    let error = fixture.rebase(Some("stranger")).unwrap_err();
-    assert_eq!(format!("{error:?}"), "stranger is not a parent of child");
-}
-
-#[test]
-fn a_change_without_parents_cannot_rebase() {
-    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
-    fixture.create_change("orphan", &[]);
-    fixture.commit("refs/heads/orphan", &[("file.txt", "original\n")], &[]);
-
-    let error = fixture.cabaret.rebase(&ChangeId("orphan".into()), None).unwrap_err();
-    assert_eq!(format!("{error:?}"), "orphan has no parents");
 }
 
 #[test]
@@ -212,6 +171,6 @@ fn a_dirty_worktree_refuses_to_rebase() {
     let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
     fs::write(fixture.repo().workdir().unwrap().join("file.txt"), "uncommitted\n").unwrap();
 
-    let error = fixture.rebase(None).unwrap_err();
+    let error = fixture.rebase("main").unwrap_err();
     assert_eq!(format!("{error:?}"), "working tree has uncommitted changes");
 }
