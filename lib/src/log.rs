@@ -16,6 +16,7 @@ pub enum LogAction {
     RemoveParent { parent: ChangeId },
 }
 
+// TODO-someday(joel): allow format evolution. protos? versioned?
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: TimestampMs,
