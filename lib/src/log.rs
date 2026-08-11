@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use gix::{ObjectId, Repository};
 use serde::{Deserialize, Serialize};
 
@@ -114,5 +116,27 @@ impl Cabaret {
 
     pub fn remove_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
         self.record(change, LogAction::RemoveOwner { owner: owner.clone() })
+    }
+
+    pub fn set_parents(&self, change: &ChangeId, parents: &BTreeSet<ChangeId>) -> Result<()> {
+        let current = self.change(change)?.parents;
+        for parent in current.difference(parents) {
+            self.remove_parent(change, parent)?;
+        }
+        for parent in parents.difference(&current) {
+            self.add_parent(change, parent)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_owners(&self, change: &ChangeId, owners: &BTreeSet<Identity>) -> Result<()> {
+        let current = self.change(change)?.owners;
+        for owner in current.difference(owners) {
+            self.remove_owner(change, owner)?;
+        }
+        for owner in owners.difference(&current) {
+            self.add_owner(change, owner)?;
+        }
+        Ok(())
     }
 }

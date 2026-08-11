@@ -6,15 +6,31 @@ use clap::{Parser, Subcommand};
 #[derive(Subcommand)]
 enum OwnersCommand {
     Show,
-    Add { owner: Identity },
-    Remove { owner: Identity },
+    Add {
+        owner: Identity,
+    },
+    Remove {
+        owner: Identity,
+    },
+    Set {
+        #[arg(required = true)]
+        owners: Vec<Identity>,
+    },
 }
 
 #[derive(Subcommand)]
 enum ParentsCommand {
     Show,
-    Add { parent: ChangeId },
-    Remove { parent: ChangeId },
+    Add {
+        parent: ChangeId,
+    },
+    Remove {
+        parent: ChangeId,
+    },
+    Set {
+        #[arg(required = true)]
+        parents: Vec<ChangeId>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -83,6 +99,7 @@ fn run() -> Result<()> {
                     }
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
+                    OwnersCommand::Set { owners } => cabaret.set_owners(change, &owners.into_iter().collect())?,
                 }
             }
             ChangeCommand::Parents { command } => {
@@ -96,6 +113,7 @@ fn run() -> Result<()> {
                     }
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
                     ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
+                    ParentsCommand::Set { parents } => cabaret.set_parents(change, &parents.into_iter().collect())?,
                 }
             }
             ChangeCommand::Rebase { onto } => {
