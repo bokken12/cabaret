@@ -3,6 +3,7 @@ use std::{collections::BTreeSet, fmt, str::FromStr};
 use gix::{
     ObjectId,
     bstr::BStr,
+    pathspec,
     refs::{FullName, PartialName},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -68,6 +69,17 @@ impl Serialize for ChangeId {
 impl<'de> Deserialize<'de> for ChangeId {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         String::deserialize(deserializer)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Pathspec(pub pathspec::Pattern);
+
+impl FromStr for Pathspec {
+    type Err = pathspec::parse::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        pathspec::parse(s.as_bytes(), pathspec::Defaults::default()).map(Self)
     }
 }
 

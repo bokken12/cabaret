@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Rebase, Result};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Rebase, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -57,6 +57,10 @@ enum Command {
     Change {
         #[command(subcommand)]
         command: ChangeCommand,
+    },
+    Commit {
+        /// Files or globs to commit; commits everything when omitted.
+        pathspecs: Vec<Pathspec>,
     },
     Config,
     Fetch,
@@ -131,6 +135,7 @@ fn run() -> Result<()> {
                 }
             }
         },
+        Command::Commit { .. } => todo!(),
         Command::Config => todo!(),
         Command::Fetch => cabaret.fetch()?,
         Command::Workspace => todo!(),
