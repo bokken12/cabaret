@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
     fs,
+    num::NonZeroU8,
     path::{Path, PathBuf},
 };
 
@@ -71,28 +72,12 @@ impl Cabaret {
             .into());
         }
 
-        // Conflict style and labels are forced rather than read from config so the committed
-        // conflict text is identical no matter whose clone performs the merge.
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
-        let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
-        options.blob_merge.text.conflict = Conflict::Keep {
-            style: ConflictStyle::ZealousDiff3,
-            marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("marker size is non-zero"),
-        };
-        let options = gix::merge::tree::Options::from(options);
+        let options = self.merge_options(default_marker_size())?;
         let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
         let tree = merge.tree_merge.tree.write()?.detach();
-        let unresolved = gix::merge::tree::TreatAsUnresolved::default();
-        let mut conflicts: Vec<String> = merge
-            .tree_merge
-            .conflicts
-            .iter()
-            .filter(|conflict| conflict.is_unresolved(unresolved))
-            .map(|conflict| conflict.changes_in_resolution().0.location().to_string())
-            .collect();
-        conflicts.sort();
-        conflicts.dedup();
+        let conflicts = unresolved_paths(&merge.tree_merge);
 
         Ok(Some(PreparedMerge { branch, worktree, into_tip, from_tip, tree, conflicts }))
     }
@@ -120,8 +105,17 @@ impl Cabaret {
         Ok(None)
     }
 
-    fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
+    pub(crate) fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
         Ok(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id)
+    }
+
+    /// Conflict style and rename detection are forced rather than read from config so the
+    /// committed conflict text is identical no matter whose clone performs the merge.
+    pub(crate) fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {
+        let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
+        options.rewrites = Some(gix::diff::Rewrites::default());
+        options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::ZealousDiff3, marker_size };
+        Ok(options.into())
     }
 
     /// Make the (clean) worktree and index match `tree`.
@@ -155,6 +149,24 @@ impl Cabaret {
         index.write(gix::index::write::Options::default())?;
         Ok(())
     }
+}
+
+pub(crate) fn default_marker_size() -> NonZeroU8 {
+    Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero")
+}
+
+/// Paths the merge left unresolved, sorted and deduplicated.
+pub(crate) fn unresolved_paths(merge: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
+    let unresolved = gix::merge::tree::TreatAsUnresolved::default();
+    let mut paths: Vec<String> = merge
+        .conflicts
+        .iter()
+        .filter(|conflict| conflict.is_unresolved(unresolved))
+        .map(|conflict| conflict.changes_in_resolution().0.location().to_string())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
