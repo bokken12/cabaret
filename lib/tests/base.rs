@@ -108,8 +108,9 @@ fn a_third_conflicting_parent_nests_with_longer_markers() {
     let (revision, conflicts) = synthetic(base(&fixture, "child").unwrap());
 
     assert_eq!(conflicts, vec!["greeting.txt".to_string()]);
-    // Zealous diff3 minimizes the outer region, so the inner conflict's tail dangles after the
-    // outer end marker; the escalated marker length keeps the nesting unambiguous.
+    // Diff alignment matches the base's line against the copy quoted inside the inner conflict,
+    // so the inner conflict's tail dangles after the outer end marker regardless of conflict
+    // style; the escalated marker length keeps the nesting unambiguous.
     assert_eq!(
         fixture.revision_file(revision, "greeting.txt"),
         "<<<<<<<<<<< pa+pb\n<<<<<<< pa\npa\n||||||| base\nhello\n||||||||||| base\nhello\n===========\npc\n>>>>>>>>>>> pc\n=======\npb\n>>>>>>> pb\n"
