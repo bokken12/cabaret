@@ -1,6 +1,6 @@
 mod fixture;
 
-use cabaret_lib::{Base, ChangedFile, Diff, FileVersion, Revision, Source};
+use cabaret_lib::{Base, ChangedFile, Diff, FileVersion, Revision};
 use fixture::Fixture;
 use gix::{ObjectId, objs::tree::EntryKind};
 
@@ -24,14 +24,13 @@ fn lists_added_modified_and_deleted_files() {
         Diff {
             base: Base::Real(Revision(root)),
             files: vec![
-                ChangedFile {
+                ChangedFile::Modified {
                     path: "edit.txt".into(),
-                    source: None,
-                    base: Some(blob(&fixture, "one\n")),
-                    tip: Some(blob(&fixture, "two\n")),
+                    base: blob(&fixture, "one\n"),
+                    tip: blob(&fixture, "two\n"),
                 },
-                ChangedFile { path: "gone.txt".into(), source: None, base: Some(blob(&fixture, "bye\n")), tip: None },
-                ChangedFile { path: "new.txt".into(), source: None, base: None, tip: Some(blob(&fixture, "hi\n")) },
+                ChangedFile::Deleted { path: "gone.txt".into(), base: blob(&fixture, "bye\n") },
+                ChangedFile::Added { path: "new.txt".into(), tip: blob(&fixture, "hi\n") },
             ],
         }
     );
@@ -48,11 +47,12 @@ fn detects_moved_files() {
         diff(&fixture, "child"),
         Diff {
             base: Base::Real(Revision(root)),
-            files: vec![ChangedFile {
+            files: vec![ChangedFile::Moved {
+                from: "old.txt".into(),
                 path: "nested/new.txt".into(),
-                source: Some(Source { path: "old.txt".into(), copied: false }),
-                base: Some(blob(&fixture, "moving content\n")),
-                tip: Some(blob(&fixture, "moving content\n")),
+                copied: false,
+                base: blob(&fixture, "moving content\n"),
+                tip: blob(&fixture, "moving content\n"),
             }],
         }
     );
@@ -68,12 +68,7 @@ fn a_change_with_no_parents_diffs_from_the_empty_tree() {
         diff(&fixture, "main"),
         Diff {
             base: Base::Empty,
-            files: vec![ChangedFile {
-                path: "file.txt".into(),
-                source: None,
-                base: None,
-                tip: Some(blob(&fixture, "main\n")),
-            }],
+            files: vec![ChangedFile::Added { path: "file.txt".into(), tip: blob(&fixture, "main\n") }],
         }
     );
 }
@@ -94,11 +89,10 @@ fn a_synthetic_base_diff_shows_the_conflict_resolution() {
     let markers = "<<<<<<< pa\npa\n||||||| base\nhello\n=======\npb\n>>>>>>> pb\n";
     assert_eq!(
         diff.files,
-        vec![ChangedFile {
+        vec![ChangedFile::Modified {
             path: "greeting.txt".into(),
-            source: None,
-            base: Some(blob(&fixture, markers)),
-            tip: Some(blob(&fixture, "resolved\n")),
+            base: blob(&fixture, markers),
+            tip: blob(&fixture, "resolved\n"),
         }]
     );
 }
