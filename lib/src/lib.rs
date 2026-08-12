@@ -4,6 +4,7 @@ mod diff;
 mod error;
 mod log;
 mod merge;
+mod render;
 mod types;
 
 pub use base::Base;

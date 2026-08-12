@@ -1,6 +1,11 @@
-use gix::{ObjectId, objs::tree::EntryMode};
+use gix::{ObjectId, bstr::BStr, objs::tree::EntryMode};
 
-use crate::{base::Base, cabaret::Cabaret, error::Result, types::ChangeId};
+use crate::{
+    base::Base,
+    cabaret::Cabaret,
+    error::Result,
+    types::{ChangeId, Pathspec},
+};
 
 /// A change's diff: every file that differs between its base and its tip.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +56,26 @@ impl Cabaret {
             self.repo.diff_tree_to_tree(&base_tree, &tip_tree, options)?.into_iter().filter_map(changed_file).collect();
         files.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(Diff { base, files })
+    }
+
+    /// The subset of `files` matching `pathspecs`, or all of them when none are given.
+    /// A moved or copied file also answers to its source path.
+    pub fn select(&self, files: Vec<ChangedFile>, pathspecs: Vec<Pathspec>) -> Result<Vec<ChangedFile>> {
+        if pathspecs.is_empty() {
+            return Ok(files);
+        }
+        let root = self.repo.workdir().unwrap_or_else(|| self.repo.git_dir()).to_owned();
+        let mut search =
+            gix::pathspec::Search::from_specs(pathspecs.into_iter().map(|spec| spec.0), self.repo.prefix()?, &root)?;
+        let mut matches = |path: &str| {
+            search
+                .pattern_matching_relative_path(BStr::new(path), Some(false), &mut |_, _, _, _| false)
+                .is_some_and(|m| !m.is_excluded())
+        };
+        Ok(files
+            .into_iter()
+            .filter(|file| matches(&file.path) || file.source.as_ref().is_some_and(|source| matches(&source.path)))
+            .collect())
     }
 }
 

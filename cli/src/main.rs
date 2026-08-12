@@ -1,4 +1,4 @@
-use std::process::ExitCode;
+use std::{io::IsTerminal, process::ExitCode};
 
 use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result};
 use clap::{Parser, Subcommand};
@@ -105,7 +105,11 @@ fn run() -> Result<()> {
                 None => cabaret.current_change()?,
             };
             match command {
-                ChangeCommand::Diff { .. } => todo!(),
+                ChangeCommand::Diff { pathspecs } => {
+                    let mut diff = cabaret.diff(change)?;
+                    diff.files = cabaret.select(diff.files, pathspecs)?;
+                    print!("{}", cabaret.render_diff(&diff, std::io::stdout().is_terminal())?);
+                }
                 ChangeCommand::Land => {
                     let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
                     let parent = match parents.as_slice() {
