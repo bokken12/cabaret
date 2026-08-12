@@ -110,11 +110,14 @@ impl Cabaret {
     }
 
     /// Conflict style and rename detection are forced rather than read from config so the
-    /// committed conflict text is identical no matter whose clone performs the merge.
+    /// committed conflict text is identical no matter whose clone performs the merge. Plain
+    /// diff3 shows each side of a conflict whole, where zealous minimization would hoist
+    /// lines the sides share and could slice blocks apart mid-structure.
+    // TODO(joel): consider returning to zdiff3 for two-way merges.
     pub(crate) fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.rewrites = Some(gix::diff::Rewrites::default());
-        options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::ZealousDiff3, marker_size };
+        options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::Diff3, marker_size };
         Ok(options.into())
     }
 
