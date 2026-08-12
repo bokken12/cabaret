@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use gix::{
     ObjectId,
@@ -9,20 +13,31 @@ use gix::{
 
 use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Merge {
-    UpToDate,
-    Merged { conflicts: Vec<String> },
+/// A merge computed but not yet committed; drop it to abandon the merge.
+#[derive(Debug)]
+pub struct PreparedMerge {
+    branch: FullName,
+    /// The current workdir when it has `branch` checked out and must be updated after committing.
+    worktree: Option<PathBuf>,
+    into_tip: ObjectId,
+    from_tip: ObjectId,
+    tree: ObjectId,
+    conflicts: Vec<String>,
+}
+
+impl PreparedMerge {
+    /// Paths whose merge conflicted; committing writes them with conflict markers.
+    pub fn conflicts(&self) -> &[String] { &self.conflicts }
 }
 
 impl Cabaret {
-    /// Merge `from`'s tip into `into`'s branch. Conflicts are committed immediately with
-    /// conflict markers in the affected files, never left as an in-progress merge.
-    pub fn merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Merge> {
+    /// Compute the merge of `from`'s tip into `into`'s branch without committing it, or `None`
+    /// when `into` already contains `from`.
+    pub fn prepare_merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Option<PreparedMerge>> {
         let into_tip = self.tip(into)?;
         let from_tip = self.tip(from)?;
         if self.repo.merge_base(into_tip, from_tip)? == from_tip {
-            return Ok(Merge::UpToDate);
+            return Ok(None);
         }
 
         let branch = into.branch_ref();
@@ -33,12 +48,27 @@ impl Cabaret {
             // Never move the branch under another workspace: its index and files would be left
             // describing the old tip, and this merge cannot see whether it is even clean.
             if let Some(workspace) = self.workspace_holding(&branch)? {
-                return Err(format!("{into} is checked out in workspace {}; merge there", workspace.display()).into());
+                return Err(format!(
+                    "{into} is checked out in workspace {}; rerun from that workspace",
+                    workspace.workdir().expect("held branches have a workdir").display()
+                )
+                .into());
             }
             None
         };
         if worktree.is_some() && self.repo.is_dirty()? {
             return Err("working tree has uncommitted changes".into());
+        }
+
+        // Uncommitted work in `from`'s workspace would be silently absent from the merge.
+        if let Some(workspace) = self.workspace_holding(&from.branch_ref())?
+            && workspace.is_dirty()?
+        {
+            return Err(format!(
+                "{from} has uncommitted changes in workspace {}",
+                workspace.workdir().expect("held branches have a workdir").display()
+            )
+            .into());
         }
 
         // Conflict style and labels are forced rather than read from config so the committed
@@ -52,7 +82,7 @@ impl Cabaret {
         };
         let options = gix::merge::tree::Options::from(options);
         let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
-        let merged_tree = merge.tree_merge.tree.write()?.detach();
+        let tree = merge.tree_merge.tree.write()?.detach();
         let unresolved = gix::merge::tree::TreatAsUnresolved::default();
         let mut conflicts: Vec<String> = merge
             .tree_merge
@@ -64,30 +94,34 @@ impl Cabaret {
         conflicts.sort();
         conflicts.dedup();
 
-        self.repo.commit(branch, format!("merge {from}"), merged_tree, [into_tip, from_tip])?;
+        Ok(Some(PreparedMerge { branch, worktree, into_tip, from_tip, tree, conflicts }))
+    }
 
-        if let Some(workdir) = worktree {
-            self.checkout(&workdir, merged_tree)?;
+    /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
+    pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
+        self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
+        if let Some(workdir) = merge.worktree {
+            self.checkout(&workdir, merge.tree)?;
         }
-        Ok(Merge::Merged { conflicts })
+        Ok(())
     }
 
-    fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
-        Ok(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id)
-    }
-
-    /// The workdir of the workspace that has `branch` checked out, if any.
-    fn workspace_holding(&self, branch: &FullName) -> Result<Option<std::path::PathBuf>> {
+    /// The workspace repository that has `branch` checked out, if any.
+    fn workspace_holding(&self, branch: &FullName) -> Result<Option<gix::Repository>> {
         let mut repos = vec![self.repo.main_repo()?];
         for proxy in self.repo.worktrees()? {
             repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
         }
         for repo in repos {
             if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == *branch) {
-                return Ok(repo.workdir().map(Path::to_owned));
+                return Ok(Some(repo));
             }
         }
         Ok(None)
+    }
+
+    fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
+        Ok(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id)
     }
 
     /// Make the (clean) worktree and index match `tree`.

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs};
 
-use cabaret_lib::{Cabaret, ChangeId, Merge};
+use cabaret_lib::{Cabaret, ChangeId, PreparedMerge};
 use gix::{ObjectId, objs::tree::EntryKind};
 
 type Files<'a> = &'a [(&'a str, &'a str)];
@@ -41,8 +41,17 @@ impl Fixture {
         index.write(gix::index::write::Options::default()).unwrap();
     }
 
-    fn merge(&self, from: &str) -> cabaret_lib::Result<Merge> {
-        self.cabaret.merge(&"child".parse::<ChangeId>().unwrap(), &from.parse().unwrap())
+    fn prepare(&self, into: &str, from: &str) -> cabaret_lib::Result<Option<PreparedMerge>> {
+        self.cabaret.prepare_merge(&into.parse::<ChangeId>().unwrap(), &from.parse().unwrap())
+    }
+
+    /// Merge `from` into `child`, committing conflicts, as `cab change rebase` does.
+    /// `None` means already up to date.
+    fn merge(&self, from: &str) -> cabaret_lib::Result<Option<Vec<String>>> {
+        let Some(merge) = self.prepare("child", from)? else { return Ok(None) };
+        let conflicts = merge.conflicts().to_vec();
+        self.cabaret.commit_merge(merge, format!("merge {from}"))?;
+        Ok(Some(conflicts))
     }
 
     fn tip(&self, change: &str) -> (ObjectId, Vec<ObjectId>) {
@@ -112,7 +121,7 @@ fn merges_the_parent_into_the_change() {
     let (old_child_tip, _) = fixture.tip("child");
     let (main_tip, _) = fixture.tip("main");
 
-    let Merge::Merged { conflicts } = fixture.merge("main").unwrap() else { panic!("expected a merge") };
+    let conflicts = fixture.merge("main").unwrap().expect("expected a merge");
 
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.tip("child").1, vec![old_child_tip, main_tip]);
@@ -125,7 +134,7 @@ fn merges_the_parent_into_the_change() {
 fn commits_conflicts_with_markers() {
     let fixture = diverged(&[("greeting.txt", "hello\n")], &[("greeting.txt", "hi\n")], &[("greeting.txt", "hey\n")]);
 
-    let Merge::Merged { conflicts } = fixture.merge("main").unwrap() else { panic!("expected a merge") };
+    let conflicts = fixture.merge("main").unwrap().expect("expected a merge");
 
     assert_eq!(conflicts, vec!["greeting.txt".to_string()]);
     assert_eq!(
@@ -144,7 +153,7 @@ fn applies_additions_and_deletions_to_the_worktree() {
         &[("keep.txt", "keep\n"), ("new/nested/file.txt", "new\n")],
     );
 
-    let Merge::Merged { conflicts } = fixture.merge("main").unwrap() else { panic!("expected a merge") };
+    let conflicts = fixture.merge("main").unwrap().expect("expected a merge");
 
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.worktree_file("new/nested/file.txt"), "new\n");
@@ -157,10 +166,10 @@ fn applies_additions_and_deletions_to_the_worktree() {
 fn a_second_merge_is_up_to_date() {
     let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
 
-    assert!(matches!(fixture.merge("main").unwrap(), Merge::Merged { .. }));
+    assert!(fixture.merge("main").unwrap().is_some());
     let tip = fixture.tip("child");
 
-    assert!(matches!(fixture.merge("main").unwrap(), Merge::UpToDate));
+    assert!(fixture.merge("main").unwrap().is_none());
     assert_eq!(fixture.tip("child"), tip);
 }
 
@@ -173,7 +182,7 @@ fn merges_from_the_named_change() {
     fixture.commit("refs/heads/other", &[("file.txt", "original\n"), ("other.txt", "other\n")], &[root]);
     fixture.checkout("child", &[("file.txt", "original\n")]);
 
-    let Merge::Merged { conflicts } = fixture.merge("other").unwrap() else { panic!("expected a merge") };
+    let conflicts = fixture.merge("other").unwrap().expect("expected a merge");
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.worktree_file("other.txt"), "other\n");
     assert!(!fixture.repo().workdir().unwrap().join("main.txt").exists());
@@ -186,7 +195,10 @@ fn a_change_checked_out_in_another_workspace_refuses_to_merge() {
     let (_dir, workspace) = fixture.add_workspace("wt", "child");
 
     let error = fixture.merge("main").unwrap_err();
-    assert_eq!(format!("{error:?}"), format!("child is checked out in workspace {}; merge there", workspace.display()));
+    assert_eq!(
+        format!("{error:?}"),
+        format!("child is checked out in workspace {}; rerun from that workspace", workspace.display())
+    );
 }
 
 #[test]
@@ -196,4 +208,66 @@ fn a_dirty_worktree_refuses_to_merge() {
 
     let error = fixture.merge("main").unwrap_err();
     assert_eq!(format!("{error:?}"), "working tree has uncommitted changes");
+}
+
+#[test]
+fn a_dirty_source_workspace_refuses_to_merge() {
+    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
+    fs::write(fixture.repo().workdir().unwrap().join("file.txt"), "uncommitted\n").unwrap();
+
+    let error = format!("{:?}", fixture.prepare("main", "child").unwrap_err());
+    assert!(error.starts_with("child has uncommitted changes in workspace "), "{error}");
+}
+
+#[test]
+fn a_dropped_merge_commits_nothing() {
+    let fixture = diverged(&[("greeting.txt", "hello\n")], &[("greeting.txt", "hi\n")], &[("greeting.txt", "hey\n")]);
+    let main = fixture.tip("main");
+    let child = fixture.tip("child");
+
+    let merge = fixture.prepare("main", "child").unwrap().expect("expected a merge");
+    assert_eq!(merge.conflicts(), ["greeting.txt"]);
+    drop(merge);
+
+    assert_eq!(fixture.tip("main"), main);
+    assert_eq!(fixture.tip("child"), child);
+    assert_eq!(fixture.worktree_file("greeting.txt"), "hi\n");
+}
+
+#[test]
+fn merges_into_a_branch_that_is_not_checked_out() {
+    let fixture = diverged(
+        &[("mine.txt", "original\n"), ("theirs.txt", "original\n")],
+        &[("mine.txt", "child edit\n"), ("theirs.txt", "original\n")],
+        &[("mine.txt", "original\n"), ("theirs.txt", "main edit\n")],
+    );
+    let (child_tip, _) = fixture.tip("child");
+    let (old_main_tip, _) = fixture.tip("main");
+
+    let merge = fixture.prepare("main", "child").unwrap().expect("expected a merge");
+    assert!(merge.conflicts().is_empty());
+    fixture.cabaret.commit_merge(merge, "land child".into()).unwrap();
+
+    assert_eq!(fixture.tip("main").1, vec![old_main_tip, child_tip]);
+    assert_eq!(fixture.tip("child").0, child_tip);
+    assert_eq!(fixture.worktree_file("mine.txt"), "child edit\n");
+    assert!(!fixture.repo().is_dirty().unwrap());
+    assert!(fixture.prepare("main", "child").unwrap().is_none());
+}
+
+#[test]
+fn merging_into_the_checked_out_branch_updates_its_worktree() {
+    let fixture = diverged(
+        &[("mine.txt", "original\n")],
+        &[("mine.txt", "child edit\n")],
+        &[("mine.txt", "original\n"), ("theirs.txt", "main edit\n")],
+    );
+    fixture.checkout("main", &[("mine.txt", "original\n"), ("theirs.txt", "main edit\n")]);
+
+    let merge = fixture.prepare("main", "child").unwrap().expect("expected a merge");
+    fixture.cabaret.commit_merge(merge, "land child".into()).unwrap();
+
+    assert_eq!(fixture.worktree_file("mine.txt"), "child edit\n");
+    assert_eq!(fixture.worktree_file("theirs.txt"), "main edit\n");
+    assert!(!fixture.repo().is_dirty().unwrap());
 }
