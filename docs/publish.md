@@ -23,3 +23,9 @@ Therefore, I believe that despite Cabaret's usual insistence that commits and th
 This is not the only possible mechanism, and it is worth considering others. To the extent, for example, that we do not want to waste reviewers time reading a half-finished sentence, it may also be the case that reviewers should more generally not review while there are active edits in progress.
 
 Therefore, perhaps an alternate system could make commits automatic and nudge users that they should "lock" the change by disabling review or setting themselves to be the sole reviewer as they are making changes. In general some form of per-change locking seems like a potentially sensible thing for an age of many agents? The action of publishing could then be re-enabling review rather than committing.
+
+Yet another possible system could perhaps avoid locking, but again try to disconnect recording vs publishing: creating some kind of local-only shadow ref to hold history. However, this would still need an explicit commit action to move to the main ref, at which point it becomes something that can be enabled as an after-thought rather than a core part of the workflow.
+
+## Publish
+
+One compromise between Cabaret's many beliefs could be to rename this action: so to commit was to do something like "publish" and to make available to reviewers.
