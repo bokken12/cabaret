@@ -92,7 +92,10 @@ impl Cabaret {
         };
         Ok(files
             .into_iter()
-            .filter(|file| matches(&file.path) || file.source.as_ref().is_some_and(|source| matches(&source.path)))
+            .filter(|file| match file {
+                ChangedFile::Moved { from, path, .. } => matches(path) || matches(from),
+                other => matches(other.path()),
+            })
             .collect())
     }
 }

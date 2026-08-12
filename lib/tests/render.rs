@@ -1,6 +1,6 @@
 mod fixture;
 
-use cabaret_lib::Diff;
+use cabaret_lib::{ChangedFile, Diff};
 use fixture::Fixture;
 
 fn rendered(fixture: &Fixture, change: &str) -> String {
@@ -87,6 +87,6 @@ fn selects_files_by_pathspec() {
     let diff = diff(&fixture, "child");
     let selected = fixture.cabaret.select(diff.files, vec!["src/".parse().unwrap()]).unwrap();
 
-    let paths: Vec<&str> = selected.iter().map(|file| file.path.as_str()).collect();
+    let paths: Vec<&str> = selected.iter().map(ChangedFile::path).collect();
     assert_eq!(paths, ["src/lib.rs"]);
 }

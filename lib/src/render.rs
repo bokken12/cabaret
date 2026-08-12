@@ -8,7 +8,7 @@ use gix::diff::blob::{
 use crate::{
     base::Base,
     cabaret::Cabaret,
-    diff::{ChangedFile, Diff, FileVersion, Source},
+    diff::{ChangedFile, Diff, FileVersion},
     error::Result,
 };
 
@@ -48,12 +48,12 @@ impl Cabaret {
     }
 
     fn render_file(&self, file: &ChangedFile, paint: &Paint, out: &mut String) -> Result<()> {
-        if [&file.base, &file.tip].iter().any(|version| version.is_some_and(|v| v.mode.is_commit())) {
+        if [file.base(), file.tip()].iter().any(|version| version.is_some_and(|v| v.mode.is_commit())) {
             writeln!(out, "submodule changed")?;
             return Ok(());
         }
-        let before = self.contents(file.base)?;
-        let after = self.contents(file.tip)?;
+        let before = self.contents(file.base())?;
+        let after = self.contents(file.tip())?;
         if binary(&before) || binary(&after) {
             writeln!(out, "binary files differ")?;
             return Ok(());
@@ -65,7 +65,7 @@ impl Cabaret {
         Ok(())
     }
 
-    fn contents(&self, version: Option<FileVersion>) -> Result<Vec<u8>> {
+    fn contents(&self, version: Option<&FileVersion>) -> Result<Vec<u8>> {
         match version {
             None => Ok(Vec::new()),
             Some(version) => Ok(self.repo.find_object(version.id)?.detach().data),
@@ -74,15 +74,12 @@ impl Cabaret {
 }
 
 fn label(file: &ChangedFile) -> String {
-    let path = match &file.source {
-        Some(Source { path: source, copied: false }) => format!("{source} => {}", file.path),
-        Some(Source { path: source, copied: true }) => format!("{source} => {} (copied)", file.path),
-        None => file.path.clone(),
-    };
-    match (&file.base, &file.tip) {
-        (None, Some(_)) => format!("{path} (added)"),
-        (Some(_), None) => format!("{path} (deleted)"),
-        _ => path,
+    match file {
+        ChangedFile::Added { path, .. } => format!("{path} (added)"),
+        ChangedFile::Deleted { path, .. } => format!("{path} (deleted)"),
+        ChangedFile::Modified { path, .. } => path.clone(),
+        ChangedFile::Moved { from, path, copied: false, .. } => format!("{from} => {path}"),
+        ChangedFile::Moved { from, path, copied: true, .. } => format!("{from} => {path} (copied)"),
     }
 }
 
