@@ -15,7 +15,7 @@ When developing code, people do not often proceed along a perfectly designed sto
 So in order to align our atomic unit with a desire for a story, people typically have to do one of two things:
 
 - Either they avoid making commits until they have finished their iteration, after which they can commit pieces to craft their story, essentially forgoing the benefits of version control. This is unacceptable and so will not be considered.
-- Or they do their work with a somewhat messy version control history, and then afterwards run some kind of a clean-up pass. Euphemestically, this is referred to as "sausage-making", where you don't want to see "how the sausage is made" before the history is wiped clean.
+- Or they do their work with a somewhat messy version control history, and then afterwards run some kind of a clean-up pass. Euphemistically, this is referred to as "sausage-making", where you don't want to see "how the sausage is made" before the history is wiped clean.
 
 This second method can work fairly well, and can make code easier to review for others by laying out a nice story. However, it has some costs.
 
