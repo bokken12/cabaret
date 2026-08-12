@@ -6,9 +6,9 @@ use gix::{ObjectId, objs::tree::EntryKind};
 
 fn diff(fixture: &Fixture, change: &str) -> Diff { fixture.cabaret.diff(&change.parse().unwrap()).unwrap() }
 
-fn blob(fixture: &Fixture, content: &str) -> Option<FileVersion> {
+fn blob(fixture: &Fixture, content: &str) -> FileVersion {
     let id: ObjectId = fixture.repo().write_blob(content.as_bytes()).unwrap().detach();
-    Some(FileVersion { id, mode: EntryKind::Blob.into() })
+    FileVersion { id, mode: EntryKind::Blob.into() }
 }
 
 #[test]
@@ -27,11 +27,11 @@ fn lists_added_modified_and_deleted_files() {
                 ChangedFile {
                     path: "edit.txt".into(),
                     source: None,
-                    base: blob(&fixture, "one\n"),
-                    tip: blob(&fixture, "two\n"),
+                    base: Some(blob(&fixture, "one\n")),
+                    tip: Some(blob(&fixture, "two\n")),
                 },
-                ChangedFile { path: "gone.txt".into(), source: None, base: blob(&fixture, "bye\n"), tip: None },
-                ChangedFile { path: "new.txt".into(), source: None, base: None, tip: blob(&fixture, "hi\n") },
+                ChangedFile { path: "gone.txt".into(), source: None, base: Some(blob(&fixture, "bye\n")), tip: None },
+                ChangedFile { path: "new.txt".into(), source: None, base: None, tip: Some(blob(&fixture, "hi\n")) },
             ],
         }
     );
@@ -51,8 +51,8 @@ fn detects_moved_files() {
             files: vec![ChangedFile {
                 path: "nested/new.txt".into(),
                 source: Some(Source { path: "old.txt".into(), copied: false }),
-                base: blob(&fixture, "moving content\n"),
-                tip: blob(&fixture, "moving content\n"),
+                base: Some(blob(&fixture, "moving content\n")),
+                tip: Some(blob(&fixture, "moving content\n")),
             }],
         }
     );
@@ -72,7 +72,7 @@ fn a_change_with_no_parents_diffs_from_the_empty_tree() {
                 path: "file.txt".into(),
                 source: None,
                 base: None,
-                tip: blob(&fixture, "main\n"),
+                tip: Some(blob(&fixture, "main\n")),
             }],
         }
     );
@@ -97,8 +97,8 @@ fn a_synthetic_base_diff_shows_the_conflict_resolution() {
         vec![ChangedFile {
             path: "greeting.txt".into(),
             source: None,
-            base: blob(&fixture, markers),
-            tip: blob(&fixture, "resolved\n"),
+            base: Some(blob(&fixture, markers)),
+            tip: Some(blob(&fixture, "resolved\n")),
         }]
     );
 }
