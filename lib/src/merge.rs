@@ -10,32 +10,30 @@ use gix::{
 use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Rebase {
+pub enum Merge {
     UpToDate,
     Merged { conflicts: Vec<String> },
 }
 
 impl Cabaret {
-    /// Merge `onto`'s tip into `change`. Conflicts are committed immediately with
+    /// Merge `from`'s tip into `into`'s branch. Conflicts are committed immediately with
     /// conflict markers in the affected files, never left as an in-progress merge.
-    pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Rebase> {
-        let change_tip = self.tip(change)?;
-        let parent_tip = self.tip(onto)?;
-        if self.repo.merge_base(change_tip, parent_tip)? == parent_tip {
-            return Ok(Rebase::UpToDate);
+    pub fn merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Merge> {
+        let into_tip = self.tip(into)?;
+        let from_tip = self.tip(from)?;
+        if self.repo.merge_base(into_tip, from_tip)? == from_tip {
+            return Ok(Merge::UpToDate);
         }
 
-        let branch = change.branch_ref();
+        let branch = into.branch_ref();
         let checked_out = self.repo.head_name()?.is_some_and(|head| head == branch);
         let worktree = if checked_out {
             self.repo.workdir().map(Path::to_owned)
         } else {
             // Never move the branch under another workspace: its index and files would be left
-            // describing the old tip, and this rebase cannot see whether it is even clean.
+            // describing the old tip, and this merge cannot see whether it is even clean.
             if let Some(workspace) = self.workspace_holding(&branch)? {
-                return Err(
-                    format!("{change} is checked out in workspace {}; rebase there", workspace.display()).into()
-                );
+                return Err(format!("{into} is checked out in workspace {}; merge there", workspace.display()).into());
             }
             None
         };
@@ -44,16 +42,16 @@ impl Cabaret {
         }
 
         // Conflict style and labels are forced rather than read from config so the committed
-        // conflict text is identical no matter whose clone performs the rebase.
+        // conflict text is identical no matter whose clone performs the merge.
         let labels =
-            Labels { ancestor: Some("base".into()), current: Some(change.as_bstr()), other: Some(onto.as_bstr()) };
+            Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.blob_merge.text.conflict = Conflict::Keep {
             style: ConflictStyle::ZealousDiff3,
             marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("marker size is non-zero"),
         };
         let options = gix::merge::tree::Options::from(options);
-        let mut merge = self.repo.merge_commits(change_tip, parent_tip, labels, options.into())?;
+        let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
         let merged_tree = merge.tree_merge.tree.write()?.detach();
         let unresolved = gix::merge::tree::TreatAsUnresolved::default();
         let mut conflicts: Vec<String> = merge
@@ -66,12 +64,12 @@ impl Cabaret {
         conflicts.sort();
         conflicts.dedup();
 
-        self.repo.commit(branch, format!("rebase onto {onto}"), merged_tree, [change_tip, parent_tip])?;
+        self.repo.commit(branch, format!("merge {from}"), merged_tree, [into_tip, from_tip])?;
 
         if let Some(workdir) = worktree {
             self.checkout(&workdir, merged_tree)?;
         }
-        Ok(Rebase::Merged { conflicts })
+        Ok(Merge::Merged { conflicts })
     }
 
     fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
@@ -94,7 +92,7 @@ impl Cabaret {
 
     /// Make the (clean) worktree and index match `tree`.
     // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
-    // file on each rebase won't fly in a large repository.
+    // file on each merge won't fly in a large repository.
     fn checkout(&self, workdir: &Path, tree: ObjectId) -> Result<()> {
         let mut index = self.repo.index_from_tree(&tree)?;
 

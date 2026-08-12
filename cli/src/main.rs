@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Rebase, Result};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Merge, Pathspec, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Subcommand)]
@@ -133,9 +133,9 @@ fn run() -> Result<()> {
                 ChangeCommand::Rebase { onto } => {
                     let parents = cabaret.change(change)?.parents;
                     let onto = choose_parent(change, &parents, onto)?;
-                    match cabaret.rebase(change, &onto)? {
-                        Rebase::UpToDate => println!("already up to date"),
-                        Rebase::Merged { conflicts } => {
+                    match cabaret.merge(change, &onto)? {
+                        Merge::UpToDate => println!("already up to date"),
+                        Merge::Merged { conflicts } => {
                             for path in conflicts {
                                 println!("conflicted: {path}");
                             }
