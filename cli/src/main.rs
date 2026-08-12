@@ -35,7 +35,10 @@ enum ParentsCommand {
 
 #[derive(Subcommand)]
 enum ChangeCommand {
-    Diff,
+    Diff {
+        /// Files or globs to diff; diffs everything when omitted.
+        pathspecs: Vec<Pathspec>,
+    },
     Land,
     Mark,
     Owners {
@@ -48,6 +51,11 @@ enum ChangeCommand {
     },
     Rebase {
         onto: Option<ChangeId>,
+    },
+    // TODO-someday(joel): consider merging with `Diff` via flag?
+    Review {
+        /// Files or globs to review; reviews everything when omitted.
+        pathspecs: Vec<Pathspec>,
     },
 }
 
@@ -97,7 +105,7 @@ fn run() -> Result<()> {
                 None => cabaret.current_change()?,
             };
             match command {
-                ChangeCommand::Diff => todo!(),
+                ChangeCommand::Diff { .. } => todo!(),
                 ChangeCommand::Land => todo!(),
                 ChangeCommand::Mark => todo!(),
                 ChangeCommand::Owners { command } => match command {
@@ -134,6 +142,7 @@ fn run() -> Result<()> {
                         }
                     }
                 }
+                ChangeCommand::Review { .. } => todo!(),
             }
         }
         Command::Commit { .. } => todo!(),
