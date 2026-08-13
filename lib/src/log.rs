@@ -87,6 +87,16 @@ impl Cabaret {
         }
         text.push_str(&line);
         text.push('\n');
+        self.commit_log(change, &message, &text, [log.head])
+    }
+
+    fn commit_log(
+        &self,
+        change: &ChangeId,
+        message: &str,
+        text: &str,
+        parents: impl IntoIterator<Item = Revision>,
+    ) -> Result<()> {
         let blob = self.repo.write_blob(text.as_bytes())?;
         let tree = gix::objs::Tree {
             entries: vec![gix::objs::tree::Entry {
@@ -96,7 +106,32 @@ impl Cabaret {
             }],
         };
         let tree = self.repo.write_object(&tree)?;
-        self.repo.commit(change.log_ref(), message, tree, [log.head])?;
+        self.repo.commit(change.log_ref(), message, tree, parents)?;
+        Ok(())
+    }
+
+    pub fn create_change(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
+        let tip = self.tip(parent)?;
+        if self.repo.try_find_reference(&change.log_ref())?.is_some() {
+            return Err(format!("{change} already exists").into());
+        }
+        if self.repo.try_find_reference(&change.branch_ref())?.is_some() {
+            return Err(format!("branch {change} already exists").into());
+        }
+
+        let action = LogAction::AddParent { parent: parent.clone() };
+        let message = serde_json::to_string(&action)?;
+        let entry = LogEntry { timestamp: TimestampMs::now(), action };
+        let mut text = serde_json::to_string(&entry)?;
+        text.push('\n');
+        // Committing with no parents demands the log ref not exist, closing the race above.
+        self.commit_log(change, &message, &text, None)?;
+        self.repo.reference(
+            change.branch_ref(),
+            tip,
+            gix::refs::transaction::PreviousValue::MustNotExist,
+            format!("create change {change}"),
+        )?;
         Ok(())
     }
 

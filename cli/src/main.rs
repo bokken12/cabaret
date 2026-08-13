@@ -35,25 +35,55 @@ enum ParentsCommand {
 
 #[derive(Subcommand)]
 enum ChangeCommand {
+    Create {
+        /// ID of the new change.
+        id: ChangeId,
+        /// Parent of the new change; defaults to the current change.
+        #[arg(long)]
+        parent: Option<ChangeId>,
+    },
     Diff {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long)]
+        change: Option<ChangeId>,
         /// Files or globs to diff; diffs everything when omitted.
         pathspecs: Vec<Pathspec>,
     },
-    Land,
-    Mark,
+    Land {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long)]
+        change: Option<ChangeId>,
+    },
+    Mark {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long)]
+        change: Option<ChangeId>,
+    },
     Owners {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long, global = true)]
+        change: Option<ChangeId>,
         #[command(subcommand)]
         command: OwnersCommand,
     },
     Parents {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long, global = true)]
+        change: Option<ChangeId>,
         #[command(subcommand)]
         command: ParentsCommand,
     },
     Rebase {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long)]
+        change: Option<ChangeId>,
         onto: Option<ChangeId>,
     },
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
+        /// Change to operate on; defaults to the current change.
+        #[arg(long)]
+        change: Option<ChangeId>,
         /// Files or globs to review; reviews everything when omitted.
         pathspecs: Vec<Pathspec>,
     },
@@ -62,9 +92,6 @@ enum ChangeCommand {
 #[derive(Subcommand)]
 enum Command {
     Change {
-        /// Change to operate on; defaults to the current change.
-        #[arg(long, global = true)]
-        change: Option<ChangeId>,
         #[command(subcommand)]
         command: ChangeCommand,
     },
@@ -99,88 +126,51 @@ fn run() -> Result<()> {
     let cabaret = Cabaret::open(std::env::current_dir()?)?;
 
     match cli.command {
-        Command::Change { change, command } => {
-            let change = &match change {
-                Some(change) => change,
-                None => cabaret.current_change()?,
+        Command::Change { command } => {
+            let or_current = |change: Option<ChangeId>| match change {
+                Some(change) => Ok(change),
+                None => cabaret.current_change(),
             };
             match command {
+                ChangeCommand::Create { id, parent } => {
+                    let parent = or_current(parent)?;
+                    cabaret.create_change(&id, &parent)?;
+                    println!("created {id} with parent {parent}");
+                }
                 ChangeCommand::Diff { .. } => todo!(),
-                ChangeCommand::Land => {
-                    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
-                    let parent = match parents.as_slice() {
-                        [] => return Err(format!("{change} has no parents").into()),
-                        [parent] => parent.clone(),
-                        [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
-                    };
-
-                    match cabaret.prepare_merge(&parent, change)? {
-                        None => println!("nothing to land"),
-                        Some(merge) if !merge.conflicts().is_empty() => {
-                            for path in merge.conflicts() {
-                                println!("conflicted: {path}");
+                ChangeCommand::Land { change } => land(&cabaret, &or_current(change)?)?,
+                ChangeCommand::Mark { .. } => todo!(),
+                ChangeCommand::Owners { change, command } => {
+                    let change = &or_current(change)?;
+                    match command {
+                        OwnersCommand::Show => {
+                            let change = cabaret.change(change)?;
+                            for owner in &change.owners {
+                                println!("{owner}");
                             }
-                            return Err(format!("landing {change} would conflict; rebase and resolve first").into());
                         }
-                        Some(merge) => {
-                            // TODO(joel): archive and reparent children?
-                            cabaret.commit_merge(merge, format!("land {change}"))?;
-                            println!("landed {change} into {parent}");
+                        OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
+                        OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
+                        OwnersCommand::Set { owners } => cabaret.set_owners(change, &owners.into_iter().collect())?,
+                    }
+                }
+                ChangeCommand::Parents { change, command } => {
+                    let change = &or_current(change)?;
+                    match command {
+                        ParentsCommand::Show => {
+                            let change = cabaret.change(change)?;
+                            for parent in &change.parents {
+                                println!("{parent}");
+                            }
+                        }
+                        ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
+                        ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
+                        ParentsCommand::Set { parents } => {
+                            cabaret.set_parents(change, &parents.into_iter().collect())?;
                         }
                     }
                 }
-                ChangeCommand::Mark => todo!(),
-                ChangeCommand::Owners { command } => match command {
-                    OwnersCommand::Show => {
-                        let change = cabaret.change(change)?;
-                        for owner in &change.owners {
-                            println!("{owner}");
-                        }
-                    }
-                    OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
-                    OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
-                    OwnersCommand::Set { owners } => cabaret.set_owners(change, &owners.into_iter().collect())?,
-                },
-                ChangeCommand::Parents { command } => match command {
-                    ParentsCommand::Show => {
-                        let change = cabaret.change(change)?;
-                        for parent in &change.parents {
-                            println!("{parent}");
-                        }
-                    }
-                    ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
-                    ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
-                    ParentsCommand::Set { parents } => cabaret.set_parents(change, &parents.into_iter().collect())?,
-                },
-                ChangeCommand::Rebase { onto } => {
-                    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
-                    let onto = match onto {
-                        Some(onto) if parents.contains(&onto) => onto,
-                        Some(onto) => return Err(format!("{onto} is not a parent of {change}").into()),
-                        None => match parents.as_slice() {
-                            [] => return Err(format!("{change} has no parents").into()),
-                            [parent] => parent.clone(),
-                            parents @ [_, _, ..] => {
-                                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
-                                return Err(format!(
-                                    "{change} has multiple parents; pass the one to rebase onto: {}",
-                                    parents.join(", ")
-                                )
-                                .into());
-                            }
-                        },
-                    };
-                    match cabaret.prepare_merge(change, &onto)? {
-                        None => println!("already up to date"),
-                        Some(merge) => {
-                            let conflicts = merge.conflicts().to_vec();
-                            cabaret.commit_merge(merge, format!("rebase onto {onto}"))?;
-                            for path in conflicts {
-                                println!("conflicted: {path}");
-                            }
-                        }
-                    }
-                }
+                ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto)?,
                 ChangeCommand::Review { .. } => todo!(),
             }
         }
@@ -190,5 +180,61 @@ fn run() -> Result<()> {
         Command::Workspace => todo!(),
     }
 
+    Ok(())
+}
+
+fn land(cabaret: &Cabaret, change: &ChangeId) -> Result<()> {
+    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
+    let parent = match parents.as_slice() {
+        [] => return Err(format!("{change} has no parents").into()),
+        [parent] => parent.clone(),
+        [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
+    };
+
+    match cabaret.prepare_merge(&parent, change)? {
+        None => println!("nothing to land"),
+        Some(merge) if !merge.conflicts().is_empty() => {
+            for path in merge.conflicts() {
+                println!("conflicted: {path}");
+            }
+            return Err(format!("landing {change} would conflict; rebase and resolve first").into());
+        }
+        Some(merge) => {
+            // TODO(joel): archive and reparent children?
+            cabaret.commit_merge(merge, format!("land {change}"))?;
+            println!("landed {change} into {parent}");
+        }
+    }
+    Ok(())
+}
+
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
+    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
+    let onto = match onto {
+        Some(onto) if parents.contains(&onto) => onto,
+        Some(onto) => return Err(format!("{onto} is not a parent of {change}").into()),
+        None => match parents.as_slice() {
+            [] => return Err(format!("{change} has no parents").into()),
+            [parent] => parent.clone(),
+            parents @ [_, _, ..] => {
+                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
+                return Err(format!(
+                    "{change} has multiple parents; pass the one to rebase onto: {}",
+                    parents.join(", ")
+                )
+                .into());
+            }
+        },
+    };
+    match cabaret.prepare_merge(change, &onto)? {
+        None => println!("already up to date"),
+        Some(merge) => {
+            let conflicts = merge.conflicts().to_vec();
+            cabaret.commit_merge(merge, format!("rebase onto {onto}"))?;
+            for path in conflicts {
+                println!("conflicted: {path}");
+            }
+        }
+    }
     Ok(())
 }
