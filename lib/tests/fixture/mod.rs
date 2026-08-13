@@ -29,17 +29,12 @@ impl Fixture {
 
     pub fn commit(&self, reference: &str, files: Files, parents: &[Revision]) -> Revision {
         let tree = write_tree(self.repo(), files);
-        Revision(self.repo().commit(reference, "test", tree.0, parents.iter().map(|parent| parent.0)).unwrap().detach())
+        Revision(self.repo().commit(reference, "test", tree, parents.iter().copied()).unwrap().detach())
     }
 
     pub fn branch(&self, name: &str, target: Revision) {
         self.repo()
-            .reference(
-                format!("refs/heads/{name}"),
-                target.0,
-                gix::refs::transaction::PreviousValue::Any,
-                "test branch",
-            )
+            .reference(format!("refs/heads/{name}"), target, gix::refs::transaction::PreviousValue::Any, "test branch")
             .unwrap();
     }
 
@@ -67,9 +62,7 @@ impl Fixture {
             }],
         };
         let tree = self.repo().write_object(&tree).unwrap().detach();
-        self.repo()
-            .commit(format!("refs/cabaret/changes/{change}"), "create", tree, Vec::<gix::ObjectId>::new())
-            .unwrap();
+        self.repo().commit(format!("refs/cabaret/changes/{change}"), "create", tree, Vec::<Revision>::new()).unwrap();
         for parent in parents {
             self.cabaret.add_parent(&change, &parent.parse().unwrap()).unwrap();
         }
@@ -98,7 +91,7 @@ impl Fixture {
     }
 
     pub fn revision_file(&self, revision: Revision, path: &str) -> String {
-        let tree = self.repo().find_commit(revision.0).unwrap().tree().unwrap();
+        let tree = self.repo().find_commit(revision).unwrap().tree().unwrap();
         let entry = tree.lookup_entry_by_path(path).unwrap().unwrap();
         String::from_utf8(entry.object().unwrap().data.clone()).unwrap()
     }

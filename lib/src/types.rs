@@ -91,6 +91,10 @@ impl fmt::Display for Revision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(&self.0, f) }
 }
 
+impl From<Revision> for ObjectId {
+    fn from(revision: Revision) -> Self { revision.0 }
+}
+
 impl Serialize for Revision {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         serializer.collect_str(&self.0)
@@ -106,6 +110,10 @@ impl<'de> Deserialize<'de> for Revision {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TreeId(pub ObjectId);
+
+impl From<TreeId> for ObjectId {
+    fn from(tree: TreeId) -> Self { tree.0 }
+}
 
 // TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {

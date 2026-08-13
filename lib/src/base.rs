@@ -44,7 +44,7 @@ impl Cabaret {
     /// The revision of `parent` that `change`'s tip most recently incorporated.
     fn incorporated(&self, change: &ChangeId, tip: Revision, parent: &ChangeId) -> Result<Revision> {
         let parent_tip = self.tip(parent)?;
-        let bases = self.repo.merge_bases_many(tip.0, &[parent_tip.0])?;
+        let bases = self.repo.merge_bases_many(tip, &[parent_tip.0])?;
         match bases.as_slice() {
             [] => Err(format!("{change} shares no history with its parent {parent}").into()),
             [base] => Ok(Revision(base.detach())),
@@ -72,7 +72,7 @@ impl Cabaret {
     }
 
     fn is_ancestor(&self, ancestor: Revision, descendant: Revision) -> Result<bool> {
-        Ok(self.repo.merge_bases_many(ancestor.0, &[descendant.0])?.iter().any(|base| *base == ancestor.0))
+        Ok(self.repo.merge_bases_many(ancestor, &[descendant.0])?.iter().any(|base| *base == ancestor.0))
     }
 
     /// Merge the incorporated revisions pairwise in parent-name order into a synthetic base
@@ -83,7 +83,7 @@ impl Cabaret {
             incorporated.split_first().expect("a synthetic base merges at least two revisions");
         let mut merged = first;
         let mut merged_label: BString = first_parent.as_bstr().to_owned();
-        let mut tree = TreeId(self.repo.find_commit(merged.0)?.tree_id()?.detach());
+        let mut tree = TreeId(self.repo.find_commit(merged)?.tree_id()?.detach());
         let mut conflicts: Vec<String> = Vec::new();
         for (index, &(parent, revision)) in rest.iter().enumerate() {
             let labels = Labels {
@@ -92,7 +92,7 @@ impl Cabaret {
                 other: Some(parent.as_bstr()),
             };
             let options = self.merge_options(self.marker_size(tree, &conflicts)?)?;
-            let mut merge = self.repo.merge_commits(merged.0, revision.0, labels, options.into())?;
+            let mut merge = self.repo.merge_commits(merged, revision, labels, options.into())?;
             tree = TreeId(merge.tree_merge.tree.write()?.detach());
             conflicts.extend(unresolved_paths(&merge.tree_merge));
             merged_label.extend_from_slice(b"+");
@@ -111,7 +111,7 @@ impl Cabaret {
     /// conflicts would be ambiguous.
     fn marker_size(&self, tree: TreeId, conflicts: &[String]) -> Result<NonZeroU8> {
         let mut size = usize::from(Conflict::DEFAULT_MARKER_SIZE);
-        let tree = self.repo.find_tree(tree.0)?;
+        let tree = self.repo.find_tree(tree)?;
         for path in conflicts {
             let Some(entry) = tree.lookup_entry_by_path(path)? else { continue };
             let Ok(blob) = entry.object()?.try_into_blob() else { continue };
@@ -128,8 +128,8 @@ impl Cabaret {
         let signature =
             gix::actor::Signature { name: "cabaret".into(), email: "".into(), time: gix::date::Time::new(0, 0) };
         let commit = gix::objs::Commit {
-            tree: tree.0,
-            parents: parents.into_iter().map(|parent| parent.0).collect(),
+            tree: tree.into(),
+            parents: parents.into_iter().map(Into::into).collect(),
             author: signature.clone(),
             committer: signature,
             encoding: None,

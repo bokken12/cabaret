@@ -13,7 +13,7 @@ fn synthetic(base: Base) -> (Revision, Vec<String>) {
 }
 
 fn raw_commit(fixture: &Fixture, revision: Revision) -> String {
-    String::from_utf8(fixture.repo().find_object(revision.0).unwrap().data.clone()).unwrap()
+    String::from_utf8(fixture.repo().find_object(revision).unwrap().data.clone()).unwrap()
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn a_multi_parent_base_merges_the_incorporated_revisions() {
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.revision_file(revision, "a.txt"), "a edited\n");
     assert_eq!(fixture.revision_file(revision, "b.txt"), "b edited\n");
-    let tree = fixture.repo().find_commit(revision.0).unwrap().tree_id().unwrap();
+    let tree = fixture.repo().find_commit(revision).unwrap().tree_id().unwrap();
     assert_eq!(
         raw_commit(&fixture, revision),
         format!(
@@ -114,7 +114,7 @@ fn a_third_conflicting_parent_nests_with_longer_markers() {
         "<<<<<<<<<<< pa+pb\n<<<<<<< pa\npa\n||||||| base\nhello\n||||||||||| base\nhello\n===========\npc\n>>>>>>>>>>> pc\n=======\npb\n>>>>>>> pb\n"
     );
     let parents: Vec<Revision> =
-        fixture.repo().find_commit(revision.0).unwrap().parent_ids().map(|id| Revision(id.detach())).collect();
+        fixture.repo().find_commit(revision).unwrap().parent_ids().map(|id| Revision(id.detach())).collect();
     assert_eq!(parents, vec![pa, pb, pc]);
 }
 

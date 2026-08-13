@@ -40,7 +40,7 @@ impl Cabaret {
     pub fn prepare_merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Option<PreparedMerge>> {
         let into_tip = self.tip(into)?;
         let from_tip = self.tip(from)?;
-        if self.repo.merge_base(into_tip.0, from_tip.0)? == from_tip.0 {
+        if self.repo.merge_base(into_tip, from_tip)? == from_tip.0 {
             return Ok(None);
         }
 
@@ -78,7 +78,7 @@ impl Cabaret {
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
         let options = self.merge_options(default_marker_size())?;
-        let mut merge = self.repo.merge_commits(into_tip.0, from_tip.0, labels, options.into())?;
+        let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = unresolved_paths(&merge.tree_merge);
 
@@ -87,7 +87,7 @@ impl Cabaret {
 
     /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
-        self.repo.commit(merge.branch, message, merge.tree.0, [merge.into_tip.0, merge.from_tip.0])?;
+        self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
         if let Some(workdir) = merge.worktree {
             self.checkout(&workdir, merge.tree)?;
         }

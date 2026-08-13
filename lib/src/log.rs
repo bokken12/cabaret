@@ -96,7 +96,7 @@ impl Cabaret {
             }],
         };
         let tree = self.repo.write_object(&tree)?;
-        self.repo.commit(change.log_ref(), message, tree, [log.head.0])?;
+        self.repo.commit(change.log_ref(), message, tree, [log.head])?;
         Ok(())
     }
 
