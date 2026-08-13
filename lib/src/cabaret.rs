@@ -14,16 +14,6 @@ impl Cabaret {
         Ok(Self { repo })
     }
 
-    // TODO-someday(joel): fetch refs/cabaret/* too
-    pub fn fetch(&self) -> Result<()> {
-        let remote = self.repo.find_default_remote(gix::remote::Direction::Fetch).ok_or("no remote configured")??;
-        remote
-            .connect(gix::remote::Direction::Fetch)?
-            .prepare_fetch(gix::progress::Discard, gix::remote::ref_map::Options::default())?
-            .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
-        Ok(())
-    }
-
     pub fn changes(&self) -> Result<Vec<ChangeId>> {
         let mut changes = Vec::new();
         for reference in self.repo.references()?.prefixed(ChangeId::LOG_REF_PREFIX)? {
@@ -35,6 +25,14 @@ impl Cabaret {
             changes.push(change.to_str()?.parse()?);
         }
         Ok(changes)
+    }
+
+    pub fn branches(&self) -> Result<Vec<ChangeId>> {
+        let mut branches = Vec::new();
+        for reference in self.repo.references()?.local_branches()? {
+            branches.push(reference?.name().shorten().to_str()?.parse()?);
+        }
+        Ok(branches)
     }
 
     // TODO-someday(joel): consider pulling into state

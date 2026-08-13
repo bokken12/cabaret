@@ -1,6 +1,6 @@
 use std::{ffi::OsStr, process::ExitCode};
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result, SyncOutcome};
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::{ArgValueCompleter, CompleteEnv, CompletionCandidate};
 
@@ -199,10 +199,31 @@ fn run() -> Result<()> {
         }
         Command::Commit { .. } => todo!(),
         Command::Config => todo!(),
-        Command::Fetch => cabaret.fetch()?,
+        Command::Fetch => fetch(&cabaret)?,
         Command::Workspace => todo!(),
     }
 
+    Ok(())
+}
+
+fn fetch(cabaret: &Cabaret) -> Result<()> {
+    cabaret.fetch()?;
+    let mut ahead = Vec::new();
+    for change in cabaret.branches()? {
+        match cabaret.sync_branch(&change)? {
+            SyncOutcome::Unpublished | SyncOutcome::UpToDate => {}
+            SyncOutcome::FastForwarded => println!("fast-forwarded {change}"),
+            SyncOutcome::Dirty => println!("skipped {change}: uncommitted changes"),
+            SyncOutcome::Diverged => println!("skipped {change}: diverged from remote"),
+            SyncOutcome::Ahead => ahead.push(change),
+        }
+    }
+    if !ahead.is_empty() {
+        cabaret.push(&ahead)?;
+        for change in &ahead {
+            println!("pushed {change}");
+        }
+    }
     Ok(())
 }
 

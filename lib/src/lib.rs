@@ -3,10 +3,12 @@ mod cabaret;
 mod error;
 mod log;
 mod merge;
+mod sync;
 mod types;
 
 pub use base::Base;
 pub use cabaret::Cabaret;
 pub use error::{Error, Result};
 pub use merge::PreparedMerge;
+pub use sync::SyncOutcome;
 pub use types::{Change, ChangeId, Identity, Pathspec, Revision, TimestampMs, TreeId};

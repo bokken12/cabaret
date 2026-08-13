@@ -1,11 +1,7 @@
-use std::{
-    collections::BTreeSet,
-    fs,
-    num::NonZeroU8,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeSet, fs, num::NonZeroU8, path::Path};
 
 use gix::{
+    Repository,
     bstr::{BString, ByteSlice},
     merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     refs::FullName,
@@ -21,8 +17,6 @@ use crate::{
 #[derive(Debug)]
 pub struct PreparedMerge {
     branch: FullName,
-    /// The current workdir when it has `branch` checked out and must be updated after committing.
-    worktree: Option<PathBuf>,
     into_tip: Revision,
     from_tip: Revision,
     tree: TreeId,
@@ -45,23 +39,18 @@ impl Cabaret {
         }
 
         let branch = into.branch_ref();
-        let checked_out = self.repo.head_name()?.is_some_and(|head| head == branch);
-        let worktree = if checked_out {
-            self.repo.workdir().map(Path::to_owned)
-        } else {
+        if self.checked_out(&branch)? {
+            if self.repo.is_dirty()? {
+                return Err("working tree has uncommitted changes".into());
+            }
+        } else if let Some(workspace) = self.workspace_holding(&branch)? {
             // Never move the branch under another workspace: its index and files would be left
             // describing the old tip, and this merge cannot see whether it is even clean.
-            if let Some(workspace) = self.workspace_holding(&branch)? {
-                return Err(format!(
-                    "{into} is checked out in workspace {}; rerun from that workspace",
-                    workspace.workdir().expect("held branches have a workdir").display()
-                )
-                .into());
-            }
-            None
-        };
-        if worktree.is_some() && self.repo.is_dirty()? {
-            return Err("working tree has uncommitted changes".into());
+            return Err(format!(
+                "{into} is checked out in workspace {}; rerun from that workspace",
+                workspace.workdir().expect("held branches have a workdir").display()
+            )
+            .into());
         }
 
         // Uncommitted work in `from`'s workspace would be silently absent from the merge.
@@ -82,20 +71,26 @@ impl Cabaret {
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = unresolved_paths(&merge.tree_merge);
 
-        Ok(Some(PreparedMerge { branch, worktree, into_tip, from_tip, tree, conflicts }))
+        Ok(Some(PreparedMerge { branch, into_tip, from_tip, tree, conflicts }))
     }
 
     /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
+        let refresh = self.checked_out(&merge.branch)?;
         self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
-        if let Some(workdir) = merge.worktree {
-            self.checkout(&workdir, merge.tree)?;
+        if refresh {
+            checkout(&self.repo, merge.tree)?;
         }
         Ok(())
     }
 
+    /// Whether the current workspace has `branch` checked out with a worktree to refresh.
+    fn checked_out(&self, branch: &FullName) -> Result<bool> {
+        Ok(self.repo.workdir().is_some() && self.repo.head_name()?.is_some_and(|head| head == *branch))
+    }
+
     /// The workspace repository that has `branch` checked out, if any.
-    fn workspace_holding(&self, branch: &FullName) -> Result<Option<gix::Repository>> {
+    pub(crate) fn workspace_holding(&self, branch: &FullName) -> Result<Option<gix::Repository>> {
         let mut repos = vec![self.repo.main_repo()?];
         for proxy in self.repo.worktrees()? {
             repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
@@ -120,38 +115,39 @@ impl Cabaret {
         options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::ZealousDiff3, marker_size };
         Ok(options.into())
     }
+}
 
-    /// Make the (clean) worktree and index match `tree`.
-    // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
-    // file on each merge won't fly in a large repository.
-    fn checkout(&self, workdir: &Path, tree: TreeId) -> Result<()> {
-        let mut index = self.repo.index_from_tree(&tree.0)?;
+/// Make the (clean) worktree and index of `repo`'s workspace match `tree`.
+// TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
+// file on each merge won't fly in a large repository.
+pub(crate) fn checkout(repo: &Repository, tree: TreeId) -> Result<()> {
+    let workdir = repo.workdir().ok_or("workspace has no working directory")?;
+    let mut index = repo.index_from_tree(&tree.0)?;
 
-        let old = self.repo.open_index()?;
-        let keep: BTreeSet<BString> = index.entries().iter().map(|entry| entry.path(&index).to_owned()).collect();
-        for entry in old.entries() {
-            let path = entry.path(&old);
-            if !keep.contains(path.as_bstr()) {
-                let path = workdir.join(gix::path::from_bstr(path));
-                fs::remove_file(&path)?;
-                prune_empty_dirs(workdir, path.parent().expect("worktree files have a parent"));
-            }
+    let old = repo.open_index()?;
+    let keep: BTreeSet<BString> = index.entries().iter().map(|entry| entry.path(&index).to_owned()).collect();
+    for entry in old.entries() {
+        let path = entry.path(&old);
+        if !keep.contains(path.as_bstr()) {
+            let path = workdir.join(gix::path::from_bstr(path));
+            fs::remove_file(&path)?;
+            prune_empty_dirs(workdir, path.parent().expect("worktree files have a parent"));
         }
-
-        let mut options = self.repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
-        options.overwrite_existing = true;
-        gix::worktree::state::checkout(
-            &mut index,
-            workdir,
-            self.repo.objects.clone().into_arc()?,
-            &gix::progress::Discard,
-            &gix::progress::Discard,
-            &gix::interrupt::IS_INTERRUPTED,
-            options,
-        )?;
-        index.write(gix::index::write::Options::default())?;
-        Ok(())
     }
+
+    let mut options = repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+    options.overwrite_existing = true;
+    gix::worktree::state::checkout(
+        &mut index,
+        workdir,
+        repo.objects.clone().into_arc()?,
+        &gix::progress::Discard,
+        &gix::progress::Discard,
+        &gix::interrupt::IS_INTERRUPTED,
+        options,
+    )?;
+    index.write(gix::index::write::Options::default())?;
+    Ok(())
 }
 
 pub(crate) fn default_marker_size() -> NonZeroU8 {
