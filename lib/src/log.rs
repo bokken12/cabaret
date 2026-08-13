@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 
-use gix::{ObjectId, Repository};
+use gix::Repository;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, TimestampMs},
+    types::{Change, ChangeId, Identity, Revision, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +43,7 @@ impl Change {
 const LOG_FILE: &str = "log.jsonl";
 
 struct Log {
-    head: ObjectId,
+    head: Revision,
     text: String,
     change: Change,
 }
@@ -62,7 +62,7 @@ impl Log {
             let entry: LogEntry = serde_json::from_str(line)?;
             change.apply(&entry.action);
         }
-        Ok(Self { head: commit.id, text, change })
+        Ok(Self { head: Revision(commit.id), text, change })
     }
 }
 
@@ -96,7 +96,7 @@ impl Cabaret {
             }],
         };
         let tree = self.repo.write_object(&tree)?;
-        self.repo.commit(change.log_ref(), message, tree, [log.head])?;
+        self.repo.commit(change.log_ref(), message, tree, [log.head.0])?;
         Ok(())
     }
 

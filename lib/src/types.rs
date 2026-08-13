@@ -87,6 +87,10 @@ impl FromStr for Pathspec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Revision(pub ObjectId);
 
+impl fmt::Display for Revision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(&self.0, f) }
+}
+
 impl Serialize for Revision {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         serializer.collect_str(&self.0)
@@ -99,6 +103,9 @@ impl<'de> Deserialize<'de> for Revision {
         hex.parse().map(Revision).map_err(serde::de::Error::custom)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TreeId(pub ObjectId);
 
 // TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {

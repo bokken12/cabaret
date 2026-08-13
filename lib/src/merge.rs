@@ -6,13 +6,16 @@ use std::{
 };
 
 use gix::{
-    ObjectId,
     bstr::{BString, ByteSlice},
     merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     refs::FullName,
 };
 
-use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
+use crate::{
+    cabaret::Cabaret,
+    error::Result,
+    types::{ChangeId, Revision, TreeId},
+};
 
 /// A merge computed but not yet committed; drop it to abandon the merge.
 #[derive(Debug)]
@@ -20,9 +23,9 @@ pub struct PreparedMerge {
     branch: FullName,
     /// The current workdir when it has `branch` checked out and must be updated after committing.
     worktree: Option<PathBuf>,
-    into_tip: ObjectId,
-    from_tip: ObjectId,
-    tree: ObjectId,
+    into_tip: Revision,
+    from_tip: Revision,
+    tree: TreeId,
     conflicts: Vec<String>,
 }
 
@@ -37,7 +40,7 @@ impl Cabaret {
     pub fn prepare_merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Option<PreparedMerge>> {
         let into_tip = self.tip(into)?;
         let from_tip = self.tip(from)?;
-        if self.repo.merge_base(into_tip, from_tip)? == from_tip {
+        if self.repo.merge_base(into_tip.0, from_tip.0)? == from_tip.0 {
             return Ok(None);
         }
 
@@ -75,8 +78,8 @@ impl Cabaret {
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
         let options = self.merge_options(default_marker_size())?;
-        let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
-        let tree = merge.tree_merge.tree.write()?.detach();
+        let mut merge = self.repo.merge_commits(into_tip.0, from_tip.0, labels, options.into())?;
+        let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = unresolved_paths(&merge.tree_merge);
 
         Ok(Some(PreparedMerge { branch, worktree, into_tip, from_tip, tree, conflicts }))
@@ -84,7 +87,7 @@ impl Cabaret {
 
     /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
-        self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
+        self.repo.commit(merge.branch, message, merge.tree.0, [merge.into_tip.0, merge.from_tip.0])?;
         if let Some(workdir) = merge.worktree {
             self.checkout(&workdir, merge.tree)?;
         }
@@ -105,8 +108,8 @@ impl Cabaret {
         Ok(None)
     }
 
-    pub(crate) fn tip(&self, change: &ChangeId) -> Result<ObjectId> {
-        Ok(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id)
+    pub(crate) fn tip(&self, change: &ChangeId) -> Result<Revision> {
+        Ok(Revision(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id))
     }
 
     /// Conflict style and rename detection are forced rather than read from config so the
@@ -121,8 +124,8 @@ impl Cabaret {
     /// Make the (clean) worktree and index match `tree`.
     // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
     // file on each merge won't fly in a large repository.
-    fn checkout(&self, workdir: &Path, tree: ObjectId) -> Result<()> {
-        let mut index = self.repo.index_from_tree(&tree)?;
+    fn checkout(&self, workdir: &Path, tree: TreeId) -> Result<()> {
+        let mut index = self.repo.index_from_tree(&tree.0)?;
 
         let old = self.repo.open_index()?;
         let keep: BTreeSet<BString> = index.entries().iter().map(|entry| entry.path(&index).to_owned()).collect();

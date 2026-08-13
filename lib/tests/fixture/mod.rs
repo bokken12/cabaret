@@ -3,8 +3,8 @@
 
 use std::{collections::BTreeMap, fs};
 
-use cabaret_lib::{Cabaret, ChangeId, PreparedMerge};
-use gix::{ObjectId, objs::tree::EntryKind};
+use cabaret_lib::{Cabaret, ChangeId, PreparedMerge, Revision, TreeId};
+use gix::objs::tree::EntryKind;
 
 pub type Files<'a> = &'a [(&'a str, &'a str)];
 
@@ -27,14 +27,19 @@ impl Fixture {
 
     pub fn repo(&self) -> &gix::Repository { &self.cabaret.repo }
 
-    pub fn commit(&self, reference: &str, files: Files, parents: &[ObjectId]) -> ObjectId {
+    pub fn commit(&self, reference: &str, files: Files, parents: &[Revision]) -> Revision {
         let tree = write_tree(self.repo(), files);
-        self.repo().commit(reference, "test", tree, parents.iter().copied()).unwrap().detach()
+        Revision(self.repo().commit(reference, "test", tree.0, parents.iter().map(|parent| parent.0)).unwrap().detach())
     }
 
-    pub fn branch(&self, name: &str, target: ObjectId) {
+    pub fn branch(&self, name: &str, target: Revision) {
         self.repo()
-            .reference(format!("refs/heads/{name}"), target, gix::refs::transaction::PreviousValue::Any, "test branch")
+            .reference(
+                format!("refs/heads/{name}"),
+                target.0,
+                gix::refs::transaction::PreviousValue::Any,
+                "test branch",
+            )
             .unwrap();
     }
 
@@ -62,7 +67,9 @@ impl Fixture {
             }],
         };
         let tree = self.repo().write_object(&tree).unwrap().detach();
-        self.repo().commit(format!("refs/cabaret/changes/{change}"), "create", tree, Vec::<ObjectId>::new()).unwrap();
+        self.repo()
+            .commit(format!("refs/cabaret/changes/{change}"), "create", tree, Vec::<gix::ObjectId>::new())
+            .unwrap();
         for parent in parents {
             self.cabaret.add_parent(&change, &parent.parse().unwrap()).unwrap();
         }
@@ -81,17 +88,17 @@ impl Fixture {
         Ok(Some(conflicts))
     }
 
-    pub fn tip(&self, change: &str) -> (ObjectId, Vec<ObjectId>) {
+    pub fn tip(&self, change: &str) -> (Revision, Vec<Revision>) {
         let commit = self.repo().find_reference(&format!("refs/heads/{change}")).unwrap().peel_to_commit().unwrap();
-        (commit.id, commit.parent_ids().map(gix::Id::detach).collect())
+        (Revision(commit.id), commit.parent_ids().map(|id| Revision(id.detach())).collect())
     }
 
     pub fn worktree_file(&self, path: &str) -> String {
         fs::read_to_string(self.repo().workdir().unwrap().join(path)).unwrap()
     }
 
-    pub fn revision_file(&self, revision: ObjectId, path: &str) -> String {
-        let tree = self.repo().find_commit(revision).unwrap().tree().unwrap();
+    pub fn revision_file(&self, revision: Revision, path: &str) -> String {
+        let tree = self.repo().find_commit(revision.0).unwrap().tree().unwrap();
         let entry = tree.lookup_entry_by_path(path).unwrap().unwrap();
         String::from_utf8(entry.object().unwrap().data.clone()).unwrap()
     }
@@ -110,7 +117,7 @@ impl Fixture {
     }
 }
 
-pub fn write_tree(repo: &gix::Repository, files: Files) -> ObjectId {
+pub fn write_tree(repo: &gix::Repository, files: Files) -> TreeId {
     let mut entries = Vec::new();
     let mut subdirs: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     for (path, content) in files {
@@ -127,11 +134,11 @@ pub fn write_tree(repo: &gix::Repository, files: Files) -> ObjectId {
         entries.push(gix::objs::tree::Entry {
             mode: EntryKind::Tree.into(),
             filename: dir.into(),
-            oid: write_tree(repo, &files),
+            oid: write_tree(repo, &files).0,
         });
     }
     entries.sort();
-    repo.write_object(&gix::objs::Tree { entries }).unwrap().detach()
+    TreeId(repo.write_object(&gix::objs::Tree { entries }).unwrap().detach())
 }
 
 /// A repo where `child` (checked out) and its parent `main` have both advanced from a shared base.

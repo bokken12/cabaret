@@ -2,19 +2,18 @@ mod fixture;
 
 use cabaret_lib::{Base, Revision};
 use fixture::{Fixture, diverged};
-use gix::ObjectId;
 
 fn base(fixture: &Fixture, change: &str) -> cabaret_lib::Result<Base> { fixture.cabaret.base(&change.parse().unwrap()) }
 
-fn synthetic(base: Base) -> (ObjectId, Vec<String>) {
+fn synthetic(base: Base) -> (Revision, Vec<String>) {
     match base {
-        Base::Synthetic { revision, conflicts } => (revision.0, conflicts),
+        Base::Synthetic { revision, conflicts } => (revision, conflicts),
         other => panic!("expected a synthetic base, got {other:?}"),
     }
 }
 
-fn raw_commit(fixture: &Fixture, revision: ObjectId) -> String {
-    String::from_utf8(fixture.repo().find_object(revision).unwrap().data.clone()).unwrap()
+fn raw_commit(fixture: &Fixture, revision: Revision) -> String {
+    String::from_utf8(fixture.repo().find_object(revision.0).unwrap().data.clone()).unwrap()
 }
 
 #[test]
@@ -34,7 +33,7 @@ fn a_single_parent_base_is_the_last_incorporated_revision() {
     fixture.commit("refs/heads/main", &[("file.txt", "original\n"), ("main.txt", "main\n")], &[root]);
     fixture.set_parents("child", &["main"]);
 
-    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(Revision(root)));
+    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(root));
 }
 
 #[test]
@@ -50,7 +49,7 @@ fn merging_the_parent_moves_the_base_to_the_merged_revision() {
     fixture.merge("main").unwrap().expect("expected a merge");
     fixture.commit("refs/heads/main", &[("file.txt", "original\n"), ("main.txt", "later\n")], &[merged_main]);
 
-    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(Revision(merged_main)));
+    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(merged_main));
 }
 
 #[test]
@@ -67,7 +66,7 @@ fn a_multi_parent_base_merges_the_incorporated_revisions() {
     assert_eq!(conflicts, Vec::<String>::new());
     assert_eq!(fixture.revision_file(revision, "a.txt"), "a edited\n");
     assert_eq!(fixture.revision_file(revision, "b.txt"), "b edited\n");
-    let tree = fixture.repo().find_commit(revision).unwrap().tree_id().unwrap();
+    let tree = fixture.repo().find_commit(revision.0).unwrap().tree_id().unwrap();
     assert_eq!(
         raw_commit(&fixture, revision),
         format!(
@@ -114,8 +113,8 @@ fn a_third_conflicting_parent_nests_with_longer_markers() {
         fixture.revision_file(revision, "greeting.txt"),
         "<<<<<<<<<<< pa+pb\n<<<<<<< pa\npa\n||||||| base\nhello\n||||||||||| base\nhello\n===========\npc\n>>>>>>>>>>> pc\n=======\npb\n>>>>>>> pb\n"
     );
-    let parents: Vec<ObjectId> =
-        fixture.repo().find_commit(revision).unwrap().parent_ids().map(gix::Id::detach).collect();
+    let parents: Vec<Revision> =
+        fixture.repo().find_commit(revision.0).unwrap().parent_ids().map(|id| Revision(id.detach())).collect();
     assert_eq!(parents, vec![pa, pb, pc]);
 }
 
@@ -128,7 +127,7 @@ fn parents_incorporated_at_the_same_revision_collapse_to_one() {
     fixture.commit("refs/heads/child", &[("file.txt", "child\n")], &[root]);
     fixture.set_parents("child", &["pa", "pb"]);
 
-    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(Revision(root)));
+    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(root));
 }
 
 #[test]
@@ -139,7 +138,7 @@ fn an_incorporated_revision_containing_another_wins() {
     fixture.commit("refs/heads/child", &[("file.txt", "child\n")], &[feature]);
     fixture.set_parents("child", &["feature", "main"]);
 
-    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(Revision(feature)));
+    assert_eq!(base(&fixture, "child").unwrap(), Base::Real(feature));
 }
 
 #[test]
