@@ -1,8 +1,19 @@
-use std::path::PathBuf;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use gix::{Repository, bstr::ByteSlice, refs::FullName};
+use gix::{
+    Repository,
+    bstr::{BString, ByteSlice},
+    refs::FullName,
+};
 
-use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
+use crate::{
+    cabaret::Cabaret,
+    error::Result,
+    types::{ChangeId, Revision},
+};
 
 impl Cabaret {
     /// The workspace repository that has `branch` checked out, if any.
@@ -33,13 +44,23 @@ impl Cabaret {
 
     /// Create a workspace with `change`'s branch checked out and return its path.
     pub fn add_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
-        self.tip(change)?;
-        let path = self.workspace_path(change)?;
-        // TODO(joel): gix can handle worktrees
-        let mut command = self.git_when_gix_unimplemented();
-        command.args(["worktree", "add", "--quiet"]).arg(&path).arg(change.to_string());
-        if !command.status()?.success() {
-            return Err("git worktree add failed".into());
+        let tip = self.tip(change)?;
+        if self.workspace_holding(&change.branch_ref())?.is_some() {
+            return Err(format!("{change} is already checked out in a workspace").into());
+        }
+        let path = std::path::absolute(self.workspace_path(change)?)?;
+        let worktrees = self.repo.common_dir().join("worktrees");
+        let admin = std::path::absolute(worktrees.join(path.file_name().expect("workspace paths name a directory")))?;
+
+        fs::create_dir(&path).map_err(|error| format!("cannot create workspace at {}: {error}", path.display()))?;
+        if let Err(error) = fs::create_dir_all(&worktrees).and_then(|()| fs::create_dir(&admin)) {
+            let _ = fs::remove_dir(&path);
+            return Err(format!("cannot register workspace at {}: {error}", admin.display()).into());
+        }
+        if let Err(error) = populate_workspace(change, tip, &path, &admin) {
+            let _ = fs::remove_dir_all(&path);
+            let _ = fs::remove_dir_all(&admin);
+            return Err(error);
         }
         Ok(path)
     }
@@ -48,16 +69,21 @@ impl Cabaret {
     pub fn remove_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
         let workspace =
             self.workspace_holding(&change.branch_ref())?.ok_or_else(|| format!("{change} has no workspace"))?;
-        if workspace.worktree().is_some_and(|worktree| worktree.is_main()) {
-            return Err(format!("{change} is checked out in the main workspace").into());
+        if let Some(worktree) = workspace.worktree() {
+            if worktree.is_main() {
+                return Err(format!("{change} is checked out in the main workspace").into());
+            }
+            if worktree.is_locked() {
+                return Err(format!("{change}'s workspace is locked").into());
+            }
+        }
+        if let Some(entry) = workspace.status(gix::progress::Discard)?.into_iter(None::<BString>)?.next() {
+            entry?;
+            return Err(format!("{change}'s workspace has uncommitted or untracked changes").into());
         }
         let workdir = workspace.workdir().expect("held branches have a workdir").to_owned();
-        // TODO(joel): gix can handle worktrees
-        let mut command = self.git_when_gix_unimplemented();
-        command.args(["worktree", "remove"]).arg(&workdir);
-        if !command.status()?.success() {
-            return Err("git worktree remove failed".into());
-        }
+        fs::remove_dir_all(&workdir)?;
+        fs::remove_dir_all(workspace.git_dir())?;
         Ok(workdir)
     }
 
@@ -73,4 +99,29 @@ impl Cabaret {
         name.push(change.to_string());
         Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
     }
+}
+
+/// Write the linked-worktree metadata git expects and check out `tip`, as `git worktree add` would.
+fn populate_workspace(change: &ChangeId, tip: Revision, path: &Path, admin: &Path) -> Result<()> {
+    fs::write(admin.join("HEAD"), format!("ref: {}\n", change.branch_ref().as_bstr()))?;
+    fs::write(admin.join("commondir"), "../..\n")?;
+    fs::write(admin.join("gitdir"), format!("{}\n", path.join(".git").display()))?;
+    fs::write(path.join(".git"), format!("gitdir: {}\n", admin.display()))?;
+
+    let repo = gix::open(path)?;
+    let tree = repo.find_commit(tip)?.tree_id()?;
+    let mut index = repo.index_from_tree(&tree)?;
+    let mut options = repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+    options.destination_is_initially_empty = true;
+    gix::worktree::state::checkout(
+        &mut index,
+        repo.workdir().expect("the new workspace has a working directory"),
+        repo.objects.clone().into_arc()?,
+        &gix::progress::Discard,
+        &gix::progress::Discard,
+        &gix::interrupt::IS_INTERRUPTED,
+        options,
+    )?;
+    index.write(gix::index::write::Options::default())?;
+    Ok(())
 }
