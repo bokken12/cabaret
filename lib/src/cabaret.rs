@@ -36,7 +36,7 @@ impl Cabaret {
     }
 
     /// Git running against this repository, for operations gix does not implement yet.
-    pub fn git(&self) -> Command {
+    pub fn git_when_gix_unimplemented(&self) -> Command {
         let mut command = Command::new("git");
         command.arg("--git-dir").arg(self.repo.git_dir());
         command

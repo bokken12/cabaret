@@ -76,7 +76,7 @@ impl Cabaret {
     /// Push `changes`' branches to the remote, which must be able to fast-forward to them.
     pub fn push(&self, changes: &[ChangeId]) -> Result<()> {
         let remote = self.remote_name()?;
-        let mut command = self.git();
+        let mut command = self.git_when_gix_unimplemented();
         command.arg("push").arg("--quiet").arg(remote.to_string());
         for change in changes {
             command.arg(format!("{0}:{0}", change.branch_ref().as_bstr()));

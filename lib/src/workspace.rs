@@ -35,7 +35,8 @@ impl Cabaret {
     pub fn add_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
         self.tip(change)?;
         let path = self.workspace_path(change)?;
-        let mut command = self.git();
+        // TODO(joel): gix can handle worktrees
+        let mut command = self.git_when_gix_unimplemented();
         command.args(["worktree", "add", "--quiet"]).arg(&path).arg(change.to_string());
         if !command.status()?.success() {
             return Err("git worktree add failed".into());
@@ -51,7 +52,8 @@ impl Cabaret {
             return Err(format!("{change} is checked out in the main workspace").into());
         }
         let workdir = workspace.workdir().expect("held branches have a workdir").to_owned();
-        let mut command = self.git();
+        // TODO(joel): gix can handle worktrees
+        let mut command = self.git_when_gix_unimplemented();
         command.args(["worktree", "remove"]).arg(&workdir);
         if !command.status()?.success() {
             return Err("git worktree remove failed".into());
