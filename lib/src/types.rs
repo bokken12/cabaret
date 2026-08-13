@@ -38,12 +38,14 @@ impl fmt::Display for Identity {
 pub struct ChangeId(PartialName);
 
 impl ChangeId {
+    pub(crate) const LOG_REF_PREFIX: &'static str = "refs/cabaret/changes/";
+
     pub fn branch_ref(&self) -> FullName {
         FullName::try_from(format!("refs/heads/{self}")).expect("a partial name is valid under refs/heads/")
     }
 
     pub fn log_ref(&self) -> FullName {
-        FullName::try_from(format!("refs/cabaret/changes/{self}"))
+        FullName::try_from(format!("{}{self}", Self::LOG_REF_PREFIX))
             .expect("a partial name is valid under refs/cabaret/changes/")
     }
 

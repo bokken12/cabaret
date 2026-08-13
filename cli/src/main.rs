@@ -1,7 +1,22 @@
-use std::process::ExitCode;
+use std::{ffi::OsStr, process::ExitCode};
 
 use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{ArgValueCompleter, CompleteEnv, CompletionCandidate};
+
+fn change_completer() -> ArgValueCompleter {
+    fn changes() -> Result<Vec<ChangeId>> { Cabaret::open(std::env::current_dir()?)?.changes() }
+    ArgValueCompleter::new(|current: &OsStr| {
+        let Some(current) = current.to_str() else { return Vec::new() };
+        changes()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|change| change.to_string())
+            .filter(|change| change.starts_with(current))
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
 
 #[derive(Subcommand)]
 enum OwnersCommand {
@@ -22,13 +37,15 @@ enum OwnersCommand {
 enum ParentsCommand {
     Show,
     Add {
+        #[arg(add = change_completer())]
         parent: ChangeId,
     },
     Remove {
+        #[arg(add = change_completer())]
         parent: ChangeId,
     },
     Set {
-        #[arg(required = true)]
+        #[arg(required = true, add = change_completer())]
         parents: Vec<ChangeId>,
     },
 }
@@ -39,50 +56,51 @@ enum ChangeCommand {
         /// ID of the new change.
         id: ChangeId,
         /// Parent of the new change; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         parent: Option<ChangeId>,
     },
     Diff {
         /// Change to operate on; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         /// Files or globs to diff; diffs everything when omitted.
         pathspecs: Vec<Pathspec>,
     },
     Land {
         /// Change to operate on; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
     Mark {
         /// Change to operate on; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
     Owners {
         /// Change to operate on; defaults to the current change.
-        #[arg(long, global = true)]
+        #[arg(long, global = true, add = change_completer())]
         change: Option<ChangeId>,
         #[command(subcommand)]
         command: OwnersCommand,
     },
     Parents {
         /// Change to operate on; defaults to the current change.
-        #[arg(long, global = true)]
+        #[arg(long, global = true, add = change_completer())]
         change: Option<ChangeId>,
         #[command(subcommand)]
         command: ParentsCommand,
     },
     Rebase {
         /// Change to operate on; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        #[arg(add = change_completer())]
         onto: Option<ChangeId>,
     },
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
         /// Change to operate on; defaults to the current change.
-        #[arg(long)]
+        #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         /// Files or globs to review; reviews everything when omitted.
         pathspecs: Vec<Pathspec>,
@@ -112,6 +130,7 @@ struct Cli {
 }
 
 fn main() -> ExitCode {
+    CompleteEnv::with_factory(Cli::command).complete();
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
