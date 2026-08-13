@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, process::ExitCode};
 
 use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::{ArgValueCompleter, CompleteEnv, CompletionCandidate};
 
 fn change_completer() -> ArgValueCompleter {
@@ -63,7 +63,9 @@ enum ChangeCommand {
         /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        // TODO-someday(joel): cleverer repo-relative path completion
         /// Files or globs to diff; diffs everything when omitted.
+        #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
     Land {
@@ -103,6 +105,7 @@ enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         /// Files or globs to review; reviews everything when omitted.
+        #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
 }
@@ -115,6 +118,7 @@ enum Command {
     },
     Commit {
         /// Files or globs to commit; commits everything when omitted.
+        #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
     Config,
