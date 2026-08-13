@@ -16,7 +16,8 @@ pub enum LogAction {
     AddParent { parent: ChangeId },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
-    SetTitle { title: String },
+    SetDescription { description: Option<String> },
+    SetTitle { title: Option<String> },
 }
 
 // TODO-someday(joel): allow format evolution. protos? versioned?
@@ -29,6 +30,15 @@ pub struct LogEntry {
     pub action: LogAction,
 }
 
+fn set<T: PartialEq + Clone>(place: &mut T, val: &T) -> bool {
+    if place == val {
+        false
+    } else {
+        *place = val.clone();
+        true
+    }
+}
+
 impl Change {
     /// `change.apply(action)` is `true` iff `action` modifies `change`.
     pub fn apply(&mut self, action: &LogAction) -> bool {
@@ -37,11 +47,8 @@ impl Change {
             LogAction::AddParent { parent } => self.parents.insert(parent.clone()),
             LogAction::RemoveOwner { owner } => self.owners.remove(owner),
             LogAction::RemoveParent { parent } => self.parents.remove(parent),
-            LogAction::SetTitle { title } => {
-                let modified = self.title != *title;
-                self.title.clone_from(title);
-                modified
-            }
+            LogAction::SetDescription { description } => set(&mut self.description, description),
+            LogAction::SetTitle { title } => set(&mut self.title, title),
         }
     }
 }
@@ -63,7 +70,7 @@ impl Log {
         let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{} has no {LOG_FILE}", log_ref.as_bstr()))?;
         let blob = entry.object()?.try_into_blob()?;
         let text = std::str::from_utf8(&blob.data)?.to_owned();
-        let mut change = Change::new(change);
+        let mut change = Change::new();
         for line in text.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
             change.apply(&entry.action);

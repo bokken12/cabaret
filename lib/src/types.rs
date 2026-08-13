@@ -120,13 +120,12 @@ impl From<TreeId> for ObjectId {
 // TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {
     // TODO-someday(joel): add other relevant data
-    pub title: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
 }
 
 impl Change {
-    pub fn new(id: &ChangeId) -> Self {
-        Self { title: id.as_bstr().to_string(), owners: BTreeSet::new(), parents: BTreeSet::new() }
-    }
+    pub fn new() -> Self { Self { title: None, description: None, owners: BTreeSet::new(), parents: BTreeSet::new() } }
 }
