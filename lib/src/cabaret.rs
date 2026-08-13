@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, process::Command};
 
 use gix::{Repository, bstr::ByteSlice};
 
@@ -33,6 +33,13 @@ impl Cabaret {
             branches.push(reference?.name().shorten().to_str()?.parse()?);
         }
         Ok(branches)
+    }
+
+    /// Git running against this repository, for operations gix does not implement yet.
+    pub fn git(&self) -> Command {
+        let mut command = Command::new("git");
+        command.arg("--git-dir").arg(self.repo.git_dir());
+        command
     }
 
     // TODO-someday(joel): consider pulling into state

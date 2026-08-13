@@ -5,6 +5,7 @@ mod log;
 mod merge;
 mod sync;
 mod types;
+mod workspace;
 
 pub use base::Base;
 pub use cabaret::Cabaret;

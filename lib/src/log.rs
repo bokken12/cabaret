@@ -31,7 +31,7 @@ pub struct LogEntry {
 
 impl Change {
     /// `change.apply(action)` is `true` iff `action` modifies `change`.
-    pub(crate) fn apply(&mut self, action: &LogAction) -> bool {
+    pub fn apply(&mut self, action: &LogAction) -> bool {
         match action {
             LogAction::AddOwner { owner } => self.owners.insert(owner.clone()),
             LogAction::AddParent { parent } => self.parents.insert(parent.clone()),

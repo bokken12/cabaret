@@ -111,6 +111,19 @@ enum ChangeCommand {
 }
 
 #[derive(Subcommand)]
+enum WorkspaceCommand {
+    Add {
+        #[arg(add = change_completer())]
+        change: ChangeId,
+    },
+    Remove {
+        #[arg(add = change_completer())]
+        change: ChangeId,
+    },
+    List,
+}
+
+#[derive(Subcommand)]
 enum Command {
     Change {
         #[command(subcommand)]
@@ -123,7 +136,10 @@ enum Command {
     },
     Config,
     Fetch,
-    Workspace,
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommand,
+    },
 }
 
 #[derive(Parser)]
@@ -200,7 +216,21 @@ fn run() -> Result<()> {
         Command::Commit { .. } => todo!(),
         Command::Config => todo!(),
         Command::Fetch => fetch(&cabaret)?,
-        Command::Workspace => todo!(),
+        Command::Workspace { command } => match command {
+            WorkspaceCommand::Add { change } => {
+                let path = cabaret.add_workspace(&change)?;
+                println!("added workspace {change} at {}", path.display());
+            }
+            WorkspaceCommand::Remove { change } => {
+                let path = cabaret.remove_workspace(&change)?;
+                println!("removed workspace {change} at {}", path.display());
+            }
+            WorkspaceCommand::List => {
+                for (change, path) in cabaret.workspaces()? {
+                    println!("{change} {}", path.display());
+                }
+            }
+        },
     }
 
     Ok(())

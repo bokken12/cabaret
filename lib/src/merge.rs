@@ -89,27 +89,13 @@ impl Cabaret {
         Ok(self.repo.workdir().is_some() && self.repo.head_name()?.is_some_and(|head| head == *branch))
     }
 
-    /// The workspace repository that has `branch` checked out, if any.
-    pub(crate) fn workspace_holding(&self, branch: &FullName) -> Result<Option<gix::Repository>> {
-        let mut repos = vec![self.repo.main_repo()?];
-        for proxy in self.repo.worktrees()? {
-            repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
-        }
-        for repo in repos {
-            if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == *branch) {
-                return Ok(Some(repo));
-            }
-        }
-        Ok(None)
-    }
-
-    pub(crate) fn tip(&self, change: &ChangeId) -> Result<Revision> {
+    pub fn tip(&self, change: &ChangeId) -> Result<Revision> {
         Ok(Revision(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id))
     }
 
     /// Conflict style and rename detection are forced rather than read from config so the
     /// committed conflict text is identical no matter whose clone performs the merge.
-    pub(crate) fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {
+    pub fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {
         let mut options: gix::merge::plumbing::tree::Options = self.repo.tree_merge_options()?.into();
         options.rewrites = Some(gix::diff::Rewrites::default());
         options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::ZealousDiff3, marker_size };
@@ -120,7 +106,7 @@ impl Cabaret {
 /// Make the (clean) worktree and index of `repo`'s workspace match `tree`.
 // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
 // file on each merge won't fly in a large repository.
-pub(crate) fn checkout(repo: &Repository, tree: TreeId) -> Result<()> {
+pub fn checkout(repo: &Repository, tree: TreeId) -> Result<()> {
     let workdir = repo.workdir().ok_or("workspace has no working directory")?;
     let mut index = repo.index_from_tree(&tree.0)?;
 
@@ -150,12 +136,12 @@ pub(crate) fn checkout(repo: &Repository, tree: TreeId) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn default_marker_size() -> NonZeroU8 {
+pub fn default_marker_size() -> NonZeroU8 {
     Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero")
 }
 
 /// Paths the merge left unresolved, sorted and deduplicated.
-pub(crate) fn unresolved_paths(merge: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
+pub fn unresolved_paths(merge: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
     let unresolved = gix::merge::tree::TreatAsUnresolved::default();
     let mut paths: Vec<String> = merge
         .conflicts

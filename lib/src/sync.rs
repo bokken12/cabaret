@@ -74,11 +74,10 @@ impl Cabaret {
     }
 
     /// Push `changes`' branches to the remote, which must be able to fast-forward to them.
-    // Shells out: gix does not implement push yet.
     pub fn push(&self, changes: &[ChangeId]) -> Result<()> {
         let remote = self.remote_name()?;
-        let mut command = std::process::Command::new("git");
-        command.arg("--git-dir").arg(self.repo.git_dir()).arg("push").arg("--quiet").arg(remote.to_string());
+        let mut command = self.git();
+        command.arg("push").arg("--quiet").arg(remote.to_string());
         for change in changes {
             command.arg(format!("{0}:{0}", change.branch_ref().as_bstr()));
         }
