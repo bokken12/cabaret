@@ -81,7 +81,16 @@ impl<'de> Deserialize<'de> for ChangeId {
 
 // TODO(joel): reconsider path representation
 /// repo-relative & platform-agnostic path
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path(pub Vec<u8>);
+
+impl Serialize for Path {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> { todo!() }
+}
+
+impl<'de> Deserialize<'de> for Path {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> { todo!() }
+}
 
 // TODO(joel): rename to be less ambiguous?
 #[derive(Debug, Clone)]
@@ -141,7 +150,7 @@ pub struct Change {
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
     // TODO(joel): fix path type
-    pub review_state: BTreeMap<Identity, BTreeMap<PathBuf, RevisionRange>>,
+    pub review_state: BTreeMap<Identity, BTreeMap<Path, RevisionRange>>,
 }
 
 impl Change {

@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, btree_map},
-    path::PathBuf,
-};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use gix::Repository;
 use serde::{Deserialize, Serialize};
@@ -9,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, Revision, RevisionRange, TimestampMs},
+    types::{Change, ChangeId, Identity, Path, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,7 +14,8 @@ use crate::{
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
-    Mark { user: Identity, file: PathBuf, range: RevisionRange },
+    Forget { user: Identity, file: Path },
+    Mark { user: Identity, file: Path, range: RevisionRange },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetDescription { description: Option<String> },
@@ -50,12 +48,15 @@ fn set_key<K: Ord, T: PartialEq + Clone>(map: &mut BTreeMap<K, T>, k: K, val: &T
     }
 }
 
+fn remove_key<K: Ord, T>(map: &mut BTreeMap<K, T>, k: &K) -> bool { map.remove(k).is_some() }
+
 impl Change {
     /// `change.apply(action)` is `true` iff `action` modifies `change`.
     pub fn apply(&mut self, action: &LogAction) -> bool {
         match action {
             LogAction::AddOwner { owner } => self.owners.insert(owner.clone()),
             LogAction::AddParent { parent } => self.parents.insert(parent.clone()),
+            LogAction::Forget { user, file } => remove_key(self.review_state.entry(user.clone()).or_default(), file),
             LogAction::Mark { user, file, range } => {
                 set_key(self.review_state.entry(user.clone()).or_default(), file.clone(), range)
             }
