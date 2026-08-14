@@ -1,5 +1,9 @@
-use crate::types::{Path, RevisionRange};
+use crate::{
+    cabaret::Cabaret,
+    types::{Path, RevisionRange},
+};
 
+// TODO(joel): rename
 pub enum DiffUnit {
     Modify { path: Path },
     Move { from: Path, into: Path },
@@ -7,6 +11,8 @@ pub enum DiffUnit {
 }
 
 // TODO(joel): determine representation
+// Contains hunks?
+// Contains per-line but also within-line diff info?
 pub struct Diff {}
 
 impl Cabaret {
