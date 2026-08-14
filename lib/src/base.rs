@@ -15,12 +15,11 @@ use crate::{
 /// The commit a change's diff is computed against.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Base {
-    /// The change has no parents; its diff is computed from an empty tree.
+    /// No parents
     Empty,
-    /// The revision of its parent that the change most recently incorporated.
+    /// Single parent
     Real(Revision),
-    /// A commit merging the revisions the change most recently incorporated from each of its
-    /// parents, with any conflicts between them left as markers for the tip to resolve.
+    /// Multiple parents
     Synthetic { revision: Revision, conflicts: Vec<String> },
 }
 
