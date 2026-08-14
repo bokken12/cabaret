@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map},
+    path::PathBuf,
+};
 
 use gix::Repository;
 use serde::{Deserialize, Serialize};
@@ -6,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, Revision, TimestampMs},
+    types::{Change, ChangeId, Identity, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +17,7 @@ use crate::{
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
+    Mark { user: Identity, file: PathBuf, range: RevisionRange },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetDescription { description: Option<String> },
@@ -31,11 +35,18 @@ pub struct LogEntry {
 }
 
 fn set<T: PartialEq + Clone>(place: &mut T, val: &T) -> bool {
-    if place == val {
-        false
-    } else {
-        *place = val.clone();
-        true
+    let changed = place != val;
+    *place = val.clone();
+    changed
+}
+
+fn set_key<K: Ord, T: PartialEq + Clone>(map: &mut BTreeMap<K, T>, k: K, val: &T) -> bool {
+    match map.entry(k) {
+        btree_map::Entry::Vacant(v) => {
+            v.insert(val.clone());
+            true
+        }
+        btree_map::Entry::Occupied(mut o) => set(o.get_mut(), val),
     }
 }
 
@@ -45,8 +56,11 @@ impl Change {
         match action {
             LogAction::AddOwner { owner } => self.owners.insert(owner.clone()),
             LogAction::AddParent { parent } => self.parents.insert(parent.clone()),
-            LogAction::RemoveOwner { owner } => self.owners.remove(owner),
-            LogAction::RemoveParent { parent } => self.parents.remove(parent),
+            LogAction::Mark { user, file, range } => {
+                set_key(self.review_state.entry(user.clone()).or_default(), file.clone(), range)
+            }
+            LogAction::RemoveOwner { owner } => self.owners.remove(&owner),
+            LogAction::RemoveParent { parent } => self.parents.remove(&parent),
             LogAction::SetDescription { description } => set(&mut self.description, description),
             LogAction::SetTitle { title } => set(&mut self.title, title),
         }

@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fmt, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    path::PathBuf,
+    str::FromStr,
+};
 
 use gix::{
     ObjectId,
@@ -86,7 +91,7 @@ impl FromStr for Pathspec {
 }
 
 // TODO-someday(joel): extract serialize-as-hash as its own type?
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Revision(pub ObjectId);
 
 impl fmt::Display for Revision {
@@ -117,6 +122,12 @@ impl From<TreeId> for ObjectId {
     fn from(tree: TreeId) -> Self { tree.0 }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct RevisionRange {
+    base: Revision,
+    head: Revision,
+}
+
 // TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {
     // TODO-someday(joel): add other relevant data
@@ -124,8 +135,18 @@ pub struct Change {
     pub description: Option<String>,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
+    // TODO(joel): fix path type
+    pub review_state: BTreeMap<Identity, BTreeMap<PathBuf, RevisionRange>>,
 }
 
 impl Change {
-    pub fn new() -> Self { Self { title: None, description: None, owners: BTreeSet::new(), parents: BTreeSet::new() } }
+    pub fn new() -> Self {
+        Self {
+            title: None,
+            description: None,
+            owners: BTreeSet::new(),
+            parents: BTreeSet::new(),
+            review_state: BTreeMap::new(),
+        }
+    }
 }
