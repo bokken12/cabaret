@@ -1,5 +1,6 @@
 mod base;
 mod cabaret;
+mod diff;
 mod error;
 mod log;
 mod merge;
