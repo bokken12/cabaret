@@ -24,10 +24,11 @@ pub enum SyncOutcome {
 }
 
 impl Cabaret {
-    // TODO-someday(joel): fetch refs/cabaret/* too
     pub fn fetch(&self) -> Result<()> {
         let remote = self.repo.find_default_remote(gix::remote::Direction::Fetch).ok_or("no remote configured")??;
+        let logs = format!("+refs/cabaret/*:refs/cabaret/remotes/{}/*", self.remote_name()?);
         remote
+            .with_refspecs([logs.as_str()], gix::remote::Direction::Fetch)?
             .connect(gix::remote::Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, gix::remote::ref_map::Options::default())?
             .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
