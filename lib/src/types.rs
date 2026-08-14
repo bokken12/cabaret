@@ -79,6 +79,11 @@ impl<'de> Deserialize<'de> for ChangeId {
     }
 }
 
+// TODO(joel): reconsider path representation
+/// repo-relative & platform-agnostic path
+pub struct Path(pub BStr);
+
+// TODO(joel): rename to be less ambiguous?
 #[derive(Debug, Clone)]
 pub struct Pathspec(pub pathspec::Pattern);
 
