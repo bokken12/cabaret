@@ -4,6 +4,8 @@ mod diff;
 mod error;
 mod log;
 mod merge;
+#[cfg(feature = "napi")]
+mod node;
 mod sync;
 mod types;
 mod workspace;

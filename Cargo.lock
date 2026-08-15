@@ -168,19 +168,11 @@ version = "0.0.0"
 dependencies = [
  "gix",
  "napi",
+ "napi-build",
+ "napi-derive",
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "cabaret-node"
-version = "0.0.0"
-dependencies = [
- "cabaret-lib",
- "napi",
- "napi-build",
- "napi-derive",
 ]
 
 [[package]]

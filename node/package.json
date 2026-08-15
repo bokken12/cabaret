@@ -8,8 +8,8 @@
     "binaryName": "cabaret"
   },
   "scripts": {
-    "build": "napi build --platform",
-    "build:release": "napi build --platform --release"
+    "build": "napi build --platform --manifest-path ../lib/Cargo.toml --features napi -o .",
+    "build:release": "napi build --platform --manifest-path ../lib/Cargo.toml --features napi -o . --release"
   },
   "devDependencies": {
     "@napi-rs/cli": "catalog:"

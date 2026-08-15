@@ -1,7 +1,7 @@
 // The napi boundary requires owned values for JS primitives.
 #![allow(clippy::needless_pass_by_value)]
 
-use cabaret_lib::Cabaret;
+use crate::Cabaret;
 use napi_derive::napi;
 
 #[napi]
