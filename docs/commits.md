@@ -19,7 +19,7 @@ So in order to align our atomic unit with a desire for a story, people typically
 
 This second method can work fairly well, and can make code easier to review for others by laying out a nice story. However, it has some costs.
 
-In particular, git really is designed to be and works best as an append-only log. This allows its synchronization primitives to work smoothly: understanding what pieces you have or have not yet seen, and fast-forwarding to give you the collection of all changes.
+In particular, git really works best as an append-only log. This allows its synchronization primitives to work smoothly: understanding what pieces you have or have not yet seen, and fast-forwarding to give you the collection of all changes.
 
 When you violate this, editing the history, git can no longer tell which of the original commits line up with your new cleaned-up versions. This forces everyone interacting with your branch to do "force-push" style operations, where they either abandon their local copy or the remote changes. It makes merge conflicts more prevalent and more difficult to resolve. This is bad for a version control system.
 
