@@ -2,7 +2,10 @@ use std::{path::Path, process::Command};
 
 use gix::{Repository, bstr::ByteSlice};
 
-use crate::{error::Result, types::ChangeId};
+use crate::{
+    error::Result,
+    types::{ChangeId, Identity},
+};
 
 pub struct Cabaret {
     pub repo: Repository,
@@ -40,6 +43,12 @@ impl Cabaret {
         let mut command = Command::new("git");
         command.arg("--git-dir").arg(self.repo.git_dir());
         command
+    }
+
+    /// The identity this repository acts as: git's user.email.
+    pub fn identity(&self) -> Result<Identity> {
+        let committer = self.repo.committer().ok_or("no git identity; set user.email")??;
+        Ok(Identity(committer.email.to_string()))
     }
 
     // TODO-someday(joel): consider pulling into state

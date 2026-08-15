@@ -1,6 +1,6 @@
 use std::{ffi::OsStr, process::ExitCode};
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result, SyncOutcome};
+use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result, SyncOutcome, render_home};
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::{ArgValueCompleter, CompleteEnv, CompletionCandidate};
 
@@ -136,6 +136,12 @@ enum Command {
     },
     Config,
     Fetch,
+    /// Show your open changes as a stack graph.
+    Home {
+        /// Identity to view as; defaults to git's user.email.
+        #[arg(long = "as")]
+        viewer: Option<Identity>,
+    },
     Workspace {
         #[command(subcommand)]
         command: WorkspaceCommand,
@@ -216,6 +222,15 @@ fn run() -> Result<()> {
         Command::Commit { .. } => todo!(),
         Command::Config => todo!(),
         Command::Fetch => fetch(&cabaret)?,
+        Command::Home { viewer } => {
+            let viewer = if let Some(viewer) = viewer { viewer } else { cabaret.identity()? };
+            let graph = cabaret.home_graph(&viewer)?;
+            if graph.nodes.is_empty() {
+                println!("no open changes owned by {viewer}");
+            } else {
+                print!("{}", render_home(&graph)?);
+            }
+        }
         Command::Workspace { command } => match command {
             WorkspaceCommand::Add { change } => {
                 let path = cabaret.add_workspace(&change)?;
