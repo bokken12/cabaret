@@ -1,0 +1,35 @@
+{
+  "name": "cabaret",
+  "displayName": "Cabaret",
+  "description": "Diff-based in-editor code review",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "cabaret",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cabaret.showChanges",
+        "title": "Cabaret: Show Changes"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cabaret/node": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/vscode": "catalog:",
+    "typescript": "catalog:"
+  }
+}
