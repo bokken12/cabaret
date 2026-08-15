@@ -179,6 +179,14 @@ impl Cabaret {
         self.record(change, LogAction::RemoveOwner { owner: owner.clone() })
     }
 
+    pub fn set_title(&self, change: &ChangeId, title: Option<String>) -> Result<()> {
+        self.record(change, LogAction::SetTitle { title })
+    }
+
+    pub fn set_description(&self, change: &ChangeId, description: Option<String>) -> Result<()> {
+        self.record(change, LogAction::SetDescription { description })
+    }
+
     pub fn set_parents(&self, change: &ChangeId, parents: &BTreeSet<ChangeId>) -> Result<()> {
         let current = self.change(change)?.parents;
         for parent in current.difference(parents) {
