@@ -15,7 +15,6 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 must_use_candidate = "allow"
 return_self_not_must_use = "allow"
-use_self = "warn"
 # transitive duplicates in gix/clap, not actionable here
 multiple_crate_versions = "allow"
 new_without_default = "allow"
