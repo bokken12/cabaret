@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
 
-import { type Change, change, changes, currentChange } from "@cabaret/node";
+import { Cabaret, type Change } from "@cabaret/node";
 
-function command(name: string, run: (dir: string) => Promise<void>): vscode.Disposable {
+let session: { dir: string; cabaret: Cabaret } | undefined;
+
+function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode.Disposable {
   return vscode.commands.registerCommand(name, async () => {
     const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (dir === undefined) {
@@ -10,16 +12,19 @@ function command(name: string, run: (dir: string) => Promise<void>): vscode.Disp
       return;
     }
     try {
-      await run(dir);
+      if (session?.dir !== dir) {
+        session = { dir, cabaret: new Cabaret(dir) };
+      }
+      await run(session.cabaret);
     } catch (error) {
       vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 }
 
-async function pickChange(dir: string, title: string): Promise<string | undefined> {
-  const current = currentChange(dir);
-  const items = changes(dir).map((change) => ({
+async function pickChange(cabaret: Cabaret, title: string): Promise<string | undefined> {
+  const current = cabaret.currentChange();
+  const items = cabaret.changes().map((change) => ({
     label: change,
     description: change === current ? "current" : undefined,
   }));
@@ -46,17 +51,17 @@ function renderChange(id: string, info: Change): string {
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
-    command("cabaret.showChanges", async (dir) => {
-      await pickChange(dir, "Cabaret Changes");
+    command("cabaret.showChanges", async (cabaret) => {
+      await pickChange(cabaret, "Cabaret Changes");
     }),
-    command("cabaret.showChange", async (dir) => {
-      const id = await pickChange(dir, "Cabaret: Show Change");
+    command("cabaret.showChange", async (cabaret) => {
+      const id = await pickChange(cabaret, "Cabaret: Show Change");
       if (id === undefined) {
         return;
       }
       const document = await vscode.workspace.openTextDocument({
         language: "markdown",
-        content: renderChange(id, change(dir, id)),
+        content: renderChange(id, cabaret.change(id)),
       });
       await vscode.window.showTextDocument(document, { preview: false });
     }),

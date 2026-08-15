@@ -61,17 +61,22 @@ impl FromNapiValue for Revision {
     }
 }
 
-#[napi]
-pub fn changes(dir: String) -> napi::Result<Vec<ChangeId>> {
-    Ok(Cabaret::open(&dir)?.changes()?)
+#[napi(js_name = "Cabaret")]
+pub struct CabaretJs {
+    cabaret: Cabaret,
 }
 
 #[napi]
-pub fn current_change(dir: String) -> napi::Result<ChangeId> {
-    Ok(Cabaret::open(&dir)?.current_change()?)
-}
+impl CabaretJs {
+    #[napi(constructor)]
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Cabaret::open(&dir)? }) }
 
-#[napi]
-pub fn change(dir: String, id: ChangeId) -> napi::Result<Change> {
-    Ok(Cabaret::open(&dir)?.change(&id)?)
+    #[napi]
+    pub fn changes(&self) -> napi::Result<Vec<ChangeId>> { Ok(self.cabaret.changes()?) }
+
+    #[napi]
+    pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
+
+    #[napi]
+    pub fn change(&self, id: ChangeId) -> napi::Result<Change> { Ok(self.cabaret.change(&id)?) }
 }
