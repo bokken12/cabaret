@@ -6,9 +6,10 @@ use crate::{error::Result, home::HomeGraph, types::ChangeId};
 
 /// Renders a home graph as rail art: one row per change, x-position = depth in the stack.
 ///
-/// `○` marks the viewer's changes, `◌` unowned ancestors shown as context. Trunk is never drawn:
-/// a change whose parents have all landed is a root. Connected components render one after
-/// another; each starts with a root on the left margin.
+/// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label that
+/// plumbing pushed right of its depth position. Trunk is never drawn: a change whose parents
+/// have all landed is a root. Connected components render one after another; each starts with a
+/// root on the left margin.
 pub fn render_home(graph: &HomeGraph) -> Result<String> {
     let depths = depths(graph)?;
     let blocks: Vec<String> =
@@ -123,11 +124,17 @@ fn draw(graph: &HomeGraph, component: &[&ChangeId], depths: &BTreeMap<&ChangeId,
     for (r, &id) in rows.iter().enumerate() {
         drawer.grid.set(r, cols[r], if graph.nodes[id].owned { '○' } else { '◌' });
     }
+    let mut last_child_row: BTreeMap<usize, usize> = BTreeMap::new();
+    for (r, &id) in rows.iter().enumerate() {
+        for parent in &graph.nodes[id].parents {
+            last_child_row.insert(row_of[parent], r);
+        }
+    }
     for (r, &id) in rows.iter().enumerate() {
         let mut parents: Vec<usize> = graph.nodes[id].parents.iter().map(|parent| row_of[parent]).collect();
         parents.sort_unstable();
         for rp in parents {
-            if !drawer.edge(rp, cols[rp], r, cols[r]) {
+            if !drawer.edge(rp, cols[rp], r, cols[r], last_child_row[&rp] == r) {
                 return Err(format!("could not route a parent edge into {id}").into());
             }
         }
@@ -137,8 +144,11 @@ fn draw(graph: &HomeGraph, component: &[&ChangeId], depths: &BTreeMap<&ChangeId,
     for (r, &id) in rows.iter().enumerate() {
         let art: String = drawer.grid.cells[r].iter().collect();
         let art = art.trim_end();
-        let start = (cols[r] + LABEL_GUTTER).max(art.chars().count() + 2);
-        let mut line = format!("{art:<start$}{id}");
+        let home = cols[r] + LABEL_GUTTER;
+        let start = home.max(art.chars().count() + 2);
+        // `»` marks a label pushed off its depth position by plumbing.
+        let mut line =
+            if start > home { format!("{art:<pad$}»{id}", pad = start - 1) } else { format!("{art:<start$}{id}") };
         if let Some(title) = &graph.nodes[id].title {
             line.push_str("  ");
             line.push_str(title);
@@ -184,11 +194,23 @@ impl Drawer {
     }
 
     /// Draws the edge (rp, cp) → (rc, cc), preferring in order: a rail down the parent's own
-    /// column, a lane dropping straight into the child's column, joining an existing lane into
-    /// the same child, then any routable free column right of the parent, then left.
-    fn edge(&mut self, rp: usize, cp: usize, rc: usize, cc: usize) -> bool {
+    /// column, joining an existing lane into the same child, a short hop into the indentation
+    /// shadow left of the parent (nothing new lands right of a node, so labels stay on the
+    /// depth grid), dropping straight into the child's column, then any routable column further
+    /// right, then further left.
+    ///
+    /// A lane hanging off a horizontal run (`┬`) belongs to that row's node: trace the run to
+    /// its circle.
+    ///
+    /// Joining is offered only on the parent's last outgoing edge: a join's `┤` walls off the
+    /// rest of the parent's row, which must stay routable while more edges remain.
+    fn edge(&mut self, rp: usize, cp: usize, rc: usize, cc: usize, join_allowed: bool) -> bool {
+        const LEFT_SLACK: usize = 2;
         assert!(rp < rc && cp < cc, "edges point down and right");
-        if self.rail(rp, cp, rc, cc) || self.lane(rp, cp, rc, cc, cc) || self.join(rp, cp, rc) {
+        if self.rail(rp, cp, rc, cc) || (join_allowed && self.join(rp, cp, rc)) {
+            return true;
+        }
+        if self.scan_left(rp, cp, rc, cc, cp.saturating_sub(LEFT_SLACK)) || self.lane(rp, cp, rc, cc, cc) {
             return true;
         }
         let mut col = cp + 1;
@@ -202,14 +224,19 @@ impl Drawer {
             }
             col += 1;
         }
+        self.scan_left(rp, cp, rc, cc, 0)
+    }
+
+    /// Try lanes leftward from the parent down to `floor`, stopping at impassable cells.
+    fn scan_left(&mut self, rp: usize, cp: usize, rc: usize, cc: usize, floor: usize) -> bool {
         let mut col = cp;
-        while col > 0 {
+        while col > floor {
             col -= 1;
             if self.lane(rp, cp, rc, cc, col) {
                 return true;
             }
             if !passable(self.grid.get(rp, col)) {
-                break;
+                return false;
             }
         }
         false
@@ -243,7 +270,7 @@ impl Drawer {
             _ => return false,
         };
         writes.push((rc, cp, elbow));
-        let Some(run) = self.horizontal(rc, cp, cc, true) else { return false };
+        let Some(run) = self.horizontal(rc, cp, cc) else { return false };
         writes.extend(run);
         self.apply(writes);
         self.rail_bottom.insert(rp, rc);
@@ -263,7 +290,7 @@ impl Drawer {
             _ => return false,
         };
         let mut writes = vec![(rp, col, birth)];
-        let Some(run) = self.horizontal(rp, cp, col, false) else { return false };
+        let Some(run) = self.horizontal(rp, cp, col) else { return false };
         writes.extend(run);
         for row in rp + 1..rc {
             let next = match self.grid.get(row, col) {
@@ -281,7 +308,7 @@ impl Drawer {
                 _ => return false,
             };
             writes.push((rc, col, arrival));
-            let Some(run) = self.horizontal(rc, col, cc, true) else { return false };
+            let Some(run) = self.horizontal(rc, col, cc) else { return false };
             writes.extend(run);
         }
         self.apply(writes);
@@ -296,7 +323,7 @@ impl Drawer {
             if born >= rp || col == cp || self.grid.get(rp, col) != '│' {
                 continue;
             }
-            let Some(run) = self.horizontal(rp, cp, col, false) else { continue };
+            let Some(run) = self.horizontal(rp, cp, col) else { continue };
             let mut writes = run;
             writes.push((rp, col, if col > cp { '┤' } else { '├' }));
             self.apply(writes);
@@ -305,17 +332,18 @@ impl Drawer {
         false
     }
 
-    /// A horizontal run across the cells strictly between two columns. On a child's row every
-    /// segment feeds the same node, so meeting another incoming rail merges (`╰` → `┴`); on a
-    /// parent's row runs may extend past the parent's own earlier births (`╮` → `┬`).
-    fn horizontal(&self, row: usize, a: usize, b: usize, into_child: bool) -> Option<Writes> {
+    /// A horizontal run across the cells strictly between two columns. Runs exist only on node
+    /// rows, and every corner glyph on a node's row belongs to that node's own plumbing (foreign
+    /// edges cross a row only as verticals), so runs merge through corners: births become `┬`,
+    /// arrivals and elbows become `┴`. Only three-way junctions and the node itself block.
+    fn horizontal(&self, row: usize, a: usize, b: usize) -> Option<Writes> {
         let mut writes = Vec::new();
         for col in a.min(b) + 1..a.max(b) {
             let next = match self.grid.get(row, col) {
                 ' ' | '─' => '─',
                 '│' | '┼' => '┼',
-                '╮' | '┬' if !into_child => '┬',
-                '╰' | '┴' if into_child => '┴',
+                '╮' | '╭' | '┬' => '┬',
+                '╰' | '╯' | '┴' => '┴',
                 _ => return None,
             };
             writes.push((row, col, next));
@@ -330,5 +358,7 @@ impl Drawer {
     }
 }
 
-/// Whether the free-column scan may continue past this cell on the parent's row.
-fn passable(cell: char) -> bool { matches!(cell, ' ' | '─' | '│' | '┼' | '╮' | '┬') }
+/// Whether a horizontal run can cross this cell; the free-column scans stop at anything else.
+fn passable(cell: char) -> bool {
+    matches!(cell, ' ' | '─' | '│' | '┼' | '╮' | '╭' | '┬' | '╰' | '╯' | '┴')
+}
