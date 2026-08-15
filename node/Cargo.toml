@@ -9,7 +9,7 @@ publish.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-cabaret-lib.workspace = true
+cabaret-lib = { workspace = true, features = ["napi"] }
 napi.workspace = true
 napi-derive.workspace = true
 
