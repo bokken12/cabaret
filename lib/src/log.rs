@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, Path, Revision, RevisionRange, TimestampMs},
+    types::{Change, ChangeId, Identity, RepoPath, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,8 +14,8 @@ use crate::{
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
-    Forget { user: Identity, file: Path },
-    Mark { user: Identity, file: Path, range: RevisionRange },
+    Forget { user: Identity, file: RepoPath },
+    Mark { user: Identity, file: RepoPath, range: RevisionRange },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetDescription { description: Option<String> },

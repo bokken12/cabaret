@@ -1,13 +1,13 @@
 use crate::{
     cabaret::Cabaret,
-    types::{Path, RevisionRange},
+    types::{RepoPath, RevisionRange},
 };
 
 // TODO(joel): rename
 pub enum DiffUnit {
-    Modify { path: Path },
-    Move { from: Path, into: Path },
-    Copy { from: Path, into: Path },
+    Modify { path: RepoPath },
+    Move { from: RepoPath, into: RepoPath },
+    Copy { from: RepoPath, into: RepoPath },
 }
 
 // TODO(joel): determine representation

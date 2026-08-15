@@ -35,6 +35,10 @@ impl From<String> for Identity {
     fn from(s: String) -> Self { Self(s) }
 }
 
+impl AsRef<str> for Identity {
+    fn as_ref(&self) -> &str { &self.0 }
+}
+
 impl fmt::Display for Identity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
 }
@@ -79,17 +83,51 @@ impl<'de> Deserialize<'de> for ChangeId {
     }
 }
 
-// TODO(joel): reconsider path representation
-/// repo-relative & platform-agnostic path
+/// Repo-relative path: UTF-8, `/`-separated, no empty, `.`, or `..` components.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Path(pub Vec<u8>);
+pub struct RepoPath(String);
 
-impl Serialize for Path {
-    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> { todo!() }
+impl RepoPath {
+    pub fn from_bytes(bytes: &BStr) -> crate::error::Result<Self> { Ok(std::str::from_utf8(bytes)?.parse()?) }
 }
 
-impl<'de> Deserialize<'de> for Path {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> { todo!() }
+impl FromStr for RepoPath {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err("path is empty".into());
+        }
+        if s.contains('\0') {
+            return Err(format!("path {s:?} contains NUL"));
+        }
+        for component in s.split('/') {
+            if let "" | "." | ".." = component {
+                return Err(format!("path {s:?} has a {component:?} component"));
+            }
+        }
+        Ok(Self(s.to_owned()))
+    }
+}
+
+impl AsRef<str> for RepoPath {
+    fn as_ref(&self) -> &str { &self.0 }
+}
+
+impl fmt::Display for RepoPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
+}
+
+impl Serialize for RepoPath {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for RepoPath {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        String::deserialize(deserializer)?.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 // TODO(joel): rename to be less ambiguous?
@@ -137,21 +175,22 @@ impl From<TreeId> for ObjectId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object))]
 pub struct RevisionRange {
-    base: Revision,
-    head: Revision,
+    pub base: Revision,
+    pub head: Revision,
 }
 
 // TODO-someday(joel): consider attaching methods to change? How to properly control lifecycle?
 // TODO-someday(joel): rename? metdata? info? log data?
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Change {
     // TODO-someday(joel): add other relevant data
     pub title: Option<String>,
     pub description: Option<String>,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
-    // TODO(joel): fix path type
-    pub review_state: BTreeMap<Identity, BTreeMap<Path, RevisionRange>>,
+    pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
 }
 
 impl Change {
