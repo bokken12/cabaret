@@ -142,6 +142,7 @@ pub struct RevisionRange {
     head: Revision,
 }
 
+// TODO-someday(joel): consider attaching methods to change? How to properly control lifecycle?
 // TODO-someday(joel): rename? metdata? info? log data?
 pub struct Change {
     // TODO-someday(joel): add other relevant data
