@@ -12,7 +12,7 @@ use crate::{
     types::{ChangeId, Revision, TreeId},
 };
 
-/// The commit a change's diff is computed against.
+// TODO(joel): this seems like the wrong representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Base {
     /// No parents
@@ -70,7 +70,7 @@ impl Cabaret {
         Ok(deepest)
     }
 
-    fn is_ancestor(&self, ancestor: Revision, descendant: Revision) -> Result<bool> {
+    pub fn is_ancestor(&self, ancestor: Revision, descendant: Revision) -> Result<bool> {
         Ok(self.repo.merge_bases_many(ancestor, &[descendant.0])?.iter().any(|base| *base == ancestor.0))
     }
 

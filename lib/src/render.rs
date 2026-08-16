@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 use crate::{error::Result, home::HomeGraph, types::ChangeId};
 
@@ -34,19 +37,35 @@ pub struct HomeRow {
 /// Renders a home graph as rail art: one row per change, x-position = depth in the stack.
 ///
 /// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label that
-/// plumbing pushed right of its depth position. Trunk is never drawn: a change whose parents
-/// have all landed is a root. Connected components render one after another; each starts with a
-/// root on the left margin.
+/// plumbing pushed right of its depth position. Right of every label sits a next-step column,
+/// and right of that the changes' titles. Trunk is never drawn: a change whose parents have all
+/// landed is a root. Connected components render one after another; each starts with a root on
+/// the left margin.
 pub fn render_home(graph: &HomeGraph) -> Result<RenderedHome> {
     let depths = depths(graph)?;
-    let mut home = RenderedHome { text: String::new(), rows: Vec::new(), folds: Vec::new() };
+    let mut lines = Vec::new();
+    let mut rows = Vec::new();
     for component in components(graph) {
-        let (block, rows) = draw(graph, &component, &depths)?;
-        home.text.push_str(&block);
-        home.rows.extend(rows);
+        let (block, labeled) = draw(graph, &component, &depths)?;
+        lines.extend(block);
+        rows.extend(labeled);
     }
-    home.folds = folds(graph, &home.rows);
-    Ok(home)
+
+    let width = |line: &str| line.chars().count();
+    let step_start = lines.iter().map(|line| width(line)).max().unwrap_or(0) + 2;
+    let step_width = rows.iter().map(|row| width(&graph.nodes[&row.change].step.to_string())).max().unwrap_or(0);
+    let mut text = String::new();
+    for (line, row) in lines.iter().zip(&rows) {
+        let node = &graph.nodes[&row.change];
+        let step = node.step;
+        match &node.title {
+            Some(title) => writeln!(text, "{line:<step_start$}{step:<step_width$}  {title}"),
+            None => writeln!(text, "{line:<step_start$}{step}"),
+        }
+        .expect("writing to a String cannot fail");
+    }
+    let folds = folds(graph, &rows);
+    Ok(RenderedHome { text, rows, folds })
 }
 
 /// A change folds exactly when its descendants sit contiguously after its own row and connect
@@ -190,7 +209,7 @@ fn draw(
     graph: &HomeGraph,
     component: &[&ChangeId],
     depths: &BTreeMap<&ChangeId, usize>,
-) -> Result<(String, Vec<HomeRow>)> {
+) -> Result<(Vec<String>, Vec<HomeRow>)> {
     /// Labels sit a fixed gutter right of their node, leaving room for future status glyphs and
     /// stepping with depth; rails wider than the gutter push them aside.
     const LABEL_GUTTER: usize = 4;
@@ -227,19 +246,13 @@ fn draw(
         let home = cols[r] + LABEL_GUTTER;
         let start = home.max(art.chars().count() + 2);
         // `»` marks a label pushed off its depth position by plumbing.
-        let mut line =
+        let line =
             if start > home { format!("{art:<pad$}»{id}", pad = start - 1) } else { format!("{art:<start$}{id}") };
-        if let Some(title) = &graph.nodes[id].title {
-            line.push_str("  ");
-            line.push_str(title);
-        }
         lines.push(line);
         let label_start = u32::try_from(start).expect("a home line is narrow");
         labeled.push(HomeRow { change: id.clone(), label_start });
     }
-    let mut block = lines.join("\n");
-    block.push('\n');
-    Ok((block, labeled))
+    Ok((lines, labeled))
 }
 
 struct Grid {

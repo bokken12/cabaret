@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity},
+    step::NextStep,
+    types::{ChangeId, Identity},
 };
 
 // TODO(jm): audit LLM
@@ -12,6 +13,7 @@ use crate::{
 pub struct HomeNode {
     pub title: Option<String>,
     pub owned: bool,
+    pub step: NextStep,
     /// Parents that are themselves nodes of the same graph. Parents that are not open changes
     /// (trunk branches like main) are dropped: rooting on trunk and having no parents are the
     /// same state, and trunk is never drawn.
@@ -52,11 +54,12 @@ impl Cabaret {
                 let node = HomeNode {
                     title: change.title.clone(),
                     owned: change.owners.contains(viewer),
+                    step: self.next_step(id)?,
                     parents: change.parents.iter().filter(|parent| open.contains_key(*parent)).cloned().collect(),
                 };
-                (id.clone(), node)
+                Ok((id.clone(), node))
             })
-            .collect();
+            .collect::<Result<_>>()?;
         Ok(HomeGraph { nodes })
     }
 }

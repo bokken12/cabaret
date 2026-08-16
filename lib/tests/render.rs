@@ -1,4 +1,4 @@
-use cabaret_lib::{ChangeId, HomeGraph, HomeNode, render_home};
+use cabaret_lib::{ChangeId, HomeGraph, HomeNode, NextStep, render_home};
 use expect_test::{Expect, expect};
 
 /// Nodes are (id, owned, space-separated parents). Parents that are not listed as nodes are
@@ -11,6 +11,7 @@ fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
             let node = HomeNode {
                 title: None,
                 owned: *owned,
+                step: NextStep::Land,
                 parents: parents
                     .split_whitespace()
                     .filter(|parent| ids.contains(parent))
@@ -74,13 +75,14 @@ fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
             };
         }
     }
+    // A foldless view keeps no margin: a uniform one would not survive expect's dedent anyway.
     let width = margin.iter().map(Vec::len).max().unwrap_or(0);
     let text: String = lines
         .iter()
         .zip(&margin)
         .map(|(line, cells)| {
             let cells: String = cells.iter().collect();
-            format!("{cells:<width$}  {line}\n")
+            if width == 0 { format!("{line}\n") } else { format!("{cells:<width$}  {line}\n") }
         })
         .collect();
     expect.assert_eq(&text);
@@ -91,9 +93,9 @@ fn a_linear_stack_renders_as_a_tree() {
     check(
         &[("add-parser", true, "main"), ("parser-tests", true, "add-parser"), ("parser-docs", true, "parser-tests")],
         &expect![[r"
-            ○   add-parser
-            ╰─○   parser-tests
-              ╰─○   parser-docs
+            ○   add-parser       land
+            ╰─○   parser-tests   land
+              ╰─○   parser-docs  land
         "]],
     );
 }
@@ -109,11 +111,11 @@ fn independent_components_pack_with_no_separator() {
             ("stack-top", true, "stack-base"),
         ],
         &expect![[r"
-            ○   bump-deps
-            ○   docs-typo
-            ○   fix-login
-            ○   stack-base
-            ╰─○   stack-top
+            ○   bump-deps    land
+            ○   docs-typo    land
+            ○   fix-login    land
+            ○   stack-base   land
+            ╰─○   stack-top  land
         "]],
     );
 }
@@ -128,10 +130,10 @@ fn a_diamond_closes_instead_of_duplicating() {
             ("integration", true, "api-routes ui-widgets"),
         ],
         &expect![[r"
-            ○   infra-core
-            ├┬○   api-routes
-            ╰┼○   ui-widgets
-             ╰┴─○   integration
+            ○   infra-core       land
+            ├┬○   api-routes     land
+            ╰┼○   ui-widgets     land
+             ╰┴─○   integration  land
         "]],
     );
 }
@@ -149,13 +151,13 @@ fn an_integration_of_two_stacks_stays_narrow() {
             ("integration", true, "a3-parser-api b3-storage-api"),
         ],
         &expect![[r"
-            ○   a1-parser
-            ╰─○   a2-typed-ast
-              ╰┬○   a3-parser-api
-            ○  │ »b1-schema
-            ╰─○│  b2-migrations
-              ╰┼○   b3-storage-api
-               ╰┴─○   integration
+            ○   a1-parser           land
+            ╰─○   a2-typed-ast      land
+              ╰┬○   a3-parser-api   land
+            ○  │ »b1-schema         land
+            ╰─○│  b2-migrations     land
+              ╰┼○   b3-storage-api  land
+               ╰┴─○   integration   land
         "]],
     );
 }
@@ -172,12 +174,12 @@ fn pairwise_integrations_route_without_duplication() {
             ("int-bc", true, "feat-b feat-c"),
         ],
         &expect![[r"
-            ○┬╮ »feat-a
-            ○┼┼╮ »feat-b
-            ╰┼○│  int-ab
-            ○│ │ »feat-c
-            ├┴○│  int-ac
-            ╰─○╯  int-bc
+            ○┬╮ »feat-a   land
+            ○┼┼╮ »feat-b  land
+            ╰┼○│  int-ab  land
+            ○│ │ »feat-c  land
+            ├┴○│  int-ac  land
+            ╰─○╯  int-bc  land
         "]],
     );
 }
@@ -187,9 +189,9 @@ fn unowned_ancestors_render_as_context() {
     check(
         &[("infra-core", false, "main"), ("my-feature", true, "infra-core")],
         &expect![[r"
-        ◌   infra-core
-        ╰─○   my-feature
-    "]],
+            ◌   infra-core    land
+            ╰─○   my-feature  land
+        "]],
     );
 }
 
@@ -198,7 +200,23 @@ fn titles_follow_the_id() {
     let mut graph = graph(&[("add-parser", true, "main")]);
     graph.nodes.get_mut(&"add-parser".parse::<ChangeId>().unwrap()).unwrap().title = Some("Add the parser".into());
     expect![[r"
-        ○   add-parser  Add the parser
+        ○   add-parser  land  Add the parser
+    "]]
+    .assert_eq(&render_home(&graph).unwrap().text);
+}
+
+#[test]
+fn steps_and_titles_sit_in_aligned_columns() {
+    fn node<'a>(graph: &'a mut HomeGraph, id: &str) -> &'a mut HomeNode {
+        graph.nodes.get_mut(&id.parse::<ChangeId>().unwrap()).unwrap()
+    }
+    let mut graph = graph(&[("infra-core", true, "main"), ("api-routes", true, "infra-core")]);
+    node(&mut graph, "infra-core").step = NextStep::FixConflicts;
+    node(&mut graph, "api-routes").step = NextStep::AddCode;
+    node(&mut graph, "api-routes").title = Some("Add the API routes".into());
+    expect![[r"
+        ○   infra-core    fix conflicts
+        ╰─○   api-routes  add code       Add the API routes
     "]]
     .assert_eq(&render_home(&graph).unwrap().text);
 }
@@ -207,11 +225,11 @@ fn titles_follow_the_id() {
 fn every_stack_level_folds_in_a_linear_stack() {
     check_folds(
         &[("add-parser", true, "main"), ("parser-tests", true, "add-parser"), ("parser-docs", true, "parser-tests")],
-        &expect![[r#"
-            ╭   ○   add-parser
-            │╭  ╰─○   parser-tests
-            ╰╰    ╰─○   parser-docs
-        "#]],
+        &expect![[r"
+            ╭   ○   add-parser       land
+            │╭  ╰─○   parser-tests   land
+            ╰╰    ╰─○   parser-docs  land
+        "]],
     );
 }
 
@@ -225,12 +243,12 @@ fn only_a_diamonds_root_folds_it() {
             ("ui-widgets", true, "infra-core"),
             ("integration", true, "api-routes ui-widgets"),
         ],
-        &expect![[r#"
-            ╭  ○   infra-core
-            │  ├┬○   api-routes
-            │  ╰┼○   ui-widgets
-            ╰   ╰┴─○   integration
-        "#]],
+        &expect![[r"
+            ╭  ○   infra-core       land
+            │  ├┬○   api-routes     land
+            │  ╰┼○   ui-widgets     land
+            ╰   ╰┴─○   integration  land
+        "]],
     );
 }
 
@@ -245,14 +263,14 @@ fn a_web_of_shared_descendants_never_folds() {
             ("int-ac", true, "feat-a feat-c"),
             ("int-bc", true, "feat-b feat-c"),
         ],
-        &expect![[r#"
-              ○┬╮ »feat-a
-              ○┼┼╮ »feat-b
-              ╰┼○│  int-ab
-              ○│ │ »feat-c
-              ├┴○│  int-ac
-              ╰─○╯  int-bc
-        "#]],
+        &expect![[r"
+              ○┬╮ »feat-a   land
+              ○┼┼╮ »feat-b  land
+              ╰┼○│  int-ab  land
+              ○│ │ »feat-c  land
+              ├┴○│  int-ac  land
+              ╰─○╯  int-bc  land
+        "]],
     );
 }
 
@@ -268,15 +286,15 @@ fn a_self_contained_subtree_folds_under_messy_parents() {
             ("r2", true, "mid"),
             ("top", true, "l2 r2"),
         ],
-        &expect![[r#"
-            ╭   ○   base
-            │   ├┬○   l1
-            │   ╰┼○   r1
-            │╭   ╰┴─○   mid
-            ││      ├┬○   l2
-            ││      ╰┼○   r2
-            ╰╰       ╰┴─○   top
-        "#]],
+        &expect![[r"
+            ╭   ○   base         land
+            │   ├┬○   l1         land
+            │   ╰┼○   r1         land
+            │╭   ╰┴─○   mid      land
+            ││      ├┬○   l2     land
+            ││      ╰┼○   r2     land
+            ╰╰       ╰┴─○   top  land
+        "]],
     );
 }
 
@@ -289,12 +307,12 @@ fn folds_stay_within_their_component() {
             ("stack-base", true, "main"),
             ("stack-top", true, "stack-base"),
         ],
-        &expect![[r#"
-               ○   bump-deps
-               ○   docs-typo
-            ╭  ○   stack-base
-            ╰  ╰─○   stack-top
-        "#]],
+        &expect![[r"
+               ○   bump-deps    land
+               ○   docs-typo    land
+            ╭  ○   stack-base   land
+            ╰  ╰─○   stack-top  land
+        "]],
     );
 }
 
@@ -322,11 +340,11 @@ fn a_wide_fan_out_rails_like_a_tree() {
             ("kid-d", true, "root"),
         ],
         &expect![[r"
-            ○   root
-            ├─○   kid-a
-            ├─○   kid-b
-            ├─○   kid-c
-            ╰─○   kid-d
+            ○   root     land
+            ├─○   kid-a  land
+            ├─○   kid-b  land
+            ├─○   kid-c  land
+            ╰─○   kid-d  land
         "]],
     );
 }
@@ -342,10 +360,10 @@ fn a_three_parent_integration_merges_once() {
             ("integration", true, "feat-a feat-b feat-c"),
         ],
         &expect![[r"
-            ○─╮ »feat-a
-            ○─┤ »feat-b
-            ○ │ »feat-c
-            ╰─○   integration
+            ○─╮ »feat-a        land
+            ○─┤ »feat-b        land
+            ○ │ »feat-c        land
+            ╰─○   integration  land
         "]],
     );
 }
@@ -356,10 +374,10 @@ fn a_transitive_parent_spans_levels() {
     check(
         &[("base", true, "main"), ("mid", true, "base"), ("top", true, "base mid")],
         &expect![[r"
-        ○   base
-        ├─○   mid
-        ╰─┴─○   top
-    "]],
+            ○   base     land
+            ├─○   mid    land
+            ╰─┴─○   top  land
+        "]],
     );
 }
 
@@ -376,13 +394,13 @@ fn stacked_diamonds_reuse_the_shadow() {
             ("top", true, "l2 r2"),
         ],
         &expect![[r"
-            ○   base
-            ├┬○   l1
-            ╰┼○   r1
-             ╰┴─○   mid
-                ├┬○   l2
-                ╰┼○   r2
-                 ╰┴─○   top
+            ○   base         land
+            ├┬○   l1         land
+            ╰┼○   r1         land
+             ╰┴─○   mid      land
+                ├┬○   l2     land
+                ╰┼○   r2     land
+                 ╰┴─○   top  land
         "]],
     );
 }
@@ -399,12 +417,12 @@ fn a_deep_stack_staircases() {
             ("s6", true, "s5"),
         ],
         &expect![[r"
-            ○   s1
-            ╰─○   s2
-              ╰─○   s3
-                ╰─○   s4
-                  ╰─○   s5
-                    ╰─○   s6
+            ○   s1            land
+            ╰─○   s2          land
+              ╰─○   s3        land
+                ╰─○   s4      land
+                  ╰─○   s5    land
+                    ╰─○   s6  land
         "]],
     );
 }
@@ -422,13 +440,13 @@ fn a_release_atop_pairwise_integrations() {
             ("release", true, "int-ab int-ac int-bc"),
         ],
         &expect![[r"
-            ○┬╮ »feat-a
-            ○┼┼╮ »feat-b
-            ╰┼○┼╮ »int-ab
-            ○│ ││ »feat-c
-            ├┴○┼┤ »int-ac
-            ╰─○╯│ »int-bc
-              ╰─○   release
+            ○┬╮ »feat-a      land
+            ○┼┼╮ »feat-b     land
+            ╰┼○┼╮ »int-ab    land
+            ○│ ││ »feat-c    land
+            ├┴○┼┤ »int-ac    land
+            ╰─○╯│ »int-bc    land
+              ╰─○   release  land
         "]],
     );
 }
@@ -445,12 +463,12 @@ fn a_mixed_web_routes_around_its_own_plumbing() {
             ("release", true, "ui search"),
         ],
         &expect![[r"
-            ○   infra
-            ├┬○   api
-            ││╰┬○   ui
-            ╰┼○│  auth
-             ╰┴┼◌   search
-               ╰┴─○   release
+            ○   infra          land
+            ├┬○   api          land
+            ││╰┬○   ui         land
+            ╰┼○│  auth         land
+             ╰┴┼◌   search     land
+               ╰┴─○   release  land
         "]],
     );
 }
@@ -473,16 +491,16 @@ fn a_dense_thicket_routes_completely() {
             ("c09", true, "c00 c04 c06"),
         ],
         &expect![[r"
-            ○──┬──┬─╮ »c00
-            ├┬○┼─┬┼╮│ »c01
-            ╰┼○│ ││││ »c02
-             ╰┴┼○││││ »c07
-            ○  │ ││││ »c03
-            ├──┴○┴┼┼┤ »c04
-            │   ╰─○││ »c05
-            ╰───○──╯│ »c06
-                ╰─○─╯ »c09
-            ○   c08
+            ○──┬──┬─╮ »c00  land
+            ├┬○┼─┬┼╮│ »c01  land
+            ╰┼○│ ││││ »c02  land
+             ╰┴┼○││││ »c07  land
+            ○  │ ││││ »c03  land
+            ├──┴○┴┼┼┤ »c04  land
+            │   ╰─○││ »c05  land
+            ╰───○──╯│ »c06  land
+                ╰─○─╯ »c09  land
+            ○   c08         land
         "]],
     );
 }
