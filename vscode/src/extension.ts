@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { Cabaret, type Change, type HomeRow } from "@cabaret/node";
+import { Cabaret, type Change, type Fold, type HomeRow } from "@cabaret/node";
 
 const SCHEME = "cabaret";
 const HOME_URI = vscode.Uri.from({ scheme: SCHEME, path: "/home" });
@@ -60,11 +60,14 @@ function renderChange(id: string, info: Change): string {
 }
 
 /**
- * Serves `cabaret:` pages, remembering the home render's rows so links and
- * Enter hit-test exactly what is on screen.
+ * Serves `cabaret:` pages, remembering the home render's rows and folds so
+ * links, Enter, and folding hit-test exactly what is on screen.
  */
-class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
+class PageProvider
+  implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
+{
   private homeRows: readonly HomeRow[] = [];
+  private homeFolds: readonly Fold[] = [];
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this.changed.event;
 
@@ -73,6 +76,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
     if (uri.path === HOME_URI.path) {
       const home = cabaret.home();
       this.homeRows = home.rows;
+      this.homeFolds = home.folds;
       return home.text || "no open changes\n";
     }
     const id = /^\/show\/(.+)$/.exec(uri.path)?.[1];
@@ -95,6 +99,13 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
       link.tooltip = `Show ${row.change}`;
       return link;
     });
+  }
+
+  provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] | undefined {
+    if (document.uri.path !== HOME_URI.path) {
+      return undefined;
+    }
+    return this.homeFolds.map((fold) => new vscode.FoldingRange(fold.start, fold.end));
   }
 
   changeAt(line: number): string | undefined {
@@ -129,6 +140,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
+    vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     command("cabaret.home", async () => {
       await openPage(provider, HOME_URI);
     }),

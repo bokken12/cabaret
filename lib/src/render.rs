@@ -10,6 +10,16 @@ use crate::{error::Result, home::HomeGraph, types::ChangeId};
 pub struct RenderedHome {
     pub text: String,
     pub rows: Vec<HomeRow>,
+    /// Runs of lines a host may fold down to their first, nested or disjoint, by start.
+    pub folds: Vec<Fold>,
+}
+
+/// A change's row and the stack above it: folding hides lines `start + 1..=end`.
+#[cfg_attr(feature = "napi", napi_derive::napi(object))]
+#[derive(Debug)]
+pub struct Fold {
+    pub start: u32,
+    pub end: u32,
 }
 
 /// One line of the home view, locating the change's id label for hosts to linkify.
@@ -29,13 +39,57 @@ pub struct HomeRow {
 /// root on the left margin.
 pub fn render_home(graph: &HomeGraph) -> Result<RenderedHome> {
     let depths = depths(graph)?;
-    let mut home = RenderedHome { text: String::new(), rows: Vec::new() };
+    let mut home = RenderedHome { text: String::new(), rows: Vec::new(), folds: Vec::new() };
     for component in components(graph) {
         let (block, rows) = draw(graph, &component, &depths)?;
         home.text.push_str(&block);
         home.rows.extend(rows);
     }
+    home.folds = folds(graph, &home.rows);
     Ok(home)
+}
+
+/// A change folds exactly when its descendants sit contiguously after its own row and connect
+/// to the graph only through it, hiding that block. Scattered descendants (which no single run
+/// of lines could hide) and descendants shared with a change outside the block (which would
+/// stay visible while its child vanished) leave it unfoldable. Such blocks nest or stay
+/// disjoint: a block starting inside another belongs to a descendant, whose own descendants
+/// the outer block already spans.
+fn folds(graph: &HomeGraph, rows: &[HomeRow]) -> Vec<Fold> {
+    let row_of: BTreeMap<&ChangeId, usize> = rows.iter().enumerate().map(|(r, row)| (&row.change, r)).collect();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); rows.len()];
+    for (r, row) in rows.iter().enumerate() {
+        for parent in &graph.nodes[&row.change].parents {
+            children[row_of[parent]].push(r);
+        }
+    }
+
+    let mut folds = Vec::new();
+    for start in 0..rows.len() {
+        let mut descendant = vec![false; rows.len()];
+        let mut frontier = children[start].clone();
+        let mut count = 0;
+        while let Some(r) = frontier.pop() {
+            if !descendant[r] {
+                descendant[r] = true;
+                count += 1;
+                frontier.extend(&children[r]);
+            }
+        }
+        let end = start + count;
+        let contiguous = count > 0 && (start + 1..=end).all(|r| descendant[r]);
+        let only_through_start = |r: usize| {
+            graph.nodes[&rows[r].change].parents.iter().all(|parent| {
+                let parent = row_of[parent];
+                parent == start || descendant[parent]
+            })
+        };
+        if contiguous && (start + 1..=end).all(only_through_start) {
+            let line = |r: usize| u32::try_from(r).expect("a home view is short");
+            folds.push(Fold { start: line(start), end: line(end) });
+        }
+    }
+    folds
 }
 
 /// Depth is the longest parent chain below a change; roots sit at depth 0.
