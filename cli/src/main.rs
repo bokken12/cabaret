@@ -298,28 +298,27 @@ fn land(cabaret: &Cabaret, change: &ChangeId) -> Result<()> {
 }
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
-    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
     let onto = match onto {
-        Some(onto) if parents.contains(&onto) => onto,
-        Some(onto) => return Err(format!("{onto} is not a parent of {change}").into()),
-        None => match parents.as_slice() {
-            [] => return Err(format!("{change} has no parents").into()),
-            [parent] => parent.clone(),
-            parents @ [_, _, ..] => {
-                let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
-                return Err(format!(
-                    "{change} has multiple parents; pass the one to rebase onto: {}",
-                    parents.join(", ")
-                )
-                .into());
+        Some(onto) => onto,
+        None => {
+            let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
+            match parents.as_slice() {
+                [] => return Err(format!("{change} has no parents").into()),
+                [parent] => parent.clone(),
+                parents @ [_, _, ..] => {
+                    let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
+                    return Err(format!(
+                        "{change} has multiple parents; pass the one to rebase onto: {}",
+                        parents.join(", ")
+                    )
+                    .into());
+                }
             }
-        },
+        }
     };
-    match cabaret.prepare_merge(change, &onto)? {
+    match cabaret.rebase(change, &onto)? {
         None => println!("already up to date"),
-        Some(merge) => {
-            let conflicts = merge.conflicts().to_vec();
-            cabaret.commit_merge(merge, format!("rebase onto {onto}"))?;
+        Some(conflicts) => {
             for path in conflicts {
                 println!("conflicted: {path}");
             }

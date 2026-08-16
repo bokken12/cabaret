@@ -17,6 +17,8 @@ use crate::{
 #[derive(Debug)]
 pub struct PreparedMerge {
     branch: FullName,
+    /// The workspace holding `branch`, whose checkout the commit must refresh.
+    workspace: Option<Repository>,
     into_tip: Revision,
     from_tip: Revision,
     tree: TreeId,
@@ -29,6 +31,21 @@ impl PreparedMerge {
 }
 
 impl Cabaret {
+    // Returns conflicts
+    pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Option<Vec<String>>> {
+        if !self.change(change)?.parents.contains(onto) {
+            return Err(format!("{onto} is not a parent of {change}").into());
+        }
+        match self.prepare_merge(change, onto)? {
+            None => Ok(None),
+            Some(merge) => {
+                let conflicts = merge.conflicts().to_vec();
+                self.commit_merge(merge, format!("rebase onto {onto}"))?;
+                Ok(Some(conflicts))
+            }
+        }
+    }
+
     /// Compute the merge of `from`'s tip into `into`'s branch without committing it, or `None`
     /// when `into` already contains `from`.
     pub fn prepare_merge(&self, into: &ChangeId, from: &ChangeId) -> Result<Option<PreparedMerge>> {
@@ -38,31 +55,10 @@ impl Cabaret {
             return Ok(None);
         }
 
-        let branch = into.branch_ref();
-        if self.checked_out(&branch)? {
-            if self.repo.is_dirty()? {
-                return Err("working tree has uncommitted changes".into());
-            }
-        } else if let Some(workspace) = self.workspace_holding(&branch)? {
-            // Never move the branch under another workspace: its index and files would be left
-            // describing the old tip, and this merge cannot see whether it is even clean.
-            return Err(format!(
-                "{into} is checked out in workspace {}; rerun from that workspace",
-                workspace.workdir().expect("held branches have a workdir").display()
-            )
-            .into());
-        }
-
-        // Uncommitted work in `from`'s workspace would be silently absent from the merge.
-        if let Some(workspace) = self.workspace_holding(&from.branch_ref())?
-            && workspace.is_dirty()?
-        {
-            return Err(format!(
-                "{from} has uncommitted changes in workspace {}",
-                workspace.workdir().expect("held branches have a workdir").display()
-            )
-            .into());
-        }
+        // Uncommitted work would be clobbered by `into`'s refresh or silently absent from
+        // `from`'s tip, so a dirty workspace on either side refuses the merge.
+        let workspace = self.clean_workspace_holding(into)?;
+        self.clean_workspace_holding(from)?;
 
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
@@ -71,22 +67,31 @@ impl Cabaret {
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = unresolved_paths(&merge.tree_merge);
 
-        Ok(Some(PreparedMerge { branch, into_tip, from_tip, tree, conflicts }))
+        Ok(Some(PreparedMerge { branch: into.branch_ref(), workspace, into_tip, from_tip, tree, conflicts }))
     }
 
     /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
-        let refresh = self.checked_out(&merge.branch)?;
         self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
-        if refresh {
-            checkout(&self.repo, merge.tree)?;
+        if let Some(workspace) = merge.workspace {
+            checkout(&workspace, merge.tree)?;
         }
         Ok(())
     }
 
-    /// Whether the current workspace has `branch` checked out with a worktree to refresh.
-    fn checked_out(&self, branch: &FullName) -> Result<bool> {
-        Ok(self.repo.workdir().is_some() && self.repo.head_name()?.is_some_and(|head| head == *branch))
+    /// The workspace holding `change`'s branch, if any, refusing when it has uncommitted changes.
+    fn clean_workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
+        let Some(workspace) = self.workspace_holding(&change.branch_ref())? else {
+            return Ok(None);
+        };
+        if workspace.is_dirty()? {
+            return Err(format!(
+                "{change} has uncommitted changes in workspace {}",
+                workspace.workdir().expect("held branches have a workdir").display()
+            )
+            .into());
+        }
+        Ok(Some(workspace))
     }
 
     pub fn tip(&self, change: &ChangeId) -> Result<Revision> {

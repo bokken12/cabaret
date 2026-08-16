@@ -135,6 +135,24 @@ function changeAtCursor(provider: PageProvider): string | undefined {
   return provider.changeAt(editor.selection.active.line);
 }
 
+/**
+ * The change the editor focus points at: the home row under the cursor, the change a show page
+ * views, or the change held by the worktree containing the active file.
+ */
+function activeChange(provider: PageProvider): string | undefined {
+  const uri = vscode.window.activeTextEditor?.document.uri;
+  if (uri === undefined) {
+    return undefined;
+  }
+  if (uri.scheme === SCHEME) {
+    return uri.path === HOME_URI.path ? changeAtCursor(provider) : /^\/show\/(.+)$/.exec(uri.path)?.[1];
+  }
+  if (uri.scheme === "file") {
+    return new Cabaret(vscode.Uri.joinPath(uri, "..").fsPath).currentChange();
+  }
+  return undefined;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
@@ -151,6 +169,32 @@ export function activate(context: vscode.ExtensionContext) {
       const id = await pickChange(cabaret, "Cabaret: Show Change");
       if (id !== undefined) {
         await openPage(provider, showUri(id), "markdown");
+      }
+    }),
+    command("cabaret.rebase", async (cabaret) => {
+      const change = activeChange(provider);
+      if (change === undefined) {
+        throw new Error("no active change to rebase");
+      }
+      const parents = [...cabaret.change(change).parents];
+      if (parents.length === 0) {
+        throw new Error(`${change} has no parents`);
+      }
+      const onto =
+        parents.length === 1
+          ? parents[0]
+          : await vscode.window.showQuickPick(parents, { title: `Rebase ${change} onto` });
+      if (onto === undefined) {
+        return;
+      }
+      const conflicts = cabaret.rebase(change, onto);
+      provider.refresh(HOME_URI);
+      if (conflicts === null) {
+        vscode.window.showInformationMessage(`${change} is already up to date`);
+      } else if (conflicts.length > 0) {
+        vscode.window.showWarningMessage(`rebased ${change} onto ${onto}; conflicted: ${conflicts.join(", ")}`);
+      } else {
+        vscode.window.showInformationMessage(`rebased ${change} onto ${onto}`);
       }
     }),
     // Enter on a home row, or a click on its id label (which passes the id).

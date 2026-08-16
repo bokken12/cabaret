@@ -81,6 +81,11 @@ impl CabaretJs {
     #[napi]
     pub fn change(&self, id: ChangeId) -> napi::Result<Change> { Ok(self.cabaret.change(&id)?) }
 
+    #[napi]
+    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<Option<Vec<String>>> {
+        Ok(self.cabaret.rebase(&change, &onto)?)
+    }
+
     /// The rendered home view for `viewer`, defaulting to git's user.email.
     #[napi]
     pub fn home(&self, viewer: Option<Identity>) -> napi::Result<RenderedHome> {

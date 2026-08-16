@@ -16,6 +16,7 @@ use crate::{
 };
 
 impl Cabaret {
+    // TODO(joel): is this expensive?
     /// The workspace repository that has `branch` checked out, if any.
     pub fn workspace_holding(&self, branch: &FullName) -> Result<Option<Repository>> {
         let mut repos = vec![self.repo.main_repo()?];

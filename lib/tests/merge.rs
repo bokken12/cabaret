@@ -82,16 +82,21 @@ fn merges_from_the_named_change() {
 }
 
 #[test]
-fn a_change_checked_out_in_another_workspace_refuses_to_merge() {
-    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("file.txt", "main\n")]);
-    fixture.checkout("main", &[("file.txt", "main\n")]);
-    let (_dir, workspace) = fixture.add_workspace("wt", "child");
-
-    let error = fixture.merge("main").unwrap_err();
-    assert_eq!(
-        format!("{error:?}"),
-        format!("child is checked out in workspace {}; rerun from that workspace", workspace.display())
+fn merging_into_a_branch_held_by_another_workspace_updates_it() {
+    let fixture = diverged(
+        &[("file.txt", "original\n")],
+        &[("file.txt", "child\n")],
+        &[("file.txt", "original\n"), ("main.txt", "main\n")],
     );
+    fixture.checkout("main", &[("file.txt", "original\n"), ("main.txt", "main\n")]);
+    let (_dir, workspace) = fixture.add_workspace("wt", "child", &[("file.txt", "child\n")]);
+
+    let conflicts = fixture.merge("main").unwrap().expect("expected a merge");
+
+    assert_eq!(conflicts, Vec::<String>::new());
+    assert_eq!(fs::read_to_string(workspace.join("file.txt")).unwrap(), "child\n");
+    assert_eq!(fs::read_to_string(workspace.join("main.txt")).unwrap(), "main\n");
+    assert_eq!(fixture.worktree_file("file.txt"), "original\n");
 }
 
 #[test]
@@ -99,8 +104,19 @@ fn a_dirty_worktree_refuses_to_merge() {
     let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("other.txt", "main\n")]);
     fs::write(fixture.repo().workdir().unwrap().join("file.txt"), "uncommitted\n").unwrap();
 
+    let error = format!("{:?}", fixture.merge("main").unwrap_err());
+    assert!(error.starts_with("child has uncommitted changes in workspace "), "{error}");
+}
+
+#[test]
+fn a_dirty_holding_workspace_refuses_to_merge() {
+    let fixture = diverged(&[("file.txt", "original\n")], &[("file.txt", "child\n")], &[("file.txt", "main\n")]);
+    fixture.checkout("main", &[("file.txt", "main\n")]);
+    let (_dir, workspace) = fixture.add_workspace("wt", "child", &[("file.txt", "child\n")]);
+    fs::write(workspace.join("file.txt"), "uncommitted\n").unwrap();
+
     let error = fixture.merge("main").unwrap_err();
-    assert_eq!(format!("{error:?}"), "working tree has uncommitted changes");
+    assert_eq!(format!("{error:?}"), format!("child has uncommitted changes in workspace {}", workspace.display()));
 }
 
 #[test]

@@ -96,8 +96,9 @@ impl Fixture {
         String::from_utf8(entry.object().unwrap().data.clone()).unwrap()
     }
 
-    /// Register a linked worktree with `branch` checked out, as `git worktree add` would.
-    pub fn add_workspace(&self, name: &str, branch: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    /// Register a linked worktree with `branch` checked out and `files` on disk, as
+    /// `git worktree add` would.
+    pub fn add_workspace(&self, name: &str, branch: &str, files: Files) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::TempDir::new().unwrap();
         let workspace = fs::canonicalize(dir.path()).unwrap();
         let meta = fs::canonicalize(self.repo().git_dir()).unwrap().join("worktrees").join(name);
@@ -106,6 +107,16 @@ impl Fixture {
         fs::write(meta.join("commondir"), "../..\n").unwrap();
         fs::write(meta.join("gitdir"), format!("{}\n", workspace.join(".git").display())).unwrap();
         fs::write(workspace.join(".git"), format!("gitdir: {}\n", meta.display())).unwrap();
+
+        let repo = gix::open_opts(&workspace, gix::open::Options::isolated()).unwrap();
+        for (path, content) in files {
+            let path = workspace.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+        let head_tree = repo.head_commit().unwrap().tree_id().unwrap();
+        let mut index = repo.index_from_tree(&head_tree).unwrap();
+        index.write(gix::index::write::Options::default()).unwrap();
         (dir, workspace)
     }
 }

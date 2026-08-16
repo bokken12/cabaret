@@ -25,6 +25,10 @@
       {
         "command": "cabaret.showChange",
         "title": "Cabaret: Show Change"
+      },
+      {
+        "command": "cabaret.rebase",
+        "title": "Cabaret: Rebase"
       }
     ],
     "keybindings": [
