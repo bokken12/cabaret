@@ -179,7 +179,7 @@ fn run() -> Result<()> {
             match command {
                 ChangeCommand::Create { id, parent } => {
                     let parent = or_current(parent)?;
-                    cabaret.create_change(&id, &parent)?;
+                    cabaret.create_change(&id, &parent, &cabaret.identity()?)?;
                     println!("created {id} with parent {parent}");
                 }
                 ChangeCommand::Diff { .. } => todo!(),

@@ -140,7 +140,7 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn create_change(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
+    pub fn create_change(&self, change: &ChangeId, parent: &ChangeId, owner: &Identity) -> Result<()> {
         let tip = self.tip(parent)?;
         if self.repo.try_find_reference(&change.log_ref())?.is_some() {
             return Err(format!("{change} already exists").into());
@@ -149,13 +149,18 @@ impl Cabaret {
             return Err(format!("branch {change} already exists").into());
         }
 
-        let action = LogAction::AddParent { parent: parent.clone() };
-        let message = serde_json::to_string(&action)?;
-        let entry = LogEntry { timestamp: TimestampMs::now(), action };
-        let mut text = serde_json::to_string(&entry)?;
-        text.push('\n');
+        let actions = [LogAction::AddParent { parent: parent.clone() }, LogAction::AddOwner { owner: owner.clone() }];
+        let mut message = String::new();
+        let mut text = String::new();
+        for action in actions {
+            message.push_str(&serde_json::to_string(&action)?);
+            message.push('\n');
+            let entry = LogEntry { timestamp: TimestampMs::now(), action };
+            text.push_str(&serde_json::to_string(&entry)?);
+            text.push('\n');
+        }
         // Committing with no parents demands the log ref not exist, closing the race above.
-        self.commit_log(change, &message, &text, None)?;
+        self.commit_log(change, message.trim_end(), &text, None)?;
         self.repo.reference(
             change.branch_ref(),
             tip,
