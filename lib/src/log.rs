@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, RepoPath, Revision, RevisionRange, TimestampMs},
+    types::{Change, ChangeId, Identity, Liveness, RepoPath, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub enum LogAction {
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetDescription { description: Option<String> },
-    SetPermanent { permanent: bool },
+    SetLiveness { liveness: Liveness },
     SetTitle { title: Option<String> },
 }
 
@@ -64,7 +64,7 @@ impl Change {
             LogAction::RemoveOwner { owner } => self.owners.remove(&owner),
             LogAction::RemoveParent { parent } => self.parents.remove(&parent),
             LogAction::SetDescription { description } => set(&mut self.description, description),
-            LogAction::SetPermanent { permanent } => set(&mut self.permanent, permanent),
+            LogAction::SetLiveness { liveness } => set(&mut self.liveness, liveness),
             LogAction::SetTitle { title } => set(&mut self.title, title),
         }
     }

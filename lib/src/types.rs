@@ -180,6 +180,16 @@ pub struct RevisionRange {
     pub head: Revision,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Liveness {
+    /// Intended to land
+    Live,
+    /// Landed or abandoned
+    Archived,
+    /// Umbrella for children
+    Permanent,
+}
+
 // TODO-someday(joel): consider attaching methods to change? How to properly control lifecycle?
 // TODO-someday(joel): rename? metdata? info? log data?
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
@@ -188,7 +198,7 @@ pub struct Change {
     pub title: Option<String>,
     pub description: Option<String>,
     // TODO-someday(joel): convert to enum?
-    pub permanent: bool,
+    pub liveness: Liveness,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
     pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
@@ -199,7 +209,7 @@ impl Change {
         Self {
             title: None,
             description: None,
-            permanent: false,
+            liveness: Liveness::Live,
             owners: BTreeSet::new(),
             parents: BTreeSet::new(),
             review_state: BTreeMap::new(),
