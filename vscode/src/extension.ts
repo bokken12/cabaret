@@ -51,6 +51,12 @@ function renderChange(id: string, info: Change): string {
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
+    command("cabaret.home", async (cabaret) => {
+      const document = await vscode.workspace.openTextDocument({
+        content: cabaret.home() || "no open changes\n",
+      });
+      await vscode.window.showTextDocument(document, { preview: false });
+    }),
     command("cabaret.showChanges", async (cabaret) => {
       await pickChange(cabaret, "Cabaret Changes");
     }),
