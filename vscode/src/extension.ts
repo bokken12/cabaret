@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { Cabaret, type Change, type Fold, type HomeRow } from "@cabaret/node";
+import { Cabaret, type ChangeId, type Change, type Fold, type HomeRow } from "@cabaret/node";
 
 const SCHEME = "cabaret";
 const HOME_URI = vscode.Uri.from({ scheme: SCHEME, path: "/home" });
@@ -139,7 +139,7 @@ function changeAtCursor(provider: PageProvider): string | undefined {
  * The change the editor focus points at: the home row under the cursor, the change a show page
  * views, or the change held by the worktree containing the active file.
  */
-function activeChange(provider: PageProvider): string | undefined {
+function activeChange(provider: PageProvider): ChangeId | undefined {
   const uri = vscode.window.activeTextEditor?.document.uri;
   if (uri === undefined) {
     return undefined;
@@ -153,6 +153,14 @@ function activeChange(provider: PageProvider): string | undefined {
   return undefined;
 }
 
+function activeChangeExn(provider: PageProvider): ChangeId {
+  const change = activeChange(provider);
+  if (change === undefined) {
+    throw new Error("no active change to land");
+  }
+  return change;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
@@ -161,6 +169,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     command("cabaret.home", async () => {
       await openPage(provider, HOME_URI);
+    }),
+    command("cabaret.land", async (cabaret) => {
+      cabaret.land(activeChangeExn(provider));
     }),
     command("cabaret.showChanges", async (cabaret) => {
       await pickChange(cabaret, "Cabaret Changes");
@@ -172,10 +183,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.rebase", async (cabaret) => {
-      const change = activeChange(provider);
-      if (change === undefined) {
-        throw new Error("no active change to rebase");
-      }
+      const change = activeChangeExn(provider);
       const parents = [...cabaret.change(change).parents];
       if (parents.length === 0) {
         throw new Error(`${change} has no parents`);
