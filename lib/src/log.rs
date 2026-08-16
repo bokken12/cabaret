@@ -19,6 +19,7 @@ pub enum LogAction {
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetDescription { description: Option<String> },
+    SetPermanent { permanent: bool },
     SetTitle { title: Option<String> },
 }
 
@@ -63,6 +64,7 @@ impl Change {
             LogAction::RemoveOwner { owner } => self.owners.remove(&owner),
             LogAction::RemoveParent { parent } => self.parents.remove(&parent),
             LogAction::SetDescription { description } => set(&mut self.description, description),
+            LogAction::SetPermanent { permanent } => set(&mut self.permanent, permanent),
             LogAction::SetTitle { title } => set(&mut self.title, title),
         }
     }

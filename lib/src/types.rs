@@ -187,6 +187,8 @@ pub struct Change {
     // TODO-someday(joel): add other relevant data
     pub title: Option<String>,
     pub description: Option<String>,
+    // TODO-someday(joel): convert to enum?
+    pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
     pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
@@ -197,6 +199,7 @@ impl Change {
         Self {
             title: None,
             description: None,
+            permanent: false,
             owners: BTreeSet::new(),
             parents: BTreeSet::new(),
             review_state: BTreeMap::new(),

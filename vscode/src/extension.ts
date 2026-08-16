@@ -185,6 +185,7 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.rebase", async (cabaret) => {
       const change = activeChangeExn(provider);
       const parents = [...cabaret.change(change).parents];
+      // TODO(joel): use previously built matching util
       if (parents.length === 0) {
         throw new Error(`${change} has no parents`);
       }
