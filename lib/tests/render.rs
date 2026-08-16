@@ -23,7 +23,17 @@ fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
     HomeGraph { nodes }
 }
 
-fn check(nodes: &[(&str, bool, &str)], expect: &Expect) { expect.assert_eq(&render_home(&graph(nodes)).unwrap()); }
+fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
+    let home = render_home(&graph(nodes)).unwrap();
+    expect.assert_eq(&home.text);
+    assert_eq!(home.rows.len(), home.text.lines().count());
+    for (line, row) in home.text.lines().zip(&home.rows) {
+        let id = row.change.to_string();
+        let start = usize::try_from(row.label_start).unwrap();
+        let label: String = line.chars().skip(start).take(id.chars().count()).collect();
+        assert_eq!(label, id, "label offset misses the id in {line:?}");
+    }
+}
 
 #[test]
 fn a_linear_stack_renders_as_a_tree() {
@@ -139,7 +149,7 @@ fn titles_follow_the_id() {
     expect![[r"
         ○   add-parser  Add the parser
     "]]
-    .assert_eq(&render_home(&graph).unwrap());
+    .assert_eq(&render_home(&graph).unwrap().text);
 }
 
 #[test]
@@ -150,7 +160,9 @@ fn a_parent_cycle_is_an_error() {
 
 #[test]
 fn an_empty_graph_renders_as_nothing() {
-    assert_eq!(render_home(&graph(&[])).unwrap(), "");
+    let home = render_home(&graph(&[])).unwrap();
+    assert_eq!(home.text, "");
+    assert!(home.rows.is_empty());
 }
 
 #[test]
@@ -173,6 +185,7 @@ fn a_wide_fan_out_rails_like_a_tree() {
     );
 }
 
+// TODO-someday(joel): what if the vertical ran to the left of the parents here?
 #[test]
 fn a_three_parent_integration_merges_once() {
     check(

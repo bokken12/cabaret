@@ -24,5 +24,5 @@ fn the_home_graph_is_owned_changes_plus_open_ancestors_as_context() {
         ◌   infra
         ╰─○   feature  My feature
     "]]
-    .assert_eq(&render_home(&graph).unwrap());
+    .assert_eq(&render_home(&graph).unwrap().text);
 }

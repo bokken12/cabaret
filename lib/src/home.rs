@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, Identity},
+    types::{Change, ChangeId, Identity},
 };
 
 // TODO(jm): audit LLM

@@ -10,7 +10,7 @@ use napi_derive::napi;
 use crate::{
     cabaret::Cabaret,
     error::Error,
-    render::render_home,
+    render::{RenderedHome, render_home},
     types::{Change, ChangeId, Identity, RepoPath, Revision},
 };
 
@@ -83,7 +83,7 @@ impl CabaretJs {
 
     /// The rendered home view for `viewer`, defaulting to git's user.email.
     #[napi]
-    pub fn home(&self, viewer: Option<Identity>) -> napi::Result<String> {
+    pub fn home(&self, viewer: Option<Identity>) -> napi::Result<RenderedHome> {
         let viewer = match viewer {
             Some(viewer) => viewer,
             None => self.cabaret.identity()?,

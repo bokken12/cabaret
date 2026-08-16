@@ -4,17 +4,38 @@ use crate::{error::Result, home::HomeGraph, types::ChangeId};
 
 // TODO(jm): audit LLM
 
+/// A rendered home view: line `i` of `text` is `rows[i]`'s change.
+#[cfg_attr(feature = "napi", napi_derive::napi(object))]
+#[derive(Debug)]
+pub struct RenderedHome {
+    pub text: String,
+    pub rows: Vec<HomeRow>,
+}
+
+/// One line of the home view, locating the change's id label for hosts to linkify.
+#[cfg_attr(feature = "napi", napi_derive::napi(object))]
+#[derive(Debug)]
+pub struct HomeRow {
+    pub change: ChangeId,
+    /// Chars into the line where the id begins; the label is the id's own text.
+    pub label_start: u32,
+}
+
 /// Renders a home graph as rail art: one row per change, x-position = depth in the stack.
 ///
 /// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label that
 /// plumbing pushed right of its depth position. Trunk is never drawn: a change whose parents
 /// have all landed is a root. Connected components render one after another; each starts with a
 /// root on the left margin.
-pub fn render_home(graph: &HomeGraph) -> Result<String> {
+pub fn render_home(graph: &HomeGraph) -> Result<RenderedHome> {
     let depths = depths(graph)?;
-    let blocks: Vec<String> =
-        components(graph).iter().map(|component| draw(graph, component, &depths)).collect::<Result<_>>()?;
-    Ok(blocks.concat())
+    let mut home = RenderedHome { text: String::new(), rows: Vec::new() };
+    for component in components(graph) {
+        let (block, rows) = draw(graph, &component, &depths)?;
+        home.text.push_str(&block);
+        home.rows.extend(rows);
+    }
+    Ok(home)
 }
 
 /// Depth is the longest parent chain below a change; roots sit at depth 0.
@@ -111,7 +132,11 @@ fn order_rows<'a>(graph: &'a HomeGraph, component: &[&'a ChangeId]) -> Vec<&'a C
     rows
 }
 
-fn draw(graph: &HomeGraph, component: &[&ChangeId], depths: &BTreeMap<&ChangeId, usize>) -> Result<String> {
+fn draw(
+    graph: &HomeGraph,
+    component: &[&ChangeId],
+    depths: &BTreeMap<&ChangeId, usize>,
+) -> Result<(String, Vec<HomeRow>)> {
     /// Labels sit a fixed gutter right of their node, leaving room for future status glyphs and
     /// stepping with depth; rails wider than the gutter push them aside.
     const LABEL_GUTTER: usize = 4;
@@ -141,6 +166,7 @@ fn draw(graph: &HomeGraph, component: &[&ChangeId], depths: &BTreeMap<&ChangeId,
     }
 
     let mut lines = Vec::new();
+    let mut labeled = Vec::new();
     for (r, &id) in rows.iter().enumerate() {
         let art: String = drawer.grid.cells[r].iter().collect();
         let art = art.trim_end();
@@ -154,10 +180,12 @@ fn draw(graph: &HomeGraph, component: &[&ChangeId], depths: &BTreeMap<&ChangeId,
             line.push_str(title);
         }
         lines.push(line);
+        let label_start = u32::try_from(start).expect("a home line is narrow");
+        labeled.push(HomeRow { change: id.clone(), label_start });
     }
     let mut block = lines.join("\n");
     block.push('\n');
-    Ok(block)
+    Ok((block, labeled))
 }
 
 struct Grid {

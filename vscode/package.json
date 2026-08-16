@@ -26,6 +26,13 @@
         "command": "cabaret.showChange",
         "title": "Cabaret: Show Change"
       }
+    ],
+    "keybindings": [
+      {
+        "command": "cabaret.openTarget",
+        "key": "enter",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      }
     ]
   },
   "scripts": {

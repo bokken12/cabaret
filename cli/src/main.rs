@@ -228,7 +228,7 @@ fn run() -> Result<()> {
             if graph.nodes.is_empty() {
                 println!("no open changes owned by {viewer}");
             } else {
-                print!("{}", render_home(&graph)?);
+                print!("{}", render_home(&graph)?.text);
             }
         }
         Command::Workspace { command } => match command {
