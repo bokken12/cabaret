@@ -19,6 +19,10 @@
         "title": "Cabaret: Home"
       },
       {
+        "command": "cabaret.land",
+        "title": "Cabaret: Land"
+      },
+      {
         "command": "cabaret.showChanges",
         "title": "Cabaret: Show Changes"
       },

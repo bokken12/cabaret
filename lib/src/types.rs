@@ -1,7 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    path::PathBuf,
     str::FromStr,
 };
 

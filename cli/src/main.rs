@@ -183,7 +183,7 @@ fn run() -> Result<()> {
                     println!("created {id} with parent {parent}");
                 }
                 ChangeCommand::Diff { .. } => todo!(),
-                ChangeCommand::Land { change } => land(&cabaret, &or_current(change)?)?,
+                ChangeCommand::Land { change } => cabaret.land(&or_current(change)?)?,
                 ChangeCommand::Mark { .. } => todo!(),
                 ChangeCommand::Owners { change, command } => {
                     let change = &or_current(change)?;
@@ -267,31 +267,6 @@ fn fetch(cabaret: &Cabaret) -> Result<()> {
         cabaret.push(&ahead)?;
         for change in &ahead {
             println!("pushed {change}");
-        }
-    }
-    Ok(())
-}
-
-fn land(cabaret: &Cabaret, change: &ChangeId) -> Result<()> {
-    let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
-    let parent = match parents.as_slice() {
-        [] => return Err(format!("{change} has no parents").into()),
-        [parent] => parent.clone(),
-        [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
-    };
-
-    match cabaret.prepare_merge(&parent, change)? {
-        None => println!("nothing to land"),
-        Some(merge) if !merge.conflicts().is_empty() => {
-            for path in merge.conflicts() {
-                println!("conflicted: {path}");
-            }
-            return Err(format!("landing {change} would conflict; rebase and resolve first").into());
-        }
-        Some(merge) => {
-            // TODO(joel): archive and reparent children?
-            cabaret.commit_merge(merge, format!("land {change}"))?;
-            println!("landed {change} into {parent}");
         }
     }
     Ok(())

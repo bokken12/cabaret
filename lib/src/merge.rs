@@ -40,9 +40,31 @@ impl Cabaret {
             None => Ok(None),
             Some(merge) => {
                 let conflicts = merge.conflicts().to_vec();
-                self.commit_merge(merge, format!("rebase onto {onto}"))?;
+                self.commit_merge(merge, format!("rebase {change} onto {onto}"))?;
                 Ok(Some(conflicts))
             }
+        }
+    }
+
+    // TODO(joel): derived parents
+    pub fn land(&self, change: &ChangeId) -> Result<()> {
+        let parents: Vec<ChangeId> = self.change(change)?.parents.into_iter().collect();
+        let parent = match parents.as_slice() {
+            [] => return Err(format!("{change} has no parents").into()),
+            [parent] => parent,
+            [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
+        };
+
+        match self.prepare_merge(parent, change)? {
+            None => Err(format!("{change} has nothing to land").into()),
+            Some(merge) => match merge.conflicts() {
+                [_, ..] => return Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
+                [] => {
+                    // TODO(joel): archive and reparent children
+                    self.commit_merge(merge, format!("land {change} into {parent}"))?;
+                    Ok(())
+                }
+            },
         }
     }
 
