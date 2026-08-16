@@ -10,7 +10,7 @@ use gix::{
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, Revision, TreeId},
+    types::{ChangeId, Liveness, Revision, TreeId},
 };
 
 /// A merge computed but not yet committed; drop it to abandon the merge.
@@ -47,21 +47,31 @@ impl Cabaret {
     }
 
     // TODO(joel): derived parents
-    pub fn land(&self, change: &ChangeId) -> Result<()> {
-        let parents: Vec<ChangeId> = self.change(change)?.parents.into_iter().collect();
-        let parent = match parents.as_slice() {
-            [] => return Err(format!("{change} has no parents").into()),
-            [parent] => parent,
-            [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
+    pub fn land(&self, id: &ChangeId) -> Result<()> {
+        let change = self.change(id)?;
+
+        let do_archive = match change.liveness {
+            Liveness::Archived => return Err(format!("{id} is archived").into()),
+            Liveness::Live => true,
+            Liveness::Permanent => false,
         };
 
-        match self.prepare_merge(parent, change)? {
-            None => Err(format!("{change} has nothing to land").into()),
+        let parents: Vec<&ChangeId> = change.parents.iter().collect();
+        let parent = match parents.as_slice() {
+            [] => return Err(format!("{id} has no parents").into()),
+            [parent] => parent,
+            [_, _, ..] => return Err(format!("{id} has multiple parents; cannot land").into()),
+        };
+
+        match self.prepare_merge(parent, id)? {
+            None => Err(format!("{id} has nothing to land").into()),
             Some(merge) => match merge.conflicts() {
-                [_, ..] => return Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
+                [_, ..] => return Err(format!("{id} conflicts with {parent}; rebase and resolve first").into()),
                 [] => {
-                    // TODO(joel): archive and reparent children
-                    self.commit_merge(merge, format!("land {change} into {parent}"))?;
+                    if do_archive {
+                        // TODO(joel): archive and reparent children
+                    }
+                    self.commit_merge(merge, format!("land {id} into {parent}"))?;
                     Ok(())
                 }
             },
