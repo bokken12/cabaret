@@ -69,7 +69,8 @@ impl Cabaret {
                 [_, ..] => return Err(format!("{id} conflicts with {parent}; rebase and resolve first").into()),
                 [] => {
                     if do_archive {
-                        // TODO(joel): archive and reparent children
+                        self.set_liveness(id, Liveness::Archived)?;
+                        // TODO(joel): reparent children
                     }
                     self.commit_merge(merge, format!("land {id} into {parent}"))?;
                     Ok(())

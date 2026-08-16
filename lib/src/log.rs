@@ -181,12 +181,23 @@ impl Cabaret {
         self.record(change, LogAction::RemoveOwner { owner: owner.clone() })
     }
 
-    pub fn set_title(&self, change: &ChangeId, title: Option<String>) -> Result<()> {
-        self.record(change, LogAction::SetTitle { title })
-    }
-
     pub fn set_description(&self, change: &ChangeId, description: Option<String>) -> Result<()> {
         self.record(change, LogAction::SetDescription { description })
+    }
+
+    pub fn set_liveness(&self, change: &ChangeId, liveness: Liveness) -> Result<()> {
+        self.record(change, LogAction::SetLiveness { liveness })
+    }
+
+    pub fn set_owners(&self, change: &ChangeId, owners: &BTreeSet<Identity>) -> Result<()> {
+        let current = self.change(change)?.owners;
+        for owner in current.difference(owners) {
+            self.remove_owner(change, owner)?;
+        }
+        for owner in owners.difference(&current) {
+            self.add_owner(change, owner)?;
+        }
+        Ok(())
     }
 
     pub fn set_parents(&self, change: &ChangeId, parents: &BTreeSet<ChangeId>) -> Result<()> {
@@ -200,14 +211,7 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn set_owners(&self, change: &ChangeId, owners: &BTreeSet<Identity>) -> Result<()> {
-        let current = self.change(change)?.owners;
-        for owner in current.difference(owners) {
-            self.remove_owner(change, owner)?;
-        }
-        for owner in owners.difference(&current) {
-            self.add_owner(change, owner)?;
-        }
-        Ok(())
+    pub fn set_title(&self, change: &ChangeId, title: Option<String>) -> Result<()> {
+        self.record(change, LogAction::SetTitle { title })
     }
 }

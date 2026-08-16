@@ -191,7 +191,7 @@ pub enum Liveness {
 }
 
 // TODO-someday(joel): consider attaching methods to change? How to properly control lifecycle?
-// TODO-someday(joel): rename? metdata? info? log data?
+// TODO-someday(joel): rename? metadata? info? log data?
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Change {
     // TODO-someday(joel): add other relevant data
