@@ -1,8 +1,7 @@
-mod fixture;
-
 use cabaret_lib::{Identity, render_home};
 use expect_test::expect;
-use fixture::Fixture;
+
+use super::fixture::Fixture;
 
 fn alice() -> Identity { Identity("alice@example.com".into()) }
 
