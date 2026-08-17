@@ -65,9 +65,9 @@ impl Fixture {
         self.commit_tree(branch, write_tree(self.repo(), &files), &[])
     }
 
-    /// Create `change` on `parent` through the real creation path.
-    pub fn create(&self, change: &str, parent: &str) {
-        self.cabaret.create_change(&change.parse().unwrap(), &parent.parse().unwrap()).unwrap();
+    /// Create `change` on `parent` owned by `owner`, through the real creation path.
+    pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
+        self.cabaret.create_change(&change.parse().unwrap(), &parent.parse().unwrap(), owner).unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
@@ -204,12 +204,10 @@ fn write_tree(repo: &gix::Repository, files: &BTreeMap<String, String>) -> TreeI
 pub fn duo() -> Fixture {
     let fixture = Fixture::new();
     fixture.root("main", &[("base.txt", "base\n")]);
-    fixture.create("infra", "main");
+    fixture.create("infra", "main", &bob());
     fixture.extend("infra", &[("infra.txt", "infra\n")]);
-    fixture.own("infra", &bob());
-    fixture.create("feature", "infra");
+    fixture.create("feature", "infra", &alice());
     fixture.extend("feature", &[("feature.txt", "feature\n")]);
-    fixture.own("feature", &alice());
     fixture.checkout("feature");
     fixture
 }
@@ -239,37 +237,30 @@ pub fn troupe() -> Fixture {
     let fixture = Fixture::new();
     fixture.root("main", &[("README.md", "# demo\n"), ("src/app.rs", "fn main() {}\n")]);
 
-    fixture.create("infra-core", "main");
+    fixture.create("infra-core", "main", &alice());
     fixture.extend("infra-core", &[("src/infra.rs", "pub fn plumb() {}\n")]);
-    fixture.own("infra-core", &alice());
     fixture.own("infra-core", &bob());
     fixture.title("infra-core", "Core plumbing");
 
-    fixture.create("api-routes", "infra-core");
+    fixture.create("api-routes", "infra-core", &alice());
     fixture.extend("api-routes", &[("src/api.rs", "pub fn route() {}\n")]);
-    fixture.own("api-routes", &alice());
     fixture.title("api-routes", "Route the API");
 
-    fixture.create("ui-widgets", "infra-core");
+    fixture.create("ui-widgets", "infra-core", &bob());
     fixture.extend("ui-widgets", &[("src/ui.rs", "pub fn widget() {}\n")]);
-    fixture.own("ui-widgets", &bob());
 
-    fixture.create("integration", "api-routes");
+    fixture.create("integration", "api-routes", &carol());
     fixture.cabaret.add_parent(&"integration".parse().unwrap(), &"ui-widgets".parse().unwrap()).unwrap();
     fixture.join("integration", "ui-widgets", &[("tests/e2e.rs", "#[test]\nfn ok() {}\n")]);
-    fixture.own("integration", &carol());
 
-    fixture.create("docs-polish", "main");
+    fixture.create("docs-polish", "main", &carol());
     fixture.extend("docs-polish", &[("docs/guide.md", "guide\n")]);
-    fixture.own("docs-polish", &carol());
     fixture.title("docs-polish", "Polish the guide");
-    fixture.create("release-notes", "docs-polish");
+    fixture.create("release-notes", "docs-polish", &dan());
     fixture.extend("release-notes", &[("docs/notes.md", "notes\n")]);
-    fixture.own("release-notes", &dan());
     fixture.extend("docs-polish", &[("docs/guide.md", "guide, edited\n")]);
 
-    fixture.create("experiment", "main");
-    fixture.own("experiment", &bob());
+    fixture.create("experiment", "main", &bob());
     fixture.describe("experiment", "Try the new widget layout");
 
     fixture.checkout("main");

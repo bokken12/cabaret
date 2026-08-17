@@ -16,8 +16,8 @@ pub enum DiffUnit {
 pub struct Diff {}
 
 impl Cabaret {
-    pub fn diff(unit: DiffUnit, range: &RevisionRange, relative_to: &Option<RevisionRange>) -> Diff { todo!() }
+    pub fn diff(_unit: DiffUnit, _range: &RevisionRange, _relative_to: &Option<RevisionRange>) -> Diff { todo!() }
 
     // TODO(joel): better signature? include move/copy?
-    pub fn diffs(range: &RevisionRange, relative_to: &Option<RevisionRange>) -> Vec<DiffUnit> { todo!() }
+    pub fn diffs(_range: &RevisionRange, _relative_to: &Option<RevisionRange>) -> Vec<DiffUnit> { todo!() }
 }

@@ -181,6 +181,7 @@ pub struct RevisionRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "napi", napi_derive::napi(string_enum))]
 pub enum Liveness {
     /// Intended to land
     Live,
