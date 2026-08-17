@@ -152,22 +152,22 @@ impl Fixture {
                 writeln!(out, "{branch} {}", self.short(&branch)).unwrap();
             }
         }
-        for id in &changes {
-            let change = self.cabaret.log(id).unwrap();
-            writeln!(out, "{id} {}", self.short(id)).unwrap();
-            writeln!(out, "  parents {}", words(change.parents.iter().map(ToString::to_string).collect())).unwrap();
-            if !change.owners.is_empty() {
-                writeln!(out, "  owners {}", words(change.owners.iter().map(ToString::to_string).collect())).unwrap();
+        for change in &changes {
+            let log = self.cabaret.log(change).unwrap();
+            writeln!(out, "{change} {}", self.short(change)).unwrap();
+            writeln!(out, "  parents {}", words(log.parents.iter().map(ToString::to_string).collect())).unwrap();
+            if !log.owners.is_empty() {
+                writeln!(out, "  owners {}", words(log.owners.iter().map(ToString::to_string).collect())).unwrap();
             }
-            if let Some(title) = &change.title {
+            if let Some(title) = &log.title {
                 writeln!(out, "  title {title}").unwrap();
             }
-            if let Some(description) = &change.description {
+            if let Some(description) = &log.description {
                 writeln!(out, "  description {description}").unwrap();
             }
-            let files = self.files_at(self.cabaret.tip(id).unwrap());
+            let files = self.files_at(self.cabaret.tip(change).unwrap());
             writeln!(out, "  files {}", words(files.into_keys().collect())).unwrap();
-            writeln!(out, "  step {}", self.cabaret.next_step(id).unwrap()).unwrap();
+            writeln!(out, "  step {}", self.cabaret.next_step(change).unwrap()).unwrap();
         }
         out
     }

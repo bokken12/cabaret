@@ -38,7 +38,7 @@ impl Cabaret {
     /// land and it collapses onto one.
     pub fn next_step(&self, change: &ChangeId) -> Result<NextStep> {
         let tip = self.tip(change)?;
-        let parents = self.log(change)?.parents;
+        let parents = self.parents(change)?;
         let (tip_tree, base_tree) = self.endpoint_trees(change)?;
         if self.markers_between(base_tree, tip_tree)? {
             return Ok(NextStep::FixConflicts);

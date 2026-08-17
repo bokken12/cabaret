@@ -12,6 +12,8 @@ use crate::{
     types::{ChangeId, Revision, TreeId},
 };
 
+// TODO(joel): merge this file into change.rs
+
 // TODO(joel): this seems like the wrong representation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Base {
@@ -27,7 +29,7 @@ impl Cabaret {
     /// The base of `change`: the commit its diff is computed against.
     pub fn base(&self, change: &ChangeId) -> Result<Base> {
         let tip = self.tip(change)?;
-        let parents = self.log(change)?.parents;
+        let parents = self.parents(change)?;
         let mut incorporated = Vec::with_capacity(parents.len());
         for parent in &parents {
             incorporated.push((parent, self.incorporated(change, tip, parent)?));

@@ -30,6 +30,7 @@ pub struct HomeGraph {
 impl Cabaret {
     /// Every open change `viewer` owns, plus all open ancestors as unowned context.
     pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
+        // TODO(joel): fix parents
         let mut open = BTreeMap::new();
         for id in self.changes()? {
             let log = self.log(&id)?;

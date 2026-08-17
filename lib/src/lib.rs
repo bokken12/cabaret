@@ -1,5 +1,6 @@
 mod base;
 mod cabaret;
+mod change;
 mod diff;
 mod error;
 mod home;

@@ -33,7 +33,7 @@ impl PreparedMerge {
 impl Cabaret {
     // Returns conflicts
     pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Option<Vec<String>>> {
-        if !self.log(change)?.parents.contains(onto) {
+        if !self.parents(change)?.contains(onto) {
             return Err(format!("{onto} is not a parent of {change}").into());
         }
         match self.prepare_merge(change, onto)? {
@@ -47,32 +47,33 @@ impl Cabaret {
     }
 
     // TODO(joel): derived parents
-    pub fn land(&self, id: &ChangeId) -> Result<()> {
-        let log = self.log(id)?;
+    pub fn land(&self, change: &ChangeId) -> Result<()> {
+        let log = self.log(change)?;
 
+        // TODO(joel): split validation and check
         let do_archive = match log.liveness {
-            Liveness::Archived => return Err(format!("{id} is archived").into()),
+            Liveness::Archived => return Err(format!("{change} is archived").into()),
             Liveness::Live => true,
             Liveness::Permanent => false,
         };
 
-        let parents: Vec<&ChangeId> = log.parents.iter().collect();
+        let parents: Vec<ChangeId> = self.parents(change)?.into_iter().collect();
         let parent = match parents.as_slice() {
-            [] => return Err(format!("{id} has no parents").into()),
+            [] => return Err(format!("{change} has no parents").into()),
             [parent] => parent,
-            [_, _, ..] => return Err(format!("{id} has multiple parents; cannot land").into()),
+            [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
         };
 
-        match self.prepare_merge(parent, id)? {
-            None => Err(format!("{id} has nothing to land").into()),
+        match self.prepare_merge(parent, change)? {
+            None => Err(format!("{change} has nothing to land").into()),
             Some(merge) => match merge.conflicts() {
-                [_, ..] => Err(format!("{id} conflicts with {parent}; rebase and resolve first").into()),
+                [_, ..] => Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
                 [] => {
                     if do_archive {
-                        self.set_liveness(id, Liveness::Archived)?;
+                        self.set_liveness(change, Liveness::Archived)?;
                         // TODO(joel): reparent children
                     }
-                    self.commit_merge(merge, format!("land {id} into {parent}"))?;
+                    self.commit_merge(merge, format!("land {change} into {parent}"))?;
                     Ok(())
                 }
             },

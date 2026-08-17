@@ -274,7 +274,7 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Resul
     let onto = match onto {
         Some(onto) => onto,
         None => {
-            let parents: Vec<ChangeId> = cabaret.log(change)?.parents.into_iter().collect();
+            let parents: Vec<ChangeId> = cabaret.parents(change)?.into_iter().collect();
             match parents.as_slice() {
                 [] => return Err(format!("{change} has no parents").into()),
                 [parent] => parent.clone(),
