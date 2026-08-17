@@ -4,6 +4,8 @@
 //! [`troupe`], a rich graph to read — and assert about the one operation they perform.
 //! Each scene's full state is pinned by a snapshot beside its builder.
 
+// TODO(joel): fixture naming should make relationships self-evident
+
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
