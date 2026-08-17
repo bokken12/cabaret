@@ -3,6 +3,7 @@ packages:
   - vscode
 
 catalog:
+  "@biomejs/biome": 2.5.8
   "@napi-rs/cli": 3.8.6
   "@types/node": 22.20.1
   "@types/vscode": 1.125.0

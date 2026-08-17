@@ -75,8 +75,8 @@ impl Log {
             LogAction::Mark { user, file, range } => {
                 set_key(self.review_state.entry(user.clone()).or_default(), file.clone(), range)
             }
-            LogAction::RemoveOwner { owner } => self.owners.remove(&owner),
-            LogAction::RemoveParent { parent } => self.parents.remove(&parent),
+            LogAction::RemoveOwner { owner } => self.owners.remove(owner),
+            LogAction::RemoveParent { parent } => self.parents.remove(parent),
             LogAction::SetDescription { description } => set(&mut self.description, description),
             LogAction::SetLiveness { liveness } => set(&mut self.liveness, liveness),
             LogAction::SetTitle { title } => set(&mut self.title, title),

@@ -5,7 +5,12 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "check": "cargo check --workspace --all-features && pnpm --filter cabaret typecheck",
-    "lint": "cargo clippy --workspace --all-targets --all-features # TODO(joel): biome? oxlint?",
+    "lint": "cargo clippy --workspace --all-targets --all-features && biome lint .",
+    "fmt": "cargo +nightly fmt && biome format --write .",
+    "fix": "cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets --all-features && biome check --write .",
     "build": "pnpm --filter @cabaret/node build && pnpm --filter cabaret compile"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:"
   }
 }

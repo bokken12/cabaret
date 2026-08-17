@@ -1,6 +1,5 @@
-import * as vscode from "vscode";
-
 import { Cabaret, type ChangeId, type Fold, type HomeRow, type Log } from "@cabaret/node";
+import * as vscode from "vscode";
 
 const SCHEME = "cabaret";
 const HOME_URI = vscode.Uri.from({ scheme: SCHEME, path: "/home" });

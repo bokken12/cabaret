@@ -66,7 +66,7 @@ impl Cabaret {
         match self.prepare_merge(parent, id)? {
             None => Err(format!("{id} has nothing to land").into()),
             Some(merge) => match merge.conflicts() {
-                [_, ..] => return Err(format!("{id} conflicts with {parent}; rebase and resolve first").into()),
+                [_, ..] => Err(format!("{id} conflicts with {parent}; rebase and resolve first").into()),
                 [] => {
                     if do_archive {
                         self.set_liveness(id, Liveness::Archived)?;
