@@ -2,5 +2,10 @@
   "name": "cabaret-workspace",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@11.21.0"
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "check": "cargo check --workspace --all-features && pnpm --filter cabaret typecheck",
+    "lint": "cargo clippy --workspace --all-targets --all-features # TODO(joel): biome? oxlint?",
+    "build": "pnpm --filter @cabaret/node build && pnpm --filter cabaret compile"
+  }
 }
