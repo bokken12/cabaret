@@ -33,7 +33,7 @@ impl PreparedMerge {
 impl Cabaret {
     // Returns conflicts
     pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Option<Vec<String>>> {
-        if !self.change(change)?.parents.contains(onto) {
+        if !self.log(change)?.parents.contains(onto) {
             return Err(format!("{onto} is not a parent of {change}").into());
         }
         match self.prepare_merge(change, onto)? {
@@ -48,15 +48,15 @@ impl Cabaret {
 
     // TODO(joel): derived parents
     pub fn land(&self, id: &ChangeId) -> Result<()> {
-        let change = self.change(id)?;
+        let log = self.log(id)?;
 
-        let do_archive = match change.liveness {
+        let do_archive = match log.liveness {
             Liveness::Archived => return Err(format!("{id} is archived").into()),
             Liveness::Live => true,
             Liveness::Permanent => false,
         };
 
-        let parents: Vec<&ChangeId> = change.parents.iter().collect();
+        let parents: Vec<&ChangeId> = log.parents.iter().collect();
         let parent = match parents.as_slice() {
             [] => return Err(format!("{id} has no parents").into()),
             [parent] => parent,

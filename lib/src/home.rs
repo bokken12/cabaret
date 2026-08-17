@@ -32,12 +32,12 @@ impl Cabaret {
     pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
         let mut open = BTreeMap::new();
         for id in self.changes()? {
-            let change = self.change(&id)?;
-            open.insert(id, change);
+            let log = self.log(&id)?;
+            open.insert(id, log);
         }
 
         let mut include: BTreeSet<&ChangeId> =
-            open.iter().filter(|(_, change)| change.owners.contains(viewer)).map(|(id, _)| id).collect();
+            open.iter().filter(|(_, log)| log.owners.contains(viewer)).map(|(id, _)| id).collect();
         let mut frontier: VecDeque<&ChangeId> = include.iter().copied().collect();
         while let Some(id) = frontier.pop_front() {
             for parent in open[id].parents.iter().filter(|parent| open.contains_key(*parent)) {
@@ -50,12 +50,12 @@ impl Cabaret {
         let nodes = include
             .into_iter()
             .map(|id| {
-                let change = &open[id];
+                let log = &open[id];
                 let node = HomeNode {
-                    title: change.title.clone(),
-                    owned: change.owners.contains(viewer),
+                    title: log.title.clone(),
+                    owned: log.owners.contains(viewer),
                     step: self.next_step(id)?,
-                    parents: change.parents.iter().filter(|parent| open.contains_key(*parent)).cloned().collect(),
+                    parents: log.parents.iter().filter(|parent| open.contains_key(*parent)).cloned().collect(),
                 };
                 Ok((id.clone(), node))
             })

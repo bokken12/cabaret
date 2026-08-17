@@ -27,7 +27,7 @@ impl Cabaret {
     /// The base of `change`: the commit its diff is computed against.
     pub fn base(&self, change: &ChangeId) -> Result<Base> {
         let tip = self.tip(change)?;
-        let parents = self.change(change)?.parents;
+        let parents = self.log(change)?.parents;
         let mut incorporated = Vec::with_capacity(parents.len());
         for parent in &parents {
             incorporated.push((parent, self.incorporated(change, tip, parent)?));

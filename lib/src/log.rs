@@ -1,12 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 
-use gix::Repository;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{Change, ChangeId, Identity, Liveness, RepoPath, Revision, RevisionRange, TimestampMs},
+    types::{ChangeId, Identity, Liveness, RepoPath, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,8 +50,23 @@ fn set_key<K: Ord, T: PartialEq + Clone>(map: &mut BTreeMap<K, T>, k: K, val: &T
 
 fn remove_key<K: Ord, T>(map: &mut BTreeMap<K, T>, k: &K) -> bool { map.remove(k).is_some() }
 
-impl Change {
-    /// `change.apply(action)` is `true` iff `action` modifies `change`.
+/// A change's log: its stored form plus the fold of its actions.
+// TODO-someday(joel): consider how to properly control lifecycle?
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct Log {
+    pub head: Revision,
+    pub text: String,
+    // TODO-someday(joel): add other relevant data
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub liveness: Liveness,
+    pub owners: BTreeSet<Identity>,
+    pub parents: BTreeSet<ChangeId>,
+    pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
+}
+
+impl Log {
+    /// `log.apply(action)` is `true` iff `action` modifies `log`.
     pub fn apply(&mut self, action: &LogAction) -> bool {
         match action {
             LogAction::AddOwner { owner } => self.owners.insert(owner.clone()),
@@ -72,36 +86,35 @@ impl Change {
 
 const LOG_FILE: &str = "log.jsonl";
 
-struct Log {
-    head: Revision,
-    text: String,
-    change: Change,
-}
-
-impl Log {
-    fn read(repo: &Repository, change: &ChangeId) -> Result<Self> {
+impl Cabaret {
+    pub fn log(&self, change: &ChangeId) -> Result<Log> {
         let log_ref = change.log_ref();
-        let mut reference = repo.find_reference(&log_ref)?;
+        let mut reference = self.repo.find_reference(&log_ref)?;
         let commit = reference.peel_to_commit()?;
         let tree = commit.tree()?;
         let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{} has no {LOG_FILE}", log_ref.as_bstr()))?;
         let blob = entry.object()?.try_into_blob()?;
         let text = std::str::from_utf8(&blob.data)?.to_owned();
-        let mut change = Change::new();
-        for line in text.lines() {
-            let entry: LogEntry = serde_json::from_str(line)?;
-            change.apply(&entry.action);
+        let entries: Vec<LogEntry> = text.lines().map(serde_json::from_str).collect::<serde_json::Result<_>>()?;
+        let mut log = Log {
+            head: Revision(commit.id),
+            text,
+            title: None,
+            description: None,
+            liveness: Liveness::Live,
+            owners: BTreeSet::new(),
+            parents: BTreeSet::new(),
+            review_state: BTreeMap::new(),
+        };
+        for entry in &entries {
+            log.apply(&entry.action);
         }
-        Ok(Self { head: Revision(commit.id), text, change })
+        Ok(log)
     }
-}
-
-impl Cabaret {
-    pub fn change(&self, change: &ChangeId) -> Result<Change> { Ok(Log::read(&self.repo, change)?.change) }
 
     fn record(&self, change: &ChangeId, action: LogAction) -> Result<()> {
-        let mut log = Log::read(&self.repo, change)?;
-        if !log.change.apply(&action) {
+        let mut log = self.log(change)?;
+        if !log.apply(&action) {
             return Ok(());
         }
         self.append(change, log, action)
@@ -195,7 +208,7 @@ impl Cabaret {
     }
 
     pub fn set_owners(&self, change: &ChangeId, owners: &BTreeSet<Identity>) -> Result<()> {
-        let current = self.change(change)?.owners;
+        let current = self.log(change)?.owners;
         for owner in current.difference(owners) {
             self.remove_owner(change, owner)?;
         }
@@ -206,7 +219,7 @@ impl Cabaret {
     }
 
     pub fn set_parents(&self, change: &ChangeId, parents: &BTreeSet<ChangeId>) -> Result<()> {
-        let current = self.change(change)?.parents;
+        let current = self.log(change)?.parents;
         for parent in current.difference(parents) {
             self.remove_parent(change, parent)?;
         }

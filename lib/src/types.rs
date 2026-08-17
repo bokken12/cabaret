@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    str::FromStr,
-};
+use std::{fmt, str::FromStr};
 
 use gix::{
     ObjectId,
@@ -189,31 +185,4 @@ pub enum Liveness {
     Archived,
     /// Umbrella for children
     Permanent,
-}
-
-// TODO-someday(joel): consider attaching methods to change? How to properly control lifecycle?
-// TODO-someday(joel): rename? metadata? info? log data?
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-pub struct Change {
-    // TODO-someday(joel): add other relevant data
-    pub title: Option<String>,
-    pub description: Option<String>,
-    // TODO-someday(joel): convert to enum?
-    pub liveness: Liveness,
-    pub owners: BTreeSet<Identity>,
-    pub parents: BTreeSet<ChangeId>,
-    pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
-}
-
-impl Change {
-    pub fn new() -> Self {
-        Self {
-            title: None,
-            description: None,
-            liveness: Liveness::Live,
-            owners: BTreeSet::new(),
-            parents: BTreeSet::new(),
-            review_state: BTreeMap::new(),
-        }
-    }
 }

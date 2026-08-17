@@ -10,8 +10,9 @@ use napi_derive::napi;
 use crate::{
     cabaret::Cabaret,
     error::Error,
+    log::Log,
     render::{RenderedHome, render_home},
-    types::{Change, ChangeId, Identity, RepoPath, Revision},
+    types::{ChangeId, Identity, RepoPath, Revision},
 };
 
 impl ToNapiValue for RepoPath {
@@ -79,7 +80,7 @@ impl CabaretJs {
     pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
 
     #[napi]
-    pub fn change(&self, id: ChangeId) -> napi::Result<Change> { Ok(self.cabaret.change(&id)?) }
+    pub fn log(&self, id: ChangeId) -> napi::Result<Log> { Ok(self.cabaret.log(&id)?) }
 
     #[napi]
     pub fn land(&self, change: ChangeId) -> napi::Result<()> { Ok(self.cabaret.land(&change)?) }

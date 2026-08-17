@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { Cabaret, type ChangeId, type Change, type Fold, type HomeRow } from "@cabaret/node";
+import { Cabaret, type ChangeId, type Fold, type HomeRow, type Log } from "@cabaret/node";
 
 const SCHEME = "cabaret";
 const HOME_URI = vscode.Uri.from({ scheme: SCHEME, path: "/home" });
@@ -45,7 +45,7 @@ async function pickChange(cabaret: Cabaret, title: string): Promise<string | und
   return picked?.label;
 }
 
-function renderChange(id: string, info: Change): string {
+function renderChange(id: string, info: Log): string {
   const sections = [info.title === undefined ? `# ${id}` : `# ${id} — ${info.title}`];
   if (info.description !== undefined) {
     sections.push(info.description);
@@ -83,7 +83,7 @@ class PageProvider
     if (id === undefined) {
       throw new Error(`unknown page ${uri.toString()}`);
     }
-    return renderChange(id, cabaret.change(id));
+    return renderChange(id, cabaret.log(id));
   }
 
   provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] | undefined {
@@ -184,7 +184,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     command("cabaret.rebase", async (cabaret) => {
       const change = activeChangeExn(provider);
-      const parents = [...cabaret.change(change).parents];
+      const parents = [...cabaret.log(change).parents];
       // TODO(joel): use previously built matching util
       if (parents.length === 0) {
         throw new Error(`${change} has no parents`);

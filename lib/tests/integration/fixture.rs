@@ -153,7 +153,7 @@ impl Fixture {
             }
         }
         for id in &changes {
-            let change = self.cabaret.change(id).unwrap();
+            let change = self.cabaret.log(id).unwrap();
             writeln!(out, "{id} {}", self.short(id)).unwrap();
             writeln!(out, "  parents {}", words(change.parents.iter().map(ToString::to_string).collect())).unwrap();
             if !change.owners.is_empty() {

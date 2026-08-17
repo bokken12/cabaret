@@ -189,8 +189,7 @@ fn run() -> Result<()> {
                     let change = &or_current(change)?;
                     match command {
                         OwnersCommand::Show => {
-                            let change = cabaret.change(change)?;
-                            for owner in &change.owners {
+                            for owner in &cabaret.log(change)?.owners {
                                 println!("{owner}");
                             }
                         }
@@ -203,8 +202,7 @@ fn run() -> Result<()> {
                     let change = &or_current(change)?;
                     match command {
                         ParentsCommand::Show => {
-                            let change = cabaret.change(change)?;
-                            for parent in &change.parents {
+                            for parent in &cabaret.log(change)?.parents {
                                 println!("{parent}");
                             }
                         }
@@ -276,7 +274,7 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Resul
     let onto = match onto {
         Some(onto) => onto,
         None => {
-            let parents: Vec<ChangeId> = cabaret.change(change)?.parents.into_iter().collect();
+            let parents: Vec<ChangeId> = cabaret.log(change)?.parents.into_iter().collect();
             match parents.as_slice() {
                 [] => return Err(format!("{change} has no parents").into()),
                 [parent] => parent.clone(),
