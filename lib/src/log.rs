@@ -52,6 +52,7 @@ fn remove_key<K: Ord, T>(map: &mut BTreeMap<K, T>, k: &K) -> bool { map.remove(k
 
 /// A change's log: its stored form plus the fold of its actions.
 // TODO-someday(joel): consider how to properly control lifecycle?
+// TODO(joel: this should never have to cross the napi boundary
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Log {
     pub head: Revision,
