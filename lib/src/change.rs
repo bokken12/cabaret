@@ -5,6 +5,7 @@ use nonempty_collections::NEVec;
 use crate::{
     cabaret::Cabaret,
     error::Result,
+    log::LogAction,
     revision::Revision,
     types::{ChangeId, Liveness},
 };
@@ -85,6 +86,23 @@ impl Cabaret {
             .filter(|candidate| parents.iter().all(|other| *candidate == other || !self.is_ancestor(candidate, other)))
             .cloned()
             .collect())
+    }
+
+    pub fn set_archived(&self, change: &ChangeId, archived: bool) -> Result<()> {
+        // TODO(joel): warn/error if there are children
+        if self.is_permanent(change)? {
+            return Err(format!("{change} is permanent").into());
+        }
+
+        self.set_liveness(change, if archived { Liveness::Archived } else { Liveness::Live })
+    }
+
+    pub fn set_permanent(&self, change: &ChangeId, permanent: bool) -> Result<()> {
+        if self.is_archived(change)? {
+            return Err(format!("{change} is archived").into());
+        }
+
+        self.set_liveness(change, if permanent { Liveness::Permanent } else { Liveness::Live })
     }
 
     pub fn tip(&self, change: &ChangeId) -> Result<Revision> {

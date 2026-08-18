@@ -58,48 +58,45 @@ enum ParentsCommand {
 
 #[derive(Subcommand)]
 enum ChangeCommand {
+    Archive {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(long)]
+        undo: bool,
+    },
     Create {
-        /// ID of the new change.
         id: ChangeId,
-        /// Parent of the new change; defaults to the current change.
         #[arg(long, add = change_completer())]
         parent: Option<ChangeId>,
     },
     Diff {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         // TODO-someday(joel): cleverer repo-relative path completion
-        /// Files or globs to diff; diffs everything when omitted.
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
     Land {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
     Mark {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
     Owners {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, global = true, add = change_completer())]
         change: Option<ChangeId>,
         #[command(subcommand)]
         command: OwnersCommand,
     },
     Parents {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, global = true, add = change_completer())]
         change: Option<ChangeId>,
         #[command(subcommand)]
         command: ParentsCommand,
     },
     Rebase {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
@@ -107,10 +104,8 @@ enum ChangeCommand {
     },
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
-        /// Change to operate on; defaults to the current change.
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
-        /// Files or globs to review; reviews everything when omitted.
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
@@ -136,15 +131,12 @@ enum Command {
         command: ChangeCommand,
     },
     Commit {
-        /// Files or globs to commit; commits everything when omitted.
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
     Config,
     Fetch,
-    /// Show your open changes as a stack graph.
     Home {
-        /// Identity to view as; defaults to git's user.email.
         #[arg(long = "as")]
         viewer: Option<Identity>,
     },
@@ -183,6 +175,7 @@ fn run() -> Result<()> {
                 None => cabaret.current_change(),
             };
             match command {
+                ChangeCommand::Archive { change, undo } => cabaret.set_archived(&or_current(change)?, !undo)?,
                 ChangeCommand::Create { id, parent } => {
                     let parent = or_current(parent)?;
                     cabaret.create_change(&id, &parent, &cabaret.identity()?)?;
