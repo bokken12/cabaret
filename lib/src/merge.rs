@@ -129,10 +129,6 @@ impl Cabaret {
         Ok(Some(workspace))
     }
 
-    pub fn tip(&self, change: &ChangeId) -> Result<Revision> {
-        Ok(Revision(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id))
-    }
-
     /// Conflict style and rename detection are forced rather than read from config so the
     /// committed conflict text is identical no matter whose clone performs the merge.
     pub fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {

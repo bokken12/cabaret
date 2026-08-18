@@ -38,7 +38,11 @@ pub struct RevisionRange {
 }
 
 impl Cabaret {
-    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
-        Ok(self.repo.merge_bases_many(predecessor.0, &[successor.0])?.iter().any(|base| *base == predecessor.0))
+    pub fn rev_merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
+        Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))
+    }
+
+    pub fn rev_is_ancestor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+        Ok(self.repo.merge_base(predecessor.0, successor.0)? == predecessor.0)
     }
 }

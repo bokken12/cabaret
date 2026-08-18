@@ -1,4 +1,3 @@
-pub mod base;
 pub mod cabaret;
 pub mod change;
 pub mod diff;

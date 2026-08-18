@@ -17,15 +17,17 @@ pub enum Base {
 }
 
 impl Cabaret {
-    // pub fn base(&self, change: &ChangeId) -> Base {
-    //     let parents: Vec<_> = self.parents(change)?.into_iter().collect();
+    pub fn base(&self, change: &ChangeId) -> Result<Base> {
+        let mut bases =
+            self.parents(change)?.iter().map(|parent| self.tip(parent)).collect::<Result<Vec<Revision>>>()?;
+        bases.sort_unstable();
+        bases.dedup();
 
-    //     match parents.as_slice() {
-    //         [] => Base::Root,
-    //         [parent] => todo!(),
-    //         _ => todo!(),
-    //     }
-    // }
+        match NEVec::try_from_vec(bases) {
+            None => Ok(Base::Root),
+            Some(bases) => Ok(Base::Merge(bases)),
+        }
+    }
 
     // TODO(jm): decide on if this should be reflexive
     pub fn is_ancestor(&self, ancestor: &ChangeId, descendant: &ChangeId) -> bool {
@@ -73,6 +75,10 @@ impl Cabaret {
             .filter(|candidate| parents.iter().all(|other| *candidate == other || !self.is_ancestor(candidate, other)))
             .cloned()
             .collect())
+    }
+
+    pub fn tip(&self, change: &ChangeId) -> Result<Revision> {
+        Ok(Revision(self.repo.find_reference(&change.branch_ref())?.peel_to_commit()?.id))
     }
 
     /// `title(change)` is `change`'s title if set, otherwise its ID.
