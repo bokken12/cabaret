@@ -5,7 +5,6 @@ use nonempty_collections::NEVec;
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    log::LogAction,
     revision::Revision,
     types::{ChangeId, Liveness},
 };
