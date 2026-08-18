@@ -49,14 +49,9 @@ impl Cabaret {
 
     // TODO(joel): derived parents
     pub fn land(&self, change: &ChangeId) -> Result<()> {
-        let log = self.log(change)?;
-
-        // TODO(joel): split validation and check
-        let do_archive = match log.liveness {
-            Liveness::Archived => return Err(format!("{change} is archived").into()),
-            Liveness::Live => true,
-            Liveness::Permanent => false,
-        };
+        if self.is_archived(change)? {
+            return Err(format!("{change} is archived").into());
+        }
 
         let parents: Vec<ChangeId> = self.parents(change)?.into_iter().collect();
         let parent = match parents.as_slice() {
@@ -70,7 +65,7 @@ impl Cabaret {
             Some(merge) => match merge.conflicts() {
                 [_, ..] => Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
                 [] => {
-                    if do_archive {
+                    if !self.is_permanent(change)? {
                         self.set_liveness(change, Liveness::Archived)?;
                         // TODO(joel): reparent children
                     }
