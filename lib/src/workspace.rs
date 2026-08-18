@@ -27,6 +27,21 @@ impl Cabaret {
         Ok(None)
     }
 
+    /// The workspace holding `change`'s branch, if any, refusing when it has uncommitted changes.
+    pub fn clean_workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
+        let Some(workspace) = self.workspace_holding(&change.branch_ref())? else {
+            return Ok(None);
+        };
+        if workspace.is_dirty()? {
+            return Err(format!(
+                "{change} has uncommitted changes in workspace {}",
+                workspace.workdir().expect("held branches have a workdir").display()
+            )
+            .into());
+        }
+        Ok(Some(workspace))
+    }
+
     /// Linked workspaces and the change each has checked out, sorted by change.
     pub fn workspaces(&self) -> Result<Vec<(ChangeId, PathBuf)>> {
         let mut workspaces = Vec::new();
