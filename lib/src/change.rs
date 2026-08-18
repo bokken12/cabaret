@@ -31,7 +31,7 @@ impl Cabaret {
         }
     }
 
-    // TODO(jm): decide on if this should be reflexive
+    // TODO(joel): decide on if this should be reflexive
     pub fn is_ancestor(&self, ancestor: &ChangeId, descendant: &ChangeId) -> bool {
         ancestor == descendant
             || match self.log(descendant) {

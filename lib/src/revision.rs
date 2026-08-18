@@ -42,6 +42,7 @@ impl Cabaret {
         Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))
     }
 
+    // TODO(joel): rename to `is_predecessor`?
     pub fn rev_is_ancestor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
         Ok(self.repo.merge_base(predecessor.0, successor.0)? == predecessor.0)
     }
