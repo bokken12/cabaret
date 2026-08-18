@@ -8,6 +8,7 @@ use crate::{
 };
 
 pub struct Cabaret {
+    // TODO(joel): ThreadSafeRepository? Consider concurrency for napi/UIs
     pub repo: Repository,
 }
 
