@@ -89,6 +89,7 @@ impl Log {
 const LOG_FILE: &str = "log.jsonl";
 
 impl Cabaret {
+    // TODO(joel): cache same-change log queries
     pub fn log(&self, change: &ChangeId) -> Result<Log> {
         let log_ref = change.log_ref();
         let mut reference = self.repo.find_reference(&log_ref)?;
