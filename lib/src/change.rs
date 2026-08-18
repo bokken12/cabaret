@@ -11,8 +11,6 @@ use crate::{
 
 pub enum Base {
     Root,
-    Single(Revision),
-    // TODO-someday(joel): NSVec
     Merge(NEVec<Revision>),
 }
 
