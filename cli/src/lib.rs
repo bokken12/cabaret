@@ -3,27 +3,15 @@ use cabaret_lib::{
     error::Result,
     render::render_home,
     sync::SyncOutcome,
-    types::{ChangeId, Identity, Pathspec},
+    types::{Identity, Pathspec},
 };
 use clap::{Parser, Subcommand, ValueHint};
 
 pub mod change;
 pub mod completion;
+pub mod workspace;
 
-use crate::{change::ChangeCommand, completion::change_completer};
-
-#[derive(Subcommand)]
-enum WorkspaceCommand {
-    Add {
-        #[arg(add = change_completer())]
-        change: ChangeId,
-    },
-    Remove {
-        #[arg(add = change_completer())]
-        change: ChangeId,
-    },
-    List,
-}
+use crate::{change::ChangeCommand, workspace::WorkspaceCommand};
 
 #[derive(Subcommand)]
 enum Command {
@@ -72,21 +60,7 @@ pub fn run() -> Result<()> {
                 print!("{}", render_home(&graph)?.text);
             }
         }
-        Command::Workspace { command } => match command {
-            WorkspaceCommand::Add { change } => {
-                let path = cabaret.add_workspace(&change)?;
-                println!("added workspace {change} at {}", path.display());
-            }
-            WorkspaceCommand::Remove { change } => {
-                let path = cabaret.remove_workspace(&change)?;
-                println!("removed workspace {change} at {}", path.display());
-            }
-            WorkspaceCommand::List => {
-                for (change, path) in cabaret.workspaces()? {
-                    println!("{change} {}", path.display());
-                }
-            }
-        },
+        Command::Workspace { command } => command.run(cabaret)?,
     }
 
     Ok(())
