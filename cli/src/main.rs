@@ -80,6 +80,12 @@ enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
+    MakePermament {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(long)]
+        undo: bool,
+    },
     Mark {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -183,6 +189,7 @@ fn run() -> Result<()> {
                 }
                 ChangeCommand::Diff { .. } => todo!(),
                 ChangeCommand::Land { change } => cabaret.land(&or_current(change)?)?,
+                ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
                 ChangeCommand::Mark { .. } => todo!(),
                 ChangeCommand::Owners { change, command } => {
                     let change = &or_current(change)?;
