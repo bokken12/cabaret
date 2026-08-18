@@ -18,8 +18,12 @@ pub enum Base {
 
 impl Cabaret {
     pub fn base(&self, change: &ChangeId) -> Result<Base> {
-        let mut bases =
-            self.parents(change)?.iter().map(|parent| self.tip(parent)).collect::<Result<Vec<Revision>>>()?;
+        let tip = self.tip(change)?;
+        let mut bases = self
+            .parents(change)?
+            .iter()
+            .map(|parent| Ok(self.merge_base(tip, self.tip(parent)?)?))
+            .collect::<Result<Vec<Revision>>>()?;
         bases.sort_unstable();
         bases.dedup();
 
