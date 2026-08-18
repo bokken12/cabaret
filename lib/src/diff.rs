@@ -1,7 +1,4 @@
-use crate::{
-    cabaret::Cabaret,
-    types::{RepoPath, RevisionRange},
-};
+use crate::{cabaret::Cabaret, revision::RevisionRange, types::RepoPath};
 
 // TODO(joel): rename
 pub enum DiffUnit {

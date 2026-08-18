@@ -1,4 +1,4 @@
-use cabaret_lib::render_home;
+use cabaret_lib::render::render_home;
 use expect_test::expect;
 
 use super::fixture::{carol, troupe};

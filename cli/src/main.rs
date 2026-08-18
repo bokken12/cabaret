@@ -1,6 +1,12 @@
 use std::{ffi::OsStr, process::ExitCode};
 
-use cabaret_lib::{Cabaret, ChangeId, Identity, Pathspec, Result, SyncOutcome, render_home};
+use cabaret_lib::{
+    cabaret::Cabaret,
+    error::Result,
+    render::render_home,
+    sync::SyncOutcome,
+    types::{ChangeId, Identity, Pathspec},
+};
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::{ArgValueCompleter, CompleteEnv, CompletionCandidate};
 

@@ -9,11 +9,7 @@ use gix::{
     refs::FullName,
 };
 
-use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    types::{ChangeId, Revision},
-};
+use crate::{cabaret::Cabaret, error::Result, revision::Revision, types::ChangeId};
 
 impl Cabaret {
     // TODO(joel): is this expensive?

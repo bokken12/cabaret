@@ -4,7 +4,8 @@ use crate::{
     cabaret::Cabaret,
     error::Result,
     merge::checkout,
-    types::{ChangeId, Revision, TreeId},
+    revision::Revision,
+    types::{ChangeId, TreeId},
 };
 
 /// What syncing a branch with its remote counterpart did, or why it did nothing.

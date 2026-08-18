@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, Identity, Liveness, RepoPath, Revision, RevisionRange, TimestampMs},
+    revision::{Revision, RevisionRange},
+    types::{ChangeId, Identity, Liveness, RepoPath, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

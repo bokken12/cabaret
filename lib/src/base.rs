@@ -9,7 +9,8 @@ use crate::{
     cabaret::Cabaret,
     error::Result,
     merge::unresolved_paths,
-    types::{ChangeId, Revision, TreeId},
+    revision::Revision,
+    types::{ChangeId, TreeId},
 };
 
 // TODO(joel): merge this file into change.rs

@@ -12,7 +12,8 @@ use crate::{
     error::Error,
     log::Log,
     render::{RenderedHome, render_home},
-    types::{ChangeId, Identity, RepoPath, Revision},
+    revision::Revision,
+    types::{ChangeId, Identity, RepoPath},
 };
 
 impl ToNapiValue for RepoPath {

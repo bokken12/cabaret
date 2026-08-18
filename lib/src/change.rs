@@ -5,7 +5,8 @@ use nonempty_collections::NEVec;
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, Liveness, Revision},
+    revision::Revision,
+    types::{ChangeId, Liveness},
 };
 
 pub enum Base {
