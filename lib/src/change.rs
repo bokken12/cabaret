@@ -49,10 +49,13 @@ impl Cabaret {
         }
     }
 
-    pub fn is_landable(&self, change: &ChangeId) -> Result<bool> {
+    pub fn land_into(&self, change: &ChangeId) -> Result<Option<ChangeId>> {
         // TODO(joel): check for conflicts
-        Ok(self.parents(change)?.len() == 1)
+        let mut parents = self.parents(change)?;
+        if parents.len() == 1 { Ok(Some(parents.pop_first().unwrap())) } else { Ok(None) }
     }
+
+    pub fn is_landable(&self, change: &ChangeId) -> Result<bool> { Ok(self.land_into(change)?.is_some()) }
 
     pub fn is_permanent(&self, change: &ChangeId) -> Result<bool> {
         match self.log(change)?.liveness {

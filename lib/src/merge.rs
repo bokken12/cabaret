@@ -53,14 +53,11 @@ impl Cabaret {
             return Err(format!("{change} is archived").into());
         }
 
-        let parents: Vec<ChangeId> = self.parents(change)?.into_iter().collect();
-        let parent = match parents.as_slice() {
-            [] => return Err(format!("{change} has no parents").into()),
-            [parent] => parent,
-            [_, _, ..] => return Err(format!("{change} has multiple parents; cannot land").into()),
+        let Some(parent) = self.land_into(change)? else {
+            return Err(format!("{change} must have exactly 1 parent to land").into());
         };
 
-        match self.prepare_merge(parent, change)? {
+        match self.prepare_merge(&parent, change)? {
             None => Err(format!("{change} has nothing to land").into()),
             Some(merge) => match merge.conflicts() {
                 [_, ..] => Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
