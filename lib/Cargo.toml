@@ -16,6 +16,7 @@ napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 gix.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
+nonempty-collections.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

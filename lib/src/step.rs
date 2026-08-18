@@ -50,7 +50,7 @@ impl Cabaret {
             }
         }
         for parent in &parents {
-            if !self.is_ancestor(self.tip(parent)?, tip)? {
+            if !self.is_ancestor_(self.tip(parent)?, tip)? {
                 return Ok(NextStep::Rebase);
             }
         }
