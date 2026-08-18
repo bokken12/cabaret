@@ -1,8 +1,7 @@
-use std::{collections::BTreeSet, fs, num::NonZeroU8, path::Path};
+use std::num::NonZeroU8;
 
 use gix::{
     Repository,
-    bstr::{BString, ByteSlice},
     merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     refs::FullName,
 };
@@ -17,6 +16,7 @@ use crate::{
 /// A merge computed but not yet committed; drop it to abandon the merge.
 #[derive(Debug)]
 pub struct PreparedMerge {
+    // TODO(joel): change?
     branch: FullName,
     /// The workspace holding `branch`, whose checkout the commit must refresh.
     workspace: Option<Repository>,
@@ -109,7 +109,8 @@ impl Cabaret {
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
         self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
         if let Some(workspace) = merge.workspace {
-            checkout(&workspace, merge.tree)?;
+            let cabaret = Cabaret { repo: workspace };
+            cabaret.checkout(merge.tree)?;
         }
         Ok(())
     }
@@ -122,39 +123,6 @@ impl Cabaret {
         options.blob_merge.text.conflict = Conflict::Keep { style: ConflictStyle::ZealousDiff3, marker_size };
         Ok(options.into())
     }
-}
-
-/// Make the (clean) worktree and index of `repo`'s workspace match `tree`.
-// TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
-// file on each merge won't fly in a large repository.
-pub fn checkout(repo: &Repository, tree: TreeId) -> Result<()> {
-    let workdir = repo.workdir().ok_or("workspace has no working directory")?;
-    let mut index = repo.index_from_tree(&tree.0)?;
-
-    let old = repo.open_index()?;
-    let keep: BTreeSet<BString> = index.entries().iter().map(|entry| entry.path(&index).to_owned()).collect();
-    for entry in old.entries() {
-        let path = entry.path(&old);
-        if !keep.contains(path.as_bstr()) {
-            let path = workdir.join(gix::path::from_bstr(path));
-            fs::remove_file(&path)?;
-            prune_empty_dirs(workdir, path.parent().expect("worktree files have a parent"));
-        }
-    }
-
-    let mut options = repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
-    options.overwrite_existing = true;
-    gix::worktree::state::checkout(
-        &mut index,
-        workdir,
-        repo.objects.clone().into_arc()?,
-        &gix::progress::Discard,
-        &gix::progress::Discard,
-        &gix::interrupt::IS_INTERRUPTED,
-        options,
-    )?;
-    index.write(gix::index::write::Options::default())?;
-    Ok(())
 }
 
 pub fn default_marker_size() -> NonZeroU8 {
@@ -173,10 +141,4 @@ pub fn unresolved_paths(merge: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
     paths.sort();
     paths.dedup();
     paths
-}
-
-fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
-    while dir != workdir && fs::remove_dir(dir).is_ok() {
-        dir = dir.parent().expect("pruning stops at the worktree root");
-    }
 }

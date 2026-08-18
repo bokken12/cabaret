@@ -3,7 +3,6 @@ use gix::refs::{FullName, Target, transaction::PreviousValue};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    merge::checkout,
     revision::Revision,
     types::{ChangeId, TreeId},
 };
@@ -70,7 +69,8 @@ impl Cabaret {
         )?;
         if let Some(workspace) = &workspace {
             let tree = TreeId(self.repo.find_commit(remote)?.tree_id()?.detach());
-            checkout(workspace, tree)?;
+            let cabaret = Cabaret { repo: workspace.clone() };
+            cabaret.checkout(tree)?;
         }
         Ok(SyncOutcome::FastForwarded)
     }
