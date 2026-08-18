@@ -39,6 +39,7 @@ pub struct RevisionRange {
 
 impl Cabaret {
     pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
+        // TODO(joel): use `merge_base_with_graph`
         Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))
     }
 

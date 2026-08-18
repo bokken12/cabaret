@@ -1,5 +1,6 @@
 use std::{fmt, fmt::Display};
 
+// TODO(joel): consider including a backtrace for debugging?
 pub struct Error(String);
 
 pub type Result<T> = std::result::Result<T, Error>;

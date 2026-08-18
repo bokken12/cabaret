@@ -15,6 +15,7 @@ pub enum Base {
 }
 
 impl Cabaret {
+    /// `base(change)` gives the base that `change`'s tip should be diffed against, using`change` and its parents.
     pub fn base(&self, change: &ChangeId) -> Result<Base> {
         let tip = self.tip(change)?;
         let mut bases = self
@@ -32,6 +33,7 @@ impl Cabaret {
     }
 
     // TODO(joel): decide on if this should be reflexive
+    /// `is_ancestor(a, b)` IFF `a` is a parent of `b` (transitive + reflexive).
     pub fn is_ancestor(&self, ancestor: &ChangeId, descendant: &ChangeId) -> bool {
         ancestor == descendant
             || match self.log(descendant) {
@@ -47,6 +49,11 @@ impl Cabaret {
         }
     }
 
+    pub fn is_landable(&self, change: &ChangeId) -> Result<bool> {
+        // TODO(joel): check for conflicts
+        Ok(self.parents(change)?.len() == 1)
+    }
+
     pub fn is_permanent(&self, change: &ChangeId) -> Result<bool> {
         match self.log(change)?.liveness {
             Liveness::Permanent => Ok(true),
@@ -54,6 +61,7 @@ impl Cabaret {
         }
     }
 
+    /// `parents(change)` is the minimal set of unarchived parents for `change`.
     pub fn parents(&self, change: &ChangeId) -> Result<BTreeSet<ChangeId>> {
         let mut frontier: Vec<_> = self.log(change)?.parents.into_iter().collect();
         let mut parents = BTreeSet::new();
