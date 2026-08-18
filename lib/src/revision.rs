@@ -3,6 +3,8 @@ use std::fmt;
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::{cabaret::Cabaret, error::Result};
+
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Revision(pub ObjectId);
@@ -33,4 +35,10 @@ impl<'de> Deserialize<'de> for Revision {
 pub struct RevisionRange {
     pub base: Revision,
     pub head: Revision,
+}
+
+impl Cabaret {
+    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+        Ok(self.repo.merge_bases_many(predecessor.0, &[successor.0])?.iter().any(|base| *base == predecessor.0))
+    }
 }

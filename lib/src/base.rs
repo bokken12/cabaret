@@ -63,7 +63,8 @@ impl Cabaret {
         let mut deepest = Vec::new();
         'candidates: for (i, &(parent, revision)) in incorporated.iter().enumerate() {
             for (j, &(_, other)) in incorporated.iter().enumerate() {
-                let dominated = if revision == other { j < i } else { j != i && self.is_ancestor_(revision, other)? };
+                let dominated =
+                    if revision == other { j < i } else { j != i && self.is_predecessor(revision, other)? };
                 if dominated {
                     continue 'candidates;
                 }
@@ -71,10 +72,6 @@ impl Cabaret {
             deepest.push((parent, revision));
         }
         Ok(deepest)
-    }
-
-    pub fn is_ancestor_(&self, ancestor: Revision, descendant: Revision) -> Result<bool> {
-        Ok(self.repo.merge_bases_many(ancestor, &[descendant.0])?.iter().any(|base| *base == ancestor.0))
     }
 
     /// Merge the incorporated revisions pairwise in parent-name order into a synthetic base

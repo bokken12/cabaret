@@ -16,6 +16,7 @@ use crate::{
     types::{ChangeId, Identity, RepoPath},
 };
 
+// TODO(joel): rid myself of unsafe
 impl ToNapiValue for RepoPath {
     unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> napi::Result<sys::napi_value> {
         unsafe { String::to_napi_value(env, val.to_string()) }
