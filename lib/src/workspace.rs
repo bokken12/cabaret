@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
@@ -6,7 +7,8 @@ use std::{
 
 use gix::{
     Repository,
-    bstr::{BString, ByteSlice},
+    bstr::{BStr, BString, ByteSlice},
+    refs::TargetRef,
 };
 
 use crate::{
@@ -15,6 +17,35 @@ use crate::{
     revision::Revision,
     types::{ChangeId, TreeId},
 };
+
+pub struct WorkspaceId(BString);
+
+pub struct WorkspaceIdRef(BStr);
+
+impl WorkspaceIdRef {
+    pub(crate) fn new_unchecked(v: &BStr) -> &Self {
+        // SAFETY: WorkspaceIdRef is transparent and equivalent to a &BStr if provided as reference
+        #[expect(unsafe_code)]
+        unsafe {
+            std::mem::transmute(v)
+        }
+    }
+}
+
+impl Borrow<WorkspaceIdRef> for WorkspaceId {
+    #[inline]
+    fn borrow(&self) -> &WorkspaceIdRef { WorkspaceIdRef::new_unchecked(self.0.as_bstr()) }
+}
+
+impl AsRef<WorkspaceIdRef> for WorkspaceId {
+    fn as_ref(&self) -> &WorkspaceIdRef { self.borrow() }
+}
+
+impl ToOwned for WorkspaceIdRef {
+    type Owned = WorkspaceId;
+
+    fn to_owned(&self) -> Self::Owned { WorkspaceId(self.0.to_owned()) }
+}
 
 fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
     while dir != workdir && fs::remove_dir(dir).is_ok() {
@@ -56,20 +87,31 @@ impl Cabaret {
         Ok(())
     }
 
-    // TODO(joel): is this expensive?
+    // TODO(joel):
     /// The workspace repository that has `branch` checked out, if any.
     pub fn workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
-        let mut repos = vec![self.repo.main_repo()?];
         for proxy in self.repo.worktrees()? {
-            repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
-        }
-        let branch = change.branch_ref();
-        for repo in repos {
-            if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == branch) {
-                return Ok(Some(repo));
+            let name = proxy.id();
+            let head = self.repo.find_reference(&format!("worktrees/{name}/HEAD"))?;
+
+            let TargetRef::Symbolic(branch) = head.target() else {
+                continue;
+            };
+
+            if branch == change.branch_ref().as_ref() {
+                // TODO(joel): construct the repo
+                return Ok(None);
             }
         }
+
         Ok(None)
+        // let branch = change.branch_ref();
+        // for repo in repos {
+        //     if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == branch) {
+        //         return Ok(Some(repo));
+        //     }
+        // }
+        // Ok(None)
     }
 
     /// The workspace holding `change`'s branch, if any, refusing when it has uncommitted changes.
