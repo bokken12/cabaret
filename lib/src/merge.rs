@@ -15,7 +15,6 @@ use crate::{
 /// A merge computed but not yet committed; drop it to abandon the merge.
 #[derive(Debug)]
 pub struct PreparedMerge {
-    // TODO(joel): change?
     change: ChangeId,
     /// The workspace holding `branch`, whose checkout the commit must refresh.
     workspace: Option<Repository>,
