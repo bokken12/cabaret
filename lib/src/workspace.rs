@@ -2,6 +2,7 @@ use std::{
     borrow::Borrow,
     collections::BTreeSet,
     fs,
+    ops::Deref,
     path::{Path, PathBuf},
 };
 
@@ -32,6 +33,12 @@ impl Borrow<WorkspaceIdRef> for WorkspaceId {
 
 impl AsRef<WorkspaceIdRef> for WorkspaceId {
     fn as_ref(&self) -> &WorkspaceIdRef { self.borrow() }
+}
+
+impl Deref for WorkspaceId {
+    type Target = WorkspaceIdRef;
+
+    fn deref(&self) -> &Self::Target { self.borrow() }
 }
 
 impl ToOwned for WorkspaceIdRef {

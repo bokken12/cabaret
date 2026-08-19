@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fmt, str::FromStr};
+use std::{borrow::Borrow, fmt, ops::Deref, str::FromStr};
 
 use gix::{
     ObjectId,
@@ -43,7 +43,7 @@ impl fmt::Display for Identity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangeId(PartialName);
 
-#[derive(RefCast)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
 #[repr(transparent)]
 pub struct ChangeIdRef(PartialNameRef);
 
@@ -55,13 +55,19 @@ impl AsRef<ChangeIdRef> for ChangeId {
     fn as_ref(&self) -> &ChangeIdRef { self.borrow() }
 }
 
+impl Deref for ChangeId {
+    type Target = ChangeIdRef;
+
+    fn deref(&self) -> &Self::Target { self.borrow() }
+}
+
 impl ToOwned for ChangeIdRef {
     type Owned = ChangeId;
 
     fn to_owned(&self) -> Self::Owned { ChangeId(self.0.to_owned()) }
 }
 
-impl ChangeId {
+impl ChangeIdRef {
     pub const LOG_REF_PREFIX: &'static str = "refs/cabaret/changes/";
 
     pub fn branch_ref(&self) -> FullName {
@@ -73,11 +79,15 @@ impl ChangeId {
             .expect("a partial name is valid under refs/cabaret/changes/")
     }
 
-    pub fn as_bstr(&self) -> &BStr { self.0.as_ref().as_bstr() }
+    pub fn as_bstr(&self) -> &BStr { self.0.as_bstr() }
+}
+
+impl fmt::Display for ChangeIdRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self.as_bstr(), f) }
 }
 
 impl fmt::Display for ChangeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self.as_bstr(), f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.as_ref().fmt(f) }
 }
 
 impl FromStr for ChangeId {
@@ -86,9 +96,15 @@ impl FromStr for ChangeId {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> { PartialName::try_from(s).map(Self) }
 }
 
-impl Serialize for ChangeId {
+impl Serialize for ChangeIdRef {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         serializer.collect_str(self)
+    }
+}
+
+impl Serialize for ChangeId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        self.as_ref().serialize(serializer)
     }
 }
 

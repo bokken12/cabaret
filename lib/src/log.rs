@@ -6,7 +6,7 @@ use crate::{
     cabaret::Cabaret,
     error::Result,
     revision::{Revision, RevisionRange},
-    types::{ChangeId, Identity, Liveness, RepoPath, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, Liveness, RepoPath, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ const LOG_FILE: &str = "log.jsonl";
 
 impl Cabaret {
     // TODO(joel): cache same-change log queries
-    pub fn log(&self, change: &ChangeId) -> Result<Log> {
+    pub fn log(&self, change: &ChangeIdRef) -> Result<Log> {
         let log_ref = change.log_ref();
         let mut reference = self.repo.find_reference(&log_ref)?;
         let commit = reference.peel_to_commit()?;
@@ -115,7 +115,7 @@ impl Cabaret {
         Ok(log)
     }
 
-    fn record(&self, change: &ChangeId, action: LogAction) -> Result<()> {
+    fn record(&self, change: &ChangeIdRef, action: LogAction) -> Result<()> {
         let mut log = self.log(change)?;
         if !log.apply(&action) {
             return Ok(());
@@ -123,7 +123,7 @@ impl Cabaret {
         self.append(change, log, action)
     }
 
-    fn append(&self, change: &ChangeId, log: Log, action: LogAction) -> Result<()> {
+    fn append(&self, change: &ChangeIdRef, log: Log, action: LogAction) -> Result<()> {
         let message = serde_json::to_string(&action)?;
         let entry = LogEntry { timestamp: TimestampMs::now(), action };
         let line = serde_json::to_string(&entry)?;
@@ -138,7 +138,7 @@ impl Cabaret {
 
     fn commit_log(
         &self,
-        change: &ChangeId,
+        change: &ChangeIdRef,
         message: &str,
         text: &str,
         parents: impl IntoIterator<Item = Revision>,
@@ -156,7 +156,7 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn create_change(&self, change: &ChangeId, parent: &ChangeId, owner: &Identity) -> Result<()> {
+    pub fn create_change(&self, change: &ChangeIdRef, parent: &ChangeIdRef, owner: &Identity) -> Result<()> {
         let tip = self.tip(parent)?;
         if self.repo.try_find_reference(&change.log_ref())?.is_some() {
             return Err(format!("{change} already exists").into());
@@ -165,7 +165,8 @@ impl Cabaret {
             return Err(format!("branch {change} already exists").into());
         }
 
-        let actions = [LogAction::AddParent { parent: parent.clone() }, LogAction::AddOwner { owner: owner.clone() }];
+        let actions =
+            [LogAction::AddParent { parent: parent.to_owned() }, LogAction::AddOwner { owner: owner.clone() }];
         let mut message = String::new();
         let mut text = String::new();
         for action in actions {
@@ -186,31 +187,31 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn add_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
-        self.record(change, LogAction::AddParent { parent: parent.clone() })
+    pub fn add_parent(&self, change: &ChangeIdRef, parent: &ChangeIdRef) -> Result<()> {
+        self.record(change, LogAction::AddParent { parent: parent.to_owned() })
     }
 
-    pub fn remove_parent(&self, change: &ChangeId, parent: &ChangeId) -> Result<()> {
-        self.record(change, LogAction::RemoveParent { parent: parent.clone() })
+    pub fn remove_parent(&self, change: &ChangeIdRef, parent: &ChangeIdRef) -> Result<()> {
+        self.record(change, LogAction::RemoveParent { parent: parent.to_owned() })
     }
 
-    pub fn add_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
+    pub fn add_owner(&self, change: &ChangeIdRef, owner: &Identity) -> Result<()> {
         self.record(change, LogAction::AddOwner { owner: owner.clone() })
     }
 
-    pub fn remove_owner(&self, change: &ChangeId, owner: &Identity) -> Result<()> {
+    pub fn remove_owner(&self, change: &ChangeIdRef, owner: &Identity) -> Result<()> {
         self.record(change, LogAction::RemoveOwner { owner: owner.clone() })
     }
 
-    pub fn set_description(&self, change: &ChangeId, description: Option<String>) -> Result<()> {
+    pub fn set_description(&self, change: &ChangeIdRef, description: Option<String>) -> Result<()> {
         self.record(change, LogAction::SetDescription { description })
     }
 
-    pub fn set_liveness(&self, change: &ChangeId, liveness: Liveness) -> Result<()> {
+    pub fn set_liveness(&self, change: &ChangeIdRef, liveness: Liveness) -> Result<()> {
         self.record(change, LogAction::SetLiveness { liveness })
     }
 
-    pub fn set_owners(&self, change: &ChangeId, owners: &BTreeSet<Identity>) -> Result<()> {
+    pub fn set_owners(&self, change: &ChangeIdRef, owners: &BTreeSet<Identity>) -> Result<()> {
         let current = self.log(change)?.owners;
         for owner in current.difference(owners) {
             self.remove_owner(change, owner)?;
@@ -221,7 +222,7 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn set_parents(&self, change: &ChangeId, parents: &BTreeSet<ChangeId>) -> Result<()> {
+    pub fn set_parents(&self, change: &ChangeIdRef, parents: &BTreeSet<ChangeId>) -> Result<()> {
         let current = self.log(change)?.parents;
         for parent in current.difference(parents) {
             self.remove_parent(change, parent)?;
@@ -232,7 +233,7 @@ impl Cabaret {
         Ok(())
     }
 
-    pub fn set_title(&self, change: &ChangeId, title: Option<String>) -> Result<()> {
+    pub fn set_title(&self, change: &ChangeIdRef, title: Option<String>) -> Result<()> {
         self.record(change, LogAction::SetTitle { title })
     }
 }

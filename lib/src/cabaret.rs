@@ -4,7 +4,7 @@ use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
     error::Result,
-    types::{ChangeId, Identity},
+    types::{ChangeId, ChangeIdRef, Identity},
 };
 
 pub struct Cabaret {
@@ -20,11 +20,11 @@ impl Cabaret {
 
     pub fn changes(&self) -> Result<Vec<ChangeId>> {
         let mut changes = Vec::new();
-        for reference in self.repo.references()?.prefixed(ChangeId::LOG_REF_PREFIX)? {
+        for reference in self.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
             let reference = reference?;
             let name = reference.name().as_bstr();
             let change = name
-                .strip_prefix(ChangeId::LOG_REF_PREFIX.as_bytes())
+                .strip_prefix(ChangeIdRef::LOG_REF_PREFIX.as_bytes())
                 .expect("prefixed iteration stays under the prefix");
             changes.push(change.to_str()?.parse()?);
         }

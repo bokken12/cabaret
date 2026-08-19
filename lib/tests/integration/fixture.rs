@@ -50,7 +50,7 @@ impl Fixture {
 
     pub fn repo(&self) -> &gix::Repository { &self.cabaret.repo }
 
-    pub fn tip(&self, change: &str) -> Revision { self.cabaret.tip(&change.parse().unwrap()).unwrap() }
+    pub fn tip(&self, change: &str) -> Revision { self.cabaret.tip(&change.parse::<ChangeId>().unwrap()).unwrap() }
 
     fn commit_tree(&self, branch: &str, tree: TreeId, parents: &[Revision]) -> Revision {
         let time = gix::date::Time { seconds: self.clock.replace(self.clock.get() + 1), offset: 0 };
@@ -73,7 +73,9 @@ impl Fixture {
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret.create_change(&change.parse().unwrap(), &parent.parse().unwrap(), owner).unwrap();
+        self.cabaret
+            .create_change(&change.parse::<ChangeId>().unwrap(), &parent.parse::<ChangeId>().unwrap(), owner)
+            .unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
@@ -98,15 +100,15 @@ impl Fixture {
     }
 
     pub fn own(&self, change: &str, owner: &Identity) {
-        self.cabaret.add_owner(&change.parse().unwrap(), owner).unwrap();
+        self.cabaret.add_owner(&change.parse::<ChangeId>().unwrap(), owner).unwrap();
     }
 
     pub fn title(&self, change: &str, title: &str) {
-        self.cabaret.set_title(&change.parse().unwrap(), Some(title.into())).unwrap();
+        self.cabaret.set_title(&change.parse::<ChangeId>().unwrap(), Some(title.into())).unwrap();
     }
 
     pub fn describe(&self, change: &str, description: &str) {
-        self.cabaret.set_description(&change.parse().unwrap(), Some(description.into())).unwrap();
+        self.cabaret.set_description(&change.parse::<ChangeId>().unwrap(), Some(description.into())).unwrap();
     }
 
     /// Point HEAD at `change` and materialize its tip in the worktree and index.
@@ -256,7 +258,10 @@ pub fn troupe() -> Fixture {
     fixture.extend("ui-widgets", &[("src/ui.rs", "pub fn widget() {}\n")]);
 
     fixture.create("integration", "api-routes", &carol());
-    fixture.cabaret.add_parent(&"integration".parse().unwrap(), &"ui-widgets".parse().unwrap()).unwrap();
+    fixture
+        .cabaret
+        .add_parent(&"integration".parse::<ChangeId>().unwrap(), &"ui-widgets".parse::<ChangeId>().unwrap())
+        .unwrap();
     fixture.join("integration", "ui-widgets", &[("tests/e2e.rs", "#[test]\nfn ok() {}\n")]);
 
     fixture.create("docs-polish", "main", &carol());
