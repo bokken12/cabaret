@@ -7,7 +7,6 @@ use std::{
 use gix::{
     Repository,
     bstr::{BString, ByteSlice},
-    refs::FullName,
 };
 
 use crate::{
@@ -59,13 +58,14 @@ impl Cabaret {
 
     // TODO(joel): is this expensive?
     /// The workspace repository that has `branch` checked out, if any.
-    pub fn workspace_holding(&self, branch: &FullName) -> Result<Option<Repository>> {
+    pub fn workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
         let mut repos = vec![self.repo.main_repo()?];
         for proxy in self.repo.worktrees()? {
             repos.push(proxy.into_repo_with_possibly_inaccessible_worktree()?);
         }
+        let branch = change.branch_ref();
         for repo in repos {
-            if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == *branch) {
+            if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == branch) {
                 return Ok(Some(repo));
             }
         }
@@ -74,7 +74,7 @@ impl Cabaret {
 
     /// The workspace holding `change`'s branch, if any, refusing when it has uncommitted changes.
     pub fn clean_workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
-        let Some(workspace) = self.workspace_holding(&change.branch_ref())? else {
+        let Some(workspace) = self.workspace_holding(change)? else {
             return Ok(None);
         };
         if workspace.is_dirty()? {
@@ -102,7 +102,7 @@ impl Cabaret {
     /// Create a workspace with `change`'s branch checked out and return its path.
     pub fn add_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
         let tip = self.tip(change)?;
-        if self.workspace_holding(&change.branch_ref())?.is_some() {
+        if self.workspace_holding(&change)?.is_some() {
             return Err(format!("{change} is already checked out in a workspace").into());
         }
         let path = std::path::absolute(self.workspace_path(change)?)?;
@@ -124,8 +124,7 @@ impl Cabaret {
 
     /// Remove the workspace that has `change`'s branch checked out and return its path.
     pub fn remove_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
-        let workspace =
-            self.workspace_holding(&change.branch_ref())?.ok_or_else(|| format!("{change} has no workspace"))?;
+        let workspace = self.workspace_holding(&change)?.ok_or_else(|| format!("{change} has no workspace"))?;
         if let Some(worktree) = workspace.worktree() {
             if worktree.is_main() {
                 return Err(format!("{change} is checked out in the main workspace").into());

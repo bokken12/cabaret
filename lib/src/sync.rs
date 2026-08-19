@@ -55,7 +55,7 @@ impl Cabaret {
         }
 
         let branch = change.branch_ref();
-        let workspace = self.workspace_holding(&branch)?;
+        let workspace = self.workspace_holding(change)?;
         if let Some(workspace) = &workspace
             && workspace.is_dirty()?
         {

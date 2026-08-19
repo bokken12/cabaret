@@ -21,7 +21,7 @@ pub struct PreparedMerge {
     into_tip: Revision,
     from_tip: Revision,
     tree: TreeId,
-    pub conflicts: Vec<gix::merge::tree::Conflict>,
+    conflicts: Vec<gix::merge::tree::Conflict>,
 }
 
 pub fn default_marker_size() -> NonZeroU8 {
@@ -49,8 +49,8 @@ impl Cabaret {
 
         // Uncommitted work would be clobbered by `into`'s refresh or silently absent from
         // `from`'s tip, so a dirty workspace on either side refuses the merge.
-        let workspace = self.clean_workspace_holding(into)?;
-        self.clean_workspace_holding(from)?;
+        let workspace = self.workspace_holding(into)?;
+        self.workspace_holding(from)?;
 
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };
