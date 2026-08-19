@@ -3,7 +3,6 @@ use std::num::NonZeroU8;
 use gix::{
     Repository,
     merge::blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
-    refs::FullName,
 };
 
 use crate::{
@@ -17,7 +16,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PreparedMerge {
     // TODO(joel): change?
-    branch: FullName,
+    change: ChangeId,
     /// The workspace holding `branch`, whose checkout the commit must refresh.
     workspace: Option<Repository>,
     into_tip: Revision,
@@ -80,12 +79,12 @@ impl Cabaret {
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = unresolved_paths(&merge.tree_merge);
 
-        Ok(Some(PreparedMerge { branch: into.branch_ref(), workspace, into_tip, from_tip, tree, conflicts }))
+        Ok(Some(PreparedMerge { change: into.clone(), workspace, into_tip, from_tip, tree, conflicts }))
     }
 
     /// Commit a prepared merge to its branch and refresh the checkout that holds it, if any.
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
-        self.repo.commit(merge.branch, message, merge.tree, [merge.into_tip, merge.from_tip])?;
+        self.repo.commit(merge.change.branch_ref(), message, merge.tree, [merge.into_tip, merge.from_tip])?;
         if let Some(workspace) = merge.workspace {
             let cabaret = Cabaret { repo: workspace };
             cabaret.checkout(merge.tree)?;
