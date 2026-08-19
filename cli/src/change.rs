@@ -172,13 +172,5 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Resul
             }
         }
     };
-    match cabaret.rebase(change, &onto)? {
-        None => println!("already up to date"),
-        Some(conflicts) => {
-            for path in conflicts {
-                println!("conflicted: {path}");
-            }
-        }
-    }
-    Ok(())
+    cabaret.rebase(change, &onto)
 }

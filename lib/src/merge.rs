@@ -21,30 +21,11 @@ pub struct PreparedMerge {
     into_tip: Revision,
     from_tip: Revision,
     tree: TreeId,
-    conflicts: Vec<String>,
-}
-
-impl PreparedMerge {
-    /// Paths whose merge conflicted; committing writes them with conflict markers.
-    pub fn conflicts(&self) -> &[String] { &self.conflicts }
+    pub conflicts: Vec<gix::merge::tree::Conflict>,
 }
 
 pub fn default_marker_size() -> NonZeroU8 {
     Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero")
-}
-
-/// Paths the merge left unresolved, sorted and deduplicated.
-pub fn unresolved_paths(merge: &gix::merge::tree::Outcome<'_>) -> Vec<String> {
-    let unresolved = gix::merge::tree::TreatAsUnresolved::default();
-    let mut paths: Vec<String> = merge
-        .conflicts
-        .iter()
-        .filter(|conflict| conflict.is_unresolved(unresolved))
-        .map(|conflict| conflict.changes_in_resolution().0.location().to_string())
-        .collect();
-    paths.sort();
-    paths.dedup();
-    paths
 }
 
 impl Cabaret {
@@ -76,7 +57,7 @@ impl Cabaret {
         let options = self.merge_options(default_marker_size())?;
         let mut merge = self.repo.merge_commits(into_tip, from_tip, labels, options.into())?;
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
-        let conflicts = unresolved_paths(&merge.tree_merge);
+        let conflicts = merge.tree_merge.conflicts;
 
         Ok(Some(PreparedMerge { change: into.clone(), workspace, into_tip, from_tip, tree, conflicts }))
     }
@@ -92,17 +73,13 @@ impl Cabaret {
     }
 
     // Returns conflicts
-    pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<Option<Vec<String>>> {
+    pub fn rebase(&self, change: &ChangeId, onto: &ChangeId) -> Result<()> {
         if !self.parents(change)?.contains(onto) {
             return Err(format!("{onto} is not a parent of {change}").into());
         }
         match self.prepare_merge(change, onto)? {
-            None => Ok(None),
-            Some(merge) => {
-                let conflicts = merge.conflicts().to_vec();
-                self.commit_merge(merge, format!("rebase {change} onto {onto}"))?;
-                Ok(Some(conflicts))
-            }
+            None => Ok(()),
+            Some(merge) => self.commit_merge(merge, format!("rebase {change} onto {onto}")),
         }
     }
 
@@ -116,19 +93,19 @@ impl Cabaret {
             return Err(format!("{change} must have exactly 1 parent to land").into());
         };
 
-        match self.prepare_merge(&parent, change)? {
-            None => Err(format!("{change} has nothing to land").into()),
-            Some(merge) => match merge.conflicts() {
-                [_, ..] => Err(format!("{change} conflicts with {parent}; rebase and resolve first").into()),
-                [] => {
-                    if !self.is_permanent(change)? {
-                        self.set_liveness(change, Liveness::Archived)?;
-                        // TODO(joel): reparent children
-                    }
-                    self.commit_merge(merge, format!("land {change} into {parent}"))?;
-                    Ok(())
-                }
-            },
+        let Some(merge) = self.prepare_merge(&parent, change)? else {
+            return Err(format!("{change} has nothing to land").into());
+        };
+
+        if !merge.conflicts.is_empty() {
+            return Err(format!("{change} conflicts with {parent}; rebase and resolve first").into());
+        };
+
+        if !self.is_permanent(change)? {
+            self.set_liveness(change, Liveness::Archived)?;
+            // TODO(joel): reparent children
         }
+        self.commit_merge(merge, format!("land {change} into {parent}"))?;
+        Ok(())
     }
 }

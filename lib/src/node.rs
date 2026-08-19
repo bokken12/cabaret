@@ -88,7 +88,7 @@ impl CabaretJs {
     pub fn land(&self, change: ChangeId) -> napi::Result<()> { Ok(self.cabaret.land(&change)?) }
 
     #[napi]
-    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<Option<Vec<String>>> {
+    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> {
         Ok(self.cabaret.rebase(&change, &onto)?)
     }
 
