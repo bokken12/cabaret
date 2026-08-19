@@ -32,6 +32,7 @@ napi = { version = "3.12.1", default-features = false, features = ["napi8"] }
 napi-build = "2.4.1"
 napi-derive = "3.6.3"
 nonempty-collections = "1.4.0"
+ref-cast = "1.0.27"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tempfile = "3.23.0"

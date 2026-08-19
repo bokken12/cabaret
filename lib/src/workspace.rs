@@ -10,6 +10,7 @@ use gix::{
     bstr::{BStr, BString, ByteSlice},
     refs::TargetRef,
 };
+use ref_cast::RefCast;
 
 use crate::{
     cabaret::Cabaret,
@@ -18,23 +19,15 @@ use crate::{
     types::{ChangeId, TreeId},
 };
 
+// TODO(joel): extract to util crate
 pub struct WorkspaceId(BString);
 
+#[derive(RefCast)]
+#[repr(transparent)]
 pub struct WorkspaceIdRef(BStr);
 
-impl WorkspaceIdRef {
-    pub(crate) fn new_unchecked(v: &BStr) -> &Self {
-        // SAFETY: WorkspaceIdRef is transparent and equivalent to a &BStr if provided as reference
-        #[expect(unsafe_code)]
-        unsafe {
-            std::mem::transmute(v)
-        }
-    }
-}
-
 impl Borrow<WorkspaceIdRef> for WorkspaceId {
-    #[inline]
-    fn borrow(&self) -> &WorkspaceIdRef { WorkspaceIdRef::new_unchecked(self.0.as_bstr()) }
+    fn borrow(&self) -> &WorkspaceIdRef { WorkspaceIdRef::ref_cast(self.0.as_ref()) }
 }
 
 impl AsRef<WorkspaceIdRef> for WorkspaceId {

@@ -1,11 +1,12 @@
-use std::{fmt, str::FromStr};
+use std::{borrow::Borrow, fmt, str::FromStr};
 
 use gix::{
     ObjectId,
     bstr::BStr,
     pathspec,
-    refs::{FullName, PartialName},
+    refs::{FullName, PartialName, PartialNameRef},
 };
+use ref_cast::RefCast;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -41,6 +42,24 @@ impl fmt::Display for Identity {
 // TODO(joel): move to change.rs?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangeId(PartialName);
+
+#[derive(RefCast)]
+#[repr(transparent)]
+pub struct ChangeIdRef(PartialNameRef);
+
+impl Borrow<ChangeIdRef> for ChangeId {
+    fn borrow(&self) -> &ChangeIdRef { ChangeIdRef::ref_cast(self.0.as_ref()) }
+}
+
+impl AsRef<ChangeIdRef> for ChangeId {
+    fn as_ref(&self) -> &ChangeIdRef { self.borrow() }
+}
+
+impl ToOwned for ChangeIdRef {
+    type Owned = ChangeId;
+
+    fn to_owned(&self) -> Self::Owned { ChangeId(self.0.to_owned()) }
+}
 
 impl ChangeId {
     pub const LOG_REF_PREFIX: &'static str = "refs/cabaret/changes/";
