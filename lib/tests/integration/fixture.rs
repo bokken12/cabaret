@@ -15,8 +15,9 @@ use std::{
 
 use cabaret_lib::{
     cabaret::Cabaret,
+    change::ChangeId,
     revision::Revision,
-    types::{ChangeId, Identity, TreeId},
+    types::{Identity, TreeId},
 };
 use expect_test::expect;
 use gix::objs::tree::EntryKind;

@@ -1,11 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    step::NextStep,
-    types::{ChangeId, Identity},
-};
+use crate::{cabaret::Cabaret, change::ChangeId, error::Result, step::NextStep, types::Identity};
 
 // TODO(jm): audit LLM
 

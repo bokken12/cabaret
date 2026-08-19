@@ -1,6 +1,6 @@
 use gix::refs::FullName;
 
-use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
+use crate::{cabaret::Cabaret, change::ChangeId, error::Result};
 
 /// What syncing a branch with its remote counterpart did, or why it did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

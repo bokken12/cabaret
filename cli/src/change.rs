@@ -1,7 +1,8 @@
 use cabaret_lib::{
     cabaret::Cabaret,
+    change::ChangeId,
     error::Result,
-    types::{ChangeId, Identity, Pathspec},
+    types::{Identity, Pathspec},
 };
 use clap::{Subcommand, ValueHint};
 

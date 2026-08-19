@@ -3,8 +3,9 @@ use std::{path::Path, process::Command};
 use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
+    change::{ChangeId, ChangeIdRef},
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity},
+    types::Identity,
 };
 
 pub struct Cabaret {

@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 
-use cabaret_lib::{cabaret::Cabaret, error::Result, types::ChangeId};
+use cabaret_lib::{cabaret::Cabaret, change::ChangeId, error::Result};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
 pub fn change_completer() -> ArgValueCompleter {

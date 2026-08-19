@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
+use crate::{cabaret::Cabaret, change::ChangeId, error::Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NextStep {

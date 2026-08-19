@@ -3,7 +3,7 @@ use std::{
     fmt::Write as _,
 };
 
-use crate::{error::Result, home::HomeGraph, types::ChangeId};
+use crate::{change::ChangeId, error::Result, home::HomeGraph};
 
 // TODO(jm): audit LLM
 

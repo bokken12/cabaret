@@ -1,8 +1,8 @@
 use cabaret_lib::{
+    change::ChangeId,
     home::{HomeGraph, HomeNode},
     render::render_home,
     step::NextStep,
-    types::ChangeId,
 };
 use expect_test::{Expect, expect};
 

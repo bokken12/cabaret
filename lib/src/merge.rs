@@ -7,9 +7,10 @@ use gix::{
 
 use crate::{
     cabaret::Cabaret,
+    change::ChangeId,
     error::Result,
     revision::Revision,
-    types::{ChangeId, Liveness, TreeId},
+    types::{Liveness, TreeId},
 };
 
 /// A merge computed but not yet committed; drop it to abandon the merge.

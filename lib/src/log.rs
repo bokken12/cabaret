@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cabaret::Cabaret,
+    change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::{Revision, RevisionRange},
-    types::{ChangeId, ChangeIdRef, Identity, Liveness, RepoPath, TimestampMs},
+    types::{Identity, Liveness, RepoPath, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
