@@ -23,13 +23,12 @@ impl WorkspaceCommand {
                 let path = cabaret.add_workspace(&change)?;
                 println!("added workspace {change} at {}", path.display());
             }
-            WorkspaceCommand::Remove { change } => {
-                let path = cabaret.remove_workspace(&change)?;
-                println!("removed workspace {change} at {}", path.display());
+            WorkspaceCommand::Remove { change: _ } => {
+                todo!()
             }
             WorkspaceCommand::List => {
-                for (change, path) in cabaret.workspaces()? {
-                    println!("{change} {}", path.display());
+                for workspace in cabaret.workspaces()? {
+                    println!("{workspace}");
                 }
             }
         };

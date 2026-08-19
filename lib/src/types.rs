@@ -41,7 +41,7 @@ impl fmt::Display for Identity {
 
 // TODO(joel): move to change.rs?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ChangeId(PartialName);
+pub struct ChangeId(pub PartialName);
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
 #[repr(transparent)]
@@ -83,7 +83,7 @@ impl ChangeIdRef {
 }
 
 impl fmt::Display for ChangeIdRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self.as_bstr(), f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
 }
 
 impl fmt::Display for ChangeId {

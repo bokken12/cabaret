@@ -1,11 +1,6 @@
-use gix::refs::{FullName, Target, transaction::PreviousValue};
+use gix::refs::FullName;
 
-use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    revision::Revision,
-    types::{ChangeId, TreeId},
-};
+use crate::{cabaret::Cabaret, error::Result, types::ChangeId};
 
 /// What syncing a branch with its remote counterpart did, or why it did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,43 +32,7 @@ impl Cabaret {
 
     /// Bring `change`'s branch up to date with its remote counterpart when that is a clean
     /// fast-forward, refreshing the workspace that has it checked out, if any.
-    pub fn sync_branch(&self, change: &ChangeId) -> Result<SyncOutcome> {
-        let local = self.tip(change)?;
-        let Some(mut tracking) = self.repo.try_find_reference(&self.remote_tracking_ref(change)?)? else {
-            return Ok(SyncOutcome::Unpublished);
-        };
-        let remote = Revision(tracking.peel_to_commit()?.id);
-        if local == remote {
-            return Ok(SyncOutcome::UpToDate);
-        }
-        let bases = self.repo.merge_bases_many(local, &[remote.0])?;
-        if bases.iter().any(|base| *base == remote.0) {
-            return Ok(SyncOutcome::Ahead);
-        }
-        if !bases.iter().any(|base| *base == local.0) {
-            return Ok(SyncOutcome::Diverged);
-        }
-
-        let branch = change.branch_ref();
-        let workspace = self.workspace_holding(change)?;
-        if let Some(workspace) = &workspace
-            && workspace.is_dirty()?
-        {
-            return Ok(SyncOutcome::Dirty);
-        }
-        self.repo.reference(
-            branch,
-            remote,
-            PreviousValue::MustExistAndMatch(Target::Object(local.0)),
-            format!("fetch: fast-forward {change}"),
-        )?;
-        if let Some(workspace) = &workspace {
-            let tree = TreeId(self.repo.find_commit(remote)?.tree_id()?.detach());
-            let cabaret = Cabaret { repo: workspace.clone() };
-            cabaret.checkout(tree)?;
-        }
-        Ok(SyncOutcome::FastForwarded)
-    }
+    pub fn sync_branch(&self, _change: &ChangeId) -> Result<SyncOutcome> { todo!() }
 
     /// Push `changes`' branches to the remote, which must be able to fast-forward to them.
     pub fn push(&self, changes: &[ChangeId]) -> Result<()> {
@@ -93,7 +52,7 @@ impl Cabaret {
         self.repo.remote_default_name(gix::remote::Direction::Fetch).ok_or_else(|| "no remote configured".into())
     }
 
-    fn remote_tracking_ref(&self, change: &ChangeId) -> Result<FullName> {
+    fn _remote_tracking_ref(&self, change: &ChangeId) -> Result<FullName> {
         Ok(FullName::try_from(format!("refs/remotes/{}/{change}", self.remote_name()?))?)
     }
 }

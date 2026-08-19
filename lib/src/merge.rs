@@ -47,10 +47,7 @@ impl Cabaret {
             return Ok(None);
         }
 
-        // Uncommitted work would be clobbered by `into`'s refresh or silently absent from
-        // `from`'s tip, so a dirty workspace on either side refuses the merge.
-        let workspace = self.workspace_holding(into)?;
-        self.workspace_holding(from)?;
+        let workspace = self.workspace_holding(into)?.map(|workspace| self.workspace_repo(&workspace)).transpose()?;
 
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(into.as_bstr()), other: Some(from.as_bstr()) };

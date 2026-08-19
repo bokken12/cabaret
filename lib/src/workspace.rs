@@ -1,7 +1,7 @@
 use std::{
     borrow::Borrow,
     collections::BTreeSet,
-    fs,
+    fmt, fs,
     ops::Deref,
     path::{Path, PathBuf},
 };
@@ -9,7 +9,7 @@ use std::{
 use gix::{
     Repository,
     bstr::{BStr, BString, ByteSlice},
-    refs::TargetRef,
+    refs::{FullName, TargetRef},
 };
 use ref_cast::RefCast;
 
@@ -17,13 +17,14 @@ use crate::{
     cabaret::Cabaret,
     error::Result,
     revision::Revision,
-    types::{ChangeId, TreeId},
+    types::{ChangeId, ChangeIdRef, TreeId},
 };
 
 // TODO(joel): extract to util crate
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WorkspaceId(BString);
 
-#[derive(RefCast)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
 #[repr(transparent)]
 pub struct WorkspaceIdRef(BStr);
 
@@ -47,13 +48,54 @@ impl ToOwned for WorkspaceIdRef {
     fn to_owned(&self) -> Self::Owned { WorkspaceId(self.0.to_owned()) }
 }
 
+impl fmt::Display for WorkspaceIdRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
+}
+
+impl fmt::Display for WorkspaceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.as_ref().fmt(f) }
+}
+
 fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
     while dir != workdir && fs::remove_dir(dir).is_ok() {
         dir = dir.parent().expect("pruning stops at the worktree root");
     }
 }
 
+impl WorkspaceIdRef {
+    fn head_ref(&self) -> FullName {
+        FullName::try_from(format!("worktrees/{self}/HEAD")).expect("worktree produces valid ref")
+    }
+}
+
 impl Cabaret {
+    pub fn workspaces(&self) -> Result<Vec<WorkspaceId>> {
+        Ok(self.repo.worktrees()?.into_iter().map(|proxy| WorkspaceId(proxy.id().to_owned())).collect())
+    }
+
+    pub fn change_within(&self, workspace: &WorkspaceIdRef) -> Result<Option<ChangeId>> {
+        match self.repo.find_reference(&workspace.head_ref())?.target() {
+            TargetRef::Object(_) => Ok(None), // detached
+            TargetRef::Symbolic(branch) => Ok(Some(ChangeId(branch.as_partial_name().to_owned()))),
+        }
+    }
+
+    pub fn workspace_holding(&self, change: &ChangeIdRef) -> Result<Option<WorkspaceId>> {
+        Ok(self.workspaces()?.into_iter().find(|workspace| {
+            self.change_within(workspace)
+                .is_ok_and(|within_opt| within_opt.is_some_and(|within| within.as_ref() == change))
+        }))
+    }
+
+    // TODO(joel): update this abstraction
+    pub fn workspace_repo(&self, workspace: &WorkspaceIdRef) -> Result<Repository> {
+        let Some(proxy) = self.repo.worktree_proxy_by_id(&workspace.0) else {
+            return Err(format!("{workspace} not present on device!").into());
+        };
+
+        Ok(proxy.into_repo()?)
+    }
+
     /// Make the (clean) worktree and index of `repo`'s workspace match `tree`.
     // TODO-someday(joel): apply only the delta between the old and new trees; rewriting every
     // file on each merge won't fly in a large repository.
@@ -87,60 +129,6 @@ impl Cabaret {
         Ok(())
     }
 
-    // TODO(joel):
-    /// The workspace repository that has `branch` checked out, if any.
-    pub fn workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
-        for proxy in self.repo.worktrees()? {
-            let name = proxy.id();
-            let head = self.repo.find_reference(&format!("worktrees/{name}/HEAD"))?;
-
-            let TargetRef::Symbolic(branch) = head.target() else {
-                continue;
-            };
-
-            if branch == change.branch_ref().as_ref() {
-                // TODO(joel): construct the repo
-                return Ok(None);
-            }
-        }
-
-        Ok(None)
-        // let branch = change.branch_ref();
-        // for repo in repos {
-        //     if repo.workdir().is_some() && repo.head_name()?.is_some_and(|head| head == branch) {
-        //         return Ok(Some(repo));
-        //     }
-        // }
-        // Ok(None)
-    }
-
-    /// The workspace holding `change`'s branch, if any, refusing when it has uncommitted changes.
-    pub fn clean_workspace_holding(&self, change: &ChangeId) -> Result<Option<Repository>> {
-        let Some(workspace) = self.workspace_holding(change)? else {
-            return Ok(None);
-        };
-        if workspace.is_dirty()? {
-            return Err(format!(
-                "{change} has uncommitted changes in workspace {}",
-                workspace.workdir().expect("held branches have a workdir").display()
-            )
-            .into());
-        }
-        Ok(Some(workspace))
-    }
-
-    /// Linked workspaces and the change each has checked out, sorted by change.
-    pub fn workspaces(&self) -> Result<Vec<(ChangeId, PathBuf)>> {
-        let mut workspaces = Vec::new();
-        for proxy in self.repo.worktrees()? {
-            let repo = proxy.into_repo_with_possibly_inaccessible_worktree()?;
-            let (Some(workdir), Some(head)) = (repo.workdir(), repo.head_name()?) else { continue };
-            workspaces.push((head.shorten().to_str()?.parse()?, workdir.to_owned()));
-        }
-        workspaces.sort();
-        Ok(workspaces)
-    }
-
     /// Create a workspace with `change`'s branch checked out and return its path.
     pub fn add_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
         let tip = self.tip(change)?;
@@ -162,27 +150,6 @@ impl Cabaret {
             return Err(error);
         }
         Ok(path)
-    }
-
-    /// Remove the workspace that has `change`'s branch checked out and return its path.
-    pub fn remove_workspace(&self, change: &ChangeId) -> Result<PathBuf> {
-        let workspace = self.workspace_holding(&change)?.ok_or_else(|| format!("{change} has no workspace"))?;
-        if let Some(worktree) = workspace.worktree() {
-            if worktree.is_main() {
-                return Err(format!("{change} is checked out in the main workspace").into());
-            }
-            if worktree.is_locked() {
-                return Err(format!("{change}'s workspace is locked").into());
-            }
-        }
-        if let Some(entry) = workspace.status(gix::progress::Discard)?.into_iter(None::<BString>)?.next() {
-            entry?;
-            return Err(format!("{change}'s workspace has uncommitted or untracked changes").into());
-        }
-        let workdir = workspace.workdir().expect("held branches have a workdir").to_owned();
-        fs::remove_dir_all(&workdir)?;
-        fs::remove_dir_all(workspace.git_dir())?;
-        Ok(workdir)
     }
 
     /// Bare repositories keep workspaces inside the git dir; otherwise workspaces sit adjacent
