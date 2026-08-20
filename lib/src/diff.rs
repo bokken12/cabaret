@@ -1,4 +1,4 @@
-use crate::{cabaret::Cabaret, revision::RevisionRange, types::RepoPath};
+use crate::{cabaret::CabaretOld, revision::RevisionRange, types::RepoPath};
 
 // TODO(joel): rename
 pub enum DiffUnit {
@@ -12,7 +12,7 @@ pub enum DiffUnit {
 // Contains per-line but also within-line diff info?
 pub struct Diff {}
 
-impl Cabaret {
+impl CabaretOld {
     pub fn diff(_unit: DiffUnit, _range: &RevisionRange, _relative_to: &Option<RevisionRange>) -> Diff { todo!() }
 
     // TODO(joel): better signature? include move/copy?

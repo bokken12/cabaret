@@ -8,7 +8,7 @@ use napi::{
 use napi_derive::napi;
 
 use crate::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::ChangeId,
     error::Error,
     log::Log,
@@ -68,13 +68,13 @@ impl FromNapiValue for Revision {
 
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
-    cabaret: Cabaret,
+    cabaret: CabaretOld,
 }
 
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Cabaret::open(&dir)? }) }
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: CabaretOld::open(&dir)? }) }
 
     #[napi]
     pub fn changes(&self) -> napi::Result<Vec<ChangeId>> { Ok(self.cabaret.changes()?) }

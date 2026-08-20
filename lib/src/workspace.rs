@@ -14,7 +14,7 @@ use gix::{
 use ref_cast::RefCast;
 
 use crate::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
@@ -69,7 +69,7 @@ impl WorkspaceIdRef {
     }
 }
 
-impl Cabaret {
+impl CabaretOld {
     pub fn workspaces(&self) -> Result<Vec<WorkspaceId>> {
         Ok(self.repo.worktrees()?.into_iter().map(|proxy| WorkspaceId(proxy.id().to_owned())).collect())
     }

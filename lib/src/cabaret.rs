@@ -8,12 +8,12 @@ use crate::{
     types::Identity,
 };
 
-pub struct Cabaret {
+pub struct CabaretOld {
     // TODO(joel): ThreadSafeRepository? Consider concurrency for napi/UIs
     pub repo: Repository,
 }
 
-impl Cabaret {
+impl CabaretOld {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
         let repo = gix::discover(dir)?;
         Ok(Self { repo })

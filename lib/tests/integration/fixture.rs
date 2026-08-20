@@ -14,7 +14,7 @@ use std::{
 };
 
 use cabaret_lib::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::ChangeId,
     revision::Revision,
     types::{Identity, TreeId},
@@ -31,7 +31,7 @@ pub type Files<'a> = &'a [(&'a str, &'a str)];
 
 pub struct Fixture {
     _dir: tempfile::TempDir,
-    pub cabaret: Cabaret,
+    pub cabaret: CabaretOld,
     /// Commit timestamps count up from a fixed epoch so hashes are stable across runs
     /// and may appear literally in snapshots.
     clock: Cell<i64>,
@@ -46,7 +46,7 @@ impl Fixture {
         let config = fs::read_to_string(&config_path).unwrap();
         fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
         let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).unwrap();
-        Self { _dir: dir, cabaret: Cabaret { repo }, clock: Cell::new(978_307_200) }
+        Self { _dir: dir, cabaret: CabaretOld { repo }, clock: Cell::new(978_307_200) }
     }
 
     pub fn repo(&self) -> &gix::Repository { &self.cabaret.repo }

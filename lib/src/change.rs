@@ -8,7 +8,7 @@ use nonempty_collections::NEVec;
 use ref_cast::RefCast;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{cabaret::Cabaret, error::Result, revision::Revision, types::Liveness};
+use crate::{cabaret::CabaretOld, error::Result, revision::Revision, types::Liveness};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangeId(pub PartialName);
@@ -89,7 +89,7 @@ pub enum Base {
     Merge(NEVec<Revision>),
 }
 
-impl Cabaret {
+impl CabaretOld {
     /// `base(change)` gives the base that `change`'s tip should be diffed against, using`change` and its parents.
     pub fn base(&self, change: &ChangeIdRef) -> Result<Base> {
         let tip = self.tip(change)?;

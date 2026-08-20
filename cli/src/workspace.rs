@@ -1,4 +1,4 @@
-use cabaret_lib::{cabaret::Cabaret, change::ChangeId, error::Result};
+use cabaret_lib::{cabaret::CabaretOld, change::ChangeId, error::Result};
 use clap::Subcommand;
 
 use crate::completion::change_completer;
@@ -17,7 +17,7 @@ pub enum WorkspaceCommand {
 }
 
 impl WorkspaceCommand {
-    pub fn run(self, cabaret: Cabaret) -> Result<()> {
+    pub fn run(self, cabaret: CabaretOld) -> Result<()> {
         match self {
             WorkspaceCommand::Add { change } => {
                 let path = cabaret.add_workspace(&change)?;

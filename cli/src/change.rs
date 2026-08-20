@@ -1,5 +1,5 @@
 use cabaret_lib::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::ChangeId,
     error::Result,
     types::{Identity, Pathspec},
@@ -102,7 +102,7 @@ pub enum ChangeCommand {
 }
 
 impl ChangeCommand {
-    pub fn run(self, cabaret: Cabaret) -> Result<()> {
+    pub fn run(self, cabaret: CabaretOld) -> Result<()> {
         let or_current = |change: Option<ChangeId>| match change {
             Some(change) => Ok(change),
             None => cabaret.current_change(),
@@ -154,7 +154,7 @@ impl ChangeCommand {
     }
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
+fn rebase(cabaret: &CabaretOld, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
     let onto = match onto {
         Some(onto) => onto,
         None => {

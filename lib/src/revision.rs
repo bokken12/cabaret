@@ -3,7 +3,7 @@ use std::fmt;
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{cabaret::Cabaret, error::Result};
+use crate::{cabaret::CabaretOld, error::Result};
 
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,7 +37,7 @@ pub struct RevisionRange {
     pub head: Revision,
 }
 
-impl Cabaret {
+impl CabaretOld {
     pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
         // TODO(joel): use `merge_base_with_graph`
         Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))

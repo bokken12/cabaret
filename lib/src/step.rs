@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{cabaret::Cabaret, change::ChangeId, error::Result};
+use crate::{cabaret::CabaretOld, change::ChangeId, error::Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NextStep {
@@ -25,7 +25,7 @@ impl fmt::Display for NextStep {
     }
 }
 
-impl Cabaret {
+impl CabaretOld {
     // TODO(joel): expand steps
     pub fn next_step(&self, change: &ChangeId) -> Result<NextStep> {
         let tip = self.tip(change)?;

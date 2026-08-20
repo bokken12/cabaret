@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::{cabaret::Cabaret, change::ChangeId, error::Result, step::NextStep, types::Identity};
+use crate::{cabaret::CabaretOld, change::ChangeId, error::Result, step::NextStep, types::Identity};
 
 // TODO(jm): audit LLM
 
@@ -22,7 +22,7 @@ pub struct HomeGraph {
     pub nodes: BTreeMap<ChangeId, HomeNode>,
 }
 
-impl Cabaret {
+impl CabaretOld {
     /// Every open change `viewer` owns, plus all open ancestors as unowned context.
     pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
         // TODO(joel): fix parents

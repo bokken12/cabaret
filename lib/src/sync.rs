@@ -1,6 +1,6 @@
 use gix::refs::FullName;
 
-use crate::{cabaret::Cabaret, change::ChangeId, error::Result};
+use crate::{cabaret::CabaretOld, change::ChangeId, error::Result};
 
 /// What syncing a branch with its remote counterpart did, or why it did nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,7 +18,7 @@ pub enum SyncOutcome {
     Diverged,
 }
 
-impl Cabaret {
+impl CabaretOld {
     pub fn fetch(&self) -> Result<()> {
         let remote = self.repo.find_default_remote(gix::remote::Direction::Fetch).ok_or("no remote configured")??;
         let logs = format!("+refs/cabaret/*:refs/cabaret/remotes/{}/*", self.remote_name()?);

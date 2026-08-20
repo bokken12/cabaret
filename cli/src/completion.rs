@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
 
-use cabaret_lib::{cabaret::Cabaret, change::ChangeId, error::Result};
+use cabaret_lib::{cabaret::CabaretOld, change::ChangeId, error::Result};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
 pub fn change_completer() -> ArgValueCompleter {
-    fn changes() -> Result<Vec<ChangeId>> { Cabaret::open(std::env::current_dir()?)?.changes() }
+    fn changes() -> Result<Vec<ChangeId>> { CabaretOld::open(std::env::current_dir()?)?.changes() }
     ArgValueCompleter::new(|current: &OsStr| {
         let Some(current) = current.to_str() else { return Vec::new() };
         changes()

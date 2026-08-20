@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, btree_map};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::{Revision, RevisionRange},
@@ -89,7 +89,7 @@ impl Log {
 
 const LOG_FILE: &str = "log.jsonl";
 
-impl Cabaret {
+impl CabaretOld {
     // TODO(joel): cache same-change log queries
     pub fn log(&self, change: &ChangeIdRef) -> Result<Log> {
         let log_ref = change.log_ref();

@@ -6,7 +6,7 @@ use gix::{
 };
 
 use crate::{
-    cabaret::Cabaret,
+    cabaret::CabaretOld,
     change::ChangeId,
     error::Result,
     revision::Revision,
@@ -29,7 +29,7 @@ pub fn default_marker_size() -> NonZeroU8 {
     Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero")
 }
 
-impl Cabaret {
+impl CabaretOld {
     /// Conflict style and rename detection are forced rather than read from config so the
     /// committed conflict text is identical no matter whose clone performs the merge.
     pub fn merge_options(&self, marker_size: NonZeroU8) -> Result<gix::merge::tree::Options> {
@@ -64,7 +64,7 @@ impl Cabaret {
     pub fn commit_merge(&self, merge: PreparedMerge, message: String) -> Result<()> {
         self.repo.commit(merge.change.branch_ref(), message, merge.tree, [merge.into_tip, merge.from_tip])?;
         if let Some(workspace) = merge.workspace {
-            let cabaret = Cabaret { repo: workspace };
+            let cabaret = CabaretOld { repo: workspace };
             cabaret.checkout(merge.tree)?;
         }
         Ok(())
