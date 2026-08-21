@@ -34,7 +34,11 @@ pub enum UpdateOrInsert<T> {
 }
 
 impl Cabaret {
-    pub fn transact<const N: usize, T, F>(&self, change_ids: &[UpdateOrInsert<&ChangeIdRef>; N], f: F) -> Result<T>
+    pub(crate) fn transact<const N: usize, T, F>(
+        &self,
+        change_ids: &[UpdateOrInsert<&ChangeIdRef>; N],
+        f: F,
+    ) -> Result<T>
     where
         F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
     {
@@ -44,35 +48,35 @@ impl Cabaret {
         todo!()
     }
 
-    pub fn query<T, F>(&self, f: F) -> Result<T>
+    pub(crate) fn query<T, F>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&TransactionContext) -> Result<T>,
     {
         self.transact(&[], |ctx, []| f(ctx))
     }
 
-    pub fn update<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
+    pub(crate) fn update<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
     where
         F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
     {
         self.transact(&change_ids.map(|id| UpdateOrInsert::Update(id)), f)
     }
 
-    pub fn insert<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
+    pub(crate) fn insert<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
     where
         F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
     {
         self.transact(&change_ids.map(|id| UpdateOrInsert::Insert(id)), f)
     }
 
-    pub fn update1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
+    pub(crate) fn update1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: FnOnce(&TransactionContext, &mut Change) -> Result<T>,
     {
         self.update(&[change_id], |ctx, [change]| f(ctx, change))
     }
 
-    pub fn insert1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
+    pub(crate) fn insert1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: FnOnce(&TransactionContext, &mut Change) -> Result<T>,
     {
