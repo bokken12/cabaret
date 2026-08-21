@@ -4,11 +4,10 @@ pub mod change;
 pub mod context;
 pub mod error;
 pub mod log;
-pub mod merge;
 #[cfg(feature = "napi")]
 pub mod node;
 pub mod revision;
 pub mod sync;
 pub mod transaction;
 pub mod types;
-pub mod workspace;
+pub mod workspace_id;

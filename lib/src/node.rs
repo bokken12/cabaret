@@ -85,10 +85,8 @@ impl CabaretJs {
     pub fn log(&self, id: ChangeId) -> napi::Result<Log> { Ok(self.cabaret.log(&id)?) }
 
     #[napi]
-    pub fn land(&self, change: ChangeId) -> napi::Result<()> { Ok(self.cabaret.land(&change)?) }
+    pub fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
 
     #[napi]
-    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> {
-        Ok(self.cabaret.rebase(&change, &onto)?)
-    }
+    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> { todo!() }
 }
