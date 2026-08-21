@@ -85,6 +85,7 @@ impl TransactionContext {
         match self.read.get(change_id) {
             Some(read) => &read,
             None => {
+                // TODO(joel): read from log
                 let parse = Box::new(Change::new());
                 self.read.insert(change_id.to_owned(), parse)
             }
@@ -97,6 +98,7 @@ pub struct Change {
     head: Revision,
     pub title: String,
     pub description: String,
+    // TODO(joel): consider splitting back out?
     pub liveness: Liveness,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,

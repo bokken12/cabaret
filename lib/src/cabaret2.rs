@@ -30,12 +30,24 @@ impl Cabaret {
         })
     }
 
-    pub fn set_archived(&self, change_id: &ChangeIdRef, archived: bool) -> Result<()> {
+    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
         self.update1(change_id, |_ctx, change| {
             // TODO(joel): warn if children unarchived?
             match change.liveness {
-                Liveness::Permanent => Err(format!("{change_id} is permanent"))?,
-                _ => change.liveness = if archived { Liveness::Archived } else { Liveness::Live },
+                Liveness::Permanent => Err(format!("{change_id} is permanent and cannot be archived"))?,
+                Liveness::Archived => Err(format!("{change_id} has already been archived"))?,
+                Liveness::Live => change.liveness = Liveness::Archived,
+            };
+            Ok(())
+        })
+    }
+
+    pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |_ctx, change| {
+            // TODO(joel): warn if parents archived?
+            match change.liveness {
+                Liveness::Live | Liveness::Permanent => Err(format!("{change_id} has not been archived"))?,
+                Liveness::Archived => change.liveness = Liveness::Live,
             };
             Ok(())
         })

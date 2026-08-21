@@ -3,12 +3,10 @@ pub mod cabaret2;
 pub mod change;
 pub mod diff;
 pub mod error;
-pub mod home;
 pub mod log;
 pub mod merge;
 #[cfg(feature = "napi")]
 pub mod node;
-pub mod render;
 pub mod revision;
 pub mod step;
 pub mod sync;
