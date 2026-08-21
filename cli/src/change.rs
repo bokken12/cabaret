@@ -1,5 +1,5 @@
 use cabaret_lib::{
-    cabaret::CabaretOld,
+    cabaret2::Cabaret,
     change::ChangeId,
     error::Result,
     types::{Identity, Pathspec},
@@ -102,16 +102,19 @@ pub enum ChangeCommand {
 }
 
 impl ChangeCommand {
-    pub fn run(self, cabaret: CabaretOld) -> Result<()> {
+    pub fn run(self, cabaret: Cabaret) -> Result<()> {
         let or_current = |change: Option<ChangeId>| match change {
             Some(change) => Ok(change),
             None => cabaret.current_change(),
         };
         match self {
-            ChangeCommand::Archive { change, undo } => cabaret.set_archived(&or_current(change)?, !undo)?,
+            ChangeCommand::Archive { change, undo } => match undo {
+                false => cabaret.archive(&or_current(change)?)?,
+                true => cabaret.unarchive(&or_current(change)?)?,
+            },
             ChangeCommand::Create { id, parent } => {
                 let parent = or_current(parent)?;
-                cabaret.create_change(&id, &parent, &cabaret.identity()?)?;
+                cabaret.create(&id, &parent, &cabaret.identity()?)?;
                 println!("created {id} with parent {parent}");
             }
             ChangeCommand::Diff { .. } => todo!(),
@@ -154,7 +157,7 @@ impl ChangeCommand {
     }
 }
 
-fn rebase(cabaret: &CabaretOld, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
     let onto = match onto {
         Some(onto) => onto,
         None => {

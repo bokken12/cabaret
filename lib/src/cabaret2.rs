@@ -1,26 +1,49 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, path::Path};
 
 use gix::ThreadSafeRepository;
 
-use crate::{change::ChangeIdRef, error::Result, types::Liveness};
+use crate::{
+    change::{ChangeId, ChangeIdRef},
+    error::Result,
+    types::{Identity, Liveness},
+};
 
 pub struct Cabaret {
-    pub repo: ThreadSafeRepository,
+    pub(crate) repo: ThreadSafeRepository,
 }
 
 impl Cabaret {
-    pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { repo: ThreadSafeRepository::discover(dir)? }) }
+
+    pub fn changes(&self) -> Result<Vec<ChangeId>> { self.query(|ctx| ctx.changes()) }
+
+    pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
+
+    pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         self.insert1(change_id, |_ctx, change| {
             change.parents = BTreeSet::from([parent_id.to_owned()]);
+            change.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })
     }
 
-    pub fn land_into(&self, change_id: &ChangeIdRef, into_id: &ChangeIdRef) -> Result<()> {
+    fn land_into(&self, change_id: &ChangeIdRef, into_id: &ChangeIdRef) -> Result<()> {
         self.update(&[change_id, into_id], |_ctx, [change, into]| {
             // TODO
             Ok(())
         })
+    }
+
+    pub fn land(&self, change_id: &ChangeIdRef) {
+        let parent = self.query(|ctx| {
+            let change = ctx.read(change_id);
+            match change.parents.iter().collect::<Vec<_>>().as_slice() {
+                [] => Err(format!("{change_id} has no parents and cannot land"))?,
+                [_, _] => Err(format!("{change_id} has multiple parents, land them into each other first"))?,
+                [parent] => Ok(parent),
+            }
+        })?;
+        self.land_into(change_id, parent);
     }
 
     pub fn rebase(&self, change_id: &ChangeIdRef, onto_id: &ChangeIdRef) -> Result<()> {

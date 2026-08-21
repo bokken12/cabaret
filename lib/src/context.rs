@@ -4,6 +4,7 @@ use elsa::FrozenBTreeMap;
 use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
+    cabaret2::Cabaret,
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
@@ -15,6 +16,12 @@ pub struct TransactionContext {
     repo: Repository,
     read: FrozenBTreeMap<ChangeId, Box<Change>>,
 }
+
+// impl Cabaret {
+//     pub(crate) fn ctx(&self) -> TransactionContext {
+//         TransactionContext { repo: self.repo.to_thread_local(), read: FrozenBTreeMap::new() }
+//     }
+// }
 
 impl TransactionContext {
     pub fn read(&self, change_id: &ChangeIdRef) -> &Change {

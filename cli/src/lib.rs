@@ -1,5 +1,5 @@
 use cabaret_lib::{
-    cabaret::CabaretOld,
+    cabaret2::Cabaret,
     error::Result,
     sync::SyncOutcome,
     types::{Identity, Pathspec},
@@ -43,7 +43,7 @@ pub struct Cli {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
-    let cabaret = CabaretOld::open(std::env::current_dir()?)?;
+    let cabaret = Cabaret::open(std::env::current_dir()?)?;
 
     match cli.command {
         Command::Change { command } => command.run(cabaret)?,
@@ -59,7 +59,7 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn fetch(cabaret: &CabaretOld) -> Result<()> {
+fn fetch(cabaret: &Cabaret) -> Result<()> {
     cabaret.fetch()?;
     let mut ahead = Vec::new();
     for change in cabaret.branches()? {
