@@ -19,6 +19,8 @@ impl Cabaret {
 
     pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
 
+    pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         self.insert1(change_id, |_ctx, change| {
             change.parents = BTreeSet::from([parent_id.to_owned()]);
@@ -73,6 +75,29 @@ impl Cabaret {
                 Liveness::Archived => change.liveness = Liveness::Live,
             };
             Ok(())
+        })
+    }
+
+    pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners.insert(owner.clone()) {
+            false => Err(format!("{owner} already owned {change_id}"))?,
+            true => Ok(()),
+        })
+    }
+
+    pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners.remove(owner) {
+            false => Err(format!("{owner} did not own {change_id}"))?,
+            true if change.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
+            true => Ok(()),
+        })
+    }
+
+    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners == owners {
+            true => Err(format!("{change_id} already had these owners"))?,
+            false if owners.len() == 0 => Err(format!("{change_id} should have at least one owner"))?,
+            false => Ok(change.owners = owners),
         })
     }
 

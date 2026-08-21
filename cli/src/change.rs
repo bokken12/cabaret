@@ -131,22 +131,18 @@ impl ChangeCommand {
                     }
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
-                    OwnersCommand::Set { owners } => cabaret.set_owners(change, &owners.into_iter().collect())?,
+                    OwnersCommand::Set { owners } => cabaret.set_owners(change, owners.into_iter().collect())?,
                 }
             }
             ChangeCommand::Parents { change, command } => {
                 let change = &or_current(change)?;
                 match command {
                     ParentsCommand::Show => {
-                        for parent in &cabaret.log(change)?.parents {
-                            println!("{parent}");
-                        }
+                        todo!()
                     }
-                    ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
-                    ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
-                    ParentsCommand::Set { parents } => {
-                        cabaret.set_parents(change, &parents.into_iter().collect())?;
-                    }
+                    ParentsCommand::Add { parent } => todo!(),
+                    ParentsCommand::Remove { parent } => todo!(),
+                    ParentsCommand::Set { parents } => todo!(),
                 }
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto)?,
