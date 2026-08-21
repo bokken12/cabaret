@@ -12,7 +12,6 @@ use crate::{
     change::ChangeId,
     error::Error,
     log::Log,
-    render::{RenderedHome, render_home},
     revision::Revision,
     types::{Identity, RepoPath},
 };
@@ -91,15 +90,5 @@ impl CabaretJs {
     #[napi]
     pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> {
         Ok(self.cabaret.rebase(&change, &onto)?)
-    }
-
-    /// The rendered home view for `viewer`, defaulting to git's user.email.
-    #[napi]
-    pub fn home(&self, viewer: Option<Identity>) -> napi::Result<RenderedHome> {
-        let viewer = match viewer {
-            Some(viewer) => viewer,
-            None => self.cabaret.identity()?,
-        };
-        Ok(render_home(&self.cabaret.home_graph(&viewer)?)?)
     }
 }

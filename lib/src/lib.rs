@@ -8,7 +8,6 @@ pub mod merge;
 #[cfg(feature = "napi")]
 pub mod node;
 pub mod revision;
-pub mod step;
 pub mod sync;
 pub mod transaction;
 pub mod types;
