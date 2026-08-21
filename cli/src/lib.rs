@@ -1,7 +1,6 @@
 use cabaret_lib::{
     cabaret::CabaretOld,
     error::Result,
-    render::render_home,
     sync::SyncOutcome,
     types::{Identity, Pathspec},
 };
@@ -52,13 +51,7 @@ pub fn run() -> Result<()> {
         Command::Config => todo!(),
         Command::Fetch => fetch(&cabaret)?,
         Command::Home { viewer } => {
-            let viewer = if let Some(viewer) = viewer { viewer } else { cabaret.identity()? };
-            let graph = cabaret.home_graph(&viewer)?;
-            if graph.nodes.is_empty() {
-                println!("no open changes owned by {viewer}");
-            } else {
-                print!("{}", render_home(&graph)?.text);
-            }
+            todo!()
         }
         Command::Workspace { command } => command.run(cabaret)?,
     }
