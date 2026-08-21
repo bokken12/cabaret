@@ -34,16 +34,16 @@ impl Cabaret {
         })
     }
 
-    pub fn land(&self, change_id: &ChangeIdRef) {
+    pub fn land(&self, change_id: &ChangeIdRef) -> Result<()> {
         let parent = self.query(|ctx| {
             let change = ctx.read(change_id);
             match change.parents.iter().collect::<Vec<_>>().as_slice() {
-                [] => Err(format!("{change_id} has no parents and cannot land"))?,
-                [_, _] => Err(format!("{change_id} has multiple parents, land them into each other first"))?,
-                [parent] => Ok(parent),
+                [] => Err(format!("{change_id} cannot land while it has no parents"))?,
+                [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
+                [parent] => Ok((*parent).clone()),
             }
         })?;
-        self.land_into(change_id, parent);
+        self.land_into(change_id, &parent)
     }
 
     pub fn rebase(&self, change_id: &ChangeIdRef, onto_id: &ChangeIdRef) -> Result<()> {
