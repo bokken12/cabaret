@@ -14,6 +14,7 @@ default = ["napi"]
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 
 [dependencies]
+elsa.workspace = true
 gix.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }

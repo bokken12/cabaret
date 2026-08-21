@@ -1,4 +1,5 @@
 pub mod cabaret;
+pub mod cabaret2;
 pub mod change;
 pub mod diff;
 pub mod error;
@@ -11,5 +12,6 @@ pub mod render;
 pub mod revision;
 pub mod step;
 pub mod sync;
+pub mod transaction;
 pub mod types;
 pub mod workspace;
