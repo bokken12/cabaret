@@ -1,6 +1,7 @@
 pub mod cabaret;
 pub mod cabaret2;
 pub mod change;
+pub mod context;
 pub mod error;
 pub mod log;
 pub mod merge;
