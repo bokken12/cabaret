@@ -125,9 +125,7 @@ impl ChangeCommand {
                 let change = &or_current(change)?;
                 match command {
                     OwnersCommand::Show => {
-                        for owner in &cabaret.log(change)?.owners {
-                            println!("{owner}");
-                        }
+                        todo!()
                     }
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,

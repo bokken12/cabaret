@@ -17,10 +17,10 @@ use crate::{
 };
 
 // TODO(joel): into_parts?
-pub struct Transaction<const N: usize> {
-    pub ctx: TransactionContext,
-    pub data: [Change; N],
-}
+// pub struct Transaction<const N: usize> {
+//     pub ctx: TransactionContext,
+//     pub data: [Change; N],
+// }
 
 // TODO(joel): adopt more canonical names?
 pub enum UpdateOrInsert<T> {

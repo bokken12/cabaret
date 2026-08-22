@@ -12,9 +12,9 @@ use crate::{
 };
 
 // Effectively all operations should work on immutable references
-pub struct TransactionContext {
+pub struct TransactionContext<'ctx> {
     repo: Repository,
-    read: FrozenBTreeMap<ChangeId, Box<Change>>,
+    read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
 }
 
 // impl Cabaret {
@@ -23,13 +23,13 @@ pub struct TransactionContext {
 //     }
 // }
 
-impl TransactionContext {
-    pub fn read(&self, change_id: &ChangeIdRef) -> &Change {
+impl<'ctx> TransactionContext<'ctx> {
+    pub fn read(&self, change_id: &ChangeIdRef) -> &Change<'ctx> {
         match self.read.get(change_id) {
             Some(read) => &read,
             None => {
                 // TODO(joel): read from log
-                let parse = Box::new(Change::new());
+                let parse = Box::new(todo!());
                 self.read.insert(change_id.to_owned(), parse)
             }
         }
@@ -77,8 +77,9 @@ impl TransactionContext {
 }
 
 // TODO(joel): move
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Change {
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Change<'ctx> {
+    ctx: &'ctx TransactionContext<'ctx>,
     head: Revision,
     pub title: String,
     pub description: String,
@@ -88,6 +89,6 @@ pub struct Change {
     pub parents: BTreeSet<ChangeId>,
 }
 
-impl Change {
-    pub fn new() -> Self { todo!() }
-}
+// impl Change {
+//     pub fn new() -> Self { todo!() }
+// }
