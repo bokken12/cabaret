@@ -101,6 +101,25 @@ impl Cabaret {
         })
     }
 
+    // TODO(joel): some helper that aligns the parent set with the derived parent set?
+
+    pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |ctx, change| {
+            // TODO(joel): check for cyclic dependencies
+            match change.parents.insert(parent_id.to_owned()) {
+                false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
+                true => Ok(()),
+            }
+        })
+    }
+
+    pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.parents.remove(parent_id) {
+            false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
+            true => Ok(()),
+        })
+    }
+
     pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool) -> Result<()> {
         self.update1(change_id, |_ctx, change| {
             // TODO(joel): warn if parents non-permanent?
