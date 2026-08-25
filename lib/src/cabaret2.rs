@@ -38,7 +38,7 @@ impl Cabaret {
 
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<()> {
         let parent = self.query(|ctx| {
-            let change = ctx.read(change_id);
+            let change = ctx.read(change_id)?;
             match change.parents.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
                 [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,

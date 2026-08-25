@@ -1,19 +1,8 @@
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    rc::Rc,
-};
-
-use elsa::FrozenBTreeMap;
-use gix::{Repository, ThreadSafeRepository};
-
 use crate::{
     cabaret2::Cabaret,
-    change::{ChangeId, ChangeIdRef},
+    change::ChangeIdRef,
     context::{Change, TransactionContext},
     error::Result,
-    revision::Revision,
-    types::{Identity, Liveness},
 };
 
 // TODO(joel): into_parts?

@@ -1,10 +1,9 @@
-use std::{collections::BTreeSet, path::Path, process::Command};
+use std::{collections::BTreeSet, process::Command};
 
 use elsa::FrozenBTreeMap;
 use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
-    cabaret2::Cabaret,
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
@@ -24,13 +23,13 @@ pub struct TransactionContext<'ctx> {
 // }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub fn read(&self, change_id: &ChangeIdRef) -> &Change<'ctx> {
+    pub fn read(&self, change_id: &ChangeIdRef) -> Result<&Change<'ctx>> {
         match self.read.get(change_id) {
-            Some(read) => &read,
+            Some(read) => Ok(&read),
             None => {
                 // TODO(joel): read from log
                 let parse = Box::new(todo!());
-                self.read.insert(change_id.to_owned(), parse)
+                Ok(self.read.insert(change_id.to_owned(), parse))
             }
         }
     }
@@ -80,6 +79,7 @@ impl<'ctx> TransactionContext<'ctx> {
 // #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Change<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
+    id: ChangeId,
     head: Revision,
     pub title: String,
     pub description: String,
@@ -89,6 +89,15 @@ pub struct Change<'ctx> {
     pub parents: BTreeSet<ChangeId>,
 }
 
-// impl Change {
-//     pub fn new() -> Self { todo!() }
-// }
+impl<'ctx> Change<'ctx> {
+    pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
+        if ancestor == self.id.as_ref() {
+            return Ok(true);
+        }
+        self.parents.iter().try_fold(false, |acc, parent| Ok(acc || self.ctx.read(parent)?.is_descendant(ancestor)?))
+    }
+
+    pub fn is_ancestor(&self, descendant: &ChangeIdRef) -> Result<bool> {
+        Ok(self.ctx.read(descendant)?.is_descendant(&self.id)?)
+    }
+}
