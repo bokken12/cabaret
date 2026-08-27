@@ -1,4 +1,4 @@
-use cabaret_lib::{cabaret::Cabaret, change::ChangeId, error::Result};
+use cabaret_lib::{cabaret::Cabaret, change_id::ChangeId, error::Result};
 use clap::Subcommand;
 
 use crate::completion::change_completer;

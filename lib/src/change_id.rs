@@ -1,14 +1,11 @@
-use std::{borrow::Borrow, collections::BTreeSet, fmt, ops::Deref, str::FromStr};
+use std::{borrow::Borrow, fmt, ops::Deref, str::FromStr};
 
 use gix::{
     bstr::BStr,
     refs::{FullName, PartialName, PartialNameRef},
 };
-use nonempty_collections::NEVec;
 use ref_cast::RefCast;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use crate::{cabaret::Cabaret, error::Result, revision::Revision};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangeId(pub PartialName);

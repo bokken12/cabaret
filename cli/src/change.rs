@@ -1,6 +1,6 @@
 use cabaret_lib::{
     cabaret::Cabaret,
-    change::ChangeId,
+    change_id::ChangeId,
     error::Result,
     types::{Identity, Pathspec},
 };

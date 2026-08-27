@@ -9,7 +9,7 @@ use napi_derive::napi;
 
 use crate::{
     cabaret::Cabaret,
-    change::ChangeId,
+    change_id::ChangeId,
     error::Error,
     revision::Revision,
     types::{Identity, RepoPath},

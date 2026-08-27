@@ -15,7 +15,7 @@ use ref_cast::RefCast;
 
 use crate::{
     cabaret::Cabaret,
-    change::{ChangeId, ChangeIdRef},
+    change_id::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
     types::TreeId,

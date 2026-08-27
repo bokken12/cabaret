@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, path::Path};
 use gix::ThreadSafeRepository;
 
 use crate::{
-    change::{ChangeId, ChangeIdRef},
+    change_id::{ChangeId, ChangeIdRef},
     error::Result,
     types::Identity,
 };

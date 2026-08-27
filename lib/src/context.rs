@@ -4,7 +4,7 @@ use elsa::FrozenBTreeMap;
 use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
-    change::{ChangeId, ChangeIdRef},
+    change_id::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
     types::Identity,

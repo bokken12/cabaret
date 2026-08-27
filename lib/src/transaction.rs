@@ -1,6 +1,6 @@
 use crate::{
     cabaret::Cabaret,
-    change::ChangeIdRef,
+    change_id::ChangeIdRef,
     context::{Change, TransactionContext},
     error::Result,
 };
