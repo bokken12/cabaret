@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -44,8 +44,23 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(Revision(self.repo.merge_base(one, two)?.detach()))
     }
 
-    // TODO(joel): rename to `is_predecessor`?
-    pub fn precedes(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
         Ok(self.merge_base(predecessor, successor)? == predecessor)
+    }
+
+    /// `ctx.maximal_revisions(revisions)` returns the subset of `revisions` which have no predecessor under `ctx`.
+    pub fn maximal_revisions(&self, revisions: &BTreeSet<Revision>) -> Result<BTreeSet<Revision>> {
+        let mut candidates = revisions.clone();
+
+        for &candidate in revisions.iter() {
+            for &other in candidates.iter() {
+                if candidate != other && self.is_predecessor(candidate, other)? {
+                    candidates.remove(&candidate);
+                    break;
+                }
+            }
+        }
+
+        Ok(candidates)
     }
 }

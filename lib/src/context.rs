@@ -112,19 +112,11 @@ impl<'ctx> Change<'ctx> {
     pub fn bases(&self) -> Result<BTreeSet<Revision>> {
         let mut candidates = BTreeSet::new();
 
+        // add merge bases for all parents
         for parent_id in self.parents()? {
-            candidates.insert(self.ctx.read(&parent_id)?.tip);
+            candidates.insert(self.ctx.merge_base(self.tip, self.ctx.read(&parent_id)?.tip)?);
         }
 
-        for candidate in candidates.clone() {
-            for other in candidates.iter() {
-                if candidate != *other && self.ctx.precedes(candidate, *other)? {
-                    candidates.remove(&candidate);
-                    break;
-                }
-            }
-        }
-
-        Ok(candidates)
+        self.ctx.maximal_revisions(&candidates)
     }
 }
