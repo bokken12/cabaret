@@ -1,9 +1,4 @@
-use crate::{
-    cabaret::Cabaret,
-    change_id::ChangeIdRef,
-    context::{Change, TransactionContext},
-    error::Result,
-};
+use crate::{cabaret::Cabaret, change::Change, change_id::ChangeIdRef, context::TransactionContext, error::Result};
 
 // TODO(joel): into_parts?
 // pub struct Transaction<const N: usize> {
