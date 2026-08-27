@@ -80,7 +80,7 @@ impl<'ctx> TransactionContext<'ctx> {
 pub struct Change<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: ChangeId,
-    head: Revision,
+    tip: Revision,
     pub title: String,
     pub description: String,
     pub archived: bool,
@@ -109,8 +109,22 @@ impl<'ctx> Change<'ctx> {
 
     /// No bases ==> change is a root (no parents)
     /// Multiple bases ==> base is the merge of the revisions
-    pub fn bases(&self) -> BTreeSet<Revision> {
-        // skip dominators which have a descendant in the bases
-        todo!()
+    pub fn bases(&self) -> Result<BTreeSet<Revision>> {
+        let mut candidates = BTreeSet::new();
+
+        for parent_id in self.parents()? {
+            candidates.insert(self.ctx.read(&parent_id)?.tip);
+        }
+
+        for candidate in candidates.clone() {
+            for other in candidates.iter() {
+                if candidate != *other && self.ctx.precedes(candidate, *other)? {
+                    candidates.remove(&candidate);
+                    break;
+                }
+            }
+        }
+
+        Ok(candidates)
     }
 }

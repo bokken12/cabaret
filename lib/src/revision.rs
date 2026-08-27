@@ -41,11 +41,11 @@ pub struct RevisionRange {
 impl<'ctx> TransactionContext<'ctx> {
     pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
         // TODO(joel): use `merge_base_with_graph`
-        Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))
+        Ok(Revision(self.repo.merge_base(one, two)?.detach()))
     }
 
     // TODO(joel): rename to `is_predecessor`?
-    pub fn rev_is_ancestor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
-        Ok(self.repo.merge_base(predecessor.0, successor.0)? == predecessor.0)
+    pub fn precedes(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+        Ok(self.merge_base(predecessor, successor)? == predecessor)
     }
 }
