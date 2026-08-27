@@ -3,7 +3,7 @@ use std::fmt;
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{cabaret::CabaretOld, error::Result};
+use crate::{cabaret::Cabaret, context::TransactionContext, error::Result};
 
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -30,6 +30,7 @@ impl<'de> Deserialize<'de> for Revision {
     }
 }
 
+// TODO(joel): consider making `'ctx`-parameterized?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object))]
 pub struct RevisionRange {
@@ -37,7 +38,7 @@ pub struct RevisionRange {
     pub head: Revision,
 }
 
-impl CabaretOld {
+impl<'ctx> TransactionContext<'ctx> {
     pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
         // TODO(joel): use `merge_base_with_graph`
         Ok(Revision(self.repo.merge_base(one.0, two.0)?.detach()))

@@ -1,6 +1,6 @@
-use std::{path::Path, process::Command};
+use std::{collections::BTreeSet, path::Path};
 
-use gix::{Repository, bstr::ByteSlice};
+use gix::ThreadSafeRepository;
 
 use crate::{
     change::{ChangeId, ChangeIdRef},
@@ -8,54 +8,125 @@ use crate::{
     types::Identity,
 };
 
-pub struct CabaretOld {
-    // TODO(joel): ThreadSafeRepository? Consider concurrency for napi/UIs
-    pub repo: Repository,
+pub struct Cabaret {
+    pub(crate) repo: ThreadSafeRepository,
 }
 
-impl CabaretOld {
-    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
-        let repo = gix::discover(dir)?;
-        Ok(Self { repo })
+impl Cabaret {
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { repo: ThreadSafeRepository::discover(dir)? }) }
+
+    pub fn changes(&self) -> Result<Vec<ChangeId>> { self.query(|ctx| ctx.changes()) }
+
+    pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
+
+    pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
+    pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        self.insert1(change_id, |_ctx, change| {
+            change.parents = BTreeSet::from([parent_id.to_owned()]);
+            change.owners = BTreeSet::from([owner.clone()]);
+            Ok(())
+        })
     }
 
-    pub fn changes(&self) -> Result<Vec<ChangeId>> {
-        let mut changes = Vec::new();
-        for reference in self.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
-            let reference = reference?;
-            let name = reference.name().as_bstr();
-            let change = name
-                .strip_prefix(ChangeIdRef::LOG_REF_PREFIX.as_bytes())
-                .expect("prefixed iteration stays under the prefix");
-            changes.push(change.to_str()?.parse()?);
-        }
-        Ok(changes)
+    fn land_into(&self, change_id: &ChangeIdRef, into_id: &ChangeIdRef) -> Result<()> {
+        self.update(&[change_id, into_id], |_ctx, [change, into]| {
+            // TODO
+            Ok(())
+        })
     }
 
-    pub fn branches(&self) -> Result<Vec<ChangeId>> {
-        let mut branches = Vec::new();
-        for reference in self.repo.references()?.local_branches()? {
-            branches.push(reference?.name().shorten().to_str()?.parse()?);
-        }
-        Ok(branches)
+    pub fn land(&self, change_id: &ChangeIdRef) -> Result<()> {
+        let parent = self.query(|ctx| {
+            let change = ctx.read(change_id)?;
+            match change.parents.iter().collect::<Vec<_>>().as_slice() {
+                [] => Err(format!("{change_id} cannot land while it has no parents"))?,
+                [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
+                [parent] => Ok((*parent).clone()),
+            }
+        })?;
+        self.land_into(change_id, &parent)
     }
 
-    /// Git running against this repository, for operations gix does not implement yet.
-    pub fn git_when_gix_unimplemented(&self) -> Command {
-        let mut command = Command::new("git");
-        command.arg("--git-dir").arg(self.repo.git_dir());
-        command
+    pub fn rebase(&self, change_id: &ChangeIdRef, onto_id: &ChangeIdRef) -> Result<()> {
+        self.update(&[change_id, onto_id], |_ctx, [change, onto]| {
+            // TODO
+            Ok(())
+        })
     }
 
-    /// The identity this repository acts as: git's user.email.
-    pub fn identity(&self) -> Result<Identity> {
-        let committer = self.repo.committer().ok_or("no git identity; set user.email")??;
-        Ok(Identity(committer.email.to_string()))
+    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |_ctx, change| {
+            // TODO(joel): warn if children unarchived?
+            match change.archived {
+                true => Err(format!("{change_id} has already been archived"))?,
+                false => change.archived = true,
+            };
+            Ok(())
+        })
     }
 
-    // TODO-someday(joel): consider pulling into state
-    pub fn current_change(&self) -> Result<ChangeId> {
-        let head = self.repo.head_name()?.ok_or("HEAD is detached")?;
-        Ok(head.shorten().to_string().parse()?)
+    pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |_ctx, change| {
+            // TODO(joel): warn if parents archived?
+            match change.archived {
+                false => Err(format!("{change_id} has not been archived"))?,
+                true => change.archived = false,
+            };
+            Ok(())
+        })
+    }
+
+    pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners.insert(owner.clone()) {
+            false => Err(format!("{owner} already owned {change_id}"))?,
+            true => Ok(()),
+        })
+    }
+
+    pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners.remove(owner) {
+            false => Err(format!("{owner} did not own {change_id}"))?,
+            true if change.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
+            true => Ok(()),
+        })
+    }
+
+    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.owners == owners {
+            true => Err(format!("{change_id} already had these owners"))?,
+            false if owners.len() == 0 => Err(format!("{change_id} should have at least one owner"))?,
+            false => Ok(change.owners = owners),
+        })
+    }
+
+    // TODO(joel): some helper that aligns the parent set with the derived parent set?
+
+    pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |ctx, change| {
+            // TODO(joel): check for cyclic dependencies
+            match change.parents.insert(parent_id.to_owned()) {
+                false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
+                true => Ok(()),
+            }
+        })
+    }
+
+    pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.parents.remove(parent_id) {
+            false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
+            true => Ok(()),
+        })
+    }
+
+    pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool) -> Result<()> {
+        self.update1(change_id, |_ctx, change| {
+            // TODO(joel): warn if parents non-permanent?
+            match change.archived {
+                true => Err(format!("{change_id} is archived"))?,
+                _ => change.permanent = permanent,
+            };
+            Ok(())
+        })
     }
 }

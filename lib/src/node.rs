@@ -8,10 +8,9 @@ use napi::{
 use napi_derive::napi;
 
 use crate::{
-    cabaret::CabaretOld,
+    cabaret::Cabaret,
     change::ChangeId,
     error::Error,
-    log::Log,
     revision::Revision,
     types::{Identity, RepoPath},
 };
@@ -67,22 +66,19 @@ impl FromNapiValue for Revision {
 
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
-    cabaret: CabaretOld,
+    cabaret: Cabaret,
 }
 
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: CabaretOld::open(&dir)? }) }
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Cabaret::open(&dir)? }) }
 
     #[napi]
     pub fn changes(&self) -> napi::Result<Vec<ChangeId>> { Ok(self.cabaret.changes()?) }
 
     #[napi]
     pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
-
-    #[napi]
-    pub fn log(&self, id: ChangeId) -> napi::Result<Log> { Ok(self.cabaret.log(&id)?) }
 
     #[napi]
     pub fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }

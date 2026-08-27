@@ -1,5 +1,5 @@
 use crate::{
-    cabaret2::Cabaret,
+    cabaret::Cabaret,
     change::ChangeIdRef,
     context::{Change, TransactionContext},
     error::Result,

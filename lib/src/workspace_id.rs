@@ -14,7 +14,7 @@ use gix::{
 use ref_cast::RefCast;
 
 use crate::{
-    cabaret::CabaretOld,
+    cabaret::Cabaret,
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,

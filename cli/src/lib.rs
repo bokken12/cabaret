@@ -1,7 +1,6 @@
 use cabaret_lib::{
-    cabaret2::Cabaret,
+    cabaret::Cabaret,
     error::Result,
-    sync::SyncOutcome,
     types::{Identity, Pathspec},
 };
 use clap::{Parser, Subcommand, ValueHint};
@@ -59,23 +58,4 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn fetch(cabaret: &Cabaret) -> Result<()> {
-    cabaret.fetch()?;
-    let mut ahead = Vec::new();
-    for change in cabaret.branches()? {
-        match cabaret.sync_branch(&change)? {
-            SyncOutcome::Unpublished | SyncOutcome::UpToDate => {}
-            SyncOutcome::FastForwarded => println!("fast-forwarded {change}"),
-            SyncOutcome::Dirty => println!("skipped {change}: uncommitted changes"),
-            SyncOutcome::Diverged => println!("skipped {change}: diverged from remote"),
-            SyncOutcome::Ahead => ahead.push(change),
-        }
-    }
-    if !ahead.is_empty() {
-        cabaret.push(&ahead)?;
-        for change in &ahead {
-            println!("pushed {change}");
-        }
-    }
-    Ok(())
-}
+fn fetch(cabaret: &Cabaret) -> Result<()> { todo!() }

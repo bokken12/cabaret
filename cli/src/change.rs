@@ -1,5 +1,5 @@
 use cabaret_lib::{
-    cabaret2::Cabaret,
+    cabaret::Cabaret,
     change::ChangeId,
     error::Result,
     types::{Identity, Pathspec},
@@ -152,23 +152,24 @@ impl ChangeCommand {
 }
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
-    let onto = match onto {
-        Some(onto) => onto,
-        None => {
-            let parents: Vec<ChangeId> = cabaret.parents(change)?.into_iter().collect();
-            match parents.as_slice() {
-                [] => return Err(format!("{change} has no parents").into()),
-                [parent] => parent.clone(),
-                parents @ [_, _, ..] => {
-                    let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
-                    return Err(format!(
-                        "{change} has multiple parents; pass the one to rebase onto: {}",
-                        parents.join(", ")
-                    )
-                    .into());
-                }
-            }
-        }
-    };
-    cabaret.rebase(change, &onto)
+    // let onto = match onto {
+    //     Some(onto) => onto,
+    //     None => {
+    //         let parents: Vec<ChangeId> = cabaret.parents(change)?.into_iter().collect();
+    //         match parents.as_slice() {
+    //             [] => return Err(format!("{change} has no parents").into()),
+    //             [parent] => parent.clone(),
+    //             parents @ [_, _, ..] => {
+    //                 let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
+    //                 return Err(format!(
+    //                     "{change} has multiple parents; pass the one to rebase onto: {}",
+    //                     parents.join(", ")
+    //                 )
+    //                 .into());
+    //             }
+    //         }
+    //     }
+    // };
+    // cabaret.rebase(change, &onto)
+    todo!()
 }

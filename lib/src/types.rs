@@ -98,14 +98,3 @@ pub struct TreeId(pub ObjectId);
 impl From<TreeId> for ObjectId {
     fn from(tree: TreeId) -> Self { tree.0 }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[cfg_attr(feature = "napi", napi_derive::napi(string_enum))]
-pub enum Liveness {
-    /// Intended to land
-    Live,
-    /// Landed or abandoned
-    Archived,
-    /// Umbrella for children
-    Permanent,
-}

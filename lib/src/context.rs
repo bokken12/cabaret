@@ -7,12 +7,12 @@ use crate::{
     change::{ChangeId, ChangeIdRef},
     error::Result,
     revision::Revision,
-    types::{Identity, Liveness},
+    types::Identity,
 };
 
 // Effectively all operations should work on immutable references
 pub struct TransactionContext<'ctx> {
-    repo: Repository,
+    pub(crate) repo: Repository,
     read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
 }
 
@@ -83,8 +83,8 @@ pub struct Change<'ctx> {
     head: Revision,
     pub title: String,
     pub description: String,
-    // TODO(joel): consider splitting back out?
-    pub liveness: Liveness,
+    pub archived: bool,
+    pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
 }
@@ -99,5 +99,18 @@ impl<'ctx> Change<'ctx> {
 
     pub fn is_ancestor(&self, descendant: &ChangeIdRef) -> Result<bool> {
         Ok(self.ctx.read(descendant)?.is_descendant(&self.id)?)
+    }
+
+    pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
+        // skip archived changes and target their parents directly.
+        // skip dominators since their children will release into them.
+        todo!()
+    }
+
+    /// No bases ==> change is a root (no parents)
+    /// Multiple bases ==> base is the merge of the revisions
+    pub fn bases(&self) -> BTreeSet<Revision> {
+        // skip dominators which have a descendant in the bases
+        todo!()
     }
 }
