@@ -5,27 +5,21 @@
 
 For each change x user, review state can be represented as a map of
 
-> file name -> (base revision, tip revision, timestamp)
+> file name -> (tip revision, timestamp)
 
 representing the latest diff they have reviewed for each file in the change.
 
 
 ## Visualization
 
-To determine what diff to show a user for a file, we compare their saved base and tip to the change's current base and tip.
+A user is assumed to have reviewed up to the base(s) in the parent change(s) and to remember their past state. Therefore, the diff to show them is between the current tip and the merge of:
 
-### No Prior Review
+- Their most recently reviewed tip for this change
+- All bases for this change.
 
-If there exists no previous review state, we can simply show the change's base->tip diff.
+In an append-only world we could use the merge of all reviewed tips, but this has degenerate cases when others modify history.
 
-### Same Base
-
-If the change and the prior review state have the same base, we show the diff between tips.
-
-### Different Base
-
-If the change and prior review state have different bases, we must show a ddiff/diff4 between the current and reviewed diffs.
-
+Crucially, this this always presents a diff2 and does not degenerate into diff4 like Iron. However, its left side may include conflicts.
 
 ## Transitions
 
