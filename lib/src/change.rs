@@ -34,10 +34,27 @@ impl<'ctx> Change<'ctx> {
         Ok(self.ctx.read(descendant)?.is_descendant(&self.id)?)
     }
 
+    // TODO-someday(joel): store computed parents?
     pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
-        // skip archived changes and target their parents directly.
-        // skip dominators since their children will release into them.
-        todo!()
+        if self.archived {
+            return Ok(self.parents.clone());
+        }
+
+        let mut candidates = BTreeSet::new();
+        let mut frontier: Vec<_> = self.parents.iter().cloned().collect();
+        loop {
+            let Some(candidate_id) = frontier.pop() else { break };
+            let candidate = self.ctx.read(&candidate_id)?;
+
+            // skip archived parents and land into their parents
+            match candidate.archived {
+                false => {
+                    candidates.insert(candidate_id);
+                }
+                true => frontier.extend(candidate.parents.iter().cloned()),
+            }
+        }
+        self.ctx.maximal_changes(&candidates)
     }
 
     /// No bases ==> change is a root (no parents)
@@ -51,5 +68,23 @@ impl<'ctx> Change<'ctx> {
         }
 
         self.ctx.maximal_revisions(&candidates)
+    }
+}
+
+impl<'ctx> TransactionContext<'ctx> {
+    pub fn maximal_changes(&self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
+        let mut candidates = changes.clone();
+
+        for candidate_id in changes.iter() {
+            let candidate = self.read(candidate_id)?;
+            for other in candidates.iter() {
+                if candidate_id != other && candidate.is_ancestor(other)? {
+                    candidates.remove(candidate_id);
+                    break;
+                }
+            }
+        }
+
+        Ok(candidates)
     }
 }
