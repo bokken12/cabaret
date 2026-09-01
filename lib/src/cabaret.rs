@@ -22,7 +22,8 @@ impl Cabaret {
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.insert1(change_id, |_ctx, change| {
+        let tip = self.query(|ctx| Ok(ctx.read(parent_id)?.tip()))?;
+        self.insert1(change_id, tip, |_ctx, change| {
             change.parents = BTreeSet::from([parent_id.to_owned()]);
             change.owners = BTreeSet::from([owner.clone()]);
             Ok(())
