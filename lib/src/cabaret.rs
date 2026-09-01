@@ -3,11 +3,11 @@ use std::{collections::BTreeSet, path::Path};
 use gix::ThreadSafeRepository;
 
 use crate::{
-    change::Change,
     error::Result,
     types::{ChangeId, ChangeIdRef, Identity},
 };
 
+/// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
 pub struct Cabaret {
     pub(crate) repo: ThreadSafeRepository,
 }
