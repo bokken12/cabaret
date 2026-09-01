@@ -1,10 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet, btree_map};
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cabaret::Cabaret,
+    change::Change,
     change_id::{ChangeId, ChangeIdRef},
+    context::TransactionContext,
     error::Result,
     revision::{Revision, RevisionRange},
     types::{Identity, RepoPath, TimestampMs},
@@ -29,63 +30,87 @@ pub enum LogAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: TimestampMs,
-    // TODO-someday(joel): add user
-    // pub user: String,
+    pub user: Identity,
     #[serde(flatten)]
     pub action: LogAction,
 }
 
-fn set<T: PartialEq + Clone>(place: &mut T, val: &T) -> bool {
-    let changed = place != val;
-    *place = val.clone();
-    changed
-}
+const LOG_FILE: &str = "log.jsonl";
 
-fn set_key<K: Ord, T: PartialEq + Clone>(map: &mut BTreeMap<K, T>, k: K, val: &T) -> bool {
-    match map.entry(k) {
-        btree_map::Entry::Vacant(v) => {
-            v.insert(val.clone());
-            true
+impl<'ctx> Change<'ctx> {
+    /// Fold `change_id`'s log into its committed state.
+    pub(crate) fn from_log(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
+        let tip = Revision(ctx.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id);
+
+        let log_ref = change_id.log_ref();
+        let tree = ctx.repo.find_reference(&log_ref)?.peel_to_commit()?.tree()?;
+        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{} has no {LOG_FILE}", log_ref.as_bstr()))?;
+        let blob = entry.object()?.try_into_blob()?;
+        let text = std::str::from_utf8(&blob.data)?;
+
+        let mut change = Change::new(ctx, change_id.to_owned(), tip);
+        for line in text.lines() {
+            let entry: LogEntry = serde_json::from_str(line)?;
+            change.apply(&entry.action);
         }
-        btree_map::Entry::Occupied(mut o) => set(o.get_mut(), val),
+        Ok(change)
+    }
+
+    fn apply(&mut self, action: &LogAction) {
+        match action {
+            LogAction::AddOwner { owner } => {
+                self.owners.insert(owner.clone());
+            }
+            LogAction::AddParent { parent } => {
+                self.parents.insert(parent.clone());
+            }
+            LogAction::Forget { user, file } => {
+                self.review.entry(user.clone()).or_default().remove(file);
+            }
+            LogAction::Mark { user, file, range } => {
+                self.review.entry(user.clone()).or_default().insert(file.clone(), range.clone());
+            }
+            LogAction::RemoveOwner { owner } => {
+                self.owners.remove(owner);
+            }
+            LogAction::RemoveParent { parent } => {
+                self.parents.remove(parent);
+            }
+            LogAction::SetArchived { archived } => self.archived = *archived,
+            LogAction::SetDescription { description } => self.description = description.clone(),
+            LogAction::SetPermanent { permanent } => self.permanent = *permanent,
+            LogAction::SetTitle { title } => self.title = title.clone(),
+        }
+    }
+
+    /// The actions that take `before` to `self`; empty when nothing changed.
+    pub(crate) fn actions_since(&self, before: &Self) -> Vec<LogAction> {
+        let mut actions = Vec::new();
+        for owner in before.owners.difference(&self.owners) {
+            actions.push(LogAction::RemoveOwner { owner: owner.clone() });
+        }
+        for owner in self.owners.difference(&before.owners) {
+            actions.push(LogAction::AddOwner { owner: owner.clone() });
+        }
+        for parent in before.parents.difference(&self.parents) {
+            actions.push(LogAction::RemoveParent { parent: parent.clone() });
+        }
+        for parent in self.parents.difference(&before.parents) {
+            actions.push(LogAction::AddParent { parent: parent.clone() });
+        }
+        if self.archived != before.archived {
+            actions.push(LogAction::SetArchived { archived: self.archived });
+        }
+        if self.permanent != before.permanent {
+            actions.push(LogAction::SetPermanent { permanent: self.permanent });
+        }
+        if self.title != before.title {
+            actions.push(LogAction::SetTitle { title: self.title.clone() });
+        }
+        if self.description != before.description {
+            actions.push(LogAction::SetDescription { description: self.description.clone() });
+        }
+        // TODO(joel): diff `review` into Mark/Forget
+        actions
     }
 }
-
-fn remove_key<K: Ord, T>(map: &mut BTreeMap<K, T>, k: &K) -> bool { map.remove(k).is_some() }
-
-/// A change's log: its stored form plus the fold of its actions.
-// TODO-someday(joel): consider how to properly control lifecycle?
-// TODO(joel: this should never have to cross the napi boundary
-// #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-// pub struct Log {
-//     pub head: Revision,
-//     pub text: String,
-//     // TODO-someday(joel): add other relevant data
-//     pub title: Option<String>,
-//     pub description: Option<String>,
-//     pub liveness: Liveness,
-//     pub owners: BTreeSet<Identity>,
-//     pub parents: BTreeSet<ChangeId>,
-//     pub review_state: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
-// }
-
-// impl Log {
-//     /// `log.apply(action)` is `true` iff `action` modifies `log`.
-//     pub fn apply(&mut self, action: &LogAction) -> bool {
-//         match action {
-//             LogAction::AddOwner { owner } => self.owners.insert(owner.clone()),
-//             LogAction::AddParent { parent } => self.parents.insert(parent.clone()),
-//             LogAction::Forget { user, file } => remove_key(self.review_state.entry(user.clone()).or_default(), file),
-//             LogAction::Mark { user, file, range } => {
-//                 set_key(self.review_state.entry(user.clone()).or_default(), file.clone(), range)
-//             }
-//             LogAction::RemoveOwner { owner } => self.owners.remove(owner),
-//             LogAction::RemoveParent { parent } => self.parents.remove(parent),
-//             LogAction::SetDescription { description } => set(&mut self.description, description),
-//             LogAction::SetLiveness { liveness } => set(&mut self.liveness, liveness),
-//             LogAction::SetTitle { title } => set(&mut self.title, title),
-//         }
-//     }
-// }
-
-const LOG_FILE: &str = "log.jsonl";

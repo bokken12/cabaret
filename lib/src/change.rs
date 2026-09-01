@@ -1,28 +1,47 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     change_id::{ChangeId, ChangeIdRef},
     context::TransactionContext,
     error::Result,
-    revision::Revision,
-    types::Identity,
+    revision::{Revision, RevisionRange},
+    types::{Identity, RepoPath},
 };
 
-// TODO(joel): move
-// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug)]
 pub struct Change<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: ChangeId,
-    tip: Revision,
-    pub title: String,
-    pub description: String,
+    pub tip: Revision,
+    pub title: Option<String>,
+    pub description: Option<String>,
     pub archived: bool,
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     pub parents: BTreeSet<ChangeId>,
+    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
 }
 
 impl<'ctx> Change<'ctx> {
+    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, tip: Revision) -> Self {
+        Self {
+            ctx,
+            id,
+            tip,
+            title: None,
+            description: None,
+            archived: false,
+            permanent: false,
+            owners: BTreeSet::new(),
+            parents: BTreeSet::new(),
+            review: BTreeMap::new(),
+        }
+    }
+
+    pub fn id(&self) -> &ChangeIdRef { &self.id }
+
+    pub fn tip(&self) -> Revision { self.tip }
+
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
             return Ok(true);
@@ -72,7 +91,7 @@ impl<'ctx> Change<'ctx> {
 }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub fn maximal_changes(&self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
+    pub fn maximal_changes(&'ctx self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
         let mut candidates = changes.clone();
 
         for candidate_id in changes.iter() {

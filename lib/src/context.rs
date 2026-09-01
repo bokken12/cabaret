@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, process::Command};
+use std::{fmt, process::Command};
 
 use elsa::FrozenBTreeMap;
 use gix::{Repository, bstr::ByteSlice};
@@ -7,32 +7,30 @@ use crate::{
     change::Change,
     change_id::{ChangeId, ChangeIdRef},
     error::Result,
-    revision::Revision,
     types::Identity,
 };
 
-// Effectively all operations should work on immutable references
+/// One transaction's view of the repository at a fixed time
 pub struct TransactionContext<'ctx> {
     pub(crate) repo: Repository,
     read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
 }
 
-// impl Cabaret {
-//     pub(crate) fn ctx(&self) -> TransactionContext {
-//         TransactionContext { repo: self.repo.to_thread_local(), read: FrozenBTreeMap::new() }
-//     }
-// }
+impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }
+}
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub fn read(&self, change_id: &ChangeIdRef) -> Result<&Change<'ctx>> {
-        match self.read.get(change_id) {
-            Some(read) => Ok(&read),
-            None => {
-                // TODO(joel): read from log
-                let parse = Box::new(todo!());
-                Ok(self.read.insert(change_id.to_owned(), parse))
-            }
+    pub(crate) fn new(repo: Repository) -> Self { Self { repo, read: FrozenBTreeMap::new() } }
+
+    /// The committed state of `change_id`, read from its log on first use.
+    pub fn read(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Change<'ctx>> {
+        if let Some(change) = self.read.get(change_id) {
+            return Ok(change);
         }
+
+        let change = Change::from_log(self, change_id)?;
+        Ok(self.read.insert(change_id.to_owned(), Box::new(change)))
     }
 
     pub fn changes(&self) -> Result<Vec<ChangeId>> {
