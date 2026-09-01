@@ -19,7 +19,7 @@ impl Cabaret {
         f: F,
     ) -> Result<T>
     where
-        F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
     {
         // construct the transaction context
         // call f
@@ -29,35 +29,35 @@ impl Cabaret {
 
     pub(crate) fn query<T, F>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&TransactionContext) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>) -> Result<T>,
     {
         self.transact(&[], |ctx, []| f(ctx))
     }
 
     pub(crate) fn update<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
     where
-        F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
     {
         self.transact(&change_ids.map(|id| UpdateOrInsert::Update(id)), f)
     }
 
     pub(crate) fn insert<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
     where
-        F: FnOnce(&TransactionContext, &mut [Change; N]) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
     {
         self.transact(&change_ids.map(|id| UpdateOrInsert::Insert(id)), f)
     }
 
     pub(crate) fn update1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: FnOnce(&TransactionContext, &mut Change) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>, &mut Change<'ctx>) -> Result<T>,
     {
         self.update(&[change_id], |ctx, [change]| f(ctx, change))
     }
 
     pub(crate) fn insert1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: FnOnce(&TransactionContext, &mut Change) -> Result<T>,
+        F: for<'ctx> FnOnce(&TransactionContext<'ctx>, &mut Change<'ctx>) -> Result<T>,
     {
         self.insert(&[change_id], |ctx, [change]| f(ctx, change))
     }
