@@ -5,6 +5,7 @@ mod repo_path;
 mod revision;
 mod timestamp;
 mod tree_id;
+mod workspace_id;
 
 pub use change_id::{ChangeId, ChangeIdRef};
 pub use identity::Identity;
@@ -13,3 +14,4 @@ pub use repo_path::RepoPath;
 pub use revision::{Revision, RevisionRange};
 pub use timestamp::TimestampMs;
 pub use tree_id::TreeId;
+pub use workspace_id::{WorkspaceId, WorkspaceIdRef};

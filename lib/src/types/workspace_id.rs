@@ -1,23 +1,10 @@
-use std::{
-    borrow::Borrow,
-    collections::BTreeSet,
-    fmt, fs,
-    ops::Deref,
-    path::{Path, PathBuf},
-};
+use std::{borrow::Borrow, fmt, ops::Deref};
 
 use gix::{
-    Repository,
-    bstr::{BStr, BString, ByteSlice},
-    refs::{FullName, TargetRef},
+    bstr::{BStr, BString},
+    refs::FullName,
 };
 use ref_cast::RefCast;
-
-use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    types::{ChangeId, ChangeIdRef, Revision, TreeId},
-};
 
 // TODO(joel): extract to util crate
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

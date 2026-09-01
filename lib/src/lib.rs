@@ -7,4 +7,3 @@ pub mod log;
 pub mod node;
 pub mod transaction;
 pub mod types;
-pub mod workspace_id;
