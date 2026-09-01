@@ -1,11 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    change_id::{ChangeId, ChangeIdRef},
     context::TransactionContext,
     error::Result,
-    revision::{Revision, RevisionRange},
-    types::{Identity, RepoPath},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange},
 };
 
 #[derive(Clone, Debug)]

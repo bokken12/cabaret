@@ -4,9 +4,8 @@ use gix::ThreadSafeRepository;
 
 use crate::{
     change::Change,
-    change_id::{ChangeId, ChangeIdRef},
     error::Result,
-    types::Identity,
+    types::{ChangeId, ChangeIdRef, Identity},
 };
 
 pub struct Cabaret {

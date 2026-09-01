@@ -15,10 +15,8 @@ use ref_cast::RefCast;
 
 use crate::{
     cabaret::Cabaret,
-    change_id::{ChangeId, ChangeIdRef},
     error::Result,
-    revision::Revision,
-    types::TreeId,
+    types::{ChangeId, ChangeIdRef, Revision, TreeId},
 };
 
 // TODO(joel): extract to util crate

@@ -5,9 +5,8 @@ use gix::{Repository, bstr::ByteSlice};
 
 use crate::{
     change::Change,
-    change_id::{ChangeId, ChangeIdRef},
     error::Result,
-    types::{Identity, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, TimestampMs},
 };
 
 /// One transaction's view of the repository at a fixed time

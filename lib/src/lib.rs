@@ -1,12 +1,10 @@
 pub mod cabaret;
 pub mod change;
-pub mod change_id;
 pub mod context;
 pub mod error;
 pub mod log;
 #[cfg(feature = "napi")]
 pub mod node;
-pub mod revision;
 pub mod transaction;
 pub mod types;
 pub mod workspace_id;

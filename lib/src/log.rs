@@ -4,11 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     change::Change,
-    change_id::{ChangeId, ChangeIdRef},
     context::TransactionContext,
     error::Result,
-    revision::{Revision, RevisionRange},
-    types::{Identity, RepoPath, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

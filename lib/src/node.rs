@@ -9,10 +9,8 @@ use napi_derive::napi;
 
 use crate::{
     cabaret::Cabaret,
-    change_id::ChangeId,
     error::Error,
-    revision::Revision,
-    types::{Identity, RepoPath},
+    types::{ChangeId, Identity, RepoPath, Revision},
 };
 
 // TODO(joel): rid myself of unsafe

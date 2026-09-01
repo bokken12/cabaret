@@ -1,4 +1,4 @@
-use crate::{cabaret::Cabaret, change::Change, change_id::ChangeIdRef, context::TransactionContext, error::Result};
+use crate::{cabaret::Cabaret, change::Change, context::TransactionContext, error::Result, types::ChangeIdRef};
 
 // TODO(joel): adopt more canonical names?
 pub enum UpdateOrInsert<T> {
