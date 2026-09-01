@@ -38,7 +38,7 @@ pub struct LogEntry {
 const LOG_FILE: &str = "log.jsonl";
 
 impl<'ctx> Change<'ctx> {
-    /// Fold `change_id`'s log into its committed state.
+    /// Fold `change_id`'s log, up to `ctx.timestamp`.
     pub(crate) fn from_log(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
         let tip = Revision(ctx.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id);
 
@@ -51,7 +51,9 @@ impl<'ctx> Change<'ctx> {
         let mut change = Change::new(ctx, change_id.to_owned(), tip);
         for line in text.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
-            change.apply(&entry.action);
+            if entry.timestamp <= ctx.timestamp {
+                change.apply(&entry.action);
+            }
         }
         Ok(change)
     }

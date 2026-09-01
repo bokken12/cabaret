@@ -7,12 +7,13 @@ use crate::{
     change::Change,
     change_id::{ChangeId, ChangeIdRef},
     error::Result,
-    types::Identity,
+    types::{Identity, TimestampMs},
 };
 
 /// One transaction's view of the repository at a fixed time
 pub struct TransactionContext<'ctx> {
     pub(crate) repo: Repository,
+    pub timestamp: TimestampMs,
     read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
 }
 
@@ -21,9 +22,11 @@ impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
 }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub(crate) fn new(repo: Repository) -> Self { Self { repo, read: FrozenBTreeMap::new() } }
+    pub(crate) fn new(repo: Repository) -> Self {
+        Self { repo, timestamp: TimestampMs::now(), read: FrozenBTreeMap::new() }
+    }
 
-    /// The committed state of `change_id`, read from its log on first use.
+    /// The state of `change_id` as of `self.timestamp`.
     pub fn read(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Change<'ctx>> {
         if let Some(change) = self.read.get(change_id) {
             return Ok(change);
