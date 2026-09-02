@@ -1,15 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use gix::{
-    bstr::{BString, ByteSlice},
-    diff::tree_with_rewrites::Change as TreeChange,
-};
-
 use crate::{
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Revision, RevisionRange},
+    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange},
 };
+
+/// A change's state as of some instant, detached from any transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct ChangeSnapshot {
+    pub tip: Revision,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub archived: bool,
+    pub permanent: bool,
+    pub owners: BTreeSet<Identity>,
+    pub parents: BTreeSet<ChangeId>,
+    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
+}
 
 #[derive(Clone, Debug)]
 pub struct Change<'ctx> {
@@ -46,6 +55,19 @@ impl<'ctx> Change<'ctx> {
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
     pub fn tip(&self) -> Revision { self.tip }
+
+    pub fn snapshot(&self) -> ChangeSnapshot {
+        ChangeSnapshot {
+            tip: self.tip,
+            title: self.title.clone(),
+            description: self.description.clone(),
+            archived: self.archived,
+            permanent: self.permanent,
+            owners: self.owners.clone(),
+            parents: self.parents.clone(),
+            review: self.review.clone(),
+        }
+    }
 
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
@@ -95,7 +117,7 @@ impl<'ctx> Change<'ctx> {
     }
     /// The file-level changes this change presents, restricted to those matching `pathspecs` (all when empty).
     // TODO(joel): multiple bases diff against their merge
-    pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<TreeChange>> {
+    pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         let repo = &self.ctx.repo;
         let base = match self.bases()?.into_iter().collect::<Vec<Revision>>().as_slice() {
             [] => None,
@@ -108,16 +130,16 @@ impl<'ctx> Change<'ctx> {
             gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
                 Err("attribute pathspecs are not supported".into())
             })?;
-        let mut included = |location: &BString| search.is_included(location.as_bstr(), Some(false));
 
-        let mut changes = repo.diff_tree_to_tree(base.as_ref(), Some(&tip), None)?;
-        changes.retain(|change| match change {
-            TreeChange::Addition { location, .. }
-            | TreeChange::Deletion { location, .. }
-            | TreeChange::Modification { location, .. } => included(location),
-            TreeChange::Rewrite { source_location, location, .. } => included(source_location) || included(location),
-        });
-        Ok(changes)
+        let mut files = repo
+            .diff_tree_to_tree(base.as_ref(), Some(&tip), None)?
+            .into_iter()
+            // rewrite tracking reports moved directories alongside the files within them
+            .filter(|change| !change.entry_mode().is_tree())
+            .map(ChangedFile::try_from)
+            .collect::<Result<Vec<_>>>()?;
+        files.retain(|file| file.paths().any(|path| search.is_included(path.as_bstr(), Some(false))));
+        Ok(files)
     }
 }
 

@@ -9,8 +9,9 @@ use napi_derive::napi;
 
 use crate::{
     cabaret::Cabaret,
+    change::ChangeSnapshot,
     error::Error,
-    types::{ChangeId, Identity, RepoPath, Revision},
+    types::{ChangeId, ChangedFile, Identity, RepoPath, Revision},
 };
 
 // TODO(joel): rid myself of unsafe
@@ -77,6 +78,14 @@ impl CabaretJs {
 
     #[napi]
     pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
+
+    #[napi]
+    pub fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> { Ok(self.cabaret.snapshot(&id)?) }
+
+    #[napi]
+    pub fn changed_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
+        Ok(self.cabaret.changed_files(&change, &[])?)
+    }
 
     #[napi]
     pub fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {

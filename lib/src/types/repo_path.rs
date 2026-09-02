@@ -9,6 +9,8 @@ pub struct RepoPath(String);
 
 impl RepoPath {
     pub fn from_bytes(bytes: &BStr) -> crate::error::Result<Self> { Ok(std::str::from_utf8(bytes)?.parse()?) }
+
+    pub fn as_bstr(&self) -> &BStr { self.0.as_str().into() }
 }
 
 impl FromStr for RepoPath {

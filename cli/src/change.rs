@@ -1,8 +1,7 @@
 use cabaret_lib::{
     cabaret::Cabaret,
     error::Result,
-    gix::diff::tree_with_rewrites::Change as TreeChange,
-    types::{ChangeId, Identity, Pathspec},
+    types::{ChangeId, ChangedFile, Identity, Pathspec},
 };
 use clap::{Subcommand, ValueHint};
 
@@ -121,15 +120,13 @@ impl ChangeCommand {
                 // TODO(joel): show file content not just file names
                 for file in cabaret.changed_files(&or_current(change)?, &pathspecs)? {
                     match file {
-                        TreeChange::Addition { location, .. }
-                        | TreeChange::Deletion { location, .. }
-                        | TreeChange::Modification { location, .. } => println!("{location}"),
-                        TreeChange::Rewrite { source_location, location, copy: false, .. } => {
-                            println!("{source_location} -> {location}");
+                        ChangedFile::Added { path }
+                        | ChangedFile::Deleted { path }
+                        | ChangedFile::Modified { path } => {
+                            println!("{path}");
                         }
-                        TreeChange::Rewrite { source_location, location, copy: true, .. } => {
-                            println!("{source_location} => {location}");
-                        }
+                        ChangedFile::Renamed { from, path } => println!("{from} -> {path}"),
+                        ChangedFile::Copied { from, path } => println!("{from} => {path}"),
                     }
                 }
             }

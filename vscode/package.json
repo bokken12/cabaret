@@ -15,30 +15,18 @@
   "contributes": {
     "commands": [
       {
-        "command": "cabaret.home",
-        "title": "Cabaret: Home"
-      },
-      {
-        "command": "cabaret.land",
-        "title": "Cabaret: Land"
-      },
-      {
-        "command": "cabaret.showChanges",
-        "title": "Cabaret: Show Changes"
-      },
-      {
         "command": "cabaret.showChange",
         "title": "Cabaret: Show Change"
       },
       {
-        "command": "cabaret.rebase",
-        "title": "Cabaret: Rebase"
+        "command": "cabaret.diff",
+        "title": "Cabaret: Diff"
       }
     ],
     "keybindings": [
       {
-        "command": "cabaret.openTarget",
-        "key": "enter",
+        "command": "cabaret.diff",
+        "key": "d",
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]

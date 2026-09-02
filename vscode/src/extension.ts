@@ -1,12 +1,7 @@
-import { Cabaret, type ChangeId, type Fold, type HomeRow, type Log } from "@cabaret/node";
+import { Cabaret, type ChangedFile, type ChangeId, type ChangeSnapshot } from "@cabaret/node";
 import * as vscode from "vscode";
 
 const SCHEME = "cabaret";
-const HOME_URI = vscode.Uri.from({ scheme: SCHEME, path: "/home" });
-
-function showUri(id: string): vscode.Uri {
-  return vscode.Uri.from({ scheme: SCHEME, path: `/show/${id}` });
-}
 
 let session: { dir: string; cabaret: Cabaret } | undefined;
 
@@ -21,17 +16,84 @@ function openCabaret(): Cabaret {
   return session.cabaret;
 }
 
-function command(name: string, run: (cabaret: Cabaret, ...args: unknown[]) => Promise<void>): vscode.Disposable {
-  return vscode.commands.registerCommand(name, async (...args: unknown[]) => {
-    try {
-      await run(openCabaret(), ...args);
-    } catch (error) {
-      vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
+function renderChange(id: ChangeId, change: ChangeSnapshot): string {
+  const sections = [change.title === undefined ? `# ${id}` : `# ${id} — ${change.title}`];
+  if (change.description !== undefined) {
+    sections.push(change.description);
+  }
+  sections.push(
+    [
+      `- **Owners:** ${[...change.owners].join(", ") || "(none)"}`,
+      `- **Parents:** ${[...change.parents].join(", ") || "(none)"}`,
+    ].join("\n"),
+  );
+  return `${sections.join("\n\n")}\n`;
 }
 
-async function pickChange(cabaret: Cabaret, title: string): Promise<string | undefined> {
+function renderFile(file: ChangedFile): string {
+  switch (file.kind) {
+    case "Added":
+    case "Deleted":
+    case "Modified":
+      return file.path;
+    case "Renamed":
+      return `${file.from} -> ${file.path}`;
+    case "Copied":
+      return `${file.from} => ${file.path}`;
+  }
+}
+
+function renderFiles(files: ChangedFile[]): string {
+  return files.length === 0 ? "no changed files\n" : `${files.map(renderFile).join("\n")}\n`;
+}
+
+/** Each `cabaret:/<kind>/<change>` page, and its language for highlighting. */
+const pages = {
+  show: { language: "markdown", render: (cabaret, change) => renderChange(change, cabaret.change(change)) },
+  diff: { language: "plaintext", render: (cabaret, change) => renderFiles(cabaret.changedFiles(change)) },
+} satisfies Record<string, { language: string; render: (cabaret: Cabaret, change: ChangeId) => string }>;
+
+type PageKind = keyof typeof pages;
+type Page = { kind: PageKind; change: ChangeId };
+
+function pageUri(page: Page): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: `/${page.kind}/${page.change}` });
+}
+
+function parsePage(uri: vscode.Uri): Page {
+  const [, kind, change] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
+  if (kind === undefined || !Object.hasOwn(pages, kind) || change === undefined) {
+    throw new Error(`unknown page ${uri.toString()}`);
+  }
+  return { kind: kind as PageKind, change };
+}
+
+class PageProvider implements vscode.TextDocumentContentProvider {
+  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.changed.event;
+
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    const page = parsePage(uri);
+    return pages[page.kind].render(openCabaret(), page.change);
+  }
+
+  /** Re-render `page` from the repository and show it. */
+  async open(page: Page): Promise<void> {
+    const uri = pageUri(page);
+    this.changed.fire(uri);
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.languages.setTextDocumentLanguage(document, pages[page.kind].language);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+}
+
+/** The change the active page views, else the one checked out in the workspace. */
+function activeChange(cabaret: Cabaret): ChangeId {
+  const uri = vscode.window.activeTextEditor?.document.uri;
+  return uri?.scheme === SCHEME ? parsePage(uri).change : cabaret.currentChange();
+}
+
+async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | undefined> {
   const current = cabaret.currentChange();
   const items = cabaret.changes().map((change) => ({
     label: change,
@@ -44,173 +106,28 @@ async function pickChange(cabaret: Cabaret, title: string): Promise<string | und
   return picked?.label;
 }
 
-function renderChange(id: string, info: Log): string {
-  const sections = [info.title === undefined ? `# ${id}` : `# ${id} — ${info.title}`];
-  if (info.description !== undefined) {
-    sections.push(info.description);
-  }
-  sections.push(
-    [
-      `- **Owners:** ${[...info.owners].join(", ") || "(none)"}`,
-      `- **Parents:** ${[...info.parents].join(", ") || "(none)"}`,
-    ].join("\n"),
-  );
-  return `${sections.join("\n\n")}\n`;
-}
-
-/**
- * Serves `cabaret:` pages, remembering the home render's rows and folds so
- * links, Enter, and folding hit-test exactly what is on screen.
- */
-class PageProvider
-  implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
-{
-  private homeRows: readonly HomeRow[] = [];
-  private homeFolds: readonly Fold[] = [];
-  private readonly changed = new vscode.EventEmitter<vscode.Uri>();
-  readonly onDidChange = this.changed.event;
-
-  provideTextDocumentContent(uri: vscode.Uri): string {
-    const cabaret = openCabaret();
-    if (uri.path === HOME_URI.path) {
-      const home = cabaret.home();
-      this.homeRows = home.rows;
-      this.homeFolds = home.folds;
-      return home.text || "no open changes\n";
+function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode.Disposable {
+  return vscode.commands.registerCommand(name, async () => {
+    try {
+      await run(openCabaret());
+    } catch (error) {
+      vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const id = /^\/show\/(.+)$/.exec(uri.path)?.[1];
-    if (id === undefined) {
-      throw new Error(`unknown page ${uri.toString()}`);
-    }
-    return renderChange(id, cabaret.log(id));
-  }
-
-  provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] | undefined {
-    if (document.uri.path !== HOME_URI.path) {
-      return undefined;
-    }
-    return this.homeRows.map((row, line) => {
-      const args = encodeURIComponent(JSON.stringify([row.change]));
-      const link = new vscode.DocumentLink(
-        new vscode.Range(line, row.labelStart, line, row.labelStart + row.change.length),
-        vscode.Uri.parse(`command:cabaret.openTarget?${args}`, true),
-      );
-      link.tooltip = `Show ${row.change}`;
-      return link;
-    });
-  }
-
-  provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] | undefined {
-    if (document.uri.path !== HOME_URI.path) {
-      return undefined;
-    }
-    return this.homeFolds.map((fold) => new vscode.FoldingRange(fold.start, fold.end));
-  }
-
-  changeAt(line: number): string | undefined {
-    return this.homeRows[line]?.change;
-  }
-
-  refresh(uri: vscode.Uri): void {
-    this.changed.fire(uri);
-  }
-}
-
-async function openPage(provider: PageProvider, uri: vscode.Uri, language?: string): Promise<void> {
-  provider.refresh(uri);
-  const document = await vscode.workspace.openTextDocument(uri);
-  if (language !== undefined) {
-    await vscode.languages.setTextDocumentLanguage(document, language);
-  }
-  await vscode.window.showTextDocument(document, { preview: false });
-}
-
-/** The change under the cursor when the active editor is the home page. */
-function changeAtCursor(provider: PageProvider): string | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.toString() !== HOME_URI.toString()) {
-    return undefined;
-  }
-  return provider.changeAt(editor.selection.active.line);
-}
-
-/**
- * The change the editor focus points at: the home row under the cursor, the change a show page
- * views, or the change held by the worktree containing the active file.
- */
-function activeChange(provider: PageProvider): ChangeId | undefined {
-  const uri = vscode.window.activeTextEditor?.document.uri;
-  if (uri === undefined) {
-    return undefined;
-  }
-  if (uri.scheme === SCHEME) {
-    return uri.path === HOME_URI.path ? changeAtCursor(provider) : /^\/show\/(.+)$/.exec(uri.path)?.[1];
-  }
-  if (uri.scheme === "file") {
-    return new Cabaret(vscode.Uri.joinPath(uri, "..").fsPath).currentChange();
-  }
-  return undefined;
-}
-
-function activeChangeExn(provider: PageProvider): ChangeId {
-  const change = activeChange(provider);
-  if (change === undefined) {
-    throw new Error("no active change to land");
-  }
-  return change;
+  });
 }
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
-    vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
-    vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
-    command("cabaret.home", async () => {
-      await openPage(provider, HOME_URI);
-    }),
-    command("cabaret.land", async (cabaret) => {
-      cabaret.land(activeChangeExn(provider));
-    }),
-    command("cabaret.showChanges", async (cabaret) => {
-      await pickChange(cabaret, "Cabaret Changes");
-    }),
     command("cabaret.showChange", async (cabaret) => {
-      const id = await pickChange(cabaret, "Cabaret: Show Change");
-      if (id !== undefined) {
-        await openPage(provider, showUri(id), "markdown");
+      const change = await pickChange(cabaret, "Cabaret: Show Change");
+      if (change !== undefined) {
+        await provider.open({ kind: "show", change });
       }
     }),
-    command("cabaret.rebase", async (cabaret) => {
-      const change = activeChangeExn(provider);
-      const parents = [...cabaret.log(change).parents];
-      // TODO(joel): use previously built matching util
-      if (parents.length === 0) {
-        throw new Error(`${change} has no parents`);
-      }
-      const onto =
-        parents.length === 1
-          ? parents[0]
-          : await vscode.window.showQuickPick(parents, { title: `Rebase ${change} onto` });
-      if (onto === undefined) {
-        return;
-      }
-      const conflicts = cabaret.rebase(change, onto);
-      provider.refresh(HOME_URI);
-      if (conflicts === null) {
-        vscode.window.showInformationMessage(`${change} is already up to date`);
-      } else if (conflicts.length > 0) {
-        vscode.window.showWarningMessage(`rebased ${change} onto ${onto}; conflicted: ${conflicts.join(", ")}`);
-      } else {
-        vscode.window.showInformationMessage(`rebased ${change} onto ${onto}`);
-      }
-    }),
-    // Enter on a home row, or a click on its id label (which passes the id).
-    command("cabaret.openTarget", async (_cabaret, id) => {
-      const target = typeof id === "string" ? id : changeAtCursor(provider);
-      if (target !== undefined) {
-        await openPage(provider, showUri(target), "markdown");
-      }
+    command("cabaret.diff", async (cabaret) => {
+      await provider.open({ kind: "diff", change: activeChange(cabaret) });
     }),
   );
 }

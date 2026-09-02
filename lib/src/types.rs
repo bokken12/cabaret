@@ -1,4 +1,5 @@
 mod change_id;
+mod changed_file;
 mod identity;
 mod pathspec;
 mod repo_path;
@@ -8,6 +9,7 @@ mod tree_id;
 mod workspace_id;
 
 pub use change_id::{ChangeId, ChangeIdRef};
+pub use changed_file::ChangedFile;
 pub use identity::Identity;
 pub use pathspec::Pathspec;
 pub use repo_path::RepoPath;

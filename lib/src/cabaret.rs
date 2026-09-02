@@ -1,10 +1,11 @@
 use std::{collections::BTreeSet, path::Path};
 
-use gix::{ThreadSafeRepository, diff::tree_with_rewrites::Change as TreeChange};
+use gix::ThreadSafeRepository;
 
 use crate::{
+    change::ChangeSnapshot,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Revision},
+    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision},
 };
 
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
@@ -21,11 +22,15 @@ impl Cabaret {
 
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
 
+    pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
+        self.query(|ctx| Ok(ctx.read(change_id)?.snapshot()))
+    }
+
     pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
         self.query(|ctx| ctx.blob(revision, path))
     }
 
-    pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<TreeChange>> {
+    pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         self.query(|ctx| ctx.read(change_id)?.changed_files(pathspecs))
     }
 
