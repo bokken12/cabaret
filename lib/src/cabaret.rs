@@ -5,6 +5,7 @@ use gix::ThreadSafeRepository;
 use crate::{
     change::ChangeSnapshot,
     error::Result,
+    page::Page,
     types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision},
 };
 
@@ -36,6 +37,14 @@ impl Cabaret {
 
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         self.query(|ctx| ctx.read(change_id)?.changed_files(pathspecs))
+    }
+
+    pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
+        Ok(Page::show(change_id, &self.snapshot(change_id)?))
+    }
+
+    pub fn diff_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
+        Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
     }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {

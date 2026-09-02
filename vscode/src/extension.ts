@@ -2,9 +2,12 @@ import {
   Cabaret,
   type ChangedFile,
   type ChangeId,
-  type ChangeSnapshot,
+  type Page,
   type RepoPath,
   type Revision,
+  type Segment,
+  type Tag,
+  type Target,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -24,88 +27,129 @@ function openCabaret(): Cabaret {
   return session.cabaret;
 }
 
-function renderChange(id: ChangeId, change: ChangeSnapshot): string {
-  const sections = [change.title === undefined ? `# ${id}` : `# ${id} — ${change.title}`];
-  if (change.description !== undefined) {
-    sections.push(change.description);
-  }
-  sections.push(
-    [
-      `- **Owners:** ${[...change.owners].join(", ") || "(none)"}`,
-      `- **Parents:** ${[...change.parents].join(", ") || "(none)"}`,
-    ].join("\n"),
-  );
-  return `${sections.join("\n\n")}\n`;
+const ROUTE_KINDS = ["show", "diff"] as const;
+type RouteKind = (typeof ROUTE_KINDS)[number];
+type Route = { kind: RouteKind; change: ChangeId };
+
+function routeUri(route: Route): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: `/${route.kind}/${route.change}` });
 }
 
-function renderFile(file: ChangedFile): string {
-  switch (file.kind) {
-    case "Added":
-    case "Deleted":
-    case "Modified":
-      return file.path;
-    case "Renamed":
-      return `${file.from} -> ${file.path}`;
-    case "Copied":
-      return `${file.from} => ${file.path}`;
-  }
-}
-
-/** One file per line, so line `i` is `files[i]`. */
-function renderFiles(files: ChangedFile[]): string {
-  return files.length === 0 ? "no changed files\n" : `${files.map(renderFile).join("\n")}\n`;
-}
-
-const PAGE_KINDS = ["show", "diff"] as const;
-type PageKind = (typeof PAGE_KINDS)[number];
-type Page = { kind: PageKind; change: ChangeId };
-
-const PAGE_LANGUAGES: Record<PageKind, string> = { show: "markdown", diff: "plaintext" };
-
-function pageUri(page: Page): vscode.Uri {
-  return vscode.Uri.from({ scheme: SCHEME, path: `/${page.kind}/${page.change}` });
-}
-
-function parsePage(uri: vscode.Uri): Page {
+function parseRoute(uri: vscode.Uri): Route {
   const [, kind, change] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
-  const known = PAGE_KINDS.find((known) => known === kind);
+  const known = ROUTE_KINDS.find((known) => known === kind);
   if (known === undefined || change === undefined) {
     throw new Error(`unknown page ${uri.toString()}`);
   }
   return { kind: known, change };
 }
 
-/** Serves `cabaret:` pages, remembering each diff page's files so Enter hits what is on screen. */
-class PageProvider implements vscode.TextDocumentContentProvider {
-  private readonly files = new Map<string, ChangedFile[]>();
+function pageText(page: Page): string {
+  return page.lines.map((line) => `${line.segments.map((segment) => segment.text).join("")}\n`).join("");
+}
+
+/** Every segment with its range in the rendered text. */
+function* placed(page: Page): Generator<{ segment: Segment; range: vscode.Range }> {
+  for (const [line, { segments }] of page.lines.entries()) {
+    let start = 0;
+    for (const segment of segments) {
+      const end = start + segment.text.length;
+      yield { segment, range: new vscode.Range(line, start, line, end) };
+      start = end;
+    }
+  }
+}
+
+/** A targeted segment under the cursor, else the line's own target. */
+function targetAt(page: Page, position: vscode.Position): Target | undefined {
+  const line = page.lines[position.line];
+  if (line === undefined) {
+    return undefined;
+  }
+  let start = 0;
+  for (const segment of line.segments) {
+    const end = start + segment.text.length;
+    if (segment.target !== undefined && position.character >= start && position.character < end) {
+      return segment.target;
+    }
+    start = end;
+  }
+  return line.target;
+}
+
+const themed = (color: string): vscode.DecorationRenderOptions => ({ color: new vscode.ThemeColor(color) });
+
+const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
+  Heading: { fontWeight: "bold" },
+  ChangeId: themed("textLink.foreground"),
+  Label: themed("descriptionForeground"),
+  Muted: themed("descriptionForeground"),
+  Added: themed("gitDecoration.addedResourceForeground"),
+  Deleted: themed("gitDecoration.deletedResourceForeground"),
+  Modified: themed("gitDecoration.modifiedResourceForeground"),
+  Renamed: themed("gitDecoration.renamedResourceForeground"),
+  Copied: themed("gitDecoration.addedResourceForeground"),
+};
+
+const TAGS = Object.keys(STYLES) as Tag[];
+
+/** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
+class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
+  private readonly pages = new Map<string, Page>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  private readonly decorations = Object.fromEntries(
+    TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
+  ) as Record<Tag, vscode.TextEditorDecorationType>;
   readonly onDidChange = this.changed.event;
 
   provideTextDocumentContent(uri: vscode.Uri): string {
-    const page = parsePage(uri);
+    const route = parseRoute(uri);
     const cabaret = openCabaret();
-    switch (page.kind) {
-      case "show":
-        return renderChange(page.change, cabaret.change(page.change));
-      case "diff": {
-        const files = cabaret.changedFiles(page.change);
-        this.files.set(uri.toString(), files);
-        return renderFiles(files);
-      }
+    const page = route.kind === "show" ? cabaret.showPage(route.change) : cabaret.diffPage(route.change);
+    this.pages.set(uri.toString(), page);
+    return pageText(page);
+  }
+
+  provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
+    const page = this.pages.get(document.uri.toString());
+    if (page === undefined) {
+      return [];
+    }
+    return [...placed(page)].flatMap(({ segment, range }) => {
+      const target = segment.target;
+      return target?.kind === "Change"
+        ? [new vscode.DocumentLink(range, routeUri({ kind: "show", change: target.change }))]
+        : [];
+    });
+  }
+
+  page(uri: vscode.Uri): Page | undefined {
+    return this.pages.get(uri.toString());
+  }
+
+  decorate(editor: vscode.TextEditor): void {
+    const page = this.page(editor.document.uri);
+    if (page === undefined) {
+      return;
+    }
+    const tagged = [...placed(page)].flatMap(({ segment, range }) =>
+      segment.tag === undefined ? [] : [{ tag: segment.tag, range }],
+    );
+    const ranges = Map.groupBy(tagged, ({ tag }) => tag);
+    for (const tag of TAGS) {
+      editor.setDecorations(
+        this.decorations[tag],
+        (ranges.get(tag) ?? []).map(({ range }) => range),
+      );
     }
   }
 
-  fileAt(uri: vscode.Uri, line: number): ChangedFile | undefined {
-    return this.files.get(uri.toString())?.[line];
-  }
-
-  /** Re-render `page` from the repository and show it. */
-  async open(page: Page): Promise<void> {
-    const uri = pageUri(page);
+  /** Re-render `route` from the repository and show it. */
+  async open(route: Route): Promise<void> {
+    const uri = routeUri(route);
     this.changed.fire(uri);
     const document = await vscode.workspace.openTextDocument(uri);
-    await vscode.languages.setTextDocumentLanguage(document, PAGE_LANGUAGES[page.kind]);
-    await vscode.window.showTextDocument(document, { preview: false });
+    this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
   }
 }
 
@@ -134,13 +178,24 @@ function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): 
 async function openDiff(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<void> {
   const before = blobUri(beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
   const after = blobUri(file.kind === "Deleted" ? undefined : cabaret.change(change).tip, file.path);
-  await vscode.commands.executeCommand("vscode.diff", before, after, `${renderFile(file)} (${change})`);
+  await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`);
+}
+
+async function follow(cabaret: Cabaret, provider: PageProvider, target: Target): Promise<void> {
+  switch (target.kind) {
+    case "Change":
+      await provider.open({ kind: "show", change: target.change });
+      break;
+    case "Diff":
+      await openDiff(cabaret, target.change, target.file);
+      break;
+  }
 }
 
 /** The change the active page views, else the one checked out in the workspace. */
 function activeChange(cabaret: Cabaret): ChangeId {
   const uri = vscode.window.activeTextEditor?.document.uri;
-  return uri?.scheme === SCHEME ? parsePage(uri).change : cabaret.currentChange();
+  return uri?.scheme === SCHEME ? parseRoute(uri).change : cabaret.currentChange();
 }
 
 async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | undefined> {
@@ -170,7 +225,13 @@ export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
+    vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.workspace.registerTextDocumentContentProvider(BLOB_SCHEME, new BlobProvider()),
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      for (const editor of editors) {
+        provider.decorate(editor);
+      }
+    }),
     command("cabaret.showChange", async (cabaret) => {
       const change = await pickChange(cabaret, "Cabaret: Show Change");
       if (change !== undefined) {
@@ -180,15 +241,16 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.diff", async (cabaret) => {
       await provider.open({ kind: "diff", change: activeChange(cabaret) });
     }),
-    // Enter on a diff page row: the file's before/after in the built-in diff editor.
+    // Enter on a page: follow whatever the cursor is on.
     command("cabaret.open", async (cabaret) => {
       const editor = vscode.window.activeTextEditor;
       if (editor === undefined) {
         return;
       }
-      const file = provider.fileAt(editor.document.uri, editor.selection.active.line);
-      if (file !== undefined) {
-        await openDiff(cabaret, parsePage(editor.document.uri).change, file);
+      const page = provider.page(editor.document.uri);
+      const target = page === undefined ? undefined : targetAt(page, editor.selection.active);
+      if (target !== undefined) {
+        await follow(cabaret, provider, target);
       }
     }),
   );

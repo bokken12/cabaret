@@ -11,7 +11,8 @@ use crate::{
     cabaret::Cabaret,
     change::ChangeSnapshot,
     error::Error,
-    types::{ChangeId, ChangedFile, Identity, RepoPath, Revision},
+    page::Page,
+    types::{ChangeId, Identity, RepoPath, Revision},
 };
 
 // TODO(joel): rid myself of unsafe
@@ -86,9 +87,10 @@ impl CabaretJs {
     pub fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> { Ok(self.cabaret.base(&change)?) }
 
     #[napi]
-    pub fn changed_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
-        Ok(self.cabaret.changed_files(&change, &[])?)
-    }
+    pub fn show_page(&self, change: ChangeId) -> napi::Result<Page> { Ok(self.cabaret.show_page(&change)?) }
+
+    #[napi]
+    pub fn diff_page(&self, change: ChangeId) -> napi::Result<Page> { Ok(self.cabaret.diff_page(&change, &[])?) }
 
     #[napi]
     pub fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {

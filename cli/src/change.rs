@@ -1,10 +1,7 @@
-use std::fmt::Display;
-
 use cabaret_lib::{
     cabaret::Cabaret,
-    change::ChangeSnapshot,
     error::Result,
-    types::{ChangeId, ChangedFile, Identity, Pathspec},
+    types::{ChangeId, Identity, Pathspec},
 };
 use clap::{Subcommand, ValueHint};
 
@@ -125,17 +122,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Diff { change, pathspecs } => {
                 // TODO(joel): show file content not just file names
-                for file in cabaret.changed_files(&or_current(change)?, &pathspecs)? {
-                    match file {
-                        ChangedFile::Added { path }
-                        | ChangedFile::Deleted { path }
-                        | ChangedFile::Modified { path } => {
-                            println!("{path}");
-                        }
-                        ChangedFile::Renamed { from, path } => println!("{from} -> {path}"),
-                        ChangedFile::Copied { from, path } => println!("{from} => {path}"),
-                    }
-                }
+                print!("{}", cabaret.diff_page(&or_current(change)?, &pathspecs)?);
             }
             ChangeCommand::Land { change } => cabaret.land(&or_current(change)?)?,
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
@@ -164,33 +151,10 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto)?,
             ChangeCommand::Review { .. } => todo!(),
-            ChangeCommand::Show { change } => {
-                let change = or_current(change)?;
-                print!("{}", render(&change, &cabaret.snapshot(&change)?));
-            }
+            ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
         }
 
         Ok(())
-    }
-}
-
-fn render(id: &ChangeId, snapshot: &ChangeSnapshot) -> String {
-    let mut sections = vec![match &snapshot.title {
-        None => id.to_string(),
-        Some(title) => format!("{id} — {title}"),
-    }];
-    if let Some(description) = &snapshot.description {
-        sections.push(description.clone());
-    }
-    sections.push(format!("Owners: {}\nParents: {}", list(&snapshot.owners), list(&snapshot.parents)));
-    format!("{}\n", sections.join("\n\n"))
-}
-
-fn list<T: Display>(items: impl IntoIterator<Item = T>) -> String {
-    let items: Vec<String> = items.into_iter().map(|item| item.to_string()).collect();
-    match items.is_empty() {
-        true => "(none)".into(),
-        false => items.join(", "),
     }
 }
 

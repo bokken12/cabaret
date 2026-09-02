@@ -1,8 +1,8 @@
 //! Single test binary. `unit` tests exercise pure pieces directly; `integration` tests
 //! drive a `Cabaret` on a fixture repo.
 
-// TODO(joel): `unit` tests the stale renderer and stays undeclared until it is revived
 mod integration;
+mod unit;
 
 /// A test file in a subfolder runs only if its `mod.rs` declares it.
 #[test]

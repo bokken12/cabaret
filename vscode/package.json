@@ -36,7 +36,7 @@
       {
         "command": "cabaret.open",
         "key": "enter",
-        "when": "editorTextFocus && resourceScheme == cabaret && resourcePath =~ /^\\/diff\\// && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]
   },

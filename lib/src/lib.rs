@@ -6,5 +6,6 @@ pub mod error;
 pub mod log;
 #[cfg(feature = "napi")]
 pub mod node;
+pub mod page;
 pub mod transaction;
 pub mod types;
