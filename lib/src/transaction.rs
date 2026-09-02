@@ -1,3 +1,8 @@
+use gix::refs::{
+    Target,
+    transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
+};
+
 use crate::{
     cabaret::Cabaret,
     change::Change,
@@ -33,7 +38,7 @@ impl Cabaret {
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
     {
-        // TODO(joel): lock `change_ids` under .git/cabaret for the duration
+        // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local());
 
         let mut changes = Vec::with_capacity(N);
@@ -43,11 +48,33 @@ impl Cabaret {
         let mut changes: [Change<'_>; N] = changes.try_into().expect("one change per id");
         let out = f(&ctx, &mut changes)?;
 
+        // Every change's log and branch land in one ref transaction, so a partial write cannot be observed.
+        let mut edits = Vec::new();
         for (change_id, change) in change_ids.iter().zip(&changes) {
             let actions = change.actions_since(&change_id.before(&ctx)?);
-            if !actions.is_empty() {
-                todo!("append {actions:?} to the log and commit it, creating the branch for an insert");
+            match change_id {
+                UpdateOrInsert::Insert { id, tip } => {
+                    edits.push(RefEdit {
+                        change: RefChange::Update {
+                            log: LogChange {
+                                mode: RefLog::AndReference,
+                                force_create_reflog: false,
+                                message: "cabaret: create".into(),
+                            },
+                            expected: PreviousValue::MustNotExist,
+                            new: Target::Object(tip.0),
+                        },
+                        name: id.branch_ref(),
+                        deref: false,
+                    });
+                    edits.push(change.append(actions)?);
+                }
+                UpdateOrInsert::Update { .. } if actions.is_empty() => {}
+                UpdateOrInsert::Update { .. } => edits.push(change.append(actions)?),
             }
+        }
+        if !edits.is_empty() {
+            ctx.repo.edit_references(edits)?;
         }
         Ok(out)
     }

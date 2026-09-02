@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use gix::ObjectId;
+
 use crate::{
     context::TransactionContext,
     error::Result,
@@ -24,6 +26,8 @@ pub struct ChangeSnapshot {
 pub struct Change<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: ChangeId,
+    /// The log commit this state was folded from; `None` before the change's first write.
+    pub log_commit: Option<ObjectId>,
     pub tip: Revision,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -39,6 +43,7 @@ impl<'ctx> Change<'ctx> {
         Self {
             ctx,
             id,
+            log_commit: None,
             tip,
             title: None,
             description: None,

@@ -1,5 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
-
+use gix::{
+    ObjectId, Repository,
+    objs::{
+        Commit, Tree,
+        tree::{Entry, EntryKind},
+    },
+    refs::{
+        Target,
+        transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
+    },
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -35,18 +44,22 @@ pub struct LogEntry {
 
 const LOG_FILE: &str = "log.jsonl";
 
+fn read_log(repo: &Repository, commit: ObjectId) -> Result<String> {
+    let tree = repo.find_commit(commit)?.tree()?;
+    let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("log commit {commit} has no {LOG_FILE}"))?;
+    let blob = entry.object()?.try_into_blob()?;
+    Ok(std::str::from_utf8(&blob.data)?.to_owned())
+}
+
 impl<'ctx> Change<'ctx> {
     /// Fold `change_id`'s log, up to `ctx.timestamp`.
     pub(crate) fn from_log(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
         let tip = Revision(ctx.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id);
-
-        let log_ref = change_id.log_ref();
-        let tree = ctx.repo.find_reference(&log_ref)?.peel_to_commit()?.tree()?;
-        let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("{} has no {LOG_FILE}", log_ref.as_bstr()))?;
-        let blob = entry.object()?.try_into_blob()?;
-        let text = std::str::from_utf8(&blob.data)?;
+        let log_commit = ctx.repo.find_reference(&change_id.log_ref())?.peel_to_commit()?.id;
+        let text = read_log(&ctx.repo, log_commit)?;
 
         let mut change = Change::new(ctx, change_id.to_owned(), tip);
+        change.log_commit = Some(log_commit);
         for line in text.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
             if entry.timestamp <= ctx.timestamp {
@@ -81,6 +94,59 @@ impl<'ctx> Change<'ctx> {
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
             LogAction::SetTitle { title } => self.title = title.clone(),
         }
+    }
+
+    /// Write `actions` onto this change's log as entries at `ctx.timestamp`, returning the ref edit
+    /// that publishes them. The edit expects the log commit this change was read from, so a
+    /// concurrent append fails rather than being overwritten.
+    pub(crate) fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
+        let ctx = self.ctx();
+        let repo = &ctx.repo;
+        let user = ctx.identity()?;
+        let mut appended = String::new();
+        for action in actions {
+            let entry = LogEntry { timestamp: ctx.timestamp, user: user.clone(), action };
+            appended.push_str(&serde_json::to_string(&entry)?);
+            appended.push('\n');
+        }
+        let mut text = match self.log_commit {
+            Some(commit) => read_log(repo, commit)?,
+            None => String::new(),
+        };
+        text.push_str(&appended);
+
+        let blob = repo.write_blob(text)?.detach();
+        let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
+        let tree = repo.write_object(&Tree { entries: vec![entry] })?.detach();
+        let committer = repo.committer().ok_or("no git identity; set user.email")??.to_owned()?;
+        let commit = repo
+            .write_object(&Commit {
+                tree,
+                parents: self.log_commit.into_iter().collect(),
+                author: committer.clone(),
+                committer,
+                encoding: None,
+                message: appended.into(),
+                extra_headers: Vec::new(),
+            })?
+            .detach();
+
+        Ok(RefEdit {
+            change: RefChange::Update {
+                log: LogChange {
+                    mode: RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: "cabaret: log".into(),
+                },
+                expected: match self.log_commit {
+                    Some(previous) => PreviousValue::MustExistAndMatch(Target::Object(previous)),
+                    None => PreviousValue::MustNotExist,
+                },
+                new: Target::Object(commit),
+            },
+            name: self.id().log_ref(),
+            deref: false,
+        })
     }
 
     /// The actions that take `before` to `self`; empty when nothing changed.
