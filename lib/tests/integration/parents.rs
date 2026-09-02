@@ -1,6 +1,3 @@
-//! What a change targets is derived from what its log declares: no declaration means the default
-//! branch, archived parents give way to their own parents, and ancestors of other parents drop out.
-
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};

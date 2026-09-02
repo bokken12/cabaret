@@ -4,8 +4,12 @@ use gix::bstr::BStr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Repo-relative path: UTF-8, `/`-separated, no empty, `.`, or `..` components.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RepoPath(String);
+
+impl fmt::Debug for RepoPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Debug::fmt(&self.0, f) }
+}
 
 impl RepoPath {
     pub fn from_bytes(bytes: &BStr) -> crate::error::Result<Self> { Ok(std::str::from_utf8(bytes)?.parse()?) }

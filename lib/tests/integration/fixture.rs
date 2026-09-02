@@ -100,6 +100,18 @@ impl Fixture {
         revision
     }
 
+    /// Commit the removal of `paths` from `change`'s tip.
+    pub fn remove(&self, change: &str, paths: &[&str]) -> Revision {
+        let tip = self.tip(change);
+        let mut all = self.files_at(tip);
+        for path in paths {
+            all.remove(*path).expect("removed file exists");
+        }
+        let revision = self.commit_tree(write_tree(&self.repo, &all), &[tip]);
+        self.move_branch(change, revision);
+        revision
+    }
+
     /// Merge `other`'s tip into `change` and commit `files` on the union.
     pub fn merge(&self, change: &str, other: &str, files: Files) -> Revision {
         let (tip, other_tip) = (self.tip(change), self.tip(other));
