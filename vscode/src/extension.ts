@@ -27,21 +27,33 @@ function openCabaret(): Cabaret {
   return session.cabaret;
 }
 
-const ROUTE_KINDS = ["show", "diff"] as const;
-type RouteKind = (typeof ROUTE_KINDS)[number];
-type Route = { kind: RouteKind; change: ChangeId };
+type Route = { kind: "home" } | { kind: "show" | "diff"; change: ChangeId };
 
 function routeUri(route: Route): vscode.Uri {
-  return vscode.Uri.from({ scheme: SCHEME, path: `/${route.kind}/${route.change}` });
+  const path = route.kind === "home" ? "/home" : `/${route.kind}/${route.change}`;
+  return vscode.Uri.from({ scheme: SCHEME, path });
 }
 
 function parseRoute(uri: vscode.Uri): Route {
-  const [, kind, change] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
-  const known = ROUTE_KINDS.find((known) => known === kind);
-  if (known === undefined || change === undefined) {
+  if (uri.path === "/home") {
+    return { kind: "home" };
+  }
+  const [, kind, change] = /^\/(show|diff)\/(.+)$/.exec(uri.path) ?? [];
+  if ((kind !== "show" && kind !== "diff") || change === undefined) {
     throw new Error(`unknown page ${uri.toString()}`);
   }
-  return { kind: known, change };
+  return { kind, change };
+}
+
+function renderRoute(cabaret: Cabaret, route: Route): Page {
+  switch (route.kind) {
+    case "home":
+      return cabaret.homePage();
+    case "show":
+      return cabaret.showPage(route.change);
+    case "diff":
+      return cabaret.diffPage(route.change);
+  }
 }
 
 function pageText(page: Page): string {
@@ -103,9 +115,7 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
   readonly onDidChange = this.changed.event;
 
   provideTextDocumentContent(uri: vscode.Uri): string {
-    const route = parseRoute(uri);
-    const cabaret = openCabaret();
-    const page = route.kind === "show" ? cabaret.showPage(route.change) : cabaret.diffPage(route.change);
+    const page = renderRoute(openCabaret(), parseRoute(uri));
     this.pages.set(uri.toString(), page);
     return pageText(page);
   }
@@ -192,10 +202,22 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
   }
 }
 
-/** The change the active page views, else the one checked out in the workspace. */
-function activeChange(cabaret: Cabaret): ChangeId {
-  const uri = vscode.window.activeTextEditor?.document.uri;
-  return uri?.scheme === SCHEME ? parseRoute(uri).change : cabaret.currentChange();
+/**
+ * The change the active page views, on the home page the one under the cursor, else the one
+ * checked out in the workspace.
+ */
+function activeChange(cabaret: Cabaret, provider: PageProvider): ChangeId {
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
+    return cabaret.currentChange();
+  }
+  const route = parseRoute(editor.document.uri);
+  if (route.kind !== "home") {
+    return route.change;
+  }
+  const page = provider.page(editor.document.uri);
+  const target = page === undefined ? undefined : targetAt(page, editor.selection.active);
+  return target?.kind === "Change" ? target.change : cabaret.currentChange();
 }
 
 async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | undefined> {
@@ -232,6 +254,9 @@ export function activate(context: vscode.ExtensionContext) {
         provider.decorate(editor);
       }
     }),
+    command("cabaret.home", async () => {
+      await provider.open({ kind: "home" });
+    }),
     command("cabaret.showChange", async (cabaret) => {
       const change = await pickChange(cabaret, "Cabaret: Show Change");
       if (change !== undefined) {
@@ -239,7 +264,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.diff", async (cabaret) => {
-      await provider.open({ kind: "diff", change: activeChange(cabaret) });
+      await provider.open({ kind: "diff", change: activeChange(cabaret, provider) });
     }),
     // Enter on a page: follow whatever the cursor is on.
     command("cabaret.open", async (cabaret) => {

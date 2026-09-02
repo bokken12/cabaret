@@ -1,114 +1,114 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
+//! The home page: the viewer's open changes and their open ancestors, drawn as rail art with one
+//! row per change and x-position for depth in the stack.
+
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+use crate::{
+    cabaret::Cabaret,
+    error::Result,
+    page::{Line, Page, Segment, Tag, Target},
+    types::{ChangeId, Identity},
 };
 
-use crate::{change::ChangeId, error::Result, home::HomeGraph};
-
-// TODO(jm): audit LLM
-
-/// A rendered home view: line `i` of `text` is `rows[i]`'s change.
-#[cfg_attr(feature = "napi", napi_derive::napi(object))]
-#[derive(Debug)]
-pub struct RenderedHome {
-    pub text: String,
-    pub rows: Vec<HomeRow>,
-    /// Runs of lines a host may fold down to their first, nested or disjoint, by start.
-    pub folds: Vec<Fold>,
+/// A change in the home view: owned by the viewer, or an open ancestor shown as context.
+pub struct HomeNode {
+    pub title: Option<String>,
+    pub owned: bool,
+    /// Parents that are themselves nodes of the same graph. Trunk is never a node: rooting on it
+    /// and having no parents are the same state.
+    pub parents: BTreeSet<ChangeId>,
 }
 
-/// A change's row and the stack above it: folding hides lines `start + 1..=end`.
-#[cfg_attr(feature = "napi", napi_derive::napi(object))]
-#[derive(Debug)]
-pub struct Fold {
-    pub start: u32,
-    pub end: u32,
+/// The subgraph of open changes relevant to one viewer, closed under `parents`.
+pub struct HomeGraph {
+    pub viewer: Identity,
+    pub nodes: BTreeMap<ChangeId, HomeNode>,
 }
 
-/// One line of the home view, locating the change's id label for hosts to linkify.
-#[cfg_attr(feature = "napi", napi_derive::napi(object))]
-#[derive(Debug)]
-pub struct HomeRow {
-    pub change: ChangeId,
-    /// Chars into the line where the id begins; the label is the id's own text.
-    pub label_start: u32,
-}
-
-/// Renders a home graph as rail art: one row per change, x-position = depth in the stack.
-///
-/// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label that
-/// plumbing pushed right of its depth position. Right of every label sits a next-step column,
-/// and right of that the changes' titles. Trunk is never drawn: a change whose parents have all
-/// landed is a root. Connected components render one after another; each starts with a root on
-/// the left margin.
-pub fn render_home(graph: &HomeGraph) -> Result<RenderedHome> {
-    let depths = depths(graph)?;
-    let mut lines = Vec::new();
-    let mut rows = Vec::new();
-    for component in components(graph) {
-        let (block, labeled) = draw(graph, &component, &depths)?;
-        lines.extend(block);
-        rows.extend(labeled);
-    }
-
-    let width = |line: &str| line.chars().count();
-    let step_start = lines.iter().map(|line| width(line)).max().unwrap_or(0) + 2;
-    let step_width = rows.iter().map(|row| width(&graph.nodes[&row.change].step.to_string())).max().unwrap_or(0);
-    let mut text = String::new();
-    for (line, row) in lines.iter().zip(&rows) {
-        let node = &graph.nodes[&row.change];
-        let step = node.step;
-        match &node.title {
-            Some(title) => writeln!(text, "{line:<step_start$}{step:<step_width$}  {title}"),
-            None => writeln!(text, "{line:<step_start$}{step}"),
-        }
-        .expect("writing to a String cannot fail");
-    }
-    let folds = folds(graph, &rows);
-    Ok(RenderedHome { text, rows, folds })
-}
-
-/// A change folds exactly when its descendants sit contiguously after its own row and connect
-/// to the graph only through it, hiding that block. Scattered descendants (which no single run
-/// of lines could hide) and descendants shared with a change outside the block (which would
-/// stay visible while its child vanished) leave it unfoldable. Such blocks nest or stay
-/// disjoint: a block starting inside another belongs to a descendant, whose own descendants
-/// the outer block already spans.
-fn folds(graph: &HomeGraph, rows: &[HomeRow]) -> Vec<Fold> {
-    let row_of: BTreeMap<&ChangeId, usize> = rows.iter().enumerate().map(|(r, row)| (&row.change, r)).collect();
-    let mut children: Vec<Vec<usize>> = vec![Vec::new(); rows.len()];
-    for (r, row) in rows.iter().enumerate() {
-        for parent in &graph.nodes[&row.change].parents {
-            children[row_of[parent]].push(r);
-        }
-    }
-
-    let mut folds = Vec::new();
-    for start in 0..rows.len() {
-        let mut descendant = vec![false; rows.len()];
-        let mut frontier = children[start].clone();
-        let mut count = 0;
-        while let Some(r) = frontier.pop() {
-            if !descendant[r] {
-                descendant[r] = true;
-                count += 1;
-                frontier.extend(&children[r]);
+impl Cabaret {
+    /// Every open change `viewer` owns, plus all open ancestors as unowned context.
+    pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
+        self.query(|ctx| {
+            let trunk = ctx.default_branch()?;
+            let mut open = BTreeMap::new();
+            for id in ctx.changes()? {
+                let change = ctx.read(&id)?;
+                if id != trunk && !change.archived {
+                    open.insert(id, change);
+                }
             }
-        }
-        let end = start + count;
-        let contiguous = count > 0 && (start + 1..=end).all(|r| descendant[r]);
-        let only_through_start = |r: usize| {
-            graph.nodes[&rows[r].change].parents.iter().all(|parent| {
-                let parent = row_of[parent];
-                parent == start || descendant[parent]
-            })
-        };
-        if contiguous && (start + 1..=end).all(only_through_start) {
-            let line = |r: usize| u32::try_from(r).expect("a home view is short");
-            folds.push(Fold { start: line(start), end: line(end) });
-        }
+
+            let mut nodes = BTreeMap::new();
+            let mut frontier: VecDeque<ChangeId> =
+                open.iter().filter(|(_, change)| change.owners.contains(viewer)).map(|(id, _)| id.clone()).collect();
+            while let Some(id) = frontier.pop_front() {
+                if nodes.contains_key(&id) {
+                    continue;
+                }
+                let change = &open[&id];
+                let parents: BTreeSet<ChangeId> =
+                    change.parents()?.into_iter().filter(|parent| open.contains_key(parent)).collect();
+                frontier.extend(parents.iter().cloned());
+                let node = HomeNode { title: change.title.clone(), owned: change.owners.contains(viewer), parents };
+                nodes.insert(id, node);
+            }
+            Ok(HomeGraph { viewer: viewer.clone(), nodes })
+        })
     }
-    folds
+
+    pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home_graph(viewer)?) }
+}
+
+/// Labels sit a fixed gutter right of their node, leaving room for status glyphs and stepping
+/// with depth; rails wider than the gutter push them aside.
+const LABEL_GUTTER: usize = 4;
+
+impl Page {
+    /// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label
+    /// that plumbing pushed right of its depth position. Titles sit in a column right of every
+    /// label. Connected components render one after another, each starting with a root on the
+    /// left margin; every row leads to its change.
+    pub fn home(graph: &HomeGraph) -> Result<Self> {
+        if graph.nodes.is_empty() {
+            let message = format!("no open changes owned by {}", graph.viewer);
+            return Ok(Self { lines: vec![Line::default().push(Segment::tagged(message, Tag::Muted))] });
+        }
+        let depths = depths(graph)?;
+        let mut rows = Vec::new();
+        for component in components(graph) {
+            rows.extend(draw(graph, &component, &depths)?);
+        }
+
+        let width = |row: &Row| row.art.chars().count() + row.id.to_string().chars().count();
+        let title_start = rows.iter().map(width).max().expect("a non-empty graph has rows") + 2;
+        let lines = rows
+            .iter()
+            .map(|row| {
+                let node = &graph.nodes[row.id];
+                let mut line = Line::default().push(Segment::plain(&row.art));
+                if row.pushed {
+                    line = line.push(Segment::tagged("»", Tag::Muted));
+                }
+                line =
+                    line.push(Segment::tagged(row.id.to_string(), if node.owned { Tag::ChangeId } else { Tag::Muted }));
+                if let Some(title) = &node.title {
+                    line = line.push(Segment::plain(" ".repeat(title_start - width(row))));
+                    line =
+                        line.push(if node.owned { Segment::plain(title) } else { Segment::tagged(title, Tag::Muted) });
+                }
+                line.leading_to(Target::Change { change: row.id.clone() })
+            })
+            .collect();
+        Ok(Self { lines })
+    }
+}
+
+/// One drawn row: the rail art, padded so the id follows it directly, and whether plumbing
+/// pushed the id off its depth position (drawn as `»` in the last column of `art`'s padding).
+struct Row<'a> {
+    art: String,
+    pushed: bool,
+    id: &'a ChangeId,
 }
 
 /// Depth is the longest parent chain below a change; roots sit at depth 0.
@@ -205,15 +205,11 @@ fn order_rows<'a>(graph: &'a HomeGraph, component: &[&'a ChangeId]) -> Vec<&'a C
     rows
 }
 
-fn draw(
-    graph: &HomeGraph,
-    component: &[&ChangeId],
+fn draw<'a>(
+    graph: &'a HomeGraph,
+    component: &[&'a ChangeId],
     depths: &BTreeMap<&ChangeId, usize>,
-) -> Result<(Vec<String>, Vec<HomeRow>)> {
-    /// Labels sit a fixed gutter right of their node, leaving room for future status glyphs and
-    /// stepping with depth; rails wider than the gutter push them aside.
-    const LABEL_GUTTER: usize = 4;
-
+) -> Result<Vec<Row<'a>>> {
     let rows = order_rows(graph, component);
     let row_of: BTreeMap<&ChangeId, usize> = rows.iter().enumerate().map(|(r, &id)| (id, r)).collect();
     let cols: Vec<usize> = rows.iter().map(|&id| 2 * depths[id]).collect();
@@ -238,21 +234,18 @@ fn draw(
         }
     }
 
-    let mut lines = Vec::new();
-    let mut labeled = Vec::new();
-    for (r, &id) in rows.iter().enumerate() {
-        let art: String = drawer.grid.cells[r].iter().collect();
-        let art = art.trim_end();
-        let home = cols[r] + LABEL_GUTTER;
-        let start = home.max(art.chars().count() + 2);
-        // `»` marks a label pushed off its depth position by plumbing.
-        let line =
-            if start > home { format!("{art:<pad$}»{id}", pad = start - 1) } else { format!("{art:<start$}{id}") };
-        lines.push(line);
-        let label_start = u32::try_from(start).expect("a home line is narrow");
-        labeled.push(HomeRow { change: id.clone(), label_start });
-    }
-    Ok((lines, labeled))
+    Ok(rows
+        .iter()
+        .enumerate()
+        .map(|(r, &id)| {
+            let art: String = drawer.grid.cells[r].iter().collect();
+            let art = art.trim_end();
+            let home = cols[r] + LABEL_GUTTER;
+            let start = home.max(art.chars().count() + 2);
+            let pushed = start > home;
+            Row { art: format!("{art:<width$}", width = if pushed { start - 1 } else { start }), pushed, id }
+        })
+        .collect())
 }
 
 struct Grid {

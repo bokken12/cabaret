@@ -92,6 +92,16 @@ impl CabaretJs {
     #[napi]
     pub fn diff_page(&self, change: ChangeId) -> napi::Result<Page> { Ok(self.cabaret.diff_page(&change, &[])?) }
 
+    /// The home page for `viewer`, defaulting to git's user.email.
+    #[napi]
+    pub fn home_page(&self, viewer: Option<Identity>) -> napi::Result<Page> {
+        let viewer = match viewer {
+            Some(viewer) => viewer,
+            None => self.cabaret.identity()?,
+        };
+        Ok(self.cabaret.home_page(&viewer)?)
+    }
+
     #[napi]
     pub fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
         Ok(self.cabaret.blob(revision, &path)?)

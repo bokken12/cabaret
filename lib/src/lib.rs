@@ -3,6 +3,7 @@ pub mod cabaret;
 pub mod change;
 pub mod context;
 pub mod error;
+pub mod home;
 pub mod log;
 #[cfg(feature = "napi")]
 pub mod node;

@@ -30,7 +30,7 @@ fn describe(target: &Target) -> String {
 }
 
 /// Each segment as `text`, `[Tag|text]`, or `[Tag>target|text]`; a line's own target follows `=>`.
-fn markup(page: &Page) -> String {
+pub fn markup(page: &Page) -> String {
     let mut out = String::new();
     for line in &page.lines {
         for Segment { text, tag, target } in &line.segments {

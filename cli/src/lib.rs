@@ -23,7 +23,9 @@ enum Command {
     },
     Config,
     Fetch,
+    /// Show your open changes as a stack graph.
     Home {
+        /// Identity to view as; defaults to git's user.email.
         #[arg(long = "as")]
         viewer: Option<Identity>,
     },
@@ -50,7 +52,11 @@ pub fn run() -> Result<()> {
         Command::Config => todo!(),
         Command::Fetch => fetch(&cabaret)?,
         Command::Home { viewer } => {
-            todo!()
+            let viewer = match viewer {
+                Some(viewer) => viewer,
+                None => cabaret.identity()?,
+            };
+            print!("{}", cabaret.home_page(&viewer)?);
         }
         Command::Workspace { command } => command.run(cabaret)?,
     }
