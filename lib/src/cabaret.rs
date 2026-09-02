@@ -23,7 +23,7 @@ impl Cabaret {
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
 
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
-        self.query(|ctx| Ok(ctx.read(change_id)?.snapshot()))
+        self.query(|ctx| ctx.read(change_id)?.snapshot())
     }
 
     pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
@@ -41,7 +41,7 @@ impl Cabaret {
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         let tip = self.query(|ctx| Ok(ctx.read(parent_id)?.tip()))?;
         self.insert1(change_id, tip, |_ctx, change| {
-            change.parents = BTreeSet::from([parent_id.to_owned()]);
+            change.declared_parents = BTreeSet::from([parent_id.to_owned()]);
             change.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })
@@ -57,7 +57,7 @@ impl Cabaret {
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<()> {
         let parent = self.query(|ctx| {
             let change = ctx.read(change_id)?;
-            match change.parents.iter().collect::<Vec<_>>().as_slice() {
+            match change.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
                 [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
                 [parent] => Ok((*parent).clone()),
@@ -123,7 +123,7 @@ impl Cabaret {
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
         self.update1(change_id, |ctx, change| {
             // TODO(joel): check for cyclic dependencies
-            match change.parents.insert(parent_id.to_owned()) {
+            match change.declared_parents.insert(parent_id.to_owned()) {
                 false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
                 true => Ok(()),
             }
@@ -131,9 +131,23 @@ impl Cabaret {
     }
 
     pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.parents.remove(parent_id) {
+        self.update1(change_id, |_ctx, change| match change.declared_parents.remove(parent_id) {
             false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
             true => Ok(()),
+        })
+    }
+
+    pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.title == title {
+            true => Err(format!("{change_id} already had this title"))?,
+            false => Ok(change.title = title),
+        })
+    }
+
+    pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
+        self.update1(change_id, |_ctx, change| match change.description == description {
+            true => Err(format!("{change_id} already had this description"))?,
+            false => Ok(change.description = description),
         })
     }
 

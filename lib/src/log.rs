@@ -53,14 +53,12 @@ fn read_log(repo: &Repository, commit: ObjectId) -> Result<String> {
 
 impl<'ctx> Change<'ctx> {
     /// Fold `change_id`'s log, up to `ctx.timestamp`.
-    pub(crate) fn from_log(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
-        let tip = Revision(ctx.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id);
-        let log_commit = ctx.repo.find_reference(&change_id.log_ref())?.peel_to_commit()?.id;
-        let text = read_log(&ctx.repo, log_commit)?;
-
-        let mut change = Change::new(ctx, change_id.to_owned(), tip);
+    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
+        let mut change = Change::new(ctx, change_id.to_owned(), ctx.branch_tip(change_id)?);
+        let Some(log) = ctx.repo.try_find_reference(&change_id.log_ref())? else { return Ok(change) };
+        let log_commit = log.into_fully_peeled_id()?.detach();
         change.log_commit = Some(log_commit);
-        for line in text.lines() {
+        for line in read_log(&ctx.repo, log_commit)?.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
             if entry.timestamp <= ctx.timestamp {
                 change.apply(&entry);
@@ -75,7 +73,7 @@ impl<'ctx> Change<'ctx> {
                 self.owners.insert(owner.clone());
             }
             LogAction::AddParent { parent } => {
-                self.parents.insert(parent.clone());
+                self.declared_parents.insert(parent.clone());
             }
             LogAction::Forget { file } => {
                 self.review.entry(entry.user.clone()).or_default().remove(file);
@@ -87,7 +85,7 @@ impl<'ctx> Change<'ctx> {
                 self.owners.remove(owner);
             }
             LogAction::RemoveParent { parent } => {
-                self.parents.remove(parent);
+                self.declared_parents.remove(parent);
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
             LogAction::SetDescription { description } => self.description = description.clone(),
@@ -158,10 +156,10 @@ impl<'ctx> Change<'ctx> {
         for owner in self.owners.difference(&before.owners) {
             actions.push(LogAction::AddOwner { owner: owner.clone() });
         }
-        for parent in before.parents.difference(&self.parents) {
+        for parent in before.declared_parents.difference(&self.declared_parents) {
             actions.push(LogAction::RemoveParent { parent: parent.clone() });
         }
-        for parent in self.parents.difference(&before.parents) {
+        for parent in self.declared_parents.difference(&before.declared_parents) {
             actions.push(LogAction::AddParent { parent: parent.clone() });
         }
         if self.archived != before.archived {

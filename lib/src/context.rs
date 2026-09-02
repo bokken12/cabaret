@@ -1,7 +1,7 @@
 use std::{fmt, process::Command};
 
 use elsa::FrozenBTreeMap;
-use gix::{Repository, bstr::ByteSlice};
+use gix::{Repository, bstr::ByteSlice, refs::TargetRef};
 
 use crate::{
     change::Change,
@@ -31,29 +31,44 @@ impl<'ctx> TransactionContext<'ctx> {
             return Ok(change);
         }
 
-        let change = Change::from_log(self, change_id)?;
+        let change = Change::load(self, change_id)?;
         Ok(self.read.insert(change_id.to_owned(), Box::new(change)))
     }
 
+    /// Every local branch is a change, whether or not anything has been logged about it.
     pub fn changes(&self) -> Result<Vec<ChangeId>> {
         let mut changes = Vec::new();
-        for reference in self.repo.references()?.prefixed(ChangeIdRef::LOG_REF_PREFIX)? {
-            let reference = reference?;
-            let name = reference.name().as_bstr();
-            let change = name
-                .strip_prefix(ChangeIdRef::LOG_REF_PREFIX.as_bytes())
-                .expect("prefixed iteration stays under the prefix");
-            changes.push(change.to_str()?.parse()?);
+        for reference in self.repo.references()?.local_branches()? {
+            changes.push(reference?.name().shorten().to_str()?.parse()?);
         }
         Ok(changes)
     }
 
-    pub fn branches(&self) -> Result<Vec<ChangeId>> {
-        let mut branches = Vec::new();
-        for reference in self.repo.references()?.local_branches()? {
-            branches.push(reference?.name().shorten().to_str()?.parse()?);
+    /// The branch changes target unless told otherwise: origin's HEAD, or without one whichever of
+    /// `main` and `master` exists.
+    pub fn default_branch(&self) -> Result<ChangeId> {
+        if let Some(head) = self.repo.try_find_reference("refs/remotes/origin/HEAD")? {
+            let TargetRef::Symbolic(target) = head.target() else { Err("origin/HEAD is not symbolic")? };
+            let branch =
+                target.as_bstr().strip_prefix(b"refs/remotes/origin/").ok_or("origin/HEAD is not on origin")?;
+            return Ok(branch.to_str()?.parse()?);
         }
-        Ok(branches)
+        let mut candidates = Vec::new();
+        for name in ["main", "master"] {
+            let branch: ChangeId = name.parse()?;
+            if self.repo.try_find_reference(&branch.branch_ref())?.is_some() {
+                candidates.push(branch);
+            }
+        }
+        match candidates.as_slice() {
+            [branch] => Ok(branch.clone()),
+            [] => Err("no origin/HEAD, main, or master to be the default branch")?,
+            [_, _, ..] => Err("both main and master exist; set origin/HEAD to pick the default branch")?,
+        }
+    }
+
+    pub fn branch_tip(&self, change_id: &ChangeIdRef) -> Result<Revision> {
+        Ok(Revision(self.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id))
     }
 
     /// Git running against this repository, for operations gix does not implement yet.

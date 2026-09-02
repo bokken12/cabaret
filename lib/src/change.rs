@@ -18,7 +18,10 @@ pub struct ChangeSnapshot {
     pub archived: bool,
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
+    /// What the change targets; see [`Change::parents`].
     pub parents: BTreeSet<ChangeId>,
+    /// What its log declares, which is what parent edits act on.
+    pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
 }
 
@@ -34,7 +37,7 @@ pub struct Change<'ctx> {
     pub archived: bool,
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
-    pub parents: BTreeSet<ChangeId>,
+    pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
 }
 
@@ -50,7 +53,7 @@ impl<'ctx> Change<'ctx> {
             archived: false,
             permanent: false,
             owners: BTreeSet::new(),
-            parents: BTreeSet::new(),
+            declared_parents: BTreeSet::new(),
             review: BTreeMap::new(),
         }
     }
@@ -61,38 +64,49 @@ impl<'ctx> Change<'ctx> {
 
     pub fn tip(&self) -> Revision { self.tip }
 
-    pub fn snapshot(&self) -> ChangeSnapshot {
-        ChangeSnapshot {
+    pub fn snapshot(&self) -> Result<ChangeSnapshot> {
+        Ok(ChangeSnapshot {
             tip: self.tip,
             title: self.title.clone(),
             description: self.description.clone(),
             archived: self.archived,
             permanent: self.permanent,
             owners: self.owners.clone(),
-            parents: self.parents.clone(),
+            parents: self.parents()?,
+            declared_parents: self.declared_parents.clone(),
             review: self.review.clone(),
-        }
+        })
     }
 
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
             return Ok(true);
         }
-        self.parents.iter().try_fold(false, |acc, parent| Ok(acc || self.ctx.read(parent)?.is_descendant(ancestor)?))
+        self.declared_parents
+            .iter()
+            .try_fold(false, |acc, parent| Ok(acc || self.ctx.read(parent)?.is_descendant(ancestor)?))
     }
 
     pub fn is_ancestor(&self, descendant: &ChangeIdRef) -> Result<bool> {
         Ok(self.ctx.read(descendant)?.is_descendant(&self.id)?)
     }
 
+    /// The changes this one actually targets: declared parents, or the default branch when none
+    /// are declared, with archived ones replaced by their own parents.
     // TODO-someday(joel): store computed parents?
     pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
         if self.archived {
-            return Ok(self.parents.clone());
+            return Ok(self.declared_parents.clone());
         }
 
         let mut candidates = BTreeSet::new();
-        let mut frontier: Vec<_> = self.parents.iter().cloned().collect();
+        let mut frontier: Vec<_> = self.declared_parents.iter().cloned().collect();
+        if frontier.is_empty() {
+            let default = self.ctx.default_branch()?;
+            if default != self.id {
+                frontier.push(default);
+            }
+        }
         loop {
             let Some(candidate_id) = frontier.pop() else { break };
             let candidate = self.ctx.read(&candidate_id)?;
@@ -102,7 +116,7 @@ impl<'ctx> Change<'ctx> {
                 false => {
                     candidates.insert(candidate_id);
                 }
-                true => frontier.extend(candidate.parents.iter().cloned()),
+                true => frontier.extend(candidate.declared_parents.iter().cloned()),
             }
         }
         self.ctx.maximal_changes(&candidates)

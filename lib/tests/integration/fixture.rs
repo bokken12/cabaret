@@ -1,127 +1,125 @@
 //! A repo with a `Cabaret` on it, for integration tests to build state in.
 //!
-//! Tests pick up one of two standard scenes — [`duo`], a two-change stack to mutate, or
-//! [`troupe`], a rich graph to read — and assert about the one operation they perform.
-//! Each scene's full state is pinned by a snapshot beside its builder.
-
-// TODO(joel): fixture naming should make relationships self-evident
+//! Changes are named for the shape of the graph around them or for the state they are in,
+//! never for what they pretend to implement: `stack-middle` sits between `stack-bottom` and
+//! `stack-top`, `empty` has no diff, `behind-child`'s parent has moved on without it. Every
+//! change with a diff adds one file named after itself. The standard [`scene`] holds one of
+//! each shape; its full state is pinned by the snapshot beside it, so a test can name a change
+//! and the reader can look up exactly what it is.
 
 use std::{
     cell::Cell,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, VecDeque},
     fmt::Write as _,
     fs,
 };
 
 use cabaret_lib::{
-    cabaret::CabaretOld,
-    change::ChangeId,
-    revision::Revision,
-    types::{Identity, TreeId},
+    cabaret::Cabaret,
+    types::{ChangeId, ChangedFile, Identity, Revision, TreeId},
 };
 use expect_test::expect;
-use gix::objs::tree::EntryKind;
+use gix::{objs::tree::EntryKind, refs::transaction::PreviousValue};
 
 pub fn alice() -> Identity { Identity("alice@example.com".into()) }
 pub fn bob() -> Identity { Identity("bob@example.com".into()) }
 pub fn carol() -> Identity { Identity("carol@example.com".into()) }
-pub fn dan() -> Identity { Identity("dan@example.com".into()) }
 
 pub type Files<'a> = &'a [(&'a str, &'a str)];
 
 pub struct Fixture {
     _dir: tempfile::TempDir,
-    pub cabaret: CabaretOld,
+    pub cabaret: Cabaret,
+    repo: gix::Repository,
     /// Commit timestamps count up from a fixed epoch so hashes are stable across runs
     /// and may appear literally in snapshots.
     clock: Cell<i64>,
 }
 
+fn id(change: &str) -> ChangeId { change.parse().unwrap() }
+
 impl Fixture {
     pub fn new() -> Self {
         let dir = tempfile::TempDir::new().unwrap();
-        gix::init(dir.path()).unwrap();
-        let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).unwrap();
+        let repo = gix::init(dir.path()).unwrap();
         let config_path = repo.git_dir().join("config");
         let config = fs::read_to_string(&config_path).unwrap();
         fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
-        let repo = gix::open_opts(dir.path(), gix::open::Options::isolated()).unwrap();
-        Self { _dir: dir, cabaret: CabaretOld { repo }, clock: Cell::new(978_307_200) }
+        let cabaret = Cabaret::open(dir.path()).unwrap();
+        let repo = gix::open(dir.path()).unwrap();
+        Self { _dir: dir, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
-    pub fn repo(&self) -> &gix::Repository { &self.cabaret.repo }
+    pub fn tip(&self, change: &str) -> Revision { self.cabaret.snapshot(&id(change)).unwrap().tip }
 
-    pub fn tip(&self, change: &str) -> Revision { self.cabaret.tip(&change.parse::<ChangeId>().unwrap()).unwrap() }
-
-    fn commit_tree(&self, branch: &str, tree: TreeId, parents: &[Revision]) -> Revision {
+    fn commit_tree(&self, tree: TreeId, parents: &[Revision]) -> Revision {
         let time = gix::date::Time { seconds: self.clock.replace(self.clock.get() + 1), offset: 0 };
-        let signature = gix::actor::Signature { name: "Alice Test".into(), email: alice().0.into(), time };
-        let mut buf = gix::date::parse::TimeBuf::default();
-        let signature = signature.to_ref(&mut buf);
-        let id = self
-            .repo()
-            .commit_as(signature, signature, format!("refs/heads/{branch}"), "test", tree, parents.iter().copied())
-            .unwrap();
-        Revision(id.detach())
+        let author = gix::actor::Signature { name: "Alice Test".into(), email: alice().0.into(), time };
+        let commit = gix::objs::Commit {
+            tree: tree.0,
+            parents: parents.iter().map(|revision| revision.0).collect(),
+            author: author.clone(),
+            committer: author,
+            encoding: None,
+            message: "fixture".into(),
+            extra_headers: Vec::new(),
+        };
+        Revision(self.repo.write_object(&commit).unwrap().detach())
     }
 
-    /// Root `branch` at a commit of exactly `files`, without a change log: a trunk.
-    pub fn root(&self, branch: &str, files: Files) -> Revision {
-        let files: BTreeMap<String, String> =
-            files.iter().map(|(path, content)| ((*path).into(), (*content).into())).collect();
-        self.commit_tree(branch, write_tree(self.repo(), &files), &[])
+    fn move_branch(&self, change: &str, revision: Revision) {
+        self.repo.reference(id(change).branch_ref(), revision.0, PreviousValue::Any, "fixture").unwrap();
     }
+
+    /// A plain git branch at a root commit of exactly `files`, with no log: a trunk.
+    pub fn root(&self, change: &str, files: Files) {
+        let files = files.iter().map(|(path, content)| ((*path).into(), (*content).into())).collect();
+        self.move_branch(change, self.commit_tree(write_tree(&self.repo, &files), &[]));
+    }
+
+    /// A plain git branch at `parent`'s tip, with no log: someone else's work, made without cabaret.
+    pub fn branch(&self, change: &str, parent: &str) { self.move_branch(change, self.tip(parent)); }
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret
-            .create_change(&change.parse::<ChangeId>().unwrap(), &parent.parse::<ChangeId>().unwrap(), owner)
-            .unwrap();
+        self.cabaret.create(&id(change), &id(parent), owner).unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
-    pub fn extend(&self, change: &str, files: Files) -> Revision {
+    pub fn commit(&self, change: &str, files: Files) -> Revision {
         let tip = self.tip(change);
         let mut all = self.files_at(tip);
         for (path, content) in files {
             all.insert((*path).into(), (*content).into());
         }
-        self.commit_tree(change, write_tree(self.repo(), &all), &[tip])
+        let revision = self.commit_tree(write_tree(&self.repo, &all), &[tip]);
+        self.move_branch(change, revision);
+        revision
     }
 
     /// Merge `other`'s tip into `change` and commit `files` on the union.
-    pub fn join(&self, change: &str, other: &str, files: Files) -> Revision {
+    pub fn merge(&self, change: &str, other: &str, files: Files) -> Revision {
         let (tip, other_tip) = (self.tip(change), self.tip(other));
         let mut all = self.files_at(tip);
         all.extend(self.files_at(other_tip));
         for (path, content) in files {
             all.insert((*path).into(), (*content).into());
         }
-        self.commit_tree(change, write_tree(self.repo(), &all), &[tip, other_tip])
-    }
-
-    pub fn own(&self, change: &str, owner: &Identity) {
-        self.cabaret.add_owner(&change.parse::<ChangeId>().unwrap(), owner).unwrap();
-    }
-
-    pub fn title(&self, change: &str, title: &str) {
-        self.cabaret.set_title(&change.parse::<ChangeId>().unwrap(), Some(title.into())).unwrap();
-    }
-
-    pub fn describe(&self, change: &str, description: &str) {
-        self.cabaret.set_description(&change.parse::<ChangeId>().unwrap(), Some(description.into())).unwrap();
+        let revision = self.commit_tree(write_tree(&self.repo, &all), &[tip, other_tip]);
+        self.move_branch(change, revision);
+        revision
     }
 
     /// Point HEAD at `change` and materialize its tip in the worktree and index.
     pub fn checkout(&self, change: &str) {
-        fs::write(self.repo().git_dir().join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
+        fs::write(self.repo.git_dir().join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
         for (path, content) in self.files_at(self.tip(change)) {
-            let path = self.repo().workdir().unwrap().join(path);
+            let path = self.repo.workdir().unwrap().join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, content).unwrap();
         }
-        let head_tree = self.repo().head_commit().unwrap().tree_id().unwrap();
-        let mut index = self.repo().index_from_tree(&head_tree).unwrap();
+        let head_tree = self.repo.head_commit().unwrap().tree_id().unwrap();
+        let mut index = self.repo.index_from_tree(&head_tree).unwrap();
         index.write(gix::index::write::Options::default()).unwrap();
     }
 
@@ -142,44 +140,95 @@ impl Fixture {
             }
         }
         let mut out = BTreeMap::new();
-        walk(&self.repo().find_commit(revision.0).unwrap().tree().unwrap(), "", &mut out);
+        walk(&self.repo.find_commit(revision.0).unwrap().tree().unwrap(), "", &mut out);
         out
     }
 
-    /// The whole scene as text: HEAD, trunks, then each change with its attributes,
-    /// files, and next step.
+    /// The whole scene as text: HEAD, then [`Self::show`] of every change.
     pub fn state(&self) -> String {
-        let words = |items: Vec<String>| items.join(" ");
-        let mut out = String::new();
-        let head = self.repo().head_name().unwrap().expect("fixture HEAD is a branch");
-        writeln!(out, "HEAD {}", head.shorten()).unwrap();
-        let changes: BTreeSet<ChangeId> = self.cabaret.changes().unwrap().into_iter().collect();
-        for branch in self.cabaret.branches().unwrap() {
-            if !changes.contains(&branch) {
-                writeln!(out, "{branch} {}", self.short(&branch)).unwrap();
-            }
-        }
-        for change in &changes {
-            let log = self.cabaret.log(change).unwrap();
-            writeln!(out, "{change} {}", self.short(change)).unwrap();
-            writeln!(out, "  parents {}", words(log.parents.iter().map(ToString::to_string).collect())).unwrap();
-            if !log.owners.is_empty() {
-                writeln!(out, "  owners {}", words(log.owners.iter().map(ToString::to_string).collect())).unwrap();
-            }
-            if let Some(title) = &log.title {
-                writeln!(out, "  title {title}").unwrap();
-            }
-            if let Some(description) = &log.description {
-                writeln!(out, "  description {description}").unwrap();
-            }
-            let files = self.files_at(self.cabaret.tip(change).unwrap());
-            writeln!(out, "  files {}", words(files.into_keys().collect())).unwrap();
-            writeln!(out, "  step {}", self.cabaret.next_step(change).unwrap()).unwrap();
+        let head = self.repo.head_name().unwrap().expect("fixture HEAD is a branch");
+        let mut out = format!("HEAD {}\n", head.shorten());
+        let mut changes = self.cabaret.changes().unwrap();
+        changes.sort();
+        for change in changes {
+            out.push_str(&self.show(&change.to_string()));
         }
         out
     }
 
-    fn short(&self, change: &ChangeId) -> String { self.cabaret.tip(change).unwrap().0.to_hex_with_len(8).to_string() }
+    /// One change as text: its tip, the parents it targets and the declared ones when those
+    /// differ, its attributes, its base, and the files it changes against that base. The base is
+    /// named for the nearest ancestor whose tip it is, else it is a bare hash.
+    pub fn show(&self, change: &str) -> String {
+        let words = |items: Vec<String>| items.join(" ");
+        let snapshot = self.cabaret.snapshot(&id(change)).unwrap();
+        let mut out = format!("{change} {}\n", short(snapshot.tip));
+        if !snapshot.parents.is_empty() {
+            writeln!(out, "  parents {}", words(snapshot.parents.iter().map(ToString::to_string).collect())).unwrap();
+        }
+        if snapshot.declared_parents != snapshot.parents {
+            let declared = match snapshot.declared_parents.is_empty() {
+                true => "(none)".into(),
+                false => words(snapshot.declared_parents.iter().map(ToString::to_string).collect()),
+            };
+            writeln!(out, "  declared {declared}").unwrap();
+        }
+        if !snapshot.owners.is_empty() {
+            writeln!(out, "  owners {}", words(snapshot.owners.iter().map(ToString::to_string).collect())).unwrap();
+        }
+        if snapshot.archived {
+            writeln!(out, "  archived").unwrap();
+        }
+        if snapshot.permanent {
+            writeln!(out, "  permanent").unwrap();
+        }
+        if let Some(title) = &snapshot.title {
+            writeln!(out, "  title {title}").unwrap();
+        }
+        if let Some(description) = &snapshot.description {
+            writeln!(out, "  description {description}").unwrap();
+        }
+        match self.cabaret.base(&id(change)) {
+            Err(error) => writeln!(out, "  base {error:?}").unwrap(),
+            Ok(base) => {
+                let base = base.map_or("(none)".into(), |base| self.ancestor_at(change, base));
+                writeln!(out, "  base {base}").unwrap();
+                let files = self.cabaret.changed_files(&id(change), &[]).unwrap();
+                let diff = match files.is_empty() {
+                    true => "(empty)".into(),
+                    false => words(files.iter().map(file).collect()),
+                };
+                writeln!(out, "  diff {diff}").unwrap();
+            }
+        }
+        out
+    }
+
+    /// The nearest ancestor of `change` whose tip is `revision`, else its short hash.
+    fn ancestor_at(&self, change: &str, revision: Revision) -> String {
+        let mut frontier: VecDeque<ChangeId> =
+            self.cabaret.snapshot(&id(change)).unwrap().parents.into_iter().collect();
+        while let Some(ancestor) = frontier.pop_front() {
+            let snapshot = self.cabaret.snapshot(&ancestor).unwrap();
+            if snapshot.tip == revision {
+                return ancestor.to_string();
+            }
+            frontier.extend(snapshot.parents);
+        }
+        short(revision)
+    }
+}
+
+fn short(revision: Revision) -> String { revision.0.to_hex_with_len(8).to_string() }
+
+fn file(file: &ChangedFile) -> String {
+    match file {
+        ChangedFile::Added { path } => format!("+{path}"),
+        ChangedFile::Deleted { path } => format!("-{path}"),
+        ChangedFile::Modified { path } => format!("~{path}"),
+        ChangedFile::Renamed { from, path } => format!("{from}->{path}"),
+        ChangedFile::Copied { from, path } => format!("{from}=>{path}"),
+    }
 }
 
 fn write_tree(repo: &gix::Repository, files: &BTreeMap<String, String>) -> TreeId {
@@ -208,121 +257,164 @@ fn write_tree(repo: &gix::Repository, files: &BTreeMap<String, String>) -> TreeI
     TreeId(repo.write_object(&gix::objs::Tree { entries }).unwrap().detach())
 }
 
-/// The small scene: bob's `infra` on main, alice's `feature` stacked on it and checked
-/// out. Mutation tests start here and, say, extend main to strand the stack.
-pub fn duo() -> Fixture {
+/// Every shape once, all rooted on `main`, with `single` checked out:
+///
+/// - `main`: a plain git branch with no log; the default branch everything targets.
+/// - `unlogged`: a plain git branch off main with no log, so its parent is implied.
+/// - `single`: the plainest change, one file on main.
+/// - `stack-bottom` → `stack-middle` → `stack-top`: a linear stack.
+/// - `fork-base` splitting into `fork-left` and `fork-right`, rejoined by `fork-join`, a change with two parents whose
+///   tip merges both.
+/// - `empty`: created on main and never committed to.
+/// - `advanced-parent` → `behind-child`: the parent committed again after the child forked, so the child's base is no
+///   longer its parent's tip.
+/// - `archived` → `child-of-archived`: the parent is archived, so the child's effective parent is main.
+/// - `co-owned`: owned by alice and bob.
+/// - `described`: has a title and description.
+pub fn scene() -> Fixture {
     let fixture = Fixture::new();
-    fixture.root("main", &[("base.txt", "base\n")]);
-    fixture.create("infra", "main", &bob());
-    fixture.extend("infra", &[("infra.txt", "infra\n")]);
-    fixture.create("feature", "infra", &alice());
-    fixture.extend("feature", &[("feature.txt", "feature\n")]);
-    fixture.checkout("feature");
+    fixture.root("main", &[("main.txt", "main\n")]);
+
+    fixture.branch("unlogged", "main");
+    fixture.commit("unlogged", &[("unlogged.txt", "unlogged\n")]);
+
+    fixture.create("single", "main", &alice());
+    fixture.commit("single", &[("single.txt", "single\n")]);
+
+    fixture.create("stack-bottom", "main", &alice());
+    fixture.commit("stack-bottom", &[("stack-bottom.txt", "stack-bottom\n")]);
+    fixture.create("stack-middle", "stack-bottom", &alice());
+    fixture.commit("stack-middle", &[("stack-middle.txt", "stack-middle\n")]);
+    fixture.create("stack-top", "stack-middle", &alice());
+    fixture.commit("stack-top", &[("stack-top.txt", "stack-top\n")]);
+
+    fixture.create("fork-base", "main", &alice());
+    fixture.commit("fork-base", &[("fork-base.txt", "fork-base\n")]);
+    fixture.create("fork-left", "fork-base", &alice());
+    fixture.commit("fork-left", &[("fork-left.txt", "fork-left\n")]);
+    fixture.create("fork-right", "fork-base", &bob());
+    fixture.commit("fork-right", &[("fork-right.txt", "fork-right\n")]);
+    fixture.create("fork-join", "fork-left", &carol());
+    fixture.cabaret.add_parent(&id("fork-join"), &id("fork-right")).unwrap();
+    fixture.merge("fork-join", "fork-right", &[("fork-join.txt", "fork-join\n")]);
+
+    fixture.create("empty", "main", &alice());
+
+    fixture.create("advanced-parent", "main", &alice());
+    fixture.commit("advanced-parent", &[("advanced-parent.txt", "advanced-parent\n")]);
+    fixture.create("behind-child", "advanced-parent", &alice());
+    fixture.commit("behind-child", &[("behind-child.txt", "behind-child\n")]);
+    fixture.commit("advanced-parent", &[("advanced-parent.txt", "advanced-parent, advanced\n")]);
+
+    fixture.create("archived", "main", &alice());
+    fixture.commit("archived", &[("archived.txt", "archived\n")]);
+    fixture.create("child-of-archived", "archived", &alice());
+    fixture.commit("child-of-archived", &[("child-of-archived.txt", "child-of-archived\n")]);
+    fixture.cabaret.archive(&id("archived")).unwrap();
+
+    fixture.create("co-owned", "main", &alice());
+    fixture.cabaret.add_owner(&id("co-owned"), &bob()).unwrap();
+    fixture.commit("co-owned", &[("co-owned.txt", "co-owned\n")]);
+
+    fixture.create("described", "main", &alice());
+    fixture.cabaret.set_title(&id("described"), Some("Described".into())).unwrap();
+    fixture.cabaret.set_description(&id("described"), Some("A change with a title and description.".into())).unwrap();
+    fixture.commit("described", &[("described.txt", "described\n")]);
+
+    fixture.checkout("single");
     fixture
 }
 
 #[test]
-fn duo_scene() {
+fn scene_state() {
     expect![[r"
-        HEAD feature
-        main ee8d777a
-        feature 5a2f333a
-          parents infra
+        HEAD single
+        advanced-parent 54a49f30
+          parents main
           owners alice@example.com
-          files base.txt feature.txt infra.txt
-          step land
-        infra a31ff052
+          base main
+          diff +advanced-parent.txt
+        archived 8fd049ba
           parents main
-          owners bob@example.com
-          files base.txt infra.txt
-          step land
-    "]]
-    .assert_eq(&duo().state());
-}
-
-/// The large scene, for reading: a co-owned base carrying two sibling features that a
-/// diamond joins, an independent change whose child it stranded, and an empty change.
-pub fn troupe() -> Fixture {
-    let fixture = Fixture::new();
-    fixture.root("main", &[("README.md", "# demo\n"), ("src/app.rs", "fn main() {}\n")]);
-
-    fixture.create("infra-core", "main", &alice());
-    fixture.extend("infra-core", &[("src/infra.rs", "pub fn plumb() {}\n")]);
-    fixture.own("infra-core", &bob());
-    fixture.title("infra-core", "Core plumbing");
-
-    fixture.create("api-routes", "infra-core", &alice());
-    fixture.extend("api-routes", &[("src/api.rs", "pub fn route() {}\n")]);
-    fixture.title("api-routes", "Route the API");
-
-    fixture.create("ui-widgets", "infra-core", &bob());
-    fixture.extend("ui-widgets", &[("src/ui.rs", "pub fn widget() {}\n")]);
-
-    fixture.create("integration", "api-routes", &carol());
-    fixture
-        .cabaret
-        .add_parent(&"integration".parse::<ChangeId>().unwrap(), &"ui-widgets".parse::<ChangeId>().unwrap())
-        .unwrap();
-    fixture.join("integration", "ui-widgets", &[("tests/e2e.rs", "#[test]\nfn ok() {}\n")]);
-
-    fixture.create("docs-polish", "main", &carol());
-    fixture.extend("docs-polish", &[("docs/guide.md", "guide\n")]);
-    fixture.title("docs-polish", "Polish the guide");
-    fixture.create("release-notes", "docs-polish", &dan());
-    fixture.extend("release-notes", &[("docs/notes.md", "notes\n")]);
-    fixture.extend("docs-polish", &[("docs/guide.md", "guide, edited\n")]);
-
-    fixture.create("experiment", "main", &bob());
-    fixture.describe("experiment", "Try the new widget layout");
-
-    fixture.checkout("main");
-    fixture
-}
-
-#[test]
-fn troupe_scene() {
-    expect![[r"
-        HEAD main
-        main 70c9fc42
-        api-routes 918769d7
-          parents infra-core
           owners alice@example.com
-          title Route the API
-          files README.md src/api.rs src/app.rs src/infra.rs
-          step land
-        docs-polish 2c6cc60d
+          archived
+          base main
+          diff +archived.txt
+        behind-child 2360539f
+          parents advanced-parent
+          owners alice@example.com
+          base 77cc9daf
+          diff +behind-child.txt
+        child-of-archived 22e75840
           parents main
-          owners carol@example.com
-          title Polish the guide
-          files README.md docs/guide.md src/app.rs
-          step land
-        experiment 70c9fc42
-          parents main
-          owners bob@example.com
-          description Try the new widget layout
-          files README.md src/app.rs
-          step add code
-        infra-core ca64cf68
+          declared archived
+          owners alice@example.com
+          base main
+          diff +archived.txt +child-of-archived.txt
+        co-owned 846dd910
           parents main
           owners alice@example.com bob@example.com
-          title Core plumbing
-          files README.md src/app.rs src/infra.rs
-          step land
-        integration 011ec31f
-          parents api-routes ui-widgets
+          base main
+          diff +co-owned.txt
+        described 8210a240
+          parents main
+          owners alice@example.com
+          title Described
+          description A change with a title and description.
+          base main
+          diff +described.txt
+        empty be64648c
+          parents main
+          owners alice@example.com
+          base main
+          diff (empty)
+        fork-base b088f3ac
+          parents main
+          owners alice@example.com
+          base main
+          diff +fork-base.txt
+        fork-join 16934e40
+          parents fork-left fork-right
           owners carol@example.com
-          files README.md src/api.rs src/app.rs src/infra.rs src/ui.rs tests/e2e.rs
-          step land parents
-        release-notes ddcccd00
-          parents docs-polish
-          owners dan@example.com
-          files README.md docs/guide.md docs/notes.md src/app.rs
-          step rebase
-        ui-widgets 4b24c865
-          parents infra-core
+          base fork-join has multiple bases, which is not supported yet
+        fork-left 3454c042
+          parents fork-base
+          owners alice@example.com
+          base fork-base
+          diff +fork-left.txt
+        fork-right a7b00c77
+          parents fork-base
           owners bob@example.com
-          files README.md src/app.rs src/infra.rs src/ui.rs
-          step land
+          base fork-base
+          diff +fork-right.txt
+        main be64648c
+          base (none)
+          diff +main.txt
+        single 25e7b9de
+          parents main
+          owners alice@example.com
+          base main
+          diff +single.txt
+        stack-bottom cf5a0eef
+          parents main
+          owners alice@example.com
+          base main
+          diff +stack-bottom.txt
+        stack-middle c247222b
+          parents stack-bottom
+          owners alice@example.com
+          base stack-bottom
+          diff +stack-middle.txt
+        stack-top 48008586
+          parents stack-middle
+          owners alice@example.com
+          base stack-middle
+          diff +stack-top.txt
+        unlogged b86566a3
+          parents main
+          declared (none)
+          base main
+          diff +unlogged.txt
     "]]
-    .assert_eq(&troupe().state());
+    .assert_eq(&scene().state());
 }
