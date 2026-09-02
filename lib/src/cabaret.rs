@@ -30,6 +30,10 @@ impl Cabaret {
         self.query(|ctx| ctx.blob(revision, path))
     }
 
+    pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<Revision>> {
+        self.query(|ctx| ctx.read(change_id)?.base())
+    }
+
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         self.query(|ctx| ctx.read(change_id)?.changed_files(pathspecs))
     }

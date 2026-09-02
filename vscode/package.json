@@ -21,6 +21,10 @@
       {
         "command": "cabaret.diff",
         "title": "Cabaret: Diff"
+      },
+      {
+        "command": "cabaret.open",
+        "title": "Cabaret: Open"
       }
     ],
     "keybindings": [
@@ -28,6 +32,11 @@
         "command": "cabaret.diff",
         "key": "d",
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.open",
+        "key": "enter",
+        "when": "editorTextFocus && resourceScheme == cabaret && resourcePath =~ /^\\/diff\\// && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]
   },

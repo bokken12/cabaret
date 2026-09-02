@@ -83,6 +83,9 @@ impl CabaretJs {
     pub fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> { Ok(self.cabaret.snapshot(&id)?) }
 
     #[napi]
+    pub fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> { Ok(self.cabaret.base(&change)?) }
+
+    #[napi]
     pub fn changed_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
         Ok(self.cabaret.changed_files(&change, &[])?)
     }

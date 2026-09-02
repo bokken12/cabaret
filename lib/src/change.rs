@@ -115,14 +115,23 @@ impl<'ctx> Change<'ctx> {
 
         self.ctx.maximal_revisions(&candidates)
     }
-    /// The file-level changes this change presents, restricted to those matching `pathspecs` (all when empty).
+
+    /// The revision this change's diff is computed against: `None` for a root change.
     // TODO(joel): multiple bases diff against their merge
+    pub fn base(&self) -> Result<Option<Revision>> {
+        match self.bases()?.into_iter().collect::<Vec<Revision>>().as_slice() {
+            [] => Ok(None),
+            [base] => Ok(Some(*base)),
+            [_, _, ..] => Err(format!("{} has multiple bases, which is not supported yet", self.id))?,
+        }
+    }
+
+    /// The file-level changes this change presents, restricted to those matching `pathspecs` (all when empty).
     pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         let repo = &self.ctx.repo;
-        let base = match self.bases()?.into_iter().collect::<Vec<Revision>>().as_slice() {
-            [] => None,
-            [base] => Some(repo.find_commit(base.0)?.tree()?),
-            [_, _, ..] => Err(format!("{} has multiple bases, which is not supported yet", self.id))?,
+        let base = match self.base()? {
+            None => None,
+            Some(base) => Some(repo.find_commit(base.0)?.tree()?),
         };
         let tip = repo.find_commit(self.tip.0)?.tree()?;
 
