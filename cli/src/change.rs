@@ -1,5 +1,8 @@
+use std::fmt::Display;
+
 use cabaret_lib::{
     cabaret::Cabaret,
+    change::ChangeSnapshot,
     error::Result,
     types::{ChangeId, ChangedFile, Identity, Pathspec},
 };
@@ -98,6 +101,10 @@ pub enum ChangeCommand {
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
+    Show {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+    },
 }
 
 impl ChangeCommand {
@@ -157,9 +164,33 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto)?,
             ChangeCommand::Review { .. } => todo!(),
+            ChangeCommand::Show { change } => {
+                let change = or_current(change)?;
+                print!("{}", render(&change, &cabaret.snapshot(&change)?));
+            }
         }
 
         Ok(())
+    }
+}
+
+fn render(id: &ChangeId, snapshot: &ChangeSnapshot) -> String {
+    let mut sections = vec![match &snapshot.title {
+        None => id.to_string(),
+        Some(title) => format!("{id} — {title}"),
+    }];
+    if let Some(description) = &snapshot.description {
+        sections.push(description.clone());
+    }
+    sections.push(format!("Owners: {}\nParents: {}", list(&snapshot.owners), list(&snapshot.parents)));
+    format!("{}\n", sections.join("\n\n"))
+}
+
+fn list<T: Display>(items: impl IntoIterator<Item = T>) -> String {
+    let items: Vec<String> = items.into_iter().map(|item| item.to_string()).collect();
+    match items.is_empty() {
+        true => "(none)".into(),
+        false => items.join(", "),
     }
 }
 
