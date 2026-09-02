@@ -31,7 +31,7 @@ fn titled(graph: &mut HomeGraph, id: &str, title: &str) {
     graph.nodes.get_mut(&id.parse::<ChangeId>().unwrap()).unwrap().title = Some(title.into());
 }
 
-/// Every row leads to the change it labels.
+/// Every row leads to the change it labels, and folds are well-formed.
 fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
     let page = Page::home(&graph(nodes)).unwrap();
     expect.assert_eq(&page.to_string());
@@ -40,6 +40,57 @@ fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
         let text: String = line.segments.iter().map(|segment| segment.text.as_str()).collect();
         assert!(text.contains(&change.to_string()), "{text:?} does not label {change}");
     }
+    let mut open: Vec<u32> = Vec::new();
+    for fold in &page.folds {
+        assert!(fold.start < fold.end, "a fold hides at least one line");
+        assert!(usize::try_from(fold.end).unwrap() < page.lines.len(), "folds stay within the page");
+        while open.last().is_some_and(|&end| end < fold.start) {
+            open.pop();
+        }
+        if let Some(&end) = open.last() {
+            assert!(fold.end <= end, "folds nest or stay disjoint");
+        }
+        open.push(fold.end);
+    }
+}
+
+/// The page with each fold bracketed in the margin: `╭` on the row that folds, `│` along the
+/// lines it hides, `╰` on the last, nested folds one column right of their enclosing one.
+fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
+    let page = Page::home(&graph(nodes)).unwrap();
+    let text = page.to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut margin = vec![Vec::<char>::new(); lines.len()];
+    let mut active: Vec<u32> = Vec::new();
+    for fold in &page.folds {
+        while active.last().is_some_and(|&end| end < fold.start) {
+            active.pop();
+        }
+        let col = active.len();
+        active.push(fold.end);
+        let (start, end) = (usize::try_from(fold.start).unwrap(), usize::try_from(fold.end).unwrap());
+        for (r, row) in margin.iter_mut().enumerate().take(end + 1).skip(start) {
+            if row.len() <= col {
+                row.resize(col + 1, ' ');
+            }
+            row[col] = match r {
+                _ if r == start => '╭',
+                _ if r == end => '╰',
+                _ => '│',
+            };
+        }
+    }
+    // A foldless page keeps no margin: a uniform one would not survive expect's dedent anyway.
+    let width = margin.iter().map(Vec::len).max().unwrap_or(0);
+    let bracketed: String = lines
+        .iter()
+        .zip(&margin)
+        .map(|(line, cells)| {
+            let cells: String = cells.iter().collect();
+            if width == 0 { format!("{line}\n") } else { format!("{cells:<width$}  {line}\n") }
+        })
+        .collect();
+    expect.assert_eq(&bracketed);
 }
 
 #[test]
@@ -194,6 +245,101 @@ fn an_empty_graph_says_so() {
         no open changes owned by alice@example.com
     "]]
     .assert_eq(&Page::home(&graph(&[])).unwrap().to_string());
+}
+
+#[test]
+fn every_stack_level_folds_in_a_linear_stack() {
+    check_folds(
+        &[("add-parser", true, "main"), ("parser-tests", true, "add-parser"), ("parser-docs", true, "parser-tests")],
+        &expect![[r"
+            ╭   ○   add-parser
+            │╭  ╰─○   parser-tests
+            ╰╰    ╰─○   parser-docs
+        "]],
+    );
+}
+
+#[test]
+fn only_a_diamonds_root_folds_it() {
+    // ui-widgets sits right above integration, but folding it would hide api-routes's child.
+    check_folds(
+        &[
+            ("infra-core", true, "main"),
+            ("api-routes", true, "infra-core"),
+            ("ui-widgets", true, "infra-core"),
+            ("integration", true, "api-routes ui-widgets"),
+        ],
+        &expect![[r"
+            ╭  ○   infra-core
+            │  ├┬○   api-routes
+            │  ╰┼○   ui-widgets
+            ╰   ╰┴─○   integration
+        "]],
+    );
+}
+
+#[test]
+fn a_web_of_shared_descendants_never_folds() {
+    check_folds(
+        &[
+            ("feat-a", true, "main"),
+            ("feat-b", true, "main"),
+            ("feat-c", true, "main"),
+            ("int-ab", true, "feat-a feat-b"),
+            ("int-ac", true, "feat-a feat-c"),
+            ("int-bc", true, "feat-b feat-c"),
+        ],
+        &expect![[r"
+            ○┬╮ »feat-a
+            ○┼┼╮ »feat-b
+            ╰┼○│  int-ab
+            ○│ │ »feat-c
+            ├┴○│  int-ac
+            ╰─○╯  int-bc
+        "]],
+    );
+}
+
+#[test]
+fn a_self_contained_subtree_folds_under_messy_parents() {
+    check_folds(
+        &[
+            ("base", true, "main"),
+            ("l1", true, "base"),
+            ("r1", true, "base"),
+            ("mid", true, "l1 r1"),
+            ("l2", true, "mid"),
+            ("r2", true, "mid"),
+            ("top", true, "l2 r2"),
+        ],
+        &expect![[r"
+            ╭   ○   base
+            │   ├┬○   l1
+            │   ╰┼○   r1
+            │╭   ╰┴─○   mid
+            ││      ├┬○   l2
+            ││      ╰┼○   r2
+            ╰╰       ╰┴─○   top
+        "]],
+    );
+}
+
+#[test]
+fn folds_stay_within_their_component() {
+    check_folds(
+        &[
+            ("bump-deps", true, "main"),
+            ("docs-typo", true, "main"),
+            ("stack-base", true, "main"),
+            ("stack-top", true, "stack-base"),
+        ],
+        &expect![[r"
+               ○   bump-deps
+               ○   docs-typo
+            ╭  ○   stack-base
+            ╰  ╰─○   stack-top
+        "]],
+    );
 }
 
 #[test]

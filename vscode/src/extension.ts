@@ -106,7 +106,9 @@ const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
 const TAGS = Object.keys(STYLES) as Tag[];
 
 /** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
-class PageProvider implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider {
+class PageProvider
+  implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
+{
   private readonly pages = new Map<string, Page>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly decorations = Object.fromEntries(
@@ -131,6 +133,11 @@ class PageProvider implements vscode.TextDocumentContentProvider, vscode.Documen
         ? [new vscode.DocumentLink(range, routeUri({ kind: "show", change: target.change }))]
         : [];
     });
+  }
+
+  provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] {
+    const page = this.pages.get(document.uri.toString());
+    return (page?.folds ?? []).map((fold) => new vscode.FoldingRange(fold.start, fold.end));
   }
 
   page(uri: vscode.Uri): Page | undefined {
@@ -248,6 +255,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
+    vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     vscode.workspace.registerTextDocumentContentProvider(BLOB_SCHEME, new BlobProvider()),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {

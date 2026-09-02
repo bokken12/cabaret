@@ -67,10 +67,20 @@ impl Line {
     pub fn leading_to(self, target: Target) -> Self { Self { target: Some(target), ..self } }
 }
 
+/// Lines `start + 1..=end` may fold away under line `start`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct Fold {
+    pub start: u32,
+    pub end: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Page {
     pub lines: Vec<Line>,
+    /// Sorted by start; folds nest or stay disjoint.
+    pub folds: Vec<Fold>,
 }
 
 impl Page {
@@ -92,12 +102,12 @@ impl Page {
                 Segment::tagged(parent.to_string(), Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
             }),
         ));
-        Self { lines }
+        Self { lines, folds: Vec::new() }
     }
 
     pub fn diff(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
         if files.is_empty() {
-            return Self { lines: vec![Line::default().push(Segment::tagged("no changed files", Tag::Muted))] };
+            return Self::message("no changed files");
         }
         let row = |file: &ChangedFile| {
             let (text, tag) = match file {
@@ -110,7 +120,12 @@ impl Page {
             let target = Target::Diff { change: change.to_owned(), file: file.clone() };
             Line::default().push(Segment::tagged(text, tag)).leading_to(target)
         };
-        Self { lines: files.iter().map(row).collect() }
+        Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
+    }
+
+    /// A page of one muted line, for when there is nothing to show.
+    pub fn message(text: impl Into<String>) -> Self {
+        Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], folds: Vec::new() }
     }
 }
 

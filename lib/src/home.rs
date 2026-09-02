@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::{
     cabaret::Cabaret,
     error::Result,
-    page::{Line, Page, Segment, Tag, Target},
+    page::{Fold, Line, Page, Segment, Tag, Target},
     types::{ChangeId, Identity},
 };
 
@@ -67,11 +67,11 @@ impl Page {
     /// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label
     /// that plumbing pushed right of its depth position. Titles sit in a column right of every
     /// label. Connected components render one after another, each starting with a root on the
-    /// left margin; every row leads to its change.
+    /// left margin; every row leads to its change, and a change whose stack sits directly below
+    /// it folds that stack away.
     pub fn home(graph: &HomeGraph) -> Result<Self> {
         if graph.nodes.is_empty() {
-            let message = format!("no open changes owned by {}", graph.viewer);
-            return Ok(Self { lines: vec![Line::default().push(Segment::tagged(message, Tag::Muted))] });
+            return Ok(Self::message(format!("no open changes owned by {}", graph.viewer)));
         }
         let depths = depths(graph)?;
         let mut rows = Vec::new();
@@ -99,8 +99,51 @@ impl Page {
                 line.leading_to(Target::Change { change: row.id.clone() })
             })
             .collect();
-        Ok(Self { lines })
+        Ok(Self { lines, folds: folds(graph, &rows) })
     }
+}
+
+/// A change folds exactly when its descendants sit contiguously after its own row and connect
+/// to the graph only through it, hiding that block. Scattered descendants (which no single run
+/// of lines could hide) and descendants shared with a change outside the block (which would
+/// stay visible while its child vanished) leave it unfoldable. Such blocks nest or stay
+/// disjoint: a block starting inside another belongs to a descendant, whose own descendants
+/// the outer block already spans.
+fn folds(graph: &HomeGraph, rows: &[Row]) -> Vec<Fold> {
+    let row_of: BTreeMap<&ChangeId, usize> = rows.iter().enumerate().map(|(r, row)| (row.id, r)).collect();
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); rows.len()];
+    for (r, row) in rows.iter().enumerate() {
+        for parent in &graph.nodes[row.id].parents {
+            children[row_of[parent]].push(r);
+        }
+    }
+
+    let mut folds = Vec::new();
+    for start in 0..rows.len() {
+        let mut descendant = vec![false; rows.len()];
+        let mut frontier = children[start].clone();
+        let mut count = 0;
+        while let Some(r) = frontier.pop() {
+            if !descendant[r] {
+                descendant[r] = true;
+                count += 1;
+                frontier.extend(&children[r]);
+            }
+        }
+        let end = start + count;
+        let contiguous = count > 0 && (start + 1..=end).all(|r| descendant[r]);
+        let only_through_start = |r: usize| {
+            graph.nodes[rows[r].id].parents.iter().all(|parent| {
+                let parent = row_of[parent];
+                parent == start || descendant[parent]
+            })
+        };
+        if contiguous && (start + 1..=end).all(only_through_start) {
+            let line = |r: usize| u32::try_from(r).expect("a home page is short");
+            folds.push(Fold { start: line(start), end: line(end) });
+        }
+    }
+    folds
 }
 
 /// One drawn row: the rail art, padded so the id follows it directly, and whether plumbing
