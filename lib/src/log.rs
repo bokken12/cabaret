@@ -14,8 +14,8 @@ use crate::{
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
-    Forget { user: Identity, file: RepoPath },
-    Mark { user: Identity, file: RepoPath, range: RevisionRange },
+    Forget { file: RepoPath },
+    Mark { file: RepoPath, range: RevisionRange },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },
@@ -50,25 +50,25 @@ impl<'ctx> Change<'ctx> {
         for line in text.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
             if entry.timestamp <= ctx.timestamp {
-                change.apply(&entry.action);
+                change.apply(&entry);
             }
         }
         Ok(change)
     }
 
-    fn apply(&mut self, action: &LogAction) {
-        match action {
+    fn apply(&mut self, entry: &LogEntry) {
+        match &entry.action {
             LogAction::AddOwner { owner } => {
                 self.owners.insert(owner.clone());
             }
             LogAction::AddParent { parent } => {
                 self.parents.insert(parent.clone());
             }
-            LogAction::Forget { user, file } => {
-                self.review.entry(user.clone()).or_default().remove(file);
+            LogAction::Forget { file } => {
+                self.review.entry(entry.user.clone()).or_default().remove(file);
             }
-            LogAction::Mark { user, file, range } => {
-                self.review.entry(user.clone()).or_default().insert(file.clone(), range.clone());
+            LogAction::Mark { file, range } => {
+                self.review.entry(entry.user.clone()).or_default().insert(file.clone(), range.clone());
             }
             LogAction::RemoveOwner { owner } => {
                 self.owners.remove(owner);
