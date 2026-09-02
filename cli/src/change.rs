@@ -1,6 +1,7 @@
 use cabaret_lib::{
     cabaret::Cabaret,
     error::Result,
+    gix::diff::tree_with_rewrites::Change as TreeChange,
     types::{ChangeId, Identity, Pathspec},
 };
 use clap::{Subcommand, ValueHint};
@@ -116,7 +117,22 @@ impl ChangeCommand {
                 cabaret.create(&id, &parent, &cabaret.identity()?)?;
                 println!("created {id} with parent {parent}");
             }
-            ChangeCommand::Diff { .. } => todo!(),
+            ChangeCommand::Diff { change, pathspecs } => {
+                // TODO(joel): show file content not just file names
+                for file in cabaret.changed_files(&or_current(change)?, &pathspecs)? {
+                    match file {
+                        TreeChange::Addition { location, .. }
+                        | TreeChange::Deletion { location, .. }
+                        | TreeChange::Modification { location, .. } => println!("{location}"),
+                        TreeChange::Rewrite { source_location, location, copy: false, .. } => {
+                            println!("{source_location} -> {location}");
+                        }
+                        TreeChange::Rewrite { source_location, location, copy: true, .. } => {
+                            println!("{source_location} => {location}");
+                        }
+                    }
+                }
+            }
             ChangeCommand::Land { change } => cabaret.land(&or_current(change)?)?,
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
             ChangeCommand::Mark { .. } => todo!(),

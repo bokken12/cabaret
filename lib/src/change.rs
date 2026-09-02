@@ -1,9 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use gix::{
+    bstr::{BString, ByteSlice},
+    diff::tree_with_rewrites::Change as TreeChange,
+};
+
 use crate::{
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange},
+    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Revision, RevisionRange},
 };
 
 #[derive(Clone, Debug)]
@@ -35,6 +40,8 @@ impl<'ctx> Change<'ctx> {
             review: BTreeMap::new(),
         }
     }
+
+    pub fn ctx(&self) -> &TransactionContext<'ctx> { self.ctx }
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
@@ -85,6 +92,32 @@ impl<'ctx> Change<'ctx> {
         }
 
         self.ctx.maximal_revisions(&candidates)
+    }
+    /// The file-level changes this change presents, restricted to those matching `pathspecs` (all when empty).
+    // TODO(joel): multiple bases diff against their merge
+    pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<TreeChange>> {
+        let repo = &self.ctx.repo;
+        let base = match self.bases()?.into_iter().collect::<Vec<Revision>>().as_slice() {
+            [] => None,
+            [base] => Some(repo.find_commit(base.0)?.tree()?),
+            [_, _, ..] => Err(format!("{} has multiple bases, which is not supported yet", self.id))?,
+        };
+        let tip = repo.find_commit(self.tip.0)?.tree()?;
+
+        let mut search =
+            gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
+                Err("attribute pathspecs are not supported".into())
+            })?;
+        let mut included = |location: &BString| search.is_included(location.as_bstr(), Some(false));
+
+        let mut changes = repo.diff_tree_to_tree(base.as_ref(), Some(&tip), None)?;
+        changes.retain(|change| match change {
+            TreeChange::Addition { location, .. }
+            | TreeChange::Deletion { location, .. }
+            | TreeChange::Modification { location, .. } => included(location),
+            TreeChange::Rewrite { source_location, location, .. } => included(source_location) || included(location),
+        });
+        Ok(changes)
     }
 }
 

@@ -1,3 +1,4 @@
+pub use gix;
 pub mod cabaret;
 pub mod change;
 pub mod context;

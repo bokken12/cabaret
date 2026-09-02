@@ -10,7 +10,6 @@ publish.workspace = true
 crate-type = ["lib", "cdylib"]
 
 [features]
-default = ["napi"]
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 
 [dependencies]
