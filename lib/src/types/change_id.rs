@@ -7,10 +7,10 @@ use gix::{
 use ref_cast::RefCast;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChangeId(pub PartialName);
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, RefCast)]
 #[repr(transparent)]
 pub struct ChangeIdRef(PartialNameRef);
 
@@ -54,7 +54,15 @@ impl fmt::Display for ChangeIdRef {
 }
 
 impl fmt::Display for ChangeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.as_ref().fmt(f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(self.as_ref(), f) }
+}
+
+impl fmt::Debug for ChangeIdRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Debug::fmt(&self.to_string(), f) }
+}
+
+impl fmt::Debug for ChangeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Debug::fmt(self.as_ref(), f) }
 }
 
 impl FromStr for ChangeId {

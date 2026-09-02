@@ -16,6 +16,7 @@ use std::{
 
 use cabaret_lib::{
     cabaret::Cabaret,
+    change::ChangeSnapshot,
     types::{ChangeId, ChangedFile, Identity, Revision, TreeId},
 };
 use expect_test::expect;
@@ -36,7 +37,7 @@ pub struct Fixture {
     clock: Cell<i64>,
 }
 
-fn id(change: &str) -> ChangeId { change.parse().unwrap() }
+pub fn id(change: &str) -> ChangeId { change.parse().unwrap() }
 
 impl Fixture {
     pub fn new() -> Self {
@@ -50,7 +51,9 @@ impl Fixture {
         Self { _dir: dir, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
-    pub fn tip(&self, change: &str) -> Revision { self.cabaret.snapshot(&id(change)).unwrap().tip }
+    pub fn snapshot(&self, change: &str) -> ChangeSnapshot { self.cabaret.snapshot(&id(change)).unwrap() }
+
+    pub fn tip(&self, change: &str) -> Revision { self.snapshot(change).tip }
 
     fn commit_tree(&self, tree: TreeId, parents: &[Revision]) -> Revision {
         let time = gix::date::Time { seconds: self.clock.replace(self.clock.get() + 1), offset: 0 };
