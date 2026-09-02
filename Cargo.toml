@@ -29,7 +29,7 @@ elsa = "1.11.2"
 expect-test = "1.5.1"
 clap_complete = { version = "4.6.9", features = ["unstable-dynamic"] }
 gix = { version = "0.86.0", features = ["blocking-network-client", "blocking-http-transport-curl", "merge"] }
-napi = { version = "3.12.1", default-features = false, features = ["napi8"] }
+napi = { version = "3.12.1", default-features = false, features = ["napi8", "tokio_rt"] }
 napi-build = "2.4.1"
 napi-derive = "3.6.3"
 nonempty-collections = "1.4.0"

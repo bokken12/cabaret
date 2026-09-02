@@ -1,8 +1,10 @@
 // The napi boundary requires owned values for JS primitives.
 #![allow(clippy::needless_pass_by_value)]
 
+use std::sync::Arc;
+
 use napi::{
-    bindgen_prelude::{FromNapiValue, ToNapiValue},
+    bindgen_prelude::{FromNapiValue, ToNapiValue, spawn_blocking},
     sys,
 };
 use napi_derive::napi;
@@ -10,7 +12,7 @@ use napi_derive::napi;
 use crate::{
     cabaret::Cabaret,
     change::ChangeSnapshot,
-    error::Error,
+    error::{Error, Result},
     page::Page,
     types::{ChangeId, Identity, RepoPath, Revision},
 };
@@ -66,50 +68,73 @@ impl FromNapiValue for Revision {
 
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
-    cabaret: Cabaret,
+    cabaret: Arc<Cabaret>,
+}
+
+impl CabaretJs {
+    /// Runs `f` off the JS thread; gix work blocks on I/O and object decoding.
+    async fn blocking<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Cabaret) -> Result<T> + Send + 'static,
+    ) -> napi::Result<T> {
+        let cabaret = Arc::clone(&self.cabaret);
+        let result = spawn_blocking(move || f(&cabaret)).await;
+        Ok(result.map_err(|panic| napi::Error::from_reason(panic.to_string()))??)
+    }
 }
 
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Cabaret::open(&dir)? }) }
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?) }) }
 
     #[napi]
-    pub fn changes(&self) -> napi::Result<Vec<ChangeId>> { Ok(self.cabaret.changes()?) }
+    pub async fn changes(&self) -> napi::Result<Vec<ChangeId>> { self.blocking(Cabaret::changes).await }
 
     #[napi]
-    pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
+    pub async fn current_change(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::current_change).await }
 
     #[napi]
-    pub fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> { Ok(self.cabaret.snapshot(&id)?) }
+    pub async fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> {
+        self.blocking(move |cabaret| cabaret.snapshot(&id)).await
+    }
 
     #[napi]
-    pub fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> { Ok(self.cabaret.base(&change)?) }
+    pub async fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> {
+        self.blocking(move |cabaret| cabaret.base(&change)).await
+    }
 
     #[napi]
-    pub fn show_page(&self, change: ChangeId) -> napi::Result<Page> { Ok(self.cabaret.show_page(&change)?) }
+    pub async fn show_page(&self, change: ChangeId) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.show_page(&change)).await
+    }
 
     #[napi]
-    pub fn diff_page(&self, change: ChangeId) -> napi::Result<Page> { Ok(self.cabaret.diff_page(&change, &[])?) }
+    pub async fn diff_page(&self, change: ChangeId) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
+    }
 
     /// The home page for `viewer`, defaulting to git's user.email.
     #[napi]
-    pub fn home_page(&self, viewer: Option<Identity>) -> napi::Result<Page> {
-        let viewer = match viewer {
-            Some(viewer) => viewer,
-            None => self.cabaret.identity()?,
-        };
-        Ok(self.cabaret.home_page(&viewer)?)
+    pub async fn home_page(&self, viewer: Option<Identity>) -> napi::Result<Page> {
+        self.blocking(move |cabaret| {
+            let viewer = match viewer {
+                Some(viewer) => viewer,
+                None => cabaret.identity()?,
+            };
+            cabaret.home_page(&viewer)
+        })
+        .await
     }
 
     #[napi]
-    pub fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
-        Ok(self.cabaret.blob(revision, &path)?)
+    pub async fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
+        self.blocking(move |cabaret| cabaret.blob(revision, &path)).await
     }
 
     #[napi]
-    pub fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
+    pub async fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
 
     #[napi]
-    pub fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> { todo!() }
+    pub async fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> { todo!() }
 }

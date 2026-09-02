@@ -45,7 +45,7 @@ function parseRoute(uri: vscode.Uri): Route {
   return { kind, change };
 }
 
-function renderRoute(cabaret: Cabaret, route: Route): Page {
+function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
   switch (route.kind) {
     case "home":
       return cabaret.homePage();
@@ -116,8 +116,8 @@ class PageProvider
   ) as Record<Tag, vscode.TextEditorDecorationType>;
   readonly onDidChange = this.changed.event;
 
-  provideTextDocumentContent(uri: vscode.Uri): string {
-    const page = renderRoute(openCabaret(), parseRoute(uri));
+  async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    const page = await renderRoute(openCabaret(), parseRoute(uri));
     this.pages.set(uri.toString(), page);
     return pageText(page);
   }
@@ -176,16 +176,16 @@ function blobUri(revision: Revision | undefined, path: RepoPath): vscode.Uri {
 }
 
 class BlobProvider implements vscode.TextDocumentContentProvider {
-  provideTextDocumentContent(uri: vscode.Uri): string {
-    return uri.query === "" ? "" : (openCabaret().blob(uri.query, uri.path.slice(1)) ?? "");
+  async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    return uri.query === "" ? "" : ((await openCabaret().blob(uri.query, uri.path.slice(1))) ?? "");
   }
 }
 
-function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Revision | undefined {
+async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<Revision | undefined> {
   if (file.kind === "Added") {
     return undefined;
   }
-  const base = cabaret.base(change);
+  const base = await cabaret.base(change);
   if (base === null) {
     throw new Error(`${change} has no base, yet ${file.path} was not added`);
   }
@@ -193,8 +193,8 @@ function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): 
 }
 
 async function openDiff(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<void> {
-  const before = blobUri(beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
-  const after = blobUri(file.kind === "Deleted" ? undefined : cabaret.change(change).tip, file.path);
+  const before = blobUri(await beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
+  const after = blobUri(file.kind === "Deleted" ? undefined : (await cabaret.change(change)).tip, file.path);
   await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`);
 }
 
@@ -213,7 +213,7 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
  * The change the active page views, on the home page the one under the cursor, else the one
  * checked out in the workspace.
  */
-function activeChange(cabaret: Cabaret, provider: PageProvider): ChangeId {
+async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
     return cabaret.currentChange();
@@ -228,8 +228,8 @@ function activeChange(cabaret: Cabaret, provider: PageProvider): ChangeId {
 }
 
 async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | undefined> {
-  const current = cabaret.currentChange();
-  const items = cabaret.changes().map((change) => ({
+  const current = await cabaret.currentChange();
+  const items = (await cabaret.changes()).map((change) => ({
     label: change,
     description: change === current ? "current" : undefined,
   }));
@@ -272,7 +272,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.diff", async (cabaret) => {
-      await provider.open({ kind: "diff", change: activeChange(cabaret, provider) });
+      await provider.open({ kind: "diff", change: await activeChange(cabaret, provider) });
     }),
     // Enter on a page: follow whatever the cursor is on.
     command("cabaret.open", async (cabaret) => {
