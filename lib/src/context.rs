@@ -6,7 +6,7 @@ use gix::{Repository, bstr::ByteSlice};
 use crate::{
     change::Change,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs},
 };
 
 /// One transaction's view of the repository at a fixed time
@@ -73,5 +73,14 @@ impl<'ctx> TransactionContext<'ctx> {
     pub fn current_change(&self) -> Result<ChangeId> {
         let head = self.repo.head_name()?.ok_or("HEAD is detached")?;
         Ok(head.shorten().to_string().parse()?)
+    }
+
+    /// The text of `path` at `revision`, or `None` when no file is there.
+    // TODO-someday(joel): binary files
+    pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
+        let tree = self.repo.find_commit(revision.0)?.tree()?;
+        let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
+        let mut blob = entry.object()?.try_into_blob()?;
+        Ok(Some(String::from_utf8(blob.take_data())?))
     }
 }

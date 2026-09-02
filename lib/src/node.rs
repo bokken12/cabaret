@@ -79,6 +79,11 @@ impl CabaretJs {
     pub fn current_change(&self) -> napi::Result<ChangeId> { Ok(self.cabaret.current_change()?) }
 
     #[napi]
+    pub fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
+        Ok(self.cabaret.blob(revision, &path)?)
+    }
+
+    #[napi]
     pub fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
 
     #[napi]

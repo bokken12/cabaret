@@ -4,7 +4,7 @@ use gix::ThreadSafeRepository;
 
 use crate::{
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision},
 };
 
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
@@ -20,6 +20,10 @@ impl Cabaret {
     pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
 
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
+    pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
+        self.query(|ctx| ctx.blob(revision, path))
+    }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         let tip = self.query(|ctx| Ok(ctx.read(parent_id)?.tip()))?;
