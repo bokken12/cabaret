@@ -102,6 +102,20 @@ fn pathspec_matches_either_side_of_rename() {
 }
 
 #[test]
+fn two_parent_change_diffs_against_merged_bases() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("left", "main", &alice());
+    fixture.commit("left", &[("left.txt", "left\n")]);
+    fixture.create("right", "main", &alice());
+    fixture.commit("right", &[("right.txt", "right\n")]);
+    fixture.create("join", "left", &alice());
+    fixture.cabaret.add_parent(&id("join"), &id("right")).unwrap();
+    fixture.merge("join", "right", &[("join.txt", "join\n")]);
+    expect![[r#"[Added { path: "join.txt" }]"#]].assert_eq(&changed_files(&fixture, "join", &[]));
+}
+
+#[test]
 fn parent_commits_after_fork_excluded() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);

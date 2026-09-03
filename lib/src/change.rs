@@ -146,14 +146,17 @@ impl<'ctx> Change<'ctx> {
         self.ctx.maximal_revisions(&candidates)
     }
 
-    /// The revision this change's diff is computed against: `None` for a root change.
-    // TODO(joel): multiple bases diff against their merge
+    /// The revision this change's diff is computed against: `None` for a root change. Multiple
+    /// bases are merged into a virtual one, as git's recursive merge does; it lives only in the
+    /// object database and is the same commit for the same bases.
     pub fn base(&self) -> Result<Option<Revision>> {
-        match self.bases()?.into_iter().collect::<Vec<Revision>>().as_slice() {
-            [] => Ok(None),
-            [base] => Ok(Some(*base)),
-            [_, _, ..] => Err(format!("{} has multiple bases, which is not supported yet", self.id))?,
+        let bases = self.bases()?;
+        if bases.is_empty() {
+            return Ok(None);
         }
+        let repo = &self.ctx.repo;
+        let merged = repo.virtual_merge_base(bases.iter().map(|base| base.0), repo.tree_merge_options()?)?;
+        Ok(Some(Revision(merged.commit_id.detach())))
     }
 
     /// Merge `other`'s tip into this change as part of `operation`, which names the commit:

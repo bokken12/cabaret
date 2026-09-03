@@ -148,8 +148,8 @@ impl ChangeCommand {
                     ParentsCommand::Show => {
                         todo!()
                     }
-                    ParentsCommand::Add { parent } => todo!(),
-                    ParentsCommand::Remove { parent } => todo!(),
+                    ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
+                    ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
                     ParentsCommand::Set { parents } => todo!(),
                 }
             }

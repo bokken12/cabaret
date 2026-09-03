@@ -462,7 +462,8 @@ fn scene_state() {
         fork-join 16934e40
           parents fork-left fork-right
           owners carol@example.com
-          base fork-join has multiple bases, which is not supported yet
+          base 5e1786ac
+          diff +fork-join.txt
         fork-left 3454c042
           parents fork-base
           owners alice@example.com
