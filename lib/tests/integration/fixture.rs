@@ -16,8 +16,7 @@ use std::{
 
 use cabaret_lib::{
     cabaret::Cabaret,
-    change::ChangeSnapshot,
-    types::{ChangeId, ChangedFile, Identity, Revision, TreeId},
+    types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId},
 };
 use expect_test::expect;
 use gix::{objs::tree::EntryKind, refs::transaction::PreviousValue};
@@ -133,9 +132,9 @@ impl Fixture {
         fs::write(self.repo.git_dir().join("HEAD"), format!("{}\n", self.tip(change))).unwrap();
     }
 
-    /// Hold `change`'s transaction lock, as another process mid-transaction would.
-    pub fn hold_lock(&self, change: &str) -> gix::lock::Marker {
-        let locks = self.repo.common_dir().join("cabaret").join("locks");
+    /// Hold `change`'s `kind` (`metadata` or `branch`) lock, as another process mid-transaction would.
+    pub fn hold_lock(&self, kind: &str, change: &str) -> gix::lock::Marker {
+        let locks = self.repo.common_dir().join("cabaret").join("locks").join(kind);
         gix::lock::Marker::acquire_to_hold_resource(
             locks.join(change),
             gix::lock::acquire::Fail::Immediately,

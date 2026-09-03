@@ -9,50 +9,70 @@ use gix::{
 };
 
 use crate::{
+    branch::Branch,
     cabaret::Cabaret,
-    change::Change,
     context::TransactionContext,
     error::Result,
+    metadata::Metadata,
     types::{ChangeIdRef, Revision},
 };
 
-pub enum UpdateOrInsert<'a> {
-    Update { id: &'a ChangeIdRef },
+/// A branch in a transaction's write set. A branch that is only read still goes here: there is
+/// no read mode, and declaring it keeps it from moving underneath the transaction.
+pub enum BranchOp<'a> {
+    Update(&'a ChangeIdRef),
     Insert { id: &'a ChangeIdRef, tip: Revision },
+}
+
+impl<'a> BranchOp<'a> {
+    fn id(&self) -> &'a ChangeIdRef {
+        match self {
+            BranchOp::Update(id) | BranchOp::Insert { id, .. } => id,
+        }
+    }
+
+    /// The branch before the transaction: as committed, or at `tip` for an insert.
+    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Branch<'ctx>> {
+        Ok(match self {
+            BranchOp::Update(id) => ctx.branch(id)?.clone(),
+            BranchOp::Insert { id, tip } => Branch::new(ctx, (*id).to_owned(), *tip),
+        })
+    }
 }
 
 /// How long a transaction waits for another's locks before giving up; a lock older than this
 /// was most likely left behind by a killed process.
 const LOCK_TIMEOUT: Duration = Duration::from_mins(1);
 
-impl<'a> UpdateOrInsert<'a> {
-    fn id(&self) -> &'a ChangeIdRef {
-        match self {
-            UpdateOrInsert::Update { id } | UpdateOrInsert::Insert { id, .. } => id,
-        }
-    }
+/// The independently lockable parts of a change; each has its own directory of lock files.
+#[derive(Clone, Copy, Debug)]
+enum Resource {
+    Metadata,
+    Branch,
+}
 
-    /// The change's state before the transaction: as committed, or empty at `tip` for an insert.
-    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Change<'ctx>> {
-        Ok(match self {
-            UpdateOrInsert::Update { id } => ctx.read(id)?.clone(),
-            UpdateOrInsert::Insert { id, tip } => Change::new(ctx, (*id).to_owned(), *tip),
-        })
+impl Resource {
+    fn dir_name(self) -> &'static str {
+        match self {
+            Resource::Metadata => "metadata",
+            Resource::Branch => "branch",
+        }
     }
 }
 
 impl Cabaret {
-    fn lock(&self, change_ids: &[UpdateOrInsert<'_>]) -> Result<Vec<Marker>> {
-        // ordered to avoid deadlock
-        let ids: BTreeSet<&ChangeIdRef> = change_ids.iter().map(UpdateOrInsert::id).collect();
-        if ids.len() != change_ids.len() {
-            Err("cannot lock the same change twice")?;
+    /// Take the `resource` lock of each change in `ids`, in a fixed order to avoid deadlock.
+    fn lock<'a>(&self, resource: Resource, ids: impl ExactSizeIterator<Item = &'a ChangeIdRef>) -> Result<Vec<Marker>> {
+        let count = ids.len();
+        let ids: BTreeSet<&ChangeIdRef> = ids.collect();
+        if ids.len() != count {
+            Err(format!("cannot lock the same {} twice", resource.dir_name()))?;
         }
+        let dir = self.locks.join(resource.dir_name());
         let mut locks = Vec::with_capacity(ids.len());
         for id in ids {
-            let resource = self.locks.join(id.to_string());
             let mode = Fail::AfterDurationWithBackoff(LOCK_TIMEOUT);
-            locks.push(Marker::acquire_to_hold_resource(resource, mode, Some(self.locks.clone()))?);
+            locks.push(Marker::acquire_to_hold_resource(dir.join(id.to_string()), mode, Some(dir.clone()))?);
         }
         Ok(locks)
     }
@@ -60,65 +80,80 @@ impl Cabaret {
     /// Run `f` against a fresh context and record what it changed.
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
-    /// nothing it is handed (the context, a snapshot, its own mutable changes) can be returned:
-    /// `T` cannot name `'ctx`. Inside, `ctx.read` is committed state and the array is in-flight
-    /// state; a change's own methods see its in-flight fields and reach other changes through
-    /// the context.
-    pub(crate) fn transact<const N: usize, T, F>(&self, change_ids: &[UpdateOrInsert<'_>; N], f: F) -> Result<T>
+    /// nothing it is handed (the context, its own mutable metadata and branches) can be returned:
+    /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
+    /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
+    /// other changes through the context.
+    pub(crate) fn transact<const M: usize, const N: usize, T, F>(
+        &self,
+        metadata_ids: &[&ChangeIdRef; M],
+        branch_ops: &[BranchOp<'_>; N],
+        f: F,
+    ) -> Result<T>
     where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
+        F: for<'ctx> FnOnce(
+            &'ctx TransactionContext<'ctx>,
+            &mut [Metadata<'ctx>; M],
+            &mut [Branch<'ctx>; N],
+        ) -> Result<T>,
     {
-        let locks = self.lock(change_ids)?;
+        // metadata before branches, always, so two transactions cannot wait on each other
+        let mut locks = self.lock(Resource::Metadata, metadata_ids.iter().copied())?;
+        locks.extend(self.lock(Resource::Branch, branch_ops.iter().map(BranchOp::id))?);
         // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 
-        let mut changes = Vec::with_capacity(N);
-        for change_id in change_ids {
-            changes.push(change_id.before(&ctx)?);
+        // Metadata needs no insert: a change without a log has empty metadata, and its first
+        // append creates the log.
+        let mut metadata = Vec::with_capacity(M);
+        for id in metadata_ids {
+            metadata.push(ctx.metadata(id)?.clone());
         }
-        let mut changes: [Change<'_>; N] = changes.try_into().expect("one change per id");
-        let out = f(&ctx, &mut changes)?;
+        let mut metadata: [Metadata<'_>; M] = metadata.try_into().expect("one metadata per id");
+        let mut branches = Vec::with_capacity(N);
+        for op in branch_ops {
+            branches.push(op.before(&ctx)?);
+        }
+        let mut branches: [Branch<'_>; N] = branches.try_into().expect("one branch per op");
+        let out = f(&ctx, &mut metadata, &mut branches)?;
 
-        // Every change's log and branch land in one ref transaction, so a partial write cannot be observed.
+        // Every log and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
+        for (id, metadata) in metadata_ids.iter().zip(&metadata) {
+            let actions = metadata.actions_since(ctx.metadata(id)?);
+            if !actions.is_empty() {
+                edits.push(metadata.append(actions)?);
+            }
+        }
         let mut moved = Vec::new();
-        for (change_id, change) in change_ids.iter().zip(&changes) {
-            let before = change_id.before(&ctx)?;
-            let actions = change.actions_since(&before);
-            let branch = |expected: PreviousValue, message: &str| RefEdit {
+        for (op, branch) in branch_ops.iter().zip(&branches) {
+            let before = op.before(&ctx)?;
+            let (expected, message) = match op {
+                BranchOp::Insert { .. } => (PreviousValue::MustNotExist, "cabaret: create"),
+                BranchOp::Update(_) if branch.tip != before.tip => {
+                    moved.push((branch, before.tip));
+                    (PreviousValue::MustExistAndMatch(Target::Object(before.tip.0)), "cabaret: update")
+                }
+                BranchOp::Update(_) => continue,
+            };
+            edits.push(RefEdit {
                 change: RefChange::Update {
                     log: LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: message.into() },
                     expected,
-                    new: Target::Object(change.tip.0),
+                    new: Target::Object(branch.tip.0),
                 },
-                name: change.id().branch_ref(),
+                name: branch.id().branch_ref(),
                 deref: false,
-            };
-            match change_id {
-                UpdateOrInsert::Insert { .. } => {
-                    edits.push(branch(PreviousValue::MustNotExist, "cabaret: create"));
-                    edits.push(change.append(actions)?);
-                }
-                UpdateOrInsert::Update { .. } => {
-                    if change.tip != before.tip {
-                        let expected = PreviousValue::MustExistAndMatch(Target::Object(before.tip.0));
-                        edits.push(branch(expected, "cabaret: update"));
-                        moved.push((change, before.tip));
-                    }
-                    if !actions.is_empty() {
-                        edits.push(change.append(actions)?);
-                    }
-                }
-            }
+            });
         }
         if !edits.is_empty() {
             ctx.repo.edit_references(edits)?;
         }
         // Workspaces follow once the branches have moved: a failed transaction leaves them behind
         // rather than ahead of it.
-        for (change, from) in moved {
-            if let Some(workspace) = change.workspace()? {
-                ctx.fast_forward(&workspace, from, change.tip)?;
+        for (branch, from) in moved {
+            if let Some(workspace) = branch.workspace()? {
+                ctx.fast_forward(&workspace, from, branch.tip)?;
             }
         }
         Ok(out)
@@ -128,27 +163,20 @@ impl Cabaret {
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>) -> Result<T>,
     {
-        self.transact(&[], |ctx, []| f(ctx))
+        self.transact(&[], &[], |ctx, [], []| f(ctx))
     }
 
-    pub(crate) fn update<const N: usize, T, F>(&self, change_ids: &[&ChangeIdRef; N], f: F) -> Result<T>
+    pub(crate) fn update_metadata<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
+        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
     {
-        self.transact(&change_ids.map(|id| UpdateOrInsert::Update { id }), f)
+        self.transact(&[id], &[], |ctx, [metadata], []| f(ctx, metadata))
     }
 
-    pub(crate) fn update1<T, F>(&self, change_id: &ChangeIdRef, f: F) -> Result<T>
+    pub(crate) fn update_branch<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Change<'ctx>) -> Result<T>,
+        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Branch<'ctx>) -> Result<T>,
     {
-        self.update(&[change_id], |ctx, [change]| f(ctx, change))
-    }
-
-    pub(crate) fn insert1<T, F>(&self, change_id: &ChangeIdRef, tip: Revision, f: F) -> Result<T>
-    where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Change<'ctx>) -> Result<T>,
-    {
-        self.transact(&[UpdateOrInsert::Insert { id: change_id, tip }], |ctx, [change]| f(ctx, change))
+        self.transact(&[], &[BranchOp::Update(id)], |ctx, [], [branch]| f(ctx, branch))
     }
 }

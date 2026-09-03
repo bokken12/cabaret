@@ -11,10 +11,9 @@ use napi_derive::napi;
 
 use crate::{
     cabaret::{Cabaret, Rebase},
-    change::ChangeSnapshot,
     error::{Error, Result},
     page::Page,
-    types::{ChangeId, Identity, RepoPath, Revision, WorkspaceId},
+    types::{ChangeId, ChangeSnapshot, Identity, RepoPath, Revision, WorkspaceId},
 };
 
 // TODO(joel): rid myself of unsafe

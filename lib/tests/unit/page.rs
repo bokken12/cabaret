@@ -1,10 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_lib::{
-    change::ChangeSnapshot,
     gix,
     page::{Page, Segment, Target},
-    types::{ChangeId, ChangedFile, Identity, Revision},
+    types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision},
 };
 use expect_test::expect;
 

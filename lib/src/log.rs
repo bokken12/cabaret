@@ -1,3 +1,6 @@
+//! The log each change's metadata is stored as: append-only entries behind a ref, folded on
+//! read and merged by union across devices.
+
 use gix::{
     ObjectId, Repository,
     objs::{
@@ -12,9 +15,9 @@ use gix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    change::Change,
     context::TransactionContext,
     error::Result,
+    metadata::Metadata,
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs, TreeId},
 };
 
@@ -51,20 +54,21 @@ fn read_log(repo: &Repository, commit: ObjectId) -> Result<String> {
     Ok(std::str::from_utf8(&blob.data)?.to_owned())
 }
 
-impl<'ctx> Change<'ctx> {
-    /// Fold `change_id`'s log, up to `ctx.timestamp`.
-    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Self> {
-        let mut change = Change::new(ctx, change_id.to_owned(), ctx.branch_tip(change_id)?);
-        let Some(log) = ctx.repo.try_find_reference(&change_id.log_ref())? else { return Ok(change) };
-        let log_commit = log.into_fully_peeled_id()?.detach();
-        change.log_commit = Some(log_commit);
+impl<'ctx> Metadata<'ctx> {
+    /// Fold `id`'s log, up to `ctx.timestamp`.
+    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
+        let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
+            return Ok(Metadata::new(ctx, id.to_owned(), None));
+        };
+        let log_commit = reference.into_fully_peeled_id()?.detach();
+        let mut metadata = Metadata::new(ctx, id.to_owned(), Some(log_commit));
         for line in read_log(&ctx.repo, log_commit)?.lines() {
             let entry: LogEntry = serde_json::from_str(line)?;
             if entry.timestamp <= ctx.timestamp {
-                change.apply(&entry);
+                metadata.apply(&entry);
             }
         }
-        Ok(change)
+        Ok(metadata)
     }
 
     fn apply(&mut self, entry: &LogEntry) {
@@ -92,48 +96,6 @@ impl<'ctx> Change<'ctx> {
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
             LogAction::SetTitle { title } => self.title = title.clone(),
         }
-    }
-
-    /// Write `actions` onto this change's log as entries at `ctx.timestamp`, returning the ref edit
-    /// that publishes them. The edit expects the log commit this change was read from, so a
-    /// concurrent append fails rather than being overwritten.
-    pub(crate) fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
-        let ctx = self.ctx();
-        let repo = &ctx.repo;
-        let user = ctx.identity()?;
-        let mut appended = String::new();
-        for action in actions {
-            let entry = LogEntry { timestamp: ctx.timestamp, user: user.clone(), action };
-            appended.push_str(&serde_json::to_string(&entry)?);
-            appended.push('\n');
-        }
-        let mut text = match self.log_commit {
-            Some(commit) => read_log(repo, commit)?,
-            None => String::new(),
-        };
-        text.push_str(&appended);
-
-        let blob = repo.write_blob(text)?.detach();
-        let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
-        let tree = TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach());
-        let commit = ctx.commit(tree, self.log_commit.into_iter().map(Revision).collect(), appended)?;
-
-        Ok(RefEdit {
-            change: RefChange::Update {
-                log: LogChange {
-                    mode: RefLog::AndReference,
-                    force_create_reflog: false,
-                    message: "cabaret: log".into(),
-                },
-                expected: match self.log_commit {
-                    Some(previous) => PreviousValue::MustExistAndMatch(Target::Object(previous)),
-                    None => PreviousValue::MustNotExist,
-                },
-                new: Target::Object(commit.0),
-            },
-            name: self.id().log_ref(),
-            deref: false,
-        })
     }
 
     /// The actions that take `before` to `self`; empty when nothing changed.
@@ -176,5 +138,47 @@ impl<'ctx> Change<'ctx> {
             }
         }
         actions
+    }
+
+    /// Write `actions` onto this log as entries at `ctx.timestamp`, returning the ref edit that
+    /// publishes them. The edit expects the log commit this was read from, so a concurrent append
+    /// fails rather than being overwritten.
+    pub(crate) fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
+        let ctx = self.ctx();
+        let repo = &ctx.repo;
+        let user = ctx.identity()?;
+        let mut appended = String::new();
+        for action in actions {
+            let entry = LogEntry { timestamp: ctx.timestamp, user: user.clone(), action };
+            appended.push_str(&serde_json::to_string(&entry)?);
+            appended.push('\n');
+        }
+        let mut text = match self.log_commit() {
+            Some(commit) => read_log(repo, commit)?,
+            None => String::new(),
+        };
+        text.push_str(&appended);
+
+        let blob = repo.write_blob(text)?.detach();
+        let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
+        let tree = TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach());
+        let commit = ctx.commit(tree, self.log_commit().into_iter().map(Revision).collect(), appended)?;
+
+        Ok(RefEdit {
+            change: RefChange::Update {
+                log: LogChange {
+                    mode: RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: "cabaret: log".into(),
+                },
+                expected: match self.log_commit() {
+                    Some(previous) => PreviousValue::MustExistAndMatch(Target::Object(previous)),
+                    None => PreviousValue::MustNotExist,
+                },
+                new: Target::Object(commit.0),
+            },
+            name: self.id().log_ref(),
+            deref: false,
+        })
     }
 }

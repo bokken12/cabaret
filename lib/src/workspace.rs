@@ -13,7 +13,7 @@ use gix::{
 };
 
 use crate::{
-    change::Change,
+    branch::Branch,
     context::TransactionContext,
     error::Result,
     types::{ChangeId, Revision, WorkspaceId},
@@ -140,7 +140,7 @@ fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
     }
 }
 
-impl Change<'_> {
+impl Branch<'_> {
     /// The workspace with this change checked out, if any.
     pub fn workspace(&self) -> Result<Option<WorkspaceId>> {
         let ctx = self.ctx();

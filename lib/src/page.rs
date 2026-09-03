@@ -4,10 +4,7 @@
 
 use std::fmt;
 
-use crate::{
-    change::ChangeSnapshot,
-    types::{ChangeId, ChangeIdRef, ChangedFile},
-};
+use crate::types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

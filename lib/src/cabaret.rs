@@ -6,10 +6,13 @@ use std::{
 use gix::ThreadSafeRepository;
 
 use crate::{
-    change::ChangeSnapshot,
     error::Result,
     page::Page,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange, WorkspaceId},
+    transaction::BranchOp,
+    types::{
+        ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange,
+        WorkspaceId,
+    },
 };
 
 /// What [`Cabaret::rebase`] did.
@@ -59,7 +62,7 @@ impl Cabaret {
     }
 
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
-        self.query(|ctx| ctx.read(change_id)?.snapshot())
+        self.query(|ctx| ctx.snapshot(change_id))
     }
 
     pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
@@ -67,11 +70,11 @@ impl Cabaret {
     }
 
     pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<Revision>> {
-        self.query(|ctx| ctx.read(change_id)?.base())
+        self.query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))
     }
 
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
-        self.query(|ctx| ctx.read(change_id)?.changed_files(pathspecs))
+        self.query(|ctx| ctx.branch(change_id)?.changed_files(&ctx.metadata(change_id)?.parents()?, pathspecs))
     }
 
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
@@ -83,10 +86,11 @@ impl Cabaret {
     }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        let tip = self.query(|ctx| Ok(ctx.read(parent_id)?.tip()))?;
-        self.insert1(change_id, tip, |_ctx, change| {
-            change.declared_parents = BTreeSet::from([parent_id.to_owned()]);
-            change.owners = BTreeSet::from([owner.clone()]);
+        let tip = self.query(|ctx| Ok(ctx.branch(parent_id)?.tip))?;
+        let branches = [BranchOp::Insert { id: change_id, tip }];
+        self.transact(&[change_id], &branches, |_ctx, [metadata], [_branch]| {
+            metadata.declared_parents = BTreeSet::from([parent_id.to_owned()]);
+            metadata.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })
     }
@@ -94,27 +98,27 @@ impl Cabaret {
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
-        let parent_id = self.query(|ctx| {
-            let change = ctx.read(change_id)?;
-            match change.parents()?.iter().collect::<Vec<_>>().as_slice() {
+        let parent_id =
+            self.query(|ctx| match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
                 [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
                 [parent] => Ok((*parent).clone()),
-            }
-        })?;
-        self.update(&[change_id, &parent_id], |_ctx, [change, parent]| {
-            if change.archived {
+            })?;
+        // The child's branch is declared so it cannot move between the merge and the archive.
+        let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
+        self.transact(&[change_id], &branches, |_ctx, [child], [parent, child_branch]| {
+            if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            match parent.merge(change, "land")? {
+            match parent.merge(child_branch, "land")? {
                 None => Err(format!("{change_id} has nothing to land"))?,
                 Some(conflicts) if !conflicts.is_empty() => {
                     Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
                 }
                 Some(_) => {}
             }
-            if !change.permanent {
-                change.archived = true;
+            if !child.permanent {
+                child.archived = true;
             }
             Ok(parent_id.clone())
         })
@@ -124,8 +128,8 @@ impl Cabaret {
     /// Cabaret never rewrites history, so each parent's tip is merged in; a conflicting merge is
     /// committed with markers and stops the rebase there, so those are resolved before the next.
     pub fn rebase(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Rebase> {
-        self.update1(change_id, |ctx, change| {
-            let parents = change.parents()?;
+        self.update_branch(change_id, |ctx, branch| {
+            let parents = ctx.metadata(change_id)?.parents()?;
             let targets = match onto {
                 None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
                 None => parents,
@@ -136,7 +140,7 @@ impl Cabaret {
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
             for parent_id in targets.by_ref() {
-                if let Some(conflicts) = change.merge(ctx.read(&parent_id)?, "rebase")? {
+                if let Some(conflicts) = branch.merge(ctx.branch(&parent_id)?, "rebase")? {
                     rebase.merged.insert(parent_id);
                     rebase.conflicts = conflicts;
                     if !rebase.conflicts.is_empty() {
@@ -150,56 +154,56 @@ impl Cabaret {
     }
 
     pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.update1(change_id, |_ctx, change| {
+        self.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): warn if children unarchived?
-            match change.archived {
+            match metadata.archived {
                 true => Err(format!("{change_id} has already been archived"))?,
-                false => change.archived = true,
+                false => metadata.archived = true,
             };
             Ok(())
         })
     }
 
     pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.update1(change_id, |_ctx, change| {
+        self.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): warn if parents archived?
-            match change.archived {
+            match metadata.archived {
                 false => Err(format!("{change_id} has not been archived"))?,
-                true => change.archived = false,
+                true => metadata.archived = false,
             };
             Ok(())
         })
     }
 
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.owners.insert(owner.clone()) {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.owners.insert(owner.clone()) {
             false => Err(format!("{owner} already owned {change_id}"))?,
             true => Ok(()),
         })
     }
 
     pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.owners.remove(owner) {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.owners.remove(owner) {
             false => Err(format!("{owner} did not own {change_id}"))?,
-            true if change.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
+            true if metadata.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
             true => Ok(()),
         })
     }
 
     pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.owners == owners {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.owners == owners {
             true => Err(format!("{change_id} already had these owners"))?,
             false if owners.len() == 0 => Err(format!("{change_id} should have at least one owner"))?,
-            false => Ok(change.owners = owners),
+            false => Ok(metadata.owners = owners),
         })
     }
 
     // TODO(joel): some helper that aligns the parent set with the derived parent set?
 
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.update1(change_id, |ctx, change| {
+        self.update_metadata(change_id, |ctx, metadata| {
             // TODO(joel): check for cyclic dependencies
-            match change.declared_parents.insert(parent_id.to_owned()) {
+            match metadata.declared_parents.insert(parent_id.to_owned()) {
                 false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
                 true => Ok(()),
             }
@@ -207,7 +211,7 @@ impl Cabaret {
     }
 
     pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.declared_parents.remove(parent_id) {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.declared_parents.remove(parent_id) {
             false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
             true => Ok(()),
         })
@@ -222,13 +226,14 @@ impl Cabaret {
         head: Option<Revision>,
         bases: Option<BTreeSet<Revision>>,
     ) -> Result<()> {
-        self.update1(change_id, |ctx, change| {
+        self.update_metadata(change_id, |ctx, metadata| {
+            let branch = ctx.branch(change_id)?;
             let bases = match bases {
                 Some(bases) => bases,
-                None => change.bases()?,
+                None => branch.bases(&metadata.parents()?)?,
             };
-            let range = RevisionRange { bases, head: head.unwrap_or(change.tip) };
-            let review = change.review.entry(ctx.identity()?).or_default();
+            let range = RevisionRange { bases, head: head.unwrap_or(branch.tip) };
+            let review = metadata.review.entry(ctx.identity()?).or_default();
             if files.iter().all(|file| review.get(file) == Some(&range)) {
                 Err(format!("{change_id} already had these files marked reviewed there"))?;
             }
@@ -238,25 +243,25 @@ impl Cabaret {
     }
 
     pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.title == title {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.title == title {
             true => Err(format!("{change_id} already had this title"))?,
-            false => Ok(change.title = title),
+            false => Ok(metadata.title = title),
         })
     }
 
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
-        self.update1(change_id, |_ctx, change| match change.description == description {
+        self.update_metadata(change_id, |_ctx, metadata| match metadata.description == description {
             true => Err(format!("{change_id} already had this description"))?,
-            false => Ok(change.description = description),
+            false => Ok(metadata.description = description),
         })
     }
 
     pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool) -> Result<()> {
-        self.update1(change_id, |_ctx, change| {
+        self.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): warn if parents non-permanent?
-            match change.archived {
+            match metadata.archived {
                 true => Err(format!("{change_id} is archived"))?,
-                _ => change.permanent = permanent,
+                _ => metadata.permanent = permanent,
             };
             Ok(())
         })

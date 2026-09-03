@@ -10,16 +10,18 @@ use gix::{
 };
 
 use crate::{
-    change::Change,
+    branch::Branch,
     error::Result,
+    metadata::Metadata,
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId},
 };
 
-/// One transaction's view of the repository at a fixed time, holding its changes' locks
+/// One transaction's view of the repository at a fixed time, holding its resources' locks
 pub struct TransactionContext<'ctx> {
     pub(crate) repo: Repository,
     pub timestamp: TimestampMs,
-    read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
+    metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
+    branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
     _locks: Vec<Marker>,
 }
 
@@ -29,17 +31,29 @@ impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
 
 impl<'ctx> TransactionContext<'ctx> {
     pub(crate) fn new(repo: Repository, locks: Vec<Marker>) -> Self {
-        Self { repo, timestamp: TimestampMs::now(), read: FrozenBTreeMap::new(), _locks: locks }
+        Self {
+            repo,
+            timestamp: TimestampMs::now(),
+            metadata: FrozenBTreeMap::new(),
+            branches: FrozenBTreeMap::new(),
+            _locks: locks,
+        }
     }
 
-    /// The state of `change_id` as of `self.timestamp`.
-    pub fn read(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Change<'ctx>> {
-        if let Some(change) = self.read.get(change_id) {
-            return Ok(change);
+    /// `change_id`'s metadata as committed, folded up to `self.timestamp`.
+    pub fn metadata(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Metadata<'ctx>> {
+        if let Some(metadata) = self.metadata.get(change_id) {
+            return Ok(metadata);
         }
+        Ok(self.metadata.insert(change_id.to_owned(), Box::new(Metadata::load(self, change_id)?)))
+    }
 
-        let change = Change::load(self, change_id)?;
-        Ok(self.read.insert(change_id.to_owned(), Box::new(change)))
+    /// `change_id`'s branch as committed when first asked for.
+    pub fn branch(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Branch<'ctx>> {
+        if let Some(branch) = self.branches.get(change_id) {
+            return Ok(branch);
+        }
+        Ok(self.branches.insert(change_id.to_owned(), Box::new(Branch::load(self, change_id)?)))
     }
 
     /// Every local branch is a change, whether or not anything has been logged about it.
@@ -77,10 +91,6 @@ impl<'ctx> TransactionContext<'ctx> {
     /// The commit `spec` names, in git's revision syntax.
     pub fn resolve(&self, spec: &str) -> Result<Revision> {
         Ok(Revision(self.repo.rev_parse_single(spec)?.object()?.peel_to_commit()?.id))
-    }
-
-    pub fn branch_tip(&self, change_id: &ChangeIdRef) -> Result<Revision> {
-        Ok(Revision(self.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id))
     }
 
     /// The identity this repository acts as: git's user.email.
