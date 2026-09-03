@@ -140,6 +140,8 @@ impl Fixture {
         fs::write(self.repo.workdir().unwrap().join(path), content).unwrap();
     }
 
+    pub fn exists(&self, path: &str) -> bool { self.repo.workdir().unwrap().join(path).exists() }
+
     /// A linked worktree with `change` checked out, as `git worktree add` makes.
     pub fn link_workspace(&self, change: &str) -> (tempfile::TempDir, gix::Repository) {
         let dir = tempfile::TempDir::new().unwrap();

@@ -3,9 +3,14 @@
 //! When a change's branch moves, its workspace must move with it, or git would show the whole
 //! change as undone locally.
 
-use std::process::Command;
+use std::{convert::Infallible, fs, ops::ControlFlow, path::Path};
 
-use gix::{Repository, bstr::ByteSlice};
+use gix::{
+    Repository,
+    bstr::ByteSlice,
+    index::entry::{Flags, Stat},
+    status::tree_index::TrackRenames,
+};
 
 use crate::{
     change::Change,
@@ -39,29 +44,66 @@ impl TransactionContext<'_> {
         }
     }
 
-    // TODO-someday(joel): move to proper gix?
-    /// Move a clean `workspace` from `from` to `to`, touching only the paths that differ and
-    /// refusing to overwrite untracked files in the way.
-    pub fn checkout(&self, workspace: &WorkspaceId, from: Revision, to: Revision) -> Result<()> {
+    /// Move `workspace` from `from` to `to`, touching only the paths that differ. A workspace
+    /// that is not cleanly at `from` stays where it is.
+    // TODO(joel): untracked files at paths `to` adds are overwritten; refuse or merge instead
+    pub fn fast_forward(&self, workspace: &WorkspaceId, from: Revision, to: Revision) -> Result<()> {
         let repo = self.workspace_repo(workspace)?;
-        if repo.is_dirty()? {
-            Err(format!("workspace {workspace} has uncommitted changes"))?;
+        let from = repo.find_commit(from)?.tree()?;
+        let to = repo.find_commit(to)?.tree()?;
+        if !is_at(&repo, &from)? {
+            return Ok(());
         }
-        let workdir = repo.workdir().ok_or_else(|| format!("workspace {workspace} has no working directory"))?;
-        let git = |args: &[&str]| -> Result<()> {
-            let output = Command::new("git").arg("-C").arg(workdir).args(args).output()?;
-            match output.status.success() {
-                true => Ok(()),
-                false => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    Err(stderr.trim().strip_prefix("error: ").unwrap_or(stderr.trim()))?
-                }
+        let workdir = repo.workdir().expect("workspaces have working directories");
+
+        // gix checks out a whole index, so the files to write get one of their own.
+        let mut written = gix::index::State::new(repo.object_hash());
+        for change in repo.diff_tree_to_tree(&from, &to, gix::diff::Options::default().with_rewrites(None))? {
+            use gix::diff::tree_with_rewrites::Change::{Addition, Deletion, Modification, Rewrite};
+            if change.entry_mode().is_tree() {
+                continue;
             }
-        };
-        // gix can only write a whole index, so the two-tree update is git's job. read-tree trusts
-        // the index's stat data rather than re-hashing, so it is refreshed first.
-        git(&["update-index", "-q", "--refresh"])?;
-        git(&["read-tree", "-m", "-u", &from.to_string(), &to.to_string()])
+            if let Deletion { location, .. } | Modification { location, .. } = &change {
+                let path = workdir.join(gix::path::from_bstr(location));
+                fs::remove_file(&path)?;
+                prune_empty_dirs(workdir, path.parent().expect("workspace files have a parent"));
+            }
+            if let Addition { location, entry_mode, id, .. } | Modification { location, entry_mode, id, .. } = &change {
+                written.dangerously_push_entry(
+                    Stat::default(),
+                    *id,
+                    Flags::empty(),
+                    (*entry_mode).into(),
+                    location.as_bstr(),
+                );
+            }
+            if let Rewrite { .. } = change {
+                unreachable!("rewrite tracking is disabled");
+            }
+        }
+        written.sort_entries();
+        let outcome = gix::worktree::state::checkout(
+            &mut written,
+            workdir,
+            repo.objects.clone().into_arc()?,
+            &gix::progress::Discard,
+            &gix::progress::Discard,
+            &gix::interrupt::IS_INTERRUPTED,
+            repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMappingThenWorktree)?,
+        )?;
+        if let Some(collision) = outcome.collisions.first() {
+            Err(format!("{} is in the way in workspace {workspace}", collision.path))?;
+        }
+
+        // Stat data lets status trust unchanged files instead of rehashing them.
+        let old = repo.index_or_empty()?;
+        let mut index = repo.index_from_tree(&to.id)?;
+        for (entry, path) in index.entries_mut_with_paths() {
+            let source = written.entry_by_path(path).or_else(|| old.entry_by_path(path));
+            entry.stat = source.expect("every path in `to` was just written or is unchanged from `from`").stat;
+        }
+        index.write(gix::index::write::Options::default())?;
+        Ok(())
     }
 
     /// The change checked out in `workspace`, or `None` when its HEAD is detached.
@@ -70,6 +112,31 @@ impl TransactionContext<'_> {
             Some(head) => Ok(Some(head.shorten().to_str()?.parse()?)),
             None => Ok(None),
         }
+    }
+}
+
+/// Whether `repo`'s index and working directory match `tree`, untracked files aside.
+fn is_at(repo: &Repository, tree: &gix::Tree<'_>) -> Result<bool> {
+    let mut index_matches = true;
+    repo.tree_index_status(&tree.id, &*repo.index_or_empty()?, None, TrackRenames::Disabled, |_, _, _| {
+        index_matches = false;
+        Ok::<_, Infallible>(ControlFlow::Break(()))
+    })?;
+    if !index_matches {
+        return Ok(false);
+    }
+    let mut worktree_changes = repo
+        .status(gix::progress::Discard)?
+        .index_worktree_rewrites(None)
+        .index_worktree_submodules(gix::status::Submodule::AsConfigured { check_dirty: true })
+        .index_worktree_options_mut(|opts| opts.dirwalk_options = None)
+        .into_index_worktree_iter(Vec::new())?;
+    Ok(worktree_changes.next().transpose()?.is_none())
+}
+
+fn prune_empty_dirs(workdir: &Path, mut dir: &Path) {
+    while dir != workdir && fs::remove_dir(dir).is_ok() {
+        dir = dir.parent().expect("pruning stops at the workspace root");
     }
 }
 

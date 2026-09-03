@@ -84,8 +84,7 @@ impl Cabaret {
     }
 
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are refused rather than landed: rebase and resolve them first. The
-    /// workspace holding the parent, if any, must be clean and moves along with it.
+    /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
         let parent_id = self.query(|ctx| {
             let change = ctx.read(change_id)?;
@@ -95,11 +94,10 @@ impl Cabaret {
                 [parent] => Ok((*parent).clone()),
             }
         })?;
-        self.update(&[change_id, &parent_id], |ctx, [change, parent]| {
+        self.update(&[change_id, &parent_id], |_ctx, [change, parent]| {
             if change.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            let from = parent.tip;
             match parent.merge(change, "land")? {
                 None => Err(format!("{change_id} has nothing to land"))?,
                 Some(conflicts) if !conflicts.is_empty() => {
@@ -110,9 +108,6 @@ impl Cabaret {
             if !change.permanent {
                 change.archived = true;
             }
-            if let Some(workspace) = parent.workspace()? {
-                ctx.checkout(&workspace, from, parent.tip)?;
-            }
             Ok(parent_id.clone())
         })
     }
@@ -120,7 +115,6 @@ impl Cabaret {
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
     /// Cabaret never rewrites history, so each parent's tip is merged in; a conflicting merge is
     /// committed with markers and stops the rebase there, so those are resolved before the next.
-    /// The workspace holding the change, if any, must be clean and moves along with the branch.
     pub fn rebase(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Rebase> {
         self.update1(change_id, |ctx, change| {
             let parents = change.parents()?;
@@ -131,7 +125,6 @@ impl Cabaret {
                 Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
             };
 
-            let from = change.tip;
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
             for parent_id in targets.by_ref() {
@@ -144,11 +137,6 @@ impl Cabaret {
                 }
             }
             rebase.remaining = targets.collect();
-            if let Some(workspace) = change.workspace()?
-                && change.tip != from
-            {
-                ctx.checkout(&workspace, from, change.tip)?;
-            }
             Ok(rebase)
         })
     }

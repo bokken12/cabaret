@@ -1,5 +1,5 @@
-//! Rebasing: each parent's tip is merged into the change, and a workspace holding the change
-//! follows its branch.
+//! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
+//! change follows its branch.
 
 use expect_test::expect;
 
@@ -123,13 +123,18 @@ fn onto_must_be_a_parent() {
 }
 
 #[test]
-fn dirty_workspace_refuses() {
+fn dirty_workspace_is_left_behind() {
     let fixture = diverged();
     fixture.checkout("child");
     fixture.write("child.txt", "uncommitted\n");
-    let tip = fixture.tip("child");
-    expect!["error: workspace main has uncommitted changes"].assert_eq(&rebase(&fixture, "child", None));
-    assert_eq!(fixture.tip("child"), tip);
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
+        .assert_eq(&rebase(&fixture, "child", None));
+    expect![[r#"
+        dirty
+        child.txt "uncommitted\n"
+        shared.txt "shared\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
 }
 
 #[test]

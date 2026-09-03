@@ -50,6 +50,7 @@ impl Cabaret {
 
         // Every change's log and branch land in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
+        let mut moved = Vec::new();
         for (change_id, change) in change_ids.iter().zip(&changes) {
             let before = change_id.before(&ctx)?;
             let actions = change.actions_since(&before);
@@ -71,6 +72,7 @@ impl Cabaret {
                     if change.tip != before.tip {
                         let expected = PreviousValue::MustExistAndMatch(Target::Object(before.tip.0));
                         edits.push(branch(expected, "cabaret: update"));
+                        moved.push((change, before.tip));
                     }
                     if !actions.is_empty() {
                         edits.push(change.append(actions)?);
@@ -80,6 +82,13 @@ impl Cabaret {
         }
         if !edits.is_empty() {
             ctx.repo.edit_references(edits)?;
+        }
+        // Workspaces follow once the branches have moved: a failed transaction leaves them behind
+        // rather than ahead of it.
+        for (change, from) in moved {
+            if let Some(workspace) = change.workspace()? {
+                ctx.fast_forward(&workspace, from, change.tip)?;
+            }
         }
         Ok(out)
     }
