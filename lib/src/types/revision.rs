@@ -30,11 +30,14 @@ impl<'de> Deserialize<'de> for Revision {
     }
 }
 
+/// The span a diff covers: from a change's bases to its tip. The bases are kept rather than the
+/// virtual commit they merge into, since that commit lives only in the object database of
+/// whoever computed it.
 // TODO(joel): consider making `'ctx`-parameterized?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object))]
 pub struct RevisionRange {
-    pub base: Revision,
+    pub bases: BTreeSet<Revision>,
     pub head: Revision,
 }
 
