@@ -133,6 +133,17 @@ impl Fixture {
         fs::write(self.repo.git_dir().join("HEAD"), format!("{}\n", self.tip(change))).unwrap();
     }
 
+    /// Hold `change`'s transaction lock, as another process mid-transaction would.
+    pub fn hold_lock(&self, change: &str) -> gix::lock::Marker {
+        let locks = self.repo.common_dir().join("cabaret").join("locks");
+        gix::lock::Marker::acquire_to_hold_resource(
+            locks.join(change),
+            gix::lock::acquire::Fail::Immediately,
+            Some(locks),
+        )
+        .unwrap()
+    }
+
     /// The main working directory as text; see [`worktree`].
     pub fn worktree(&self) -> String { worktree(&self.repo) }
 

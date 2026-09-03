@@ -1,6 +1,11 @@
-use gix::refs::{
-    Target,
-    transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
+use std::{collections::BTreeSet, time::Duration};
+
+use gix::{
+    lock::{Marker, acquire::Fail},
+    refs::{
+        Target,
+        transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
+    },
 };
 
 use crate::{
@@ -16,7 +21,17 @@ pub enum UpdateOrInsert<'a> {
     Insert { id: &'a ChangeIdRef, tip: Revision },
 }
 
-impl UpdateOrInsert<'_> {
+/// How long a transaction waits for another's locks before giving up; a lock older than this
+/// was most likely left behind by a killed process.
+const LOCK_TIMEOUT: Duration = Duration::from_mins(1);
+
+impl<'a> UpdateOrInsert<'a> {
+    fn id(&self) -> &'a ChangeIdRef {
+        match self {
+            UpdateOrInsert::Update { id } | UpdateOrInsert::Insert { id, .. } => id,
+        }
+    }
+
     /// The change's state before the transaction: as committed, or empty at `tip` for an insert.
     fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Change<'ctx>> {
         Ok(match self {
@@ -27,6 +42,21 @@ impl UpdateOrInsert<'_> {
 }
 
 impl Cabaret {
+    fn lock(&self, change_ids: &[UpdateOrInsert<'_>]) -> Result<Vec<Marker>> {
+        // ordered to avoid deadlock
+        let ids: BTreeSet<&ChangeIdRef> = change_ids.iter().map(UpdateOrInsert::id).collect();
+        if ids.len() != change_ids.len() {
+            Err("cannot lock the same change twice")?;
+        }
+        let mut locks = Vec::with_capacity(ids.len());
+        for id in ids {
+            let resource = self.locks.join(id.to_string());
+            let mode = Fail::AfterDurationWithBackoff(LOCK_TIMEOUT);
+            locks.push(Marker::acquire_to_hold_resource(resource, mode, Some(self.locks.clone()))?);
+        }
+        Ok(locks)
+    }
+
     /// Run `f` against a fresh context and record what it changed.
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
@@ -38,8 +68,9 @@ impl Cabaret {
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut [Change<'ctx>; N]) -> Result<T>,
     {
+        let locks = self.lock(change_ids)?;
         // TODO(joel): retry on ref contention instead of surfacing it
-        let ctx = TransactionContext::new(self.repo.to_thread_local());
+        let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 
         let mut changes = Vec::with_capacity(N);
         for change_id in change_ids {

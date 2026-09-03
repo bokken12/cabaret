@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use gix::ThreadSafeRepository;
@@ -27,10 +27,16 @@ pub struct Rebase {
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
 pub struct Cabaret {
     pub(crate) repo: ThreadSafeRepository,
+    /// Where transactions lock changes; under the common dir so every workspace shares them.
+    pub(crate) locks: PathBuf,
 }
 
 impl Cabaret {
-    pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { repo: ThreadSafeRepository::discover(dir)? }) }
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
+        let repo = ThreadSafeRepository::discover(dir)?;
+        let locks = repo.to_thread_local().common_dir().join("cabaret").join("locks");
+        Ok(Self { repo, locks })
+    }
 
     pub fn changes(&self) -> Result<Vec<ChangeId>> { self.query(|ctx| ctx.changes()) }
 

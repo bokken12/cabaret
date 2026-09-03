@@ -4,6 +4,7 @@ use elsa::FrozenBTreeMap;
 use gix::{
     Repository,
     bstr::{BString, ByteSlice},
+    lock::Marker,
     objs::Commit,
     refs::TargetRef,
 };
@@ -14,11 +15,12 @@ use crate::{
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId},
 };
 
-/// One transaction's view of the repository at a fixed time
+/// One transaction's view of the repository at a fixed time, holding its changes' locks
 pub struct TransactionContext<'ctx> {
     pub(crate) repo: Repository,
     pub timestamp: TimestampMs,
     read: FrozenBTreeMap<ChangeId, Box<Change<'ctx>>>,
+    _locks: Vec<Marker>,
 }
 
 impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
@@ -26,8 +28,8 @@ impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
 }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub(crate) fn new(repo: Repository) -> Self {
-        Self { repo, timestamp: TimestampMs::now(), read: FrozenBTreeMap::new() }
+    pub(crate) fn new(repo: Repository, locks: Vec<Marker>) -> Self {
+        Self { repo, timestamp: TimestampMs::now(), read: FrozenBTreeMap::new(), _locks: locks }
     }
 
     /// The state of `change_id` as of `self.timestamp`.

@@ -2,6 +2,7 @@ mod changed_files;
 mod fixture;
 mod home;
 mod land;
+mod locking;
 mod parents;
 mod rebase;
 mod review;
