@@ -5,8 +5,8 @@ use cabaret_lib::{
 };
 use clap::{Parser, Subcommand, ValueHint};
 
+pub mod args;
 pub mod change;
-pub mod completion;
 pub mod workspace;
 
 use crate::{change::ChangeCommand, workspace::WorkspaceCommand};

@@ -1,7 +1,7 @@
 use cabaret_lib::{cabaret::Cabaret, error::Result, types::ChangeId};
 use clap::Subcommand;
 
-use crate::completion::change_completer;
+use crate::args::change_completer;
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {

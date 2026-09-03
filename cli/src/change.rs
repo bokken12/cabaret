@@ -1,11 +1,11 @@
 use cabaret_lib::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath},
+    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Revision},
 };
 use clap::{Subcommand, ValueHint};
 
-use crate::completion::change_completer;
+use crate::args::{change_completer, parse_revision, revision_completer};
 
 #[derive(Subcommand)]
 pub enum OwnersCommand {
@@ -74,11 +74,11 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         /// Revision reviewed up to; defaults to the change's tip.
-        #[arg(long)]
-        tip: Option<String>,
+        #[arg(long, value_parser = parse_revision, add = revision_completer())]
+        tip: Option<Revision>,
         /// Revision reviewed from, repeatable; defaults to the change's bases.
-        #[arg(long)]
-        base: Vec<String>,
+        #[arg(long, value_parser = parse_revision, add = revision_completer())]
+        base: Vec<Revision>,
         // TODO-someday(joel): accept paths relative to the working directory
         #[arg(required = true, value_hint = ValueHint::AnyPath)]
         files: Vec<RepoPath>,
@@ -141,10 +141,9 @@ impl ChangeCommand {
             }
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
             ChangeCommand::Mark { change, tip, base, files } => {
-                let tip = tip.map(|spec| cabaret.resolve(&spec)).transpose()?;
                 let bases = match base.is_empty() {
                     true => None,
-                    false => Some(base.iter().map(|spec| cabaret.resolve(spec)).collect::<Result<_>>()?),
+                    false => Some(base.into_iter().collect()),
                 };
                 cabaret.mark(&or_current(change)?, &files, tip, bases)?;
             }
