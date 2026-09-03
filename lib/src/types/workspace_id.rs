@@ -1,49 +1,24 @@
-use std::{borrow::Borrow, fmt, ops::Deref};
+use std::fmt;
 
-use gix::{
-    bstr::{BStr, BString},
-    refs::FullName,
-};
-use ref_cast::RefCast;
+use gix::bstr::BString;
 
-// TODO(joel): extract to util crate
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WorkspaceId(BString);
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, RefCast)]
-#[repr(transparent)]
-pub struct WorkspaceIdRef(BStr);
-
-impl Borrow<WorkspaceIdRef> for WorkspaceId {
-    fn borrow(&self) -> &WorkspaceIdRef { WorkspaceIdRef::ref_cast(self.0.as_ref()) }
-}
-
-impl AsRef<WorkspaceIdRef> for WorkspaceId {
-    fn as_ref(&self) -> &WorkspaceIdRef { self.borrow() }
-}
-
-impl Deref for WorkspaceId {
-    type Target = WorkspaceIdRef;
-
-    fn deref(&self) -> &Self::Target { self.borrow() }
-}
-
-impl ToOwned for WorkspaceIdRef {
-    type Owned = WorkspaceId;
-
-    fn to_owned(&self) -> Self::Owned { WorkspaceId(self.0.to_owned()) }
-}
-
-impl fmt::Display for WorkspaceIdRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
+/// A working directory of the repository. Git names linked worktrees by their admin directory
+/// under `.git/worktrees/` and leaves the main one nameless, so it gets its own case.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WorkspaceId {
+    Main,
+    Linked(BString),
 }
 
 impl fmt::Display for WorkspaceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.as_ref().fmt(f) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Main => f.write_str("main"),
+            Self::Linked(id) => fmt::Display::fmt(id, f),
+        }
+    }
 }
 
-impl WorkspaceIdRef {
-    fn head_ref(&self) -> FullName {
-        FullName::try_from(format!("worktrees/{self}/HEAD")).expect("worktree produces valid ref")
-    }
+impl fmt::Debug for WorkspaceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Debug::fmt(&self.to_string(), f) }
 }

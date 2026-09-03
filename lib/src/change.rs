@@ -5,7 +5,7 @@ use gix::ObjectId;
 use crate::{
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange},
+    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange, WorkspaceId},
 };
 
 /// A change's state as of some instant, detached from any transaction.
@@ -23,6 +23,8 @@ pub struct ChangeSnapshot {
     /// What its log declares, which is what parent edits act on.
     pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
+    /// Where the change is checked out; see [`Change::workspace`].
+    pub workspace: Option<WorkspaceId>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +77,7 @@ impl<'ctx> Change<'ctx> {
             parents: self.parents()?,
             declared_parents: self.declared_parents.clone(),
             review: self.review.clone(),
+            workspace: self.workspace()?,
         })
     }
 

@@ -26,7 +26,12 @@ impl WorkspaceCommand {
                 todo!()
             }
             WorkspaceCommand::List => {
-                todo!()
+                for (workspace, change) in cabaret.workspaces()? {
+                    match change {
+                        Some(change) => println!("{workspace}\t{change}"),
+                        None => println!("{workspace}\t(detached)"),
+                    }
+                }
             }
         };
 

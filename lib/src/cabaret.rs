@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use gix::ThreadSafeRepository;
 
@@ -6,7 +9,7 @@ use crate::{
     change::ChangeSnapshot,
     error::Result,
     page::Page,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision},
+    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, WorkspaceId},
 };
 
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
@@ -22,6 +25,18 @@ impl Cabaret {
     pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
 
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
+    /// Every workspace and the change checked out in it, `None` where HEAD is detached.
+    pub fn workspaces(&self) -> Result<BTreeMap<WorkspaceId, Option<ChangeId>>> {
+        self.query(|ctx| {
+            let mut workspaces = BTreeMap::new();
+            for workspace in ctx.workspaces()? {
+                let change = ctx.workspace_change(&workspace)?;
+                workspaces.insert(workspace, change);
+            }
+            Ok(workspaces)
+        })
+    }
 
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         self.query(|ctx| ctx.read(change_id)?.snapshot())

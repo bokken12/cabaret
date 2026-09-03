@@ -126,15 +126,38 @@ impl Fixture {
     }
 
     /// Point HEAD at `change` and materialize its tip in the worktree and index.
-    pub fn checkout(&self, change: &str) {
-        fs::write(self.repo.git_dir().join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
+    pub fn checkout(&self, change: &str) { self.populate(&self.repo, change); }
+
+    /// Detach HEAD at `change`'s tip.
+    pub fn detach(&self, change: &str) {
+        fs::write(self.repo.git_dir().join("HEAD"), format!("{}\n", self.tip(change))).unwrap();
+    }
+
+    /// A linked worktree with `change` checked out, as `git worktree add` makes.
+    pub fn link_workspace(&self, change: &str) -> (tempfile::TempDir, gix::Repository) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workspace = fs::canonicalize(dir.path()).unwrap();
+        let admin = self.repo.git_dir().join("worktrees").join(change);
+        fs::create_dir_all(&admin).unwrap();
+        fs::write(admin.join("commondir"), "../..\n").unwrap();
+        fs::write(admin.join("gitdir"), format!("{}\n", workspace.join(".git").display())).unwrap();
+        fs::write(workspace.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        fs::write(admin.join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
+        let repo = gix::open(&workspace).unwrap();
+        self.populate(&repo, change);
+        (dir, repo)
+    }
+
+    /// Point `repo`'s HEAD at `change` and write its tip's files and index, over whatever is there.
+    fn populate(&self, repo: &gix::Repository, change: &str) {
+        fs::write(repo.git_dir().join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
         for (path, content) in self.files_at(self.tip(change)) {
-            let path = self.repo.workdir().unwrap().join(path);
+            let path = repo.workdir().unwrap().join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, content).unwrap();
         }
-        let head_tree = self.repo.head_commit().unwrap().tree_id().unwrap();
-        let mut index = self.repo.index_from_tree(&head_tree).unwrap();
+        let tree = repo.head_commit().unwrap().tree_id().unwrap();
+        let mut index = repo.index_from_tree(&tree).unwrap();
         index.write(gix::index::write::Options::default()).unwrap();
     }
 
@@ -171,13 +194,16 @@ impl Fixture {
         out
     }
 
-    /// One change as text: its tip, the parents it targets and the declared ones when those
+    /// One change as text: its tip, the workspace holding it, the parents it targets and the declared ones when those
     /// differ, its attributes, its base, and the files it changes against that base. The base is
     /// named for the nearest ancestor whose tip it is, else it is a bare hash.
     pub fn show(&self, change: &str) -> String {
         let words = |items: Vec<String>| items.join(" ");
         let snapshot = self.cabaret.snapshot(&id(change)).unwrap();
         let mut out = format!("{change} {}\n", short(snapshot.tip));
+        if let Some(workspace) = &snapshot.workspace {
+            writeln!(out, "  workspace {workspace}").unwrap();
+        }
         if !snapshot.parents.is_empty() {
             writeln!(out, "  parents {}", words(snapshot.parents.iter().map(ToString::to_string).collect())).unwrap();
         }
@@ -406,6 +432,7 @@ fn scene_state() {
           base (none)
           diff +main.txt
         single 25e7b9de
+          workspace main
           parents main
           owners alice@example.com
           base main
