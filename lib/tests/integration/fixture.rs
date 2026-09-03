@@ -307,7 +307,7 @@ fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     out
 }
 
-fn short(revision: Revision) -> String { revision.0.to_hex_with_len(8).to_string() }
+pub fn short(revision: Revision) -> String { revision.0.to_hex_with_len(8).to_string() }
 
 fn file(file: &ChangedFile) -> String {
     match file {

@@ -23,8 +23,8 @@ use crate::{
 pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
-    Forget { file: RepoPath },
-    Mark { file: RepoPath, range: RevisionRange },
+    Forget { reviewer: Identity, file: RepoPath },
+    Mark { reviewer: Identity, file: RepoPath, range: RevisionRange },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },
@@ -75,11 +75,11 @@ impl<'ctx> Change<'ctx> {
             LogAction::AddParent { parent } => {
                 self.declared_parents.insert(parent.clone());
             }
-            LogAction::Forget { file } => {
-                self.review.entry(entry.user.clone()).or_default().remove(file);
+            LogAction::Forget { reviewer, file } => {
+                self.review.entry(reviewer.clone()).or_default().remove(file);
             }
-            LogAction::Mark { file, range } => {
-                self.review.entry(entry.user.clone()).or_default().insert(file.clone(), range.clone());
+            LogAction::Mark { reviewer, file, range } => {
+                self.review.entry(reviewer.clone()).or_default().insert(file.clone(), range.clone());
             }
             LogAction::RemoveOwner { owner } => {
                 self.owners.remove(owner);
@@ -163,7 +163,18 @@ impl<'ctx> Change<'ctx> {
         if self.description != before.description {
             actions.push(LogAction::SetDescription { description: self.description.clone() });
         }
-        // TODO(joel): diff `review` into Mark/Forget
+        for (reviewer, files) in &before.review {
+            let kept = |file: &RepoPath| self.review.get(reviewer).is_some_and(|files| files.contains_key(file));
+            for file in files.keys().filter(|file| !kept(file)) {
+                actions.push(LogAction::Forget { reviewer: reviewer.clone(), file: file.clone() });
+            }
+        }
+        for (reviewer, files) in &self.review {
+            let previous = |file: &RepoPath| before.review.get(reviewer).and_then(|files| files.get(file));
+            for (file, range) in files.iter().filter(|(file, range)| previous(file) != Some(range)) {
+                actions.push(LogAction::Mark { reviewer: reviewer.clone(), file: file.clone(), range: range.clone() });
+            }
+        }
         actions
     }
 }

@@ -72,6 +72,11 @@ impl<'ctx> TransactionContext<'ctx> {
         }
     }
 
+    /// The commit `spec` names, in git's revision syntax.
+    pub fn resolve(&self, spec: &str) -> Result<Revision> {
+        Ok(Revision(self.repo.rev_parse_single(spec)?.object()?.peel_to_commit()?.id))
+    }
+
     pub fn branch_tip(&self, change_id: &ChangeIdRef) -> Result<Revision> {
         Ok(Revision(self.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id))
     }

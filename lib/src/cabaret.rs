@@ -9,7 +9,7 @@ use crate::{
     change::ChangeSnapshot,
     error::Result,
     page::Page,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, WorkspaceId},
+    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange, WorkspaceId},
 };
 
 /// What [`Cabaret::rebase`] did.
@@ -37,6 +37,8 @@ impl Cabaret {
     pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
 
     pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
+    pub fn resolve(&self, spec: &str) -> Result<Revision> { self.query(|ctx| ctx.resolve(spec)) }
 
     /// Every workspace and the change checked out in it, `None` where HEAD is detached.
     pub fn workspaces(&self) -> Result<BTreeMap<WorkspaceId, Option<ChangeId>>> {
@@ -202,6 +204,30 @@ impl Cabaret {
         self.update1(change_id, |_ctx, change| match change.declared_parents.remove(parent_id) {
             false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
             true => Ok(()),
+        })
+    }
+
+    /// Record that this repository's identity has reviewed `files` of `change_id` from `bases` up
+    /// to `head`; each defaults to the change's own.
+    pub fn mark(
+        &self,
+        change_id: &ChangeIdRef,
+        files: &[RepoPath],
+        head: Option<Revision>,
+        bases: Option<BTreeSet<Revision>>,
+    ) -> Result<()> {
+        self.update1(change_id, |ctx, change| {
+            let bases = match bases {
+                Some(bases) => bases,
+                None => change.bases()?,
+            };
+            let range = RevisionRange { bases, head: head.unwrap_or(change.tip) };
+            let review = change.review.entry(ctx.identity()?).or_default();
+            if files.iter().all(|file| review.get(file) == Some(&range)) {
+                Err(format!("{change_id} already had these files marked reviewed there"))?;
+            }
+            review.extend(files.iter().map(|file| (file.clone(), range.clone())));
+            Ok(())
         })
     }
 

@@ -1,7 +1,7 @@
 use cabaret_lib::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, Pathspec},
+    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath},
 };
 use clap::{Subcommand, ValueHint};
 
@@ -69,9 +69,19 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
     },
+    /// Mark files as reviewed by you.
     Mark {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        /// Revision reviewed up to; defaults to the change's tip.
+        #[arg(long)]
+        tip: Option<String>,
+        /// Revision reviewed from, repeatable; defaults to the change's bases.
+        #[arg(long)]
+        base: Vec<String>,
+        // TODO-someday(joel): accept paths relative to the working directory
+        #[arg(required = true, value_hint = ValueHint::AnyPath)]
+        files: Vec<RepoPath>,
     },
     Owners {
         #[arg(long, global = true, add = change_completer())]
@@ -130,7 +140,14 @@ impl ChangeCommand {
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
-            ChangeCommand::Mark { .. } => todo!(),
+            ChangeCommand::Mark { change, tip, base, files } => {
+                let tip = tip.map(|spec| cabaret.resolve(&spec)).transpose()?;
+                let bases = match base.is_empty() {
+                    true => None,
+                    false => Some(base.iter().map(|spec| cabaret.resolve(spec)).collect::<Result<_>>()?),
+                };
+                cabaret.mark(&or_current(change)?, &files, tip, bases)?;
+            }
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;
                 match command {
