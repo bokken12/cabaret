@@ -1,11 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use gix::ObjectId;
+use gix::{
+    ObjectId,
+    merge::{
+        blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
+        tree::TreatAsUnresolved,
+    },
+};
 
 use crate::{
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange, WorkspaceId},
+    types::{
+        ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange, TreeId, WorkspaceId,
+    },
 };
 
 /// A change's state as of some instant, detached from any transaction.
@@ -146,6 +154,47 @@ impl<'ctx> Change<'ctx> {
             [base] => Ok(Some(*base)),
             [_, _, ..] => Err(format!("{} has multiple bases, which is not supported yet", self.id))?,
         }
+    }
+
+    /// Merge `parent`'s tip into this change: `None` when the tip already contains it, else the
+    /// files left conflicted. A change with no commits of its own fast-forwards instead.
+    pub fn merge(&mut self, parent: &Change<'ctx>) -> Result<Option<BTreeSet<RepoPath>>> {
+        let ctx = self.ctx();
+        if ctx.is_predecessor(parent.tip, self.tip)? {
+            return Ok(None);
+        }
+        if ctx.is_predecessor(self.tip, parent.tip)? {
+            self.tip = parent.tip;
+            return Ok(Some(BTreeSet::new()));
+        }
+
+        // Conflict style and labels are forced rather than read from config so the committed
+        // conflict text is identical no matter whose clone performs the merge.
+        let repo = &ctx.repo;
+        let labels = Labels {
+            ancestor: Some("base".into()),
+            current: Some(self.id().as_bstr()),
+            other: Some(parent.id().as_bstr()),
+        };
+        let mut options: gix::merge::plumbing::tree::Options = repo.tree_merge_options()?.into();
+        options.blob_merge.text.conflict = Conflict::Keep {
+            style: ConflictStyle::ZealousDiff3,
+            marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero"),
+        };
+        let mut merge = repo.merge_commits(self.tip, parent.tip, labels, options.into())?;
+        let tree = TreeId(merge.tree_merge.tree.write()?.detach());
+        let conflicts = merge
+            .tree_merge
+            .conflicts
+            .iter()
+            .filter(|conflict| conflict.is_unresolved(TreatAsUnresolved::default()))
+            .flat_map(|conflict| [&conflict.ours, &conflict.theirs])
+            .map(|change| RepoPath::from_bytes(change.location()))
+            .collect::<Result<_>>()?;
+
+        let message = format!("rebase {} onto {}", self.id(), parent.id());
+        self.tip = ctx.commit(tree, vec![self.tip, parent.tip], message)?;
+        Ok(Some(conflicts))
     }
 
     /// The file-level changes this change presents, restricted to those matching `pathspecs` (all when empty).

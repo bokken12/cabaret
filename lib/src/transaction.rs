@@ -51,26 +51,31 @@ impl Cabaret {
         // Every change's log and branch land in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
         for (change_id, change) in change_ids.iter().zip(&changes) {
-            let actions = change.actions_since(&change_id.before(&ctx)?);
+            let before = change_id.before(&ctx)?;
+            let actions = change.actions_since(&before);
+            let branch = |expected: PreviousValue, message: &str| RefEdit {
+                change: RefChange::Update {
+                    log: LogChange { mode: RefLog::AndReference, force_create_reflog: false, message: message.into() },
+                    expected,
+                    new: Target::Object(change.tip.0),
+                },
+                name: change.id().branch_ref(),
+                deref: false,
+            };
             match change_id {
-                UpdateOrInsert::Insert { id, tip } => {
-                    edits.push(RefEdit {
-                        change: RefChange::Update {
-                            log: LogChange {
-                                mode: RefLog::AndReference,
-                                force_create_reflog: false,
-                                message: "cabaret: create".into(),
-                            },
-                            expected: PreviousValue::MustNotExist,
-                            new: Target::Object(tip.0),
-                        },
-                        name: id.branch_ref(),
-                        deref: false,
-                    });
+                UpdateOrInsert::Insert { .. } => {
+                    edits.push(branch(PreviousValue::MustNotExist, "cabaret: create"));
                     edits.push(change.append(actions)?);
                 }
-                UpdateOrInsert::Update { .. } if actions.is_empty() => {}
-                UpdateOrInsert::Update { .. } => edits.push(change.append(actions)?),
+                UpdateOrInsert::Update { .. } => {
+                    if change.tip != before.tip {
+                        let expected = PreviousValue::MustExistAndMatch(Target::Object(before.tip.0));
+                        edits.push(branch(expected, "cabaret: update"));
+                    }
+                    if !actions.is_empty() {
+                        edits.push(change.append(actions)?);
+                    }
+                }
             }
         }
         if !edits.is_empty() {

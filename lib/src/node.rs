@@ -10,7 +10,7 @@ use napi::{
 use napi_derive::napi;
 
 use crate::{
-    cabaret::Cabaret,
+    cabaret::{Cabaret, Rebase},
     change::ChangeSnapshot,
     error::{Error, Result},
     page::Page,
@@ -142,5 +142,7 @@ impl CabaretJs {
     pub async fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
 
     #[napi]
-    pub async fn rebase(&self, change: ChangeId, onto: ChangeId) -> napi::Result<()> { todo!() }
+    pub async fn rebase(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Rebase> {
+        self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref())).await
+    }
 }

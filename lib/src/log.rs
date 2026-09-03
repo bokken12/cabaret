@@ -1,7 +1,7 @@
 use gix::{
     ObjectId, Repository,
     objs::{
-        Commit, Tree,
+        Tree,
         tree::{Entry, EntryKind},
     },
     refs::{
@@ -15,7 +15,7 @@ use crate::{
     change::Change,
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs, TreeId},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,19 +115,8 @@ impl<'ctx> Change<'ctx> {
 
         let blob = repo.write_blob(text)?.detach();
         let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
-        let tree = repo.write_object(&Tree { entries: vec![entry] })?.detach();
-        let committer = repo.committer().ok_or("no git identity; set user.email")??.to_owned()?;
-        let commit = repo
-            .write_object(&Commit {
-                tree,
-                parents: self.log_commit.into_iter().collect(),
-                author: committer.clone(),
-                committer,
-                encoding: None,
-                message: appended.into(),
-                extra_headers: Vec::new(),
-            })?
-            .detach();
+        let tree = TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach());
+        let commit = ctx.commit(tree, self.log_commit.into_iter().map(Revision).collect(), appended)?;
 
         Ok(RefEdit {
             change: RefChange::Update {
@@ -140,7 +129,7 @@ impl<'ctx> Change<'ctx> {
                     Some(previous) => PreviousValue::MustExistAndMatch(Target::Object(previous)),
                     None => PreviousValue::MustNotExist,
                 },
-                new: Target::Object(commit),
+                new: Target::Object(commit.0),
             },
             name: self.id().log_ref(),
             deref: false,

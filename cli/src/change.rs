@@ -1,7 +1,7 @@
 use cabaret_lib::{
     cabaret::Cabaret,
     error::Result,
-    types::{ChangeId, Identity, Pathspec},
+    types::{ChangeId, ChangeIdRef, Identity, Pathspec},
 };
 use clap::{Subcommand, ValueHint};
 
@@ -149,7 +149,7 @@ impl ChangeCommand {
                     ParentsCommand::Set { parents } => todo!(),
                 }
             }
-            ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto)?,
+            ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
             ChangeCommand::Review { .. } => todo!(),
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
         }
@@ -158,25 +158,19 @@ impl ChangeCommand {
     }
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<ChangeId>) -> Result<()> {
-    // let onto = match onto {
-    //     Some(onto) => onto,
-    //     None => {
-    //         let parents: Vec<ChangeId> = cabaret.parents(change)?.into_iter().collect();
-    //         match parents.as_slice() {
-    //             [] => return Err(format!("{change} has no parents").into()),
-    //             [parent] => parent.clone(),
-    //             parents @ [_, _, ..] => {
-    //                 let parents: Vec<String> = parents.iter().map(ToString::to_string).collect();
-    //                 return Err(format!(
-    //                     "{change} has multiple parents; pass the one to rebase onto: {}",
-    //                     parents.join(", ")
-    //                 )
-    //                 .into());
-    //             }
-    //         }
-    //     }
-    // };
-    // cabaret.rebase(change, &onto)
-    todo!()
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>) -> Result<()> {
+    let words = |ids: Vec<String>| ids.join(", ");
+    let rebase = cabaret.rebase(change, onto)?;
+    match rebase.merged.is_empty() {
+        true => println!("{change} is already up to date"),
+        false => println!("rebased {change} onto {}", words(rebase.merged.iter().map(ToString::to_string).collect())),
+    }
+    if !rebase.conflicts.is_empty() {
+        println!("conflicts in {}", words(rebase.conflicts.iter().map(ToString::to_string).collect()));
+    }
+    if !rebase.remaining.is_empty() {
+        let remaining = words(rebase.remaining.iter().map(ToString::to_string).collect());
+        println!("resolve them and rebase again to continue onto {remaining}");
+    }
+    Ok(())
 }

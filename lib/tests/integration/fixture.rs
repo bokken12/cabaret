@@ -133,6 +133,13 @@ impl Fixture {
         fs::write(self.repo.git_dir().join("HEAD"), format!("{}\n", self.tip(change))).unwrap();
     }
 
+    /// The main working directory as text; see [`worktree`].
+    pub fn worktree(&self) -> String { worktree(&self.repo) }
+
+    pub fn write(&self, path: &str, content: &str) {
+        fs::write(self.repo.workdir().unwrap().join(path), content).unwrap();
+    }
+
     /// A linked worktree with `change` checked out, as `git worktree add` makes.
     pub fn link_workspace(&self, change: &str) -> (tempfile::TempDir, gix::Repository) {
         let dir = tempfile::TempDir::new().unwrap();
@@ -258,6 +265,37 @@ impl Fixture {
         }
         short(revision)
     }
+}
+
+/// A working directory as text: whether it is clean, then every file with its content.
+pub fn worktree(repo: &gix::Repository) -> String {
+    let workdir = repo.workdir().unwrap();
+    let mut out = match repo.is_dirty().unwrap() {
+        true => "dirty\n".to_string(),
+        false => "clean\n".to_string(),
+    };
+    let mut paths = walkdir(workdir);
+    paths.sort();
+    for path in paths {
+        let content = fs::read_to_string(&path).unwrap();
+        writeln!(out, "{} {content:?}", path.strip_prefix(workdir).unwrap().display()).unwrap();
+    }
+    out
+}
+
+fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().unwrap() == ".git" {
+            continue;
+        }
+        match path.is_dir() {
+            true => out.extend(walkdir(&path)),
+            false => out.push(path),
+        }
+    }
+    out
 }
 
 fn short(revision: Revision) -> String { revision.0.to_hex_with_len(8).to_string() }

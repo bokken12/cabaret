@@ -12,6 +12,18 @@ use crate::{
     types::{ChangeId, ChangeIdRef, ChangedFile, Identity, Pathspec, RepoPath, Revision, WorkspaceId},
 };
 
+/// What [`Cabaret::rebase`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct Rebase {
+    /// The parents merged in; empty when the change already contained them all.
+    pub merged: BTreeSet<ChangeId>,
+    /// Files the last merge left holding conflict markers, which stopped the rebase there.
+    pub conflicts: BTreeSet<RepoPath>,
+    /// Parents not reached because of the conflicts; rebasing again after resolving them continues.
+    pub remaining: BTreeSet<ChangeId>,
+}
+
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
 pub struct Cabaret {
     pub(crate) repo: ThreadSafeRepository,
@@ -90,10 +102,39 @@ impl Cabaret {
         self.land_into(change_id, &parent)
     }
 
-    pub fn rebase(&self, change_id: &ChangeIdRef, onto_id: &ChangeIdRef) -> Result<()> {
-        self.update(&[change_id, onto_id], |_ctx, [change, onto]| {
-            // TODO
-            Ok(())
+    /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
+    /// Cabaret never rewrites history, so each parent's tip is merged in; a conflicting merge is
+    /// committed with markers and stops the rebase there, so those are resolved before the next.
+    /// The workspace holding the change, if any, must be clean and moves along with the branch.
+    pub fn rebase(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Rebase> {
+        self.update1(change_id, |ctx, change| {
+            let parents = change.parents()?;
+            let targets = match onto {
+                None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
+                None => parents,
+                Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
+                Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
+            };
+
+            let from = change.tip;
+            let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
+            let mut targets = targets.into_iter();
+            for parent_id in targets.by_ref() {
+                if let Some(conflicts) = change.merge(ctx.read(&parent_id)?)? {
+                    rebase.merged.insert(parent_id);
+                    rebase.conflicts = conflicts;
+                    if !rebase.conflicts.is_empty() {
+                        break;
+                    }
+                }
+            }
+            rebase.remaining = targets.collect();
+            if let Some(workspace) = change.workspace()?
+                && change.tip != from
+            {
+                ctx.checkout(&workspace, from, change.tip)?;
+            }
+            Ok(rebase)
         })
     }
 

@@ -1,5 +1,9 @@
 //! Workspaces: the working directories of the repository, each holding at most one checked-out
 //! change. Git refuses to check one branch out twice, so a change has at most one workspace.
+//! When a change's branch moves, its workspace must move with it, or git would show the whole
+//! change as undone locally.
+
+use std::process::Command;
 
 use gix::{Repository, bstr::ByteSlice};
 
@@ -7,7 +11,7 @@ use crate::{
     change::Change,
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, WorkspaceId},
+    types::{ChangeId, Revision, WorkspaceId},
 };
 
 impl TransactionContext<'_> {
@@ -33,6 +37,31 @@ impl TransactionContext<'_> {
                 Ok(proxy.into_repo_with_possibly_inaccessible_worktree()?)
             }
         }
+    }
+
+    // TODO-someday(joel): move to proper gix?
+    /// Move a clean `workspace` from `from` to `to`, touching only the paths that differ and
+    /// refusing to overwrite untracked files in the way.
+    pub fn checkout(&self, workspace: &WorkspaceId, from: Revision, to: Revision) -> Result<()> {
+        let repo = self.workspace_repo(workspace)?;
+        if repo.is_dirty()? {
+            Err(format!("workspace {workspace} has uncommitted changes"))?;
+        }
+        let workdir = repo.workdir().ok_or_else(|| format!("workspace {workspace} has no working directory"))?;
+        let git = |args: &[&str]| -> Result<()> {
+            let output = Command::new("git").arg("-C").arg(workdir).args(args).output()?;
+            match output.status.success() {
+                true => Ok(()),
+                false => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(stderr.trim().strip_prefix("error: ").unwrap_or(stderr.trim()))?
+                }
+            }
+        };
+        // gix can only write a whole index, so the two-tree update is git's job. read-tree trusts
+        // the index's stat data rather than re-hashing, so it is refreshed first.
+        git(&["update-index", "-q", "--refresh"])?;
+        git(&["read-tree", "-m", "-u", &from.to_string(), &to.to_string()])
     }
 
     /// The change checked out in `workspace`, or `None` when its HEAD is detached.

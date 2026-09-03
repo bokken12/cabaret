@@ -1,12 +1,17 @@
-use std::{fmt, process::Command};
+use std::fmt;
 
 use elsa::FrozenBTreeMap;
-use gix::{Repository, bstr::ByteSlice, refs::TargetRef};
+use gix::{
+    Repository,
+    bstr::{BString, ByteSlice},
+    objs::Commit,
+    refs::TargetRef,
+};
 
 use crate::{
     change::Change,
     error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId},
 };
 
 /// One transaction's view of the repository at a fixed time
@@ -71,17 +76,25 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(Revision(self.repo.find_reference(&change_id.branch_ref())?.peel_to_commit()?.id))
     }
 
-    /// Git running against this repository, for operations gix does not implement yet.
-    pub fn git_when_gix_unimplemented(&self) -> Command {
-        let mut command = Command::new("git");
-        command.arg("--git-dir").arg(self.repo.git_dir());
-        command
-    }
-
     /// The identity this repository acts as: git's user.email.
     pub fn identity(&self) -> Result<Identity> {
         let committer = self.repo.committer().ok_or("no git identity; set user.email")??;
         Ok(Identity(committer.email.to_string()))
+    }
+
+    /// Write a commit of `tree` on `parents` as this repository's identity, without moving any ref.
+    pub fn commit(&self, tree: TreeId, parents: Vec<Revision>, message: impl Into<BString>) -> Result<Revision> {
+        let committer = self.repo.committer().ok_or("no git identity; set user.email")??.to_owned()?;
+        let commit = Commit {
+            tree: tree.0,
+            parents: parents.into_iter().map(Into::into).collect(),
+            author: committer.clone(),
+            committer,
+            encoding: None,
+            message: message.into(),
+            extra_headers: Vec::new(),
+        };
+        Ok(Revision(self.repo.write_object(&commit)?.detach()))
     }
 
     // TODO-someday(joel): consider pulling into state
