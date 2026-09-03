@@ -15,13 +15,6 @@ fn diverged() -> Fixture {
     fixture
 }
 
-/// [`Fixture::show`] without the tip hash, which a merge commit stamps with the current time.
-fn show(fixture: &Fixture, change: &str) -> String {
-    let shown = fixture.show(change);
-    let (first, rest) = shown.split_once('\n').unwrap();
-    format!("{}\n{rest}", first.split_once(' ').unwrap().0)
-}
-
 fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
     let onto = onto.map(id);
     match fixture.cabaret.rebase(&id(change), onto.as_deref()) {
@@ -44,7 +37,7 @@ fn parent_merged_into_change() {
           base main
           diff +child.txt
     "]]
-    .assert_eq(&show(&fixture, "child"));
+    .assert_eq(&fixture.describe("child"));
     expect![[r#"
         clean
         child.txt "child\n"

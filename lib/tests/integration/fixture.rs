@@ -201,6 +201,13 @@ impl Fixture {
         out
     }
 
+    /// [`Self::show`] without the tip hash, which a merge commit stamps with the current time.
+    pub fn describe(&self, change: &str) -> String {
+        let shown = self.show(change);
+        let (first, rest) = shown.split_once('\n').unwrap();
+        format!("{}\n{rest}", first.split_once(' ').unwrap().0)
+    }
+
     /// One change as text: its tip, the workspace holding it, the parents it targets and the declared ones when those
     /// differ, its attributes, its base, and the files it changes against that base. The base is
     /// named for the nearest ancestor whose tip it is, else it is a bare hash.

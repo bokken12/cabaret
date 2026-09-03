@@ -156,15 +156,16 @@ impl<'ctx> Change<'ctx> {
         }
     }
 
-    /// Merge `parent`'s tip into this change: `None` when the tip already contains it, else the
-    /// files left conflicted. A change with no commits of its own fast-forwards instead.
-    pub fn merge(&mut self, parent: &Change<'ctx>) -> Result<Option<BTreeSet<RepoPath>>> {
+    /// Merge `other`'s tip into this change as part of `operation`, which names the commit:
+    /// `None` when the tip already contains it, else the files left conflicted. A tip with
+    /// nothing of its own fast-forwards instead.
+    pub fn merge(&mut self, other: &Change<'ctx>, operation: &str) -> Result<Option<BTreeSet<RepoPath>>> {
         let ctx = self.ctx();
-        if ctx.is_predecessor(parent.tip, self.tip)? {
+        if ctx.is_predecessor(other.tip, self.tip)? {
             return Ok(None);
         }
-        if ctx.is_predecessor(self.tip, parent.tip)? {
-            self.tip = parent.tip;
+        if ctx.is_predecessor(self.tip, other.tip)? {
+            self.tip = other.tip;
             return Ok(Some(BTreeSet::new()));
         }
 
@@ -174,14 +175,14 @@ impl<'ctx> Change<'ctx> {
         let labels = Labels {
             ancestor: Some("base".into()),
             current: Some(self.id().as_bstr()),
-            other: Some(parent.id().as_bstr()),
+            other: Some(other.id().as_bstr()),
         };
         let mut options: gix::merge::plumbing::tree::Options = repo.tree_merge_options()?.into();
         options.blob_merge.text.conflict = Conflict::Keep {
             style: ConflictStyle::ZealousDiff3,
             marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero"),
         };
-        let mut merge = repo.merge_commits(self.tip, parent.tip, labels, options.into())?;
+        let mut merge = repo.merge_commits(self.tip, other.tip, labels, options.into())?;
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = merge
             .tree_merge
@@ -192,8 +193,8 @@ impl<'ctx> Change<'ctx> {
             .map(|change| RepoPath::from_bytes(change.location()))
             .collect::<Result<_>>()?;
 
-        let message = format!("rebase {} onto {}", self.id(), parent.id());
-        self.tip = ctx.commit(tree, vec![self.tip, parent.tip], message)?;
+        let message = format!("{operation}: merge {} into {}", other.id(), self.id());
+        self.tip = ctx.commit(tree, vec![self.tip, other.tip], message)?;
         Ok(Some(conflicts))
     }
 

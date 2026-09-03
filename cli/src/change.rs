@@ -124,7 +124,11 @@ impl ChangeCommand {
                 // TODO(joel): show file content not just file names
                 print!("{}", cabaret.diff_page(&or_current(change)?, &pathspecs)?);
             }
-            ChangeCommand::Land { change } => cabaret.land(&or_current(change)?)?,
+            ChangeCommand::Land { change } => {
+                let change = or_current(change)?;
+                let parent = cabaret.land(&change)?;
+                println!("landed {change} into {parent}");
+            }
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
             ChangeCommand::Mark { .. } => todo!(),
             ChangeCommand::Owners { change, command } => {

@@ -139,7 +139,9 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId) -> napi::Result<()> { todo!() }
+    pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
+        self.blocking(move |cabaret| cabaret.land(&change)).await
+    }
 
     #[napi]
     pub async fn rebase(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Rebase> {

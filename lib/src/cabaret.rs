@@ -83,15 +83,11 @@ impl Cabaret {
         })
     }
 
-    fn land_into(&self, change_id: &ChangeIdRef, into_id: &ChangeIdRef) -> Result<()> {
-        self.update(&[change_id, into_id], |_ctx, [change, into]| {
-            // TODO
-            Ok(())
-        })
-    }
-
-    pub fn land(&self, change_id: &ChangeIdRef) -> Result<()> {
-        let parent = self.query(|ctx| {
+    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
+    /// parent. Conflicts are refused rather than landed: rebase and resolve them first. The
+    /// workspace holding the parent, if any, must be clean and moves along with it.
+    pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
+        let parent_id = self.query(|ctx| {
             let change = ctx.read(change_id)?;
             match change.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -99,7 +95,26 @@ impl Cabaret {
                 [parent] => Ok((*parent).clone()),
             }
         })?;
-        self.land_into(change_id, &parent)
+        self.update(&[change_id, &parent_id], |ctx, [change, parent]| {
+            if change.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            let from = parent.tip;
+            match parent.merge(change, "land")? {
+                None => Err(format!("{change_id} has nothing to land"))?,
+                Some(conflicts) if !conflicts.is_empty() => {
+                    Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
+                }
+                Some(_) => {}
+            }
+            if !change.permanent {
+                change.archived = true;
+            }
+            if let Some(workspace) = parent.workspace()? {
+                ctx.checkout(&workspace, from, parent.tip)?;
+            }
+            Ok(parent_id.clone())
+        })
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
@@ -120,7 +135,7 @@ impl Cabaret {
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
             for parent_id in targets.by_ref() {
-                if let Some(conflicts) = change.merge(ctx.read(&parent_id)?)? {
+                if let Some(conflicts) = change.merge(ctx.read(&parent_id)?, "rebase")? {
                     rebase.merged.insert(parent_id);
                     rebase.conflicts = conflicts;
                     if !rebase.conflicts.is_empty() {
