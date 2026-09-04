@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, time::Duration};
+use std::{collections::BTreeSet, fmt, time::Duration};
 
 use gix::{
     lock::{Marker, acquire::Fail},
@@ -48,6 +48,12 @@ pub enum WorkspaceOp<'a> {
 }
 
 impl<'a> WorkspaceOp<'a> {
+    fn id(&self) -> &'a WorkspaceId {
+        match self {
+            WorkspaceOp::Update { id } | WorkspaceOp::Insert { id, .. } | WorkspaceOp::Delete { id } => id,
+        }
+    }
+
     fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Workspace<'ctx>> { todo!() }
 }
 
@@ -55,7 +61,8 @@ impl<'a> WorkspaceOp<'a> {
 /// was most likely left behind by a killed process.
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The independently lockable parts of a change; each has its own directory of lock files.
+/// The independently lockable resources of a repository; each has its own directory of lock
+/// files, named by the change (metadata, branch) or workspace they belong to.
 #[derive(Clone, Copy, Debug)]
 enum Resource {
     Metadata,
@@ -74,10 +81,14 @@ impl Resource {
 }
 
 impl Cabaret {
-    /// Take the `resource` lock of each change in `ids`, in a fixed order to avoid deadlock.
-    fn lock<'a>(&self, resource: Resource, ids: impl ExactSizeIterator<Item = &'a ChangeIdRef>) -> Result<Vec<Marker>> {
+    /// Take the `resource` lock of each of `ids`, in a fixed order to avoid deadlock.
+    fn lock<Id: Ord + fmt::Display>(
+        &self,
+        resource: Resource,
+        ids: impl ExactSizeIterator<Item = Id>,
+    ) -> Result<Vec<Marker>> {
         let count = ids.len();
-        let ids: BTreeSet<&ChangeIdRef> = ids.collect();
+        let ids: BTreeSet<Id> = ids.collect();
         if ids.len() != count {
             Err(format!("cannot lock the same {} twice", resource.dir_name()))?;
         }
@@ -85,6 +96,7 @@ impl Cabaret {
         let mut locks = Vec::with_capacity(ids.len());
         for id in ids {
             let mode = Fail::AfterDurationWithBackoff(LOCK_TIMEOUT);
+            // TODO-someday(joel): sanitize string representation
             locks.push(Marker::acquire_to_hold_resource(dir.join(id.to_string()), mode, Some(dir.clone()))?);
         }
         Ok(locks)
@@ -114,9 +126,11 @@ impl Cabaret {
             &mut [Workspace<'ctx>; N],
         ) -> Result<T>,
     {
-        // metadata before branches, always, so two transactions cannot wait on each other
+        // metadata, then branches, then workspaces, always, so two transactions cannot wait on
+        // each other
         let mut locks = self.lock(Resource::Metadata, metadata_ids.iter().copied())?;
         locks.extend(self.lock(Resource::Branch, branch_ops.iter().map(BranchOp::id))?);
+        locks.extend(self.lock(Resource::Workspace, workspace_ops.iter().map(WorkspaceOp::id))?);
         // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 
