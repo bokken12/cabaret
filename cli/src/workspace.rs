@@ -46,18 +46,15 @@ impl WorkspaceCommand {
     pub fn run(self, cabaret: Cabaret) -> Result<()> {
         match self {
             WorkspaceCommand::Add { change, path } => {
-                todo!()
+                let path = cabaret.workspace_add(change, path)?;
+                println!("{}", path.display());
             }
             WorkspaceCommand::Switch { switch_to, change, path } => {
-                let workspace_id = match (change, path) {
-                    (Some(_), Some(_)) => Err("must pass exactly one of change or path")?,
-                    (None, None) => cabaret.workspace_current(),
-                    (None, Some(path)) => WorkspaceId::of_path(&path),
-                    (Some(change_id), None) => cabaret
-                        .workspace_holding(&change_id)?
-                        .ok_or_else(|| format!("{change_id} is not currently held by a workspace"))?,
+                let workspace = match named(&cabaret, change, path)? {
+                    Some(workspace) => workspace,
+                    None => cabaret.workspace_current()?,
                 };
-                cabaret.workspace_switch(workspace_id.to_ref(), switch_to)?
+                cabaret.workspace_switch(workspace.to_ref(), switch_to)?;
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -68,17 +65,12 @@ impl WorkspaceCommand {
                 }
             }
             WorkspaceCommand::Path { change } => {
-                todo!()
+                let workspace = holding(&cabaret, &change)?;
+                println!("{}", cabaret.workspace_path(workspace.to_ref())?.display());
             }
             WorkspaceCommand::Remove { change, path } => {
-                let workspace_id = match (change, path) {
-                    (None, None) | (Some(_), Some(_)) => Err("must pass exactly one of change or path")?,
-                    (None, Some(path)) => WorkspaceId::of_path(&path),
-                    (Some(change_id), None) => cabaret
-                        .workspace_holding(&change_id)?
-                        .ok_or_else(|| format!("{change_id} is not currently held by a workspace"))?,
-                };
-                cabaret.workspace_remove(workspace_id.to_ref())?
+                let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
+                cabaret.workspace_remove(workspace.to_ref())?;
             }
         }
 
@@ -86,6 +78,15 @@ impl WorkspaceCommand {
     }
 }
 
+/// The workspace a command names by change or by path; clap keeps the two exclusive.
+fn named(cabaret: &Cabaret, change: Option<ChangeId>, path: Option<PathBuf>) -> Result<Option<WorkspaceId>> {
+    Ok(match (change, path) {
+        (Some(change), _) => Some(holding(cabaret, &change)?),
+        (None, Some(path)) => Some(cabaret.workspace_at(&path)?),
+        (None, None) => None,
+    })
+}
+
 fn holding(cabaret: &Cabaret, change: &ChangeId) -> Result<WorkspaceId> {
-    cabaret.snapshot(change)?.workspace.ok_or_else(|| format!("{change} is not checked out in any workspace").into())
+    cabaret.workspace_holding(change)?.ok_or_else(|| format!("{change} is not checked out in any workspace").into())
 }

@@ -1,9 +1,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fs,
     path::{Path, PathBuf},
 };
 
-use gix::ThreadSafeRepository;
+use gix::{ThreadSafeRepository, bstr::ByteSlice};
 
 use crate::{
     error::Result,
@@ -56,31 +57,96 @@ impl Cabaret {
         })
     }
 
-    pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> { todo!() }
-
-    pub fn workspace_add(&self, change_id: ChangeId, workspace_id: Option<WorkspaceId>) -> Result<WorkspaceId> {
-        let id = workspace_id.unwrap_or_else(|| WorkspaceId::of_change(&change_id));
-        self.transact(
-            &[],
-            &[],
-            &[WorkspaceOp::Insert { id: id.to_ref(), head: Head::Change(change_id) }],
-            |_ctx, [], [], [_workspace]| Ok(()),
-        )?;
-        Ok(id)
+    pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> {
+        self.query(|ctx| ctx.branch(change_id)?.workspace())
     }
 
-    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
-        self.transact(&[], &[], &[WorkspaceOp::Delete { id: workspace_id }], |_ctx, [], [], [_workspace]| Ok(()))
-    }
-
-    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef, change_id: ChangeId) -> Result<()> {
-        self.transact(&[], &[], &[WorkspaceOp::Update { id: workspace_id }], |_ctx, [], [], [workspace]| {
-            workspace.head = Head::Change(change_id);
-            Ok(())
+    /// The workspace whose working directory is `path`.
+    pub fn workspace_at(&self, path: &Path) -> Result<WorkspaceId> {
+        let path = fs::canonicalize(path)?;
+        self.query(|ctx| {
+            for workspace in ctx.workspaces()? {
+                let workdir =
+                    ctx.workspace_repo(workspace.to_ref())?.workdir().and_then(|dir| fs::canonicalize(dir).ok());
+                if workdir.as_deref() == Some(&path) {
+                    return Ok(workspace);
+                }
+            }
+            Err(format!("no workspace at {}", path.display()).into())
         })
     }
 
-    pub fn workspace_current(&self) -> WorkspaceId { todo!() }
+    /// The workspace this instance was opened in.
+    pub fn workspace_current(&self) -> Result<WorkspaceId> {
+        let repo = self.repo.to_thread_local();
+        let worktree = repo.worktree().ok_or("not opened inside a workspace")?;
+        Ok(match worktree.id() {
+            None => WorkspaceId::Main,
+            Some(id) => WorkspaceId::Linked(id.to_owned()),
+        })
+    }
+
+    pub fn workspace_path(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<PathBuf> {
+        self.query(|ctx| {
+            let repo = ctx.workspace_repo(workspace_id)?;
+            Ok(repo.workdir().ok_or_else(|| format!("workspace {workspace_id} has no working directory"))?.to_owned())
+        })
+    }
+
+    /// Create a workspace holding `change_id` at `path`, or the default location, and return
+    /// where it was made. Declaring the branch keeps it still while the files are written.
+    pub fn workspace_add(&self, change_id: ChangeId, path: Option<PathBuf>) -> Result<PathBuf> {
+        let path = match path {
+            Some(path) => std::path::absolute(path)?,
+            None => self.default_workspace_path(&change_id)?,
+        };
+        self.transact(
+            &[],
+            &[BranchOp::Update(&change_id)],
+            &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.clone()) }],
+            |_ctx, [], [_branch], [_workspace]| Ok(()),
+        )?;
+        Ok(path)
+    }
+
+    /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
+    /// share a parent directory; inside the git dir when the repository is bare.
+    fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
+        let main = self.repo.to_thread_local().main_repo()?;
+        // a change id may contain slashes, which one directory name cannot
+        let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "-"));
+        let Some(workdir) = main.workdir() else {
+            return Ok(main.git_dir().join(change));
+        };
+        let mut name = workdir.file_name().ok_or("main workspace has no directory name")?.to_os_string();
+        name.push("-");
+        name.push(change.as_os_str());
+        Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
+    }
+
+    /// Removing a workspace needs the branch it holds, which is only known once read; the
+    /// transaction re-checks it under the lock.
+    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
+        let delete = [WorkspaceOp::Delete { id: workspace_id }];
+        match self.query(|ctx| ctx.workspace_change(workspace_id))? {
+            Some(held) => {
+                self.transact(&[], &[BranchOp::Update(&held)], &delete, |_ctx, [], [_branch], [_workspace]| Ok(()))
+            }
+            None => self.transact(&[], &[], &delete, |_ctx, [], [], [_workspace]| Ok(())),
+        }
+    }
+
+    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId) -> Result<()> {
+        self.transact(
+            &[],
+            &[BranchOp::Update(&change_id)],
+            &[WorkspaceOp::Update { id: workspace_id }],
+            |_ctx, [], [_branch], [workspace]| {
+                workspace.head = Head::Change(change_id.clone());
+                Ok(())
+            },
+        )
+    }
 
     // Change operations
 

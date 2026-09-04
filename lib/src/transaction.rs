@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt, time::Duration};
+use std::{collections::BTreeSet, fmt, path::Path, time::Duration};
 
 use gix::{
     lock::{Marker, acquire::Fail},
@@ -14,7 +14,7 @@ use crate::{
     context::TransactionContext,
     error::Result,
     metadata::Metadata,
-    types::{ChangeIdRef, Revision, WorkspaceIdRef},
+    types::{ChangeIdRef, Revision, WorkspaceId, WorkspaceIdRef},
     workspace::{Head, Workspace},
 };
 
@@ -43,14 +43,15 @@ impl<'a> BranchOp<'a> {
 }
 pub enum WorkspaceOp<'a> {
     Update { id: WorkspaceIdRef<'a> },
-    Insert { id: WorkspaceIdRef<'a>, head: Head },
+    Insert { path: &'a Path, head: Head },
     Delete { id: WorkspaceIdRef<'a> },
 }
 
 impl<'a> WorkspaceOp<'a> {
-    fn id(&self) -> WorkspaceIdRef<'a> {
+    fn id(&self) -> Result<WorkspaceId> {
         match self {
-            WorkspaceOp::Update { id } | WorkspaceOp::Insert { id, .. } | WorkspaceOp::Delete { id } => *id,
+            WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => Ok(id.into_owned()),
+            WorkspaceOp::Insert { path, .. } => WorkspaceId::linked_at(path),
         }
     }
 
@@ -130,7 +131,8 @@ impl Cabaret {
         // each other
         let mut locks = self.lock(Resource::Metadata, metadata_ids.iter().copied())?;
         locks.extend(self.lock(Resource::Branch, branch_ops.iter().map(BranchOp::id))?);
-        locks.extend(self.lock(Resource::Workspace, workspace_ops.iter().map(WorkspaceOp::id))?);
+        let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
+        locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
         // TODO(joel): retry on ref contention instead of surfacing it
         let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
 

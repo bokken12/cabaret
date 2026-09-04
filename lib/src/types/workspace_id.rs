@@ -1,11 +1,8 @@
-use std::{fmt, path::PathBuf};
+use std::{fmt, path::Path};
 
 use gix::bstr::{BStr, BString};
 
-use crate::{
-    context::TransactionContext,
-    types::{ChangeIdRef, change_id},
-};
+use crate::error::Result;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WorkspaceId {
@@ -20,10 +17,11 @@ pub enum WorkspaceIdRef<'a> {
 }
 
 impl WorkspaceId {
-    /// The default name for a workspace containing a particular change
-    pub fn of_change(change_id: &ChangeIdRef) -> Self { todo!() }
-
-    pub fn of_path(path: &PathBuf) -> Self { todo!() }
+    /// The id git gives a linked worktree at `path`: its directory name.
+    pub fn linked_at(path: &Path) -> Result<Self> {
+        let name = path.file_name().ok_or_else(|| format!("{} does not name a directory", path.display()))?;
+        Ok(Self::Linked(gix::path::os_str_into_bstr(name)?.to_owned()))
+    }
 
     pub fn to_ref(&self) -> WorkspaceIdRef<'_> {
         match self {
