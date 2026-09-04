@@ -42,7 +42,7 @@ impl<'a> BranchOp<'a> {
 
 /// How long a transaction waits for another's locks before giving up; a lock older than this
 /// was most likely left behind by a killed process.
-const LOCK_TIMEOUT: Duration = Duration::from_mins(1);
+const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The independently lockable parts of a change; each has its own directory of lock files.
 #[derive(Clone, Copy, Debug)]
