@@ -8,11 +8,12 @@ use gix::ThreadSafeRepository;
 use crate::{
     error::Result,
     page::Page,
-    transaction::BranchOp,
+    transaction::{BranchOp, WorkspaceOp},
     types::{
         ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange,
         WorkspaceId, WorkspaceIdRef,
     },
+    workspace::Head,
 };
 
 /// What [`Cabaret::rebase`] did.
@@ -57,15 +58,29 @@ impl Cabaret {
 
     pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> { todo!() }
 
-    pub fn workspace_add(
-        &self,
-        change_id: &ChangeIdRef,
-        workspace_id: Option<WorkspaceIdRef<'_>>,
-    ) -> Result<WorkspaceId> {
-        todo!()
+    pub fn workspace_add(&self, change_id: ChangeId, workspace_id: Option<WorkspaceId>) -> Result<WorkspaceId> {
+        let id = workspace_id.unwrap_or_else(|| WorkspaceId::of_change(&change_id));
+        self.transact(
+            &[],
+            &[],
+            &[WorkspaceOp::Insert { id: id.to_ref(), head: Head::Change(change_id) }],
+            |_ctx, [], [], [_workspace]| Ok(()),
+        )?;
+        Ok(id)
     }
 
-    pub fn workspace_remove(&self, workspace_id: Option<WorkspaceIdRef<'_>>) -> Result<()> { todo!() }
+    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
+        self.transact(&[], &[], &[WorkspaceOp::Delete { id: workspace_id }], |_ctx, [], [], [_workspace]| Ok(()))
+    }
+
+    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef, change_id: ChangeId) -> Result<()> {
+        self.transact(&[], &[], &[WorkspaceOp::Update { id: workspace_id }], |_ctx, [], [], [workspace]| {
+            workspace.head = Head::Change(change_id);
+            Ok(())
+        })
+    }
+
+    pub fn workspace_current(&self) -> WorkspaceId { todo!() }
 
     // Change operations
 

@@ -21,7 +21,11 @@ pub enum WorkspaceCommand {
     /// Swap the change held in this workspace.
     Switch {
         #[arg(add = change_completer())]
-        change: ChangeId,
+        switch_to: ChangeId,
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
+        path: Option<PathBuf>,
     },
     List,
     /// Find the path of the workspace holding a change.
@@ -44,8 +48,16 @@ impl WorkspaceCommand {
             WorkspaceCommand::Add { change, path } => {
                 todo!()
             }
-            WorkspaceCommand::Switch { change } => {
-                todo!()
+            WorkspaceCommand::Switch { switch_to, change, path } => {
+                let workspace_id = match (change, path) {
+                    (Some(_), Some(_)) => Err("must pass exactly one of change or path")?,
+                    (None, None) => cabaret.workspace_current(),
+                    (None, Some(path)) => WorkspaceId::of_path(&path),
+                    (Some(change_id), None) => cabaret
+                        .workspace_holding(&change_id)?
+                        .ok_or_else(|| format!("{change_id} is not currently held by a workspace"))?,
+                };
+                cabaret.workspace_switch(workspace_id.to_ref(), switch_to)?
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -59,7 +71,14 @@ impl WorkspaceCommand {
                 todo!()
             }
             WorkspaceCommand::Remove { change, path } => {
-                todo!()
+                let workspace_id = match (change, path) {
+                    (None, None) | (Some(_), Some(_)) => Err("must pass exactly one of change or path")?,
+                    (None, Some(path)) => WorkspaceId::of_path(&path),
+                    (Some(change_id), None) => cabaret
+                        .workspace_holding(&change_id)?
+                        .ok_or_else(|| format!("{change_id} is not currently held by a workspace"))?,
+                };
+                cabaret.workspace_remove(workspace_id.to_ref())?
             }
         }
 

@@ -1,6 +1,11 @@
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 use gix::bstr::{BStr, BString};
+
+use crate::{
+    context::TransactionContext,
+    types::{ChangeIdRef, change_id},
+};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WorkspaceId {
@@ -15,6 +20,11 @@ pub enum WorkspaceIdRef<'a> {
 }
 
 impl WorkspaceId {
+    /// The default name for a workspace containing a particular change
+    pub fn of_change(change_id: &ChangeIdRef) -> Self { todo!() }
+
+    pub fn of_path(path: &PathBuf) -> Self { todo!() }
+
     pub fn to_ref(&self) -> WorkspaceIdRef<'_> {
         match self {
             Self::Main => WorkspaceIdRef::Main,
