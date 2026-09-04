@@ -26,12 +26,6 @@ pub enum BranchOp<'a> {
     Insert { id: &'a ChangeIdRef, tip: Revision },
 }
 
-pub enum WorkspaceOp<'a> {
-    Update { id: &'a WorkspaceId },
-    Insert { id: &'a WorkspaceId, head: Head },
-    Delete { id: &'a WorkspaceId },
-}
-
 impl<'a> BranchOp<'a> {
     fn id(&self) -> &'a ChangeIdRef {
         match self {
@@ -47,6 +41,15 @@ impl<'a> BranchOp<'a> {
         })
     }
 }
+pub enum WorkspaceOp<'a> {
+    Update { id: &'a WorkspaceId },
+    Insert { id: &'a WorkspaceId, head: Head },
+    Delete { id: &'a WorkspaceId },
+}
+
+impl<'a> WorkspaceOp<'a> {
+    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Workspace<'ctx>> { todo!() }
+}
 
 /// How long a transaction waits for another's locks before giving up; a lock older than this
 /// was most likely left behind by a killed process.
@@ -57,6 +60,7 @@ const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 enum Resource {
     Metadata,
     Branch,
+    Workspace,
 }
 
 impl Resource {
@@ -64,6 +68,7 @@ impl Resource {
         match self {
             Resource::Metadata => "metadata",
             Resource::Branch => "branch",
+            Resource::Workspace => "workspace",
         }
     }
 }
@@ -85,6 +90,8 @@ impl Cabaret {
         Ok(locks)
     }
 
+    // TODO-someday(joel): variable-sized transactions?
+    // TODO(joel): transactions do not (yet) modify changes
     /// Run `f` against a fresh context and record what it changed.
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
@@ -115,19 +122,23 @@ impl Cabaret {
 
         // Metadata needs no insert: a change without a log has empty metadata, and its first
         // append creates the log.
-        let mut metadata = Vec::with_capacity(M);
+        let mut metadata = Vec::with_capacity(L);
         for id in metadata_ids {
             metadata.push(ctx.metadata(id)?.clone());
         }
         let mut metadata: [Metadata<'_>; L] = metadata.try_into().expect("one metadata per id");
-        let mut branches = Vec::with_capacity(N);
+        let mut branches = Vec::with_capacity(M);
         for op in branch_ops {
             branches.push(op.before(&ctx)?);
         }
         let mut branches: [Branch<'_>; M] = branches.try_into().expect("one branch per op");
 
         // TODO(joel): fix workspaces
-        let mut workspaces: [Workspace<'_>; N] = todo!();
+        let mut workspaces = Vec::with_capacity(N);
+        for op in workspace_ops {
+            workspaces.push(op.before(&ctx)?);
+        }
+        let mut workspaces: [Workspace<'_>; N] = workspaces.try_into().expect("one workspace per op");
 
         let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
 

@@ -19,12 +19,14 @@ use crate::{
     types::{ChangeId, Revision, WorkspaceId},
 };
 
+#[derive(Clone, Debug)]
 pub enum Head {
     Change(ChangeId),
     Detached(Revision),
 }
 
 // TODO(joel): fill out
+#[derive(Clone, Debug)]
 pub struct Workspace<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: WorkspaceId,
