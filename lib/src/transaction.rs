@@ -194,7 +194,7 @@ impl Cabaret {
         // rather than ahead of it.
         for (branch, from) in moved {
             if let Some(workspace) = branch.workspace()? {
-                ctx.fast_forward(workspace.to_ref(), from, branch.tip)?;
+                Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch.tip)?;
             }
         }
         Ok(out)

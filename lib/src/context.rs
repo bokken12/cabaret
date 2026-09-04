@@ -13,7 +13,8 @@ use crate::{
     branch::Branch,
     error::Result,
     metadata::Metadata,
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId},
+    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef},
+    workspace::Workspace,
 };
 
 /// One transaction's view of the repository at a fixed time, holding its resources' locks
@@ -22,6 +23,7 @@ pub struct TransactionContext<'ctx> {
     pub timestamp: TimestampMs,
     metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
     branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
+    workspaces: FrozenBTreeMap<WorkspaceId, Box<Workspace<'ctx>>>,
     _locks: Vec<Marker>,
 }
 
@@ -36,6 +38,7 @@ impl<'ctx> TransactionContext<'ctx> {
             timestamp: TimestampMs::now(),
             metadata: FrozenBTreeMap::new(),
             branches: FrozenBTreeMap::new(),
+            workspaces: FrozenBTreeMap::new(),
             _locks: locks,
         }
     }
@@ -54,6 +57,14 @@ impl<'ctx> TransactionContext<'ctx> {
             return Ok(branch);
         }
         Ok(self.branches.insert(change_id.to_owned(), Box::new(Branch::load(self, change_id)?)))
+    }
+
+    /// `workspace_id`'s workspace as committed when first asked for.
+    pub fn workspace(&'ctx self, workspace_id: WorkspaceIdRef<'_>) -> Result<&'ctx Workspace<'ctx>> {
+        if let Some(workspace) = self.workspaces.get(&workspace_id.into_owned()) {
+            return Ok(workspace);
+        }
+        Ok(self.workspaces.insert(workspace_id.into_owned(), Box::new(Workspace::load(self, workspace_id)?)))
     }
 
     /// Every local branch is a change, whether or not anything has been logged about it.
@@ -114,10 +125,8 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(Revision(self.repo.write_object(&commit)?.detach()))
     }
 
-    // TODO-someday(joel): consider pulling into state
-    pub fn current_change(&self) -> Result<ChangeId> {
-        let head = self.repo.head_name()?.ok_or("HEAD is detached")?;
-        Ok(head.shorten().to_string().parse()?)
+    pub fn current_change(&'ctx self) -> Result<ChangeId> {
+        Ok(self.workspace(self.current_workspace()?.to_ref())?.change().ok_or("HEAD is detached")?.clone())
     }
 
     /// The text of `path` at `revision`, or `None` when no file is there.

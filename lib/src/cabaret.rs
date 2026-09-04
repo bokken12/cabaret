@@ -50,7 +50,7 @@ impl Cabaret {
         self.query(|ctx| {
             let mut workspaces = BTreeMap::new();
             for workspace in ctx.workspaces()? {
-                let change = ctx.workspace_change(workspace.to_ref())?;
+                let change = ctx.workspace(workspace.to_ref())?.change().cloned();
                 workspaces.insert(workspace, change);
             }
             Ok(workspaces)
@@ -66,8 +66,7 @@ impl Cabaret {
         let path = fs::canonicalize(path)?;
         self.query(|ctx| {
             for workspace in ctx.workspaces()? {
-                let workdir =
-                    ctx.workspace_repo(workspace.to_ref())?.workdir().and_then(|dir| fs::canonicalize(dir).ok());
+                let workdir = ctx.workspace(workspace.to_ref())?.path().ok().and_then(|dir| fs::canonicalize(dir).ok());
                 if workdir.as_deref() == Some(&path) {
                     return Ok(workspace);
                 }
@@ -77,20 +76,10 @@ impl Cabaret {
     }
 
     /// The workspace this instance was opened in.
-    pub fn workspace_current(&self) -> Result<WorkspaceId> {
-        let repo = self.repo.to_thread_local();
-        let worktree = repo.worktree().ok_or("not opened inside a workspace")?;
-        Ok(match worktree.id() {
-            None => WorkspaceId::Main,
-            Some(id) => WorkspaceId::Linked(id.to_owned()),
-        })
-    }
+    pub fn workspace_current(&self) -> Result<WorkspaceId> { self.query(|ctx| ctx.current_workspace()) }
 
     pub fn workspace_path(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<PathBuf> {
-        self.query(|ctx| {
-            let repo = ctx.workspace_repo(workspace_id)?;
-            Ok(repo.workdir().ok_or_else(|| format!("workspace {workspace_id} has no working directory"))?.to_owned())
-        })
+        self.query(|ctx| Ok(ctx.workspace(workspace_id)?.path()?.to_owned()))
     }
 
     /// Create a workspace holding `change_id` at `path`, or the default location, and return
@@ -128,7 +117,7 @@ impl Cabaret {
     /// transaction re-checks it under the lock.
     pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
-        match self.query(|ctx| ctx.workspace_change(workspace_id))? {
+        match self.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))? {
             Some(held) => {
                 self.transact(&[], &[BranchOp::Update(&held)], &delete, |_ctx, [], [_branch], [_workspace]| Ok(()))
             }
