@@ -2,6 +2,8 @@ use std::fmt;
 
 use gix::bstr::BString;
 
+// TODO-someday(joel): add a WorkspaceIdRef
+
 /// A working directory of the repository. Git names linked worktrees by their admin directory
 /// under `.git/worktrees/` and leaves the main one nameless, so it gets its own case.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]

@@ -41,13 +41,7 @@ impl Cabaret {
         Ok(Self { repo, locks })
     }
 
-    pub fn changes(&self) -> Result<Vec<ChangeId>> { self.query(|ctx| ctx.changes()) }
-
-    pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
-
-    pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
-
-    pub fn resolve(&self, spec: &str) -> Result<Revision> { self.query(|ctx| ctx.resolve(spec)) }
+    // Workspace operations
 
     /// Every workspace and the change checked out in it, `None` where HEAD is detached.
     pub fn workspaces(&self) -> Result<BTreeMap<WorkspaceId, Option<ChangeId>>> {
@@ -60,6 +54,24 @@ impl Cabaret {
             Ok(workspaces)
         })
     }
+
+    pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> { todo!() }
+
+    pub fn workspace_add(&self, change_id: &ChangeIdRef, workspace_id: Option<&WorkspaceId>) -> Result<WorkspaceId> {
+        todo!()
+    }
+
+    pub fn workspace_remove(&self, workspace_id: Option<&WorkspaceId>) -> Result<()> { todo!() }
+
+    // Change operations
+
+    pub fn changes(&self) -> Result<Vec<ChangeId>> { self.query(|ctx| ctx.changes()) }
+
+    pub fn identity(&self) -> Result<Identity> { self.query(|ctx| ctx.identity()) }
+
+    pub fn current_change(&self) -> Result<ChangeId> { self.query(|ctx| ctx.current_change()) }
+
+    pub fn resolve(&self, spec: &str) -> Result<Revision> { self.query(|ctx| ctx.resolve(spec)) }
 
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         self.query(|ctx| ctx.snapshot(change_id))
