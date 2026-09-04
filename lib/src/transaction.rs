@@ -14,7 +14,7 @@ use crate::{
     context::TransactionContext,
     error::Result,
     metadata::Metadata,
-    types::{ChangeIdRef, Revision, WorkspaceId},
+    types::{ChangeIdRef, Revision, WorkspaceIdRef},
     workspace::{Head, Workspace},
 };
 
@@ -42,15 +42,15 @@ impl<'a> BranchOp<'a> {
     }
 }
 pub enum WorkspaceOp<'a> {
-    Update { id: &'a WorkspaceId },
-    Insert { id: &'a WorkspaceId, head: Head },
-    Delete { id: &'a WorkspaceId },
+    Update { id: WorkspaceIdRef<'a> },
+    Insert { id: WorkspaceIdRef<'a>, head: Head },
+    Delete { id: WorkspaceIdRef<'a> },
 }
 
 impl<'a> WorkspaceOp<'a> {
-    fn id(&self) -> &'a WorkspaceId {
+    fn id(&self) -> WorkspaceIdRef<'a> {
         match self {
-            WorkspaceOp::Update { id } | WorkspaceOp::Insert { id, .. } | WorkspaceOp::Delete { id } => id,
+            WorkspaceOp::Update { id } | WorkspaceOp::Insert { id, .. } | WorkspaceOp::Delete { id } => *id,
         }
     }
 
@@ -192,7 +192,7 @@ impl Cabaret {
         // rather than ahead of it.
         for (branch, from) in moved {
             if let Some(workspace) = branch.workspace()? {
-                ctx.fast_forward(&workspace, from, branch.tip)?;
+                ctx.fast_forward(workspace.to_ref(), from, branch.tip)?;
             }
         }
         Ok(out)

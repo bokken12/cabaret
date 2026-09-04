@@ -18,4 +18,4 @@ pub use repo_path::RepoPath;
 pub use revision::{Revision, RevisionRange};
 pub use timestamp::TimestampMs;
 pub use tree_id::TreeId;
-pub use workspace_id::WorkspaceId;
+pub use workspace_id::{WorkspaceId, WorkspaceIdRef};

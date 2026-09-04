@@ -16,7 +16,7 @@ use crate::{
     branch::Branch,
     context::TransactionContext,
     error::Result,
-    types::{ChangeId, Revision, WorkspaceId},
+    types::{ChangeId, Revision, WorkspaceId, WorkspaceIdRef},
 };
 
 #[derive(Clone, Debug)]
@@ -48,11 +48,11 @@ impl TransactionContext<'_> {
 
     /// The repository as seen from `workspace`: its HEAD, index, and working directory. The
     /// directory itself may be missing if the worktree was moved or deleted outside git.
-    pub fn workspace_repo(&self, workspace: &WorkspaceId) -> Result<Repository> {
+    pub fn workspace_repo(&self, workspace: WorkspaceIdRef<'_>) -> Result<Repository> {
         match workspace {
-            WorkspaceId::Main => Ok(self.repo.main_repo()?),
-            WorkspaceId::Linked(id) => {
-                let proxy = self.repo.worktree_proxy_by_id(id.as_bstr()).ok_or_else(|| format!("no workspace {id}"))?;
+            WorkspaceIdRef::Main => Ok(self.repo.main_repo()?),
+            WorkspaceIdRef::Linked(id) => {
+                let proxy = self.repo.worktree_proxy_by_id(id).ok_or_else(|| format!("no workspace {id}"))?;
                 Ok(proxy.into_repo_with_possibly_inaccessible_worktree()?)
             }
         }
@@ -61,7 +61,7 @@ impl TransactionContext<'_> {
     /// Move `workspace` from `from` to `to`, touching only the paths that differ. A workspace
     /// that is not cleanly at `from` stays where it is.
     // TODO(joel): untracked files at paths `to` adds are overwritten; refuse or merge instead
-    pub fn fast_forward(&self, workspace: &WorkspaceId, from: Revision, to: Revision) -> Result<()> {
+    pub fn fast_forward(&self, workspace: WorkspaceIdRef<'_>, from: Revision, to: Revision) -> Result<()> {
         let repo = self.workspace_repo(workspace)?;
         let from = repo.find_commit(from)?.tree()?;
         let to = repo.find_commit(to)?.tree()?;
@@ -121,7 +121,7 @@ impl TransactionContext<'_> {
     }
 
     /// The change checked out in `workspace`, or `None` when its HEAD is detached.
-    pub fn workspace_change(&self, workspace: &WorkspaceId) -> Result<Option<ChangeId>> {
+    pub fn workspace_change(&self, workspace: WorkspaceIdRef<'_>) -> Result<Option<ChangeId>> {
         match self.workspace_repo(workspace)?.head_name()? {
             Some(head) => Ok(Some(head.shorten().to_str()?.parse()?)),
             None => Ok(None),
@@ -159,7 +159,7 @@ impl Branch<'_> {
     pub fn workspace(&self) -> Result<Option<WorkspaceId>> {
         let ctx = self.ctx();
         for workspace in ctx.workspaces()? {
-            if ctx.workspace_change(&workspace)?.as_deref() == Some(self.id()) {
+            if ctx.workspace_change(workspace.to_ref())?.as_deref() == Some(self.id()) {
                 return Ok(Some(workspace));
             }
         }

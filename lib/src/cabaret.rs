@@ -11,7 +11,7 @@ use crate::{
     transaction::BranchOp,
     types::{
         ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange,
-        WorkspaceId,
+        WorkspaceId, WorkspaceIdRef,
     },
 };
 
@@ -48,7 +48,7 @@ impl Cabaret {
         self.query(|ctx| {
             let mut workspaces = BTreeMap::new();
             for workspace in ctx.workspaces()? {
-                let change = ctx.workspace_change(&workspace)?;
+                let change = ctx.workspace_change(workspace.to_ref())?;
                 workspaces.insert(workspace, change);
             }
             Ok(workspaces)
@@ -57,11 +57,15 @@ impl Cabaret {
 
     pub fn workspace_holding(&self, change_id: &ChangeIdRef) -> Result<Option<WorkspaceId>> { todo!() }
 
-    pub fn workspace_add(&self, change_id: &ChangeIdRef, workspace_id: Option<&WorkspaceId>) -> Result<WorkspaceId> {
+    pub fn workspace_add(
+        &self,
+        change_id: &ChangeIdRef,
+        workspace_id: Option<WorkspaceIdRef<'_>>,
+    ) -> Result<WorkspaceId> {
         todo!()
     }
 
-    pub fn workspace_remove(&self, workspace_id: Option<&WorkspaceId>) -> Result<()> { todo!() }
+    pub fn workspace_remove(&self, workspace_id: Option<WorkspaceIdRef<'_>>) -> Result<()> { todo!() }
 
     // Change operations
 
