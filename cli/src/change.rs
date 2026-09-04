@@ -47,6 +47,12 @@ pub enum ChangeCommand {
         #[arg(long)]
         undo: bool,
     },
+    Commit {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(value_hint = ValueHint::AnyPath)]
+        pathspecs: Vec<Pathspec>,
+    },
     Create {
         id: ChangeId,
         #[arg(long, add = change_completer())]
@@ -125,6 +131,7 @@ impl ChangeCommand {
                 false => cabaret.archive(&or_current(change)?)?,
                 true => cabaret.unarchive(&or_current(change)?)?,
             },
+            ChangeCommand::Commit { .. } => todo!(),
             ChangeCommand::Create { id, parent } => {
                 let parent = or_current(parent)?;
                 cabaret.create(&id, &parent, &cabaret.identity()?)?;

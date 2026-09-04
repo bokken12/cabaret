@@ -17,10 +17,6 @@ enum Command {
         #[command(subcommand)]
         command: ChangeCommand,
     },
-    Commit {
-        #[arg(value_hint = ValueHint::AnyPath)]
-        pathspecs: Vec<Pathspec>,
-    },
     Config,
     Fetch,
     /// Show your open changes as a stack graph.
@@ -48,7 +44,6 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Command::Change { command } => command.run(cabaret)?,
-        Command::Commit { .. } => todo!(),
         Command::Config => todo!(),
         Command::Fetch => fetch(&cabaret)?,
         Command::Home { viewer } => {
