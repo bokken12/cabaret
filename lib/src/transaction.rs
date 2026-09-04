@@ -14,14 +14,22 @@ use crate::{
     context::TransactionContext,
     error::Result,
     metadata::Metadata,
-    types::{ChangeIdRef, Revision},
+    types::{ChangeIdRef, Revision, WorkspaceId},
+    workspace::{Head, Workspace},
 };
 
 /// A branch in a transaction's write set. A branch that is only read still goes here: there is
 /// no read mode, and declaring it keeps it from moving underneath the transaction.
 pub enum BranchOp<'a> {
+    // TODO(joel): convert tuple-struct to named?
     Update(&'a ChangeIdRef),
     Insert { id: &'a ChangeIdRef, tip: Revision },
+}
+
+pub enum WorkspaceOp<'a> {
+    Update { id: &'a WorkspaceId },
+    Insert { id: &'a WorkspaceId, head: Head },
+    Delete { id: &'a WorkspaceId },
 }
 
 impl<'a> BranchOp<'a> {
@@ -84,17 +92,19 @@ impl Cabaret {
     /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
     /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
     /// other changes through the context.
-    pub(crate) fn transact<const M: usize, const N: usize, T, F>(
+    pub(crate) fn transact<const L: usize, const M: usize, const N: usize, T, F>(
         &self,
-        metadata_ids: &[&ChangeIdRef; M],
-        branch_ops: &[BranchOp<'_>; N],
+        metadata_ids: &[&ChangeIdRef; L],
+        branch_ops: &[BranchOp<'_>; M],
+        workspace_ops: &[WorkspaceOp<'_>; N],
         f: F,
     ) -> Result<T>
     where
         F: for<'ctx> FnOnce(
             &'ctx TransactionContext<'ctx>,
-            &mut [Metadata<'ctx>; M],
-            &mut [Branch<'ctx>; N],
+            &mut [Metadata<'ctx>; L],
+            &mut [Branch<'ctx>; M],
+            &mut [Workspace<'ctx>; N],
         ) -> Result<T>,
     {
         // metadata before branches, always, so two transactions cannot wait on each other
@@ -109,13 +119,17 @@ impl Cabaret {
         for id in metadata_ids {
             metadata.push(ctx.metadata(id)?.clone());
         }
-        let mut metadata: [Metadata<'_>; M] = metadata.try_into().expect("one metadata per id");
+        let mut metadata: [Metadata<'_>; L] = metadata.try_into().expect("one metadata per id");
         let mut branches = Vec::with_capacity(N);
         for op in branch_ops {
             branches.push(op.before(&ctx)?);
         }
-        let mut branches: [Branch<'_>; N] = branches.try_into().expect("one branch per op");
-        let out = f(&ctx, &mut metadata, &mut branches)?;
+        let mut branches: [Branch<'_>; M] = branches.try_into().expect("one branch per op");
+
+        // TODO(joel): fix workspaces
+        let mut workspaces: [Workspace<'_>; N] = todo!();
+
+        let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
 
         // Every log and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
@@ -163,20 +177,20 @@ impl Cabaret {
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>) -> Result<T>,
     {
-        self.transact(&[], &[], |ctx, [], []| f(ctx))
+        self.transact(&[], &[], &[], |ctx, [], [], []| f(ctx))
     }
 
     pub(crate) fn update_metadata<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
     {
-        self.transact(&[id], &[], |ctx, [metadata], []| f(ctx, metadata))
+        self.transact(&[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
     }
 
     pub(crate) fn update_branch<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Branch<'ctx>) -> Result<T>,
     {
-        self.transact(&[], &[BranchOp::Update(id)], |ctx, [], [branch]| f(ctx, branch))
+        self.transact(&[], &[BranchOp::Update(id)], &[], |ctx, [], [branch], []| f(ctx, branch))
     }
 }

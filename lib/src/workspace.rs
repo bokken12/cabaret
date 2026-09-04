@@ -19,6 +19,18 @@ use crate::{
     types::{ChangeId, Revision, WorkspaceId},
 };
 
+pub enum Head {
+    Change(ChangeId),
+    Detached(Revision),
+}
+
+// TODO(joel): fill out
+pub struct Workspace<'ctx> {
+    ctx: &'ctx TransactionContext<'ctx>,
+    id: WorkspaceId,
+    pub head: Head,
+}
+
 impl TransactionContext<'_> {
     /// Every workspace: the main one unless the repository is bare, then each linked worktree.
     pub fn workspaces(&self) -> Result<Vec<WorkspaceId>> {

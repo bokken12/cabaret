@@ -88,7 +88,7 @@ impl Cabaret {
     pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         let tip = self.query(|ctx| Ok(ctx.branch(parent_id)?.tip))?;
         let branches = [BranchOp::Insert { id: change_id, tip }];
-        self.transact(&[change_id], &branches, |_ctx, [metadata], [_branch]| {
+        self.transact(&[change_id], &branches, &[], |_ctx, [metadata], [_branch], []| {
             metadata.declared_parents = BTreeSet::from([parent_id.to_owned()]);
             metadata.owners = BTreeSet::from([owner.clone()]);
             Ok(())
@@ -106,7 +106,7 @@ impl Cabaret {
             })?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.transact(&[change_id], &branches, |_ctx, [child], [parent, child_branch]| {
+        self.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
