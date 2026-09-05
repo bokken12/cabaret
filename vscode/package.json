@@ -39,6 +39,10 @@
         "title": "Cabaret: Diff"
       },
       {
+        "command": "cabaret.refresh",
+        "title": "Cabaret: Refresh"
+      },
+      {
         "command": "cabaret.stepIn",
         "title": "Cabaret: Step In"
       },
@@ -71,6 +75,16 @@
       {
         "command": "cabaret.diff",
         "key": "d",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.refresh",
+        "key": "r",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "workbench.action.closeActiveEditor",
+        "key": "q",
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {

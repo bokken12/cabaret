@@ -312,6 +312,14 @@ function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode
   });
 }
 
+/** Re-render the active page from the repository. */
+async function refresh(provider: PageProvider): Promise<void> {
+  const editor = activePage();
+  if (editor !== undefined) {
+    await provider.open(parseRoute(editor.document.uri));
+  }
+}
+
 /**
  * `!` then a key: `run` acts on the change the active page is about and says what it did; the
  * page is then re-rendered to show the result.
@@ -324,10 +332,7 @@ function action(
   return command(name, async (cabaret) => {
     const report = await run(cabaret, await activeChange(cabaret, provider));
     vscode.window.showInformationMessage(`Cabaret: ${report}`);
-    const editor = activePage();
-    if (editor !== undefined) {
-      await provider.open(parseRoute(editor.document.uri));
-    }
+    await refresh(provider);
   });
 }
 
@@ -390,6 +395,7 @@ export function activate(context: vscode.ExtensionContext) {
         await provider.open({ kind: "home" });
       }
     }),
+    command("cabaret.refresh", () => refresh(provider)),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "parents")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "children")),
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
