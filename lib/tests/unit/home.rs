@@ -2,7 +2,7 @@ use cabaret_lib::{ChangeId, Home, HomeGraph, HomeNode, Identity, Page, Target};
 use expect_test::{Expect, expect};
 
 /// Nodes are (id, selected, space-separated parents). Parents that are not listed as nodes are
-/// dropped, as `Cabaret::home` drops trunk.
+/// dropped.
 fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
     let ids: Vec<&str> = nodes.iter().map(|(id, ..)| *id).collect();
     let nodes = nodes

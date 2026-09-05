@@ -431,9 +431,7 @@ impl Cabaret {
             let trunk = ctx.default_branch()?;
             let mut changes = BTreeMap::new();
             for id in ctx.changes()? {
-                if id != trunk {
-                    changes.insert(id.clone(), ctx.metadata(&id)?);
-                }
+                changes.insert(id.clone(), ctx.metadata(&id)?);
             }
             let owned = changes
                 .iter()
@@ -446,8 +444,8 @@ impl Cabaret {
             }
             Ok(Home {
                 viewer: viewer.clone(),
-                owned: home_graph(&changes, &owned.collect())?,
-                workspaces: home_graph(&changes, &checked_out)?,
+                owned: home_graph(&changes, &owned.collect(), &trunk)?,
+                workspaces: home_graph(&changes, &checked_out, &trunk)?,
             })
         })
     }
@@ -455,10 +453,16 @@ impl Cabaret {
     pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home(viewer)?) }
 }
 
-/// `selected` and their ancestors within `changes`, every change other than trunk. Ancestry is
-/// the changes each targets, so an open change hangs past an archived parent even when that
-/// parent is drawn; an archived change hangs off what it landed into.
-fn home_graph(changes: &BTreeMap<ChangeId, &Metadata<'_>>, selected: &BTreeSet<ChangeId>) -> Result<HomeGraph> {
+/// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an
+/// open change hangs past an archived parent even when that parent is drawn; an archived change
+/// hangs off what it landed into. Trunk is drawn only when selected: as mere context it would
+/// root every stack, saying nothing.
+fn home_graph(
+    changes: &BTreeMap<ChangeId, &Metadata<'_>>,
+    selected: &BTreeSet<ChangeId>,
+    trunk: &ChangeId,
+) -> Result<HomeGraph> {
+    let drawn = |id: &ChangeId| changes.contains_key(id) && (id != trunk || selected.contains(id));
     let mut nodes = BTreeMap::new();
     let mut frontier: VecDeque<ChangeId> = selected.iter().cloned().collect();
     while let Some(id) = frontier.pop_front() {
@@ -466,8 +470,7 @@ fn home_graph(changes: &BTreeMap<ChangeId, &Metadata<'_>>, selected: &BTreeSet<C
             continue;
         }
         let metadata = changes[&id];
-        let parents: BTreeSet<ChangeId> =
-            metadata.parents()?.into_iter().filter(|parent| changes.contains_key(parent)).collect();
+        let parents: BTreeSet<ChangeId> = metadata.parents()?.into_iter().filter(drawn).collect();
         frontier.extend(parents.iter().cloned());
         let node = HomeNode { title: metadata.title.clone(), selected: selected.contains(&id), parents };
         nodes.insert(id, node);

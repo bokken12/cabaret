@@ -6,6 +6,8 @@ use super::fixture::{Fixture, alice, bob, id};
 
 fn home(fixture: &Fixture) -> String { fixture.cabaret.home_page(&alice()).unwrap().to_string() }
 
+/// Trunk is drawn only where it is selected, as the fixture's main workspace has it checked out;
+/// as mere context under every stack it is dropped.
 #[test]
 fn owned_changes_plus_open_ancestors_as_context() {
     let fixture = Fixture::new();
@@ -20,13 +22,13 @@ fn owned_changes_plus_open_ancestors_as_context() {
         ╰─○   feature  My feature
 
         Workspaces
-        no changes checked out in a workspace
+        ○   main
     "]]
     .assert_eq(&home(&fixture));
 }
 
 #[test]
-fn trunk_and_archived_changes_are_never_drawn() {
+fn archived_changes_are_never_drawn_as_context() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("base", "main", &alice());
@@ -37,7 +39,7 @@ fn trunk_and_archived_changes_are_never_drawn() {
         ○   top
 
         Workspaces
-        no changes checked out in a workspace
+        ○   main
     "]]
     .assert_eq(&home(&fixture));
 }
@@ -85,6 +87,27 @@ fn workspaces_section_keeps_archived_changes() {
     .assert_eq(&home(&fixture));
 }
 
+/// Once selected, trunk roots the stacks that target it like any other change.
+#[test]
+fn checked_out_trunk_roots_its_stacks() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("feature", "main", &bob());
+    fixture.create("other", "main", &bob());
+    fixture.add_workspace("feature");
+    fixture.add_workspace("other");
+    expect![[r"
+        Owned
+        no open changes owned by alice@example.com
+
+        Workspaces
+        ○   main
+        ├─○   feature
+        ╰─○   other
+    "]]
+    .assert_eq(&home(&fixture));
+}
+
 #[test]
 fn nothing_owned_says_so() {
     let fixture = Fixture::new();
@@ -95,7 +118,7 @@ fn nothing_owned_says_so() {
         no open changes owned by alice@example.com
 
         Workspaces
-        no changes checked out in a workspace
+        ○   main
     "]]
     .assert_eq(&home(&fixture));
 }

@@ -12,8 +12,7 @@ use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 pub struct HomeNode {
     pub title: Option<String>,
     pub selected: bool,
-    /// Parents that are themselves nodes of the same graph. Trunk is never a node: rooting on it
-    /// and having no parents are the same state.
+    /// Parents that are themselves nodes of the same graph.
     pub parents: BTreeSet<ChangeId>,
 }
 
