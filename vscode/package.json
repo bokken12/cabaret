@@ -53,6 +53,18 @@
       {
         "command": "cabaret.stepDown",
         "title": "Cabaret: Step Down"
+      },
+      {
+        "command": "cabaret.land",
+        "title": "Cabaret: Land"
+      },
+      {
+        "command": "cabaret.rebase",
+        "title": "Cabaret: Rebase"
+      },
+      {
+        "command": "cabaret.toggleArchived",
+        "title": "Cabaret: Toggle Archived"
       }
     ],
     "keybindings": [
@@ -79,6 +91,21 @@
       {
         "command": "cabaret.stepDown",
         "key": "shift+4",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.land",
+        "key": "shift+1 l",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.rebase",
+        "key": "shift+1 r",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.toggleArchived",
+        "key": "shift+1 a",
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]

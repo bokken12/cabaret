@@ -312,6 +312,50 @@ function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode
   });
 }
 
+/**
+ * `!` then a key: `run` acts on the change the active page is about and says what it did; the
+ * page is then re-rendered to show the result.
+ */
+function action(
+  name: string,
+  provider: PageProvider,
+  run: (cabaret: Cabaret, change: ChangeId) => Promise<string>,
+): vscode.Disposable {
+  return command(name, async (cabaret) => {
+    const report = await run(cabaret, await activeChange(cabaret, provider));
+    vscode.window.showInformationMessage(`Cabaret: ${report}`);
+    const editor = activePage();
+    if (editor !== undefined) {
+      await provider.open(parseRoute(editor.document.uri));
+    }
+  });
+}
+
+const words = (ids: Iterable<string>): string => [...ids].join(", ");
+
+async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  const rebase = await cabaret.rebase(change);
+  const report = [
+    rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
+  ];
+  if (rebase.conflicts.size > 0) {
+    report.push(`conflicts in ${words(rebase.conflicts)}`);
+  }
+  if (rebase.remaining.size > 0) {
+    report.push(`resolve them and rebase again to continue onto ${words(rebase.remaining)}`);
+  }
+  return report.join("; ");
+}
+
+async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  if ((await cabaret.change(change)).archived) {
+    await cabaret.unarchive(change);
+    return `unarchived ${change}`;
+  }
+  await cabaret.archive(change);
+  return `archived ${change}`;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
@@ -353,5 +397,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "parents")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "children")),
+    action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
+    action("cabaret.rebase", provider, rebase),
+    action("cabaret.toggleArchived", provider, toggleArchived),
   );
 }

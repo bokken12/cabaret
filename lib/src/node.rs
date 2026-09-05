@@ -95,6 +95,16 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub async fn archive(&self, change: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.archive(&change)).await
+    }
+
+    #[napi]
+    pub async fn unarchive(&self, change: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.unarchive(&change)).await
+    }
+
+    #[napi]
     pub async fn rebase(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Rebase> {
         self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref())).await
     }
