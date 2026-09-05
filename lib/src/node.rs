@@ -95,13 +95,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn archive(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.archive(&change)).await
-    }
-
-    #[napi]
-    pub async fn unarchive(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.unarchive(&change)).await
+    pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<bool> {
+        self.blocking(move |cabaret| cabaret.toggle_archived(&change)).await
     }
 
     #[napi]

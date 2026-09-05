@@ -348,12 +348,7 @@ async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  if ((await cabaret.change(change)).archived) {
-    await cabaret.unarchive(change);
-    return `unarchived ${change}`;
-  }
-  await cabaret.archive(change);
-  return `archived ${change}`;
+  return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
 
 export function activate(context: vscode.ExtensionContext) {

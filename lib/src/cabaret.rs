@@ -344,6 +344,14 @@ impl Cabaret {
         })
     }
 
+    /// Archive `change_id`, or unarchive it if it already is, returning whether it is now archived.
+    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<bool> {
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            metadata.archived = !metadata.archived;
+            Ok(metadata.archived)
+        })
+    }
+
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
         self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners.insert(owner.clone()) {
             false => Err(format!("{owner} already owned {change_id}"))?,
