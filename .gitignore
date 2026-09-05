@@ -5,3 +5,4 @@ node/index.js
 node/index.d.ts
 node/*.node
 vscode/out/
+vscode/*.vsix

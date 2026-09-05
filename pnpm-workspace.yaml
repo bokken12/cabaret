@@ -2,10 +2,17 @@ packages:
   - node
   - vscode
 
+# esbuild's postinstall swaps its JS bin for a native binary, which pnpm's node shim then can't run.
+allowBuilds:
+  "@vscode/vsce-sign": false
+  esbuild: false
+  keytar: false
+
 catalog:
   "oxfmt": 0.66.0
   "oxlint": 1.81.0
   "@napi-rs/cli": 3.8.6
   "@types/node": 22.20.1
-  "@types/vscode": 1.125.0
   typescript: 7.0.2
+  esbuild: 0.28.2
+  "@vscode/vsce": 3.9.2

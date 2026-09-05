@@ -7,7 +7,8 @@
     "lint": "cargo clippy --workspace --all-targets --all-features && oxlint",
     "fmt": "cargo +nightly fmt && oxfmt",
     "fix": "cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets --all-features && oxlint --fix && oxfmt",
-    "build": "pnpm --filter @cabaret/node build && pnpm --filter cabaret compile"
+    "build": "pnpm --filter @cabaret/node build && pnpm --filter cabaret compile",
+    "install:vscode": "pnpm build && pnpm --filter cabaret package && code --install-extension vscode/cabaret.vsix --force"
   },
   "devDependencies": {
     "oxfmt": "catalog:",
