@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use cabaret_types::{ChangeId, ChangeSnapshot, Identity, RepoPath, Result, Revision};
+use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, Revision};
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 
@@ -54,6 +54,11 @@ impl CabaretJs {
     #[napi]
     pub async fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> {
         self.blocking(move |cabaret| cabaret.base(&change)).await
+    }
+
+    #[napi]
+    pub async fn changed_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
+        self.blocking(move |cabaret| cabaret.changed_files(&change, &[])).await
     }
 
     #[napi]

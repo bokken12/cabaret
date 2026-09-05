@@ -176,14 +176,22 @@ class PageProvider
   }
 }
 
-/** `cabaret-blob:/<path>?<revision>`: the file's text at that revision, or empty with no revision. */
-function blobUri(revision: Revision | undefined, path: RepoPath): vscode.Uri {
-  return vscode.Uri.from({ scheme: BLOB_SCHEME, path: `/${path}`, query: revision ?? "" });
+/**
+ * `cabaret-blob:/<path>?change=<id>&revision=<rev>`: the file's text at that revision, or empty
+ * with no revision, as one side of a file diff in `change`.
+ */
+function blobUri(change: ChangeId, revision: Revision | undefined, path: RepoPath): vscode.Uri {
+  const query = new URLSearchParams({ change });
+  if (revision !== undefined) {
+    query.set("revision", revision);
+  }
+  return vscode.Uri.from({ scheme: BLOB_SCHEME, path: `/${path}`, query: query.toString() });
 }
 
 class BlobProvider implements vscode.TextDocumentContentProvider {
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-    return uri.query === "" ? "" : ((await openCabaret().blob(uri.query, uri.path.slice(1))) ?? "");
+    const revision = new URLSearchParams(uri.query).get("revision");
+    return revision === null ? "" : ((await openCabaret().blob(revision, uri.path.slice(1))) ?? "");
   }
 }
 
@@ -199,8 +207,8 @@ async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedF
 }
 
 async function openDiff(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<void> {
-  const before = blobUri(await beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
-  const after = blobUri(file.kind === "Deleted" ? undefined : (await cabaret.change(change)).tip, file.path);
+  const before = blobUri(change, await beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
+  const after = blobUri(change, file.kind === "Deleted" ? undefined : (await cabaret.change(change)).tip, file.path);
   await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`);
 }
 
@@ -230,10 +238,57 @@ function activePage(): vscode.TextEditor | undefined {
   return editor?.document.uri.scheme === SCHEME ? editor : undefined;
 }
 
-/** The change the active page is about, else the one checked out in the workspace. */
+type FileDiff = { change: ChangeId; path: RepoPath };
+
+/** The blob-backed diff the active tab shows, if it is one. */
+function activeBlobDiff(): vscode.TabInputTextDiff | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  return input instanceof vscode.TabInputTextDiff && input.modified.scheme === BLOB_SCHEME ? input : undefined;
+}
+
+/** The file diff the active tab shows, if it is one; its modified side is always at the file's own path. */
+function activeFileDiff(): FileDiff | undefined {
+  const input = activeBlobDiff();
+  if (input === undefined) {
+    return undefined;
+  }
+  const change = new URLSearchParams(input.modified.query).get("change");
+  if (change === null) {
+    throw new Error(`${input.modified.toString()} names no change`);
+  }
+  return { change, path: input.modified.path.slice(1) };
+}
+
+type PageKind = Route["kind"] | "file";
+
+/** Expose the active page's kind as the `cabaret.page` context, so keybindings can scope to pages. */
+function updatePageContext(): void {
+  const editor = activePage();
+  const kind: PageKind | undefined =
+    activeBlobDiff() !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+  vscode.commands.executeCommand("setContext", "cabaret.page", kind);
+}
+
+/** The scope enclosing a page: a change's diff sits in its show page, which sits in home. */
+function enclosing(route: Route): Route | undefined {
+  switch (route.kind) {
+    case "home":
+      return undefined;
+    case "show":
+      return { kind: "home" };
+    case "diff":
+      return { kind: "show", change: route.change };
+  }
+}
+
+/** The change the active file diff or page is about, else the one checked out in the workspace. */
 async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
   const editor = activePage();
-  return (editor === undefined ? undefined : pageChange(provider, editor)) ?? cabaret.currentChange();
+  return (
+    activeFileDiff()?.change ??
+    (editor === undefined ? undefined : pageChange(provider, editor)) ??
+    cabaret.currentChange()
+  );
 }
 
 /** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
@@ -246,12 +301,35 @@ function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
     : rows.reduce((best, row) => (Math.abs(row - near) < Math.abs(best - near) ? row : best));
 }
 
+type Direction = "up" | "down";
+
+/** On a file diff, `^`/`$` go to the file above or below it in the change's diff. */
+async function stepFile(cabaret: Cabaret, { change, path }: FileDiff, direction: Direction): Promise<void> {
+  const files = await cabaret.changedFiles(change);
+  const index = files.findIndex((file) => file.path === path);
+  if (index === -1) {
+    throw new Error(`${path} is no longer in ${change}'s diff`);
+  }
+  const file = files[direction === "up" ? index - 1 : index + 1];
+  if (file === undefined) {
+    const end = direction === "up" ? "first" : "last";
+    vscode.window.setStatusBarMessage(`Cabaret: ${path} is the ${end} file in ${change}`, 3000);
+    return;
+  }
+  await openDiff(cabaret, change, file);
+}
+
 /**
  * Step from the change the active page is about to one of its parents or children: on the home
  * page by moving the cursor onto its row, or opening it when it is not drawn there; on a change's
- * page by opening the same kind of page for it.
+ * page by opening the same kind of page for it. On a file diff, step between the change's files.
  */
-async function step(cabaret: Cabaret, provider: PageProvider, relation: "parents" | "children"): Promise<void> {
+async function step(cabaret: Cabaret, provider: PageProvider, direction: Direction): Promise<void> {
+  const fileDiff = activeFileDiff();
+  if (fileDiff !== undefined) {
+    await stepFile(cabaret, fileDiff, direction);
+    return;
+  }
   const editor = activePage();
   if (editor === undefined) {
     return;
@@ -260,9 +338,8 @@ async function step(cabaret: Cabaret, provider: PageProvider, relation: "parents
   if (from === undefined) {
     return;
   }
-  const candidates = [
-    ...(relation === "parents" ? (await cabaret.change(from)).parents : await cabaret.children(from)),
-  ];
+  const relation = direction === "up" ? "parents" : "children";
+  const candidates = [...(direction === "up" ? (await cabaret.change(from)).parents : await cabaret.children(from))];
   if (candidates.length === 0) {
     vscode.window.setStatusBarMessage(`Cabaret: ${from} has no ${relation}`, 3000);
     return;
@@ -369,6 +446,9 @@ export function activate(context: vscode.ExtensionContext) {
         provider.decorate(editor);
       }
     }),
+    // A switch updates the active editor and the tab model separately, so recompute on either.
+    vscode.window.onDidChangeActiveTextEditor(updatePageContext),
+    vscode.window.tabGroups.onDidChangeTabs(updatePageContext),
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
@@ -389,18 +469,25 @@ export function activate(context: vscode.ExtensionContext) {
         await follow(cabaret, provider, target);
       }
     }),
-    // Escape: from any change's page back home.
+    // Escape: out one scope, a file diff into its change's diff.
     command("cabaret.stepOut", async () => {
+      const fileDiff = activeFileDiff();
+      if (fileDiff !== undefined) {
+        await provider.open({ kind: "diff", change: fileDiff.change });
+        return;
+      }
       const editor = activePage();
-      if (editor !== undefined && parseRoute(editor.document.uri).kind !== "home") {
-        await provider.open({ kind: "home" });
+      const out = editor === undefined ? undefined : enclosing(parseRoute(editor.document.uri));
+      if (out !== undefined) {
+        await provider.open(out);
       }
     }),
     command("cabaret.refresh", () => refresh(provider)),
-    command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "parents")),
-    command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "children")),
+    command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
+    command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
   );
+  updatePageContext();
 }
