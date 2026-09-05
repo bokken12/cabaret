@@ -488,6 +488,17 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
+    action("cabaret.addWorkspace", provider, async (cabaret, change) => {
+      return `added a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
+    }),
+    action("cabaret.removeWorkspace", provider, async (cabaret, change) => {
+      await cabaret.workspaceRemove(change);
+      return `removed the workspace holding ${change}`;
+    }),
+    command("cabaret.gotoWorkspace", async (cabaret) => {
+      const path = await cabaret.workspacePath(await activeChange(cabaret, provider));
+      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
+    }),
   );
   updatePageContext();
 }

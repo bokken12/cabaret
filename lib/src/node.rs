@@ -2,9 +2,11 @@
 // TODO-someday(joel): move js wrapper to a separate crate?
 #![allow(clippy::needless_pass_by_value)]
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
-use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, Revision};
+use cabaret_types::{
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, Revision, WorkspaceId,
+};
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 
@@ -12,6 +14,15 @@ use crate::{
     cabaret::{Cabaret, Rebase},
     page::Page,
 };
+
+/// The workspace holding `change`, which the workspace commands act on.
+fn holding(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<WorkspaceId> {
+    cabaret.workspace_holding(change)?.ok_or_else(|| format!("{change} is not checked out in any workspace").into())
+}
+
+fn path_string(path: PathBuf) -> Result<String> {
+    path.into_os_string().into_string().map_err(|path| format!("{} is not UTF-8", PathBuf::from(path).display()).into())
+}
 
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
@@ -87,6 +98,22 @@ impl CabaretJs {
     #[napi]
     pub async fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
         self.blocking(move |cabaret| cabaret.blob(revision, &path)).await
+    }
+
+    /// Create a workspace holding `change` at the default location, returning its path.
+    #[napi]
+    pub async fn workspace_add(&self, change: ChangeId) -> napi::Result<String> {
+        self.blocking(move |cabaret| path_string(cabaret.workspace_add(change, None)?)).await
+    }
+
+    #[napi]
+    pub async fn workspace_remove(&self, change: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.workspace_remove(holding(cabaret, &change)?.to_ref())).await
+    }
+
+    #[napi]
+    pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {
+        self.blocking(move |cabaret| path_string(cabaret.workspace_path(holding(cabaret, &change)?.to_ref())?)).await
     }
 
     #[napi]
