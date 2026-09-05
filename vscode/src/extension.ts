@@ -94,6 +94,7 @@ const themed = (color: string): vscode.DecorationRenderOptions => ({ color: new 
 const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
   Heading: { fontWeight: "bold" },
   ChangeId: themed("textLink.foreground"),
+  Revision: themed("textPreformat.foreground"),
   Label: themed("descriptionForeground"),
   Muted: themed("descriptionForeground"),
   Added: themed("gitDecoration.addedResourceForeground"),

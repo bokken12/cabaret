@@ -219,7 +219,14 @@ impl Cabaret {
     }
 
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
-        Ok(Page::show(change_id, &self.snapshot(change_id)?))
+        self.store.query(|ctx| {
+            let change = ctx.snapshot(change_id)?;
+            let workspace = match &change.workspace {
+                Some(workspace) => Some(ctx.workspace(workspace.to_ref())?.path()),
+                None => None,
+            };
+            Ok(Page::show(change_id, &change, workspace))
+        })
     }
 
     pub fn diff_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {

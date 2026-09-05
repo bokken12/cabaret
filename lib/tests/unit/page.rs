@@ -1,11 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
-use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, Revision, Segment, Target, gix};
+use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, Revision, Segment, Target};
 use expect_test::expect;
+
+fn revision(digit: char) -> Revision { Revision(String::from(digit).repeat(40).parse().unwrap()) }
 
 fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], parents: &[&str]) -> ChangeSnapshot {
     ChangeSnapshot {
-        tip: Revision(gix::ObjectId::null(gix::hash::Kind::Sha1)),
+        tip: revision('a'),
+        bases: parents.iter().zip('1'..).map(|(_, digit)| revision(digit)).collect(),
         title: title.map(String::from),
         description: description.map(String::from),
         archived: false,
@@ -60,7 +66,7 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
         &["alice@example.com", "bob@example.com"],
         &["lexer", "tokens"],
     );
-    let page = Page::show(&"add-parser".parse::<ChangeId>().unwrap(), &change);
+    let page = Page::show(&"add-parser".parse::<ChangeId>().unwrap(), &change, Some(Path::new("/repo/add-parser")));
     expect![[r"
         [Heading|add-parser] — [Heading|Add the parser]
 
@@ -70,6 +76,9 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 
         [Label|Owners:] alice@example.com, bob@example.com
         [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+        [Label|Bases:] [Revision|1111111111111111111111111111111111111111], [Revision|2222222222222222222222222222222222222222]
+        [Label|Workspace:] /repo/add-parser
     "]]
     .assert_eq(&markup(&page));
     expect![[r"
@@ -81,18 +90,24 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 
         Owners: alice@example.com, bob@example.com
         Parents: lexer, tokens
+        Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        Bases: 1111111111111111111111111111111111111111, 2222222222222222222222222222222222222222
+        Workspace: /repo/add-parser
     "]]
     .assert_eq(&page.to_string());
 }
 
 #[test]
 fn a_bare_show_page_marks_what_is_missing() {
-    let page = Page::show(&"bare".parse::<ChangeId>().unwrap(), &snapshot(None, None, &[], &[]));
+    let page = Page::show(&"bare".parse::<ChangeId>().unwrap(), &snapshot(None, None, &[], &[]), None);
     expect![[r"
         [Heading|bare]
 
         [Label|Owners:] [Muted|(none)]
         [Label|Parents:] [Muted|(none)]
+        [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+        [Label|Bases:] [Muted|(none)]
+        [Label|Workspace:] [Muted|(none)]
     "]]
     .assert_eq(&markup(&page));
 }

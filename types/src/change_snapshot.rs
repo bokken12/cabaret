@@ -15,6 +15,8 @@ use crate::{
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct ChangeSnapshot {
     pub tip: Revision,
+    /// What the tip is measured against; see `Branch::bases`.
+    pub bases: BTreeSet<Revision>,
     pub title: Option<String>,
     pub description: Option<String>,
     pub archived: bool,

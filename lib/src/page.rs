@@ -3,9 +3,9 @@
 //! target under the cursor.
 // TODO-someday(joel): move page and UI details to a separate crate?
 
-use std::fmt;
+use std::{fmt, path::Path};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Revision};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +13,7 @@ use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile};
 pub enum Tag {
     Heading,
     ChangeId,
+    Revision,
     Label,
     Muted,
     Added,
@@ -82,7 +83,8 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn show(id: &ChangeIdRef, change: &ChangeSnapshot) -> Self {
+    /// `workspace` is the working directory of the workspace holding the change, if any.
+    pub fn show(id: &ChangeIdRef, change: &ChangeSnapshot, workspace: Option<&Path>) -> Self {
         let mut heading = Line::default().push(Segment::tagged(id.to_string(), Tag::Heading));
         if let Some(title) = &change.title {
             heading = heading.push(Segment::plain(" — ")).push(Segment::tagged(title, Tag::Heading));
@@ -100,6 +102,10 @@ impl Page {
                 Segment::tagged(parent.to_string(), Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
             }),
         ));
+        let revision = |revision: &Revision| Segment::tagged(revision.to_string(), Tag::Revision);
+        lines.push(list("Tip:", std::iter::once(revision(&change.tip))));
+        lines.push(list("Bases:", change.bases.iter().map(revision)));
+        lines.push(list("Workspace:", workspace.map(|path| Segment::plain(path.display().to_string())).into_iter()));
         Self { lines, folds: Vec::new() }
     }
 
