@@ -239,10 +239,16 @@ function activePage(): vscode.TextEditor | undefined {
 
 type FileDiff = { change: ChangeId; path: RepoPath };
 
+/** The blob-backed diff the active tab shows, if it is one. */
+function activeBlobDiff(): vscode.TabInputTextDiff | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  return input instanceof vscode.TabInputTextDiff && input.modified.scheme === BLOB_SCHEME ? input : undefined;
+}
+
 /** The file diff the active tab shows, if it is one; its modified side is always at the file's own path. */
 function activeFileDiff(): FileDiff | undefined {
-  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-  if (!(input instanceof vscode.TabInputTextDiff) || input.modified.scheme !== BLOB_SCHEME) {
+  const input = activeBlobDiff();
+  if (input === undefined) {
     return undefined;
   }
   const change = new URLSearchParams(input.modified.query).get("change");
@@ -250,6 +256,16 @@ function activeFileDiff(): FileDiff | undefined {
     throw new Error(`${input.modified.toString()} names no change`);
   }
   return { change, path: input.modified.path.slice(1) };
+}
+
+type PageKind = Route["kind"] | "file";
+
+/** Expose the active page's kind as the `cabaret.page` context, so keybindings can scope to pages. */
+function updatePageContext(): void {
+  const editor = activePage();
+  const kind: PageKind | undefined =
+    activeBlobDiff() !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+  vscode.commands.executeCommand("setContext", "cabaret.page", kind);
 }
 
 /** The scope enclosing a page: a change's diff sits in its show page, which sits in home. */
@@ -429,6 +445,9 @@ export function activate(context: vscode.ExtensionContext) {
         provider.decorate(editor);
       }
     }),
+    // Both fire on a switch; whichever the tab model has caught up with wins.
+    vscode.window.onDidChangeActiveTextEditor(updatePageContext),
+    vscode.window.tabGroups.onDidChangeTabs(updatePageContext),
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
