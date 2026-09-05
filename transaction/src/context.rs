@@ -26,8 +26,13 @@ pub struct TransactionContext<'ctx> {
     _locks: Vec<Marker>,
 }
 
-impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }
+impl fmt::Debug for TransactionContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransactionContext")
+            .field("git_dir", &self.repo.git_dir())
+            .field("timestamp", &self.timestamp)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'ctx> TransactionContext<'ctx> {
