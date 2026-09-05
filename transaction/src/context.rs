@@ -15,6 +15,7 @@ use gix::{
 
 use crate::{branch::Branch, metadata::Metadata, workspace::Workspace};
 
+// TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
 /// One transaction's view of the repository at a fixed time, holding its resources' locks
 pub struct TransactionContext<'ctx> {
     pub repo: Repository,
