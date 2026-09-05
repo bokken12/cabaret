@@ -45,4 +45,3 @@ Hand-declared aliases are a property of the person, not of any repository — gl
 Claiming an alias grants nothing that setting `user.email` to it would not, so a purely local declaration costs no trust beyond what git already extends.
 
 TODO(joel): I'm no longer as certain about aliases after adding in co-ownership of features. Resolve this later.
-

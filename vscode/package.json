@@ -1,17 +1,26 @@
 {
   "name": "cabaret",
   "displayName": "Cabaret",
-  "description": "Diff-based in-editor code review",
   "version": "0.0.0",
   "private": true,
-  "publisher": "cabaret",
-  "engines": {
-    "vscode": "^1.125.0"
-  },
+  "description": "Diff-based in-editor code review",
   "categories": [
     "Other"
   ],
+  "publisher": "cabaret",
   "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cabaret/node": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/vscode": "catalog:",
+    "typescript": "catalog:"
+  },
   "contributes": {
     "commands": [
       {
@@ -44,16 +53,7 @@
       }
     ]
   },
-  "scripts": {
-    "compile": "tsc",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@cabaret/node": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/node": "catalog:",
-    "@types/vscode": "catalog:",
-    "typescript": "catalog:"
+  "engines": {
+    "vscode": "^1.125.0"
   }
 }

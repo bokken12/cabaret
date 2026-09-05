@@ -16,7 +16,6 @@ I feel like append-only is kind of correct in which case maybe rebases are wrong
 
 Oh okay, this is just that I need to rebase onto reliably.
 
-
 ## Post-Landing
 
 How can I track review that happened in a child feature that landed?

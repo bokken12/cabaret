@@ -10,7 +10,7 @@ Since this results in a lot of repeated queries for the data of the same ID on w
 
 ## Repo
 
-Cabaret's data and operations tend only to make sense in the context of a `gix::Repository` which they act upon and refer to items with. However, I avoid the `Struct<'repo>` pattern of linked lifetimes since a single Cabaret process only ever considers one repository, and there are not interesting distinctions to be made as to which values are linked to a repository. 
+Cabaret's data and operations tend only to make sense in the context of a `gix::Repository` which they act upon and refer to items with. However, I avoid the `Struct<'repo>` pattern of linked lifetimes since a single Cabaret process only ever considers one repository, and there are not interesting distinctions to be made as to which values are linked to a repository.
 
 Additionally, since we assume the state may change under us, we must already consider every handle to be potentially-invalid even during the appropriate lifetime. Therefore it does not cause additional pain to handle the invalid case a lifetime might have caught.
 

@@ -1,6 +1,5 @@
 # Review
 
-
 ## State
 
 For each change x user, review state can be represented as a map of
@@ -8,7 +7,6 @@ For each change x user, review state can be represented as a map of
 > file name -> (tip revision, timestamp)
 
 representing the latest diff they have reviewed for each file in the change.
-
 
 ## Visualization
 
@@ -56,7 +54,6 @@ The unique case where fast-forwarding either the parent or the child produces re
 #### Parent Unreviewed, Child Reviewed
 
 The failure case, where non-duplicative review would need to split into two "spans" before and after the land. We make no affordances, and allow for the child's review to be duplicated in the parent. Instead, we structurally discourage this on both ends, requiring the parent to be reviewed before release and requiring review in the parent before review in the child (which also makes sense chronologically).
-
 
 ## Exceptions
 

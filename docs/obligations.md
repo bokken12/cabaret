@@ -13,7 +13,7 @@ There are two kinds of review, and one can require either or both:
 
 ## Location
 
-Obligations on a file are inherited from any parent directory's obligations files except when explicitly marked as not inheriting (e.g. because a subfolder is lower scrutiny than its surroundings). 
+Obligations on a file are inherited from any parent directory's obligations files except when explicitly marked as not inheriting (e.g. because a subfolder is lower scrutiny than its surroundings).
 
 This makes them more difficult to parse than the single repo-level `CODEOWNERS` mechanism, but for large monorepos that does not scale and most similar review systems have landed on more granular files.
 
