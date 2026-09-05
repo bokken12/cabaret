@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, fmt::Write as _};
 
-use cabaret_lib::types::RepoPath;
+use cabaret_lib::RepoPath;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, short};

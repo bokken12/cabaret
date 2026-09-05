@@ -1,8 +1,4 @@
-use cabaret_lib::{
-    cabaret::Cabaret,
-    error::Result,
-    types::{Identity, Pathspec},
-};
+use cabaret_lib::{Cabaret, Identity, Pathspec, Result};
 use clap::{Parser, Subcommand, ValueHint};
 
 pub mod args;

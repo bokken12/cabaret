@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Revision, TreeId, error::Result};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, Revision, TreeId};
 use gix::merge::{
     blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     tree::TreatAsUnresolved,

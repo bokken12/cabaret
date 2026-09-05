@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Revision, TimestampMs, TreeId, WorkspaceId,
-    WorkspaceIdRef, error::Result,
+    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, Revision, TimestampMs, TreeId, WorkspaceId,
+    WorkspaceIdRef,
 };
 use elsa::FrozenBTreeMap;
 use gix::{

@@ -1,10 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabaret_lib::{
-    gix,
-    page::{Page, Segment, Target},
-    types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision},
-};
+use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, Revision, Segment, Target, gix};
 use expect_test::expect;
 
 fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], parents: &[&str]) -> ChangeSnapshot {

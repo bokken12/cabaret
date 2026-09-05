@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabaret_types::{ChangeId, Identity, error::Result};
+use cabaret_types::{ChangeId, Identity, Result};
 
 use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 

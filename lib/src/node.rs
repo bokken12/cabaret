@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use cabaret_types::{ChangeId, ChangeSnapshot, Identity, RepoPath, Revision, error::Result};
+use cabaret_types::{ChangeId, ChangeSnapshot, Identity, RepoPath, Result, Revision};
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 

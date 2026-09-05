@@ -2,7 +2,7 @@
 
 use std::ffi::OsStr;
 
-use cabaret_lib::{cabaret::Cabaret, error::Result, types::Revision};
+use cabaret_lib::{Cabaret, Result, Revision};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
 fn cabaret() -> Result<Cabaret> { Cabaret::open(std::env::current_dir()?) }

@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cabaret_types::{ChangeIdRef, Revision, WorkspaceId, WorkspaceIdRef, error::Result};
+use cabaret_types::{ChangeIdRef, Result, Revision, WorkspaceId, WorkspaceIdRef};
 use gix::{
     ThreadSafeRepository,
     lock::{Marker, acquire::Fail},

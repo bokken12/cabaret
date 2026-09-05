@@ -4,8 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange,
-    error::Result,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, Revision, RevisionRange,
     log::{self, LogAction, LogEntry},
 };
 use gix::{

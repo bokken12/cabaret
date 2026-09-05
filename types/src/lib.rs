@@ -1,4 +1,4 @@
-pub mod error;
+mod error;
 pub mod log;
 #[cfg(feature = "napi")]
 mod napi;
@@ -17,6 +17,7 @@ mod workspace_id;
 pub use change_id::{ChangeId, ChangeIdRef};
 pub use change_snapshot::ChangeSnapshot;
 pub use changed_file::ChangedFile;
+pub use error::{Error, Result};
 pub use identity::Identity;
 pub use pathspec::Pathspec;
 pub use repo_path::RepoPath;

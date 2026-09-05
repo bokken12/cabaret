@@ -14,10 +14,7 @@ use std::{
     fs,
 };
 
-use cabaret_lib::{
-    cabaret::Cabaret,
-    types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId},
-};
+use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId};
 use expect_test::expect;
 use gix::{objs::tree::EntryKind, refs::transaction::PreviousValue};
 

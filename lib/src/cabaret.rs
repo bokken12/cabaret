@@ -4,13 +4,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_transaction::{
-    store::{BranchOp, Store, WorkspaceOp},
-    workspace::Head,
-};
+use cabaret_transaction::{BranchOp, Head, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange,
-    WorkspaceId, WorkspaceIdRef, error::Result,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, Revision, RevisionRange,
+    WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 

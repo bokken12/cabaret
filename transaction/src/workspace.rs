@@ -5,7 +5,7 @@
 
 use std::{convert::Infallible, fmt, fs, ops::ControlFlow, path::Path};
 
-use cabaret_types::{ChangeId, Revision, WorkspaceId, WorkspaceIdRef, error::Result};
+use cabaret_types::{ChangeId, Result, Revision, WorkspaceId, WorkspaceIdRef};
 use gix::{
     Repository,
     bstr::ByteSlice,

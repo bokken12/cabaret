@@ -1,10 +1,6 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{
-    cabaret::Cabaret,
-    error::Result,
-    types::{ChangeId, WorkspaceId},
-};
+use cabaret_lib::{Cabaret, ChangeId, Result, WorkspaceId};
 use clap::{Subcommand, ValueHint};
 
 use crate::args::change_completer;

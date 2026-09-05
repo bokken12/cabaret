@@ -1,8 +1,4 @@
-use cabaret_lib::{
-    cabaret::Cabaret,
-    error::Result,
-    types::{ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Revision},
-};
+use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, Revision};
 use clap::{Subcommand, ValueHint};
 
 use crate::args::{change_completer, parse_revision, revision_completer};

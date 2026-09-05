@@ -1,7 +1,7 @@
 //! The files a change presents: its tip's tree against its base's, with renames detected and
 //! pathspecs narrowing the result.
 
-use cabaret_lib::types::Pathspec;
+use cabaret_lib::Pathspec;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};
