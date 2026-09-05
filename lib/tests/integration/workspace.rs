@@ -10,14 +10,19 @@ fn workspaces(fixture: &Fixture) -> String { format!("{:?}", fixture.cabaret.wor
 
 fn linked(name: &str) -> WorkspaceId { WorkspaceId::Linked(name.into()) }
 
-/// `one` and `two` on `main`, each adding a file of its own; `one` is checked out.
-fn two_changes() -> Fixture {
-    let fixture = Fixture::new();
+/// `one` and `two` on `main` in `fixture`, each adding a file of its own; nothing is checked out.
+fn two_changes_in(fixture: Fixture) -> Fixture {
     fixture.root("main", &[("main.txt", "main\n")]);
     fixture.create("one", "main", &alice());
     fixture.commit("one", &[("one.txt", "one\n")]);
     fixture.create("two", "main", &alice());
     fixture.commit("two", &[("two.txt", "two\n")]);
+    fixture
+}
+
+/// [`two_changes_in`] a repository with a main workspace, where `one` is checked out.
+fn two_changes() -> Fixture {
+    let fixture = two_changes_in(Fixture::new());
     fixture.checkout("one");
     fixture
 }
@@ -151,4 +156,26 @@ fn main_workspace_cannot_be_removed() {
     let error = fixture.cabaret.workspace_remove(WorkspaceId::Main.to_ref()).unwrap_err();
     expect!["the main workspace cannot be removed"].assert_eq(&format!("{error:?}"));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+}
+
+#[test]
+fn bare_repository_has_no_main_workspace() {
+    let fixture = two_changes_in(Fixture::bare());
+    expect![[r#"{}"#]].assert_eq(&workspaces(&fixture));
+    expect!["None"].assert_eq(&format!("{:?}", fixture.snapshot("one").workspace));
+}
+
+#[test]
+fn bare_add_makes_workspace_beside_git_dir() {
+    let fixture = two_changes_in(Fixture::bare());
+    let path = fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    expect!["project/two"].assert_eq(&fixture.relative(&path));
+    expect![[r#"{"two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
+    expect![[r#"Some("two")"#]].assert_eq(&format!("{:?}", fixture.snapshot("two").workspace));
+    expect![[r#"
+        clean
+        main.txt "main\n"
+        two.txt "two\n"
+    "#]]
+    .assert_eq(&worktree(&gix::open(&path).unwrap()));
 }

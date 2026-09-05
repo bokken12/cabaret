@@ -92,13 +92,25 @@ impl Cabaret {
     }
 
     /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
-    /// share a parent directory; inside the git dir when the repository is bare.
+    /// share a parent directory. A bare repository has no main workspace; its workspaces go
+    /// beside its git dir as `<change>`, in a directory a `.git` file marks as the repository's
+    /// own, so nothing else shares it.
     fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
         let main = self.store.repo.to_thread_local().main_repo()?;
         // a change id may contain slashes, which one directory name cannot
         let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "-"));
         let Some(workdir) = main.workdir() else {
-            return Ok(main.git_dir().join(change));
+            let git_dir = std::path::absolute(main.git_dir())?;
+            let project = git_dir.parent().ok_or("bare repository has no parent directory")?;
+            let marked = gix::open(project).ok().and_then(|repo| fs::canonicalize(repo.git_dir()).ok());
+            if marked != Some(fs::canonicalize(&git_dir)?) {
+                Err(format!(
+                    "no .git file marks {} as the bare repository's own directory; pass a path or lay the \
+                     repository out as <dir>/.bare",
+                    project.display()
+                ))?;
+            }
+            return Ok(project.join(change));
         };
         let mut name = workdir.file_name().ok_or("main workspace has no directory name")?.to_os_string();
         name.push("-");

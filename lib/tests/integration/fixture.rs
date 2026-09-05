@@ -31,7 +31,8 @@ pub type Files<'a> = &'a [(&'a str, &'a str)];
 
 pub struct Fixture {
     _dir: tempfile::TempDir,
-    /// Holds the main workspace at `main`, so default workspace paths land beside it in here.
+    /// Holds the repository, as the main workspace `main` or as a bare `project/.bare`, so
+    /// default workspace paths land in here.
     root: PathBuf,
     pub cabaret: Cabaret,
     repo: gix::Repository,
@@ -42,17 +43,40 @@ pub struct Fixture {
 
 pub fn id(change: &str) -> ChangeId { change.parse().unwrap() }
 
+fn tempdir() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    (dir, root)
+}
+
+fn configure(repo: &gix::Repository) {
+    let config_path = repo.git_dir().join("config");
+    let config = fs::read_to_string(&config_path).unwrap();
+    fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
+}
+
 impl Fixture {
     pub fn new() -> Self {
-        let dir = tempfile::TempDir::new().unwrap();
-        let root = fs::canonicalize(dir.path()).unwrap();
+        let (dir, root) = tempdir();
         let main = root.join("main");
-        let repo = gix::init(&main).unwrap();
-        let config_path = repo.git_dir().join("config");
-        let config = fs::read_to_string(&config_path).unwrap();
-        fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
-        let cabaret = Cabaret::open(&main).unwrap();
-        let repo = gix::open(&main).unwrap();
+        configure(&gix::init(&main).unwrap());
+        Self::open(dir, root, &main)
+    }
+
+    /// A bare repository laid out as `project/.bare` with a `.git` file marking `project` as its
+    /// own, so default workspace paths land in `project`.
+    pub fn bare() -> Self {
+        let (dir, root) = tempdir();
+        let project = root.join("project");
+        fs::create_dir(&project).unwrap();
+        configure(&gix::init_bare(project.join(".bare")).unwrap());
+        fs::write(project.join(".git"), "gitdir: ./.bare\n").unwrap();
+        Self::open(dir, root, &project)
+    }
+
+    fn open(dir: tempfile::TempDir, root: PathBuf, path: &Path) -> Self {
+        let cabaret = Cabaret::open(path).unwrap();
+        let repo = gix::open(path).unwrap();
         Self { _dir: dir, root, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
