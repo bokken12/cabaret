@@ -74,6 +74,7 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 
         With tests.
 
+        [Label|Status:] open
         [Label|Owners:] alice@example.com, bob@example.com
         [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
@@ -88,6 +89,7 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 
         With tests.
 
+        Status: open
         Owners: alice@example.com, bob@example.com
         Parents: lexer, tokens
         Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -103,6 +105,24 @@ fn a_bare_show_page_marks_what_is_missing() {
     expect![[r"
         [Heading|bare]
 
+        [Label|Status:] open
+        [Label|Owners:] [Muted|(none)]
+        [Label|Parents:] [Muted|(none)]
+        [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
+        [Label|Bases:] [Muted|(none)]
+        [Label|Workspace:] [Muted|(none)]
+    "]]
+    .assert_eq(&markup(&page));
+}
+
+#[test]
+fn show_page_flags_archived_and_permanent() {
+    let change = ChangeSnapshot { archived: true, permanent: true, ..snapshot(None, None, &[], &[]) };
+    let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
+    expect![[r"
+        [Heading|trunk]
+
+        [Label|Status:] archived, permanent
         [Label|Owners:] [Muted|(none)]
         [Label|Parents:] [Muted|(none)]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]

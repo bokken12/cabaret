@@ -95,6 +95,9 @@ impl Page {
             lines.extend(description.lines().map(Line::plain));
         }
         lines.push(Line::default());
+        let state = if change.archived { "archived" } else { "open" };
+        let flags = [Some(state), change.permanent.then_some("permanent")].into_iter().flatten();
+        lines.push(list("Status:", flags.map(Segment::plain)));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
         lines.push(list(
             "Parents:",
