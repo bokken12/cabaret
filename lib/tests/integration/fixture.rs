@@ -12,6 +12,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     fmt::Write as _,
     fs,
+    path::{Path, PathBuf},
 };
 
 use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId};
@@ -26,6 +27,8 @@ pub type Files<'a> = &'a [(&'a str, &'a str)];
 
 pub struct Fixture {
     _dir: tempfile::TempDir,
+    /// Holds the main workspace at `main`, so default workspace paths land beside it in here.
+    root: PathBuf,
     pub cabaret: Cabaret,
     repo: gix::Repository,
     /// Commit timestamps count up from a fixed epoch so hashes are stable across runs
@@ -38,13 +41,15 @@ pub fn id(change: &str) -> ChangeId { change.parse().unwrap() }
 impl Fixture {
     pub fn new() -> Self {
         let dir = tempfile::TempDir::new().unwrap();
-        let repo = gix::init(dir.path()).unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        let main = root.join("main");
+        let repo = gix::init(&main).unwrap();
         let config_path = repo.git_dir().join("config");
         let config = fs::read_to_string(&config_path).unwrap();
         fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
-        let cabaret = Cabaret::open(dir.path()).unwrap();
-        let repo = gix::open(dir.path()).unwrap();
-        Self { _dir: dir, cabaret, repo, clock: Cell::new(978_307_200) }
+        let cabaret = Cabaret::open(&main).unwrap();
+        let repo = gix::open(&main).unwrap();
+        Self { _dir: dir, root, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
     pub fn snapshot(&self, change: &str) -> ChangeSnapshot { self.cabaret.snapshot(&id(change)).unwrap() }
@@ -149,19 +154,15 @@ impl Fixture {
 
     pub fn exists(&self, path: &str) -> bool { self.repo.workdir().unwrap().join(path).exists() }
 
-    /// A linked worktree with `change` checked out, as `git worktree add` makes.
-    pub fn link_workspace(&self, change: &str) -> (tempfile::TempDir, gix::Repository) {
-        let dir = tempfile::TempDir::new().unwrap();
-        let workspace = fs::canonicalize(dir.path()).unwrap();
-        let admin = self.repo.git_dir().join("worktrees").join(change);
-        fs::create_dir_all(&admin).unwrap();
-        fs::write(admin.join("commondir"), "../..\n").unwrap();
-        fs::write(admin.join("gitdir"), format!("{}\n", workspace.join(".git").display())).unwrap();
-        fs::write(workspace.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
-        fs::write(admin.join("HEAD"), format!("ref: refs/heads/{change}\n")).unwrap();
-        let repo = gix::open(&workspace).unwrap();
-        self.populate(&repo, change);
-        (dir, repo)
+    /// A path inside the fixture's directory, where default workspace paths also land.
+    pub fn path(&self, name: &str) -> PathBuf { self.root.join(name) }
+
+    /// `path` relative to the fixture's directory, as text.
+    pub fn relative(&self, path: &Path) -> String { path.strip_prefix(&self.root).unwrap().display().to_string() }
+
+    /// Add a workspace holding `change` at the default path, through the real creation path.
+    pub fn add_workspace(&self, change: &str) -> gix::Repository {
+        gix::open(self.cabaret.workspace_add(id(change), None).unwrap()).unwrap()
     }
 
     /// Point `repo`'s HEAD at `change` and write its tip's files and index, over whatever is there.

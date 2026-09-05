@@ -141,7 +141,7 @@ fn dirty_workspace_is_left_behind() {
 fn linked_workspace_follows_change() {
     let fixture = diverged();
     fixture.checkout("main");
-    let (_dir, linked) = fixture.link_workspace("child");
+    let linked = fixture.add_workspace("child");
     expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
         .assert_eq(&rebase(&fixture, "child", None));
     expect![[r#"

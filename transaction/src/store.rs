@@ -59,7 +59,42 @@ impl<'a> WorkspaceOp<'a> {
         }
     }
 
-    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Workspace<'ctx>> { todo!() }
+    /// The workspace before the transaction: as committed, or not yet made for an insert.
+    fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Workspace<'ctx>> {
+        Ok(match self {
+            WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => ctx.workspace(*id)?.clone(),
+            WorkspaceOp::Insert { path, head } => Workspace::new(ctx, path, head.clone())?,
+        })
+    }
+}
+
+/// The revision `workspace`'s head is at as the transaction leaves it. Its change must be
+/// declared, or it could move underneath the checkout, and must not be checked out elsewhere,
+/// which git refuses too.
+fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<Revision> {
+    match &workspace.head {
+        Head::Detached(revision) => Ok(*revision),
+        Head::Change(id) => {
+            let branch = branches
+                .iter()
+                .find(|branch| *branch.id() == **id)
+                .ok_or_else(|| format!("{id} must be declared to be checked out"))?;
+            if let Some(holder) = branch.workspace()?
+                && holder != workspace.id()
+            {
+                Err(format!("{id} is already checked out in workspace {holder}"))?;
+            }
+            Ok(branch.tip)
+        }
+    }
+}
+
+/// The revision `head` was at as committed.
+fn committed_tip<'ctx>(ctx: &'ctx TransactionContext<'ctx>, head: &Head) -> Result<Revision> {
+    match head {
+        Head::Detached(revision) => Ok(*revision),
+        Head::Change(id) => Ok(ctx.branch(id)?.tip),
+    }
 }
 
 /// How long a transaction waits for another's locks before giving up; a lock older than this
@@ -166,7 +201,6 @@ impl Store {
         }
         let mut branches: [Branch<'_>; M] = branches.try_into().expect("one branch per op");
 
-        // TODO(joel): fix workspaces
         let mut workspaces = Vec::with_capacity(N);
         for op in workspace_ops {
             workspaces.push(op.before(&ctx)?);
@@ -207,8 +241,20 @@ impl Store {
         if !edits.is_empty() {
             ctx.repo.edit_references(edits)?;
         }
-        // Workspaces follow once the branches have moved: a failed transaction leaves them behind
-        // rather than ahead of it.
+        // Workspaces are written once the branches have moved: a failed transaction leaves them
+        // behind rather than ahead of it.
+        for (op, workspace) in workspace_ops.iter().zip(&workspaces) {
+            match op {
+                WorkspaceOp::Insert { .. } => workspace.create(checkout_tip(workspace, &branches)?)?,
+                WorkspaceOp::Update { id } => {
+                    let before = ctx.workspace(*id)?;
+                    if before.head != workspace.head {
+                        workspace.switch(committed_tip(&ctx, &before.head)?, checkout_tip(workspace, &branches)?)?;
+                    }
+                }
+                WorkspaceOp::Delete { .. } => workspace.delete()?,
+            }
+        }
         for (branch, from) in moved {
             if let Some(workspace) = branch.workspace()? {
                 Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch.tip)?;

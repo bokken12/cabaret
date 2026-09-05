@@ -60,8 +60,7 @@ impl Cabaret {
         let path = fs::canonicalize(path)?;
         self.store.query(|ctx| {
             for workspace in ctx.workspaces()? {
-                let workdir = ctx.workspace(workspace.to_ref())?.path().ok().and_then(|dir| fs::canonicalize(dir).ok());
-                if workdir.as_deref() == Some(&path) {
+                if fs::canonicalize(ctx.workspace(workspace.to_ref())?.path()).ok().as_deref() == Some(&path) {
                     return Ok(workspace);
                 }
             }
@@ -73,7 +72,7 @@ impl Cabaret {
     pub fn workspace_current(&self) -> Result<WorkspaceId> { self.store.query(|ctx| ctx.current_workspace()) }
 
     pub fn workspace_path(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<PathBuf> {
-        self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.path()?.to_owned()))
+        self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.path().to_owned()))
     }
 
     /// Create a workspace holding `change_id` at `path`, or the default location, and return
