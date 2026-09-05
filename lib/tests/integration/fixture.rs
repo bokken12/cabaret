@@ -32,7 +32,7 @@ pub type Files<'a> = &'a [(&'a str, &'a str)];
 pub struct Fixture {
     _dir: tempfile::TempDir,
     /// Holds the repository, as the main workspace `main` or as a bare `project/.bare`, so
-    /// default workspace paths land in here.
+    /// default workspace paths land in here; new repositories are made in here too.
     root: PathBuf,
     pub cabaret: Cabaret,
     repo: gix::Repository,
@@ -207,6 +207,21 @@ impl Fixture {
 
     /// `path` relative to the fixture's directory, as text.
     pub fn relative(&self, path: &Path) -> String { path.strip_prefix(&self.root).unwrap().display().to_string() }
+
+    /// `text` with the fixture's directory written as `<root>`.
+    pub fn redact(&self, text: &str) -> String { text.replace(&self.root.display().to_string(), "<root>") }
+
+    /// The names in the directory at `name`, sorted, one per line.
+    pub fn listing(&self, name: &str) -> String {
+        let mut names: Vec<String> = self
+            .path(name)
+            .read_dir()
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names.join("\n")
+    }
 
     /// Add a workspace holding `change` at the default path, through the real creation path.
     pub fn add_workspace(&self, change: &str) -> gix::Repository {

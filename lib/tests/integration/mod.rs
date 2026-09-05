@@ -3,6 +3,7 @@ mod commit;
 mod fixture;
 mod home;
 mod land;
+mod layout;
 mod locking;
 mod parents;
 mod rebase;

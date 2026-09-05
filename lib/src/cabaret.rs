@@ -16,6 +16,10 @@ use crate::{
     page::Page,
 };
 
+/// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
+/// change, as the repository's own: git commands work from it and nothing else shares it.
+const GITFILE: &str = "gitdir: ./.bare\n";
+
 /// What [`Cabaret::rebase`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
@@ -36,6 +40,33 @@ pub struct Cabaret {
 // TODO-someday(joel): split implementation into files by topic
 impl Cabaret {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { store: Store::open(dir)? }) }
+
+    /// A new repository at `dir`, made if need be, empty or cloned from `from`. An empty
+    /// directory becomes a project directory, the bare repository `.bare` with room beside it
+    /// for one workspace per change. One with contents becomes the main workspace of an empty
+    /// repository, as `git init` makes; a clone needs an empty one.
+    pub fn init(dir: &Path, from: Option<&str>) -> Result<()> {
+        let dir = std::path::absolute(dir)?;
+        fs::create_dir_all(&dir)?;
+        if dir.read_dir()?.next().is_some() {
+            if from.is_some() {
+                Err(format!("{} is not empty", dir.display()))?;
+            }
+            gix::init(&dir)?;
+            return Ok(());
+        }
+        match from {
+            Some(url) => {
+                gix::prepare_clone_bare(url, dir.join(".bare"))?
+                    .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+            }
+            None => {
+                gix::init_bare(dir.join(".bare"))?;
+            }
+        }
+        fs::write(dir.join(".git"), GITFILE)?;
+        Ok(())
+    }
 
     // Workspace operations
 
@@ -93,20 +124,21 @@ impl Cabaret {
 
     /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
     /// share a parent directory. A bare repository has no main workspace; its workspaces go
-    /// beside its git dir as `<change>`, in a directory a `.git` file marks as the repository's
-    /// own, so nothing else shares it.
+    /// beside its git dir as `<change>`, in the project directory a `.git` file marks as its own.
     fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
         let main = self.store.repo.to_thread_local().main_repo()?;
-        // a change id may contain slashes, which one directory name cannot
-        let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "-"));
+        // `~` for the slashes a directory name cannot hold; git forbids it in branch names, so no
+        // two changes share a directory
+        let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "~"));
         let Some(workdir) = main.workdir() else {
-            let git_dir = std::path::absolute(main.git_dir())?;
+            // Canonical, as a linked workspace reaches its common dir through `..` segments.
+            let git_dir = fs::canonicalize(main.git_dir())?;
             let project = git_dir.parent().ok_or("bare repository has no parent directory")?;
             let marked = gix::open(project).ok().and_then(|repo| fs::canonicalize(repo.git_dir()).ok());
-            if marked != Some(fs::canonicalize(&git_dir)?) {
+            if marked.as_deref() != Some(&*git_dir) {
                 Err(format!(
-                    "no .git file marks {} as the bare repository's own directory; pass a path or lay the \
-                     repository out as <dir>/.bare",
+                    "no .git file marks {} as the bare repository's own directory; pass a path, or lay the \
+                     repository out as <dir>/.bare with a .git file pointing at it",
                     project.display()
                 ))?;
             }

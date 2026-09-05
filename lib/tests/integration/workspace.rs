@@ -1,7 +1,7 @@
 //! Workspaces: which working directories exist and which change each holds, and adding,
 //! switching, and removing them.
 
-use cabaret_lib::WorkspaceId;
+use cabaret_lib::{Cabaret, WorkspaceId};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -11,7 +11,7 @@ fn workspaces(fixture: &Fixture) -> String { format!("{:?}", fixture.cabaret.wor
 fn linked(name: &str) -> WorkspaceId { WorkspaceId::Linked(name.into()) }
 
 /// `one` and `two` on `main` in `fixture`, each adding a file of its own; nothing is checked out.
-fn two_changes_in(fixture: Fixture) -> Fixture {
+pub fn two_changes_in(fixture: Fixture) -> Fixture {
     fixture.root("main", &[("main.txt", "main\n")]);
     fixture.create("one", "main", &alice());
     fixture.commit("one", &[("one.txt", "one\n")]);
@@ -21,7 +21,7 @@ fn two_changes_in(fixture: Fixture) -> Fixture {
 }
 
 /// [`two_changes_in`] a repository with a main workspace, where `one` is checked out.
-fn two_changes() -> Fixture {
+pub fn two_changes() -> Fixture {
     let fixture = two_changes_in(Fixture::new());
     fixture.checkout("one");
     fixture
@@ -178,4 +178,22 @@ fn bare_add_makes_workspace_beside_git_dir() {
         two.txt "two\n"
     "#]]
     .assert_eq(&worktree(&gix::open(&path).unwrap()));
+}
+
+#[test]
+fn add_names_workspace_with_tilde_for_slash() {
+    let fixture = two_changes_in(Fixture::bare());
+    fixture.create("feature/login", "main", &alice());
+    let path = fixture.cabaret.workspace_add(id("feature/login"), None).unwrap();
+    expect!["project/feature~login"].assert_eq(&fixture.relative(&path));
+    expect![[r#"{"feature~login": Some("feature/login")}"#]].assert_eq(&workspaces(&fixture));
+}
+
+#[test]
+fn bare_add_from_inside_workspace_lands_beside_it() {
+    let fixture = two_changes_in(Fixture::bare());
+    let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    let path = Cabaret::open(&two).unwrap().workspace_add(id("one"), None).unwrap();
+    expect!["project/one"].assert_eq(&fixture.relative(&path));
+    expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
