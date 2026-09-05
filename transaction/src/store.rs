@@ -1,11 +1,13 @@
-pub mod branch;
-pub mod context;
-pub mod metadata;
-pub mod workspace;
+use std::{
+    collections::BTreeSet,
+    fmt,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use std::{collections::BTreeSet, fmt, path::Path, time::Duration};
-
+use cabaret_types::{ChangeIdRef, Revision, WorkspaceId, WorkspaceIdRef, error::Result};
 use gix::{
+    ThreadSafeRepository,
     lock::{Marker, acquire::Fail},
     refs::{
         Target,
@@ -14,15 +16,10 @@ use gix::{
 };
 
 use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    transaction::{
-        branch::Branch,
-        context::TransactionContext,
-        metadata::Metadata,
-        workspace::{Head, Workspace},
-    },
-    types::{ChangeIdRef, Revision, WorkspaceId, WorkspaceIdRef},
+    branch::Branch,
+    context::TransactionContext,
+    metadata::Metadata,
+    workspace::{Head, Workspace},
 };
 
 /// A branch in a transaction's write set. A branch that is only read still goes here: there is
@@ -88,7 +85,20 @@ impl Resource {
     }
 }
 
-impl Cabaret {
+/// A repository together with the directory its transactions lock resources in.
+pub struct Store {
+    pub repo: ThreadSafeRepository,
+    /// Under the common dir, so every workspace of the repository shares the same locks.
+    pub locks: PathBuf,
+}
+
+impl Store {
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> {
+        let repo = ThreadSafeRepository::discover(dir)?;
+        let locks = repo.to_thread_local().common_dir().join("cabaret").join("locks");
+        Ok(Self { repo, locks })
+    }
+
     /// Take the `resource` lock of each of `ids`, in a fixed order to avoid deadlock.
     fn lock<Id: Ord + fmt::Display>(
         &self,
@@ -119,7 +129,7 @@ impl Cabaret {
     /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
     /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
     /// other changes through the context.
-    pub(crate) fn transact<const L: usize, const M: usize, const N: usize, T, F>(
+    pub fn transact<const L: usize, const M: usize, const N: usize, T, F>(
         &self,
         metadata_ids: &[&ChangeIdRef; L],
         branch_ops: &[BranchOp<'_>; M],
@@ -207,21 +217,21 @@ impl Cabaret {
         Ok(out)
     }
 
-    pub(crate) fn query<T, F>(&self, f: F) -> Result<T>
+    pub fn query<T, F>(&self, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>) -> Result<T>,
     {
         self.transact(&[], &[], &[], |ctx, [], [], []| f(ctx))
     }
 
-    pub(crate) fn update_metadata<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
+    pub fn update_metadata<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
     {
         self.transact(&[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
     }
 
-    pub(crate) fn update_branch<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
+    pub fn update_branch<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
     where
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Branch<'ctx>) -> Result<T>,
     {

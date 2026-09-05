@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cli", "lib"]
+members = ["cli", "lib", "transaction", "types"]
 
 [workspace.package]
 version = "0.0.0"
@@ -23,6 +23,8 @@ new_without_default = "allow"
 
 [workspace.dependencies]
 cabaret-lib = { path = "lib" }
+cabaret-transaction = { path = "transaction" }
+cabaret-types = { path = "types" }
 
 clap = { version = "4.6.6", features = ["derive"] }
 elsa = "1.11.2"

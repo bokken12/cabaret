@@ -1,5 +1,9 @@
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
+use cabaret_types::{
+    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Revision, TimestampMs, TreeId, WorkspaceId,
+    WorkspaceIdRef, error::Result,
+};
 use elsa::FrozenBTreeMap;
 use gix::{
     Repository,
@@ -9,15 +13,11 @@ use gix::{
     refs::TargetRef,
 };
 
-use crate::{
-    error::Result,
-    transaction::{branch::Branch, metadata::Metadata, workspace::Workspace},
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef},
-};
+use crate::{branch::Branch, metadata::Metadata, workspace::Workspace};
 
 /// One transaction's view of the repository at a fixed time, holding its resources' locks
 pub struct TransactionContext<'ctx> {
-    pub(crate) repo: Repository,
+    pub repo: Repository,
     pub timestamp: TimestampMs,
     metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
     branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
@@ -30,7 +30,7 @@ impl<'ctx> fmt::Debug for TransactionContext<'ctx> {
 }
 
 impl<'ctx> TransactionContext<'ctx> {
-    pub(crate) fn new(repo: Repository, locks: Vec<Marker>) -> Self {
+    pub fn new(repo: Repository, locks: Vec<Marker>) -> Self {
         Self {
             repo,
             timestamp: TimestampMs::now(),
@@ -134,5 +134,46 @@ impl<'ctx> TransactionContext<'ctx> {
         let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
         let mut blob = entry.object()?.try_into_blob()?;
         Ok(Some(String::from_utf8(blob.take_data())?))
+    }
+
+    pub fn snapshot(&'ctx self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
+        let (metadata, branch) = (self.metadata(change_id)?, self.branch(change_id)?);
+        Ok(ChangeSnapshot {
+            tip: branch.tip,
+            title: metadata.title.clone(),
+            description: metadata.description.clone(),
+            archived: metadata.archived,
+            permanent: metadata.permanent,
+            owners: metadata.owners.clone(),
+            parents: metadata.parents()?,
+            declared_parents: metadata.declared_parents.clone(),
+            review: metadata.review.clone(),
+            workspace: branch.workspace()?,
+        })
+    }
+
+    pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
+        // TODO(joel): use `merge_base_with_graph`
+        Ok(Revision(self.repo.merge_base(one, two)?.detach()))
+    }
+
+    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+        Ok(self.merge_base(predecessor, successor)? == predecessor)
+    }
+
+    /// `ctx.maximal_revisions(revisions)` returns the subset of `revisions` which have no predecessor under `ctx`.
+    pub fn maximal_revisions(&self, revisions: &BTreeSet<Revision>) -> Result<BTreeSet<Revision>> {
+        let mut candidates = revisions.clone();
+
+        for &candidate in revisions.iter() {
+            for &other in candidates.iter() {
+                if candidate != other && self.is_predecessor(candidate, other)? {
+                    candidates.remove(&candidate);
+                    break;
+                }
+            }
+        }
+
+        Ok(candidates)
     }
 }

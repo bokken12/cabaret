@@ -10,17 +10,14 @@ publish.workspace = true
 crate-type = ["lib", "cdylib"]
 
 [features]
-napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "cabaret-types/napi"]
 
 [dependencies]
-elsa.workspace = true
+cabaret-transaction.workspace = true
+cabaret-types.workspace = true
 gix.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
-nonempty-collections.workspace = true
-ref-cast.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

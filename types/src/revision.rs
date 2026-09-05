@@ -3,8 +3,6 @@ use std::{collections::BTreeSet, fmt};
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{cabaret::Cabaret, error::Result, transaction::context::TransactionContext};
-
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Revision(pub ObjectId);
@@ -39,31 +37,4 @@ impl<'de> Deserialize<'de> for Revision {
 pub struct RevisionRange {
     pub bases: BTreeSet<Revision>,
     pub head: Revision,
-}
-
-impl<'ctx> TransactionContext<'ctx> {
-    pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
-        // TODO(joel): use `merge_base_with_graph`
-        Ok(Revision(self.repo.merge_base(one, two)?.detach()))
-    }
-
-    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
-        Ok(self.merge_base(predecessor, successor)? == predecessor)
-    }
-
-    /// `ctx.maximal_revisions(revisions)` returns the subset of `revisions` which have no predecessor under `ctx`.
-    pub fn maximal_revisions(&self, revisions: &BTreeSet<Revision>) -> Result<BTreeSet<Revision>> {
-        let mut candidates = revisions.clone();
-
-        for &candidate in revisions.iter() {
-            for &other in candidates.iter() {
-                if candidate != other && self.is_predecessor(candidate, other)? {
-                    candidates.remove(&candidate);
-                    break;
-                }
-            }
-        }
-
-        Ok(candidates)
-    }
 }

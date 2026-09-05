@@ -2,16 +2,13 @@
 
 use std::collections::BTreeSet;
 
+use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Revision, TreeId, error::Result};
 use gix::merge::{
     blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     tree::TreatAsUnresolved,
 };
 
-use crate::{
-    error::Result,
-    transaction::context::TransactionContext,
-    types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Revision, TreeId},
-};
+use crate::context::TransactionContext;
 
 #[derive(Clone, Debug)]
 pub struct Branch<'ctx> {
@@ -24,7 +21,7 @@ pub struct Branch<'ctx> {
 impl<'ctx> Branch<'ctx> {
     pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, tip: Revision) -> Self { Self { ctx, id, tip } }
 
-    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
+    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
         let tip = Revision(ctx.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
         Ok(Self::new(ctx, id.to_owned(), tip))
     }
@@ -34,7 +31,7 @@ impl<'ctx> Branch<'ctx> {
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
-    /// changes it targets (see [`Metadata::parents`](crate::transaction::metadata::Metadata::parents)),
+    /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
     /// keeping only the maximal ones. Empty for a root.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<Revision>> {
         let ctx = self.ctx;

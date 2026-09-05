@@ -1,6 +1,6 @@
 use gix::diff::tree_with_rewrites::Change as TreeChange;
 
-use crate::{error::Error, types::RepoPath};
+use crate::{error::Error, repo_path::RepoPath};
 
 /// One file-level difference a change presents.
 #[derive(Debug, Clone, PartialEq, Eq)]

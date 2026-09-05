@@ -5,6 +5,7 @@
 
 use std::{convert::Infallible, fmt, fs, ops::ControlFlow, path::Path};
 
+use cabaret_types::{ChangeId, Revision, WorkspaceId, WorkspaceIdRef, error::Result};
 use gix::{
     Repository,
     bstr::ByteSlice,
@@ -12,11 +13,7 @@ use gix::{
     status::tree_index::TrackRenames,
 };
 
-use crate::{
-    error::Result,
-    transaction::{branch::Branch, context::TransactionContext},
-    types::{ChangeId, Revision, WorkspaceId, WorkspaceIdRef},
-};
+use crate::{branch::Branch, context::TransactionContext};
 
 #[derive(Clone, Debug)]
 pub enum Head {
@@ -41,7 +38,7 @@ impl fmt::Debug for Workspace<'_> {
 }
 
 impl<'ctx> Workspace<'ctx> {
-    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, id: WorkspaceIdRef<'_>) -> Result<Self> {
+    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: WorkspaceIdRef<'_>) -> Result<Self> {
         let repo = open(&ctx.repo, id)?;
         let head = match repo.head_name()? {
             Some(name) => Head::Change(name.shorten().to_str()?.parse()?),

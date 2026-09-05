@@ -1,14 +1,11 @@
 //! The home page: the viewer's open changes and their open ancestors, drawn as rail art with one
 //! row per change and x-position for depth in the stack.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{
-    cabaret::Cabaret,
-    error::Result,
-    page::{Fold, Line, Page, Segment, Tag, Target},
-    types::{ChangeId, Identity},
-};
+use cabaret_types::{ChangeId, Identity, error::Result};
+
+use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 
 /// A change in the home view: owned by the viewer, or an open ancestor shown as context.
 pub struct HomeNode {
@@ -23,43 +20,6 @@ pub struct HomeNode {
 pub struct HomeGraph {
     pub viewer: Identity,
     pub nodes: BTreeMap<ChangeId, HomeNode>,
-}
-
-impl Cabaret {
-    /// Every open change `viewer` owns, plus all open ancestors as unowned context.
-    pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
-        self.query(|ctx| {
-            let trunk = ctx.default_branch()?;
-            let mut open = BTreeMap::new();
-            for id in ctx.changes()? {
-                let metadata = ctx.metadata(&id)?;
-                if id != trunk && !metadata.archived {
-                    open.insert(id, metadata);
-                }
-            }
-
-            let mut nodes = BTreeMap::new();
-            let mut frontier: VecDeque<ChangeId> = open
-                .iter()
-                .filter(|(_, metadata)| metadata.owners.contains(viewer))
-                .map(|(id, _)| id.clone())
-                .collect();
-            while let Some(id) = frontier.pop_front() {
-                if nodes.contains_key(&id) {
-                    continue;
-                }
-                let metadata = open[&id];
-                let parents: BTreeSet<ChangeId> =
-                    metadata.parents()?.into_iter().filter(|parent| open.contains_key(parent)).collect();
-                frontier.extend(parents.iter().cloned());
-                let node = HomeNode { title: metadata.title.clone(), owned: metadata.owners.contains(viewer), parents };
-                nodes.insert(id, node);
-            }
-            Ok(HomeGraph { viewer: viewer.clone(), nodes })
-        })
-    }
-
-    pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home_graph(viewer)?) }
 }
 
 /// Labels sit a fixed gutter right of their node, leaving room for status glyphs and stepping

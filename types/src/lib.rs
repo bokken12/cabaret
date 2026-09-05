@@ -1,3 +1,8 @@
+pub mod error;
+pub mod log;
+#[cfg(feature = "napi")]
+mod napi;
+
 mod change_id;
 mod change_snapshot;
 mod changed_file;

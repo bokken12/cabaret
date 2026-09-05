@@ -1,10 +1,11 @@
 //! Pages are what frontends display: lines of text cut into tagged segments, where a segment or
 //! a whole line may name where it leads. Frontends paint tags in their own style and follow the
 //! target under the cursor.
+// TODO-someday(joel): move page and UI details to a separate crate?
 
 use std::fmt;
 
-use crate::types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

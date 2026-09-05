@@ -1,68 +1,111 @@
-//! The log each change's metadata is stored as: append-only entries behind a ref, folded on
-//! read and merged by union across devices.
+//! What Cabaret knows about a change beyond where its branch points. Stored as a log behind a
+//! ref, see [`cabaret_types::log`], which is a fact about storage rather than about the metadata.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use cabaret_types::{
+    ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange,
+    error::Result,
+    log::{self, LogAction, LogEntry},
+};
 use gix::{
-    ObjectId, Repository,
-    objs::{
-        Tree,
-        tree::{Entry, EntryKind},
-    },
+    ObjectId,
     refs::{
         Target,
         transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
     },
 };
-use serde::{Deserialize, Serialize};
 
-use crate::{
-    error::Result,
-    transaction::{context::TransactionContext, metadata::Metadata},
-    types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs, TreeId},
-};
+use crate::context::TransactionContext;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
-pub enum LogAction {
-    AddOwner { owner: Identity },
-    AddParent { parent: ChangeId },
-    Forget { reviewer: Identity, file: RepoPath },
-    Mark { reviewer: Identity, file: RepoPath, range: RevisionRange },
-    RemoveOwner { owner: Identity },
-    RemoveParent { parent: ChangeId },
-    SetArchived { archived: bool },
-    SetDescription { description: Option<String> },
-    SetPermanent { permanent: bool },
-    SetTitle { title: Option<String> },
-}
-
-// TODO-someday(joel): allow format evolution. protos? versioned?
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LogEntry {
-    pub timestamp: TimestampMs,
-    pub user: Identity,
-    #[serde(flatten)]
-    pub action: LogAction,
-}
-
-const LOG_FILE: &str = "log.jsonl";
-
-fn read_log(repo: &Repository, commit: ObjectId) -> Result<String> {
-    let tree = repo.find_commit(commit)?.tree()?;
-    let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("log commit {commit} has no {LOG_FILE}"))?;
-    let blob = entry.object()?.try_into_blob()?;
-    Ok(std::str::from_utf8(&blob.data)?.to_owned())
+/// A change's metadata as of one instant: everything about it except where its branch points.
+#[derive(Clone, Debug)]
+pub struct Metadata<'ctx> {
+    ctx: &'ctx TransactionContext<'ctx>,
+    id: ChangeId,
+    log_commit: Option<ObjectId>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub archived: bool,
+    pub permanent: bool,
+    pub owners: BTreeSet<Identity>,
+    pub declared_parents: BTreeSet<ChangeId>,
+    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
 }
 
 impl<'ctx> Metadata<'ctx> {
+    /// Empty metadata, as folded from `log_commit` before any entries are applied.
+    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, log_commit: Option<ObjectId>) -> Self {
+        Self {
+            ctx,
+            id,
+            log_commit,
+            title: None,
+            description: None,
+            archived: false,
+            permanent: false,
+            owners: BTreeSet::new(),
+            declared_parents: BTreeSet::new(),
+            review: BTreeMap::new(),
+        }
+    }
+
+    pub fn ctx(&self) -> &'ctx TransactionContext<'ctx> { self.ctx }
+
+    pub fn id(&self) -> &ChangeIdRef { &self.id }
+
+    /// The log commit this state was folded from; `None` before the change's first write.
+    pub fn log_commit(&self) -> Option<ObjectId> { self.log_commit }
+
+    pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
+        if ancestor == self.id.as_ref() {
+            return Ok(true);
+        }
+        self.declared_parents
+            .iter()
+            .try_fold(false, |acc, parent| Ok(acc || self.ctx.metadata(parent)?.is_descendant(ancestor)?))
+    }
+
+    pub fn is_ancestor(&self, descendant: &ChangeIdRef) -> Result<bool> {
+        self.ctx.metadata(descendant)?.is_descendant(&self.id)
+    }
+
+    /// The changes this one actually targets: declared parents, or the default branch when none
+    /// are declared, with archived ones replaced by their own parents.
+    // TODO-someday(joel): store computed parents?
+    pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
+        if self.archived {
+            return Ok(self.declared_parents.clone());
+        }
+
+        let mut candidates = BTreeSet::new();
+        let mut frontier: Vec<_> = self.declared_parents.iter().cloned().collect();
+        if frontier.is_empty() {
+            let default = self.ctx.default_branch()?;
+            if default != self.id {
+                frontier.push(default);
+            }
+        }
+        while let Some(candidate_id) = frontier.pop() {
+            let candidate = self.ctx.metadata(&candidate_id)?;
+            // skip archived parents and land into their parents
+            if candidate.archived {
+                frontier.extend(candidate.declared_parents.iter().cloned());
+            } else {
+                candidates.insert(candidate_id);
+            }
+        }
+        self.ctx.maximal_changes(&candidates)
+    }
+
     /// Fold `id`'s log, up to `ctx.timestamp`.
-    pub(crate) fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
+    pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
         let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
             return Ok(Metadata::new(ctx, id.to_owned(), None));
         };
         let log_commit = reference.into_fully_peeled_id()?.detach();
         let mut metadata = Metadata::new(ctx, id.to_owned(), Some(log_commit));
-        for line in read_log(&ctx.repo, log_commit)?.lines() {
-            let entry: LogEntry = serde_json::from_str(line)?;
+        for entry in log::read(&ctx.repo, log_commit)? {
             if entry.timestamp <= ctx.timestamp {
                 metadata.apply(&entry);
             }
@@ -98,7 +141,7 @@ impl<'ctx> Metadata<'ctx> {
     }
 
     /// The actions that take `before` to `self`; empty when nothing changed.
-    pub(crate) fn actions_since(&self, before: &Self) -> Vec<LogAction> {
+    pub fn actions_since(&self, before: &Self) -> Vec<LogAction> {
         let mut actions = Vec::new();
         for owner in before.owners.difference(&self.owners) {
             actions.push(LogAction::RemoveOwner { owner: owner.clone() });
@@ -142,25 +185,15 @@ impl<'ctx> Metadata<'ctx> {
     /// Write `actions` onto this log as entries at `ctx.timestamp`, returning the ref edit that
     /// publishes them. The edit expects the log commit this was read from, so a concurrent append
     /// fails rather than being overwritten.
-    pub(crate) fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
+    pub fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
         let ctx = self.ctx();
-        let repo = &ctx.repo;
         let user = ctx.identity()?;
-        let mut appended = String::new();
-        for action in actions {
-            let entry = LogEntry { timestamp: ctx.timestamp, user: user.clone(), action };
-            appended.push_str(&serde_json::to_string(&entry)?);
-            appended.push('\n');
-        }
-        let mut text = match self.log_commit() {
-            Some(commit) => read_log(repo, commit)?,
-            None => String::new(),
-        };
-        text.push_str(&appended);
-
-        let blob = repo.write_blob(text)?.detach();
-        let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
-        let tree = TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach());
+        let entries: Vec<LogEntry> = actions
+            .into_iter()
+            .map(|action| LogEntry { timestamp: ctx.timestamp, user: user.clone(), action })
+            .collect();
+        let appended = log::render(&entries)?;
+        let tree = log::write(&ctx.repo, self.log_commit(), &appended)?;
         let commit = ctx.commit(tree, self.log_commit().into_iter().map(Revision).collect(), appended)?;
 
         Ok(RefEdit {
@@ -179,5 +212,24 @@ impl<'ctx> Metadata<'ctx> {
             name: self.id().log_ref(),
             deref: false,
         })
+    }
+}
+
+impl<'ctx> TransactionContext<'ctx> {
+    /// `changes` without any that is an ancestor of another of them.
+    pub fn maximal_changes(&'ctx self, changes: &BTreeSet<ChangeId>) -> Result<BTreeSet<ChangeId>> {
+        let mut candidates = changes.clone();
+
+        for candidate_id in changes {
+            let candidate = self.metadata(candidate_id)?;
+            for other in &candidates {
+                if candidate_id != other && candidate.is_ancestor(other)? {
+                    candidates.remove(candidate_id);
+                    break;
+                }
+            }
+        }
+
+        Ok(candidates)
     }
 }
