@@ -75,52 +75,52 @@
       {
         "command": "cabaret.diff",
         "key": "d",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.refresh",
         "key": "r",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "workbench.action.closeActiveEditor",
         "key": "q",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.stepIn",
         "key": "enter",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.stepOut",
         "key": "escape",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && !findWidgetVisible && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && !findWidgetVisible && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.stepUp",
         "key": "shift+6",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.stepDown",
         "key": "shift+4",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.land",
         "key": "shift+1 l",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.rebase",
         "key": "shift+1 r",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.toggleArchived",
         "key": "shift+1 a",
-        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && resourceScheme =~ /^cabaret(-blob)?$/ && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]
   },
