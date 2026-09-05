@@ -445,7 +445,7 @@ export function activate(context: vscode.ExtensionContext) {
         provider.decorate(editor);
       }
     }),
-    // Both fire on a switch; whichever the tab model has caught up with wins.
+    // A switch updates the active editor and the tab model separately, so recompute on either.
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.window.tabGroups.onDidChangeTabs(updatePageContext),
     command("cabaret.home", async () => {
@@ -488,4 +488,5 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
   );
+  updatePageContext();
 }
