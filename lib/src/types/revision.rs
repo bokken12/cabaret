@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fmt};
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{cabaret::Cabaret, context::TransactionContext, error::Result};
+use crate::{cabaret::Cabaret, error::Result, transaction::context::TransactionContext};
 
 // TODO-someday(joel): extract serialize-as-hash as its own type?
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

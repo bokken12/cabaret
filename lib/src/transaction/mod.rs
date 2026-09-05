@@ -1,3 +1,8 @@
+pub mod branch;
+pub mod context;
+pub mod metadata;
+pub mod workspace;
+
 use std::{collections::BTreeSet, fmt, path::Path, time::Duration};
 
 use gix::{
@@ -9,13 +14,15 @@ use gix::{
 };
 
 use crate::{
-    branch::Branch,
     cabaret::Cabaret,
-    context::TransactionContext,
     error::Result,
-    metadata::Metadata,
+    transaction::{
+        branch::Branch,
+        context::TransactionContext,
+        metadata::Metadata,
+        workspace::{Head, Workspace},
+    },
     types::{ChangeIdRef, Revision, WorkspaceId, WorkspaceIdRef},
-    workspace::{Head, Workspace},
 };
 
 /// A branch in a transaction's write set. A branch that is only read still goes here: there is

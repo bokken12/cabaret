@@ -15,9 +15,8 @@ use gix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    context::TransactionContext,
     error::Result,
-    metadata::Metadata,
+    transaction::{context::TransactionContext, metadata::Metadata},
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, RevisionRange, TimestampMs, TreeId},
 };
 

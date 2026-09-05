@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use gix::ObjectId;
 
 use crate::{
-    context::TransactionContext,
     error::Result,
+    transaction::context::TransactionContext,
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, RevisionRange},
 };
 

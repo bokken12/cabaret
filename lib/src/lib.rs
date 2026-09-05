@@ -1,14 +1,10 @@
 pub use gix;
-pub mod branch;
 pub mod cabaret;
-pub mod context;
 pub mod error;
 pub mod home;
 pub mod log;
-pub mod metadata;
 #[cfg(feature = "napi")]
 pub mod node;
 pub mod page;
 pub mod transaction;
 pub mod types;
-pub mod workspace;

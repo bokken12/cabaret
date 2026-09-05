@@ -10,11 +10,9 @@ use gix::{
 };
 
 use crate::{
-    branch::Branch,
     error::Result,
-    metadata::Metadata,
+    transaction::{branch::Branch, metadata::Metadata, workspace::Workspace},
     types::{ChangeId, ChangeIdRef, Identity, RepoPath, Revision, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef},
-    workspace::Workspace,
 };
 
 /// One transaction's view of the repository at a fixed time, holding its resources' locks

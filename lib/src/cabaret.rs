@@ -9,12 +9,11 @@ use gix::{ThreadSafeRepository, bstr::ByteSlice};
 use crate::{
     error::Result,
     page::Page,
-    transaction::{BranchOp, WorkspaceOp},
+    transaction::{BranchOp, WorkspaceOp, workspace::Head},
     types::{
         ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Revision, RevisionRange,
         WorkspaceId, WorkspaceIdRef,
     },
-    workspace::Head,
 };
 
 /// What [`Cabaret::rebase`] did.

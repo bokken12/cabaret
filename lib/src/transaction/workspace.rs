@@ -13,9 +13,8 @@ use gix::{
 };
 
 use crate::{
-    branch::Branch,
-    context::TransactionContext,
     error::Result,
+    transaction::{branch::Branch, context::TransactionContext},
     types::{ChangeId, Revision, WorkspaceId, WorkspaceIdRef},
 };
 

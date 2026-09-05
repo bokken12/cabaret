@@ -8,8 +8,8 @@ use gix::merge::{
 };
 
 use crate::{
-    context::TransactionContext,
     error::Result,
+    transaction::context::TransactionContext,
     types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Revision, TreeId},
 };
 
@@ -34,7 +34,7 @@ impl<'ctx> Branch<'ctx> {
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
-    /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
+    /// changes it targets (see [`Metadata::parents`](crate::transaction::metadata::Metadata::parents)),
     /// keeping only the maximal ones. Empty for a root.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<Revision>> {
         let ctx = self.ctx;
