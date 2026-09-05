@@ -33,6 +33,7 @@ pub struct Cabaret {
     store: Store,
 }
 
+// TODO-someday(joel): split implementation into files by topic
 impl Cabaret {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { store: Store::open(dir)? }) }
 
