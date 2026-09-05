@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "cab": "cargo run -q -p cabaret-cli --",
     "check": "cargo check --workspace --all-features && pnpm --filter cabaret typecheck",
     "lint": "cargo clippy --workspace --all-targets --all-features && oxlint",
     "fmt": "cargo +nightly fmt && oxfmt",
