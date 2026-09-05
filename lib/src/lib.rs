@@ -10,5 +10,5 @@ pub use cabaret_types::{
     RevisionRange, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use gix;
-pub use home::{HomeGraph, HomeNode};
+pub use home::{Home, HomeGraph, HomeNode};
 pub use page::{Fold, Line, Page, Segment, Tag, Target};

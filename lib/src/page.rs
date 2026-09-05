@@ -125,6 +125,14 @@ impl Page {
     pub fn message(text: impl Into<String>) -> Self {
         Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], folds: Vec::new() }
     }
+
+    /// Continue with `other`'s lines, its folds moved down to them.
+    pub fn append(&mut self, other: Self) {
+        let offset = u32::try_from(self.lines.len()).expect("pages are short");
+        self.lines.extend(other.lines);
+        self.folds
+            .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + offset, end: fold.end + offset }));
+    }
 }
 
 /// `Label: a, b` or `Label: (none)`.

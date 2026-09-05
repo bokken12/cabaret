@@ -1,16 +1,16 @@
-use cabaret_lib::{ChangeId, HomeGraph, HomeNode, Identity, Page, Target};
+use cabaret_lib::{ChangeId, Home, HomeGraph, HomeNode, Identity, Page, Target};
 use expect_test::{Expect, expect};
 
-/// Nodes are (id, owned, space-separated parents). Parents that are not listed as nodes are
-/// dropped, as `home_graph` drops trunk.
+/// Nodes are (id, selected, space-separated parents). Parents that are not listed as nodes are
+/// dropped, as `Cabaret::home` drops trunk.
 fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
     let ids: Vec<&str> = nodes.iter().map(|(id, ..)| *id).collect();
     let nodes = nodes
         .iter()
-        .map(|(id, owned, parents)| {
+        .map(|(id, selected, parents)| {
             let node = HomeNode {
                 title: None,
-                owned: *owned,
+                selected: *selected,
                 parents: parents
                     .split_whitespace()
                     .filter(|parent| ids.contains(parent))
@@ -20,7 +20,7 @@ fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
             (id.parse().unwrap(), node)
         })
         .collect();
-    HomeGraph { viewer: Identity("alice@example.com".into()), nodes }
+    HomeGraph { nodes }
 }
 
 fn titled(graph: &mut HomeGraph, id: &str, title: &str) {
@@ -29,7 +29,7 @@ fn titled(graph: &mut HomeGraph, id: &str, title: &str) {
 
 /// Every row leads to the change it labels, and folds are well-formed.
 fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
-    let page = Page::home(&graph(nodes)).unwrap();
+    let page = Page::graph(&graph(nodes)).unwrap();
     expect.assert_eq(&page.to_string());
     for line in &page.lines {
         let Some(Target::Change { change }) = &line.target else { panic!("a home row leads to its change") };
@@ -53,7 +53,7 @@ fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
 /// The page with each fold bracketed in the margin: `╭` on the row that folds, `│` along the
 /// lines it hides, `╰` on the last, nested folds one column right of their enclosing one.
 fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
-    let page = Page::home(&graph(nodes)).unwrap();
+    let page = Page::graph(&graph(nodes)).unwrap();
     let text = page.to_string();
     let lines: Vec<&str> = text.lines().collect();
     let mut margin = vec![Vec::<char>::new(); lines.len()];
@@ -202,7 +202,7 @@ fn titles_sit_in_a_column_after_the_ids() {
         graph(&[("infra-core", false, "main"), ("api-routes", true, "infra-core"), ("ui", true, "api-routes")]);
     titled(&mut graph, "infra-core", "Core infrastructure");
     titled(&mut graph, "ui", "Add the UI");
-    let page = Page::home(&graph).unwrap();
+    let page = Page::graph(&graph).unwrap();
     expect![[r"
         ◌   infra-core    Core infrastructure
         ╰─○   api-routes
@@ -220,7 +220,7 @@ fn titles_sit_in_a_column_after_the_ids() {
 #[test]
 fn a_pushed_label_is_marked() {
     let page =
-        Page::home(&graph(&[("feat-a", true, ""), ("feat-b", true, ""), ("int", true, "feat-a feat-b")])).unwrap();
+        Page::graph(&graph(&[("feat-a", true, ""), ("feat-b", true, ""), ("int", true, "feat-a feat-b")])).unwrap();
     expect![[r"
         ○─╮ [Muted|»][ChangeId|feat-a] => change:feat-a
         ○ │ [Muted|»][ChangeId|feat-b] => change:feat-b
@@ -232,15 +232,42 @@ fn a_pushed_label_is_marked() {
 #[test]
 fn a_parent_cycle_is_an_error() {
     let graph = graph(&[("a", true, "b"), ("b", true, "a")]);
-    expect!["parent cycle involving a"].assert_eq(&format!("{:?}", Page::home(&graph).unwrap_err()));
+    expect!["parent cycle involving a"].assert_eq(&format!("{:?}", Page::graph(&graph).unwrap_err()));
 }
 
 #[test]
-fn an_empty_graph_says_so() {
+fn home_heads_each_graph_and_says_when_one_is_empty() {
+    let home = Home {
+        viewer: Identity("alice@example.com".into()),
+        owned: graph(&[("feat", true, "")]),
+        workspaces: graph(&[]),
+    };
     expect![[r"
-        no open changes owned by alice@example.com
+        Owned
+        ○   feat
+
+        Workspaces
+        no changes checked out in a workspace
     "]]
-    .assert_eq(&Page::home(&graph(&[])).unwrap().to_string());
+    .assert_eq(&Page::home(&home).unwrap().to_string());
+}
+
+#[test]
+fn home_moves_folds_down_to_their_section() {
+    let stack = || graph(&[("base", true, ""), ("top", true, "base")]);
+    let home = Home { viewer: Identity("alice@example.com".into()), owned: stack(), workspaces: stack() };
+    let page = Page::home(&home).unwrap();
+    expect![[r"
+        Owned
+        ○   base
+        ╰─○   top
+
+        Workspaces
+        ○   base
+        ╰─○   top
+    "]]
+    .assert_eq(&page.to_string());
+    expect!["[Fold { start: 1, end: 2 }, Fold { start: 5, end: 6 }]"].assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_transaction::{BranchOp, Head, Store, WorkspaceOp};
+use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, Revision, RevisionRange,
     WorkspaceId, WorkspaceIdRef,
@@ -12,7 +12,7 @@ use cabaret_types::{
 use gix::bstr::ByteSlice;
 
 use crate::{
-    home::{HomeGraph, HomeNode},
+    home::{Home, HomeGraph, HomeNode},
     page::Page,
 };
 
@@ -352,38 +352,54 @@ impl Cabaret {
 }
 
 impl Cabaret {
-    /// Every open change `viewer` owns, plus all open ancestors as unowned context.
-    pub fn home_graph(&self, viewer: &Identity) -> Result<HomeGraph> {
+    /// The changes `viewer` owns that are still open, since owners are to push those forward,
+    /// and every change checked out in this device's workspaces, archived or not, since those
+    /// are still active here; each with its ancestors as context.
+    pub fn home(&self, viewer: &Identity) -> Result<Home> {
         self.store.query(|ctx| {
             let trunk = ctx.default_branch()?;
-            let mut open = BTreeMap::new();
+            let mut changes = BTreeMap::new();
             for id in ctx.changes()? {
-                let metadata = ctx.metadata(&id)?;
-                if id != trunk && !metadata.archived {
-                    open.insert(id, metadata);
+                if id != trunk {
+                    changes.insert(id.clone(), ctx.metadata(&id)?);
                 }
             }
-
-            let mut nodes = BTreeMap::new();
-            let mut frontier: VecDeque<ChangeId> = open
+            let owned = changes
                 .iter()
-                .filter(|(_, metadata)| metadata.owners.contains(viewer))
-                .map(|(id, _)| id.clone())
-                .collect();
-            while let Some(id) = frontier.pop_front() {
-                if nodes.contains_key(&id) {
-                    continue;
-                }
-                let metadata = open[&id];
-                let parents: BTreeSet<ChangeId> =
-                    metadata.parents()?.into_iter().filter(|parent| open.contains_key(parent)).collect();
-                frontier.extend(parents.iter().cloned());
-                let node = HomeNode { title: metadata.title.clone(), owned: metadata.owners.contains(viewer), parents };
-                nodes.insert(id, node);
+                .filter(|(_, metadata)| !metadata.archived && metadata.owners.contains(viewer))
+                .map(|(id, _)| id.clone());
+            let mut checked_out = BTreeSet::new();
+            for workspace in ctx.workspaces()? {
+                let change = ctx.workspace(workspace.to_ref())?.change();
+                checked_out.extend(change.filter(|id| changes.contains_key(*id)).cloned());
             }
-            Ok(HomeGraph { viewer: viewer.clone(), nodes })
+            Ok(Home {
+                viewer: viewer.clone(),
+                owned: home_graph(&changes, &owned.collect())?,
+                workspaces: home_graph(&changes, &checked_out)?,
+            })
         })
     }
 
-    pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home_graph(viewer)?) }
+    pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home(viewer)?) }
+}
+
+/// `selected` and their ancestors within `changes`, every change other than trunk. Ancestry is
+/// the changes each targets, so an open change hangs past an archived parent even when that
+/// parent is drawn; an archived change hangs off what it landed into.
+fn home_graph(changes: &BTreeMap<ChangeId, &Metadata<'_>>, selected: &BTreeSet<ChangeId>) -> Result<HomeGraph> {
+    let mut nodes = BTreeMap::new();
+    let mut frontier: VecDeque<ChangeId> = selected.iter().cloned().collect();
+    while let Some(id) = frontier.pop_front() {
+        if nodes.contains_key(&id) {
+            continue;
+        }
+        let metadata = changes[&id];
+        let parents: BTreeSet<ChangeId> =
+            metadata.parents()?.into_iter().filter(|parent| changes.contains_key(parent)).collect();
+        frontier.extend(parents.iter().cloned());
+        let node = HomeNode { title: metadata.title.clone(), selected: selected.contains(&id), parents };
+        nodes.insert(id, node);
+    }
+    Ok(HomeGraph { nodes })
 }

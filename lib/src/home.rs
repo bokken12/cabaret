@@ -1,5 +1,6 @@
-//! The home page: the viewer's open changes and their open ancestors, drawn as rail art with one
-//! row per change and x-position for depth in the stack.
+//! The home page: the viewer's open changes, then those checked out on this device, each with
+//! their ancestors, drawn as rail art with one row per change and x-position for depth in the
+//! stack.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -7,19 +8,26 @@ use cabaret_types::{ChangeId, Identity, Result};
 
 use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 
-/// A change in the home view: owned by the viewer, or an open ancestor shown as context.
+/// A change in a home graph: one the graph is about, or an open ancestor shown as context.
 pub struct HomeNode {
     pub title: Option<String>,
-    pub owned: bool,
+    pub selected: bool,
     /// Parents that are themselves nodes of the same graph. Trunk is never a node: rooting on it
     /// and having no parents are the same state.
     pub parents: BTreeSet<ChangeId>,
 }
 
-/// The subgraph of open changes relevant to one viewer, closed under `parents`.
+/// A selection of changes and their ancestors, closed under `parents`.
 pub struct HomeGraph {
-    pub viewer: Identity,
     pub nodes: BTreeMap<ChangeId, HomeNode>,
+}
+
+/// What one viewer sees on this device: the changes they own, and the changes checked out in
+/// its workspaces.
+pub struct Home {
+    pub viewer: Identity,
+    pub owned: HomeGraph,
+    pub workspaces: HomeGraph,
 }
 
 /// Labels sit a fixed gutter right of their node, leaving room for status glyphs and stepping
@@ -27,15 +35,26 @@ pub struct HomeGraph {
 const LABEL_GUTTER: usize = 4;
 
 impl Page {
-    /// `○` marks the viewer's changes, `◌` unowned ancestors shown as context, and `»` a label
-    /// that plumbing pushed right of its depth position. Titles sit in a column right of every
-    /// label. Connected components render one after another, each starting with a root on the
-    /// left margin; every row leads to its change, and a change whose stack sits directly below
-    /// it folds that stack away.
-    pub fn home(graph: &HomeGraph) -> Result<Self> {
-        if graph.nodes.is_empty() {
-            return Ok(Self::message(format!("no open changes owned by {}", graph.viewer)));
-        }
+    /// Each graph under a heading, with a muted line where one is empty.
+    pub fn home(home: &Home) -> Result<Self> {
+        let section = |page: &mut Self, heading: &str, graph: &HomeGraph, empty: String| -> Result<()> {
+            page.lines.push(Line::default().push(Segment::tagged(heading, Tag::Heading)));
+            page.append(if graph.nodes.is_empty() { Self::message(empty) } else { Self::graph(graph)? });
+            Ok(())
+        };
+        let mut page = Self::default();
+        section(&mut page, "Owned", &home.owned, format!("no open changes owned by {}", home.viewer))?;
+        page.lines.push(Line::default());
+        section(&mut page, "Workspaces", &home.workspaces, "no changes checked out in a workspace".into())?;
+        Ok(page)
+    }
+
+    /// `○` marks the selected changes, `◌` ancestors shown as context, and `»` a label that
+    /// plumbing pushed right of its depth position. Titles sit in a column right of every label.
+    /// Connected components render one after another, each starting with a root on the left
+    /// margin; every row leads to its change, and a change whose stack sits directly below it
+    /// folds that stack away.
+    pub fn graph(graph: &HomeGraph) -> Result<Self> {
         let depths = depths(graph)?;
         let mut rows = Vec::new();
         for component in components(graph) {
@@ -52,12 +71,15 @@ impl Page {
                 if row.pushed {
                     line = line.push(Segment::tagged("»", Tag::Muted));
                 }
-                line =
-                    line.push(Segment::tagged(row.id.to_string(), if node.owned { Tag::ChangeId } else { Tag::Muted }));
+                let tag = if node.selected { Tag::ChangeId } else { Tag::Muted };
+                line = line.push(Segment::tagged(row.id.to_string(), tag));
                 if let Some(title) = &node.title {
                     line = line.push(Segment::plain(" ".repeat(title_start - width(row))));
-                    line =
-                        line.push(if node.owned { Segment::plain(title) } else { Segment::tagged(title, Tag::Muted) });
+                    line = line.push(if node.selected {
+                        Segment::plain(title)
+                    } else {
+                        Segment::tagged(title, Tag::Muted)
+                    });
                 }
                 line.leading_to(Target::Change { change: row.id.clone() })
             })
@@ -222,7 +244,7 @@ fn draw<'a>(
 
     let mut drawer = Drawer::new(rows.len());
     for (r, &id) in rows.iter().enumerate() {
-        drawer.grid.set(r, cols[r], if graph.nodes[id].owned { '○' } else { '◌' });
+        drawer.grid.set(r, cols[r], if graph.nodes[id].selected { '○' } else { '◌' });
     }
     let mut last_child_row: BTreeMap<usize, usize> = BTreeMap::new();
     for (r, &id) in rows.iter().enumerate() {
