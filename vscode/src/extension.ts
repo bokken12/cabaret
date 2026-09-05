@@ -144,6 +144,11 @@ class PageProvider
     return this.pages.get(uri.toString());
   }
 
+  targetUnderCursor(editor: vscode.TextEditor): Target | undefined {
+    const page = this.page(editor.document.uri);
+    return page === undefined ? undefined : targetAt(page, editor.selection.active);
+  }
+
   decorate(editor: vscode.TextEditor): void {
     const page = this.page(editor.document.uri);
     if (page === undefined) {
@@ -209,22 +214,79 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
   }
 }
 
-/**
- * The change the active page views, on the home page the one under the cursor, else the one
- * checked out in the workspace.
- */
-async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
-  const editor = vscode.window.activeTextEditor;
-  if (editor === undefined || editor.document.uri.scheme !== SCHEME) {
-    return cabaret.currentChange();
-  }
+/** The change a page is about: on the home page the one under the cursor, else the page's own. */
+function pageChange(provider: PageProvider, editor: vscode.TextEditor): ChangeId | undefined {
   const route = parseRoute(editor.document.uri);
   if (route.kind !== "home") {
     return route.change;
   }
+  const target = provider.targetUnderCursor(editor);
+  return target?.kind === "Change" ? target.change : undefined;
+}
+
+function activePage(): vscode.TextEditor | undefined {
+  const editor = vscode.window.activeTextEditor;
+  return editor?.document.uri.scheme === SCHEME ? editor : undefined;
+}
+
+/** The change the active page is about, else the one checked out in the workspace. */
+async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
+  const editor = activePage();
+  return (editor === undefined ? undefined : pageChange(provider, editor)) ?? cabaret.currentChange();
+}
+
+/** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
+function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
+  const rows = page.lines.flatMap((line, row) =>
+    line.target?.kind === "Change" && line.target.change === change ? [row] : [],
+  );
+  return rows.length === 0
+    ? undefined
+    : rows.reduce((best, row) => (Math.abs(row - near) < Math.abs(best - near) ? row : best));
+}
+
+/**
+ * Step from the change the active page is about to one of its parents or children: on the home
+ * page by moving the cursor onto its row, or opening it when it is not drawn there; on a change's
+ * page by opening the same kind of page for it.
+ */
+async function step(cabaret: Cabaret, provider: PageProvider, relation: "parents" | "children"): Promise<void> {
+  const editor = activePage();
+  if (editor === undefined) {
+    return;
+  }
+  const from = pageChange(provider, editor);
+  if (from === undefined) {
+    return;
+  }
+  const candidates = [
+    ...(relation === "parents" ? (await cabaret.change(from)).parents : await cabaret.children(from)),
+  ];
+  if (candidates.length === 0) {
+    vscode.window.setStatusBarMessage(`Cabaret: ${from} has no ${relation}`, 3000);
+    return;
+  }
+  const to =
+    candidates.length === 1
+      ? candidates[0]
+      : await vscode.window.showQuickPick(candidates, { title: `Cabaret: ${relation} of ${from}` });
+  if (to === undefined) {
+    return;
+  }
+  const route = parseRoute(editor.document.uri);
+  if (route.kind !== "home") {
+    await provider.open({ ...route, change: to });
+    return;
+  }
   const page = provider.page(editor.document.uri);
-  const target = page === undefined ? undefined : targetAt(page, editor.selection.active);
-  return target?.kind === "Change" ? target.change : cabaret.currentChange();
+  const row = page === undefined ? undefined : rowOf(page, to, editor.selection.active.line);
+  if (row === undefined) {
+    await provider.open({ kind: "show", change: to });
+    return;
+  }
+  const position = editor.document.validatePosition(new vscode.Position(row, editor.selection.active.character));
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(new vscode.Range(position, position));
 }
 
 async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | undefined> {
@@ -274,17 +336,22 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.diff", async (cabaret) => {
       await provider.open({ kind: "diff", change: await activeChange(cabaret, provider) });
     }),
-    // Enter on a page: follow whatever the cursor is on.
-    command("cabaret.open", async (cabaret) => {
-      const editor = vscode.window.activeTextEditor;
-      if (editor === undefined) {
-        return;
-      }
-      const page = provider.page(editor.document.uri);
-      const target = page === undefined ? undefined : targetAt(page, editor.selection.active);
+    // Enter: follow whatever the cursor is on.
+    command("cabaret.stepIn", async (cabaret) => {
+      const editor = activePage();
+      const target = editor === undefined ? undefined : provider.targetUnderCursor(editor);
       if (target !== undefined) {
         await follow(cabaret, provider, target);
       }
     }),
+    // Escape: from any change's page back home.
+    command("cabaret.stepOut", async () => {
+      const editor = activePage();
+      if (editor !== undefined && parseRoute(editor.document.uri).kind !== "home") {
+        await provider.open({ kind: "home" });
+      }
+    }),
+    command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "parents")),
+    command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "children")),
   );
 }

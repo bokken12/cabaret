@@ -2,7 +2,7 @@
 // TODO-someday(joel): move js wrapper to a separate crate?
 #![allow(clippy::needless_pass_by_value)]
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use cabaret_types::{ChangeId, ChangeSnapshot, Identity, RepoPath, Result, Revision};
 use napi::bindgen_prelude::spawn_blocking;
@@ -44,6 +44,11 @@ impl CabaretJs {
     #[napi]
     pub async fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> {
         self.blocking(move |cabaret| cabaret.snapshot(&id)).await
+    }
+
+    #[napi]
+    pub async fn children(&self, change: ChangeId) -> napi::Result<BTreeSet<ChangeId>> {
+        self.blocking(move |cabaret| cabaret.children(&change)).await
     }
 
     #[napi]

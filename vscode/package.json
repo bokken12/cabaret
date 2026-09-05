@@ -39,8 +39,20 @@
         "title": "Cabaret: Diff"
       },
       {
-        "command": "cabaret.open",
-        "title": "Cabaret: Open"
+        "command": "cabaret.stepIn",
+        "title": "Cabaret: Step In"
+      },
+      {
+        "command": "cabaret.stepOut",
+        "title": "Cabaret: Step Out"
+      },
+      {
+        "command": "cabaret.stepUp",
+        "title": "Cabaret: Step Up"
+      },
+      {
+        "command": "cabaret.stepDown",
+        "title": "Cabaret: Step Down"
       }
     ],
     "keybindings": [
@@ -50,8 +62,23 @@
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
-        "command": "cabaret.open",
+        "command": "cabaret.stepIn",
         "key": "enter",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.stepOut",
+        "key": "escape",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && !findWidgetVisible && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.stepUp",
+        "key": "shift+6",
+        "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.stepDown",
+        "key": "shift+4",
         "when": "editorTextFocus && resourceScheme == cabaret && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]

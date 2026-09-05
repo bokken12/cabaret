@@ -42,3 +42,16 @@ fn ancestor_of_parent_dropped() {
     expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
 }
+
+#[test]
+fn children_are_open_changes_targeting_it() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    fixture.create("sibling", "main", &alice());
+    fixture.cabaret.archive(&id("parent")).unwrap();
+    let children = |change: &str| format!("{:?}", fixture.cabaret.children(&id(change)).unwrap());
+    expect![[r#"{"child", "sibling"}"#]].assert_eq(&children("main"));
+    expect!["{}"].assert_eq(&children("parent"));
+}

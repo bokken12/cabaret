@@ -191,6 +191,21 @@ impl Cabaret {
         self.store.query(|ctx| ctx.snapshot(change_id))
     }
 
+    /// The open changes targeting `change_id`, the inverse of `ChangeSnapshot::parents`. Archived
+    /// changes are left out: every landed change targets trunk forever.
+    pub fn children(&self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+        self.store.query(|ctx| {
+            let mut children = BTreeSet::new();
+            for id in ctx.changes()? {
+                let metadata = ctx.metadata(&id)?;
+                if !metadata.archived && metadata.parents()?.contains(change_id) {
+                    children.insert(id);
+                }
+            }
+            Ok(children)
+        })
+    }
+
     pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
         self.store.query(|ctx| ctx.blob(revision, path))
     }
