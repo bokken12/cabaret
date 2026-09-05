@@ -17,7 +17,11 @@ use std::{
 
 use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId};
 use expect_test::expect;
-use gix::{objs::tree::EntryKind, refs::transaction::PreviousValue};
+use gix::{
+    index::entry::{Flags, Mode, Stat},
+    objs::tree::EntryKind,
+    refs::transaction::PreviousValue,
+};
 
 pub fn alice() -> Identity { Identity("alice@example.com".into()) }
 pub fn bob() -> Identity { Identity("bob@example.com".into()) }
@@ -152,7 +156,27 @@ impl Fixture {
         fs::write(self.repo.workdir().unwrap().join(path), content).unwrap();
     }
 
+    pub fn delete(&self, path: &str) { fs::remove_file(self.repo.workdir().unwrap().join(path)).unwrap(); }
+
+    /// Write `content` to `path` and add it to the main workspace's index, as `git add` does.
+    pub fn stage(&self, path: &str, content: &str) {
+        self.write(path, content);
+        let blob = self.repo.write_blob(content.as_bytes()).unwrap().detach();
+        let mut index = self.repo.open_index().unwrap();
+        index.dangerously_push_entry(Stat::default(), blob, Flags::empty(), Mode::FILE, path.into());
+        index.sort_entries();
+        index.write(gix::index::write::Options::default()).unwrap();
+    }
+
     pub fn exists(&self, path: &str) -> bool { self.repo.workdir().unwrap().join(path).exists() }
+
+    pub fn parents(&self, revision: Revision) -> Vec<Revision> {
+        self.repo.find_commit(revision.0).unwrap().parent_ids().map(|id| Revision(id.detach())).collect()
+    }
+
+    pub fn message(&self, revision: Revision) -> String {
+        self.repo.find_commit(revision.0).unwrap().message_raw().unwrap().to_string()
+    }
 
     /// A path inside the fixture's directory, where default workspace paths also land.
     pub fn path(&self, name: &str) -> PathBuf { self.root.join(name) }

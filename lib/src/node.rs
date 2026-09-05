@@ -80,6 +80,11 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub async fn commit(&self, change: ChangeId) -> napi::Result<Revision> {
+        self.blocking(move |cabaret| cabaret.commit(&change, &[])).await
+    }
+
+    #[napi]
     pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change)).await
     }

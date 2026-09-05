@@ -177,6 +177,33 @@ impl Cabaret {
         })
     }
 
+    /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
+    /// all when empty, as a new commit on the change, returning it. The commit is named for the
+    /// change and nothing more: commits are for the computer, not for reading.
+    pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Revision> {
+        let workspace_id = self
+            .store
+            .query(|ctx| ctx.branch(change_id)?.workspace())?
+            .ok_or_else(|| format!("{change_id} is not checked out in any workspace"))?;
+        let branches = [BranchOp::Update(change_id)];
+        let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
+        self.store.transact(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
+            if ctx.metadata(change_id)?.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            // The workspace was found before its lock was taken, so it may have switched since.
+            if workspace.change().is_none_or(|held| **held != *change_id) {
+                Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;
+            }
+            let tree = workspace.snapshot(pathspecs)?;
+            if tree.0 == ctx.repo.find_commit(branch.tip)?.tree_id()?.detach() {
+                Err(format!("{change_id} has nothing to commit"))?;
+            }
+            branch.tip = ctx.commit(tree, vec![branch.tip], change_id.as_bstr())?;
+            Ok(branch.tip)
+        })
+    }
+
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {

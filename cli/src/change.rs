@@ -127,7 +127,11 @@ impl ChangeCommand {
                 false => cabaret.archive(&or_current(change)?)?,
                 true => cabaret.unarchive(&or_current(change)?)?,
             },
-            ChangeCommand::Commit { .. } => todo!(),
+            ChangeCommand::Commit { change, pathspecs } => {
+                let change = or_current(change)?;
+                cabaret.commit(&change, &pathspecs)?;
+                println!("committed to {change}");
+            }
             ChangeCommand::Create { id, parent } => {
                 let parent = or_current(parent)?;
                 cabaret.create(&id, &parent, &cabaret.identity()?)?;
