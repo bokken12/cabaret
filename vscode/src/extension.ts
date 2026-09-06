@@ -380,14 +380,57 @@ async function pickChange(cabaret: Cabaret, title: string): Promise<ChangeId | u
   return picked?.label;
 }
 
+async function reporting(run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode.Disposable {
-  return vscode.commands.registerCommand(name, async () => {
-    try {
-      await run(openCabaret());
-    } catch (error) {
-      vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
+  return vscode.commands.registerCommand(name, () => reporting(() => run(openCabaret())));
+}
+
+/**
+ * The page `! w g` leaves for the window it opens on a workspace, in global state since a new
+ * window starts its own extension host. Dated, as the window never starts when the folder is
+ * already open elsewhere, and a handoff must not surprise a later start.
+ */
+type Handoff = { route: Route; at: number };
+
+const HANDOFF_TTL = 60_000;
+
+const handoffKey = (dir: string): string => `handoff:${dir}`;
+
+async function gotoWorkspace(
+  context: vscode.ExtensionContext,
+  cabaret: Cabaret,
+  provider: PageProvider,
+): Promise<void> {
+  const path = await cabaret.workspacePath(await activeChange(cabaret, provider));
+  const editor = activePage();
+  if (editor !== undefined) {
+    const handoff: Handoff = { route: parseRoute(editor.document.uri), at: Date.now() };
+    await context.globalState.update(handoffKey(path), handoff);
+  }
+  await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
+}
+
+/** On startup, open the page a `! w g` elsewhere left for this window's workspace. */
+async function takeHandoff(context: vscode.ExtensionContext, provider: PageProvider): Promise<void> {
+  const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (dir === undefined) {
+    return;
+  }
+  const handoff = context.globalState.get<Handoff>(handoffKey(dir));
+  if (handoff === undefined) {
+    return;
+  }
+  await context.globalState.update(handoffKey(dir), undefined);
+  if (Date.now() - handoff.at < HANDOFF_TTL) {
+    await provider.open(handoff.route);
+  }
 }
 
 /** Re-render the active page from the repository. */
@@ -495,10 +538,8 @@ export function activate(context: vscode.ExtensionContext) {
       await cabaret.workspaceRemove(change);
       return `removed the workspace holding ${change}`;
     }),
-    command("cabaret.gotoWorkspace", async (cabaret) => {
-      const path = await cabaret.workspacePath(await activeChange(cabaret, provider));
-      await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
-    }),
+    command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
   updatePageContext();
+  void reporting(() => takeHandoff(context, provider));
 }
