@@ -69,6 +69,18 @@
       {
         "command": "cabaret.toggleArchived",
         "title": "Cabaret: Toggle Archived"
+      },
+      {
+        "command": "cabaret.addWorkspace",
+        "title": "Cabaret: Add Workspace"
+      },
+      {
+        "command": "cabaret.removeWorkspace",
+        "title": "Cabaret: Remove Workspace"
+      },
+      {
+        "command": "cabaret.gotoWorkspace",
+        "title": "Cabaret: Go to Workspace"
       }
     ],
     "keybindings": [
@@ -121,9 +133,27 @@
         "command": "cabaret.toggleArchived",
         "key": "shift+1 a",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.addWorkspace",
+        "key": "shift+1 w a",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.removeWorkspace",
+        "key": "shift+1 w d",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.gotoWorkspace",
+        "key": "shift+1 w g",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ]
   },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "engines": {
     "vscode": "^1.125.0"
   }
