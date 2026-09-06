@@ -59,6 +59,10 @@
         "title": "Cabaret: Step Down"
       },
       {
+        "command": "cabaret.createChild",
+        "title": "Cabaret: Create Child"
+      },
+      {
         "command": "cabaret.land",
         "title": "Cabaret: Land"
       },
@@ -118,6 +122,11 @@
         "command": "cabaret.stepDown",
         "key": "shift+4",
         "when": "editorTextFocus && cabaret.page && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.createChild",
+        "key": "shift+1 c",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "cabaret.land",
