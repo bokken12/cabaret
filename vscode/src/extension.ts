@@ -529,6 +529,51 @@ async function createParent(cabaret: Cabaret, child: ChangeId): Promise<string |
   return `created ${parent} as parent of ${child}`;
 }
 
+async function addOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const owner = await vscode.window.showInputBox({
+    title: `Cabaret: Add Owner of ${change}`,
+    prompt: "Email of the new owner",
+    ignoreFocusOut: true,
+  });
+  if (owner === undefined) {
+    return undefined;
+  }
+  await cabaret.addOwner(change, owner);
+  return `added ${owner} as an owner of ${change}`;
+}
+
+async function removeOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const { owners } = await cabaret.change(change);
+  const owner = await vscode.window.showQuickPick([...owners], { title: `Cabaret: Remove Owner of ${change}` });
+  if (owner === undefined) {
+    return undefined;
+  }
+  await cabaret.removeOwner(change, owner);
+  return `removed ${owner} as an owner of ${change}`;
+}
+
+async function addParent(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const parent = await pickChange(cabaret, `Cabaret: Add Parent of ${change}`);
+  if (parent === undefined) {
+    return undefined;
+  }
+  await cabaret.addParent(change, parent);
+  return `added ${parent} as a parent of ${change}`;
+}
+
+async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const parents = [...(await cabaret.change(change)).declaredParents];
+  const parent = await vscode.window.showQuickPick(parents, {
+    title: `Cabaret: Remove Parent of ${change}`,
+    placeHolder: parents.length === 0 ? `${change} declares no parents` : undefined,
+  });
+  if (parent === undefined) {
+    return undefined;
+  }
+  await cabaret.removeParent(change, parent);
+  return `removed ${parent} as a parent of ${change}`;
+}
+
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
@@ -586,6 +631,10 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.createChild", provider, createChild),
     action("cabaret.createParent", provider, createParent),
+    action("cabaret.addOwner", provider, addOwner),
+    action("cabaret.removeOwner", provider, removeOwner),
+    action("cabaret.addParent", provider, addParent),
+    action("cabaret.removeParent", provider, removeParent),
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
