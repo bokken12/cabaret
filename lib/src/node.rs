@@ -127,6 +127,12 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.create(&change, &parent, &cabaret.identity()?)).await
     }
 
+    /// Insert `parent` between `change` and its parents, owned by git's user.email.
+    #[napi]
+    pub async fn create_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.create_parent(&change, &parent, &cabaret.identity()?)).await
+    }
+
     #[napi]
     pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change)).await

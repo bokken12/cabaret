@@ -21,6 +21,10 @@ pub enum OwnersCommand {
 #[derive(Subcommand)]
 pub enum ParentsCommand {
     Show,
+    /// Insert a new change between this one and its parents
+    Create {
+        id: ChangeId,
+    },
     Add {
         #[arg(add = change_completer())]
         parent: ChangeId,
@@ -170,6 +174,10 @@ impl ChangeCommand {
                 match command {
                     ParentsCommand::Show => {
                         todo!()
+                    }
+                    ParentsCommand::Create { id } => {
+                        cabaret.create_parent(change, &id, &cabaret.identity()?)?;
+                        println!("created {id} as parent of {change}");
                     }
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
                     ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,

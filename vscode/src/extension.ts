@@ -476,17 +476,26 @@ async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return report.join("; ");
 }
 
+function askChangeName(title: string): Thenable<ChangeId | undefined> {
+  return vscode.window.showInputBox({ title, prompt: "Name of the new change", ignoreFocusOut: true });
+}
+
 async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<string | undefined> {
-  const child = await vscode.window.showInputBox({
-    title: `Cabaret: Create Child of ${parent}`,
-    prompt: "Name of the new change",
-    ignoreFocusOut: true,
-  });
+  const child = await askChangeName(`Cabaret: Create Child of ${parent}`);
   if (child === undefined) {
     return undefined;
   }
   await cabaret.create(child, parent);
   return `created ${child} with parent ${parent}`;
+}
+
+async function createParent(cabaret: Cabaret, child: ChangeId): Promise<string | undefined> {
+  const parent = await askChangeName(`Cabaret: Create Parent of ${child}`);
+  if (parent === undefined) {
+    return undefined;
+  }
+  await cabaret.createParent(child, parent);
+  return `created ${parent} as parent of ${child}`;
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
@@ -545,6 +554,7 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.createChild", provider, createChild),
+    action("cabaret.createParent", provider, createParent),
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),

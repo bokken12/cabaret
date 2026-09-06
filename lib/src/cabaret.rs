@@ -288,6 +288,23 @@ impl Cabaret {
         })
     }
 
+    /// Insert `parent_id` between `change_id` and its parents: a new change declaring the parents
+    /// `change_id` declared, which then declares only `parent_id`. It starts at `change_id`'s
+    /// base, so it is empty against its parents and `change_id`'s diff is unchanged.
+    pub fn create_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        let tip = self
+            .store
+            .query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))?
+            .ok_or_else(|| format!("{change_id} has no base to start a parent from"))?;
+        let branches = [BranchOp::Insert { id: parent_id, tip }];
+        self.store.transact(&[parent_id, change_id], &branches, &[], |_ctx, [parent, child], [_branch], []| {
+            parent.declared_parents =
+                std::mem::replace(&mut child.declared_parents, BTreeSet::from([parent_id.to_owned()]));
+            parent.owners = BTreeSet::from([owner.clone()]);
+            Ok(())
+        })
+    }
+
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
     /// all when empty, as a new commit on the change, returning it. The commit is named for the
     /// change and nothing more: commits are for the computer, not for reading.

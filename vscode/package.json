@@ -63,6 +63,10 @@
         "title": "Cabaret: Create Child"
       },
       {
+        "command": "cabaret.createParent",
+        "title": "Cabaret: Create Parent"
+      },
+      {
         "command": "cabaret.land",
         "title": "Cabaret: Land"
       },
@@ -126,6 +130,11 @@
       {
         "command": "cabaret.createChild",
         "key": "shift+1 c",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.createParent",
+        "key": "shift+1 p c",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
