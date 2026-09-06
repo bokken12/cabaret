@@ -4,10 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use cabaret_agents::{Acp, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
-    RevisionRange, WorkspaceId, WorkspaceIdRef,
+    RevisionRange, TimestampMs, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NonEmptyIterator};
@@ -290,6 +291,19 @@ impl Cabaret {
 
     pub fn diff_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
         Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
+    }
+
+    /// The agent sessions launched in the workspace holding `change_id`; none when it is checked
+    /// out nowhere.
+    pub fn sessions(&self, change_id: &ChangeIdRef, agent: &Acp) -> Result<Vec<Session>> {
+        match self.workspace_holding(change_id)? {
+            Some(workspace) => agent.sessions_in(&self.workspace_path(workspace.to_ref())?),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub fn sessions_page(&self, change_id: &ChangeIdRef, agent: &Acp) -> Result<Page> {
+        Ok(Page::sessions(&self.sessions(change_id, agent)?, TimestampMs::now()))
     }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<()> {

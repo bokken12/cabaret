@@ -5,7 +5,8 @@
 
 use std::{fmt, path::Path};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId};
+use cabaret_agents::Session;
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,6 +134,25 @@ impl Page {
         Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
     }
 
+    /// The tail of a show page: one line per agent session in the change's workspace, folding
+    /// under their label. Sessions are listed as given, so callers order them.
+    pub fn sessions(sessions: &[Session], now: TimestampMs) -> Self {
+        if sessions.is_empty() {
+            return Self { lines: vec![Line::default(), list("Sessions:", std::iter::empty())], folds: Vec::new() };
+        }
+        let mut lines = vec![Line::default(), Line::default().push(Segment::tagged("Sessions:", Tag::Label))];
+        for session in sessions {
+            let title = session.title.clone().unwrap_or_else(|| session.id.to_string());
+            lines.push(
+                Line::default()
+                    .push(Segment::plain(format!("  {title}")))
+                    .push(Segment::tagged(format!(" · {}", ago(session.last_active, now)), Tag::Muted)),
+            );
+        }
+        let end = u32::try_from(lines.len() - 1).expect("pages are short");
+        Self { lines, folds: vec![Fold { start: 1, end }] }
+    }
+
     /// A page of one muted line, for when there is nothing to show.
     pub fn message(text: impl Into<String>) -> Self {
         Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], folds: Vec::new() }
@@ -144,6 +164,18 @@ impl Page {
         self.lines.extend(other.lines);
         self.folds
             .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + offset, end: fold.end + offset }));
+    }
+}
+
+/// How long before `now` something happened, coarsely: the reader wants to know whether a session
+/// is still warm, not the minute it stopped.
+fn ago(then: TimestampMs, now: TimestampMs) -> String {
+    let seconds = now.0.saturating_sub(then.0) / 1000;
+    match seconds {
+        s if s < 60 => "just now".to_owned(),
+        s if s < 3600 => format!("{}m ago", s / 60),
+        s if s < 86400 => format!("{}h ago", s / 3600),
+        s => format!("{}d ago", s / 86400),
     }
 }
 

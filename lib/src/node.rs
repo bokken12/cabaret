@@ -4,6 +4,7 @@
 
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
+use cabaret_agents::Acp;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, RevisionId, WorkspaceId,
 };
@@ -103,6 +104,13 @@ impl CabaretJs {
     #[napi]
     pub async fn diff_page(&self, change: ChangeId) -> napi::Result<Page> {
         self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
+    }
+
+    /// The sessions the ACP agent started by `agent` reports for the workspace holding `change`,
+    /// as the tail of its show page.
+    #[napi]
+    pub async fn sessions_page(&self, change: ChangeId, agent: String) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.sessions_page(&change, &Acp::new(agent.into()))).await
     }
 
     /// The home page for `viewer`, defaulting to git's user.email.

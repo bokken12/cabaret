@@ -3,7 +3,9 @@ use std::{
     path::Path,
 };
 
-use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, RevisionId, Segment, Target};
+use cabaret_lib::{
+    ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, RevisionId, Segment, Session, SessionId, Target, TimestampMs,
+};
 use expect_test::expect;
 
 fn revision(digit: char) -> RevisionId { RevisionId(String::from(digit).repeat(40).parse().unwrap()) }
@@ -156,4 +158,38 @@ fn an_empty_diff_page_says_so() {
         [Muted|no changed files]
     "]]
     .assert_eq(&markup(&page));
+}
+
+#[test]
+fn sessions_page_lists_each_session_with_how_long_ago_it_was_active() {
+    let now = TimestampMs(100 * 86_400_000);
+    let session = |id: &str, title: Option<&str>, seconds_ago: u64| Session {
+        id: SessionId(id.to_owned()),
+        title: title.map(str::to_owned),
+        last_active: TimestampMs(now.0 - seconds_ago * 1000),
+    };
+    let page = Page::sessions(
+        &[
+            session("a1", Some("Fix the parser"), 5),
+            session("b2", Some("Add tests"), 42 * 60),
+            session("c3", None, 3 * 3600 + 59 * 60),
+            session("d4", Some("Old"), 9 * 86_400),
+        ],
+        now,
+    );
+    expect![[r"
+
+        [Label|Sessions:]
+          Fix the parser[Muted| · just now]
+          Add tests[Muted| · 42m ago]
+          c3[Muted| · 3h ago]
+          Old[Muted| · 9d ago]
+    "]]
+    .assert_eq(&markup(&page));
+    expect![["[Fold { start: 1, end: 5 }]"]].assert_eq(&format!("{:?}", page.folds));
+    expect![[r"
+
+        [Label|Sessions:] [Muted|(none)]
+    "]]
+    .assert_eq(&markup(&Page::sessions(&[], now)));
 }

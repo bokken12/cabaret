@@ -74,6 +74,26 @@ function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
   }
 }
 
+/**
+ * The sessions tail of a show page, from the ACP agent named by the `cabaret.agent` setting. A
+ * failure to ask is reported in place of the list rather than failing the page.
+ */
+async function sessionsPage(cabaret: Cabaret, change: ChangeId): Promise<Page> {
+  const agent = vscode.workspace.getConfiguration("cabaret").get<string>("agent", "");
+  if (agent === "") {
+    return { lines: [], folds: [] };
+  }
+  try {
+    return await cabaret.sessionsPage(change, agent);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      lines: [{ segments: [] }, { segments: [{ text: `Sessions: unavailable (${message})`, tag: "Muted" }] }],
+      folds: [],
+    };
+  }
+}
+
 function pageText(page: Page): string {
   return page.lines.map((line) => `${line.segments.map((segment) => segment.text).join("")}\n`).join("");
 }
@@ -154,6 +174,8 @@ class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
 {
   private readonly pages = new Map<string, Page>();
+  /** Pages completed by a late part, to serve on the re-read that `changed` triggers. */
+  private readonly completed = new Map<string, Page>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly decorations = Object.fromEntries(
     TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
@@ -161,9 +183,42 @@ class PageProvider
   readonly onDidChange = this.changed.event;
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
-    const page = await renderRoute(openCabaret(), parseRoute(uri));
-    this.pages.set(uri.toString(), page);
+    const key = uri.toString();
+    const completed = this.completed.get(key);
+    if (completed !== undefined) {
+      this.completed.delete(key);
+      this.pages.set(key, completed);
+      return pageText(completed);
+    }
+    const route = parseRoute(uri);
+    const page = await renderRoute(openCabaret(), route);
+    this.pages.set(key, page);
+    if (route.kind === "show") {
+      void this.addSessions(uri, page, route.change);
+    }
     return pageText(page);
+  }
+
+  /**
+   * Listing sessions asks an agent process, which is slow next to reading the repository, so a
+   * show page renders without them and grows a tail when they arrive, unless it was re-rendered
+   * meanwhile.
+   */
+  private async addSessions(uri: vscode.Uri, page: Page, change: ChangeId): Promise<void> {
+    const tail = await sessionsPage(openCabaret(), change);
+    const key = uri.toString();
+    // A closed document is not re-read on `changed`, so a completed page would wait to be served
+    // stale on the next open.
+    const open = vscode.workspace.textDocuments.some((document) => document.uri.toString() === key);
+    if (tail.lines.length === 0 || !open || this.pages.get(key) !== page) {
+      return;
+    }
+    const offset = page.lines.length;
+    this.completed.set(key, {
+      lines: [...page.lines, ...tail.lines],
+      folds: [...page.folds, ...tail.folds.map(({ start, end }) => ({ start: start + offset, end: end + offset }))],
+    });
+    this.changed.fire(uri);
   }
 
   provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
@@ -213,6 +268,7 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = routeUri(route);
+    this.completed.delete(uri.toString());
     this.changed.fire(uri);
     await replacingActive(uri, async () => {
       const document = await vscode.workspace.openTextDocument(uri);
@@ -674,6 +730,16 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
         provider.decorate(editor);
+      }
+    }),
+    // A page that grew a tail needs its new lines painted too.
+    vscode.workspace.onDidChangeTextDocument(({ document }) => {
+      if (document.uri.scheme === SCHEME) {
+        for (const editor of vscode.window.visibleTextEditors) {
+          if (editor.document === document) {
+            provider.decorate(editor);
+          }
+        }
       }
     }),
     // A switch updates the active editor and the tab model separately, so recompute on either.

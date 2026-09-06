@@ -230,6 +230,7 @@ dependencies = [
 name = "cabaret-lib"
 version = "0.0.0"
 dependencies = [
+ "cabaret-agents",
  "cabaret-transaction",
  "cabaret-types",
  "expect-test",
