@@ -541,5 +541,10 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
   updatePageContext();
+  // Leaderkey scans `leaderkey.overrides.*` contributions when it activates, which can precede
+  // this extension registering its own; a rescan picks the bindings up either way.
+  if (vscode.extensions.getExtension("JimmyZJX.leaderkey") !== undefined) {
+    void vscode.commands.executeCommand("leaderkey.refreshConfigs").then(undefined, () => undefined);
+  }
   void reporting(() => takeHandoff(context, provider));
 }
