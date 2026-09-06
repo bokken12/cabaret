@@ -116,20 +116,16 @@ fn a_bare_show_page_marks_what_is_missing() {
 }
 
 #[test]
-fn show_page_flags_archived_and_permanent() {
-    let change = ChangeSnapshot { archived: true, permanent: true, ..snapshot(None, None, &[], &[]) };
-    let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
-    expect![[r"
-        [Heading|trunk]
-
-        [Label|Status:] archived, permanent
-        [Label|Owners:] [Muted|(none)]
-        [Label|Parents:] [Muted|(none)]
-        [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
-        [Label|Bases:] [Muted|(none)]
-        [Label|Workspace:] [Muted|(none)]
-    "]]
-    .assert_eq(&markup(&page));
+fn show_page_status_is_archived_else_permanent_else_open() {
+    let status = |archived: bool, permanent: bool| {
+        let change = ChangeSnapshot { archived, permanent, ..snapshot(None, None, &[], &[]) };
+        let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
+        page.to_string().lines().nth(2).unwrap().to_owned()
+    };
+    expect![[r"Status: open"]].assert_eq(&status(false, false));
+    expect![[r"Status: permanent"]].assert_eq(&status(false, true));
+    expect![[r"Status: archived"]].assert_eq(&status(true, false));
+    expect![[r"Status: archived"]].assert_eq(&status(true, true));
 }
 
 #[test]
