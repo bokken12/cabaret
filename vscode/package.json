@@ -129,6 +129,11 @@
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
+        "command": "editor.toggleFold",
+        "key": "tab",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
         "command": "cabaret.stepOut",
         "key": "escape",
         "when": "editorTextFocus && (cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'file') && !editorHasSelection && !editorHasMultipleSelections && !findWidgetVisible && (!vim.active || vim.mode == 'Normal')"
