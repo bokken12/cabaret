@@ -134,6 +134,26 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub async fn add_owner(&self, change: ChangeId, owner: Identity) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.add_owner(&change, &owner)).await
+    }
+
+    #[napi]
+    pub async fn remove_owner(&self, change: ChangeId, owner: Identity) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.remove_owner(&change, &owner)).await
+    }
+
+    #[napi]
+    pub async fn add_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.add_parent(&change, &parent)).await
+    }
+
+    #[napi]
+    pub async fn remove_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.remove_parent(&change, &parent)).await
+    }
+
+    #[napi]
     pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change)).await
     }

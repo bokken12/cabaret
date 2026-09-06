@@ -67,6 +67,22 @@
         "title": "Cabaret: Create Parent"
       },
       {
+        "command": "cabaret.addOwner",
+        "title": "Cabaret: Add Owner"
+      },
+      {
+        "command": "cabaret.removeOwner",
+        "title": "Cabaret: Remove Owner"
+      },
+      {
+        "command": "cabaret.addParent",
+        "title": "Cabaret: Add Parent"
+      },
+      {
+        "command": "cabaret.removeParent",
+        "title": "Cabaret: Remove Parent"
+      },
+      {
         "command": "cabaret.land",
         "title": "Cabaret: Land"
       },
@@ -135,6 +151,26 @@
       {
         "command": "cabaret.createParent",
         "key": "shift+1 p c",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.addOwner",
+        "key": "shift+1 o a",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.removeOwner",
+        "key": "shift+1 o r",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.addParent",
+        "key": "shift+1 p a",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.removeParent",
+        "key": "shift+1 p r",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
