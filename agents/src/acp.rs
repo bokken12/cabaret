@@ -33,8 +33,9 @@ impl Acp {
     /// `command` starts the agent speaking ACP on its stdio, e.g. `claude-agent-acp`.
     pub fn new(command: PathBuf) -> Self { Self { command } }
 
-    /// Sessions the agent reports for `dir`, most recently active first. What "for `dir`" means is
-    /// the agent's call; Claude Code's adapter lists sessions launched from `dir`.
+    /// Sessions launched from `dir`, most recently active first. The agent decides what to report
+    /// for a directory; Claude Code's adapter also includes sibling git worktrees, so the launch
+    /// directory each session reports is checked here.
     pub fn sessions_in(&self, dir: &Path) -> Result<Vec<Session>> {
         let mut connection = Connection::open(&self.command)?;
         let initialized: InitializeResponse = connection.call(
@@ -50,6 +51,7 @@ impl Acp {
         let mut sessions = listed
             .sessions
             .into_iter()
+            .filter(|info| info.cwd == dir)
             .map(|info| {
                 let updated_at =
                     info.updated_at.ok_or_else(|| format!("session {} has no updatedAt", info.session_id))?;

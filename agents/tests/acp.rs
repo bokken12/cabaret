@@ -26,12 +26,12 @@ fn render(sessions: &[Session]) -> String {
 }
 
 #[test]
-fn sessions_come_from_the_agent_ordered_by_activity() {
+fn sessions_launched_from_directory_ordered_by_activity() {
     let dir = tempfile::tempdir().unwrap();
     let agent = fake_agent(
         dir.path(),
         r#"{"sessionCapabilities":{"list":{}}}"#,
-        r#"[{"sessionId":"older","cwd":"/repo/main","title":"Parser fix","updatedAt":"1970-01-01T00:16:40Z"},{"sessionId":"newer","cwd":"/repo/main","updatedAt":"1970-01-01T00:33:20.500Z"}]"#,
+        r#"[{"sessionId":"older","cwd":"/repo/main","title":"Parser fix","updatedAt":"1970-01-01T00:16:40Z"},{"sessionId":"newer","cwd":"/repo/main","updatedAt":"1970-01-01T00:33:20.500Z"},{"sessionId":"sibling","cwd":"/repo/feature-x","updatedAt":"1970-01-01T00:50:00Z"}]"#,
     );
     expect![[r#"
         newer 2000500 None
