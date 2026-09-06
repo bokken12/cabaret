@@ -320,6 +320,7 @@ impl Cabaret {
             }
             change.declared_parents = parents.clone();
             change.owners = BTreeSet::from([owner.clone()]);
+            child.declared_parents = BTreeSet::from([change_id.to_owned()]);
             Ok(())
         })
     }
