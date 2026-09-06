@@ -32,19 +32,6 @@ pub struct Rebase {
     pub remaining: BTreeSet<ChangeId>,
 }
 
-/// How the workspace a [`Cabaret`] was opened in reaches a change's files.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind", object_from_js = false))]
-pub enum Placement {
-    /// The change is checked out here.
-    Here,
-    /// The change is checked out in another workspace.
-    Elsewhere { workspace: WorkspaceId },
-    /// The change is checked out nowhere. This workspace could switch to it, unless it is
-    /// dedicated to the change it holds; see [`Cabaret::workspace_dedicated`].
-    Nowhere { dedicated: bool },
-}
-
 /// What [`Cabaret::workspace_prune`] did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Prune {
@@ -235,18 +222,9 @@ impl Cabaret {
         )
     }
 
-    pub fn placement(&self, change_id: &ChangeIdRef) -> Result<Placement> {
-        let current = self.workspace_current()?;
-        Ok(match self.workspace_holding(change_id)? {
-            Some(workspace) if workspace == current => Placement::Here,
-            Some(workspace) => Placement::Elsewhere { workspace },
-            None => Placement::Nowhere { dedicated: self.workspace_dedicated(current.to_ref())? },
-        })
-    }
-
     /// Whether a workspace sits at the default location for the change it holds, which names it
     /// as that change's own rather than one to switch between changes.
-    pub fn workspace_dedicated(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<bool> {
+    pub fn workspace_is_dedicated(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<bool> {
         let (path, held) = self.store.query(|ctx| {
             let workspace = ctx.workspace(workspace_id)?;
             Ok((workspace.path().to_owned(), workspace.change().cloned()))

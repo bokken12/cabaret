@@ -1,7 +1,7 @@
 //! Workspaces: which working directories exist and which change each holds, and adding,
 //! switching, and removing them.
 
-use cabaret_lib::{Cabaret, Placement, WorkspaceId};
+use cabaret_lib::{Cabaret, WorkspaceId};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -198,44 +198,37 @@ fn bare_add_from_inside_workspace_lands_beside_it() {
     expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
 
-fn placement(cabaret: &Cabaret, change: &str) -> Placement { cabaret.placement(&id(change)).unwrap() }
+fn dedicated(fixture: &Fixture, workspace: WorkspaceId) -> bool {
+    fixture.cabaret.workspace_is_dedicated(workspace.to_ref()).unwrap()
+}
 
 #[test]
-fn placement_from_main_workspace() {
+fn workspace_beside_main_is_dedicated_and_main_is_not() {
     let fixture = two_changes();
-    let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    fixture.create("three", "main", &alice());
-    assert_eq!(placement(&fixture.cabaret, "one"), Placement::Here);
-    assert_eq!(placement(&fixture.cabaret, "two"), Placement::Elsewhere { workspace: linked("main-two") });
-    // Main is where changes are switched, not any one change's own.
-    assert_eq!(placement(&fixture.cabaret, "three"), Placement::Nowhere { dedicated: false });
-    assert!(!fixture.cabaret.workspace_dedicated(WorkspaceId::Main.to_ref()).unwrap());
-    assert!(fixture.cabaret.workspace_dedicated(linked("main-two").to_ref()).unwrap());
-    assert_eq!(placement(&Cabaret::open(&two).unwrap(), "three"), Placement::Nowhere { dedicated: true });
+    fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    assert!(!dedicated(&fixture, WorkspaceId::Main));
+    assert!(dedicated(&fixture, linked("main-two")));
 }
 
 #[test]
 fn workspace_at_chosen_path_is_not_dedicated() {
     let fixture = two_changes();
-    let path = fixture.cabaret.workspace_add(id("two"), Some(fixture.path("elsewhere"))).unwrap();
-    fixture.create("three", "main", &alice());
-    assert!(!fixture.cabaret.workspace_dedicated(linked("elsewhere").to_ref()).unwrap());
-    assert_eq!(placement(&Cabaret::open(&path).unwrap(), "three"), Placement::Nowhere { dedicated: false });
+    fixture.cabaret.workspace_add(id("two"), Some(fixture.path("elsewhere"))).unwrap();
+    assert!(!dedicated(&fixture, linked("elsewhere")));
 }
 
 #[test]
 fn detached_workspace_is_not_dedicated() {
     let fixture = two_changes();
     fixture.detach("one");
-    assert_eq!(placement(&fixture.cabaret, "one"), Placement::Nowhere { dedicated: false });
+    assert!(!dedicated(&fixture, WorkspaceId::Main));
 }
 
 #[test]
 fn bare_workspaces_are_dedicated() {
     let fixture = two_changes_in(Fixture::bare());
-    let two = Cabaret::open(fixture.cabaret.workspace_add(id("two"), None).unwrap()).unwrap();
-    assert_eq!(placement(&two, "two"), Placement::Here);
-    assert_eq!(placement(&two, "one"), Placement::Nowhere { dedicated: true });
+    fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    assert!(dedicated(&fixture, linked("two")));
 }
 
 #[test]

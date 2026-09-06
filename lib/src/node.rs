@@ -11,9 +11,31 @@ use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 
 use crate::{
-    cabaret::{Cabaret, Placement, Rebase},
+    cabaret::{Cabaret, Rebase},
     page::Page,
 };
+
+/// How the workspace a [`Cabaret`] was opened in reaches a change's files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[napi(discriminant = "kind", object_from_js = false)]
+pub enum Placement {
+    /// The change is checked out here.
+    Here,
+    /// The change is checked out in another workspace.
+    Elsewhere { workspace: WorkspaceId },
+    /// The change is checked out nowhere. This workspace could switch to it, unless it is
+    /// dedicated to the change it holds; see [`Cabaret::workspace_is_dedicated`].
+    Nowhere { dedicated: bool },
+}
+
+fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
+    let current = cabaret.workspace_current()?;
+    Ok(match cabaret.workspace_holding(change)? {
+        Some(workspace) if workspace == current => Placement::Here,
+        Some(workspace) => Placement::Elsewhere { workspace },
+        None => Placement::Nowhere { dedicated: cabaret.workspace_is_dedicated(current.to_ref())? },
+    })
+}
 
 /// The workspace holding `change`, which the workspace commands act on.
 fn holding(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<WorkspaceId> {
@@ -118,7 +140,7 @@ impl CabaretJs {
 
     #[napi]
     pub async fn placement(&self, change: ChangeId) -> napi::Result<Placement> {
-        self.blocking(move |cabaret| cabaret.placement(&change)).await
+        self.blocking(move |cabaret| placement(cabaret, &change)).await
     }
 
     /// Check `change` out in the workspace this instance was opened in.
