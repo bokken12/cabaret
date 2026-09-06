@@ -11,7 +11,7 @@ use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 
 use crate::{
-    cabaret::{Cabaret, Rebase},
+    cabaret::{Cabaret, Placement, Rebase},
     page::Page,
 };
 
@@ -114,6 +114,17 @@ impl CabaretJs {
     #[napi]
     pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {
         self.blocking(move |cabaret| path_string(cabaret.workspace_path(holding(cabaret, &change)?.to_ref())?)).await
+    }
+
+    #[napi]
+    pub async fn placement(&self, change: ChangeId) -> napi::Result<Placement> {
+        self.blocking(move |cabaret| cabaret.placement(&change)).await
+    }
+
+    /// Check `change` out in the workspace this instance was opened in.
+    #[napi]
+    pub async fn workspace_switch(&self, change: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change)).await
     }
 
     #[napi]

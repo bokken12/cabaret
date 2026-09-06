@@ -14,13 +14,19 @@ import * as vscode from "vscode";
 const SCHEME = "cabaret";
 const BLOB_SCHEME = "cabaret-blob";
 
+/** The cabaret workspace this window is open on. */
+function workspaceFolder(): vscode.Uri {
+  const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (folder === undefined) {
+    throw new Error("no workspace folder open");
+  }
+  return folder;
+}
+
 let session: { dir: string; cabaret: Cabaret } | undefined;
 
 function openCabaret(): Cabaret {
-  const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (dir === undefined) {
-    throw new Error("no workspace folder open");
-  }
+  const dir = workspaceFolder().fsPath;
   if (session?.dir !== dir) {
     session = { dir, cabaret: new Cabaret(dir) };
   }
@@ -43,6 +49,18 @@ function parseRoute(uri: vscode.Uri): Route {
     throw new Error(`unknown page ${uri.toString()}`);
   }
   return { kind, change };
+}
+
+/** A file in the workspace, as Enter on a file diff leads to. */
+type Location = { kind: "file"; path: RepoPath; line: number };
+
+type Destination = Route | Location;
+
+async function openFile({ path, line }: Location): Promise<void> {
+  const position = new vscode.Position(line, 0);
+  await vscode.window.showTextDocument(vscode.Uri.joinPath(workspaceFolder(), path), {
+    selection: new vscode.Range(position, position),
+  });
 }
 
 function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
@@ -200,6 +218,14 @@ class PageProvider
       const document = await vscode.workspace.openTextDocument(uri);
       this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
     });
+  }
+
+  async show(destination: Destination): Promise<void> {
+    if (destination.kind === "file") {
+      await openFile(destination);
+    } else {
+      await this.open(destination);
+    }
   }
 }
 
@@ -424,15 +450,61 @@ function command(name: string, run: (cabaret: Cabaret) => Promise<void>): vscode
 }
 
 /**
- * The page `! w g` leaves for the window it opens on a workspace, in global state since a new
+ * What a window opened on another workspace should show first, in global state since a new
  * window starts its own extension host. Dated, as the window never starts when the folder is
  * already open elsewhere, and a handoff must not surprise a later start.
  */
-type Handoff = { route: Route; at: number };
+type Handoff = { destination: Destination; at: number };
 
 const HANDOFF_TTL = 60_000;
 
 const handoffKey = (dir: string): string => `handoff:${dir}`;
+
+/** Open the workspace at `dir` in a new window, showing `destination` there. */
+async function openWorkspace(
+  context: vscode.ExtensionContext,
+  dir: string,
+  destination: Destination | undefined,
+): Promise<void> {
+  if (destination !== undefined) {
+    const handoff: Handoff = { destination, at: Date.now() };
+    await context.globalState.update(handoffKey(dir), handoff);
+  }
+  await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(dir), { forceNewWindow: true });
+}
+
+/** On startup, show what a window elsewhere left for this window's workspace. */
+async function takeHandoff(context: vscode.ExtensionContext, provider: PageProvider): Promise<void> {
+  if (vscode.workspace.workspaceFolders === undefined) {
+    return;
+  }
+  const dir = workspaceFolder().fsPath;
+  const handoff = context.globalState.get<Handoff>(handoffKey(dir));
+  if (handoff === undefined) {
+    return;
+  }
+  await context.globalState.update(handoffKey(dir), undefined);
+  if (Date.now() - handoff.at < HANDOFF_TTL) {
+    await provider.show(handoff.destination);
+  }
+}
+
+/** The file at the cursor on the active file diff. */
+function cursorLocation({ path }: FileDiff): Location {
+  // Read off whichever side holds the cursor, so only approximate on the before side.
+  const line = vscode.window.activeTextEditor?.selection.active.line ?? 0;
+  return { kind: "file", path, line };
+}
+
+/** The file at the cursor on the active file diff, else the active page. */
+function activeDestination(): Destination | undefined {
+  const fileDiff = activeFileDiff();
+  if (fileDiff !== undefined) {
+    return cursorLocation(fileDiff);
+  }
+  const editor = activePage();
+  return editor === undefined ? undefined : parseRoute(editor.document.uri);
+}
 
 async function gotoWorkspace(
   context: vscode.ExtensionContext,
@@ -440,27 +512,41 @@ async function gotoWorkspace(
   provider: PageProvider,
 ): Promise<void> {
   const path = await cabaret.workspacePath(await activeChange(cabaret, provider));
-  const editor = activePage();
-  if (editor !== undefined) {
-    const handoff: Handoff = { route: parseRoute(editor.document.uri), at: Date.now() };
-    await context.globalState.update(handoffKey(path), handoff);
-  }
-  await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path), { forceNewWindow: true });
+  await openWorkspace(context, path, activeDestination());
 }
 
-/** On startup, open the page a `! w g` elsewhere left for this window's workspace. */
-async function takeHandoff(context: vscode.ExtensionContext, provider: PageProvider): Promise<void> {
-  const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (dir === undefined) {
-    return;
-  }
-  const handoff = context.globalState.get<Handoff>(handoffKey(dir));
-  if (handoff === undefined) {
-    return;
-  }
-  await context.globalState.update(handoffKey(dir), undefined);
-  if (Date.now() - handoff.at < HANDOFF_TTL) {
-    await provider.open(handoff.route);
+/**
+ * Enter on a file diff: the file itself at the cursor's line, in the change's workspace. Without
+ * one, offer to check the change out here, or where this workspace is another change's own, to
+ * make it a workspace and open that in a new window.
+ */
+async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fileDiff: FileDiff): Promise<void> {
+  const { change } = fileDiff;
+  const location = cursorLocation(fileDiff);
+  const placement = await cabaret.placement(change);
+  switch (placement.kind) {
+    case "Here":
+      await openFile(location);
+      return;
+    case "Elsewhere":
+      await openWorkspace(context, await cabaret.workspacePath(change), location);
+      return;
+    case "Nowhere": {
+      const offer = placement.dedicated ? "Create Workspace" : "Check Out Here";
+      const detail = placement.dedicated
+        ? `Create a workspace for ${change} and open ${location.path} there in a new window.`
+        : `Check ${change} out in this workspace and open ${location.path}.`;
+      const message = `Cabaret: ${change} is not checked out in any workspace`;
+      if ((await vscode.window.showInformationMessage(message, { modal: true, detail }, offer)) === undefined) {
+        return;
+      }
+      if (placement.dedicated) {
+        await openWorkspace(context, await cabaret.workspaceAdd(change), location);
+      } else {
+        await cabaret.workspaceSwitch(change);
+        await openFile(location);
+      }
+    }
   }
 }
 
@@ -605,8 +691,13 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.diff", async (cabaret) => {
       await provider.open({ kind: "diff", change: await activeChange(cabaret, provider) });
     }),
-    // Enter: follow whatever the cursor is on.
+    // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
+      const fileDiff = activeFileDiff();
+      if (fileDiff !== undefined) {
+        await enterFile(context, cabaret, fileDiff);
+        return;
+      }
       const editor = activePage();
       const target = editor === undefined ? undefined : provider.targetUnderCursor(editor);
       if (target !== undefined) {

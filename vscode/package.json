@@ -126,7 +126,7 @@
       {
         "command": "cabaret.stepIn",
         "key": "enter",
-        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+        "when": "editorTextFocus && cabaret.page && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "editor.toggleFold",
