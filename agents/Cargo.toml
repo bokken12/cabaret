@@ -1,0 +1,20 @@
+[package]
+name = "cabaret-agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+agent-client-protocol-schema.workspace = true
+cabaret-types.workspace = true
+humantime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+expect-test.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

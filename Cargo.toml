@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cli", "lib", "transaction", "types"]
+members = ["agents", "cli", "lib", "transaction", "types"]
 
 [workspace.package]
 version = "0.0.0"
@@ -22,14 +22,17 @@ multiple_crate_versions = "allow"
 new_without_default = "allow"
 
 [workspace.dependencies]
+cabaret-agents = { path = "agents" }
 cabaret-lib = { path = "lib" }
 cabaret-transaction = { path = "transaction" }
 cabaret-types = { path = "types" }
 
+agent-client-protocol-schema = { version = "1.7.0", default-features = false }
 clap = { version = "4.6.6", features = ["derive"] }
 elsa = "1.11.2"
 expect-test = "1.5.1"
 clap_complete = { version = "4.6.9", features = ["unstable-dynamic"] }
+humantime = "2.4.0"
 gix = { version = "0.86.0", features = ["blocking-network-client", "blocking-http-transport-curl", "merge"] }
 napi = { version = "3.12.1", default-features = false, features = ["napi8", "tokio_rt"] }
 napi-build = "2.4.1"
