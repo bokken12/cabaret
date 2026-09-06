@@ -18,6 +18,7 @@ cabaret-types.workspace = true
 gix.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
+nonempty-collections.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

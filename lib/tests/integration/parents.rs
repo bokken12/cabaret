@@ -1,4 +1,5 @@
 use expect_test::expect;
+use nonempty_collections::nebts;
 
 use super::fixture::{Fixture, alice, id};
 
@@ -63,12 +64,11 @@ fn created_parent_sits_between_child_and_its_parents() {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("b", "2")]);
     fixture.commit("main", &[("c", "3")]);
-    let base = fixture.cabaret.base(&id("child")).unwrap().unwrap();
-    fixture.cabaret.create_parent(&id("child"), &id("parent"), &alice()).unwrap();
+    fixture.cabaret.create_parent(&id("parent"), &id("child"), &alice()).unwrap();
     let parent = fixture.snapshot("parent");
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
     expect![[r#"{Identity("alice@example.com")}"#]].assert_eq(&format!("{:?}", parent.owners));
-    assert_eq!(parent.tip, base);
+    assert_eq!(parent.tip, fixture.tip("main"));
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
     expect![[r#"
         child 26fb68bb
@@ -84,6 +84,55 @@ fn created_parent_sits_between_child_and_its_parents() {
 fn created_parent_requires_base() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
-    let error = fixture.cabaret.create_parent(&id("main"), &id("parent"), &alice()).unwrap_err();
-    expect!["main has no base to start a parent from"].assert_eq(&format!("{error:?}"));
+    let error = fixture.cabaret.create_parent(&id("parent"), &id("main"), &alice()).unwrap_err();
+    expect!["main has no base to create a parent from"].assert_eq(&format!("{error:?}"));
+}
+
+#[test]
+fn created_on_several_parents_starts_at_their_merge() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("left", "main", &alice());
+    fixture.commit("left", &[("left.txt", "left\n")]);
+    fixture.create("right", "main", &alice());
+    fixture.commit("right", &[("right.txt", "right\n")]);
+    fixture.cabaret.create(&id("join"), nebts![id("left"), id("right")], &alice()).unwrap();
+    expect![[r#"
+        join
+          parents left right
+          owners alice@example.com
+          base 536765ef
+          diff (empty)
+    "#]]
+    .assert_eq(&fixture.describe("join"));
+}
+
+#[test]
+fn created_on_conflicting_parents_carries_the_conflict() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("file.txt", "original\n")]);
+    fixture.create("left", "main", &alice());
+    fixture.commit("left", &[("file.txt", "left\n")]);
+    fixture.create("right", "main", &alice());
+    fixture.commit("right", &[("file.txt", "right\n")]);
+    fixture.cabaret.create(&id("join"), nebts![id("left"), id("right")], &alice()).unwrap();
+    expect![[r#"
+        join
+          parents left right
+          owners alice@example.com
+          base ee2f96b1
+          diff ~file.txt
+    "#]]
+    .assert_eq(&fixture.describe("join"));
+    let tip = fixture.tip("join");
+    expect![[r#"
+        <<<<<<< join
+        left
+        ||||||| base
+        original
+        =======
+        right
+        >>>>>>> right
+    "#]]
+    .assert_eq(&fixture.cabaret.blob(tip, &"file.txt".parse().unwrap()).unwrap().unwrap());
 }

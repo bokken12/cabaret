@@ -1,5 +1,6 @@
 use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, Revision};
 use clap::{Subcommand, ValueHint};
+use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::args::{change_completer, parse_revision, revision_completer};
 
@@ -56,7 +57,9 @@ pub enum ChangeCommand {
     Create {
         id: ChangeId,
         #[arg(long, add = change_completer())]
-        parent: Option<ChangeId>,
+        parent: Vec<ChangeId>,
+        #[arg(long, add = change_completer(), conflicts_with = "parent")]
+        child: Option<ChangeId>,
     },
     Diff {
         #[arg(long, add = change_completer())]
@@ -136,10 +139,25 @@ impl ChangeCommand {
                 cabaret.commit(&change, &pathspecs)?;
                 println!("committed to {change}");
             }
-            ChangeCommand::Create { id, parent } => {
-                let parent = or_current(parent)?;
-                cabaret.create(&id, &parent, &cabaret.identity()?)?;
-                println!("created {id} with parent {parent}");
+            ChangeCommand::Create { id, parent, child } => {
+                let owner = &cabaret.identity()?;
+                match (child, NEVec::try_from_vec(parent)) {
+                    (Some(_), Some(_)) => Err("cannot pass both --parent and --child")?,
+                    (Some(child), None) => {
+                        cabaret.create_parent(&id, &child, owner)?;
+                        println!("created {id} as parent of {child}");
+                    }
+                    (None, Some(parents)) => {
+                        cabaret.create(&id, parents.into_nonempty_iter().collect(), owner)?;
+                        // TODO(joel): informative message
+                        println!("created {id}");
+                    }
+                    (None, None) => {
+                        let parent = cabaret.current_change()?;
+                        cabaret.create(&id, NEBTreeSet::new(parent.clone()), owner)?;
+                        println!("created {id} with parent {parent}");
+                    }
+                }
             }
             ChangeCommand::Diff { change, pathspecs } => {
                 // TODO(joel): show file content not just file names
@@ -176,7 +194,7 @@ impl ChangeCommand {
                         todo!()
                     }
                     ParentsCommand::Create { id } => {
-                        cabaret.create_parent(change, &id, &cabaret.identity()?)?;
+                        cabaret.create_parent(&id, change, &cabaret.identity()?)?;
                         println!("created {id} as parent of {change}");
                     }
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,

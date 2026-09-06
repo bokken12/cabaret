@@ -10,6 +10,7 @@ use cabaret_types::{
     WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
+use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode},
@@ -291,29 +292,34 @@ impl Cabaret {
         Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
     }
 
-    pub fn create(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        let tip = self.store.query(|ctx| Ok(ctx.branch(parent_id)?.tip))?;
+    pub fn create(&self, change_id: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<()> {
+        let (first, rest) = parent_ids.nonempty_iter().next();
+        let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
         let branches = [BranchOp::Insert { id: change_id, tip }];
-        self.store.transact(&[change_id], &branches, &[], |_ctx, [metadata], [_branch], []| {
-            metadata.declared_parents = BTreeSet::from([parent_id.to_owned()]);
+        self.store.transact(&[change_id], &branches, &[], |ctx, [metadata], [branch], []| {
+            for parent_id in rest {
+                branch.merge(ctx.branch(parent_id)?, "create")?;
+            }
+            metadata.declared_parents = parent_ids.iter().cloned().collect();
             metadata.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })
     }
 
-    /// Insert `parent_id` between `change_id` and its parents: a new change declaring the parents
-    /// `change_id` declared, which then declares only `parent_id`. It starts at `change_id`'s
-    /// base, so it is empty against its parents and `change_id`'s diff is unchanged.
-    pub fn create_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        let tip = self
-            .store
-            .query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))?
-            .ok_or_else(|| format!("{change_id} has no base to start a parent from"))?;
-        let branches = [BranchOp::Insert { id: parent_id, tip }];
-        self.store.transact(&[parent_id, change_id], &branches, &[], |_ctx, [parent, child], [_branch], []| {
-            parent.declared_parents =
-                std::mem::replace(&mut child.declared_parents, BTreeSet::from([parent_id.to_owned()]));
-            parent.owners = BTreeSet::from([owner.clone()]);
+    pub fn create_parent(&self, change_id: &ChangeIdRef, child_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+        // TODO(joel): currently non-atomic to build tip
+        let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;
+        let mut to_merge = parents.iter();
+        let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
+
+        let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
+        let branches = [BranchOp::Insert { id: change_id, tip }];
+        self.store.transact(&[change_id, child_id], &branches, &[], |ctx, [change, child], [branch], []| {
+            for parent_id in to_merge {
+                branch.merge(ctx.branch(parent_id)?, "create")?;
+            }
+            change.declared_parents = parents.clone();
+            change.owners = BTreeSet::from([owner.clone()]);
             Ok(())
         })
     }

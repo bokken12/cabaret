@@ -611,7 +611,7 @@ async function createParent(cabaret: Cabaret, child: ChangeId): Promise<string |
   if (parent === undefined) {
     return undefined;
   }
-  await cabaret.createParent(child, parent);
+  await cabaret.createParent(parent, child);
   return `created ${parent} as parent of ${child}`;
 }
 

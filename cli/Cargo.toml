@@ -13,6 +13,7 @@ path = "src/main.rs"
 cabaret-lib.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
+nonempty-collections.workspace = true
 
 [lints]
 workspace = true

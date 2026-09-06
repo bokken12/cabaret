@@ -9,6 +9,7 @@ use cabaret_types::{
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
+use nonempty_collections::NEBTreeSet;
 
 use crate::{
     cabaret::{Cabaret, Rebase},
@@ -157,13 +158,13 @@ impl CabaretJs {
     /// Create `change` as a child of `parent`, owned by git's user.email.
     #[napi]
     pub async fn create(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.create(&change, &parent, &cabaret.identity()?)).await
+        self.blocking(move |cabaret| cabaret.create(&change, NEBTreeSet::new(parent), &cabaret.identity()?)).await
     }
 
-    /// Insert `parent` between `change` and its parents, owned by git's user.email.
+    /// Create `change` as a parent of `child`, owned by git's user.email.
     #[napi]
-    pub async fn create_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.create_parent(&change, &parent, &cabaret.identity()?)).await
+    pub async fn create_parent(&self, change: ChangeId, child: ChangeId) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.create_parent(&change, &child, &cabaret.identity()?)).await
     }
 
     #[napi]
