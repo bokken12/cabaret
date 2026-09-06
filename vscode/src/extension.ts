@@ -106,6 +106,31 @@ const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
 
 const TAGS = Object.keys(STYLES) as Tag[];
 
+/** The page or, for a file diff, the after-side blob a tab shows, when it is one of ours. */
+function cabaretTabUri(tab: vscode.Tab): vscode.Uri | undefined {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText && input.uri.scheme === SCHEME) {
+    return input.uri;
+  }
+  if (input instanceof vscode.TabInputTextDiff && input.modified.scheme === BLOB_SCHEME) {
+    return input.modified;
+  }
+  return undefined;
+}
+
+/**
+ * `open` something identified by `destination`, then close the cabaret tab it was opened from:
+ * moving around cabaret replaces the view, as in a browser, rather than piling up tabs.
+ */
+async function replacingActive(destination: vscode.Uri, open: () => Promise<void>): Promise<void> {
+  const from = vscode.window.tabGroups.activeTabGroup.activeTab;
+  await open();
+  const fromUri = from === undefined ? undefined : cabaretTabUri(from);
+  if (from !== undefined && fromUri !== undefined && fromUri.toString() !== destination.toString()) {
+    await vscode.window.tabGroups.close(from);
+  }
+}
+
 /** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
 class PageProvider
   implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
@@ -171,8 +196,10 @@ class PageProvider
   async open(route: Route): Promise<void> {
     const uri = routeUri(route);
     this.changed.fire(uri);
-    const document = await vscode.workspace.openTextDocument(uri);
-    this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
+    await replacingActive(uri, async () => {
+      const document = await vscode.workspace.openTextDocument(uri);
+      this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
+    });
   }
 }
 
@@ -209,7 +236,11 @@ async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedF
 async function openDiff(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<void> {
   const before = blobUri(change, await beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
   const after = blobUri(change, file.kind === "Deleted" ? undefined : (await cabaret.change(change)).tip, file.path);
-  await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`);
+  // Pinned: a preview would take over the tab about to be closed.
+  const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
+  await replacingActive(after, async () => {
+    await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`, options);
+  });
 }
 
 async function follow(cabaret: Cabaret, provider: PageProvider, target: Target): Promise<void> {
