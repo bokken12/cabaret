@@ -1,8 +1,8 @@
 use cabaret_types::TreeId;
-use gix::Id;
+use gix::Tree as GixTree;
 
-pub struct Tree<'ctx>(Id<'ctx>);
+pub struct Tree<'ctx>(GixTree<'ctx>);
 
 impl<'ctx> Tree<'ctx> {
-    pub fn id(&self) -> TreeId { TreeId(self.0.detach()) }
+    pub fn id(&self) -> TreeId { TreeId(self.0.id) }
 }
