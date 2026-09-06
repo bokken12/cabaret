@@ -13,7 +13,7 @@ use gix::{
     refs::TargetRef,
 };
 
-use crate::{branch::Branch, metadata::Metadata, workspace::Workspace};
+use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
 // TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
 /// One transaction's view of the repository at a fixed time, holding its resources' locks
@@ -69,6 +69,10 @@ impl<'ctx> TransactionContext<'ctx> {
             return Ok(workspace);
         }
         Ok(self.workspaces.insert(workspace_id.into_owned(), Box::new(Workspace::load(self, workspace_id)?)))
+    }
+
+    pub fn revision(&'ctx self, revision_id: RevisionId) -> Result<Revision<'ctx>> {
+        Ok(Revision(self.repo.find_commit(revision_id)?))
     }
 
     /// Every local branch is a change, whether or not anything has been logged about it.
