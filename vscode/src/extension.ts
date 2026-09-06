@@ -338,17 +338,6 @@ function enclosing(route: Route): Route | undefined {
   }
 }
 
-/** The change whose diff the active tab shows: a change's diff page, or a file diff in it. */
-function diffedChange(): ChangeId | undefined {
-  const fileDiff = activeFileDiff();
-  if (fileDiff !== undefined) {
-    return fileDiff.change;
-  }
-  const editor = activePage();
-  const route = editor === undefined ? undefined : parseRoute(editor.document.uri);
-  return route?.kind === "diff" ? route.change : undefined;
-}
-
 /** The change the active file diff or page is about, else the one checked out in the workspace. */
 async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
   const editor = activePage();
@@ -693,12 +682,8 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
-    // From inside a change's diff, its own show page; elsewhere, pick one.
     command("cabaret.showChange", async (cabaret) => {
-      const change = diffedChange() ?? (await pickChange(cabaret, "Cabaret: Show Change"));
-      if (change !== undefined) {
-        await provider.open({ kind: "show", change });
-      }
+      await provider.open({ kind: "show", change: await activeChange(cabaret, provider) });
     }),
     command("cabaret.diff", async (cabaret) => {
       await provider.open({ kind: "diff", change: await activeChange(cabaret, provider) });
