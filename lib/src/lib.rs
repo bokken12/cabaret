@@ -6,7 +6,7 @@ mod page;
 
 pub use cabaret::{Cabaret, Prune, Rebase};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, Revision,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     RevisionRange, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use gix;

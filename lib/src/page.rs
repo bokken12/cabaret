@@ -5,7 +5,7 @@
 
 use std::{fmt, path::Path};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Revision};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +108,7 @@ impl Page {
                 Segment::tagged(parent.to_string(), Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
             }),
         ));
-        let revision = |revision: &Revision| Segment::tagged(revision.to_string(), Tag::Revision);
+        let revision = |revision: &RevisionId| Segment::tagged(revision.to_string(), Tag::Revision);
         lines.push(list("Tip:", std::iter::once(revision(&change.tip))));
         lines.push(list("Bases:", change.bases.iter().map(revision)));
         lines.push(list("Workspace:", workspace.map(|path| Segment::plain(path.display().to_string())).into_iter()));

@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use cabaret_types::{ChangeIdRef, Result, Revision, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef};
 use gix::{
     ThreadSafeRepository,
     lock::{Marker, acquire::Fail},
@@ -27,7 +27,7 @@ use crate::{
 pub enum BranchOp<'a> {
     // TODO(joel): convert tuple-struct to named?
     Update(&'a ChangeIdRef),
-    Insert { id: &'a ChangeIdRef, tip: Revision },
+    Insert { id: &'a ChangeIdRef, tip: RevisionId },
 }
 
 impl<'a> BranchOp<'a> {
@@ -71,7 +71,7 @@ impl<'a> WorkspaceOp<'a> {
 /// The revision `workspace`'s head is at as the transaction leaves it. Its change must be
 /// declared, or it could move underneath the checkout, and must not be checked out elsewhere,
 /// which git refuses too.
-fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<Revision> {
+fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<RevisionId> {
     match &workspace.head {
         Head::Detached(revision) => Ok(*revision),
         Head::Change(id) => {
@@ -90,7 +90,7 @@ fn checkout_tip(workspace: &Workspace<'_>, branches: &[Branch<'_>]) -> Result<Re
 }
 
 /// The revision `head` was at as committed.
-fn committed_tip<'ctx>(ctx: &'ctx TransactionContext<'ctx>, head: &Head) -> Result<Revision> {
+fn committed_tip<'ctx>(ctx: &'ctx TransactionContext<'ctx>, head: &Head) -> Result<RevisionId> {
     match head {
         Head::Detached(revision) => Ok(*revision),
         Head::Change(id) => Ok(ctx.branch(id)?.tip),

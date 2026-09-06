@@ -6,8 +6,8 @@ use std::{
 
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, Revision, RevisionRange,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
+    RevisionRange, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NonEmptyIterator};
@@ -244,7 +244,7 @@ impl Cabaret {
 
     pub fn current_change(&self) -> Result<ChangeId> { self.store.query(|ctx| ctx.current_change()) }
 
-    pub fn resolve(&self, spec: &str) -> Result<Revision> { self.store.query(|ctx| ctx.resolve(spec)) }
+    pub fn resolve(&self, spec: &str) -> Result<RevisionId> { self.store.query(|ctx| ctx.resolve(spec)) }
 
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         self.store.query(|ctx| ctx.snapshot(change_id))
@@ -265,11 +265,11 @@ impl Cabaret {
         })
     }
 
-    pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
+    pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<String>> {
         self.store.query(|ctx| ctx.blob(revision, path))
     }
 
-    pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<Revision>> {
+    pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<RevisionId>> {
         self.store.query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))
     }
 
@@ -327,7 +327,7 @@ impl Cabaret {
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
     /// all when empty, as a new commit on the change, returning it. The commit is named for the
     /// change and nothing more: commits are for the computer, not for reading.
-    pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Revision> {
+    pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<RevisionId> {
         let workspace_id = self
             .store
             .query(|ctx| ctx.branch(change_id)?.workspace())?
@@ -488,8 +488,8 @@ impl Cabaret {
         &self,
         change_id: &ChangeIdRef,
         files: &[RepoPath],
-        head: Option<Revision>,
-        bases: Option<BTreeSet<Revision>>,
+        head: Option<RevisionId>,
+        bases: Option<BTreeSet<RevisionId>>,
     ) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let branch = ctx.branch(change_id)?;

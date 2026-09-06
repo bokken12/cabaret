@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, Revision};
+use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, RevisionId};
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
@@ -84,10 +84,10 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         /// Revision reviewed up to; defaults to the change's tip.
         #[arg(long, value_parser = parse_revision, add = revision_completer())]
-        tip: Option<Revision>,
+        tip: Option<RevisionId>,
         /// Revision reviewed from, repeatable; defaults to the change's bases.
         #[arg(long, value_parser = parse_revision, add = revision_completer())]
-        base: Vec<Revision>,
+        base: Vec<RevisionId>,
         // TODO-someday(joel): accept paths relative to the working directory
         #[arg(required = true, value_hint = ValueHint::AnyPath)]
         files: Vec<RepoPath>,

@@ -4,7 +4,7 @@ use crate::{
     change_id::ChangeId,
     identity::Identity,
     repo_path::RepoPath,
-    revision::{Revision, RevisionRange},
+    revision::{RevisionId, RevisionRange},
     workspace_id::WorkspaceId,
 };
 
@@ -14,9 +14,9 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct ChangeSnapshot {
-    pub tip: Revision,
+    pub tip: RevisionId,
     /// What the tip is measured against; see `Branch::bases`.
-    pub bases: BTreeSet<Revision>,
+    pub bases: BTreeSet<RevisionId>,
     pub title: Option<String>,
     pub description: Option<String>,
     pub archived: bool,

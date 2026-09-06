@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Revision, TreeId};
+use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId};
 use expect_test::expect;
 use gix::{
     index::entry::{Flags, Mode, Stat},
@@ -83,9 +83,9 @@ impl Fixture {
 
     pub fn snapshot(&self, change: &str) -> ChangeSnapshot { self.cabaret.snapshot(&id(change)).unwrap() }
 
-    pub fn tip(&self, change: &str) -> Revision { self.snapshot(change).tip }
+    pub fn tip(&self, change: &str) -> RevisionId { self.snapshot(change).tip }
 
-    fn commit_tree(&self, tree: TreeId, parents: &[Revision]) -> Revision {
+    fn commit_tree(&self, tree: TreeId, parents: &[RevisionId]) -> RevisionId {
         let time = gix::date::Time { seconds: self.clock.replace(self.clock.get() + 1), offset: 0 };
         let author = gix::actor::Signature { name: "Alice Test".into(), email: alice().0.into(), time };
         let commit = gix::objs::Commit {
@@ -97,10 +97,10 @@ impl Fixture {
             message: "fixture".into(),
             extra_headers: Vec::new(),
         };
-        Revision(self.repo.write_object(&commit).unwrap().detach())
+        RevisionId(self.repo.write_object(&commit).unwrap().detach())
     }
 
-    fn move_branch(&self, change: &str, revision: Revision) {
+    fn move_branch(&self, change: &str, revision: RevisionId) {
         self.repo.reference(id(change).branch_ref(), revision.0, PreviousValue::Any, "fixture").unwrap();
     }
 
@@ -119,7 +119,7 @@ impl Fixture {
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.
-    pub fn commit(&self, change: &str, files: Files) -> Revision {
+    pub fn commit(&self, change: &str, files: Files) -> RevisionId {
         let tip = self.tip(change);
         let mut all = self.files_at(tip);
         for (path, content) in files {
@@ -131,7 +131,7 @@ impl Fixture {
     }
 
     /// Commit the removal of `paths` from `change`'s tip.
-    pub fn remove(&self, change: &str, paths: &[&str]) -> Revision {
+    pub fn remove(&self, change: &str, paths: &[&str]) -> RevisionId {
         let tip = self.tip(change);
         let mut all = self.files_at(tip);
         for path in paths {
@@ -143,7 +143,7 @@ impl Fixture {
     }
 
     /// Merge `other`'s tip into `change` and commit `files` on the union.
-    pub fn merge(&self, change: &str, other: &str, files: Files) -> Revision {
+    pub fn merge(&self, change: &str, other: &str, files: Files) -> RevisionId {
         let (tip, other_tip) = (self.tip(change), self.tip(other));
         let mut all = self.files_at(tip);
         all.extend(self.files_at(other_tip));
@@ -195,11 +195,11 @@ impl Fixture {
 
     pub fn exists(&self, path: &str) -> bool { self.repo.workdir().unwrap().join(path).exists() }
 
-    pub fn parents(&self, revision: Revision) -> Vec<Revision> {
-        self.repo.find_commit(revision.0).unwrap().parent_ids().map(|id| Revision(id.detach())).collect()
+    pub fn parents(&self, revision: RevisionId) -> Vec<RevisionId> {
+        self.repo.find_commit(revision.0).unwrap().parent_ids().map(|id| RevisionId(id.detach())).collect()
     }
 
-    pub fn message(&self, revision: Revision) -> String {
+    pub fn message(&self, revision: RevisionId) -> String {
         self.repo.find_commit(revision.0).unwrap().message_raw().unwrap().to_string()
     }
 
@@ -242,7 +242,7 @@ impl Fixture {
         index.write(gix::index::write::Options::default()).unwrap();
     }
 
-    fn files_at(&self, revision: Revision) -> BTreeMap<String, String> {
+    fn files_at(&self, revision: RevisionId) -> BTreeMap<String, String> {
         fn walk(tree: &gix::Tree<'_>, prefix: &str, out: &mut BTreeMap<String, String>) {
             for entry in tree.iter() {
                 let entry = entry.unwrap();
@@ -334,7 +334,7 @@ impl Fixture {
     }
 
     /// The nearest ancestor of `change` whose tip is `revision`, else its short hash.
-    fn ancestor_at(&self, change: &str, revision: Revision) -> String {
+    fn ancestor_at(&self, change: &str, revision: RevisionId) -> String {
         let mut frontier: VecDeque<ChangeId> =
             self.cabaret.snapshot(&id(change)).unwrap().parents.into_iter().collect();
         while let Some(ancestor) = frontier.pop_front() {
@@ -379,7 +379,7 @@ fn walkdir(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     out
 }
 
-pub fn short(revision: Revision) -> String { revision.0.to_hex_with_len(8).to_string() }
+pub fn short(revision: RevisionId) -> String { revision.0.to_hex_with_len(8).to_string() }
 
 fn file(file: &ChangedFile) -> String {
     match file {

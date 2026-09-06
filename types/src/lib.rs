@@ -21,7 +21,7 @@ pub use error::{Error, Result};
 pub use identity::Identity;
 pub use pathspec::Pathspec;
 pub use repo_path::RepoPath;
-pub use revision::{Revision, RevisionRange};
+pub use revision::{RevisionId, RevisionRange};
 pub use timestamp::TimestampMs;
 pub use tree_id::TreeId;
 pub use workspace_id::{WorkspaceId, WorkspaceIdRef};

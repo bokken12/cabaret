@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_types::{ChangeId, Pathspec, Result, Revision, TreeId, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{ChangeId, Pathspec, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef};
 use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
@@ -30,7 +30,7 @@ use crate::{branch::Branch, context::TransactionContext};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Head {
     Change(ChangeId),
-    Detached(Revision),
+    Detached(RevisionId),
 }
 
 impl Head {
@@ -77,7 +77,7 @@ impl<'ctx> Workspace<'ctx> {
         let repo = open(&ctx.repo, id)?;
         let head = match repo.head_name()? {
             Some(name) => Head::Change(name.shorten().to_str()?.parse()?),
-            None => Head::Detached(Revision(repo.head_id()?.detach())),
+            None => Head::Detached(RevisionId(repo.head_id()?.detach())),
         };
         let path = repo.workdir().ok_or_else(|| format!("workspace {id} has no working directory"))?.to_owned();
         Ok(Self { ctx, id: id.into_owned(), path, head })
@@ -101,7 +101,7 @@ impl<'ctx> Workspace<'ctx> {
 
     /// Make the working directory and git's record of it, then fill it with `tip`'s files, as
     /// `git worktree add` does.
-    pub fn create(&self, tip: Revision) -> Result<()> {
+    pub fn create(&self, tip: RevisionId) -> Result<()> {
         let WorkspaceIdRef::Linked(id) = self.id() else { Err("the main workspace cannot be added")? };
         let admin = self.ctx.repo.common_dir().join("worktrees").join(gix::path::from_bstr(id));
         if admin.exists() {
@@ -126,7 +126,7 @@ impl<'ctx> Workspace<'ctx> {
 
     /// Check out `to` in place of `from`, the revision the files are at, and point HEAD at the
     /// head. Local changes are refused rather than carried over or lost.
-    pub fn switch(&self, from: Revision, to: Revision) -> Result<()> {
+    pub fn switch(&self, from: RevisionId, to: RevisionId) -> Result<()> {
         let repo = self.repo()?;
         let from = repo.find_commit(from)?.tree()?;
         if status(&repo, &from)? == Status::Modified {
@@ -170,7 +170,7 @@ impl<'ctx> Workspace<'ctx> {
     /// Move the files from `from` to `to`, touching only the paths that differ. A workspace that
     /// is not cleanly at `from` stays where it is. Takes `&mut self` to keep it to reserved
     /// workspaces; only the files change.
-    pub fn fast_forward(&mut self, from: Revision, to: Revision) -> Result<()> {
+    pub fn fast_forward(&mut self, from: RevisionId, to: RevisionId) -> Result<()> {
         let repo = self.repo()?;
         let from = repo.find_commit(from)?.tree()?;
         if status(&repo, &from)? == Status::Modified {

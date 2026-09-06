@@ -5,7 +5,7 @@
 use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, Revision, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, RevisionId, WorkspaceId,
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -86,7 +86,7 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn base(&self, change: ChangeId) -> napi::Result<Option<Revision>> {
+    pub async fn base(&self, change: ChangeId) -> napi::Result<Option<RevisionId>> {
         self.blocking(move |cabaret| cabaret.base(&change)).await
     }
 
@@ -119,8 +119,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn blob(&self, revision: Revision, path: RepoPath) -> napi::Result<Option<String>> {
-        self.blocking(move |cabaret| cabaret.blob(revision, &path)).await
+    pub async fn blob(&self, revision_id: RevisionId, path: RepoPath) -> napi::Result<Option<String>> {
+        self.blocking(move |cabaret| cabaret.blob(revision_id, &path)).await
     }
 
     /// Create a workspace holding `change` at the default location, returning its path.
@@ -151,7 +151,7 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn commit(&self, change: ChangeId) -> napi::Result<Revision> {
+    pub async fn commit(&self, change: ChangeId) -> napi::Result<RevisionId> {
         self.blocking(move |cabaret| cabaret.commit(&change, &[])).await
     }
 

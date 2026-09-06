@@ -2,7 +2,7 @@
 
 use std::ffi::OsStr;
 
-use cabaret_lib::{Cabaret, Result, Revision};
+use cabaret_lib::{Cabaret, Result, RevisionId};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
 fn cabaret() -> Result<Cabaret> { Cabaret::open(std::env::current_dir()?) }
@@ -29,6 +29,6 @@ pub fn revision_completer() -> ArgValueCompleter {
 }
 
 /// A clap value parser resolving `spec` in the repository at the working directory.
-pub fn parse_revision(spec: &str) -> std::result::Result<Revision, String> {
+pub fn parse_revision(spec: &str) -> std::result::Result<RevisionId, String> {
     cabaret().and_then(|cabaret| cabaret.resolve(spec)).map_err(|error| format!("{error:?}"))
 }

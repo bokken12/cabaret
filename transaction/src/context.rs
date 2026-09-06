@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, Revision, TimestampMs, TreeId, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, RevisionId, TimestampMs, TreeId, WorkspaceId,
     WorkspaceIdRef,
 };
 use elsa::FrozenBTreeMap;
@@ -104,8 +104,8 @@ impl<'ctx> TransactionContext<'ctx> {
     }
 
     /// The commit `spec` names, in git's revision syntax.
-    pub fn resolve(&self, spec: &str) -> Result<Revision> {
-        Ok(Revision(self.repo.rev_parse_single(spec)?.object()?.peel_to_commit()?.id))
+    pub fn resolve(&self, spec: &str) -> Result<RevisionId> {
+        Ok(RevisionId(self.repo.rev_parse_single(spec)?.object()?.peel_to_commit()?.id))
     }
 
     /// The identity this repository acts as: git's user.email.
@@ -115,7 +115,7 @@ impl<'ctx> TransactionContext<'ctx> {
     }
 
     /// Write a commit of `tree` on `parents` as this repository's identity, without moving any ref.
-    pub fn commit(&self, tree: TreeId, parents: Vec<Revision>, message: impl Into<BString>) -> Result<Revision> {
+    pub fn commit(&self, tree: TreeId, parents: Vec<RevisionId>, message: impl Into<BString>) -> Result<RevisionId> {
         let committer = self.repo.committer().ok_or("no git identity; set user.email")??.to_owned()?;
         let commit = Commit {
             tree: tree.0,
@@ -126,7 +126,7 @@ impl<'ctx> TransactionContext<'ctx> {
             message: message.into(),
             extra_headers: Vec::new(),
         };
-        Ok(Revision(self.repo.write_object(&commit)?.detach()))
+        Ok(RevisionId(self.repo.write_object(&commit)?.detach()))
     }
 
     pub fn current_change(&'ctx self) -> Result<ChangeId> {
@@ -135,7 +135,7 @@ impl<'ctx> TransactionContext<'ctx> {
 
     /// The text of `path` at `revision`, or `None` when no file is there.
     // TODO-someday(joel): binary files
-    pub fn blob(&self, revision: Revision, path: &RepoPath) -> Result<Option<String>> {
+    pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<String>> {
         let tree = self.repo.find_commit(revision.0)?.tree()?;
         let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
         let mut blob = entry.object()?.try_into_blob()?;
@@ -160,17 +160,17 @@ impl<'ctx> TransactionContext<'ctx> {
         })
     }
 
-    pub fn merge_base(&self, one: Revision, two: Revision) -> Result<Revision> {
+    pub fn merge_base(&self, one: RevisionId, two: RevisionId) -> Result<RevisionId> {
         // TODO(joel): use `merge_base_with_graph`
-        Ok(Revision(self.repo.merge_base(one, two)?.detach()))
+        Ok(RevisionId(self.repo.merge_base(one, two)?.detach()))
     }
 
-    pub fn is_predecessor(&self, predecessor: Revision, successor: Revision) -> Result<bool> {
+    pub fn is_predecessor(&self, predecessor: RevisionId, successor: RevisionId) -> Result<bool> {
         Ok(self.merge_base(predecessor, successor)? == predecessor)
     }
 
     /// `ctx.maximal_revisions(revisions)` returns the subset of `revisions` which have no predecessor under `ctx`.
-    pub fn maximal_revisions(&self, revisions: &BTreeSet<Revision>) -> Result<BTreeSet<Revision>> {
+    pub fn maximal_revisions(&self, revisions: &BTreeSet<RevisionId>) -> Result<BTreeSet<RevisionId>> {
         let mut candidates = revisions.clone();
 
         for &candidate in revisions.iter() {

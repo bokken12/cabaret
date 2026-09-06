@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, Revision, RevisionRange,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, RevisionRange,
     log::{self, LogAction, LogEntry},
 };
 use gix::{
@@ -193,7 +193,7 @@ impl<'ctx> Metadata<'ctx> {
             .collect();
         let appended = log::render(&entries)?;
         let tree = log::write(&ctx.repo, self.log_commit(), &appended)?;
-        let commit = ctx.commit(tree, self.log_commit().into_iter().map(Revision).collect(), appended)?;
+        let commit = ctx.commit(tree, self.log_commit().into_iter().map(RevisionId).collect(), appended)?;
 
         Ok(RefEdit {
             change: RefChange::Update {

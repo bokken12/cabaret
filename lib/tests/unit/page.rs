@@ -3,10 +3,10 @@ use std::{
     path::Path,
 };
 
-use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, Revision, Segment, Target};
+use cabaret_lib::{ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, RevisionId, Segment, Target};
 use expect_test::expect;
 
-fn revision(digit: char) -> Revision { Revision(String::from(digit).repeat(40).parse().unwrap()) }
+fn revision(digit: char) -> RevisionId { RevisionId(String::from(digit).repeat(40).parse().unwrap()) }
 
 fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], parents: &[&str]) -> ChangeSnapshot {
     ChangeSnapshot {

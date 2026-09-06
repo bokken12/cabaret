@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, Revision, TreeId};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
 use gix::merge::{
     blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
     tree::TreatAsUnresolved,
@@ -15,14 +15,14 @@ pub struct Branch<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: ChangeId,
     /// The revision the branch points at.
-    pub tip: Revision,
+    pub tip: RevisionId,
 }
 
 impl<'ctx> Branch<'ctx> {
-    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, tip: Revision) -> Self { Self { ctx, id, tip } }
+    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, tip: RevisionId) -> Self { Self { ctx, id, tip } }
 
     pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
-        let tip = Revision(ctx.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
+        let tip = RevisionId(ctx.repo.find_reference(&id.branch_ref())?.peel_to_commit()?.id);
         Ok(Self::new(ctx, id.to_owned(), tip))
     }
 
@@ -33,7 +33,7 @@ impl<'ctx> Branch<'ctx> {
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
     /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
     /// keeping only the maximal ones. Empty for a root.
-    pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<Revision>> {
+    pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RevisionId>> {
         let ctx = self.ctx;
         let mut candidates = BTreeSet::new();
         for parent in parents {
@@ -45,14 +45,14 @@ impl<'ctx> Branch<'ctx> {
     /// The revision this branch's diff is computed against: `None` for a root. Multiple bases are
     /// merged into a virtual one, as git's recursive merge does; it lives only in the object
     /// database and is the same commit for the same bases.
-    pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<Option<Revision>> {
+    pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<Option<RevisionId>> {
         let bases = self.bases(parents)?;
         if bases.is_empty() {
             return Ok(None);
         }
         let repo = &self.ctx.repo;
         let merged = repo.virtual_merge_base(bases.iter().map(|base| base.0), repo.tree_merge_options()?)?;
-        Ok(Some(Revision(merged.commit_id.detach())))
+        Ok(Some(RevisionId(merged.commit_id.detach())))
     }
 
     /// The file-level changes this branch presents against `parents`, restricted to those
