@@ -99,7 +99,7 @@
       },
       {
         "command": "cabaret.refresh",
-        "key": "r",
+        "key": "shift+r",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
