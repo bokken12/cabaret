@@ -32,6 +32,14 @@ pub struct Rebase {
     pub remaining: BTreeSet<ChangeId>,
 }
 
+/// What [`Cabaret::workspace_prune`] did.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Prune {
+    pub removed: BTreeSet<WorkspaceId>,
+    /// Workspaces of archived changes left standing, each with why it could not go.
+    pub kept: BTreeMap<WorkspaceId, String>,
+}
+
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
 pub struct Cabaret {
     store: Store,
@@ -163,6 +171,43 @@ impl Cabaret {
             ),
             None => self.store.transact(&[], &[], &delete, |_ctx, [], [], [_workspace]| Ok(())),
         }
+    }
+
+    /// Remove every workspace holding an archived change. Each goes in its own transaction, which
+    /// re-checks the change under its lock, so one that cannot go leaves the rest to be pruned.
+    pub fn workspace_prune(&self) -> Result<Prune> {
+        let archived = self.store.query(|ctx| {
+            let mut archived = Vec::new();
+            for workspace in ctx.workspaces()? {
+                if let Some(change) = ctx.workspace(workspace.to_ref())?.change()
+                    && ctx.metadata(change)?.archived
+                {
+                    archived.push((workspace, change.clone()));
+                }
+            }
+            Ok(archived)
+        })?;
+        let mut prune = Prune::default();
+        for (workspace, change) in archived {
+            let removed = self.store.transact(
+                &[&change],
+                &[BranchOp::Update(&change)],
+                &[WorkspaceOp::Delete { id: workspace.to_ref() }],
+                |_ctx, [metadata], [_branch], [_workspace]| match metadata.archived {
+                    true => Ok(()),
+                    false => Err(format!("{change} is no longer archived").into()),
+                },
+            );
+            match removed {
+                Ok(()) => {
+                    prune.removed.insert(workspace);
+                }
+                Err(error) => {
+                    prune.kept.insert(workspace, format!("{error:?}"));
+                }
+            }
+        }
+        Ok(prune)
     }
 
     pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId) -> Result<()> {

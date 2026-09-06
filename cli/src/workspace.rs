@@ -29,6 +29,8 @@ pub enum WorkspaceCommand {
         #[arg(add = change_completer())]
         change: ChangeId,
     },
+    /// Remove every workspace whose change is archived.
+    Prune,
     /// Remove the workspace holding a change, or the one at a path.
     Remove {
         #[arg(add = change_completer(), required_unless_present = "path")]
@@ -63,6 +65,15 @@ impl WorkspaceCommand {
             WorkspaceCommand::Path { change } => {
                 let workspace = holding(&cabaret, &change)?;
                 println!("{}", cabaret.workspace_path(workspace.to_ref())?.display());
+            }
+            WorkspaceCommand::Prune => {
+                let prune = cabaret.workspace_prune()?;
+                for workspace in &prune.removed {
+                    println!("removed {workspace}");
+                }
+                for (workspace, reason) in &prune.kept {
+                    println!("kept {workspace}: {reason}");
+                }
             }
             WorkspaceCommand::Remove { change, path } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");

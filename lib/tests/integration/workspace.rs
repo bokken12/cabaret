@@ -197,3 +197,46 @@ fn bare_add_from_inside_workspace_lands_beside_it() {
     expect!["project/one"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
+
+#[test]
+fn prune_removes_workspaces_of_archived_changes() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    fixture.cabaret.archive(&id("two")).unwrap();
+    let prune = fixture.cabaret.workspace_prune().unwrap();
+    expect![[r#"Prune { removed: {"main-two"}, kept: {} }"#]].assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+    assert!(!two.workdir().unwrap().exists());
+    assert!(!two.git_dir().exists());
+}
+
+#[test]
+fn prune_leaves_open_changes_checked_out() {
+    let fixture = two_changes();
+    fixture.add_workspace("two");
+    let prune = fixture.cabaret.workspace_prune().unwrap();
+    expect!["Prune { removed: {}, kept: {} }"].assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
+}
+
+#[test]
+fn prune_keeps_dirty_workspace() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    fixture.cabaret.archive(&id("two")).unwrap();
+    std::fs::write(two.workdir().unwrap().join("two.txt"), "edited\n").unwrap();
+    let prune = fixture.cabaret.workspace_prune().unwrap();
+    expect![[r#"Prune { removed: {}, kept: {"main-two": "workspace main-two has local changes"} }"#]]
+        .assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
+}
+
+#[test]
+fn prune_keeps_main_workspace() {
+    let fixture = two_changes();
+    fixture.cabaret.archive(&id("one")).unwrap();
+    let prune = fixture.cabaret.workspace_prune().unwrap();
+    expect![[r#"Prune { removed: {}, kept: {"main": "the main workspace cannot be removed"} }"#]]
+        .assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+}
