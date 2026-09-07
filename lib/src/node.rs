@@ -206,6 +206,11 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub async fn set_description(&self, change: ChangeId, description: Option<String>) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.set_description(&change, description)).await
+    }
+
+    #[napi]
     pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change)).await
     }

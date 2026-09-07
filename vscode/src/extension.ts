@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 
 const SCHEME = "cabaret";
 const BLOB_SCHEME = "cabaret-blob";
+const DESCRIPTION_SCHEME = "cabaret-description";
 
 /** The cabaret workspace this window is open on. */
 function workspaceFolder(): vscode.Uri {
@@ -262,11 +263,17 @@ class PageProvider
     }
   }
 
-  /** Re-render `route` from the repository and show it. */
-  async open(route: Route): Promise<void> {
+  /** Drop what was rendered for `route`, so an open document of it re-reads the repository. */
+  invalidate(route: Route): vscode.Uri {
     const uri = routeUri(route);
     this.completed.delete(uri.toString());
     this.changed.fire(uri);
+    return uri;
+  }
+
+  /** Re-render `route` from the repository and show it. */
+  async open(route: Route): Promise<void> {
+    const uri = this.invalidate(route);
     await replacingActive(uri, async () => {
       const document = await vscode.workspace.openTextDocument(uri);
       this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
@@ -301,6 +308,66 @@ class BlobProvider implements vscode.TextDocumentContentProvider {
   }
 }
 
+/** `cabaret-description:/<change>.md`: the change's description, as markdown. */
+function descriptionUri(change: ChangeId): vscode.Uri {
+  return vscode.Uri.from({ scheme: DESCRIPTION_SCHEME, path: `/${change}.md` });
+}
+
+function descriptionChange(uri: vscode.Uri): ChangeId {
+  const [, change] = /^\/(.+)\.md$/.exec(uri.path) ?? [];
+  if (change === undefined) {
+    throw new Error(`${uri.toString()} names no change`);
+  }
+  return change;
+}
+
+/**
+ * Serves each change's description as a file to edit in place, with a save written to the
+ * change's log. Descriptions never change underneath an editor as far as VS Code can tell, so a
+ * save always goes through rather than raising a conflict.
+ */
+class DescriptionProvider implements vscode.FileSystemProvider {
+  readonly onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>().event;
+
+  constructor(private readonly pages: PageProvider) {}
+
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => undefined);
+  }
+
+  async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: (await this.readFile(uri)).byteLength };
+  }
+
+  async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    const { description } = await openCabaret().change(descriptionChange(uri));
+    return Buffer.from(description ?? "");
+  }
+
+  async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
+    const change = descriptionChange(uri);
+    const text = Buffer.from(content).toString();
+    await openCabaret().setDescription(change, text.trim() === "" ? undefined : text);
+    this.pages.invalidate({ kind: "show", change });
+  }
+
+  readDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  createDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  delete(): never {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+
+  rename(): never {
+    throw vscode.FileSystemError.NoPermissions();
+  }
+}
+
 async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<Revision | undefined> {
   if (file.kind === "Added") {
     return undefined;
@@ -329,6 +396,9 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       break;
     case "Diff":
       await openDiff(cabaret, target.change, target.file);
+      break;
+    case "Description":
+      await vscode.window.showTextDocument(descriptionUri(target.change));
       break;
     case "Session":
       await openSession(cabaret, target.change, target.session);
@@ -442,9 +512,10 @@ async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<
   if (editor.document.uri.scheme === SCHEME) {
     return pageChange(provider, editor);
   }
-  return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined
-    ? undefined
-    : cabaret.currentChange();
+  if (editor.document.uri.scheme === DESCRIPTION_SCHEME) {
+    return descriptionChange(editor.document.uri);
+  }
+  return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined ? undefined : cabaret.currentChange();
 }
 
 async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
@@ -816,6 +887,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     vscode.workspace.registerTextDocumentContentProvider(BLOB_SCHEME, new BlobProvider()),
+    vscode.workspace.registerFileSystemProvider(DESCRIPTION_SCHEME, new DescriptionProvider(provider), {
+      isCaseSensitive: true,
+    }),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
         provider.decorate(editor);

@@ -35,6 +35,10 @@ pub enum Target {
         change: ChangeId,
         file: ChangedFile,
     },
+    /// The description of `change`, for editing.
+    Description {
+        change: ChangeId,
+    },
     /// A Claude Code session launched in the workspace holding `change`.
     Session {
         change: ChangeId,
@@ -100,10 +104,12 @@ impl Page {
         if let Some(title) = &change.title {
             heading = heading.push(Segment::plain(" — ")).push(Segment::tagged(title, Tag::Heading));
         }
-        let mut lines = vec![heading];
-        if let Some(description) = &change.description {
-            lines.push(Line::default());
-            lines.extend(description.lines().map(Line::plain));
+        let mut lines = vec![heading, Line::default()];
+        let description = || Target::Description { change: id.to_owned() };
+        match &change.description {
+            Some(text) => lines.extend(text.lines().map(|line| Line::plain(line).leading_to(description()))),
+            None => lines
+                .push(Line::default().push(Segment::tagged("(no description)", Tag::Muted)).leading_to(description())),
         }
         lines.push(Line::default());
         let status = match (change.archived, change.permanent) {
