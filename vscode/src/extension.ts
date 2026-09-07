@@ -425,6 +425,11 @@ async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<C
   return (await impliedChange(cabaret, provider)) ?? pickChange(cabaret, "Cabaret: Choose Change");
 }
 
+/** A new change with no parent in view most often wants to start off trunk, so skip the picker. */
+async function parentForNewChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
+  return (await impliedChange(cabaret, provider)) ?? cabaret.trunk();
+}
+
 async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId | undefined> {
   const fileDiff = activeFileDiff();
   if (fileDiff !== undefined) {
@@ -663,16 +668,17 @@ async function refresh(provider: PageProvider): Promise<void> {
 }
 
 /**
- * `!` then a key: `run` acts on the change the active page is about and says what it did, or
- * nothing when the user backed out; the page is then re-rendered to show the result.
+ * `!` then a key: `run` acts on the change the active page is about, found by `subject`, and says
+ * what it did, or nothing when the user backed out; the page is then re-rendered to show the result.
  */
 function action(
   name: string,
   provider: PageProvider,
   run: (cabaret: Cabaret, change: ChangeId) => Promise<string | undefined>,
+  subject: (cabaret: Cabaret, provider: PageProvider) => Promise<ChangeId | undefined> = activeChange,
 ): vscode.Disposable {
   return command(name, async (cabaret) => {
-    const change = await activeChange(cabaret, provider);
+    const change = await subject(cabaret, provider);
     if (change === undefined) {
       return;
     }
@@ -869,7 +875,7 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.refresh", () => refresh(provider)),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
-    action("cabaret.createChild", provider, createChild),
+    action("cabaret.createChild", provider, createChild, parentForNewChange),
     action("cabaret.createParent", provider, createParent),
     action("cabaret.addOwner", provider, addOwner),
     action("cabaret.removeOwner", provider, removeOwner),

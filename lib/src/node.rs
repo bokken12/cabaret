@@ -77,6 +77,9 @@ impl CabaretJs {
     pub async fn current_change(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::current_change).await }
 
     #[napi]
+    pub async fn trunk(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::trunk).await }
+
+    #[napi]
     pub async fn change(&self, id: ChangeId) -> napi::Result<ChangeSnapshot> {
         self.blocking(move |cabaret| cabaret.snapshot(&id)).await
     }
