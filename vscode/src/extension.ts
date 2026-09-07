@@ -397,6 +397,9 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
     case "Diff":
       await openDiff(cabaret, target.change, target.file);
       break;
+    case "Title":
+      await editTitle(cabaret, provider, target.change);
+      break;
     case "Description":
       await vscode.window.showTextDocument(descriptionUri(target.change));
       break;
@@ -404,6 +407,24 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await openSession(cabaret, target.change, target.session);
       break;
   }
+}
+
+/** Titles are one line, so they are edited in an input box rather than a buffer like descriptions. */
+async function editTitle(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<void> {
+  const { title } = await cabaret.change(change);
+  const edited = (
+    await vscode.window.showInputBox({
+      title: `Cabaret: Edit Title of ${change}`,
+      value: title,
+      prompt: "Title of the change, blank for none",
+      ignoreFocusOut: true,
+    })
+  )?.trim();
+  if (edited === undefined || edited === (title ?? "")) {
+    return;
+  }
+  await cabaret.setTitle(change, edited === "" ? undefined : edited);
+  provider.invalidate({ kind: "show", change });
 }
 
 /** Terminals showing a resumed session, so a second Enter reveals the same one. */

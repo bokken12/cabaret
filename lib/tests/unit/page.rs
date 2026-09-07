@@ -31,6 +31,7 @@ fn describe(target: &Target) -> String {
     match target {
         Target::Change { change } => format!("change:{change}"),
         Target::Diff { change, file } => format!("diff:{change}:{}", file.paths().last().unwrap()),
+        Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
         Target::Session { change, session } => format!("session:{change}:{session}"),
     }
@@ -73,7 +74,7 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
     );
     let page = Page::show(&"add-parser".parse::<ChangeId>().unwrap(), &change, Some(Path::new("/repo/add-parser")));
     expect![[r"
-        [Heading|add-parser] — [Heading|Add the parser]
+        [Heading|add-parser] — [Heading|Add the parser] => title:add-parser
 
         A recursive descent parser. => description:add-parser
          => description:add-parser
@@ -108,7 +109,7 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 fn a_bare_show_page_marks_what_is_missing() {
     let page = Page::show(&"bare".parse::<ChangeId>().unwrap(), &snapshot(None, None, &[], &[]), None);
     expect![[r"
-        [Heading|bare]
+        [Heading|bare] => title:bare
 
         [Muted|(no description)] => description:bare
 
