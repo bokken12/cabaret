@@ -74,7 +74,7 @@ fn created_parent_sits_between_child_and_its_parents() {
         child 26fb68bb
           parents parent
           owners alice@example.com
-          base parent
+          base c2ab6603
           diff +b
     "#]]
     .assert_eq(&fixture.show("child"));
