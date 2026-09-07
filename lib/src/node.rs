@@ -122,8 +122,7 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.start_session(&change, &prompt, &args, &ClaudeCode::locate()?)).await
     }
 
-    /// The Claude Code sessions launched in the workspace holding `change`, as the tail of its
-    /// show page.
+    /// The Claude Code sessions that worked on `change`, as the tail of its show page.
     #[napi]
     pub async fn sessions_page(&self, change: ChangeId) -> napi::Result<Page> {
         self.blocking(move |cabaret| cabaret.sessions_page(&change, &ClaudeCode::locate()?)).await

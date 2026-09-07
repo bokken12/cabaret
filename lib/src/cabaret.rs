@@ -312,13 +312,15 @@ impl Cabaret {
         Ok(Page::workspace(change_id, &self.workspace_files(change_id, pathspecs)?))
     }
 
-    /// The Claude Code sessions launched in the workspace holding `change_id`; none when it is
-    /// checked out nowhere.
+    /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is
+    /// checked out nowhere, in its default workspace location: sessions outlive the workspace
+    /// they worked in.
     pub fn sessions(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Vec<Session>> {
-        match self.workspace_holding(change_id)? {
-            Some(workspace) => claude.sessions_in(&self.workspace_path(workspace.to_ref())?),
-            None => Ok(Vec::new()),
-        }
+        let dir = match self.workspace_holding(change_id)? {
+            Some(workspace) => self.workspace_path(workspace.to_ref())?,
+            None => self.default_workspace_path(change_id)?,
+        };
+        claude.sessions_in(&dir)
     }
 
     /// Start a Claude Code session on `prompt` in the workspace holding `change_id`.

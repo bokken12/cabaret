@@ -49,7 +49,7 @@ pub enum Target {
     Description {
         change: ChangeId,
     },
-    /// A Claude Code session launched in the workspace holding `change`.
+    /// A Claude Code session that worked on `change`.
     Session {
         change: ChangeId,
         session: SessionId,
@@ -169,7 +169,7 @@ impl Page {
         Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
     }
 
-    /// The tail of a show page: one line per Claude Code session in `change`'s workspace, each
+    /// The tail of a show page: one line per Claude Code session that worked on `change`, each
     /// leading to itself, folding under their label. Sessions are listed as given, so callers
     /// order them.
     pub fn sessions(change: &ChangeIdRef, sessions: &[Session], now: TimestampMs) -> Self {
