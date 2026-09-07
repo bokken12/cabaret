@@ -34,11 +34,15 @@ pub struct Home {
 const LABEL_GUTTER: usize = 4;
 
 impl Page {
-    /// Each graph under a heading, with a muted line where one is empty.
+    /// Each graph under a heading that folds it away, with a muted line where one is empty.
     pub fn home(home: &Home) -> Result<Self> {
         let section = |page: &mut Self, heading: &str, graph: &HomeGraph, empty: String| -> Result<()> {
+            let body = if graph.nodes.is_empty() { Self::message(empty) } else { Self::graph(graph)? };
+            let line = |n: usize| u32::try_from(n).expect("a home page is short");
+            let start = line(page.lines.len());
+            page.folds.push(Fold { start, end: start + line(body.lines.len()) });
             page.lines.push(Line::default().push(Segment::tagged(heading, Tag::Heading)));
-            page.append(if graph.nodes.is_empty() { Self::message(empty) } else { Self::graph(graph)? });
+            page.append(body);
             Ok(())
         };
         let mut page = Self::default();
