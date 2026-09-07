@@ -768,6 +768,37 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `removed ${parent} as a parent of ${change}`;
 }
 
+/**
+ * Start a headless Claude Code session on `change` with a prompt from the user, first offering to
+ * create a workspace for a change checked out nowhere.
+ */
+async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  const prompt = await vscode.window.showInputBox({
+    title: `Cabaret: Start Session on ${change}`,
+    prompt: "What should the agent do?",
+    ignoreFocusOut: true,
+  });
+  if (prompt === undefined || prompt === "") {
+    return undefined;
+  }
+  if ((await cabaret.placement(change)).kind === "Nowhere") {
+    const create = await vscode.window.showWarningMessage(
+      `${change} is not checked out in any workspace. Create one for it?`,
+      { modal: true },
+      "Create Workspace",
+    );
+    if (create === undefined) {
+      return undefined;
+    }
+    await cabaret.workspaceAdd(change);
+  }
+  const args = vscode.workspace
+    .getConfiguration("cabaret")
+    .get<string[]>("sessionArgs", ["--permission-mode", "auto", "--permission-prompts", "none"]);
+  await cabaret.startSession(change, prompt, args);
+  return `started a session on ${change}`;
+}
+
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
@@ -847,6 +878,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
+    action("cabaret.startSession", provider, startSession),
     action("cabaret.addWorkspace", provider, async (cabaret, change) => {
       return `added a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
     }),

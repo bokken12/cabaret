@@ -6,8 +6,9 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
 
 use cabaret_types::{Result, TimestampMs};
@@ -91,6 +92,27 @@ impl ClaudeCode {
         }
         sessions.sort_by_key(|session| std::cmp::Reverse(session.last_active));
         Ok(sessions)
+    }
+
+    /// Start a session in `dir` working on `prompt` without a terminal, returning once it is
+    /// running; it shows up in [`Self::sessions_in`] as soon as it has written its first message.
+    /// `args` go to the CLI ahead of the prompt, e.g. a permission mode, since a headless session
+    /// cannot answer permission prompts.
+    pub fn start(&self, dir: &Path, prompt: &str, args: &[String]) -> Result<()> {
+        let mut child = Command::new("claude")
+            .args(args)
+            .arg("--print")
+            .current_dir(dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("cannot start claude: {error}"))?;
+        // The prompt goes over stdin so that one starting with `-` is not taken for an option.
+        child.stdin.take().expect("stdin was piped").write_all(prompt.as_bytes())?;
+        // Reap the process when it exits; the caller is long-lived and must not collect zombies.
+        std::thread::spawn(move || child.wait());
+        Ok(())
     }
 
     fn live(&self) -> Result<HashMap<SessionId, Status>> {
