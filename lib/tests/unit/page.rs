@@ -31,6 +31,7 @@ fn describe(target: &Target) -> String {
     match target {
         Target::Change { change } => format!("change:{change}"),
         Target::Diff { change, file } => format!("diff:{change}:{}", file.paths().last().unwrap()),
+        Target::Description { change } => format!("description:{change}"),
         Target::Session { change, session } => format!("session:{change}:{session}"),
     }
 }
@@ -74,9 +75,9 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
     expect![[r"
         [Heading|add-parser] — [Heading|Add the parser]
 
-        A recursive descent parser.
-
-        With tests.
+        A recursive descent parser. => description:add-parser
+         => description:add-parser
+        With tests. => description:add-parser
 
         [Label|Status:] open
         [Label|Owners:] alice@example.com, bob@example.com
@@ -109,6 +110,8 @@ fn a_bare_show_page_marks_what_is_missing() {
     expect![[r"
         [Heading|bare]
 
+        [Muted|(no description)] => description:bare
+
         [Label|Status:] open
         [Label|Owners:] [Muted|(none)]
         [Label|Parents:] [Muted|(none)]
@@ -124,7 +127,7 @@ fn show_page_status_is_archived_else_permanent_else_open() {
     let status = |archived: bool, permanent: bool| {
         let change = ChangeSnapshot { archived, permanent, ..snapshot(None, None, &[], &[]) };
         let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
-        page.to_string().lines().nth(2).unwrap().to_owned()
+        page.to_string().lines().nth(4).unwrap().to_owned()
     };
     expect![[r"Status: open"]].assert_eq(&status(false, false));
     expect![[r"Status: permanent"]].assert_eq(&status(false, true));
