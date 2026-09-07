@@ -401,12 +401,16 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await editTitle(cabaret, provider, target.change);
       break;
     case "Description":
-      await vscode.window.showTextDocument(descriptionUri(target.change));
+      await editDescription(target.change);
       break;
     case "Session":
       await openSession(cabaret, target.change, target.session);
       break;
   }
+}
+
+async function editDescription(change: ChangeId): Promise<void> {
+  await vscode.window.showTextDocument(descriptionUri(change));
 }
 
 /** Titles are one line, so they are edited in an input box rather than a buffer like descriptions. */
@@ -539,11 +543,18 @@ async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<
   return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined ? undefined : cabaret.currentChange();
 }
 
-async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
-  const change = await activeChange(cabaret, provider);
-  if (change !== undefined) {
-    await provider.open({ kind, change });
-  }
+/** `run` on the change the active page is about, or one the user picks; nothing if they decline. */
+function onChange(
+  name: string,
+  provider: PageProvider,
+  run: (cabaret: Cabaret, change: ChangeId) => Promise<void>,
+): vscode.Disposable {
+  return command(name, async (cabaret) => {
+    const change = await activeChange(cabaret, provider);
+    if (change !== undefined) {
+      await run(cabaret, change);
+    }
+  });
 }
 
 /** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
@@ -944,8 +955,10 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
-    command("cabaret.showChange", (cabaret) => openPage(cabaret, provider, "show")),
-    command("cabaret.diff", (cabaret) => openPage(cabaret, provider, "diff")),
+    onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
+    onChange("cabaret.diff", provider, (_, change) => provider.open({ kind: "diff", change })),
+    onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
+    onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),
     // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
       const fileDiff = activeFileDiff();

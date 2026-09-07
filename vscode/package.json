@@ -109,6 +109,14 @@
       {
         "command": "cabaret.gotoWorkspace",
         "title": "Cabaret: Go to Workspace"
+      },
+      {
+        "command": "cabaret.editTitle",
+        "title": "Cabaret: Edit Title"
+      },
+      {
+        "command": "cabaret.editDescription",
+        "title": "Cabaret: Edit Description"
       }
     ],
     "keybindings": [
@@ -216,6 +224,16 @@
         "command": "cabaret.gotoWorkspace",
         "key": "shift+1 w g",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.editTitle",
+        "key": "shift+1 t",
+        "when": "editorTextFocus && cabaret.page == 'show' && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.editDescription",
+        "key": "shift+1 d",
+        "when": "editorTextFocus && cabaret.page == 'show' && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       }
     ],
     "configuration": {
