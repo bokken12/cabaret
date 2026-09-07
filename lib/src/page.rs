@@ -35,6 +35,10 @@ pub enum Target {
         change: ChangeId,
         file: ChangedFile,
     },
+    /// The title of `change`, for editing.
+    Title {
+        change: ChangeId,
+    },
     /// The description of `change`, for editing.
     Description {
         change: ChangeId,
@@ -104,7 +108,7 @@ impl Page {
         if let Some(title) = &change.title {
             heading = heading.push(Segment::plain(" — ")).push(Segment::tagged(title, Tag::Heading));
         }
-        let mut lines = vec![heading, Line::default()];
+        let mut lines = vec![heading.leading_to(Target::Title { change: id.to_owned() }), Line::default()];
         let description = || Target::Description { change: id.to_owned() };
         match &change.description {
             Some(text) => lines.extend(text.lines().map(|line| Line::plain(line).leading_to(description()))),
