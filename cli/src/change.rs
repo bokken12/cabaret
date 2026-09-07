@@ -61,6 +61,12 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer(), conflicts_with = "parent")]
         child: Option<ChangeId>,
     },
+    /// Set the change's description, given or else read from stdin; blank clears it.
+    Describe {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        description: Option<String>,
+    },
     Diff {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -158,6 +164,13 @@ impl ChangeCommand {
                         println!("created {id} with parent {parent}");
                     }
                 }
+            }
+            ChangeCommand::Describe { change, description } => {
+                let text = match description {
+                    Some(text) => text,
+                    None => std::io::read_to_string(std::io::stdin())?,
+                };
+                cabaret.set_description(&or_current(change)?, Some(text).filter(|text| !text.trim().is_empty()))?;
             }
             ChangeCommand::Diff { change, pathspecs } => {
                 // TODO(joel): show file content not just file names
