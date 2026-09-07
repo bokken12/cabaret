@@ -242,6 +242,7 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
         owned: graph(&[("feat", true, "")]),
         workspaces: graph(&[]),
     };
+    let page = Page::home(&home).unwrap();
     expect![[r"
         Owned
         ○   feat
@@ -249,11 +250,12 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
         Workspaces
         no changes checked out in a workspace
     "]]
-    .assert_eq(&Page::home(&home).unwrap().to_string());
+    .assert_eq(&page.to_string());
+    expect!["[Fold { start: 0, end: 1 }, Fold { start: 3, end: 4 }]"].assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]
-fn home_moves_folds_down_to_their_section() {
+fn home_headings_fold_their_sections_around_the_graph_folds() {
     let stack = || graph(&[("base", true, ""), ("top", true, "base")]);
     let home = Home { viewer: Identity("alice@example.com".into()), owned: stack(), workspaces: stack() };
     let page = Page::home(&home).unwrap();
@@ -267,7 +269,10 @@ fn home_moves_folds_down_to_their_section() {
         ╰─○   top
     "]]
     .assert_eq(&page.to_string());
-    expect!["[Fold { start: 1, end: 2 }, Fold { start: 5, end: 6 }]"].assert_eq(&format!("{:?}", page.folds));
+    expect![
+        "[Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }]"
+    ]
+    .assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]
