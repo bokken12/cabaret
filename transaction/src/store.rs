@@ -99,7 +99,7 @@ fn committed_tip<'ctx>(ctx: &'ctx TransactionContext<'ctx>, head: &Head) -> Resu
 
 /// How long a transaction waits for another's locks before giving up; a lock older than this
 /// was most likely left behind by a killed process.
-const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The independently lockable resources of a repository; each has its own directory of lock
 /// files, named by the change (metadata, branch) or workspace they belong to.

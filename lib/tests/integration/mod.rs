@@ -1,5 +1,6 @@
 mod changed_files;
 mod commit;
+mod config;
 mod fixture;
 mod home;
 mod land;

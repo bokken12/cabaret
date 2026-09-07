@@ -128,7 +128,7 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.sessions_page(&change, &ClaudeCode::locate()?)).await
     }
 
-    /// The home page for `viewer`, defaulting to git's user.email.
+    /// The home page for `viewer`, defaulting to the configured identity.
     #[napi]
     pub async fn home_page(&self, viewer: Option<Identity>) -> napi::Result<Page> {
         self.blocking(move |cabaret| {

@@ -5,9 +5,10 @@ use clap::{Parser, Subcommand, ValueHint};
 
 pub mod args;
 pub mod change;
+pub mod config;
 pub mod workspace;
 
-use crate::{change::ChangeCommand, workspace::WorkspaceCommand};
+use crate::{change::ChangeCommand, config::ConfigCommand, workspace::WorkspaceCommand};
 
 #[derive(Subcommand)]
 enum Command {
@@ -15,11 +16,14 @@ enum Command {
         #[command(subcommand)]
         command: ChangeCommand,
     },
-    Config,
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Fetch,
     /// Show your open changes as a stack graph.
     Home {
-        /// Identity to view as; defaults to git's user.email.
+        /// Identity to view as; defaults to your configured identity.
         #[arg(long = "as")]
         viewer: Option<Identity>,
     },
@@ -52,7 +56,7 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Command::Change { command } => command.run(cabaret()?)?,
-        Command::Config => todo!(),
+        Command::Config { command } => command.run(&cabaret()?)?,
         Command::Fetch => fetch(&cabaret()?)?,
         Command::Home { viewer } => {
             let cabaret = cabaret()?;

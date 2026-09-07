@@ -5,7 +5,7 @@ use std::{
 };
 
 use cabaret_agents::{ClaudeCode, Session};
-use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
+use cabaret_transaction::{BranchOp, Head, Metadata, Setting, Store, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
     RevisionRange, TimestampMs, WorkspaceId, WorkspaceIdRef,
@@ -248,6 +248,13 @@ impl Cabaret {
     pub fn changes(&self) -> Result<Vec<ChangeId>> { self.store.query(|ctx| ctx.changes()) }
 
     pub fn identity(&self) -> Result<Identity> { self.store.query(|ctx| ctx.identity()) }
+
+    // Config operations
+
+    pub fn setting<S: Setting>(&self) -> Result<Option<S>> { self.store.query(|ctx| ctx.setting()) }
+
+    /// Set `S` in the repository's config, or clear it for `None`.
+    pub fn set_setting<S: Setting>(&self, value: Option<&S>) -> Result<()> { self.store.set_setting(value) }
 
     pub fn current_change(&self) -> Result<ChangeId> { self.store.query(|ctx| ctx.current_change()) }
 

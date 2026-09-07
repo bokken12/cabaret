@@ -1,4 +1,5 @@
 mod branch;
+mod config;
 mod context;
 mod metadata;
 mod revision;
@@ -7,6 +8,7 @@ mod tree;
 mod workspace;
 
 pub use branch::Branch;
+pub use config::Setting;
 pub use context::TransactionContext;
 pub use metadata::Metadata;
 pub use revision::Revision;

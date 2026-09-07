@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, RevisionId, TimestampMs, TreeId, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, RepoPath, Result, RevisionId, TimestampMs, TreeId, WorkspaceId,
     WorkspaceIdRef,
 };
 use elsa::FrozenBTreeMap;
@@ -110,12 +110,6 @@ impl<'ctx> TransactionContext<'ctx> {
     /// The commit `spec` names, in git's revision syntax.
     pub fn resolve(&self, spec: &str) -> Result<RevisionId> {
         Ok(RevisionId(self.repo.rev_parse_single(spec)?.object()?.peel_to_commit()?.id))
-    }
-
-    /// The identity this repository acts as: git's user.email.
-    pub fn identity(&self) -> Result<Identity> {
-        let committer = self.repo.committer().ok_or("no git identity; set user.email")??;
-        Ok(Identity(committer.email.to_string()))
     }
 
     /// Write a commit of `tree` on `parents` as this repository's identity, without moving any ref.

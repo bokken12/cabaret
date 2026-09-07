@@ -174,6 +174,9 @@ impl Fixture {
         .unwrap()
     }
 
+    /// The repository's git config file as text.
+    pub fn config(&self) -> String { fs::read_to_string(self.repo.common_dir().join("config")).unwrap() }
+
     /// The main working directory as text; see [`worktree`].
     pub fn worktree(&self) -> String { worktree(&self.repo) }
 
