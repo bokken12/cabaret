@@ -10,7 +10,7 @@ publish.workspace = true
 crate-type = ["lib", "cdylib"]
 
 [features]
-napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "cabaret-types/napi"]
+napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "cabaret-types/napi", "cabaret-agents/napi"]
 
 [dependencies]
 cabaret-agents.workspace = true

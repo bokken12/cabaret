@@ -5,7 +5,7 @@
 
 use std::{fmt, path::Path};
 
-use cabaret_agents::Session;
+use cabaret_agents::{Session, SessionId, Status};
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
 
 /// What a piece of text is, for frontends to style.
@@ -28,8 +28,18 @@ pub enum Tag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind"))]
 pub enum Target {
-    Change { change: ChangeId },
-    Diff { change: ChangeId, file: ChangedFile },
+    Change {
+        change: ChangeId,
+    },
+    Diff {
+        change: ChangeId,
+        file: ChangedFile,
+    },
+    /// A Claude Code session launched in the workspace holding `change`.
+    Session {
+        change: ChangeId,
+        session: SessionId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,19 +144,28 @@ impl Page {
         Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
     }
 
-    /// The tail of a show page: one line per agent session in the change's workspace, folding
-    /// under their label. Sessions are listed as given, so callers order them.
-    pub fn sessions(sessions: &[Session], now: TimestampMs) -> Self {
+    /// The tail of a show page: one line per Claude Code session in `change`'s workspace, each
+    /// leading to itself, folding under their label. Sessions are listed as given, so callers
+    /// order them.
+    pub fn sessions(change: &ChangeIdRef, sessions: &[Session], now: TimestampMs) -> Self {
         if sessions.is_empty() {
             return Self { lines: vec![Line::default(), list("Sessions:", std::iter::empty())], folds: Vec::new() };
         }
         let mut lines = vec![Line::default(), Line::default().push(Segment::tagged("Sessions:", Tag::Label))];
         for session in sessions {
             let title = session.title.clone().unwrap_or_else(|| session.id.to_string());
+            let mut note = format!(" · {}", ago(session.last_active, now));
+            match session.live {
+                Some(Status::Busy) => note.push_str(", busy"),
+                Some(Status::Idle) => note.push_str(", idle"),
+                Some(Status::Unknown) => note.push_str(", running"),
+                None => {}
+            }
             lines.push(
                 Line::default()
                     .push(Segment::plain(format!("  {title}")))
-                    .push(Segment::tagged(format!(" · {}", ago(session.last_active, now)), Tag::Muted)),
+                    .push(Segment::tagged(note, Tag::Muted))
+                    .leading_to(Target::Session { change: change.to_owned(), session: session.id.clone() }),
             );
         }
         let end = u32::try_from(lines.len() - 1).expect("pages are short");

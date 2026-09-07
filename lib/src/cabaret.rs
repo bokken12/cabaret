@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_agents::{Acp, Session};
+use cabaret_agents::{ClaudeCode, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
@@ -293,17 +293,17 @@ impl Cabaret {
         Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
     }
 
-    /// The agent sessions launched in the workspace holding `change_id`; none when it is checked
-    /// out nowhere.
-    pub fn sessions(&self, change_id: &ChangeIdRef, agent: &Acp) -> Result<Vec<Session>> {
+    /// The Claude Code sessions launched in the workspace holding `change_id`; none when it is
+    /// checked out nowhere.
+    pub fn sessions(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Vec<Session>> {
         match self.workspace_holding(change_id)? {
-            Some(workspace) => agent.sessions_in(&self.workspace_path(workspace.to_ref())?),
+            Some(workspace) => claude.sessions_in(&self.workspace_path(workspace.to_ref())?),
             None => Ok(Vec::new()),
         }
     }
 
-    pub fn sessions_page(&self, change_id: &ChangeIdRef, agent: &Acp) -> Result<Page> {
-        Ok(Page::sessions(&self.sessions(change_id, agent)?, TimestampMs::now()))
+    pub fn sessions_page(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Page> {
+        Ok(Page::sessions(change_id, &self.sessions(change_id, claude)?, TimestampMs::now()))
     }
 
     pub fn create(&self, change_id: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<()> {

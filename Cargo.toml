@@ -27,7 +27,6 @@ cabaret-lib = { path = "lib" }
 cabaret-transaction = { path = "transaction" }
 cabaret-types = { path = "types" }
 
-agent-client-protocol-schema = { version = "1.7.0", default-features = false }
 clap = { version = "4.6.6", features = ["derive"] }
 elsa = "1.11.2"
 expect-test = "1.5.1"

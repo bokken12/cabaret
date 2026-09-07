@@ -6,6 +6,7 @@ import {
   type RepoPath,
   type Revision,
   type Segment,
+  type SessionId,
   type Tag,
   type Target,
 } from "@cabaret/node";
@@ -75,16 +76,12 @@ function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
 }
 
 /**
- * The sessions tail of a show page, from the ACP agent named by the `cabaret.agent` setting. A
- * failure to ask is reported in place of the list rather than failing the page.
+ * The sessions tail of a show page. A failure to list is reported in place of the list rather
+ * than failing the page.
  */
 async function sessionsPage(cabaret: Cabaret, change: ChangeId): Promise<Page> {
-  const agent = vscode.workspace.getConfiguration("cabaret").get<string>("agent", "");
-  if (agent === "") {
-    return { lines: [], folds: [] };
-  }
   try {
-    return await cabaret.sessionsPage(change, agent);
+    return await cabaret.sessionsPage(change);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -200,9 +197,9 @@ class PageProvider
   }
 
   /**
-   * Listing sessions asks an agent process, which is slow next to reading the repository, so a
-   * show page renders without them and grows a tail when they arrive, unless it was re-rendered
-   * meanwhile.
+   * Listing sessions reads every transcript in the workspace, which is slow next to reading the
+   * repository, so a show page renders without them and grows a tail when they arrive, unless it
+   * was re-rendered meanwhile.
    */
   private async addSessions(uri: vscode.Uri, page: Page, change: ChangeId): Promise<void> {
     const tail = await sessionsPage(openCabaret(), change);
@@ -333,7 +330,33 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
     case "Diff":
       await openDiff(cabaret, target.change, target.file);
       break;
+    case "Session":
+      await openSession(cabaret, target.change, target.session);
+      break;
   }
+}
+
+/** Terminals showing a resumed session, so a second Enter reveals the same one. */
+const sessionTerminals = new Map<SessionId, vscode.Terminal>();
+
+/**
+ * Resume a Claude Code session in its own editor tab, running the CLI through the user's shell in
+ * the workspace it was launched from.
+ */
+async function openSession(cabaret: Cabaret, change: ChangeId, session: SessionId): Promise<void> {
+  const existing = sessionTerminals.get(session);
+  if (existing !== undefined) {
+    existing.show();
+    return;
+  }
+  const terminal = vscode.window.createTerminal({
+    name: `claude ${session.slice(0, 8)}`,
+    cwd: await cabaret.workspacePath(change),
+    location: vscode.TerminalLocation.Editor,
+  });
+  sessionTerminals.set(session, terminal);
+  terminal.sendText(`claude --resume ${session}`);
+  terminal.show();
 }
 
 /** The change a page is about: on the home page the one under the cursor, else the page's own. */
@@ -730,6 +753,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
         provider.decorate(editor);
+      }
+    }),
+    vscode.window.onDidCloseTerminal((terminal) => {
+      for (const [session, open] of sessionTerminals) {
+        if (open === terminal) {
+          sessionTerminals.delete(session);
+        }
       }
     }),
     // A page that grew a tail needs its new lines painted too.
