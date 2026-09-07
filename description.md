@@ -1,0 +1,1 @@
+when I land a non-permanent change (or maybe just whenever I archive a change) it should also delete the local workspace if it's clean / has no local changes
