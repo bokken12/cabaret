@@ -913,6 +913,28 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `started a session on ${change}`;
 }
 
+/**
+ * Land, then offer to remove the workspace that held the change, since an archived change has
+ * nothing left to do there. A permanent change stays open, so its workspace is not offered.
+ */
+async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  const landed = `landed ${change} into ${await cabaret.land(change)}`;
+  const { archived, workspace } = await cabaret.change(change);
+  if (!archived || workspace === undefined) {
+    return landed;
+  }
+  const remove = await vscode.window.showInformationMessage(
+    `Cabaret: ${landed}`,
+    { modal: true, detail: `Remove the workspace ${workspace} that held it?` },
+    "Remove Workspace",
+  );
+  if (remove === undefined) {
+    return landed;
+  }
+  await cabaret.workspaceRemove(change);
+  return `${landed}; removed workspace ${workspace}`;
+}
+
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
@@ -994,7 +1016,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
+    action("cabaret.land", provider, land),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.startSession", provider, startSession),
