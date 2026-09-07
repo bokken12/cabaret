@@ -1,0 +1,1 @@
+when I hit enter on a change's title in its "show change" page, it should let me edit its title (probalby not in a full new buffer like the description but just in a popup so people don't start making multi-line titles)
