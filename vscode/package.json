@@ -278,6 +278,10 @@
           "default": {
             "SPC a": "+Applications",
             "SPC a f": "+Cabaret",
+            "SPC a h": {
+              "name": "Workspace diff",
+              "command": "cabaret.workspaceDiff"
+            },
             "SPC a f t": {
               "name": "Home",
               "command": "cabaret.home"
