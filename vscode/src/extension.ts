@@ -585,19 +585,6 @@ async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<
   return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined ? undefined : cabaret.currentChange();
 }
 
-<<<<<<< live-diff
-async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | View): Promise<void> {
-  const change = await activeChange(cabaret, provider);
-  if (change !== undefined) {
-    await provider.open({ kind, change });
-  }
-||||||| base
-async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
-  const change = await activeChange(cabaret, provider);
-  if (change !== undefined) {
-    await provider.open({ kind, change });
-  }
-=======
 /** `run` on the change the active page is about, or one the user picks; nothing if they decline. */
 function onChange(
   name: string,
@@ -610,7 +597,6 @@ function onChange(
       await run(cabaret, change);
     }
   });
->>>>>>> main
 }
 
 /** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
@@ -1071,9 +1057,9 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
     onChange("cabaret.diff", provider, (_, change) => provider.open({ kind: "diff", change })),
+    onChange("cabaret.workspaceDiff", provider, (_, change) => provider.open({ kind: "workspace", change })),
     onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
     onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),
-    command("cabaret.workspaceDiff", (cabaret) => openPage(cabaret, provider, "workspace")),
     // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
       const fileDiff = activeFileDiff();
