@@ -37,11 +37,18 @@ impl<'a> BranchOp<'a> {
         }
     }
 
-    /// The branch before the transaction: as committed, or at `tip` for an insert.
+    /// The branch before the transaction: as committed, or at `tip` for an insert. An insert
+    /// refuses an id whose branch exists: gix's `MustNotExist` lets a ref be rewritten to the
+    /// value it already has, which would pass creating a change twice off as a success.
     fn before<'ctx>(&self, ctx: &'ctx TransactionContext<'ctx>) -> Result<Branch<'ctx>> {
         Ok(match self {
             BranchOp::Update(id) => ctx.branch(id)?.clone(),
-            BranchOp::Insert { id, tip } => Branch::new(ctx, (*id).to_owned(), *tip),
+            BranchOp::Insert { id, tip } => {
+                if ctx.repo.try_find_reference(&id.branch_ref())?.is_some() {
+                    Err(format!("{id} already exists"))?;
+                }
+                Branch::new(ctx, (*id).to_owned(), *tip)
+            }
         })
     }
 }
