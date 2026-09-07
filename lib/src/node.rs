@@ -106,6 +106,13 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
     }
 
+    /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
+    /// it is running. `args` go to the CLI ahead of the prompt.
+    #[napi]
+    pub async fn start_session(&self, change: ChangeId, prompt: String, args: Vec<String>) -> napi::Result<()> {
+        self.blocking(move |cabaret| cabaret.start_session(&change, &prompt, &args, &ClaudeCode::locate()?)).await
+    }
+
     /// The Claude Code sessions launched in the workspace holding `change`, as the tail of its
     /// show page.
     #[napi]

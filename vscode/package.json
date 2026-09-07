@@ -43,6 +43,10 @@
         "title": "Cabaret: Refresh"
       },
       {
+        "command": "cabaret.startSession",
+        "title": "Cabaret: Start Session"
+      },
+      {
         "command": "cabaret.stepIn",
         "title": "Cabaret: Step In"
       },
@@ -111,6 +115,11 @@
       {
         "command": "cabaret.diff",
         "key": "d",
+        "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.startSession",
+        "key": "shift+a",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
@@ -212,6 +221,12 @@
     "configuration": {
       "title": "Cabaret",
       "properties": {
+        "cabaret.sessionArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Extra arguments for `claude --print` when starting a session on a change, ahead of the prompt. A headless session cannot answer permission prompts, so for one that edits files add e.g. `--permission-mode acceptEdits`."
+        },
         "leaderkey.overrides._cabaret": {
           "type": "object",
           "description": "Bindings contributed to the leaderkey extension, active when it is installed",

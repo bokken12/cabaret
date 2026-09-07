@@ -302,6 +302,20 @@ impl Cabaret {
         }
     }
 
+    /// Start a Claude Code session on `prompt` in the workspace holding `change_id`.
+    pub fn start_session(
+        &self,
+        change_id: &ChangeIdRef,
+        prompt: &str,
+        args: &[String],
+        claude: &ClaudeCode,
+    ) -> Result<()> {
+        let workspace = self
+            .workspace_holding(change_id)?
+            .ok_or_else(|| format!("{change_id} is not checked out in any workspace"))?;
+        claude.start(&self.workspace_path(workspace.to_ref())?, prompt, args)
+    }
+
     pub fn sessions_page(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Page> {
         Ok(Page::sessions(change_id, &self.sessions(change_id, claude)?, TimestampMs::now()))
     }
