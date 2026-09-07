@@ -66,7 +66,7 @@ impl WorkspaceCommand {
                 let workspace = holding(&cabaret, &change)?;
                 println!("{}", cabaret.workspace_path(workspace.to_ref())?.display());
             }
-            WorkspaceCommand::Prune => report(&cabaret.workspace_prune()?),
+            WorkspaceCommand::Prune => print_prune(&cabaret.workspace_prune()?),
             WorkspaceCommand::Remove { change, path } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
                 cabaret.workspace_remove(workspace.to_ref())?;
@@ -77,7 +77,7 @@ impl WorkspaceCommand {
     }
 }
 
-pub fn report(prune: &Prune) {
+pub fn print_prune(prune: &Prune) {
     for workspace in &prune.removed {
         println!("removed workspace {workspace}");
     }
