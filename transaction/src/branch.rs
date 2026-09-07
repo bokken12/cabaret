@@ -8,7 +8,7 @@ use gix::merge::{
     tree::TreatAsUnresolved,
 };
 
-use crate::context::TransactionContext;
+use crate::{context::TransactionContext, tree};
 
 #[derive(Clone, Debug)]
 pub struct Branch<'ctx> {
@@ -63,22 +63,8 @@ impl<'ctx> Branch<'ctx> {
             None => None,
             Some(base) => Some(repo.find_commit(base.0)?.tree()?),
         };
-        let tree = repo.find_commit(self.tip.0)?.tree()?;
-
-        let mut search =
-            gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
-                Err("attribute pathspecs are not supported".into())
-            })?;
-
-        let mut files = repo
-            .diff_tree_to_tree(base.as_ref(), Some(&tree), None)?
-            .into_iter()
-            // rewrite tracking reports moved directories alongside the files within them
-            .filter(|change| !change.entry_mode().is_tree())
-            .map(ChangedFile::try_from)
-            .collect::<Result<Vec<_>>>()?;
-        files.retain(|file| file.paths().any(|path| search.is_included(path.as_bstr(), Some(false))));
-        Ok(files)
+        let tip = repo.find_commit(self.tip.0)?.tree()?;
+        tree::changed_files(repo, base.as_ref(), &tip, pathspecs)
     }
 
     /// Merge `other` into this branch as part of `operation`, which names the commit: `None`

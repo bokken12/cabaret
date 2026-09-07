@@ -96,6 +96,12 @@ impl Cabaret {
         self.store.query(|ctx| ctx.branch(change_id)?.workspace())
     }
 
+    /// The workspace holding `change_id`, which the operations on a change's files need.
+    pub fn workspace_of(&self, change_id: &ChangeIdRef) -> Result<WorkspaceId> {
+        self.workspace_holding(change_id)?
+            .ok_or_else(|| format!("{change_id} is not checked out in any workspace").into())
+    }
+
     /// The workspace whose working directory is `path`.
     pub fn workspace_at(&self, path: &Path) -> Result<WorkspaceId> {
         let path = fs::canonicalize(path)?;
@@ -295,6 +301,17 @@ impl Cabaret {
         Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
     }
 
+    /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
+    /// restricted to `pathspecs` (all when empty): what [`Self::commit`] would record.
+    pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        let workspace_id = self.workspace_of(change_id)?;
+        self.store.query(|ctx| ctx.workspace(workspace_id.to_ref())?.changed_files(pathspecs))
+    }
+
+    pub fn workspace_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
+        Ok(Page::workspace(change_id, &self.workspace_files(change_id, pathspecs)?))
+    }
+
     /// The Claude Code sessions launched in the workspace holding `change_id`; none when it is
     /// checked out nowhere.
     pub fn sessions(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Vec<Session>> {
@@ -312,10 +329,7 @@ impl Cabaret {
         args: &[String],
         claude: &ClaudeCode,
     ) -> Result<()> {
-        let workspace = self
-            .workspace_holding(change_id)?
-            .ok_or_else(|| format!("{change_id} is not checked out in any workspace"))?;
-        claude.start(&self.workspace_path(workspace.to_ref())?, prompt, args)
+        claude.start(&self.workspace_path(self.workspace_of(change_id)?.to_ref())?, prompt, args)
     }
 
     pub fn sessions_page(&self, change_id: &ChangeIdRef, claude: &ClaudeCode) -> Result<Page> {
@@ -359,10 +373,7 @@ impl Cabaret {
     /// all when empty, as a new commit on the change, returning it. The commit is named for the
     /// change and nothing more: commits are for the computer, not for reading.
     pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<RevisionId> {
-        let workspace_id = self
-            .store
-            .query(|ctx| ctx.branch(change_id)?.workspace())?
-            .ok_or_else(|| format!("{change_id} is not checked out in any workspace"))?;
+        let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
         self.store.transact(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {

@@ -31,7 +31,13 @@ pub enum Target {
     Change {
         change: ChangeId,
     },
+    /// A file of `change`'s diff: from its base to its tip.
     Diff {
+        change: ChangeId,
+        file: ChangedFile,
+    },
+    /// A file of `change`'s workspace diff: from its tip to what its workspace has on disk.
+    WorkspaceDiff {
         change: ChangeId,
         file: ChangedFile,
     },
@@ -136,9 +142,19 @@ impl Page {
         Self { lines, folds: Vec::new() }
     }
 
+    /// The files `change` presents against its base, each leading to its diff.
     pub fn diff(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
+        Self::files(files, "no changed files", |file| Target::Diff { change: change.to_owned(), file })
+    }
+
+    /// The files `change`'s workspace has on disk beyond its tip, each leading to its diff.
+    pub fn workspace(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
+        Self::files(files, "no uncommitted files", |file| Target::WorkspaceDiff { change: change.to_owned(), file })
+    }
+
+    fn files(files: &[ChangedFile], empty: &str, target: impl Fn(ChangedFile) -> Target) -> Self {
         if files.is_empty() {
-            return Self::message("no changed files");
+            return Self::message(empty);
         }
         let row = |file: &ChangedFile| {
             let (text, tag) = match file {
@@ -148,8 +164,7 @@ impl Page {
                 ChangedFile::Renamed { from, path } => (format!("{from} -> {path}"), Tag::Renamed),
                 ChangedFile::Copied { from, path } => (format!("{from} => {path}"), Tag::Copied),
             };
-            let target = Target::Diff { change: change.to_owned(), file: file.clone() };
-            Line::default().push(Segment::tagged(text, tag)).leading_to(target)
+            Line::default().push(Segment::tagged(text, tag)).leading_to(target(file.clone()))
         };
         Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
     }

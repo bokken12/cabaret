@@ -65,7 +65,7 @@ fn renamed_directory_reports_its_files() {
     fixture.remove("change", &["old/a.txt", "old/b.txt"]);
     fixture.commit("change", &[("new/a.txt", "a\n"), ("new/b.txt", "b\n")]);
     expect![[
-        r#"[Renamed { from: "old/b.txt", path: "new/b.txt" }, Renamed { from: "old/a.txt", path: "new/a.txt" }]"#
+        r#"[Renamed { from: "old/a.txt", path: "new/a.txt" }, Renamed { from: "old/b.txt", path: "new/b.txt" }]"#
     ]]
     .assert_eq(&changed_files(&fixture, "change", &[]));
 }

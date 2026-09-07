@@ -31,6 +31,7 @@ fn describe(target: &Target) -> String {
     match target {
         Target::Change { change } => format!("change:{change}"),
         Target::Diff { change, file } => format!("diff:{change}:{}", file.paths().last().unwrap()),
+        Target::WorkspaceDiff { change, file } => format!("workspace:{change}:{}", file.paths().last().unwrap()),
         Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
         Target::Session { change, session } => format!("session:{change}:{session}"),
@@ -164,6 +165,25 @@ fn an_empty_diff_page_says_so() {
         [Muted|no changed files]
     "]]
     .assert_eq(&markup(&page));
+}
+
+#[test]
+fn a_workspace_page_targets_each_file_on_disk() {
+    let path = |path: &str| path.parse().unwrap();
+    let files = [
+        ChangedFile::Modified { path: path("src/lib.rs") },
+        ChangedFile::Renamed { from: path("a.rs"), path: path("b.rs") },
+    ];
+    let change = "change".parse::<ChangeId>().unwrap();
+    expect![[r"
+        [Modified|src/lib.rs] => workspace:change:src/lib.rs
+        [Renamed|a.rs -> b.rs] => workspace:change:b.rs
+    "]]
+    .assert_eq(&markup(&Page::workspace(&change, &files)));
+    expect![[r"
+        [Muted|no uncommitted files]
+    "]]
+    .assert_eq(&markup(&Page::workspace(&change, &[])));
 }
 
 #[test]

@@ -1,10 +1,17 @@
 use std::str::FromStr;
 
-use gix::pathspec;
+use gix::pathspec::{self, MagicSignature, Pattern};
+
+use crate::repo_path::RepoPath;
 
 // TODO(joel): rename to be less ambiguous?
 #[derive(Debug, Clone)]
-pub struct Pathspec(pub pathspec::Pattern);
+pub struct Pathspec(pub Pattern);
+
+impl Pathspec {
+    /// Matches `path` and nothing else, however glob-like its name.
+    pub fn literal(path: &RepoPath) -> Self { Self(Pattern::from_literal(path.as_bstr(), MagicSignature::empty())) }
+}
 
 impl FromStr for Pathspec {
     type Err = pathspec::parse::Error;

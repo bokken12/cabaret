@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use cabaret_agents::ClaudeCode;
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, Result, RevisionId, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, WorkspaceId,
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -37,11 +37,6 @@ fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
         Some(workspace) => Placement::Elsewhere { workspace },
         None => Placement::Nowhere { dedicated: cabaret.workspace_is_dedicated(current.to_ref())? },
     })
-}
-
-/// The workspace holding `change`, which the workspace commands act on.
-fn holding(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<WorkspaceId> {
-    cabaret.workspace_holding(change)?.ok_or_else(|| format!("{change} is not checked out in any workspace").into())
 }
 
 fn path_string(path: PathBuf) -> Result<String> {
@@ -109,6 +104,17 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
     }
 
+    /// The files the workspace holding `change` has on disk beyond its tip.
+    #[napi]
+    pub async fn workspace_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
+        self.blocking(move |cabaret| cabaret.workspace_files(&change, &[])).await
+    }
+
+    #[napi]
+    pub async fn workspace_page(&self, change: ChangeId) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.workspace_page(&change, &[])).await
+    }
+
     /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
     /// it is running. `args` go to the CLI ahead of the prompt.
     #[napi]
@@ -149,12 +155,13 @@ impl CabaretJs {
 
     #[napi]
     pub async fn workspace_remove(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.workspace_remove(holding(cabaret, &change)?.to_ref())).await
+        self.blocking(move |cabaret| cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref())).await
     }
 
     #[napi]
     pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {
-        self.blocking(move |cabaret| path_string(cabaret.workspace_path(holding(cabaret, &change)?.to_ref())?)).await
+        self.blocking(move |cabaret| path_string(cabaret.workspace_path(cabaret.workspace_of(&change)?.to_ref())?))
+            .await
     }
 
     #[napi]
@@ -168,9 +175,12 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change)).await
     }
 
+    /// Commit `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
+    /// rename go, so the move is committed rather than a copy.
     #[napi]
-    pub async fn commit(&self, change: ChangeId) -> napi::Result<RevisionId> {
-        self.blocking(move |cabaret| cabaret.commit(&change, &[])).await
+    pub async fn commit(&self, change: ChangeId, files: Vec<ChangedFile>) -> napi::Result<RevisionId> {
+        let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
+        self.blocking(move |cabaret| cabaret.commit(&change, &pathspecs)).await
     }
 
     /// Create `change` as a child of `parent`, owned by git's user.email.

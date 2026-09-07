@@ -35,7 +35,13 @@ function openCabaret(): Cabaret {
   return session.cabaret;
 }
 
-type Route = { kind: "home" } | { kind: "show" | "diff"; change: ChangeId };
+/**
+ * The two diffs of a change: `diff` from its base to its tip, `workspace` from its tip to what the
+ * workspace holding it has on disk.
+ */
+type View = "diff" | "workspace";
+
+type Route = { kind: "home" } | { kind: "show" | View; change: ChangeId };
 
 function routeUri(route: Route): vscode.Uri {
   const path = route.kind === "home" ? "/home" : `/${route.kind}/${route.change}`;
@@ -46,8 +52,8 @@ function parseRoute(uri: vscode.Uri): Route {
   if (uri.path === "/home") {
     return { kind: "home" };
   }
-  const [, kind, change] = /^\/(show|diff)\/(.+)$/.exec(uri.path) ?? [];
-  if ((kind !== "show" && kind !== "diff") || change === undefined) {
+  const [, kind, change] = /^\/(show|diff|workspace)\/(.+)$/.exec(uri.path) ?? [];
+  if ((kind !== "show" && kind !== "diff" && kind !== "workspace") || change === undefined) {
     throw new Error(`unknown page ${uri.toString()}`);
   }
   return { kind, change };
@@ -73,6 +79,8 @@ function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
       return cabaret.showPage(route.change);
     case "diff":
       return cabaret.diffPage(route.change);
+    case "workspace":
+      return cabaret.workspacePage(route.change);
   }
 }
 
@@ -142,16 +150,21 @@ const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
 
 const TAGS = Object.keys(STYLES) as Tag[];
 
-/** The page or, for a file diff, the after-side blob a tab shows, when it is one of ours. */
+/** The page or, for a file diff, the after side a tab shows, when it is one of ours. */
 function cabaretTabUri(tab: vscode.Tab): vscode.Uri | undefined {
   const input = tab.input;
   if (input instanceof vscode.TabInputText && input.uri.scheme === SCHEME) {
     return input.uri;
   }
-  if (input instanceof vscode.TabInputTextDiff && input.modified.scheme === BLOB_SCHEME) {
+  if (input instanceof vscode.TabInputTextDiff && blobSide(input) !== undefined) {
     return input.modified;
   }
   return undefined;
+}
+
+/** A side of a two-sided diff that is one of our blobs; a file diff of ours has at least one. */
+function blobSide(input: vscode.TabInputTextDiff): vscode.Uri | undefined {
+  return [input.modified, input.original].find((uri) => uri.scheme === BLOB_SCHEME);
 }
 
 /**
@@ -289,16 +302,30 @@ class PageProvider
   }
 }
 
+/** One file of a change's `view`, as a two-sided diff shows it. */
+type FileDiff = { view: View; change: ChangeId; path: RepoPath };
+
 /**
- * `cabaret-blob:/<path>?change=<id>&revision=<rev>`: the file's text at that revision, or empty
- * with no revision, as one side of a file diff in `change`.
+ * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>[&revision=<rev>]`: the text at
+ * `blobPath` in that revision, or empty with no revision, as one side of the file diff the query
+ * names. The blob's own path differs from the diff's for the before side of a rename.
  */
-function blobUri(change: ChangeId, revision: Revision | undefined, path: RepoPath): vscode.Uri {
-  const query = new URLSearchParams({ change });
+function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoPath): vscode.Uri {
+  const query = new URLSearchParams(diff);
   if (revision !== undefined) {
     query.set("revision", revision);
   }
-  return vscode.Uri.from({ scheme: BLOB_SCHEME, path: `/${path}`, query: query.toString() });
+  return vscode.Uri.from({ scheme: BLOB_SCHEME, path: `/${blobPath}`, query: query.toString() });
+}
+
+/** The file diff a blob is a side of. */
+function blobFileDiff(uri: vscode.Uri): FileDiff {
+  const query = new URLSearchParams(uri.query);
+  const [view, change, path] = [query.get("view"), query.get("change"), query.get("path")];
+  if ((view !== "diff" && view !== "workspace") || change === null || path === null) {
+    throw new Error(`${uri.toString()} names no file diff`);
+  }
+  return { view, change, path };
 }
 
 class BlobProvider implements vscode.TextDocumentContentProvider {
@@ -379,13 +406,38 @@ async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedF
   return base;
 }
 
-async function openDiff(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<void> {
-  const before = blobUri(change, await beforeRevision(cabaret, change, file), "from" in file ? file.from : file.path);
-  const after = blobUri(change, file.kind === "Deleted" ? undefined : (await cabaret.change(change)).tip, file.path);
+/**
+ * The before and after sides of `file` in `diff`. Blobs, except that the workspace view's after
+ * side is the file on disk itself, so it stays live and can be edited in place.
+ */
+async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<[vscode.Uri, vscode.Uri]> {
+  const { change } = diff;
+  const from = "from" in file ? file.from : file.path;
+  const { tip } = await cabaret.change(change);
+  switch (diff.view) {
+    case "diff":
+      return [
+        blobUri(diff, await beforeRevision(cabaret, change, file), from),
+        blobUri(diff, file.kind === "Deleted" ? undefined : tip, file.path),
+      ];
+    case "workspace": {
+      const before = blobUri(diff, file.kind === "Added" ? undefined : tip, from);
+      if (file.kind === "Deleted") {
+        return [before, blobUri(diff, undefined, file.path)];
+      }
+      return [before, vscode.Uri.joinPath(vscode.Uri.file(await cabaret.workspacePath(change)), file.path)];
+    }
+  }
+}
+
+async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
+  const diff: FileDiff = { view, change, path: file.path };
+  const [before, after] = await sides(cabaret, diff, file);
+  const title = view === "diff" ? `${file.path} (${change})` : `${file.path} (${change}, uncommitted)`;
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
   await replacingActive(after, async () => {
-    await vscode.commands.executeCommand("vscode.diff", before, after, `${file.path} (${change})`, options);
+    await vscode.commands.executeCommand("vscode.diff", before, after, title, options);
   });
 }
 
@@ -395,7 +447,10 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await provider.open({ kind: "show", change: target.change });
       break;
     case "Diff":
-      await openDiff(cabaret, target.change, target.file);
+      await openFileDiff(cabaret, "diff", target.change, target.file);
+      break;
+    case "WorkspaceDiff":
+      await openFileDiff(cabaret, "workspace", target.change, target.file);
       break;
     case "Title":
       await editTitle(cabaret, provider, target.change);
@@ -465,25 +520,11 @@ function activePage(): vscode.TextEditor | undefined {
   return editor?.document.uri.scheme === SCHEME ? editor : undefined;
 }
 
-type FileDiff = { change: ChangeId; path: RepoPath };
-
-/** The blob-backed diff the active tab shows, if it is one. */
-function activeBlobDiff(): vscode.TabInputTextDiff | undefined {
-  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-  return input instanceof vscode.TabInputTextDiff && input.modified.scheme === BLOB_SCHEME ? input : undefined;
-}
-
-/** The file diff the active tab shows, if it is one; its modified side is always at the file's own path. */
+/** The file diff the active tab shows, if it is one. */
 function activeFileDiff(): FileDiff | undefined {
-  const input = activeBlobDiff();
-  if (input === undefined) {
-    return undefined;
-  }
-  const change = new URLSearchParams(input.modified.query).get("change");
-  if (change === null) {
-    throw new Error(`${input.modified.toString()} names no change`);
-  }
-  return { change, path: input.modified.path.slice(1) };
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  const blob = input instanceof vscode.TabInputTextDiff ? blobSide(input) : undefined;
+  return blob === undefined ? undefined : blobFileDiff(blob);
 }
 
 type PageKind = Route["kind"] | "file";
@@ -492,11 +533,11 @@ type PageKind = Route["kind"] | "file";
 function updatePageContext(): void {
   const editor = activePage();
   const kind: PageKind | undefined =
-    activeBlobDiff() !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+    activeFileDiff() !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
 }
 
-/** The scope enclosing a page: a change's diff sits in its show page, which sits in home. */
+/** The scope enclosing a page: a change's diffs sit in its show page, which sits in home. */
 function enclosing(route: Route): Route | undefined {
   switch (route.kind) {
     case "home":
@@ -504,6 +545,7 @@ function enclosing(route: Route): Route | undefined {
     case "show":
       return { kind: "home" };
     case "diff":
+    case "workspace":
       return { kind: "show", change: route.change };
   }
 }
@@ -539,7 +581,7 @@ async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<
   return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined ? undefined : cabaret.currentChange();
 }
 
-async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
+async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | View): Promise<void> {
   const change = await activeChange(cabaret, provider);
   if (change !== undefined) {
     await provider.open({ kind, change });
@@ -558,9 +600,9 @@ function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
 
 type Direction = "up" | "down";
 
-/** On a file diff, `^`/`$` go to the file above or below it in the change's diff. */
-async function stepFile(cabaret: Cabaret, { change, path }: FileDiff, direction: Direction): Promise<void> {
-  const files = await cabaret.changedFiles(change);
+/** On a file diff, `^`/`$` go to the file above or below it in the same view of the change. */
+async function stepFile(cabaret: Cabaret, { view, change, path }: FileDiff, direction: Direction): Promise<void> {
+  const files = await (view === "diff" ? cabaret.changedFiles(change) : cabaret.workspaceFiles(change));
   const index = files.findIndex((file) => file.path === path);
   if (index === -1) {
     throw new Error(`${path} is no longer in ${change}'s diff`);
@@ -571,7 +613,7 @@ async function stepFile(cabaret: Cabaret, { change, path }: FileDiff, direction:
     vscode.window.setStatusBarMessage(`Cabaret: ${path} is the ${end} file in ${change}`, 3000);
     return;
   }
-  await openDiff(cabaret, change, file);
+  await openFileDiff(cabaret, view, change, file);
 }
 
 /**
@@ -906,6 +948,42 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<strin
   return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
 
+async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  await cabaret.commit(change, []);
+  return `committed all files to ${change}`;
+}
+
+/**
+ * The files on the rows the selections span, or on the cursor's row when nothing is selected. A
+ * selection ending at the start of a line has not taken that line in.
+ */
+function selectedFiles(page: Page, selections: readonly vscode.Selection[]): ChangedFile[] {
+  const rows = new Set<number>();
+  for (const { start, end } of selections) {
+    const last = end.character === 0 && end.line > start.line ? end.line - 1 : end.line;
+    for (let row = start.line; row <= last; row++) {
+      rows.add(row);
+    }
+  }
+  return [...rows]
+    .sort((a, b) => a - b)
+    .flatMap((row) => {
+      const target = page.lines[row]?.target;
+      return target?.kind === "WorkspaceDiff" ? [target.file] : [];
+    });
+}
+
+async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {
+  const editor = activePage();
+  const page = editor === undefined ? undefined : provider.page(editor.document.uri);
+  const files = editor === undefined || page === undefined ? [] : selectedFiles(page, editor.selections);
+  if (files.length === 0) {
+    throw new Error("no file is selected");
+  }
+  await cabaret.commit(change, files);
+  return `committed ${words(files.map((file) => file.path))} to ${change}`;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
@@ -946,6 +1024,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     command("cabaret.showChange", (cabaret) => openPage(cabaret, provider, "show")),
     command("cabaret.diff", (cabaret) => openPage(cabaret, provider, "diff")),
+    command("cabaret.workspaceDiff", (cabaret) => openPage(cabaret, provider, "workspace")),
     // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
       const fileDiff = activeFileDiff();
@@ -959,11 +1038,11 @@ export function activate(context: vscode.ExtensionContext) {
         await follow(cabaret, provider, target);
       }
     }),
-    // Escape: out one scope, a file diff into its change's diff.
+    // Escape: out one scope, a file diff into the view it came from.
     command("cabaret.stepOut", async () => {
       const fileDiff = activeFileDiff();
       if (fileDiff !== undefined) {
-        await provider.open({ kind: "diff", change: fileDiff.change });
+        await provider.open({ kind: fileDiff.view, change: fileDiff.change });
         return;
       }
       const editor = activePage();
@@ -984,6 +1063,8 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
+    action("cabaret.commitAll", provider, commitAll),
+    action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
     action("cabaret.addWorkspace", provider, async (cabaret, change) => {
       return `added a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;

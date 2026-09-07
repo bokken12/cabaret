@@ -63,7 +63,7 @@ impl WorkspaceCommand {
                 }
             }
             WorkspaceCommand::Path { change } => {
-                let workspace = holding(&cabaret, &change)?;
+                let workspace = cabaret.workspace_of(&change)?;
                 println!("{}", cabaret.workspace_path(workspace.to_ref())?.display());
             }
             WorkspaceCommand::Prune => {
@@ -88,12 +88,8 @@ impl WorkspaceCommand {
 /// The workspace a command names by change or by path; clap keeps the two exclusive.
 fn named(cabaret: &Cabaret, change: Option<ChangeId>, path: Option<PathBuf>) -> Result<Option<WorkspaceId>> {
     Ok(match (change, path) {
-        (Some(change), _) => Some(holding(cabaret, &change)?),
+        (Some(change), _) => Some(cabaret.workspace_of(&change)?),
         (None, Some(path)) => Some(cabaret.workspace_at(&path)?),
         (None, None) => None,
     })
-}
-
-fn holding(cabaret: &Cabaret, change: &ChangeId) -> Result<WorkspaceId> {
-    cabaret.workspace_holding(change)?.ok_or_else(|| format!("{change} is not checked out in any workspace").into())
 }

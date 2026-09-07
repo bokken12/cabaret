@@ -9,3 +9,4 @@ mod parents;
 mod rebase;
 mod review;
 mod workspace;
+mod workspace_files;

@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_types::{ChangeId, Pathspec, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{ChangeId, ChangedFile, Pathspec, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef};
 use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
@@ -25,7 +25,7 @@ use gix::{
     status::{UntrackedFiles, index_worktree::Item, tree_index::TrackRenames},
 };
 
-use crate::{branch::Branch, context::TransactionContext};
+use crate::{branch::Branch, context::TransactionContext, tree};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Head {
@@ -179,6 +179,16 @@ impl<'ctx> Workspace<'ctx> {
         self.write_files(&repo, &from, &repo.find_commit(to)?.tree()?)
     }
 
+    /// The files that differ between HEAD's tree and what is on disk at the paths `pathspecs`
+    /// match, all when empty: exactly what [`Self::snapshot`] would commit.
+    pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        let repo = self.repo()?;
+        let head = repo.head_tree_id()?.object()?.into_tree();
+        let disk = repo.find_tree(disk_tree(&repo, pathspecs)?.0)?;
+        // The overlay already holds only matching paths, so the diff need not filter again.
+        tree::changed_files(&repo, Some(&head), &disk, &[])
+    }
+
     /// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
     /// HEAD's tree; and an index at that tree. Whatever the index holds beyond HEAD counts as on
     /// disk too, since git tools stage there. Beyond that the index is only a stat cache of the
@@ -187,76 +197,8 @@ impl<'ctx> Workspace<'ctx> {
     pub fn snapshot(&mut self, pathspecs: &[Pathspec]) -> Result<TreeId> {
         let repo = self.repo()?;
         let workdir = repo.workdir().expect("workspaces have working directories");
-        let head = repo.head_tree_id()?.detach();
         let old = repo.index_or_empty()?;
-        let executable_bit = repo.filesystem_options()?.executable_bit;
-        let (mut filters, attributes) = repo.filter_pipeline(None)?;
-        let mut editor = repo.edit_tree(head)?;
-        let patterns = || pathspecs.iter().map(|spec| spec.0.to_bstring());
-
-        let mut pathspec =
-            gix::Pathspec::new(
-                &repo,
-                false,
-                patterns(),
-                false,
-                || Err("attribute pathspecs are not supported".into()),
-            )?;
-        repo.tree_index_status(&head, &old, Some(&mut pathspec), TrackRenames::Disabled, |change, _, _| {
-            use gix::diff::index::ChangeRef::{Addition, Deletion, Modification, Rewrite};
-            match change {
-                Addition { location, entry_mode, id, .. } | Modification { location, entry_mode, id, .. } => {
-                    let mode = entry_mode.to_tree_entry_mode().ok_or_else(|| format!("{location} has no tree mode"))?;
-                    editor.upsert(location.as_ref(), mode.kind(), id.into_owned())?;
-                }
-                Deletion { location, .. } => {
-                    editor.remove(location.as_ref())?;
-                }
-                Rewrite { .. } => unreachable!("rewrite tracking is disabled"),
-            }
-            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ControlFlow::Continue(()))
-        })?;
-
-        // Each changed path gets whatever is on disk there now, so a removal and a file gone
-        // since the walk read the same.
-        let mut hashed = BTreeSet::new();
-        for path in changed_paths(&repo, patterns())? {
-            let disk = workdir.join(gix::path::from_bstr(path.as_bstr()));
-            let metadata = match disk.symlink_metadata() {
-                Ok(metadata) => metadata,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    editor.remove(path.as_bstr())?;
-                    continue;
-                }
-                Err(error) => Err(error)?,
-            };
-            let file_type = metadata.file_type();
-            // TODO-someday(joel): symlinks on a filesystem without them are committed as files
-            let (kind, blob) = if file_type.is_symlink() {
-                let target = gix::path::into_bstr(fs::read_link(&disk)?);
-                (EntryKind::Link, repo.write_blob(target.as_ref())?)
-            } else if file_type.is_file() {
-                let content = filters.convert_to_git(
-                    fs::File::open(&disk)?,
-                    &gix::path::from_bstr(path.as_bstr()),
-                    &attributes,
-                )?;
-                let kind = match executable_bit && gix::fs::is_executable(&metadata) {
-                    true => EntryKind::BlobExecutable,
-                    false => EntryKind::Blob,
-                };
-                (kind, repo.write_blob_stream(content)?)
-            } else if file_type.is_dir() {
-                // a directory took the file's place; the walk emits the files within it
-                editor.remove(path.as_bstr())?;
-                continue;
-            } else {
-                Err(format!("{path} is not a file, symlink, or directory"))?
-            };
-            editor.upsert(path.as_bstr(), kind, blob)?;
-            hashed.insert(path);
-        }
-        let tree = TreeId(editor.write()?.detach());
+        let (tree, hashed) = disk_tree(&repo, pathspecs)?;
 
         let mut index = repo.index_from_tree(&tree.0)?;
         for (entry, path) in index.entries_mut_with_paths() {
@@ -365,6 +307,75 @@ fn open(repo: &Repository, workspace: WorkspaceIdRef<'_>) -> Result<Repository> 
             Ok(proxy.into_repo_with_possibly_inaccessible_worktree()?)
         }
     }
+}
+
+/// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
+/// HEAD's tree, with the paths whose blobs were read from disk. Whatever the index holds
+/// beyond HEAD counts as on disk too, since git tools stage there. Only blobs are written,
+/// which the object database keys by content, so this is safe to run unreserved.
+fn disk_tree(repo: &Repository, pathspecs: &[Pathspec]) -> Result<(TreeId, BTreeSet<BString>)> {
+    let workdir = repo.workdir().expect("workspaces have working directories");
+    let head = repo.head_tree_id()?.detach();
+    let old = repo.index_or_empty()?;
+    let executable_bit = repo.filesystem_options()?.executable_bit;
+    let (mut filters, attributes) = repo.filter_pipeline(None)?;
+    let mut editor = repo.edit_tree(head)?;
+    let patterns = || pathspecs.iter().map(|spec| spec.0.to_bstring());
+
+    let mut pathspec =
+        gix::Pathspec::new(repo, false, patterns(), false, || Err("attribute pathspecs are not supported".into()))?;
+    repo.tree_index_status(&head, &old, Some(&mut pathspec), TrackRenames::Disabled, |change, _, _| {
+        use gix::diff::index::ChangeRef::{Addition, Deletion, Modification, Rewrite};
+        match change {
+            Addition { location, entry_mode, id, .. } | Modification { location, entry_mode, id, .. } => {
+                let mode = entry_mode.to_tree_entry_mode().ok_or_else(|| format!("{location} has no tree mode"))?;
+                editor.upsert(location.as_ref(), mode.kind(), id.into_owned())?;
+            }
+            Deletion { location, .. } => {
+                editor.remove(location.as_ref())?;
+            }
+            Rewrite { .. } => unreachable!("rewrite tracking is disabled"),
+        }
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ControlFlow::Continue(()))
+    })?;
+
+    // Each changed path gets whatever is on disk there now, so a removal and a file gone
+    // since the walk read the same.
+    let mut hashed = BTreeSet::new();
+    for path in changed_paths(repo, patterns())? {
+        let disk = workdir.join(gix::path::from_bstr(path.as_bstr()));
+        let metadata = match disk.symlink_metadata() {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                editor.remove(path.as_bstr())?;
+                continue;
+            }
+            Err(error) => Err(error)?,
+        };
+        let file_type = metadata.file_type();
+        // TODO-someday(joel): symlinks on a filesystem without them are committed as files
+        let (kind, blob) = if file_type.is_symlink() {
+            let target = gix::path::into_bstr(fs::read_link(&disk)?);
+            (EntryKind::Link, repo.write_blob(target.as_ref())?)
+        } else if file_type.is_file() {
+            let content =
+                filters.convert_to_git(fs::File::open(&disk)?, &gix::path::from_bstr(path.as_bstr()), &attributes)?;
+            let kind = match executable_bit && gix::fs::is_executable(&metadata) {
+                true => EntryKind::BlobExecutable,
+                false => EntryKind::Blob,
+            };
+            (kind, repo.write_blob_stream(content)?)
+        } else if file_type.is_dir() {
+            // a directory took the file's place; the walk emits the files within it
+            editor.remove(path.as_bstr())?;
+            continue;
+        } else {
+            Err(format!("{path} is not a file, symlink, or directory"))?
+        };
+        editor.upsert(path.as_bstr(), kind, blob)?;
+        hashed.insert(path);
+    }
+    Ok((TreeId(editor.write()?.detach()), hashed))
 }
 
 /// The paths at which the working directory differs from the index, within `patterns`.

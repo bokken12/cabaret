@@ -1,5 +1,6 @@
 //! Committing: what a change's workspace has on disk becomes the change's new tip.
 
+use cabaret_lib::Pathspec;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -75,6 +76,32 @@ fn pathspecs_leave_other_files_uncommitted() {
     "#]]
     .assert_eq(&fixture.worktree());
     assert_eq!(fixture.cabaret.blob(fixture.tip("one"), &"one.txt".parse().unwrap()).unwrap().unwrap(), "one\n");
+}
+
+#[test]
+fn literal_pathspec_takes_glob_characters_as_written() {
+    let fixture = two_changes();
+    fixture.write("a[1].txt", "bracketed\n");
+    fixture.write("a1.txt", "plain\n");
+    let literal = Pathspec::literal(&"a[1].txt".parse().unwrap());
+    fixture.cabaret.commit(&id("one"), &[literal]).unwrap();
+    expect![[r"
+        one
+          workspace main
+          parents main
+          owners alice@example.com
+          base main
+          diff +a[1].txt +one.txt
+    "]]
+    .assert_eq(&fixture.describe("one"));
+    expect![[r#"
+        clean
+        a1.txt "plain\n"
+        a[1].txt "bracketed\n"
+        main.txt "main\n"
+        one.txt "one\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
 }
 
 #[test]

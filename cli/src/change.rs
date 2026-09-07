@@ -70,6 +70,9 @@ pub enum ChangeCommand {
     Diff {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        /// Show what the change's workspace has on disk beyond its tip, instead of the change's own diff.
+        #[arg(long)]
+        workspace: bool,
         // TODO-someday(joel): cleverer repo-relative path completion
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
@@ -172,9 +175,13 @@ impl ChangeCommand {
                 };
                 cabaret.set_description(&or_current(change)?, Some(text).filter(|text| !text.trim().is_empty()))?;
             }
-            ChangeCommand::Diff { change, pathspecs } => {
+            ChangeCommand::Diff { change, workspace, pathspecs } => {
                 // TODO(joel): show file content not just file names
-                print!("{}", cabaret.diff_page(&or_current(change)?, &pathspecs)?);
+                let change = or_current(change)?;
+                match workspace {
+                    false => print!("{}", cabaret.diff_page(&change, &pathspecs)?),
+                    true => print!("{}", cabaret.workspace_page(&change, &pathspecs)?),
+                }
             }
             ChangeCommand::Land { change } => {
                 let change = or_current(change)?;
