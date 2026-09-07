@@ -3,6 +3,7 @@ import {
   type ChangedFile,
   type ChangeId,
   type Page,
+  type Prune,
   type RepoPath,
   type Revision,
   type Segment,
@@ -876,8 +877,22 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `started a session on ${change}`;
 }
 
+/** What archiving did to the change's workspace, as clauses to follow the main report. */
+function pruned(prune: Prune): string[] {
+  return [
+    ...[...prune.removed].map((workspace) => `removed workspace ${workspace}`),
+    ...prune.kept.map((kept) => `kept workspace ${kept.workspace}: ${kept.reason}`),
+  ];
+}
+
+async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  const land = await cabaret.land(change);
+  return [`landed ${change} into ${land.parent}`, ...pruned(land.workspace)].join("; ");
+}
+
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
+  const prune = await cabaret.toggleArchived(change);
+  return prune === null ? `unarchived ${change}` : [`archived ${change}`, ...pruned(prune)].join("; ");
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -955,7 +970,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
+    action("cabaret.land", provider, land),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.startSession", provider, startSession),

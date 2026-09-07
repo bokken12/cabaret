@@ -34,12 +34,42 @@ pub struct Rebase {
     pub remaining: BTreeSet<ChangeId>,
 }
 
-/// What [`Cabaret::workspace_prune`] did.
+/// Workspaces of archived changes that were removed, and those left standing.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Prune {
     pub removed: BTreeSet<WorkspaceId>,
-    /// Workspaces of archived changes left standing, each with why it could not go.
-    pub kept: BTreeMap<WorkspaceId, String>,
+    pub kept: Vec<Kept>,
+}
+
+/// A workspace of an archived change left standing, with why it could not go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct Kept {
+    pub workspace: WorkspaceId,
+    pub reason: String,
+}
+
+impl Prune {
+    fn record(&mut self, workspace: WorkspaceId, removed: Result<()>) {
+        match removed {
+            Ok(()) => {
+                self.removed.insert(workspace);
+            }
+            Err(error) => self.kept.push(Kept { workspace, reason: format!("{error:?}") }),
+        }
+    }
+}
+
+/// What [`Cabaret::land`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
+pub struct Land {
+    /// The parent the change merged into.
+    pub parent: ChangeId,
+    /// The workspace that held the change, pruned along with archiving it; empty for a permanent
+    /// change, which stays open.
+    pub workspace: Prune,
 }
 
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
@@ -191,25 +221,32 @@ impl Cabaret {
         })?;
         let mut prune = Prune::default();
         for (workspace, change) in archived {
-            let removed = self.store.transact(
-                &[&change],
-                &[BranchOp::Update(&change)],
-                &[WorkspaceOp::Delete { id: workspace.to_ref() }],
-                |_ctx, [metadata], [_branch], [_workspace]| match metadata.archived {
-                    true => Ok(()),
-                    false => Err(format!("{change} is no longer archived").into()),
-                },
-            );
-            match removed {
-                Ok(()) => {
-                    prune.removed.insert(workspace);
-                }
-                Err(error) => {
-                    prune.kept.insert(workspace, format!("{error:?}"));
-                }
-            }
+            prune.record(workspace.clone(), self.prune_workspace(workspace.to_ref(), &change));
         }
         Ok(prune)
+    }
+
+    /// Remove the workspace holding the archived `change_id`, if one does. Archiving leaves a
+    /// workspace with nothing left to do, but one holding work of its own stays.
+    fn prune_holding(&self, change_id: &ChangeIdRef) -> Result<Prune> {
+        let mut prune = Prune::default();
+        if let Some(workspace) = self.workspace_holding(change_id)? {
+            prune.record(workspace.clone(), self.prune_workspace(workspace.to_ref(), change_id));
+        }
+        Ok(prune)
+    }
+
+    /// Remove `workspace`, which held `change` when last seen; it may have been unarchived since.
+    fn prune_workspace(&self, workspace: WorkspaceIdRef<'_>, change: &ChangeIdRef) -> Result<()> {
+        self.store.transact(
+            &[change],
+            &[BranchOp::Update(change)],
+            &[WorkspaceOp::Delete { id: workspace }],
+            |_ctx, [metadata], [_branch], [_workspace]| match metadata.archived {
+                true => Ok(()),
+                false => Err(format!("{change} is no longer archived").into()),
+            },
+        )
     }
 
     pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId) -> Result<()> {
@@ -382,9 +419,9 @@ impl Cabaret {
         })
     }
 
-    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
-    pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
+    /// Merge `change_id` into its one parent and, unless it is permanent, archive it and prune its
+    /// workspace. Conflicts are refused rather than landed: rebase and resolve them first.
+    pub fn land(&self, change_id: &ChangeIdRef) -> Result<Land> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -394,22 +431,28 @@ impl Cabaret {
         })?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
-            if child.archived {
-                Err(format!("{change_id} is archived"))?;
-            }
-            match parent.merge(child_branch, "land")? {
-                None => Err(format!("{change_id} has nothing to land"))?,
-                Some(conflicts) if !conflicts.is_empty() => {
-                    Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
+        let archived =
+            self.store.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+                if child.archived {
+                    Err(format!("{change_id} is archived"))?;
                 }
-                Some(_) => {}
-            }
-            if !child.permanent {
-                child.archived = true;
-            }
-            Ok(parent_id.clone())
-        })
+                match parent.merge(child_branch, "land")? {
+                    None => Err(format!("{change_id} has nothing to land"))?,
+                    Some(conflicts) if !conflicts.is_empty() => {
+                        Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
+                    }
+                    Some(_) => {}
+                }
+                if !child.permanent {
+                    child.archived = true;
+                }
+                Ok(child.archived)
+            })?;
+        let workspace = match archived {
+            true => self.prune_holding(change_id)?,
+            false => Prune::default(),
+        };
+        Ok(Land { parent: parent_id, workspace })
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
@@ -441,7 +484,8 @@ impl Cabaret {
         })
     }
 
-    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
+    /// Archive `change_id` and prune its workspace.
+    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<Prune> {
         self.store.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): warn if children unarchived?
             match metadata.archived {
@@ -449,7 +493,8 @@ impl Cabaret {
                 false => metadata.archived = true,
             };
             Ok(())
-        })
+        })?;
+        self.prune_holding(change_id)
     }
 
     pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
@@ -463,12 +508,17 @@ impl Cabaret {
         })
     }
 
-    /// Archive `change_id`, or unarchive it if it already is, returning whether it is now archived.
-    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<bool> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
+    /// Archive `change_id`, pruning its workspace, or unarchive it if it already is; `None` when
+    /// it is now open.
+    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<Option<Prune>> {
+        let archived = self.store.update_metadata(change_id, |_ctx, metadata| {
             metadata.archived = !metadata.archived;
             Ok(metadata.archived)
-        })
+        })?;
+        match archived {
+            true => Ok(Some(self.prune_holding(change_id)?)),
+            false => Ok(None),
+        }
     }
 
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {

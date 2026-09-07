@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, ChangeId, Result, WorkspaceId};
+use cabaret_lib::{Cabaret, ChangeId, Prune, Result, WorkspaceId};
 use clap::{Subcommand, ValueHint};
 
 use crate::args::change_completer;
@@ -66,15 +66,7 @@ impl WorkspaceCommand {
                 let workspace = holding(&cabaret, &change)?;
                 println!("{}", cabaret.workspace_path(workspace.to_ref())?.display());
             }
-            WorkspaceCommand::Prune => {
-                let prune = cabaret.workspace_prune()?;
-                for workspace in &prune.removed {
-                    println!("removed {workspace}");
-                }
-                for (workspace, reason) in &prune.kept {
-                    println!("kept {workspace}: {reason}");
-                }
-            }
+            WorkspaceCommand::Prune => report(&cabaret.workspace_prune()?),
             WorkspaceCommand::Remove { change, path } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
                 cabaret.workspace_remove(workspace.to_ref())?;
@@ -82,6 +74,15 @@ impl WorkspaceCommand {
         }
 
         Ok(())
+    }
+}
+
+pub fn report(prune: &Prune) {
+    for workspace in &prune.removed {
+        println!("removed workspace {workspace}");
+    }
+    for kept in &prune.kept {
+        println!("kept workspace {}: {}", kept.workspace, kept.reason);
     }
 }
 

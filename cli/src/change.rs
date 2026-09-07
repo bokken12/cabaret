@@ -2,7 +2,10 @@ use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, 
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
-use crate::args::{change_completer, parse_revision, revision_completer};
+use crate::{
+    args::{change_completer, parse_revision, revision_completer},
+    workspace::report,
+};
 
 #[derive(Subcommand)]
 pub enum OwnersCommand {
@@ -137,7 +140,7 @@ impl ChangeCommand {
         };
         match self {
             ChangeCommand::Archive { change, undo } => match undo {
-                false => cabaret.archive(&or_current(change)?)?,
+                false => report(&cabaret.archive(&or_current(change)?)?),
                 true => cabaret.unarchive(&or_current(change)?)?,
             },
             ChangeCommand::Commit { change, pathspecs } => {
@@ -178,8 +181,9 @@ impl ChangeCommand {
             }
             ChangeCommand::Land { change } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change)?;
-                println!("landed {change} into {parent}");
+                let land = cabaret.land(&change)?;
+                println!("landed {change} into {}", land.parent);
+                report(&land.workspace);
             }
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
             ChangeCommand::Mark { change, tip, base, files } => {

@@ -232,12 +232,55 @@ fn bare_workspaces_are_dedicated() {
 }
 
 #[test]
-fn prune_removes_workspaces_of_archived_changes() {
+fn archive_removes_clean_workspace() {
     let fixture = two_changes();
     let two = fixture.add_workspace("two");
+    let prune = fixture.cabaret.archive(&id("two")).unwrap();
+    expect![[r#"Prune { removed: {"main-two"}, kept: [] }"#]].assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
+    assert!(!two.workdir().unwrap().exists());
+    assert!(!two.git_dir().exists());
+    assert!(fixture.snapshot("two").archived);
+}
+
+#[test]
+fn archive_keeps_dirty_workspace() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    std::fs::write(two.workdir().unwrap().join("two.txt"), "edited\n").unwrap();
+    let prune = fixture.cabaret.archive(&id("two")).unwrap();
+    expect![[r#"Prune { removed: {}, kept: [Kept { workspace: "main-two", reason: "workspace main-two has local changes" }] }"#]]
+        .assert_eq(&format!("{prune:?}"));
+    expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
+    assert!(fixture.snapshot("two").archived);
+}
+
+#[test]
+fn archive_of_change_checked_out_nowhere_prunes_nothing() {
+    let fixture = two_changes();
+    let prune = fixture.cabaret.archive(&id("two")).unwrap();
+    expect!["Prune { removed: {}, kept: [] }"].assert_eq(&format!("{prune:?}"));
+}
+
+#[test]
+fn toggle_archived_prunes_only_when_archiving() {
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    let toggled = fixture.cabaret.toggle_archived(&id("two")).unwrap();
+    expect![[r#"Some(Prune { removed: {"main-two"}, kept: [] })"#]].assert_eq(&format!("{toggled:?}"));
+    assert!(!two.workdir().unwrap().exists());
+    let toggled = fixture.cabaret.toggle_archived(&id("two")).unwrap();
+    expect!["None"].assert_eq(&format!("{toggled:?}"));
+}
+
+/// A workspace added to a change after it was archived is what prune is left to remove.
+#[test]
+fn prune_removes_workspaces_of_archived_changes() {
+    let fixture = two_changes();
     fixture.cabaret.archive(&id("two")).unwrap();
+    let two = fixture.add_workspace("two");
     let prune = fixture.cabaret.workspace_prune().unwrap();
-    expect![[r#"Prune { removed: {"main-two"}, kept: {} }"#]].assert_eq(&format!("{prune:?}"));
+    expect![[r#"Prune { removed: {"main-two"}, kept: [] }"#]].assert_eq(&format!("{prune:?}"));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
     assert!(!two.workdir().unwrap().exists());
     assert!(!two.git_dir().exists());
@@ -248,7 +291,7 @@ fn prune_leaves_open_changes_checked_out() {
     let fixture = two_changes();
     fixture.add_workspace("two");
     let prune = fixture.cabaret.workspace_prune().unwrap();
-    expect!["Prune { removed: {}, kept: {} }"].assert_eq(&format!("{prune:?}"));
+    expect!["Prune { removed: {}, kept: [] }"].assert_eq(&format!("{prune:?}"));
     expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
 
@@ -256,10 +299,10 @@ fn prune_leaves_open_changes_checked_out() {
 fn prune_keeps_dirty_workspace() {
     let fixture = two_changes();
     let two = fixture.add_workspace("two");
-    fixture.cabaret.archive(&id("two")).unwrap();
     std::fs::write(two.workdir().unwrap().join("two.txt"), "edited\n").unwrap();
+    fixture.cabaret.archive(&id("two")).unwrap();
     let prune = fixture.cabaret.workspace_prune().unwrap();
-    expect![[r#"Prune { removed: {}, kept: {"main-two": "workspace main-two has local changes"} }"#]]
+    expect![[r#"Prune { removed: {}, kept: [Kept { workspace: "main-two", reason: "workspace main-two has local changes" }] }"#]]
         .assert_eq(&format!("{prune:?}"));
     expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -269,7 +312,9 @@ fn prune_keeps_main_workspace() {
     let fixture = two_changes();
     fixture.cabaret.archive(&id("one")).unwrap();
     let prune = fixture.cabaret.workspace_prune().unwrap();
-    expect![[r#"Prune { removed: {}, kept: {"main": "the main workspace cannot be removed"} }"#]]
-        .assert_eq(&format!("{prune:?}"));
+    expect![[
+        r#"Prune { removed: {}, kept: [Kept { workspace: "main", reason: "the main workspace cannot be removed" }] }"#
+    ]]
+    .assert_eq(&format!("{prune:?}"));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
 }
