@@ -1,0 +1,1 @@
+when I create a new change in cabaret-vscode it should jump to showing that change
