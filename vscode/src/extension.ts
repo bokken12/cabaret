@@ -338,14 +338,36 @@ function enclosing(route: Route): Route | undefined {
   }
 }
 
-/** The change the active file diff or page is about, else the one checked out in the workspace. */
-async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId> {
-  const editor = activePage();
-  return (
-    activeFileDiff()?.change ??
-    (editor === undefined ? undefined : pageChange(provider, editor)) ??
-    cabaret.currentChange()
-  );
+/**
+ * The change the active file diff or page is about, or a workspace file's checked-out one; where
+ * nothing on screen implies a change, one picked by the user, undefined if they decline.
+ */
+async function activeChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId | undefined> {
+  return (await impliedChange(cabaret, provider)) ?? pickChange(cabaret, "Cabaret: Choose Change");
+}
+
+async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId | undefined> {
+  const fileDiff = activeFileDiff();
+  if (fileDiff !== undefined) {
+    return fileDiff.change;
+  }
+  const editor = vscode.window.activeTextEditor;
+  if (editor === undefined) {
+    return undefined;
+  }
+  if (editor.document.uri.scheme === SCHEME) {
+    return pageChange(provider, editor);
+  }
+  return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined
+    ? undefined
+    : cabaret.currentChange();
+}
+
+async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
+  const change = await activeChange(cabaret, provider);
+  if (change !== undefined) {
+    await provider.open({ kind, change });
+  }
 }
 
 /** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
@@ -511,8 +533,11 @@ async function gotoWorkspace(
   cabaret: Cabaret,
   provider: PageProvider,
 ): Promise<void> {
-  const path = await cabaret.workspacePath(await activeChange(cabaret, provider));
-  await openWorkspace(context, path, activeDestination());
+  const change = await activeChange(cabaret, provider);
+  if (change === undefined) {
+    return;
+  }
+  await openWorkspace(context, await cabaret.workspacePath(change), activeDestination());
 }
 
 /**
@@ -568,7 +593,11 @@ function action(
   run: (cabaret: Cabaret, change: ChangeId) => Promise<string | undefined>,
 ): vscode.Disposable {
   return command(name, async (cabaret) => {
-    const report = await run(cabaret, await activeChange(cabaret, provider));
+    const change = await activeChange(cabaret, provider);
+    if (change === undefined) {
+      return;
+    }
+    const report = await run(cabaret, change);
     if (report === undefined) {
       return;
     }
@@ -682,12 +711,8 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
-    command("cabaret.showChange", async (cabaret) => {
-      await provider.open({ kind: "show", change: await activeChange(cabaret, provider) });
-    }),
-    command("cabaret.diff", async (cabaret) => {
-      await provider.open({ kind: "diff", change: await activeChange(cabaret, provider) });
-    }),
+    command("cabaret.showChange", (cabaret) => openPage(cabaret, provider, "show")),
+    command("cabaret.diff", (cabaret) => openPage(cabaret, provider, "diff")),
     // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
       const fileDiff = activeFileDiff();
