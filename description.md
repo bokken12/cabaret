@@ -1,0 +1,1 @@
+On the home page: in addition to creating foldable regions within the change DAG, also make the full sections (owned, workspaces) be foldable.
