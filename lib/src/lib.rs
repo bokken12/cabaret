@@ -4,7 +4,7 @@ mod home;
 mod node;
 mod page;
 
-pub use cabaret::{Cabaret, Kept, Land, Prune, Rebase};
+pub use cabaret::{Cabaret, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,

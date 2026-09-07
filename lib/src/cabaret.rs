@@ -34,42 +34,12 @@ pub struct Rebase {
     pub remaining: BTreeSet<ChangeId>,
 }
 
-/// Workspaces of archived changes that were removed, and those left standing.
+/// What [`Cabaret::workspace_prune`] did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct Prune {
     pub removed: BTreeSet<WorkspaceId>,
-    pub kept: Vec<Kept>,
-}
-
-/// A workspace of an archived change left standing, with why it could not go.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-pub struct Kept {
-    pub workspace: WorkspaceId,
-    pub reason: String,
-}
-
-impl Prune {
-    fn record(&mut self, workspace: WorkspaceId, removed: Result<()>) {
-        match removed {
-            Ok(()) => {
-                self.removed.insert(workspace);
-            }
-            Err(error) => self.kept.push(Kept { workspace, reason: format!("{error:?}") }),
-        }
-    }
-}
-
-/// What [`Cabaret::land`] did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-pub struct Land {
-    /// The parent the change merged into.
-    pub parent: ChangeId,
-    /// The workspace that held the change, pruned along with archiving it; empty for a permanent
-    /// change, which stays open.
-    pub workspace: Prune,
+    /// Workspaces of archived changes left standing, each with why it could not go.
+    pub kept: BTreeMap<WorkspaceId, String>,
 }
 
 /// Cabaret provides the external-facing interface, with actions at the level a porcelain performs.
@@ -221,19 +191,25 @@ impl Cabaret {
         })?;
         let mut prune = Prune::default();
         for (workspace, change) in archived {
-            prune.record(workspace.clone(), self.prune_workspace(workspace.to_ref(), &change));
+            match self.prune_workspace(workspace.to_ref(), &change) {
+                Ok(()) => {
+                    prune.removed.insert(workspace);
+                }
+                Err(error) => {
+                    prune.kept.insert(workspace, format!("{error:?}"));
+                }
+            }
         }
         Ok(prune)
     }
 
-    /// Remove the workspace holding the archived `change_id`, if one does. Archiving leaves a
-    /// workspace with nothing left to do, but one holding work of its own stays.
-    fn prune_holding(&self, change_id: &ChangeIdRef) -> Result<Prune> {
-        let mut prune = Prune::default();
+    /// Remove the workspace holding the archived `change_id`, if one does. Archiving leaves it
+    /// with nothing left to do; one holding work of its own quietly stays for `workspace_prune`.
+    fn prune_holding(&self, change_id: &ChangeIdRef) -> Result<()> {
         if let Some(workspace) = self.workspace_holding(change_id)? {
-            prune.record(workspace.clone(), self.prune_workspace(workspace.to_ref(), change_id));
+            let _ = self.prune_workspace(workspace.to_ref(), change_id);
         }
-        Ok(prune)
+        Ok(())
     }
 
     /// Remove `workspace`, which held `change` when last seen; it may have been unarchived since.
@@ -420,8 +396,9 @@ impl Cabaret {
     }
 
     /// Merge `change_id` into its one parent and, unless it is permanent, archive it and prune its
-    /// workspace. Conflicts are refused rather than landed: rebase and resolve them first.
-    pub fn land(&self, change_id: &ChangeIdRef) -> Result<Land> {
+    /// workspace, returning the parent. Conflicts are refused rather than landed: rebase and
+    /// resolve them first.
+    pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -448,11 +425,10 @@ impl Cabaret {
                 }
                 Ok(child.archived)
             })?;
-        let workspace = match archived {
-            true => self.prune_holding(change_id)?,
-            false => Prune::default(),
-        };
-        Ok(Land { parent: parent_id, workspace })
+        if archived {
+            self.prune_holding(change_id)?;
+        }
+        Ok(parent_id)
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
@@ -485,7 +461,7 @@ impl Cabaret {
     }
 
     /// Archive `change_id` and prune its workspace.
-    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<Prune> {
+    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
         self.store.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): warn if children unarchived?
             match metadata.archived {
@@ -508,17 +484,17 @@ impl Cabaret {
         })
     }
 
-    /// Archive `change_id`, pruning its workspace, or unarchive it if it already is; `None` when
-    /// it is now open.
-    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<Option<Prune>> {
+    /// Archive `change_id`, pruning its workspace, or unarchive it if it already is, returning
+    /// whether it is now archived.
+    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<bool> {
         let archived = self.store.update_metadata(change_id, |_ctx, metadata| {
             metadata.archived = !metadata.archived;
             Ok(metadata.archived)
         })?;
-        match archived {
-            true => Ok(Some(self.prune_holding(change_id)?)),
-            false => Ok(None),
+        if archived {
+            self.prune_holding(change_id)?;
         }
+        Ok(archived)
     }
 
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {

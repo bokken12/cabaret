@@ -13,7 +13,7 @@ use napi_derive::napi;
 use nonempty_collections::NEBTreeSet;
 
 use crate::{
-    cabaret::{Cabaret, Land, Prune, Rebase},
+    cabaret::{Cabaret, Rebase},
     page::Page,
 };
 
@@ -211,12 +211,12 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId) -> napi::Result<Land> {
+    pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change)).await
     }
 
     #[napi]
-    pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<Option<Prune>> {
+    pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<bool> {
         self.blocking(move |cabaret| cabaret.toggle_archived(&change)).await
     }
 

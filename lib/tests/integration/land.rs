@@ -19,7 +19,7 @@ fn land(fixture: &Fixture, change: &str) -> String { land_from(&fixture.cabaret,
 
 fn land_from(cabaret: &Cabaret, change: &str) -> String {
     match cabaret.land(&id(change)) {
-        Ok(land) => format!("landed into {}, {:?}", land.parent, land.workspace),
+        Ok(parent) => format!("landed into {parent}"),
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -28,7 +28,7 @@ fn land_from(cabaret: &Cabaret, change: &str) -> String {
 fn change_merged_into_parent_and_archived() {
     let fixture = diverged();
     fixture.checkout("main");
-    expect!["landed into main, Prune { removed: {}, kept: [] }"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     expect![[r"
         main
           workspace main
@@ -60,7 +60,7 @@ fn parent_that_has_not_moved_fast_forwards() {
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
-    expect!["landed into main, Prune { removed: {}, kept: [] }"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), fixture.tip("child"));
 }
 
@@ -90,7 +90,7 @@ fn permanent_change_stays_open() {
     let fixture = diverged();
     fixture.checkout("main");
     fixture.cabaret.set_permanent(&id("child"), true).unwrap();
-    expect!["landed into main, Prune { removed: {}, kept: [] }"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
 }
 
@@ -100,7 +100,7 @@ fn permanent_change_keeps_workspace() {
     fixture.checkout("main");
     let child = fixture.add_workspace("child");
     fixture.cabaret.set_permanent(&id("child"), true).unwrap();
-    expect!["landed into main, Prune { removed: {}, kept: [] }"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(child.workdir().unwrap().exists());
 }
 
@@ -109,7 +109,7 @@ fn clean_workspace_is_removed() {
     let fixture = diverged();
     fixture.checkout("main");
     let child = fixture.add_workspace("child");
-    expect![[r#"landed into main, Prune { removed: {"main-child"}, kept: [] }"#]].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!child.workdir().unwrap().exists());
     assert!(!child.git_dir().exists());
     assert!(fixture.snapshot("child").archived);
@@ -121,8 +121,7 @@ fn dirty_workspace_is_kept() {
     fixture.checkout("main");
     let child = fixture.add_workspace("child");
     std::fs::write(child.workdir().unwrap().join("child.txt"), "edited\n").unwrap();
-    expect![[r#"landed into main, Prune { removed: {}, kept: [Kept { workspace: "main-child", reason: "workspace main-child has local changes" }] }"#]]
-        .assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(child.workdir().unwrap().exists());
     assert!(fixture.snapshot("child").archived);
 }
@@ -135,7 +134,6 @@ fn landing_from_own_workspace_removes_it() {
     fixture.checkout("main");
     let child = fixture.add_workspace("child");
     let cabaret = Cabaret::open(child.workdir().unwrap()).unwrap();
-    expect![[r#"landed into main, Prune { removed: {"main-child"}, kept: [] }"#]]
-        .assert_eq(&land_from(&cabaret, "child"));
+    expect!["landed into main"].assert_eq(&land_from(&cabaret, "child"));
     assert!(!child.workdir().unwrap().exists());
 }
