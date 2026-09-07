@@ -696,50 +696,11 @@ async function gotoWorkspace(
 }
 
 /**
- * Check out a change held nowhere and show `destination`: here, or where this workspace is another
- * change's own, in a new workspace opened in a new window.
- */
-async function checkOut(
-  context: vscode.ExtensionContext,
-  cabaret: Cabaret,
-  provider: PageProvider,
-  change: ChangeId,
-  dedicated: boolean,
-  destination: Destination,
-): Promise<void> {
-  if (dedicated) {
-    await openWorkspace(context, await cabaret.workspaceAdd(change), destination);
-  } else {
-    await cabaret.workspaceSwitch(change);
-    await provider.show(destination);
-  }
-}
-
-/** A change just made wants working on, so check it out and show it. */
-async function gotoNew(
-  context: vscode.ExtensionContext,
-  cabaret: Cabaret,
-  provider: PageProvider,
-  change: ChangeId,
-): Promise<void> {
-  const placement = await cabaret.placement(change);
-  if (placement.kind !== "Nowhere") {
-    throw new Error(`new change ${change} is already checked out`);
-  }
-  await checkOut(context, cabaret, provider, change, placement.dedicated, { kind: "show", change });
-}
-
-/**
  * Enter on a file diff: the file itself at the cursor's line, in the change's workspace. Without
  * one, offer to check the change out here, or where this workspace is another change's own, to
  * make it a workspace and open that in a new window.
  */
-async function enterFile(
-  context: vscode.ExtensionContext,
-  cabaret: Cabaret,
-  provider: PageProvider,
-  fileDiff: FileDiff,
-): Promise<void> {
+async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fileDiff: FileDiff): Promise<void> {
   const { change } = fileDiff;
   const location = cursorLocation(fileDiff);
   const placement = await cabaret.placement(change);
@@ -759,7 +720,12 @@ async function enterFile(
       if ((await vscode.window.showInformationMessage(message, { modal: true, detail }, offer)) === undefined) {
         return;
       }
-      await checkOut(context, cabaret, provider, change, placement.dedicated, location);
+      if (placement.dedicated) {
+        await openWorkspace(context, await cabaret.workspaceAdd(change), location);
+      } else {
+        await cabaret.workspaceSwitch(change);
+        await openFile(location);
+      }
     }
   }
 }
@@ -772,14 +738,18 @@ async function refresh(provider: PageProvider): Promise<void> {
   }
 }
 
+/** What an action did, and the page its result is on when not the active one. */
+type Outcome = string | { report: string; show: Route };
+
 /**
  * `!` then a key: `run` acts on the change the active page is about, found by `subject`, and says
- * what it did, or nothing when the user backed out; the page is then re-rendered to show the result.
+ * what it did, or nothing when the user backed out; the page is then re-rendered to show the
+ * result, or the page `run` names is opened instead.
  */
 function action(
   name: string,
   provider: PageProvider,
-  run: (cabaret: Cabaret, change: ChangeId) => Promise<string | undefined>,
+  run: (cabaret: Cabaret, change: ChangeId) => Promise<Outcome | undefined>,
   subject: (cabaret: Cabaret, provider: PageProvider) => Promise<ChangeId | undefined> = activeChange,
 ): vscode.Disposable {
   return command(name, async (cabaret) => {
@@ -787,12 +757,13 @@ function action(
     if (change === undefined) {
       return;
     }
-    const report = await run(cabaret, change);
-    if (report === undefined) {
+    const outcome = await run(cabaret, change);
+    if (outcome === undefined) {
       return;
     }
+    const { report, show } = typeof outcome === "string" ? { report: outcome, show: undefined } : outcome;
     vscode.window.showInformationMessage(`Cabaret: ${report}`);
-    await refresh(provider);
+    await (show === undefined ? refresh(provider) : provider.open(show));
   });
 }
 
@@ -816,34 +787,22 @@ function askChangeName(title: string): Thenable<ChangeId | undefined> {
   return vscode.window.showInputBox({ title, prompt: "Name of the new change", ignoreFocusOut: true });
 }
 
-async function createChild(
-  context: vscode.ExtensionContext,
-  cabaret: Cabaret,
-  provider: PageProvider,
-  parent: ChangeId,
-): Promise<string | undefined> {
+async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome | undefined> {
   const child = await askChangeName(`Cabaret: Create Child of ${parent}`);
   if (child === undefined) {
     return undefined;
   }
   await cabaret.create(child, parent);
-  await gotoNew(context, cabaret, provider, child);
-  return `created ${child} with parent ${parent}`;
+  return { report: `created ${child} with parent ${parent}`, show: { kind: "show", change: child } };
 }
 
-async function createParent(
-  context: vscode.ExtensionContext,
-  cabaret: Cabaret,
-  provider: PageProvider,
-  child: ChangeId,
-): Promise<string | undefined> {
+async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome | undefined> {
   const parent = await askChangeName(`Cabaret: Create Parent of ${child}`);
   if (parent === undefined) {
     return undefined;
   }
   await cabaret.createParent(parent, child);
-  await gotoNew(context, cabaret, provider, parent);
-  return `created ${parent} as parent of ${child}`;
+  return { report: `created ${parent} as parent of ${child}`, show: { kind: "show", change: parent } };
 }
 
 async function addOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
@@ -970,7 +929,7 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.stepIn", async (cabaret) => {
       const fileDiff = activeFileDiff();
       if (fileDiff !== undefined) {
-        await enterFile(context, cabaret, provider, fileDiff);
+        await enterFile(context, cabaret, fileDiff);
         return;
       }
       const editor = activePage();
@@ -995,13 +954,8 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.refresh", () => refresh(provider)),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
-    action(
-      "cabaret.createChild",
-      provider,
-      (cabaret, parent) => createChild(context, cabaret, provider, parent),
-      parentForNewChange,
-    ),
-    action("cabaret.createParent", provider, (cabaret, child) => createParent(context, cabaret, provider, child)),
+    action("cabaret.createChild", provider, createChild, parentForNewChange),
+    action("cabaret.createParent", provider, createParent),
     action("cabaret.addOwner", provider, addOwner),
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
