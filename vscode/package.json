@@ -224,8 +224,8 @@
         "cabaret.sessionArgs": {
           "type": "array",
           "items": { "type": "string" },
-          "default": [],
-          "markdownDescription": "Extra arguments for `claude --print` when starting a session on a change, ahead of the prompt. A headless session cannot answer permission prompts, so for one that edits files add e.g. `--permission-mode acceptEdits`."
+          "default": ["--permission-mode", "auto"],
+          "markdownDescription": "Arguments for `claude --print` when starting a session on a change, ahead of the prompt. A headless session cannot answer permission prompts, so the default lets Claude Code's auto mode decide."
         },
         "leaderkey.overrides._cabaret": {
           "type": "object",
