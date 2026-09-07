@@ -224,8 +224,8 @@
         "cabaret.sessionArgs": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["--permission-mode", "auto"],
-          "markdownDescription": "Arguments for `claude --print` when starting a session on a change, ahead of the prompt. A headless session cannot answer permission prompts, so the default lets Claude Code's auto mode decide."
+          "default": ["--permission-mode", "auto", "--permission-prompts", "none"],
+          "markdownDescription": "Arguments for `claude --print` when starting a session on a change, ahead of the prompt. Nobody is there to answer a permission prompt, so the default lets Claude Code's auto mode decide and tells it not to ask at all (`--permission-prompts` needs Claude Code 2.1.259 or later)."
         },
         "leaderkey.overrides._cabaret": {
           "type": "object",

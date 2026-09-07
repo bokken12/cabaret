@@ -765,7 +765,7 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   }
   const args = vscode.workspace
     .getConfiguration("cabaret")
-    .get<string[]>("sessionArgs", ["--permission-mode", "auto"]);
+    .get<string[]>("sessionArgs", ["--permission-mode", "auto", "--permission-prompts", "none"]);
   await cabaret.startSession(change, prompt, args);
   return `started a session on ${change}`;
 }
