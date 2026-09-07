@@ -456,12 +456,16 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await editTitle(cabaret, provider, target.change);
       break;
     case "Description":
-      await vscode.window.showTextDocument(descriptionUri(target.change));
+      await editDescription(target.change);
       break;
     case "Session":
       await openSession(cabaret, target.change, target.session);
       break;
   }
+}
+
+async function editDescription(change: ChangeId): Promise<void> {
+  await vscode.window.showTextDocument(descriptionUri(change));
 }
 
 /** Titles are one line, so they are edited in an input box rather than a buffer like descriptions. */
@@ -581,11 +585,32 @@ async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<
   return vscode.workspace.getWorkspaceFolder(editor.document.uri) === undefined ? undefined : cabaret.currentChange();
 }
 
+<<<<<<< live-diff
 async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | View): Promise<void> {
   const change = await activeChange(cabaret, provider);
   if (change !== undefined) {
     await provider.open({ kind, change });
   }
+||||||| base
+async function openPage(cabaret: Cabaret, provider: PageProvider, kind: "show" | "diff"): Promise<void> {
+  const change = await activeChange(cabaret, provider);
+  if (change !== undefined) {
+    await provider.open({ kind, change });
+  }
+=======
+/** `run` on the change the active page is about, or one the user picks; nothing if they decline. */
+function onChange(
+  name: string,
+  provider: PageProvider,
+  run: (cabaret: Cabaret, change: ChangeId) => Promise<void>,
+): vscode.Disposable {
+  return command(name, async (cabaret) => {
+    const change = await activeChange(cabaret, provider);
+    if (change !== undefined) {
+      await run(cabaret, change);
+    }
+  });
+>>>>>>> main
 }
 
 /** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
@@ -944,6 +969,28 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `started a session on ${change}`;
 }
 
+/**
+ * Land, then offer to remove the workspace that held the change, since an archived change has
+ * nothing left to do there. A permanent change stays open, so its workspace is not offered.
+ */
+async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
+  const landed = `landed ${change} into ${await cabaret.land(change)}`;
+  const { archived, workspace } = await cabaret.change(change);
+  if (!archived || workspace === undefined) {
+    return landed;
+  }
+  const remove = await vscode.window.showInformationMessage(
+    `Cabaret: ${landed}`,
+    { modal: true, detail: `Remove the workspace ${workspace} that held it?` },
+    "Remove Workspace",
+  );
+  if (remove === undefined) {
+    return landed;
+  }
+  await cabaret.workspaceRemove(change);
+  return `${landed}; removed workspace ${workspace}`;
+}
+
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
@@ -1022,8 +1069,10 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.home", async () => {
       await provider.open({ kind: "home" });
     }),
-    command("cabaret.showChange", (cabaret) => openPage(cabaret, provider, "show")),
-    command("cabaret.diff", (cabaret) => openPage(cabaret, provider, "diff")),
+    onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
+    onChange("cabaret.diff", provider, (_, change) => provider.open({ kind: "diff", change })),
+    onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
+    onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),
     command("cabaret.workspaceDiff", (cabaret) => openPage(cabaret, provider, "workspace")),
     // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
@@ -1060,7 +1109,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    action("cabaret.land", provider, async (cabaret, change) => `landed ${change} into ${await cabaret.land(change)}`),
+    action("cabaret.land", provider, land),
     action("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
