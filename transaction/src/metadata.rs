@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, RevisionRange,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId,
     log::{self, LogAction, LogEntry},
 };
 use gix::{
@@ -29,7 +29,7 @@ pub struct Metadata<'ctx> {
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     pub declared_parents: BTreeSet<ChangeId>,
-    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
+    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
 }
 
 impl<'ctx> Metadata<'ctx> {
@@ -123,8 +123,8 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::Forget { reviewer, file } => {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
-            LogAction::Mark { reviewer, file, range } => {
-                self.review.entry(reviewer.clone()).or_default().insert(file.clone(), range.clone());
+            LogAction::Mark { reviewer, file, revision } => {
+                self.review.entry(reviewer.clone()).or_default().insert(file.clone(), revision.clone());
             }
             LogAction::RemoveOwner { owner } => {
                 self.owners.remove(owner);
@@ -174,8 +174,12 @@ impl<'ctx> Metadata<'ctx> {
         }
         for (reviewer, files) in &self.review {
             let previous = |file: &RepoPath| before.review.get(reviewer).and_then(|files| files.get(file));
-            for (file, range) in files.iter().filter(|(file, range)| previous(file) != Some(range)) {
-                actions.push(LogAction::Mark { reviewer: reviewer.clone(), file: file.clone(), range: range.clone() });
+            for (file, revision) in files.iter().filter(|(file, revision)| previous(file) != Some(revision)) {
+                actions.push(LogAction::Mark {
+                    reviewer: reviewer.clone(),
+                    file: file.clone(),
+                    revision: revision.clone(),
+                });
             }
         }
         actions

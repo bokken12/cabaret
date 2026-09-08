@@ -6,7 +6,9 @@ For each change x user, review state can be represented as a map of
 
 > file name -> (tip revision, timestamp)
 
-representing the latest diff they have reviewed for each file in the change.
+representing the latest version they have reviewed for each file in the change.
+
+TODO(joel): Iron records both base and tip. I believe this is largely unnecessary / perhaps a mistake, but could be valuable in non-append-only scenarios. Consider this later.
 
 ## Visualization
 
@@ -25,7 +27,7 @@ How do different actions affect this?
 
 ### Review
 
-When a user marks a file as reviewed, its state is set to the current base/tip, after which no diff remains.
+When a user marks a file as reviewed, its state is set to the current tip, after which no diff remains.
 
 ### Commit
 
@@ -33,7 +35,7 @@ When a new commit is added to a change, the change's tip moves, creating a diff 
 
 ### Rebase
 
-When a change is rebased, its base and tip both move, but its ddiff does not change outside of conflicts.
+When a change is rebased, its tip moves along with one of its bases. Unless there were conflicts, reviewers who were up to date with the old tip should remain up to date, since the new tip will be the merge of the old tip and the new base.
 
 ### Land
 

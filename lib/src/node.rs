@@ -214,13 +214,6 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.remove_parent(&change, &parent)).await
     }
 
-    /// Record that git's user.email has reviewed `files` of `change` from its bases up to `head`,
-    /// defaulting to its tip.
-    #[napi]
-    pub async fn mark(&self, change: ChangeId, files: Vec<RepoPath>, head: Option<RevisionId>) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.mark(&change, &files, head, None)).await
-    }
-
     #[napi]
     pub async fn set_title(&self, change: ChangeId, title: Option<String>) -> napi::Result<()> {
         self.blocking(move |cabaret| cabaret.set_title(&change, title)).await

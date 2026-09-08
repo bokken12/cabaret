@@ -302,16 +302,13 @@ class PageProvider
   }
 }
 
-/**
- * One file of a change's `view`, as a two-sided diff shows it. The `tip` is the change's when the
- * diff was opened, so an action on the diff acts on what it shows even once the change moves on.
- */
-type FileDiff = { view: View; change: ChangeId; path: RepoPath; tip: Revision };
+/** One file of a change's `view`, as a two-sided diff shows it. */
+type FileDiff = { view: View; change: ChangeId; path: RepoPath };
 
 /**
- * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>&tip=<rev>[&revision=<rev>]`: the
- * text at `blobPath` in that revision, or empty with no revision, as one side of the file diff the
- * query names. The blob's own path differs from the diff's for the before side of a rename.
+ * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>[&revision=<rev>]`: the text at
+ * `blobPath` in that revision, or empty with no revision, as one side of the file diff the query
+ * names. The blob's own path differs from the diff's for the before side of a rename.
  */
 function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoPath): vscode.Uri {
   const query = new URLSearchParams(diff);
@@ -324,11 +321,11 @@ function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoP
 /** The file diff a blob is a side of. */
 function blobFileDiff(uri: vscode.Uri): FileDiff {
   const query = new URLSearchParams(uri.query);
-  const [view, change, path, tip] = [query.get("view"), query.get("change"), query.get("path"), query.get("tip")];
-  if ((view !== "diff" && view !== "workspace") || change === null || path === null || tip === null) {
+  const [view, change, path] = [query.get("view"), query.get("change"), query.get("path")];
+  if ((view !== "diff" && view !== "workspace") || change === null || path === null) {
     throw new Error(`${uri.toString()} names no file diff`);
   }
-  return { view, change, path, tip };
+  return { view, change, path };
 }
 
 class BlobProvider implements vscode.TextDocumentContentProvider {
@@ -414,8 +411,9 @@ async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedF
  * side is the file on disk itself, so it stays live and can be edited in place.
  */
 async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<[vscode.Uri, vscode.Uri]> {
-  const { change, tip } = diff;
+  const { change } = diff;
   const from = "from" in file ? file.from : file.path;
+  const { tip } = await cabaret.change(change);
   switch (diff.view) {
     case "diff":
       return [
@@ -433,7 +431,7 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
 }
 
 async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
-  const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
+  const diff: FileDiff = { view, change, path: file.path };
   const [before, after] = await sides(cabaret, diff, file);
   const title = view === "diff" ? `${file.path} (${change})` : `${file.path} (${change}, uncommitted)`;
   // Pinned: a preview would take over the tab about to be closed.
@@ -806,18 +804,6 @@ async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fil
   }
 }
 
-/**
- * `! m` on a file diff: record the file as reviewed up to the tip the diff shows. A workspace diff
- * shows nothing committed to review.
- */
-async function mark(cabaret: Cabaret, { view, change, path, tip }: FileDiff): Promise<void> {
-  if (view === "workspace") {
-    throw new Error(`${path} is uncommitted in ${change}; commit it to review it`);
-  }
-  await cabaret.mark(change, [path], tip);
-  vscode.window.showInformationMessage(`Cabaret: marked ${path} of ${change} reviewed up to ${tip.slice(0, 8)}`);
-}
-
 /** Re-render the active page from the repository. */
 async function refresh(provider: PageProvider): Promise<void> {
   const editor = activePage();
@@ -1101,12 +1087,6 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.refresh", () => refresh(provider)),
-    command("cabaret.mark", async (cabaret) => {
-      const fileDiff = activeFileDiff();
-      if (fileDiff !== undefined) {
-        await mark(cabaret, fileDiff);
-      }
-    }),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.createChild", provider, createChild, parentForNewChange),

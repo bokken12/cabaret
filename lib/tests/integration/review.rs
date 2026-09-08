@@ -13,9 +13,8 @@ fn path(file: &str) -> RepoPath { file.parse().unwrap() }
 fn review(fixture: &Fixture, change: &str) -> String {
     let mut out = String::new();
     for (user, files) in fixture.snapshot(change).review {
-        for (file, range) in files {
-            let bases: Vec<String> = range.bases.into_iter().map(short).collect();
-            writeln!(out, "{user} {file} {}..{}", bases.join(","), short(range.head)).unwrap();
+        for (file, revision) in files {
+            writeln!(out, "{user} {file} {}", short(revision)).unwrap();
         }
     }
     out

@@ -1,11 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    change_id::ChangeId,
-    identity::Identity,
-    repo_path::RepoPath,
-    revision::{RevisionId, RevisionRange},
-    workspace_id::WorkspaceId,
+    change_id::ChangeId, identity::Identity, repo_path::RepoPath, revision::RevisionId, workspace_id::WorkspaceId,
 };
 
 /// A change's state as of some instant, detached from any transaction. A change is a
@@ -26,7 +22,7 @@ pub struct ChangeSnapshot {
     pub parents: BTreeSet<ChangeId>,
     /// What its log declares, which is what parent edits act on.
     pub declared_parents: BTreeSet<ChangeId>,
-    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionRange>>,
+    pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
     /// Where the change is checked out; see `Branch::workspace`.
     pub workspace: Option<WorkspaceId>,
 }

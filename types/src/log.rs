@@ -11,8 +11,8 @@ use gix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, revision::RevisionRange,
-    timestamp::TimestampMs, tree_id::TreeId,
+    RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, timestamp::TimestampMs,
+    tree_id::TreeId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,7 +21,7 @@ pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
     Forget { reviewer: Identity, file: RepoPath },
-    Mark { reviewer: Identity, file: RepoPath, range: RevisionRange },
+    Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },

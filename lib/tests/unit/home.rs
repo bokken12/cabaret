@@ -27,7 +27,7 @@ fn titled(graph: &mut HomeGraph, id: &str, title: &str) {
     graph.nodes.get_mut(&id.parse::<ChangeId>().unwrap()).unwrap().title = Some(title.into());
 }
 
-/// Every row leads to the change it labels.
+/// Every row leads to the change it labels, and folds are well-formed.
 fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
     let page = Page::graph(&graph(nodes)).unwrap();
     expect.assert_eq(&page.to_string());
@@ -36,11 +36,57 @@ fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
         let text: String = line.segments.iter().map(|segment| segment.text.as_str()).collect();
         assert!(text.contains(&change.to_string()), "{text:?} does not label {change}");
     }
+    let mut open: Vec<u32> = Vec::new();
+    for fold in &page.folds {
+        assert!(fold.start < fold.end, "a fold hides at least one line");
+        assert!(usize::try_from(fold.end).unwrap() < page.lines.len(), "folds stay within the page");
+        while open.last().is_some_and(|&end| end < fold.start) {
+            open.pop();
+        }
+        if let Some(&end) = open.last() {
+            assert!(fold.end <= end, "folds nest or stay disjoint");
+        }
+        open.push(fold.end);
+    }
 }
 
-/// The graph with its folds bracketed in the margin.
+/// The page with each fold bracketed in the margin: `╭` on the row that folds, `│` along the
+/// lines it hides, `╰` on the last, nested folds one column right of their enclosing one.
 fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
-    expect.assert_eq(&super::page::folded(&Page::graph(&graph(nodes)).unwrap()));
+    let page = Page::graph(&graph(nodes)).unwrap();
+    let text = page.to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut margin = vec![Vec::<char>::new(); lines.len()];
+    let mut active: Vec<u32> = Vec::new();
+    for fold in &page.folds {
+        while active.last().is_some_and(|&end| end < fold.start) {
+            active.pop();
+        }
+        let col = active.len();
+        active.push(fold.end);
+        let (start, end) = (usize::try_from(fold.start).unwrap(), usize::try_from(fold.end).unwrap());
+        for (r, row) in margin.iter_mut().enumerate().take(end + 1).skip(start) {
+            if row.len() <= col {
+                row.resize(col + 1, ' ');
+            }
+            row[col] = match r {
+                _ if r == start => '╭',
+                _ if r == end => '╰',
+                _ => '│',
+            };
+        }
+    }
+    // A foldless page keeps no margin: a uniform one would not survive expect's dedent anyway.
+    let width = margin.iter().map(Vec::len).max().unwrap_or(0);
+    let bracketed: String = lines
+        .iter()
+        .zip(&margin)
+        .map(|(line, cells)| {
+            let cells: String = cells.iter().collect();
+            if width == 0 { format!("{line}\n") } else { format!("{cells:<width$}  {line}\n") }
+        })
+        .collect();
+    expect.assert_eq(&bracketed);
 }
 
 #[test]
@@ -164,9 +210,9 @@ fn titles_sit_in_a_column_after_the_ids() {
     "]]
     .assert_eq(&page.to_string());
     expect![[r"
-        ╭   ◌   [Muted|infra-core]    [Muted|Core infrastructure] => change:infra-core
-        │╭  ╰─○   [ChangeId|api-routes] => change:api-routes
-        ╰╰    ╰─○   [ChangeId|ui]        Add the UI => change:ui
+        ◌   [Muted|infra-core]    [Muted|Core infrastructure] => change:infra-core
+        ╰─○   [ChangeId|api-routes] => change:api-routes
+          ╰─○   [ChangeId|ui]        Add the UI => change:ui
     "]]
     .assert_eq(&super::page::markup(&page));
 }
@@ -198,13 +244,14 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
     };
     let page = Page::home(&home).unwrap();
     expect![[r"
-        ╭  Owned
-        ╰  ○   feat
+        Owned
+        ○   feat
 
-        ╭  Workspaces
-        ╰  no changes checked out in a workspace
+        Workspaces
+        no changes checked out in a workspace
     "]]
-    .assert_eq(&super::page::folded(&page));
+    .assert_eq(&page.to_string());
+    expect!["[Fold { start: 0, end: 1 }, Fold { start: 3, end: 4 }]"].assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]
@@ -213,15 +260,19 @@ fn home_headings_fold_their_sections_around_the_graph_folds() {
     let home = Home { viewer: Identity("alice@example.com".into()), owned: stack(), workspaces: stack() };
     let page = Page::home(&home).unwrap();
     expect![[r"
-        ╭   Owned
-        │╭  ○   base
-        ╰╰  ╰─○   top
+        Owned
+        ○   base
+        ╰─○   top
 
-        ╭   Workspaces
-        │╭  ○   base
-        ╰╰  ╰─○   top
+        Workspaces
+        ○   base
+        ╰─○   top
     "]]
-    .assert_eq(&super::page::folded(&page));
+    .assert_eq(&page.to_string());
+    expect![
+        "[Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }]"
+    ]
+    .assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]

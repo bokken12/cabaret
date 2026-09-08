@@ -7,11 +7,11 @@ use std::{
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
-    RevisionRange, TimestampMs, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
+    WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
-use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode},
@@ -541,12 +541,12 @@ impl Cabaret {
                 Some(bases) => bases,
                 None => branch.bases(&metadata.parents()?)?,
             };
-            let range = RevisionRange { bases, head: head.unwrap_or(branch.tip) };
+            let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            if files.iter().all(|file| review.get(file) == Some(&range)) {
+            if files.iter().all(|file| review.get(file) == Some(&revision)) {
                 Err(format!("{change_id} already had these files marked reviewed there"))?;
             }
-            review.extend(files.iter().map(|file| (file.clone(), range.clone())));
+            review.extend(files.iter().map(|file| (file.clone(), revision.clone())));
             Ok(())
         })
     }

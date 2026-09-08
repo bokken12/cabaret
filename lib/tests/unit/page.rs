@@ -4,8 +4,8 @@ use std::{
 };
 
 use cabaret_lib::{
-    ChangeId, ChangeSnapshot, ChangedFile, Identity, Line, Page, RevisionId, Segment, Session, SessionId, Status,
-    Target, TimestampMs,
+    ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, RevisionId, Segment, Session, SessionId, Status, Target,
+    TimestampMs,
 };
 use expect_test::expect;
 
@@ -38,55 +38,10 @@ fn describe(target: &Target) -> String {
     }
 }
 
-/// `page` a line at a time through `text`, each fold bracketed in the margin: `╭` on the line
-/// that folds, `│` along the lines it hides, `╰` on the last, nested folds one column right of
-/// their enclosing one. A foldless page keeps no margin.
-fn bracketed(page: &Page, text: impl Fn(&Line) -> String) -> String {
-    let mut margin = vec![Vec::<char>::new(); page.lines.len()];
-    let mut open: Vec<u32> = Vec::new();
-    for (i, fold) in page.folds.iter().enumerate() {
-        assert!(fold.start < fold.end, "a fold hides at least one line");
-        assert!(usize::try_from(fold.end).unwrap() < page.lines.len(), "folds stay within the page");
-        assert!(i == 0 || page.folds[i - 1].start < fold.start, "one fold per line, in order");
-        while open.last().is_some_and(|&end| end < fold.start) {
-            open.pop();
-        }
-        if let Some(&end) = open.last() {
-            assert!(fold.end <= end, "folds nest or stay disjoint");
-        }
-        let col = open.len();
-        open.push(fold.end);
-        let (start, end) = (usize::try_from(fold.start).unwrap(), usize::try_from(fold.end).unwrap());
-        for (r, cells) in margin.iter_mut().enumerate().take(end + 1).skip(start) {
-            cells.resize(cells.len().max(col + 1), ' ');
-            cells[col] = match r {
-                _ if r == start => '╭',
-                _ if r == end => '╰',
-                _ => '│',
-            };
-        }
-    }
-    let width = margin.iter().map(Vec::len).max().unwrap_or(0);
-    let mut out = String::new();
-    for (line, cells) in page.lines.iter().zip(&margin) {
-        let cells: String = cells.iter().collect();
-        let row = if width == 0 { text(line) } else { format!("{cells:<width$}  {}", text(line)) };
-        out.push_str(row.trim_end());
-        out.push('\n');
-    }
-    out
-}
-
-/// The page as plain text with its folds bracketed.
-pub fn folded(page: &Page) -> String {
-    bracketed(page, |line| line.segments.iter().map(|segment| segment.text.as_str()).collect())
-}
-
-/// Each segment as `text`, `[Tag|text]`, or `[Tag>target|text]`; a line's own target follows `=>`;
-/// folds are bracketed as by [`folded`].
+/// Each segment as `text`, `[Tag|text]`, or `[Tag>target|text]`; a line's own target follows `=>`.
 pub fn markup(page: &Page) -> String {
-    bracketed(page, |line| {
-        let mut out = String::new();
+    let mut out = String::new();
+    for line in &page.lines {
         for Segment { text, tag, target } in &line.segments {
             match (tag, target) {
                 (None, None) => out.push_str(text),
@@ -105,8 +60,9 @@ pub fn markup(page: &Page) -> String {
         if let Some(target) = &line.target {
             out.push_str(&format!(" => {}", describe(target)));
         }
-        out
-    })
+        out.push('\n');
+    }
+    out
 }
 
 #[test]
@@ -252,13 +208,14 @@ fn sessions_page_lists_each_session_with_its_age_and_leads_to_it() {
     );
     expect![[r"
 
-        ╭  [Label|Sessions:]
-        │    Fix the parser[Muted| · just now, busy] => session:parser:a1
-        │    Add tests[Muted| · 42m ago, idle] => session:parser:b2
-        │    c3[Muted| · 3h ago, running] => session:parser:c3
-        ╰    Old[Muted| · 9d ago] => session:parser:d4
+        [Label|Sessions:]
+          Fix the parser[Muted| · just now, busy] => session:parser:a1
+          Add tests[Muted| · 42m ago, idle] => session:parser:b2
+          c3[Muted| · 3h ago, running] => session:parser:c3
+          Old[Muted| · 9d ago] => session:parser:d4
     "]]
     .assert_eq(&markup(&page));
+    expect![["[Fold { start: 1, end: 5 }]"]].assert_eq(&format!("{:?}", page.folds));
     expect![[r"
 
         [Label|Sessions:] [Muted|(none)]

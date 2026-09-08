@@ -55,10 +55,6 @@
         "title": "Cabaret: Refresh"
       },
       {
-        "command": "cabaret.mark",
-        "title": "Cabaret: Mark Reviewed"
-      },
-      {
         "command": "cabaret.startSession",
         "title": "Cabaret: Start Session"
       },
@@ -165,11 +161,6 @@
         "command": "cabaret.refresh",
         "key": "shift+r",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'workspace') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
-      },
-      {
-        "command": "cabaret.mark",
-        "key": "shift+1 m",
-        "when": "editorTextFocus && cabaret.page == 'file' && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
         "command": "workbench.action.closeActiveEditor",
