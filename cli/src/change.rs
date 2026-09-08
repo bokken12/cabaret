@@ -119,6 +119,8 @@ pub enum ChangeCommand {
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
     },
+    /// Show the files you have left to review: each as the tip differs from the merge of the
+    /// change's bases with the tip you last marked it reviewed at.
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
         #[arg(long, add = change_completer())]
@@ -223,7 +225,9 @@ impl ChangeCommand {
                 }
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
-            ChangeCommand::Review { .. } => todo!(),
+            ChangeCommand::Review { change, pathspecs } => {
+                print!("{}", cabaret.review_page(&or_current(change)?, &pathspecs)?);
+            }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
         }
 

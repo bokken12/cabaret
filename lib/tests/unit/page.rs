@@ -32,6 +32,7 @@ fn describe(target: &Target) -> String {
         Target::Change { change } => format!("change:{change}"),
         Target::Diff { change, file } => format!("diff:{change}:{}", file.paths().last().unwrap()),
         Target::WorkspaceDiff { change, file } => format!("workspace:{change}:{}", file.paths().last().unwrap()),
+        Target::ReviewDiff { change, file } => format!("review:{change}:{}", file.paths().last().unwrap()),
         Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
         Target::Session { change, session } => format!("session:{change}:{session}"),
@@ -163,6 +164,27 @@ fn an_empty_diff_page_says_so() {
     let page = Page::diff(&"empty".parse::<ChangeId>().unwrap(), &[]);
     expect![[r"
         [Muted|no changed files]
+    "]]
+    .assert_eq(&markup(&page));
+}
+
+#[test]
+fn a_review_page_targets_each_unreviewed_file() {
+    let path = |path: &str| path.parse().unwrap();
+    let files = [ChangedFile::Modified { path: path("src/lib.rs") }, ChangedFile::Added { path: path("src/new.rs") }];
+    let page = Page::review(&"change".parse::<ChangeId>().unwrap(), &files);
+    expect![[r"
+        [Modified|src/lib.rs] => review:change:src/lib.rs
+        [Added|src/new.rs] => review:change:src/new.rs
+    "]]
+    .assert_eq(&markup(&page));
+}
+
+#[test]
+fn an_empty_review_page_says_so() {
+    let page = Page::review(&"reviewed".parse::<ChangeId>().unwrap(), &[]);
+    expect![[r"
+        [Muted|no unreviewed files]
     "]]
     .assert_eq(&markup(&page));
 }

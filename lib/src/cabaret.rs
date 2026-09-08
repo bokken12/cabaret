@@ -301,6 +301,30 @@ impl Cabaret {
         Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
     }
 
+    /// The revision this repository's identity reviews `path` of `change_id` against; see
+    /// `Branch::review_base`.
+    pub fn review_base(&self, change_id: &ChangeIdRef, path: &RepoPath) -> Result<Option<RevisionId>> {
+        self.store.query(|ctx| {
+            let metadata = ctx.metadata(change_id)?;
+            let reviewed = metadata.review.get(&ctx.identity()?).and_then(|files| files.get(path)).copied();
+            ctx.branch(change_id)?.review_base(&metadata.parents()?, reviewed)
+        })
+    }
+
+    /// The files of `change_id` this repository's identity has left to review, restricted to
+    /// `pathspecs` (all when empty); see `Branch::review_files`.
+    pub fn review_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        self.store.query(|ctx| {
+            let metadata = ctx.metadata(change_id)?;
+            let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
+            ctx.branch(change_id)?.review_files(&metadata.parents()?, &review, pathspecs)
+        })
+    }
+
+    pub fn review_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
+        Ok(Page::review(change_id, &self.review_files(change_id, pathspecs)?))
+    }
+
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
     /// restricted to `pathspecs` (all when empty): what [`Self::commit`] would record.
     pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {

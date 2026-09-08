@@ -104,6 +104,23 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
     }
 
+    /// The revision git's user.email reviews `path` of `change` against.
+    #[napi]
+    pub async fn review_base(&self, change: ChangeId, path: RepoPath) -> napi::Result<Option<RevisionId>> {
+        self.blocking(move |cabaret| cabaret.review_base(&change, &path)).await
+    }
+
+    /// The files of `change` git's user.email has left to review.
+    #[napi]
+    pub async fn review_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
+        self.blocking(move |cabaret| cabaret.review_files(&change, &[])).await
+    }
+
+    #[napi]
+    pub async fn review_page(&self, change: ChangeId) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.review_page(&change, &[])).await
+    }
+
     /// The files the workspace holding `change` has on disk beyond its tip.
     #[napi]
     pub async fn workspace_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {

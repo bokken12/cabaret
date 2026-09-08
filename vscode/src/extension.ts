@@ -36,10 +36,14 @@ function openCabaret(): Cabaret {
 }
 
 /**
- * The two diffs of a change: `diff` from its base to its tip, `workspace` from its tip to what the
- * workspace holding it has on disk.
+ * The three diffs of a change: `diff` from its base to its tip, `review` from the merge of its
+ * bases with what the reviewer last marked reviewed to its tip, and `workspace` from its tip to
+ * what the workspace holding it has on disk.
  */
-type View = "diff" | "workspace";
+type View = "diff" | "review" | "workspace";
+
+/** The views whose sides are both committed, so the reviewer only reads. */
+type CommittedView = Exclude<View, "workspace">;
 
 type Route = { kind: "home" } | { kind: "show" | View; change: ChangeId };
 
@@ -52,8 +56,8 @@ function parseRoute(uri: vscode.Uri): Route {
   if (uri.path === "/home") {
     return { kind: "home" };
   }
-  const [, kind, change] = /^\/(show|diff|workspace)\/(.+)$/.exec(uri.path) ?? [];
-  if ((kind !== "show" && kind !== "diff" && kind !== "workspace") || change === undefined) {
+  const [, kind, change] = /^\/(show|diff|review|workspace)\/(.+)$/.exec(uri.path) ?? [];
+  if ((kind !== "show" && kind !== "diff" && kind !== "review" && kind !== "workspace") || change === undefined) {
     throw new Error(`unknown page ${uri.toString()}`);
   }
   return { kind, change };
@@ -79,6 +83,8 @@ function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
       return cabaret.showPage(route.change);
     case "diff":
       return cabaret.diffPage(route.change);
+    case "review":
+      return cabaret.reviewPage(route.change);
     case "workspace":
       return cabaret.workspacePage(route.change);
   }
@@ -322,7 +328,7 @@ function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoP
 function blobFileDiff(uri: vscode.Uri): FileDiff {
   const query = new URLSearchParams(uri.query);
   const [view, change, path] = [query.get("view"), query.get("change"), query.get("path")];
-  if ((view !== "diff" && view !== "workspace") || change === null || path === null) {
+  if ((view !== "diff" && view !== "review" && view !== "workspace") || change === null || path === null) {
     throw new Error(`${uri.toString()} names no file diff`);
   }
   return { view, change, path };
@@ -395,11 +401,17 @@ class DescriptionProvider implements vscode.FileSystemProvider {
   }
 }
 
-async function beforeRevision(cabaret: Cabaret, change: ChangeId, file: ChangedFile): Promise<Revision | undefined> {
+/** What `file` is measured against in a committed `view`: nothing for an addition. */
+async function beforeRevision(
+  cabaret: Cabaret,
+  view: CommittedView,
+  change: ChangeId,
+  file: ChangedFile,
+): Promise<Revision | undefined> {
   if (file.kind === "Added") {
     return undefined;
   }
-  const base = await cabaret.base(change);
+  const base = view === "diff" ? await cabaret.base(change) : await cabaret.reviewBase(change, file.path);
   if (base === null) {
     throw new Error(`${change} has no base, yet ${file.path} was not added`);
   }
@@ -416,8 +428,9 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
   const { tip } = await cabaret.change(change);
   switch (diff.view) {
     case "diff":
+    case "review":
       return [
-        blobUri(diff, await beforeRevision(cabaret, change, file), from),
+        blobUri(diff, await beforeRevision(cabaret, diff.view, change, file), from),
         blobUri(diff, file.kind === "Deleted" ? undefined : tip, file.path),
       ];
     case "workspace": {
@@ -433,7 +446,8 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
 async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
   const diff: FileDiff = { view, change, path: file.path };
   const [before, after] = await sides(cabaret, diff, file);
-  const title = view === "diff" ? `${file.path} (${change})` : `${file.path} (${change}, uncommitted)`;
+  const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
+  const title = `${file.path} (${change}${note})`;
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
   await replacingActive(after, async () => {
@@ -451,6 +465,9 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       break;
     case "WorkspaceDiff":
       await openFileDiff(cabaret, "workspace", target.change, target.file);
+      break;
+    case "ReviewDiff":
+      await openFileDiff(cabaret, "review", target.change, target.file);
       break;
     case "Title":
       await editTitle(cabaret, provider, target.change);
@@ -533,12 +550,17 @@ function activeFileDiff(): FileDiff | undefined {
 
 type PageKind = Route["kind"] | "file";
 
-/** Expose the active page's kind as the `cabaret.page` context, so keybindings can scope to pages. */
+/**
+ * Expose the active page's kind as the `cabaret.page` context, and on a file diff its view as
+ * `cabaret.view`, so keybindings can scope to pages.
+ */
 function updatePageContext(): void {
+  const fileDiff = activeFileDiff();
   const editor = activePage();
   const kind: PageKind | undefined =
-    activeFileDiff() !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+    fileDiff !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
+  vscode.commands.executeCommand("setContext", "cabaret.view", fileDiff?.view);
 }
 
 /** The scope enclosing a page: a change's diffs sit in its show page, which sits in home. */
@@ -549,6 +571,7 @@ function enclosing(route: Route): Route | undefined {
     case "show":
       return { kind: "home" };
     case "diff":
+    case "review":
     case "workspace":
       return { kind: "show", change: route.change };
   }
@@ -611,9 +634,46 @@ function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
 
 type Direction = "up" | "down";
 
+function viewFiles(cabaret: Cabaret, view: View, change: ChangeId): Promise<ChangedFile[]> {
+  switch (view) {
+    case "diff":
+      return cabaret.changedFiles(change);
+    case "review":
+      return cabaret.reviewFiles(change);
+    case "workspace":
+      return cabaret.workspaceFiles(change);
+  }
+}
+
+/**
+ * `d`/`r`: the change's diff or review page, or from a file diff of the other committed view,
+ * the same file seen in `view`; a file with nothing left in `view` falls back to its page.
+ */
+async function switchView(cabaret: Cabaret, provider: PageProvider, view: CommittedView): Promise<void> {
+  const fileDiff = activeFileDiff();
+  if (fileDiff !== undefined && fileDiff.view !== "workspace") {
+    const { change, path } = fileDiff;
+    const file = (await viewFiles(cabaret, view, change)).find((file) => file.path === path);
+    if (file !== undefined) {
+      await openFileDiff(cabaret, view, change, file);
+      return;
+    }
+    vscode.window.setStatusBarMessage(
+      `Cabaret: ${path} has nothing ${view === "review" ? "unreviewed" : "changed"} in ${change}`,
+      3000,
+    );
+    await provider.open({ kind: view, change });
+    return;
+  }
+  const change = await activeChange(cabaret, provider);
+  if (change !== undefined) {
+    await provider.open({ kind: view, change });
+  }
+}
+
 /** On a file diff, `^`/`$` go to the file above or below it in the same view of the change. */
 async function stepFile(cabaret: Cabaret, { view, change, path }: FileDiff, direction: Direction): Promise<void> {
-  const files = await (view === "diff" ? cabaret.changedFiles(change) : cabaret.workspaceFiles(change));
+  const files = await viewFiles(cabaret, view, change);
   const index = files.findIndex((file) => file.path === path);
   if (index === -1) {
     throw new Error(`${path} is no longer in ${change}'s diff`);
@@ -1056,7 +1116,8 @@ export function activate(context: vscode.ExtensionContext) {
       await provider.open({ kind: "home" });
     }),
     onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
-    onChange("cabaret.diff", provider, (_, change) => provider.open({ kind: "diff", change })),
+    command("cabaret.diff", (cabaret) => switchView(cabaret, provider, "diff")),
+    command("cabaret.review", (cabaret) => switchView(cabaret, provider, "review")),
     onChange("cabaret.workspaceDiff", provider, (_, change) => provider.open({ kind: "workspace", change })),
     onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
     onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),

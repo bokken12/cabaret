@@ -14,13 +14,24 @@ pub enum ChangedFile {
 }
 
 impl ChangedFile {
+    /// Where this leaves the file.
+    pub fn path(&self) -> &RepoPath {
+        match self {
+            Self::Added { path }
+            | Self::Deleted { path }
+            | Self::Modified { path }
+            | Self::Renamed { path, .. }
+            | Self::Copied { path, .. } => path,
+        }
+    }
+
     /// The paths this touches: the file's, preceded by its source for a rename or copy.
     pub fn paths(&self) -> impl Iterator<Item = &RepoPath> {
-        let (from, path) = match self {
-            Self::Added { path } | Self::Deleted { path } | Self::Modified { path } => (None, path),
-            Self::Renamed { from, path } | Self::Copied { from, path } => (Some(from), path),
+        let from = match self {
+            Self::Renamed { from, .. } | Self::Copied { from, .. } => Some(from),
+            Self::Added { .. } | Self::Deleted { .. } | Self::Modified { .. } => None,
         };
-        from.into_iter().chain(std::iter::once(path))
+        from.into_iter().chain(std::iter::once(self.path()))
     }
 }
 

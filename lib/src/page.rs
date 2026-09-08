@@ -41,6 +41,12 @@ pub enum Target {
         change: ChangeId,
         file: ChangedFile,
     },
+    /// A file of `change`'s review diff: from the merge of its bases with the tip the reviewer
+    /// last marked the file reviewed at, to its tip.
+    ReviewDiff {
+        change: ChangeId,
+        file: ChangedFile,
+    },
     /// The title of `change`, for editing.
     Title {
         change: ChangeId,
@@ -150,6 +156,11 @@ impl Page {
     /// The files `change`'s workspace has on disk beyond its tip, each leading to its diff.
     pub fn workspace(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
         Self::files(files, "no uncommitted files", |file| Target::WorkspaceDiff { change: change.to_owned(), file })
+    }
+
+    /// The files of `change` its reviewer has left to read, each leading to its review diff.
+    pub fn review(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
+        Self::files(files, "no unreviewed files", |file| Target::ReviewDiff { change: change.to_owned(), file })
     }
 
     fn files(files: &[ChangedFile], empty: &str, target: impl Fn(ChangedFile) -> Target) -> Self {

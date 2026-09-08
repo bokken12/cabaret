@@ -1,6 +1,6 @@
 //! A change's branch: the one ref of a change that a workspace can hold.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
 use gix::merge::{
@@ -42,24 +42,70 @@ impl<'ctx> Branch<'ctx> {
         ctx.maximal_revisions(&candidates)
     }
 
-    /// The revision this branch's diff is computed against: `None` for a root. Multiple bases are
-    /// merged into a virtual one, as git's recursive merge does; it lives only in the object
-    /// database and is the same commit for the same bases.
+    /// The revision this branch's diff is computed against: `None` for a root.
     pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<Option<RevisionId>> {
-        let bases = self.bases(parents)?;
-        if bases.is_empty() {
+        self.merged(&self.bases(parents)?)
+    }
+
+    /// The revision a reviewer's diff of one file is computed against: the bases merged with
+    /// `reviewed`, the tip they last marked the file reviewed at, so only what has changed since
+    /// remains to read. The plain base for a file they never marked.
+    pub fn review_base(
+        &self,
+        parents: &BTreeSet<ChangeId>,
+        reviewed: Option<RevisionId>,
+    ) -> Result<Option<RevisionId>> {
+        let mut revisions = self.bases(parents)?;
+        revisions.extend(reviewed);
+        self.merged(&revisions)
+    }
+
+    /// Several revisions merge into a virtual one, as git's recursive merge does; it lives only
+    /// in the object database and is the same commit for the same revisions. `None` for none.
+    fn merged(&self, revisions: &BTreeSet<RevisionId>) -> Result<Option<RevisionId>> {
+        let revisions = self.ctx.maximal_revisions(revisions)?;
+        if revisions.is_empty() {
             return Ok(None);
         }
         let repo = &self.ctx.repo;
-        let merged = repo.virtual_merge_base(bases.iter().map(|base| base.0), repo.tree_merge_options()?)?;
+        let merged =
+            repo.virtual_merge_base(revisions.iter().map(|revision| revision.0), repo.tree_merge_options()?)?;
         Ok(Some(RevisionId(merged.commit_id.detach())))
     }
 
     /// The file-level changes this branch presents against `parents`, restricted to those
     /// matching `pathspecs` (all when empty).
     pub fn changed_files(&self, parents: &BTreeSet<ChangeId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        self.changed_files_from(self.base(parents)?, pathspecs)
+    }
+
+    /// The file-level changes a reviewer has left to read against `parents`: each file as its
+    /// tip differs from the file's review base (see [`Self::review_base`]), given `review`, the
+    /// tip they last marked each file reviewed at. Files are keyed by where they end up.
+    pub fn review_files(
+        &self,
+        parents: &BTreeSet<ChangeId>,
+        review: &BTreeMap<RepoPath, RevisionId>,
+        pathspecs: &[Pathspec],
+    ) -> Result<Vec<ChangedFile>> {
+        let bases = self.bases(parents)?;
+        // One diff per distinct reviewed tip, `None` covering the files never marked.
+        let mut groups: BTreeSet<Option<RevisionId>> = review.values().map(|revision| Some(*revision)).collect();
+        groups.insert(None);
+        let mut files = Vec::new();
+        for reviewed in groups {
+            let base = self.merged(&bases.iter().copied().chain(reviewed).collect())?;
+            let mut changed = self.changed_files_from(base, pathspecs)?;
+            changed.retain(|file| review.get(file.path()).copied() == reviewed);
+            files.extend(changed);
+        }
+        files.sort_by(|a, b| a.path().cmp(b.path()));
+        Ok(files)
+    }
+
+    fn changed_files_from(&self, base: Option<RevisionId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         let repo = &self.ctx.repo;
-        let base = match self.base(parents)? {
+        let base = match base {
             None => None,
             Some(base) => Some(repo.find_commit(base.0)?.tree()?),
         };

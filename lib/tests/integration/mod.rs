@@ -9,6 +9,7 @@ mod locking;
 mod parents;
 mod rebase;
 mod review;
+mod review_files;
 mod sessions;
 mod workspace;
 mod workspace_files;
