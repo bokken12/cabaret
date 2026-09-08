@@ -1,0 +1,1 @@
+When viewing a file's diff in VSCode, the `! m` command should execute a `mark` action in the log, marking the user as having seen up to the tip shown in the diff they were viewing.
