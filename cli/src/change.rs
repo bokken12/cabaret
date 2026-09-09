@@ -81,7 +81,8 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
-    MakePermament {
+    #[command(alias = "make-permament")]
+    MakePermanent {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(long)]
@@ -192,7 +193,7 @@ impl ChangeCommand {
                 let parent = cabaret.land(&change)?;
                 println!("landed {change} into {parent}");
             }
-            ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
+            ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
             ChangeCommand::Mark { change, tip, files } => {
                 cabaret.mark(&or_current(change)?, &files, tip)?;
             }
