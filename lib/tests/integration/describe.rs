@@ -71,30 +71,3 @@ fn an_empty_description_clears() {
     let error = fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap_err();
     expect!["child already had this description"].assert_eq(&format!("{error:?}"));
 }
-
-/// Older logs set the description in an entry; that reads until the file exists, and the next
-/// write, whatever it is, moves the description into the file.
-#[test]
-fn a_description_logged_before_the_file_existed_still_reads() {
-    let fixture = child();
-    fixture.write_metadata(
-        "child",
-        &[(
-            "log.jsonl",
-            concat!(
-                "{\"timestamp\":1,\"user\":\"alice@example.com\",\"action\":\"add-owner\",\"owner\":\"alice@example.com\"}\n",
-                "{\"timestamp\":2,\"user\":\"alice@example.com\",\"action\":\"set-description\",\"description\":\"Logged.\"}\n",
-            ),
-        )],
-    );
-    assert_eq!(fixture.snapshot("child").description.as_deref(), Some("Logged."));
-    fixture.cabaret.set_title(&id("child"), Some("Titled".into())).unwrap();
-    expect![[r#"
-        message "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"set-title\",\"title\":\"Titled\"}\n"
-        description.md "Logged."
-        log.jsonl "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-owner\",\"owner\":\"alice@example.com\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"set-description\",\"description\":\"Logged.\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"set-title\",\"title\":\"Titled\"}\n"
-    "#]]
-    .assert_eq(&fixture.metadata("child"));
-    fixture.cabaret.set_description(&id("child"), None).unwrap();
-    assert_eq!(fixture.snapshot("child").description, None);
-}

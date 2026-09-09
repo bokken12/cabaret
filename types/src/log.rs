@@ -17,10 +17,6 @@ pub enum LogAction {
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },
-    // TODO(joel): remove this entry
-    // No longer written: the description lives in its own file beside the log, where git merges
-    // it. Kept so logs from before then still read.
-    SetDescription { description: Option<String> },
     SetPermanent { permanent: bool },
     SetTitle { title: Option<String> },
 }

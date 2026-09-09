@@ -20,8 +20,8 @@ use gix::{
 use crate::context::TransactionContext;
 
 const LOG_FILE: &str = "log.jsonl";
-/// Always present, empty for no description, so that a description folded from an old log (see
-/// `LogAction::SetDescription`) is overridden even by clearing it.
+/// Always present, empty for no description, so clearing it on one device while editing it on
+/// another merges as a text conflict rather than a modify/delete one.
 const DESCRIPTION_FILE: &str = "description.md";
 
 /// The text of `name` in `tree`, or `None` when no file is there.
@@ -129,9 +129,7 @@ impl<'ctx> Metadata<'ctx> {
                 metadata.apply(&entry);
             }
         }
-        if let Some(description) = file(&tree, DESCRIPTION_FILE)? {
-            metadata.description = Some(description).filter(|text| !text.is_empty());
-        }
+        metadata.description = file(&tree, DESCRIPTION_FILE)?.filter(|text| !text.is_empty());
         Ok(metadata)
     }
 
@@ -156,8 +154,6 @@ impl<'ctx> Metadata<'ctx> {
                 self.declared_parents.remove(parent);
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
-            // superseded by the description file once one is written, see `DESCRIPTION_FILE`
-            LogAction::SetDescription { description } => self.description = description.clone(),
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
             LogAction::SetTitle { title } => self.title = title.clone(),
         }
