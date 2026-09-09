@@ -83,7 +83,7 @@ fn nothing_to_land_refuses() {
     expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
 }
 
-/// The landing is still recorded: archiving the change afterwards shows it.
+/// The landing is recorded all the same.
 #[test]
 fn permanent_change_stays_open() {
     let fixture = diverged();
@@ -94,17 +94,6 @@ fn permanent_change_stays_open() {
         child
           parents main
           owners alice@example.com
-          permanent
-          base e0d18e9e
-          diff (empty)
-    "]]
-    .assert_eq(&fixture.describe("child"));
-    fixture.cabaret.archive(&id("child")).unwrap();
-    expect![[r"
-        child
-          parents main
-          owners alice@example.com
-          archived
           permanent
           landed main 0d3b3690..e0d18e9e
           base e0d18e9e

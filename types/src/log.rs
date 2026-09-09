@@ -11,8 +11,8 @@ use gix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    RevisionId, change_id::ChangeId, error::Result, identity::Identity, land::Land, repo_path::RepoPath,
-    timestamp::TimestampMs, tree_id::TreeId,
+    RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, timestamp::TimestampMs,
+    tree_id::TreeId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,7 +21,9 @@ pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
     Forget { reviewer: Identity, file: RepoPath },
-    Land(Land),
+    // TODO-someday(joel): another possible shape could be to have lands include a `ChangeSnapshot` directly and then
+    // leave the land data out of the snapshot.
+    Land { parent: ChangeId, base: RevisionId, tip: RevisionId },
     Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
@@ -90,7 +92,7 @@ mod tests {
         let entry = LogEntry {
             timestamp: TimestampMs(1),
             user: Identity("alice@example.com".into()),
-            action: LogAction::Land(Land { parent: "main".parse().unwrap(), base: revision('b'), tip: revision('c') }),
+            action: LogAction::Land { parent: "main".parse().unwrap(), base: revision('b'), tip: revision('c') },
         };
         let text = render(std::slice::from_ref(&entry)).unwrap();
         expect![[r#"

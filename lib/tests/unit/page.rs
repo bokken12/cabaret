@@ -18,7 +18,7 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         title: title.map(String::from),
         description: description.map(String::from),
         archived: false,
-        landed: None,
+        lands: Vec::new(),
         permanent: false,
         owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),

@@ -155,7 +155,7 @@ impl<'ctx> TransactionContext<'ctx> {
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             archived: metadata.archived,
-            landed: metadata.landed().cloned(),
+            lands: metadata.lands.clone(),
             permanent: metadata.permanent,
             owners: metadata.owners.clone(),
             parents,
