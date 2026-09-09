@@ -1,0 +1,1 @@
+In cabaret-vscode, when you attempt to "go to workspace" and the workspace does not exist, it should offer to either create the workspace for you or check it out in your current workspace depending on whether the current workspace is a dedicated workspace or not.
