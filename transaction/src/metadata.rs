@@ -59,10 +59,6 @@ impl<'ctx> Metadata<'ctx> {
     /// The log commit this state was folded from; `None` before the change's first write.
     pub fn log_commit(&self) -> Option<ObjectId> { self.log_commit }
 
-    /// The land this change was archived after, if any: the version of it that is landed. An
-    /// open change, permanent or unarchived, shows its branch instead.
-    pub fn landed(&self) -> Option<&Land> { self.archived.then(|| self.lands.last()).flatten() }
-
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
             return Ok(true);
@@ -130,7 +126,9 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::Forget { reviewer, file } => {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
-            LogAction::Land(land) => self.lands.push(land.clone()),
+            LogAction::Land { parent, base, tip } => {
+                self.lands.push(Land { parent: parent.clone(), base: *base, tip: *tip });
+            }
             LogAction::Mark { reviewer, file, revision } => {
                 self.review.entry(reviewer.clone()).or_default().insert(file.clone(), revision.clone());
             }
@@ -166,7 +164,11 @@ impl<'ctx> Metadata<'ctx> {
             actions.push(LogAction::SetArchived { archived: self.archived });
         }
         assert!(self.lands.starts_with(&before.lands), "a land is never taken back");
-        actions.extend(self.lands[before.lands.len()..].iter().cloned().map(LogAction::Land));
+        actions.extend(self.lands[before.lands.len()..].iter().map(|land| LogAction::Land {
+            parent: land.parent.clone(),
+            base: land.base,
+            tip: land.tip,
+        }));
         if self.permanent != before.permanent {
             actions.push(LogAction::SetPermanent { permanent: self.permanent });
         }

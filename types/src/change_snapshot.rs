@@ -18,8 +18,8 @@ pub struct ChangeSnapshot {
     pub title: Option<String>,
     pub description: Option<String>,
     pub archived: bool,
-    /// The land this change was archived after, if any; see `Metadata::landed`.
-    pub landed: Option<Land>,
+    /// Every landing, oldest first; see `Metadata::lands`.
+    pub lands: Vec<Land>,
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     /// What the change targets; see `Metadata::parents`.

@@ -83,6 +83,7 @@ fn nothing_to_land_refuses() {
     expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
 }
 
+<<<<<<< landed-view
 /// Work after landing is not landed: archiving again shows the version that was.
 #[test]
 fn archived_after_more_work_shows_the_landed_version() {
@@ -113,6 +114,11 @@ fn archived_after_more_work_shows_the_landed_version() {
 }
 
 /// The landing is still recorded: archiving the change afterwards shows it.
+||||||| base
+/// The landing is still recorded: archiving the change afterwards shows it.
+=======
+/// The landing is recorded all the same.
+>>>>>>> landed
 #[test]
 fn permanent_change_stays_open() {
     let fixture = diverged();
@@ -123,17 +129,6 @@ fn permanent_change_stays_open() {
         child
           parents main
           owners alice@example.com
-          permanent
-          base e0d18e9e
-          diff (empty)
-    "]]
-    .assert_eq(&fixture.describe("child"));
-    fixture.cabaret.archive(&id("child")).unwrap();
-    expect![[r"
-        child
-          parents main
-          owners alice@example.com
-          archived
           permanent
           landed main 0d3b3690..e0d18e9e
           base 0d3b3690
