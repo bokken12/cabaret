@@ -3,6 +3,8 @@
 //! When a change's branch moves, its workspace must move with it, or git would show the whole
 //! change as undone locally.
 // TODO(joel): this file is not as well reviewed as it could be
+// TODO-someday(joel): The sort of dedicated-workspace workflow encouraged by Cabaret can be fairly expensive in terms
+// of disk space and even just cold builds. Perhaps we could encourage some sort of copy-on-write scheme?
 
 use std::{
     collections::BTreeSet,
