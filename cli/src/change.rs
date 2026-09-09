@@ -199,9 +199,7 @@ impl ChangeCommand {
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;
                 match command {
-                    OwnersCommand::Show => {
-                        todo!()
-                    }
+                    OwnersCommand::Show => return Err("change owners show is not implemented yet".into()),
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
                     OwnersCommand::Set { owners } => cabaret.set_owners(change, owners.into_iter().collect())?,
@@ -210,9 +208,7 @@ impl ChangeCommand {
             ChangeCommand::Parents { change, command } => {
                 let change = &or_current(change)?;
                 match command {
-                    ParentsCommand::Show => {
-                        todo!()
-                    }
+                    ParentsCommand::Show => return Err("change parents show is not implemented yet".into()),
                     ParentsCommand::Create { id } => {
                         cabaret.create_parent(&id, change, &cabaret.identity()?)?;
                         println!("created {id} as parent of {change}");
@@ -220,8 +216,7 @@ impl ChangeCommand {
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
                     ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
                     ParentsCommand::Set { parents: _ } => {
-                        // TODO(joel): implement
-                        todo!()
+                        return Err("change parents set is not implemented yet".into());
                     }
                 }
             }
@@ -231,8 +226,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {
-                // TODO(joel): implement
-                todo!()
+                return Err("change todo is not implemented yet".into());
             }
         }
 
