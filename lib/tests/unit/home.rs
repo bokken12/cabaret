@@ -239,11 +239,15 @@ fn a_parent_cycle_is_an_error() {
 fn home_heads_each_graph_and_says_when_one_is_empty() {
     let home = Home {
         viewer: Identity("alice@example.com".into()),
+        to_review: graph(&[]),
         owned: graph(&[("feat", true, "")]),
         workspaces: graph(&[]),
     };
     let page = Page::home(&home).unwrap();
     expect![[r"
+        To review
+        nothing awaiting review by alice@example.com
+
         Owned
         ○   feat
 
@@ -251,15 +255,21 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
         no changes checked out in a workspace
     "]]
     .assert_eq(&page.to_string());
-    expect!["[Fold { start: 0, end: 1 }, Fold { start: 3, end: 4 }]"].assert_eq(&format!("{:?}", page.folds));
+    expect!["[Fold { start: 0, end: 1 }, Fold { start: 3, end: 4 }, Fold { start: 6, end: 7 }]"]
+        .assert_eq(&format!("{:?}", page.folds));
 }
 
 #[test]
 fn home_headings_fold_their_sections_around_the_graph_folds() {
     let stack = || graph(&[("base", true, ""), ("top", true, "base")]);
-    let home = Home { viewer: Identity("alice@example.com".into()), owned: stack(), workspaces: stack() };
+    let home =
+        Home { viewer: Identity("alice@example.com".into()), to_review: stack(), owned: stack(), workspaces: stack() };
     let page = Page::home(&home).unwrap();
     expect![[r"
+        To review
+        ○   base
+        ╰─○   top
+
         Owned
         ○   base
         ╰─○   top
@@ -269,10 +279,10 @@ fn home_headings_fold_their_sections_around_the_graph_folds() {
         ╰─○   top
     "]]
     .assert_eq(&page.to_string());
-    expect![
-        "[Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }]"
-    ]
-    .assert_eq(&format!("{:?}", page.folds));
+    expect![[r"
+        [Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }, Fold { start: 8, end: 10 }, Fold { start: 9, end: 10 }]
+    "]]
+    .assert_eq(&format!("{:?}\n", page.folds));
 }
 
 #[test]

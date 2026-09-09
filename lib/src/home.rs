@@ -1,6 +1,6 @@
-//! The home page: the viewer's open changes, then those checked out on this device, each with
-//! their ancestors, drawn as rail art with one row per change and x-position for depth in the
-//! stack.
+//! The home page: the changes awaiting the viewer's review, their open changes, then those
+//! checked out on this device, each with their ancestors, drawn as rail art with one row per
+//! change and x-position for depth in the stack.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,10 +21,11 @@ pub struct HomeGraph {
     pub nodes: BTreeMap<ChangeId, HomeNode>,
 }
 
-/// What one viewer sees on this device: the changes they own, and the changes checked out in
-/// its workspaces.
+/// What one viewer sees on this device: the changes with files left for them to review, the
+/// changes they own, and the changes checked out in its workspaces.
 pub struct Home {
     pub viewer: Identity,
+    pub to_review: HomeGraph,
     pub owned: HomeGraph,
     pub workspaces: HomeGraph,
 }
@@ -46,6 +47,8 @@ impl Page {
             Ok(())
         };
         let mut page = Self::default();
+        section(&mut page, "To review", &home.to_review, format!("nothing awaiting review by {}", home.viewer))?;
+        page.lines.push(Line::default());
         section(&mut page, "Owned", &home.owned, format!("no open changes owned by {}", home.viewer))?;
         page.lines.push(Line::default());
         section(&mut page, "Workspaces", &home.workspaces, "no changes checked out in a workspace".into())?;
