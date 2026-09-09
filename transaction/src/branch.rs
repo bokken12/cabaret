@@ -113,6 +113,10 @@ impl<'ctx> Branch<'ctx> {
         tree::changed_files(repo, base.as_ref(), &tip, pathspecs)
     }
 
+    // TODO(joel): for users who are not used to stacking workflows, they may find the rebases encouraged by the change
+    // DAG to be somewhat arduous or offputting. To avoid this, it might be good if Cabaret defaulted to a more
+    // permissive merge driver. Perhaps we could integrate with mergiraf? They don't have a great interface though.
+
     /// Merge `other` into this branch as part of `operation`, which names the commit: `None`
     /// when it already contains `other`, else the files left conflicted. A branch with nothing
     /// of its own fast-forwards instead.

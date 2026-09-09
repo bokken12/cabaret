@@ -1,4 +1,8 @@
-//! Coding agents that work in cabaret workspaces.
+// Minimal integration with Claude Code for Cabaret.
+//
+// TODO(joel): In a good end state, Cabaret should not contain one-off hacky integrations like this. I suspect the right
+// solution is to find or create a second VSCode extension which is just "agents in VSCode buffers" via the
+// Zed/JetBrains ACP, which Cabaret could query / hand off to.
 
 use std::fmt;
 
