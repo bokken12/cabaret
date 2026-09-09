@@ -132,6 +132,11 @@ pub enum ChangeCommand {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
     },
+    /// Search a change's diff for TODOs to be resolved within it.
+    Todo {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+    },
 }
 
 impl ChangeCommand {
@@ -229,6 +234,10 @@ impl ChangeCommand {
                 print!("{}", cabaret.review_page(&or_current(change)?, &pathspecs)?);
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
+            ChangeCommand::Todo { change } => {
+                // TODO(joel): implement
+                todo!()
+            }
         }
 
         Ok(())
