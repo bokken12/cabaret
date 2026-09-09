@@ -27,6 +27,8 @@ pub struct Home {
     pub viewer: Identity,
     pub to_review: HomeGraph,
     pub owned: HomeGraph,
+    // TODO-someday(joel): just showing workspaces on this device is insufficient for many real workflows. Consider
+    // adding remote workspaces, SSH'd devices, cloud agents, or other?
     pub workspaces: HomeGraph,
 }
 
