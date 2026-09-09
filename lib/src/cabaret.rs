@@ -584,6 +584,7 @@ impl Cabaret {
 
     /// Set `change_id`'s description; `None` clears it, which an empty text may not stand in for.
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
+        // TODO(joel for claude): this case seems unnecessary? why not jsut let it write empty?
         if description.as_deref() == Some("") {
             Err("an empty description clears nothing; pass none to clear it")?;
         }
