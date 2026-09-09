@@ -11,8 +11,8 @@ use gix::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, timestamp::TimestampMs,
-    tree_id::TreeId,
+    RevisionId, change_id::ChangeId, error::Result, identity::Identity, land::Land, repo_path::RepoPath,
+    timestamp::TimestampMs, tree_id::TreeId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +21,7 @@ pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
     Forget { reviewer: Identity, file: RepoPath },
+    Land(Land),
     Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
@@ -74,4 +75,28 @@ pub fn write(repo: &Repository, previous: Option<ObjectId>, appended: &str) -> R
     let blob = repo.write_blob(contents)?.detach();
     let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
     Ok(TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach()))
+}
+
+/// Entries written once must read back forever, so their text is pinned.
+#[cfg(test)]
+mod tests {
+    use expect_test::expect;
+
+    use super::*;
+
+    #[test]
+    fn land_entry_renders_flat() {
+        let revision = |digit: char| RevisionId(digit.to_string().repeat(40).parse().unwrap());
+        let entry = LogEntry {
+            timestamp: TimestampMs(1),
+            user: Identity("alice@example.com".into()),
+            action: LogAction::Land(Land { parent: "main".parse().unwrap(), base: revision('b'), tip: revision('c') }),
+        };
+        let text = render(std::slice::from_ref(&entry)).unwrap();
+        expect![[r#"
+            {"timestamp":1,"user":"alice@example.com","action":"land","parent":"main","base":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tip":"cccccccccccccccccccccccccccccccccccccccc"}
+        "#]]
+        .assert_eq(&text);
+        assert_eq!(serde_json::from_str::<LogEntry>(text.trim()).unwrap(), entry);
+    }
 }

@@ -311,6 +311,9 @@ impl Fixture {
         if snapshot.permanent {
             writeln!(out, "  permanent").unwrap();
         }
+        if let Some(land) = &snapshot.landed {
+            writeln!(out, "  landed {} {}..{}", land.parent, short(land.base), short(land.tip)).unwrap();
+        }
         if let Some(title) = &snapshot.title {
             writeln!(out, "  title {title}").unwrap();
         }

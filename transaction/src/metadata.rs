@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId,
+    ChangeId, ChangeIdRef, Identity, Land, RepoPath, Result, RevisionId,
     log::{self, LogAction, LogEntry},
 };
 use gix::{
@@ -27,6 +27,8 @@ pub struct Metadata<'ctx> {
     pub description: Option<String>,
     pub archived: bool,
     pub permanent: bool,
+    /// Every landing of the change, oldest first; a permanent change lands many times.
+    pub lands: Vec<Land>,
     pub owners: BTreeSet<Identity>,
     pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
@@ -43,6 +45,7 @@ impl<'ctx> Metadata<'ctx> {
             description: None,
             archived: false,
             permanent: false,
+            lands: Vec::new(),
             owners: BTreeSet::new(),
             declared_parents: BTreeSet::new(),
             review: BTreeMap::new(),
@@ -55,6 +58,10 @@ impl<'ctx> Metadata<'ctx> {
 
     /// The log commit this state was folded from; `None` before the change's first write.
     pub fn log_commit(&self) -> Option<ObjectId> { self.log_commit }
+
+    /// The land this change was archived after, if any: the version of it that is landed. An
+    /// open change, permanent or unarchived, shows its branch instead.
+    pub fn landed(&self) -> Option<&Land> { self.archived.then(|| self.lands.last()).flatten() }
 
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
@@ -123,6 +130,7 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::Forget { reviewer, file } => {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
+            LogAction::Land(land) => self.lands.push(land.clone()),
             LogAction::Mark { reviewer, file, revision } => {
                 self.review.entry(reviewer.clone()).or_default().insert(file.clone(), revision.clone());
             }
@@ -157,6 +165,8 @@ impl<'ctx> Metadata<'ctx> {
         if self.archived != before.archived {
             actions.push(LogAction::SetArchived { archived: self.archived });
         }
+        assert!(self.lands.starts_with(&before.lands), "a land is never taken back");
+        actions.extend(self.lands[before.lands.len()..].iter().cloned().map(LogAction::Land));
         if self.permanent != before.permanent {
             actions.push(LogAction::SetPermanent { permanent: self.permanent });
         }

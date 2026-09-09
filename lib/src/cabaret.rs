@@ -7,8 +7,8 @@ use std::{
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Land, Pathspec, RepoPath, Result, RevisionId,
+    TimestampMs, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
@@ -419,8 +419,9 @@ impl Cabaret {
         })
     }
 
-    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
+    /// Merge `change_id` into its one parent, record the landing on its log, and archive it unless
+    /// it is permanent, returning the parent. Conflicts are refused rather than landed: rebase and
+    /// resolve them first.
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
@@ -431,10 +432,15 @@ impl Cabaret {
         })?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+        self.store.transact(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
+            let land = Land {
+                parent: parent_id.clone(),
+                base: ctx.merge_base(child_branch.tip, parent.tip)?,
+                tip: child_branch.tip,
+            };
             match parent.merge(child_branch, "land")? {
                 None => Err(format!("{change_id} has nothing to land"))?,
                 Some(conflicts) if !conflicts.is_empty() => {
@@ -442,6 +448,7 @@ impl Cabaret {
                 }
                 Some(_) => {}
             }
+            child.lands.push(land);
             if !child.permanent {
                 child.archived = true;
             }

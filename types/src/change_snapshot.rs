@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    change_id::ChangeId, identity::Identity, repo_path::RepoPath, revision::RevisionId, workspace_id::WorkspaceId,
+    change_id::ChangeId, identity::Identity, land::Land, repo_path::RepoPath, revision::RevisionId,
+    workspace_id::WorkspaceId,
 };
 
 /// A change's state as of some instant, detached from any transaction. A change is a
@@ -16,6 +17,8 @@ pub struct ChangeSnapshot {
     pub title: Option<String>,
     pub description: Option<String>,
     pub archived: bool,
+    /// The land this change was archived after, if any; see `Metadata::landed`.
+    pub landed: Option<Land>,
     pub permanent: bool,
     pub owners: BTreeSet<Identity>,
     /// What the change targets; see `Metadata::parents`.

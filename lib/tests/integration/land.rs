@@ -1,4 +1,4 @@
-//! Landing: the parent merges the change in and the change is archived.
+//! Landing: the parent merges the change in, the landing goes on the log, and the change is archived.
 
 use expect_test::expect;
 
@@ -38,6 +38,7 @@ fn change_merged_into_parent_and_archived() {
           parents main
           owners alice@example.com
           archived
+          landed main 0d3b3690..e0d18e9e
           base e0d18e9e
           diff (empty)
     "]]
@@ -82,11 +83,32 @@ fn nothing_to_land_refuses() {
     expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
 }
 
+/// The landing is still recorded: archiving the change afterwards shows it.
 #[test]
 fn permanent_change_stays_open() {
     let fixture = diverged();
     fixture.checkout("main");
     fixture.cabaret.set_permanent(&id("child"), true).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
-    assert!(!fixture.snapshot("child").archived);
+    expect![[r"
+        child
+          parents main
+          owners alice@example.com
+          permanent
+          base e0d18e9e
+          diff (empty)
+    "]]
+    .assert_eq(&fixture.describe("child"));
+    fixture.cabaret.archive(&id("child")).unwrap();
+    expect![[r"
+        child
+          parents main
+          owners alice@example.com
+          archived
+          permanent
+          landed main 0d3b3690..e0d18e9e
+          base e0d18e9e
+          diff (empty)
+    "]]
+    .assert_eq(&fixture.describe("child"));
 }
