@@ -116,6 +116,10 @@ impl<'ctx> Branch<'ctx> {
     // TODO(joel): for users who are not used to stacking workflows, they may find the rebases encouraged by the change
     // DAG to be somewhat arduous or offputting. To avoid this, it might be good if Cabaret defaulted to a more
     // permissive merge driver. Perhaps we could integrate with mergiraf? They don't have a great interface though.
+    // TODO(joel): note that one complication here is that unlike regular git, Cabaret encourages intermediate
+    // conflicted states to be committed directly. This means that, to avoid bad conflicts, it needs to be the case that
+    // conflicts are resolved in the same way across multiple machines, and thus that we should not allow users to vary
+    // or set custom merge drivers.
 
     /// Merge `other` into this branch as part of `operation`, which names the commit: `None`
     /// when it already contains `other`, else the files left conflicted. A branch with nothing
