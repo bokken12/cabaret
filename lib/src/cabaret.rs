@@ -602,9 +602,11 @@ impl Cabaret {
 }
 
 impl Cabaret {
-    /// The changes `viewer` owns that are still open, since owners are to push those forward,
-    /// and every change checked out in this device's workspaces, archived or not, since those
-    /// are still active here; each with its ancestors as context.
+    /// The changes `viewer` owns that are still open, since owners are to push those forward;
+    /// among them, those with files `viewer` has left to review, since owners are to review every
+    /// file of their changes (see `Branch::review_files`); and every change checked out in this
+    /// device's workspaces, archived or not, since those are still active here; each with its
+    /// ancestors as context.
     pub fn home(&self, viewer: &Identity) -> Result<Home> {
         self.store.query(|ctx| {
             let trunk = ctx.default_branch()?;
@@ -612,10 +614,19 @@ impl Cabaret {
             for id in ctx.changes()? {
                 changes.insert(id.clone(), ctx.metadata(&id)?);
             }
-            let owned = changes
+            let owned: BTreeSet<ChangeId> = changes
                 .iter()
                 .filter(|(_, metadata)| !metadata.archived && metadata.owners.contains(viewer))
-                .map(|(id, _)| id.clone());
+                .map(|(id, _)| id.clone())
+                .collect();
+            let mut to_review = BTreeSet::new();
+            for id in &owned {
+                let metadata = changes[id];
+                let review = metadata.review.get(viewer).cloned().unwrap_or_default();
+                if !ctx.branch(id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
+                    to_review.insert(id.clone());
+                }
+            }
             let mut checked_out = BTreeSet::new();
             for workspace in ctx.workspaces()? {
                 let change = ctx.workspace(workspace.to_ref())?.change();
@@ -623,7 +634,8 @@ impl Cabaret {
             }
             Ok(Home {
                 viewer: viewer.clone(),
-                owned: home_graph(&changes, &owned.collect(), &trunk)?,
+                to_review: home_graph(&changes, &to_review, &trunk)?,
+                owned: home_graph(&changes, &owned, &trunk)?,
                 workspaces: home_graph(&changes, &checked_out, &trunk)?,
             })
         })
