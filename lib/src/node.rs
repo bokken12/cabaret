@@ -235,7 +235,7 @@ impl CabaretJs {
     /// its tip.
     #[napi]
     pub async fn mark(&self, change: ChangeId, files: Vec<RepoPath>, head: Option<RevisionId>) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.mark(&change, &files, head, None)).await
+        self.blocking(move |cabaret| cabaret.mark(&change, &files, head)).await
     }
 
     #[napi]
