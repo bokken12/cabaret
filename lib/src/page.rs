@@ -176,7 +176,7 @@ impl Page {
             node.files.push(file);
         }
         let mut page = Self::default();
-        tree.render(&mut page, 0, &target);
+        tree.render(&mut page, None, &target);
         page.folds.sort_by_key(|fold| fold.start);
         page
     }
@@ -231,8 +231,9 @@ struct FileTree<'a> {
 }
 
 impl FileTree<'_> {
-    fn render(&self, page: &mut Page, depth: usize, target: &impl Fn(ChangedFile) -> Target) {
-        for (name, child) in &self.children {
+    /// Match the home graph: files are nodes, folders are context, and roots start at the margin.
+    fn render(&self, page: &mut Page, prefix: Option<&str>, target: &impl Fn(ChangedFile) -> Target) {
+        for (index, (name, child)) in self.children.iter().enumerate() {
             let mut name = (*name).to_owned();
             let mut child = child;
             // Only branching directories need a separate row, including along the path to a lone file.
@@ -242,8 +243,12 @@ impl FileTree<'_> {
                 name.push_str(next);
                 child = node;
             }
-            let indent = "  ".repeat(depth);
-            for file in &child.files {
+            let last = index + 1 == self.children.len();
+            let art = |last: bool, marker: char| match prefix {
+                None => format!("{marker} "),
+                Some(prefix) => format!("{prefix}{}{marker} ", if last { "╰─" } else { "├─" }),
+            };
+            for (index, file) in child.files.iter().enumerate() {
                 let (tag, source) = match file {
                     ChangedFile::Added { .. } => (Tag::Added, None),
                     ChangedFile::Deleted { .. } => (Tag::Deleted, None),
@@ -251,7 +256,8 @@ impl FileTree<'_> {
                     ChangedFile::Renamed { from, .. } => (Tag::Renamed, Some(("moved", from))),
                     ChangedFile::Copied { from, .. } => (Tag::Copied, Some(("copied", from))),
                 };
-                let mut row = Line::plain(&indent).push(Segment::tagged(&name, tag));
+                let last_file = last && child.children.is_empty() && index + 1 == child.files.len();
+                let mut row = Line::plain(art(last_file, '○')).push(Segment::tagged(&name, tag));
                 if let Some((verb, from)) = source {
                     let (from_dir, from_name) = from.as_ref().rsplit_once('/').unwrap_or(("", from.as_ref()));
                     let (to_dir, _) = file.path().as_ref().rsplit_once('/').unwrap_or(("", file.path().as_ref()));
@@ -262,8 +268,12 @@ impl FileTree<'_> {
             }
             if !child.children.is_empty() {
                 let start = u32::try_from(page.lines.len()).expect("pages are short");
-                page.lines.push(Line::plain(&indent).push(Segment::tagged(format!("{name}/"), Tag::Label)));
-                child.render(page, depth + 1, target);
+                page.lines.push(Line::plain(art(last, '◌')).push(Segment::tagged(format!("{name}/"), Tag::Label)));
+                let continuation = match prefix {
+                    None => String::new(),
+                    Some(prefix) => format!("{prefix}{}", if last { "  " } else { "│ " }),
+                };
+                child.render(page, Some(&continuation), target);
                 let end = u32::try_from(page.lines.len() - 1).expect("pages are short");
                 page.folds.push(Fold { start, end });
             }
