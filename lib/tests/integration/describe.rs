@@ -63,10 +63,13 @@ fn setting_the_same_description_is_refused() {
 }
 
 #[test]
-fn an_empty_description_is_refused() {
+fn an_empty_description_clears() {
     let fixture = child();
+    fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
+    fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap();
+    assert_eq!(fixture.snapshot("child").description, None);
     let error = fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap_err();
-    expect!["an empty description clears nothing; pass none to clear it"].assert_eq(&format!("{error:?}"));
+    expect!["child already had this description"].assert_eq(&format!("{error:?}"));
 }
 
 /// Older logs set the description in an entry; that reads until the file exists, and the next

@@ -582,12 +582,9 @@ impl Cabaret {
         })
     }
 
-    /// Set `change_id`'s description; `None` clears it, which an empty text may not stand in for.
+    /// Set `change_id`'s description; `None` or an empty text clears it.
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
-        // TODO(joel for claude): this case seems unnecessary? why not jsut let it write empty?
-        if description.as_deref() == Some("") {
-            Err("an empty description clears nothing; pass none to clear it")?;
-        }
+        let description = description.filter(|text| !text.is_empty());
         self.store.update_metadata(change_id, |_ctx, metadata| match metadata.description == description {
             true => Err(format!("{change_id} already had this description"))?,
             false => Ok(metadata.description = description),
