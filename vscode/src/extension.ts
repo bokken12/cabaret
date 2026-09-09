@@ -188,7 +188,11 @@ async function replacingActive(destination: vscode.Uri, open: () => Promise<void
 
 /** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
 class PageProvider
-  implements vscode.TextDocumentContentProvider, vscode.DocumentLinkProvider, vscode.FoldingRangeProvider
+  implements
+    vscode.TextDocumentContentProvider,
+    vscode.DocumentLinkProvider,
+    vscode.FoldingRangeProvider,
+    vscode.Disposable
 {
   private readonly pages = new Map<string, Page>();
   /** Pages completed by a late part, to serve on the re-read that `changed` triggers. */
@@ -198,6 +202,15 @@ class PageProvider
     TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
   ) as Record<Tag, vscode.TextEditorDecorationType>;
   readonly onDidChange = this.changed.event;
+
+  dispose(): void {
+    this.changed.dispose();
+    for (const decoration of Object.values(this.decorations)) {
+      decoration.dispose();
+    }
+    this.pages.clear();
+    this.completed.clear();
+  }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     const key = uri.toString();
@@ -1135,6 +1148,7 @@ async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
   context.subscriptions.push(
+    provider,
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
