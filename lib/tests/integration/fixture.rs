@@ -223,14 +223,6 @@ impl Fixture {
         out
     }
 
-    /// Store `files` as `change`'s metadata commit, over whatever is there: metadata as another
-    /// version of cabaret laid it out.
-    pub fn write_metadata(&self, change: &str, files: Files) {
-        let files = files.iter().map(|(path, content)| ((*path).into(), (*content).into())).collect();
-        let commit = self.commit_tree(write_tree(&self.repo, &files), &[]);
-        self.repo.reference(id(change).log_ref(), commit.0, PreviousValue::Any, "fixture").unwrap();
-    }
-
     /// A path inside the fixture's directory, where default workspace paths also land.
     pub fn path(&self, name: &str) -> PathBuf { self.root.join(name) }
 
