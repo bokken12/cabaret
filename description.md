@@ -9,3 +9,5 @@ Note that none of this applies to "permanent" features which should still show "
 NOTE ON DEVELOPMENT:
 
 This feature should likely be made in a couple parts using Cabaret's change DAG and stacking functionality. Consider e.g. first making a change which just has the log info, before writing the child change which updates the UI. If uncertain about which direction is better, consider making sibling changes which demonstrate the possibilities.
+
+JOEL: this feels like slightly the wrong direction. maybe I should rewrite manually.
