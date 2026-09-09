@@ -130,8 +130,8 @@ fn a_bare_show_page_marks_what_is_missing() {
 fn show_page_status_is_landed_else_archived_else_permanent_else_open() {
     let status = |landed: bool, archived: bool, permanent: bool| {
         let land = Land { parent: "trunk".parse().unwrap(), base: revision('1'), tip: revision('a') };
-        let landed = landed.then_some(land);
-        let change = ChangeSnapshot { landed, archived, permanent, ..snapshot(None, None, &[], &[]) };
+        let lands = landed.then_some(land).into_iter().collect();
+        let change = ChangeSnapshot { lands, archived, permanent, ..snapshot(None, None, &[], &[]) };
         let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
         page.to_string().lines().nth(4).unwrap().to_owned()
     };

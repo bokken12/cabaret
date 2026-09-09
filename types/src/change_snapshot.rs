@@ -30,3 +30,9 @@ pub struct ChangeSnapshot {
     /// Where the change is checked out; see `Branch::workspace`.
     pub workspace: Option<WorkspaceId>,
 }
+
+impl ChangeSnapshot {
+    /// The land this change was archived after, if any: the version of it that is shown, as
+    /// `Metadata::landed` reads it.
+    pub fn landed(&self) -> Option<&Land> { self.archived.then(|| self.lands.last()).flatten() }
+}

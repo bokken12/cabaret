@@ -128,7 +128,7 @@ impl Page {
                 .push(Line::default().push(Segment::tagged("(no description)", Tag::Muted)).leading_to(description())),
         }
         lines.push(Line::default());
-        let status = match (&change.landed, change.archived, change.permanent) {
+        let status = match (change.landed(), change.archived, change.permanent) {
             (Some(_), _, _) => "landed",
             (None, true, _) => "archived",
             (None, false, true) => "permanent",

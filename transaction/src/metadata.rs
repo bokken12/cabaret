@@ -59,6 +59,11 @@ impl<'ctx> Metadata<'ctx> {
     /// The log commit this state was folded from; `None` before the change's first write.
     pub fn log_commit(&self) -> Option<ObjectId> { self.log_commit }
 
+    /// The land this change was archived after, if any: the version of it that is landed, as
+    /// `ChangeSnapshot::landed` reads it. An open change, permanent or unarchived, shows its
+    /// branch instead.
+    pub fn landed(&self) -> Option<&Land> { self.archived.then(|| self.lands.last()).flatten() }
+
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
             return Ok(true);
