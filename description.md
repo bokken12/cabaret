@@ -1,0 +1,1 @@
+cabaret-vscode should have a "create workspace" command and keybinding (! w c).
