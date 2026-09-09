@@ -94,9 +94,6 @@ pub enum ChangeCommand {
         /// Revision reviewed up to; defaults to the change's tip.
         #[arg(long, value_parser = parse_revision, add = revision_completer())]
         tip: Option<RevisionId>,
-        /// Revision reviewed from, repeatable; defaults to the change's bases.
-        #[arg(long, value_parser = parse_revision, add = revision_completer())]
-        base: Vec<RevisionId>,
         // TODO-someday(joel): accept paths relative to the working directory
         #[arg(required = true, value_hint = ValueHint::AnyPath)]
         files: Vec<RepoPath>,
@@ -196,12 +193,8 @@ impl ChangeCommand {
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermament { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
-            ChangeCommand::Mark { change, tip, base, files } => {
-                let bases = match base.is_empty() {
-                    true => None,
-                    false => Some(base.into_iter().collect()),
-                };
-                cabaret.mark(&or_current(change)?, &files, tip, bases)?;
+            ChangeCommand::Mark { change, tip, files } => {
+                cabaret.mark(&or_current(change)?, &files, tip)?;
             }
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;

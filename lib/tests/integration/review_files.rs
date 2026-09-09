@@ -14,7 +14,7 @@ fn review_files(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
 /// Mark `files` of `change` reviewed at its current tip, as the fixture's identity.
 fn mark(fixture: &Fixture, change: &str, files: &[&str]) {
     let files: Vec<RepoPath> = files.iter().map(|file| file.parse().unwrap()).collect();
-    fixture.cabaret.mark(&id(change), &files, None, None).unwrap();
+    fixture.cabaret.mark(&id(change), &files, None).unwrap();
 }
 
 /// `change` has one commit past its parent `main`, touching `a.txt` and `b.txt`.

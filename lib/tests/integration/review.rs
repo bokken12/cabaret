@@ -24,7 +24,7 @@ fn mark(fixture: &Fixture, change: &str, files: &[&str], head: Option<&str>, bas
     let files: Vec<RepoPath> = files.iter().map(|file| path(file)).collect();
     let head = head.map(|change| fixture.tip(change));
     let bases: Option<BTreeSet<_>> = bases.map(|bases| bases.iter().map(|change| fixture.tip(change)).collect());
-    match fixture.cabaret.mark(&id(change), &files, head, bases) {
+    match fixture.cabaret.mark(&id(change), &files, head) {
         Ok(()) => "ok".into(),
         Err(error) => format!("error: {error:?}"),
     }

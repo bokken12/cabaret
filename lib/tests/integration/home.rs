@@ -11,7 +11,7 @@ fn home(fixture: &Fixture) -> String { fixture.cabaret.home_page(&alice()).unwra
 fn mark_all(fixture: &Fixture, change: &str) {
     let files: Vec<RepoPath> =
         fixture.cabaret.review_files(&id(change), &[]).unwrap().iter().map(|file| file.path().clone()).collect();
-    fixture.cabaret.mark(&id(change), &files, None, None).unwrap();
+    fixture.cabaret.mark(&id(change), &files, None).unwrap();
 }
 
 /// Trunk is drawn only where it is selected, as the fixture's main workspace has it checked out;

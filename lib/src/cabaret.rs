@@ -552,19 +552,9 @@ impl Cabaret {
 
     /// Record that this repository's identity has reviewed `files` of `change_id` from `bases` up
     /// to `head`; each defaults to the change's own.
-    pub fn mark(
-        &self,
-        change_id: &ChangeIdRef,
-        files: &[RepoPath],
-        head: Option<RevisionId>,
-        bases: Option<BTreeSet<RevisionId>>,
-    ) -> Result<()> {
+    pub fn mark(&self, change_id: &ChangeIdRef, files: &[RepoPath], head: Option<RevisionId>) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let branch = ctx.branch(change_id)?;
-            let bases = match bases {
-                Some(bases) => bases,
-                None => branch.bases(&metadata.parents()?)?,
-            };
             let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
             if files.iter().all(|file| review.get(file) == Some(&revision)) {
