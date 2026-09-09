@@ -203,6 +203,34 @@ impl Fixture {
         self.repo.find_commit(revision.0).unwrap().message_raw().unwrap().to_string()
     }
 
+    /// `change`'s metadata commit as text: its message, then every file with its content, with
+    /// log timestamps written as `<time>` since they are taken from the clock.
+    pub fn metadata(&self, change: &str) -> String {
+        fn redact_timestamps(text: &str) -> String {
+            let mut pieces = text.split("\"timestamp\":");
+            let mut out = pieces.next().unwrap().to_string();
+            for piece in pieces {
+                out.push_str("\"timestamp\":<time>");
+                out.push_str(piece.trim_start_matches(|c: char| c.is_ascii_digit()));
+            }
+            out
+        }
+        let commit = self.repo.find_reference(&id(change).log_ref()).unwrap().peel_to_commit().unwrap();
+        let mut out = format!("message {:?}\n", redact_timestamps(&commit.message_raw().unwrap().to_string()));
+        for (path, content) in self.files_at(RevisionId(commit.id)) {
+            writeln!(out, "{path} {:?}", redact_timestamps(&content)).unwrap();
+        }
+        out
+    }
+
+    /// Store `files` as `change`'s metadata commit, over whatever is there: metadata as another
+    /// version of cabaret laid it out.
+    pub fn write_metadata(&self, change: &str, files: Files) {
+        let files = files.iter().map(|(path, content)| ((*path).into(), (*content).into())).collect();
+        let commit = self.commit_tree(write_tree(&self.repo, &files), &[]);
+        self.repo.reference(id(change).log_ref(), commit.0, PreviousValue::Any, "fixture").unwrap();
+    }
+
     /// A path inside the fixture's directory, where default workspace paths also land.
     pub fn path(&self, name: &str) -> PathBuf { self.root.join(name) }
 

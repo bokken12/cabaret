@@ -364,8 +364,8 @@ function descriptionChange(uri: vscode.Uri): ChangeId {
 
 /**
  * Serves each change's description as a file to edit in place, with a save written to the
- * change's log. Descriptions never change underneath an editor as far as VS Code can tell, so a
- * save always goes through rather than raising a conflict.
+ * change's metadata. Descriptions never change underneath an editor as far as VS Code can tell,
+ * so a save always goes through rather than raising a conflict.
  */
 class DescriptionProvider implements vscode.FileSystemProvider {
   readonly onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>().event;

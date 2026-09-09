@@ -216,13 +216,10 @@ impl Store {
 
         let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
 
-        // Every log and branch lands in one ref transaction, so a partial write cannot be observed.
+        // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
         for (id, metadata) in metadata_ids.iter().zip(&metadata) {
-            let actions = metadata.actions_since(ctx.metadata(id)?);
-            if !actions.is_empty() {
-                edits.push(metadata.append(actions)?);
-            }
+            edits.extend(metadata.write_since(ctx.metadata(id)?)?);
         }
         let mut moved = Vec::new();
         for (op, branch) in branch_ops.iter().zip(&branches) {

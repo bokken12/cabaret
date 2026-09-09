@@ -1,14 +1,16 @@
-//! What Cabaret knows about a change beyond where its branch points. Stored as a log behind a
-//! ref, see [`cabaret_types::log`], which is a fact about storage rather than about the metadata.
+//! What Cabaret knows about a change beyond where its branch points. Stored behind a ref as a
+//! commit holding a log, see [`cabaret_types::log`], beside the description as a file of its own
+//! so git merges edits to it; both are facts about storage rather than about the metadata.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TreeId,
     log::{self, LogAction, LogEntry},
 };
 use gix::{
-    ObjectId,
+    ObjectId, Tree,
+    objs::tree::{Entry, EntryKind},
     refs::{
         Target,
         transaction::{Change as RefChange, LogChange, PreviousValue, RefEdit, RefLog},
@@ -17,12 +19,29 @@ use gix::{
 
 use crate::context::TransactionContext;
 
+const LOG_FILE: &str = "log.jsonl";
+/// Always present, empty for no description, so that a description folded from an old log (see
+/// `LogAction::SetDescription`) is overridden even by clearing it.
+const DESCRIPTION_FILE: &str = "description.md";
+
+/// The text of `name` in `tree`, or `None` when no file is there.
+fn file(tree: &Tree<'_>, name: &str) -> Result<Option<String>> {
+    let Some(entry) = tree.find_entry(name) else { return Ok(None) };
+    let mut blob = entry.object()?.try_into_blob()?;
+    Ok(Some(String::from_utf8(blob.take_data())?))
+}
+
+/// The log in a metadata commit's `tree`, which every one holds.
+fn log(tree: &Tree<'_>) -> Result<String> {
+    file(tree, LOG_FILE)?.ok_or_else(|| format!("metadata tree {} has no {LOG_FILE}", tree.id).into())
+}
+
 /// A change's metadata as of one instant: everything about it except where its branch points.
 #[derive(Clone, Debug)]
 pub struct Metadata<'ctx> {
     ctx: &'ctx TransactionContext<'ctx>,
     id: ChangeId,
-    log_commit: Option<ObjectId>,
+    commit: Option<ObjectId>,
     pub title: Option<String>,
     pub description: Option<String>,
     pub archived: bool,
@@ -33,12 +52,12 @@ pub struct Metadata<'ctx> {
 }
 
 impl<'ctx> Metadata<'ctx> {
-    /// Empty metadata, as folded from `log_commit` before any entries are applied.
-    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, log_commit: Option<ObjectId>) -> Self {
+    /// Empty metadata, as read from `commit` before anything in it is applied.
+    pub fn new(ctx: &'ctx TransactionContext<'ctx>, id: ChangeId, commit: Option<ObjectId>) -> Self {
         Self {
             ctx,
             id,
-            log_commit,
+            commit,
             title: None,
             description: None,
             archived: false,
@@ -53,8 +72,8 @@ impl<'ctx> Metadata<'ctx> {
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
-    /// The log commit this state was folded from; `None` before the change's first write.
-    pub fn log_commit(&self) -> Option<ObjectId> { self.log_commit }
+    /// The commit this state was read from; `None` before the change's first write.
+    pub fn commit(&self) -> Option<ObjectId> { self.commit }
 
     pub fn is_descendant(&self, ancestor: &ChangeIdRef) -> Result<bool> {
         if ancestor == self.id.as_ref() {
@@ -97,17 +116,21 @@ impl<'ctx> Metadata<'ctx> {
         self.ctx.maximal_changes(&candidates)
     }
 
-    /// Fold `id`'s log, up to `ctx.timestamp`.
+    /// Fold `id`'s log, up to `ctx.timestamp`, and read its description.
     pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
         let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
             return Ok(Metadata::new(ctx, id.to_owned(), None));
         };
-        let log_commit = reference.into_fully_peeled_id()?.detach();
-        let mut metadata = Metadata::new(ctx, id.to_owned(), Some(log_commit));
-        for entry in log::read(&ctx.repo, log_commit)? {
+        let commit = reference.into_fully_peeled_id()?.detach();
+        let tree = ctx.repo.find_commit(commit)?.tree()?;
+        let mut metadata = Metadata::new(ctx, id.to_owned(), Some(commit));
+        for entry in log::parse(&log(&tree)?)? {
             if entry.timestamp <= ctx.timestamp {
                 metadata.apply(&entry);
             }
+        }
+        if let Some(description) = file(&tree, DESCRIPTION_FILE)? {
+            metadata.description = Some(description).filter(|text| !text.is_empty());
         }
         Ok(metadata)
     }
@@ -133,6 +156,7 @@ impl<'ctx> Metadata<'ctx> {
                 self.declared_parents.remove(parent);
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
+            // superseded by the description file once one is written, see `DESCRIPTION_FILE`
             LogAction::SetDescription { description } => self.description = description.clone(),
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
             LogAction::SetTitle { title } => self.title = title.clone(),
@@ -163,9 +187,6 @@ impl<'ctx> Metadata<'ctx> {
         if self.title != before.title {
             actions.push(LogAction::SetTitle { title: self.title.clone() });
         }
-        if self.description != before.description {
-            actions.push(LogAction::SetDescription { description: self.description.clone() });
-        }
         for (reviewer, files) in &before.review {
             let kept = |file: &RepoPath| self.review.get(reviewer).is_some_and(|files| files.contains_key(file));
             for file in files.keys().filter(|file| !kept(file)) {
@@ -185,28 +206,57 @@ impl<'ctx> Metadata<'ctx> {
         actions
     }
 
-    /// Write `actions` onto this log as entries at `ctx.timestamp`, returning the ref edit that
-    /// publishes them. The edit expects the log commit this was read from, so a concurrent append
-    /// fails rather than being overwritten.
-    pub fn append(&self, actions: Vec<LogAction>) -> Result<RefEdit> {
+    /// Write how this differs from `before` as a commit on the one this was read from: the actions
+    /// (see [`Self::actions_since`]) appended to the log at `ctx.timestamp`, and the description
+    /// as it now is. Returns the ref edit that publishes it, or `None` when nothing changed. The
+    /// edit expects the commit this was read from, so a concurrent write fails rather than being
+    /// overwritten.
+    pub fn write_since(&self, before: &Self) -> Result<Option<RefEdit>> {
+        let actions = self.actions_since(before);
+        let described = self.description != before.description;
+        if actions.is_empty() && !described {
+            return Ok(None);
+        }
+
         let ctx = self.ctx();
+        let repo = &ctx.repo;
         let user = ctx.identity()?;
         let entries: Vec<LogEntry> = actions
             .into_iter()
             .map(|action| LogEntry { timestamp: ctx.timestamp, user: user.clone(), action })
             .collect();
         let appended = log::render(&entries)?;
-        let tree = log::write(&ctx.repo, self.log_commit(), &appended)?;
-        let commit = ctx.commit(tree, self.log_commit().into_iter().map(RevisionId).collect(), appended)?;
+        let mut text = match self.commit {
+            Some(commit) => log(&repo.find_commit(commit)?.tree()?)?,
+            None => String::new(),
+        };
+        text.push_str(&appended);
+        let description = self.description.as_deref().unwrap_or("");
+        let mut entries = vec![
+            Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: repo.write_blob(text)?.detach() },
+            Entry {
+                mode: EntryKind::Blob.into(),
+                filename: DESCRIPTION_FILE.into(),
+                oid: repo.write_blob(description)?.detach(),
+            },
+        ];
+        entries.sort();
+        let tree = TreeId(repo.write_object(&gix::objs::Tree { entries })?.detach());
 
-        Ok(RefEdit {
+        let mut message = appended;
+        if described {
+            message.push_str("edit description\n");
+        }
+        let commit = ctx.commit(tree, self.commit.into_iter().map(RevisionId).collect(), message)?;
+
+        Ok(Some(RefEdit {
             change: RefChange::Update {
                 log: LogChange {
                     mode: RefLog::AndReference,
                     force_create_reflog: false,
-                    message: "cabaret: log".into(),
+                    message: "cabaret: metadata".into(),
                 },
-                expected: match self.log_commit() {
+                expected: match self.commit {
                     Some(previous) => PreviousValue::MustExistAndMatch(Target::Object(previous)),
                     None => PreviousValue::MustNotExist,
                 },
@@ -214,7 +264,7 @@ impl<'ctx> Metadata<'ctx> {
             },
             name: self.id().log_ref(),
             deref: false,
-        })
+        }))
     }
 }
 

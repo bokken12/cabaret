@@ -1,18 +1,10 @@
 //! The log each change's metadata is stored as: append-only entries behind a ref, folded on
 //! read and merged by union across devices.
 
-use gix::{
-    ObjectId, Repository,
-    objs::{
-        Tree,
-        tree::{Entry, EntryKind},
-    },
-};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, timestamp::TimestampMs,
-    tree_id::TreeId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +17,8 @@ pub enum LogAction {
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
     SetArchived { archived: bool },
+    // No longer written: the description lives in its own file beside the log, where git merges
+    // it. Kept so logs from before then still read.
     SetDescription { description: Option<String> },
     SetPermanent { permanent: bool },
     SetTitle { title: Option<String> },
@@ -40,19 +34,8 @@ pub struct LogEntry {
     pub action: LogAction,
 }
 
-const LOG_FILE: &str = "log.jsonl";
-
-fn text(repo: &Repository, commit: ObjectId) -> Result<String> {
-    let tree = repo.find_commit(commit)?.tree()?;
-    let entry = tree.find_entry(LOG_FILE).ok_or_else(|| format!("log commit {commit} has no {LOG_FILE}"))?;
-    let blob = entry.object()?.try_into_blob()?;
-    Ok(std::str::from_utf8(&blob.data)?.to_owned())
-}
-
-/// The entries of the log at `commit`, oldest first.
-pub fn read(repo: &Repository, commit: ObjectId) -> Result<Vec<LogEntry>> {
-    text(repo, commit)?.lines().map(|line| Ok(serde_json::from_str(line)?)).collect()
-}
+/// The entries of a log stored as `text`, oldest first.
+pub fn parse(text: &str) -> Result<Vec<LogEntry>> { text.lines().map(|line| Ok(serde_json::from_str(line)?)).collect() }
 
 /// `entries` as they are stored: one JSON object per line.
 pub fn render(entries: &[LogEntry]) -> Result<String> {
@@ -62,16 +45,4 @@ pub fn render(entries: &[LogEntry]) -> Result<String> {
         text.push('\n');
     }
     Ok(text)
-}
-
-/// The tree of the log commit that follows `previous` with `appended` (see [`render`]) on the end.
-pub fn write(repo: &Repository, previous: Option<ObjectId>, appended: &str) -> Result<TreeId> {
-    let mut contents = match previous {
-        Some(commit) => text(repo, commit)?,
-        None => String::new(),
-    };
-    contents.push_str(appended);
-    let blob = repo.write_blob(contents)?.detach();
-    let entry = Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: blob };
-    Ok(TreeId(repo.write_object(&Tree { entries: vec![entry] })?.detach()))
 }
