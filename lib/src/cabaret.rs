@@ -534,7 +534,7 @@ impl Cabaret {
     // TODO(joel): some helper that aligns the parent set with the derived parent set?
 
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |ctx, metadata| {
+        self.store.update_metadata(change_id, |_ctx, metadata| {
             // TODO(joel): check for cyclic dependencies
             match metadata.declared_parents.insert(parent_id.to_owned()) {
                 false => Err(format!("{parent_id} was already a parent of {change_id}"))?,

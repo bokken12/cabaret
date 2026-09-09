@@ -219,7 +219,10 @@ impl ChangeCommand {
                     }
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
                     ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
-                    ParentsCommand::Set { parents } => todo!(),
+                    ParentsCommand::Set { parents: _ } => {
+                        // TODO(joel): implement
+                        todo!()
+                    }
                 }
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
@@ -227,7 +230,7 @@ impl ChangeCommand {
                 print!("{}", cabaret.review_page(&or_current(change)?, &pathspecs)?);
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
-            ChangeCommand::Todo { change } => {
+            ChangeCommand::Todo { change: _ } => {
                 // TODO(joel): implement
                 todo!()
             }

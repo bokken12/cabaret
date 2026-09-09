@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, Identity, Pathspec, Result};
+use cabaret_lib::{Cabaret, Identity, Result};
 use clap::{Parser, Subcommand, ValueHint};
 
 pub mod args;
@@ -53,7 +53,7 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Change { command } => command.run(cabaret()?)?,
         Command::Config => todo!(),
-        Command::Fetch => fetch(&cabaret()?)?,
+        Command::Fetch => todo!(),
         Command::Home { viewer } => {
             let cabaret = cabaret()?;
             let viewer = match viewer {
@@ -74,5 +74,3 @@ pub fn run() -> Result<()> {
 
     Ok(())
 }
-
-fn fetch(cabaret: &Cabaret) -> Result<()> { todo!() }
