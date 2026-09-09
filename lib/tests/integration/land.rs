@@ -39,8 +39,8 @@ fn change_merged_into_parent_and_archived() {
           owners alice@example.com
           archived
           landed main 0d3b3690..e0d18e9e
-          base e0d18e9e
-          diff (empty)
+          base 0d3b3690
+          diff +child.txt
     "]]
     .assert_eq(&fixture.describe("child"));
     expect![[r#"
@@ -83,6 +83,35 @@ fn nothing_to_land_refuses() {
     expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
 }
 
+/// Work after landing is not landed: archiving again shows the version that was.
+#[test]
+fn archived_after_more_work_shows_the_landed_version() {
+    let fixture = diverged();
+    fixture.checkout("main");
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
+    fixture.cabaret.unarchive(&id("child")).unwrap();
+    fixture.commit("child", &[("later.txt", "later\n")]);
+    expect![[r"
+        child
+          parents main
+          owners alice@example.com
+          base e0d18e9e
+          diff +later.txt
+    "]]
+    .assert_eq(&fixture.describe("child"));
+    fixture.cabaret.archive(&id("child")).unwrap();
+    expect![[r"
+        child
+          parents main
+          owners alice@example.com
+          archived
+          landed main 0d3b3690..e0d18e9e
+          base 0d3b3690
+          diff +child.txt
+    "]]
+    .assert_eq(&fixture.describe("child"));
+}
+
 /// The landing is still recorded: archiving the change afterwards shows it.
 #[test]
 fn permanent_change_stays_open() {
@@ -107,8 +136,8 @@ fn permanent_change_stays_open() {
           archived
           permanent
           landed main 0d3b3690..e0d18e9e
-          base e0d18e9e
-          diff (empty)
+          base 0d3b3690
+          diff +child.txt
     "]]
     .assert_eq(&fixture.describe("child"));
 }

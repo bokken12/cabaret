@@ -7,7 +7,7 @@ mod page;
 pub use cabaret::{Cabaret, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Land, Pathspec, RepoPath, Result, RevisionId,
     TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use gix;

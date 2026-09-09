@@ -4,8 +4,8 @@ use std::{
 };
 
 use cabaret_lib::{
-    ChangeId, ChangeSnapshot, ChangedFile, Identity, Page, RevisionId, Segment, Session, SessionId, Status, Target,
-    TimestampMs,
+    ChangeId, ChangeSnapshot, ChangedFile, Identity, Land, Page, RevisionId, Segment, Session, SessionId, Status,
+    Target, TimestampMs,
 };
 use expect_test::expect;
 
@@ -127,16 +127,20 @@ fn a_bare_show_page_marks_what_is_missing() {
 }
 
 #[test]
-fn show_page_status_is_archived_else_permanent_else_open() {
-    let status = |archived: bool, permanent: bool| {
-        let change = ChangeSnapshot { archived, permanent, ..snapshot(None, None, &[], &[]) };
+fn show_page_status_is_landed_else_archived_else_permanent_else_open() {
+    let status = |landed: bool, archived: bool, permanent: bool| {
+        let land = Land { parent: "trunk".parse().unwrap(), base: revision('1'), tip: revision('a') };
+        let landed = landed.then_some(land);
+        let change = ChangeSnapshot { landed, archived, permanent, ..snapshot(None, None, &[], &[]) };
         let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
         page.to_string().lines().nth(4).unwrap().to_owned()
     };
-    expect![[r"Status: open"]].assert_eq(&status(false, false));
-    expect![[r"Status: permanent"]].assert_eq(&status(false, true));
-    expect![[r"Status: archived"]].assert_eq(&status(true, false));
-    expect![[r"Status: archived"]].assert_eq(&status(true, true));
+    expect![[r"Status: open"]].assert_eq(&status(false, false, false));
+    expect![[r"Status: permanent"]].assert_eq(&status(false, false, true));
+    expect![[r"Status: archived"]].assert_eq(&status(false, true, false));
+    expect![[r"Status: archived"]].assert_eq(&status(false, true, true));
+    expect![[r"Status: landed"]].assert_eq(&status(true, true, false));
+    expect![[r"Status: landed"]].assert_eq(&status(true, true, true));
 }
 
 #[test]

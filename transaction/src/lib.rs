@@ -6,7 +6,7 @@ mod store;
 mod tree;
 mod workspace;
 
-pub use branch::Branch;
+pub use branch::{Branch, Span};
 pub use context::TransactionContext;
 pub use metadata::Metadata;
 pub use revision::Revision;

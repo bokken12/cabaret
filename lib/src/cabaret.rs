@@ -279,11 +279,11 @@ impl Cabaret {
     }
 
     pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<RevisionId>> {
-        self.store.query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))
+        self.store.query(|ctx| ctx.branch(change_id)?.base(ctx.metadata(change_id)?))
     }
 
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
-        self.store.query(|ctx| ctx.branch(change_id)?.changed_files(&ctx.metadata(change_id)?.parents()?, pathspecs))
+        self.store.query(|ctx| ctx.branch(change_id)?.changed_files(ctx.metadata(change_id)?, pathspecs))
     }
 
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
@@ -307,7 +307,7 @@ impl Cabaret {
         self.store.query(|ctx| {
             let metadata = ctx.metadata(change_id)?;
             let reviewed = metadata.review.get(&ctx.identity()?).and_then(|files| files.get(path)).copied();
-            ctx.branch(change_id)?.review_base(&metadata.parents()?, reviewed)
+            ctx.branch(change_id)?.review_base(metadata, reviewed)
         })
     }
 
@@ -317,7 +317,7 @@ impl Cabaret {
         self.store.query(|ctx| {
             let metadata = ctx.metadata(change_id)?;
             let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
-            ctx.branch(change_id)?.review_files(&metadata.parents()?, &review, pathspecs)
+            ctx.branch(change_id)?.review_files(metadata, &review, pathspecs)
         })
     }
 
@@ -570,7 +570,7 @@ impl Cabaret {
             let branch = ctx.branch(change_id)?;
             let bases = match bases {
                 Some(bases) => bases,
-                None => branch.bases(&metadata.parents()?)?,
+                None => branch.span(metadata)?.bases,
             };
             let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
@@ -630,7 +630,7 @@ impl Cabaret {
             for id in &owned {
                 let metadata = changes[id];
                 let review = metadata.review.get(viewer).cloned().unwrap_or_default();
-                if !ctx.branch(id)?.review_files(&metadata.parents()?, &review, &[])?.is_empty() {
+                if !ctx.branch(id)?.review_files(metadata, &review, &[])?.is_empty() {
                     to_review.insert(id.clone());
                 }
             }

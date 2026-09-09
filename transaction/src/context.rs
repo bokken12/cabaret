@@ -13,7 +13,12 @@ use gix::{
     refs::TargetRef,
 };
 
-use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
+use crate::{
+    Revision,
+    branch::{Branch, Span},
+    metadata::Metadata,
+    workspace::Workspace,
+};
 
 // TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
 /// One transaction's view of the repository at a fixed time, holding its resources' locks
@@ -148,17 +153,17 @@ impl<'ctx> TransactionContext<'ctx> {
 
     pub fn snapshot(&'ctx self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         let (metadata, branch) = (self.metadata(change_id)?, self.branch(change_id)?);
-        let parents = metadata.parents()?;
+        let Span { bases, tip } = branch.span(metadata)?;
         Ok(ChangeSnapshot {
-            tip: branch.tip,
-            bases: branch.bases(&parents)?,
+            tip,
+            bases,
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             archived: metadata.archived,
             landed: metadata.landed().cloned(),
             permanent: metadata.permanent,
             owners: metadata.owners.clone(),
-            parents,
+            parents: metadata.parents()?,
             declared_parents: metadata.declared_parents.clone(),
             review: metadata.review.clone(),
             workspace: branch.workspace()?,

@@ -8,7 +8,15 @@ use gix::merge::{
     tree::TreatAsUnresolved,
 };
 
-use crate::{context::TransactionContext, tree};
+use crate::{context::TransactionContext, metadata::Metadata, tree};
+
+/// The revisions a change's diff runs between.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Span {
+    /// Empty for a root.
+    pub bases: BTreeSet<RevisionId>,
+    pub tip: RevisionId,
+}
 
 #[derive(Clone, Debug)]
 pub struct Branch<'ctx> {
@@ -30,32 +38,33 @@ impl<'ctx> Branch<'ctx> {
 
     pub fn id(&self) -> &ChangeIdRef { &self.id }
 
-    /// The revisions this branch is measured against: the merge base with each of `parents`, the
-    /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
-    /// keeping only the maximal ones. Empty for a root.
-    pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RevisionId>> {
+    /// What the change's diff runs between: the tip, measured against the merge base with each
+    /// change it targets (see [`Metadata::parents`]), keeping only the maximal ones. Once the
+    /// change is archived after landing, the base and tip recorded then (see
+    /// [`Metadata::landed`]): the parent has absorbed the branch, which has nothing of its own
+    /// left to show.
+    pub fn span(&self, metadata: &Metadata<'_>) -> Result<Span> {
+        if let Some(land) = metadata.landed() {
+            return Ok(Span { bases: BTreeSet::from([land.base]), tip: land.tip });
+        }
         let ctx = self.ctx;
         let mut candidates = BTreeSet::new();
-        for parent in parents {
+        for parent in &metadata.parents()? {
             candidates.insert(ctx.merge_base(self.tip, ctx.branch(parent)?.tip)?);
         }
-        ctx.maximal_revisions(&candidates)
+        Ok(Span { bases: ctx.maximal_revisions(&candidates)?, tip: self.tip })
     }
 
-    /// The revision this branch's diff is computed against: `None` for a root.
-    pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<Option<RevisionId>> {
-        self.merged(&self.bases(parents)?)
+    /// The revision the change's diff is computed against: `None` for a root.
+    pub fn base(&self, metadata: &Metadata<'_>) -> Result<Option<RevisionId>> {
+        self.merged(&self.span(metadata)?.bases)
     }
 
     /// The revision a reviewer's diff of one file is computed against: the bases merged with
     /// `reviewed`, the tip they last marked the file reviewed at, so only what has changed since
     /// remains to read. The plain base for a file they never marked.
-    pub fn review_base(
-        &self,
-        parents: &BTreeSet<ChangeId>,
-        reviewed: Option<RevisionId>,
-    ) -> Result<Option<RevisionId>> {
-        let mut revisions = self.bases(parents)?;
+    pub fn review_base(&self, metadata: &Metadata<'_>, reviewed: Option<RevisionId>) -> Result<Option<RevisionId>> {
+        let mut revisions = self.span(metadata)?.bases;
         revisions.extend(reviewed);
         self.merged(&revisions)
     }
@@ -73,29 +82,30 @@ impl<'ctx> Branch<'ctx> {
         Ok(Some(RevisionId(merged.commit_id.detach())))
     }
 
-    /// The file-level changes this branch presents against `parents`, restricted to those
+    /// The file-level changes the change presents over its [`Self::span`], restricted to those
     /// matching `pathspecs` (all when empty).
-    pub fn changed_files(&self, parents: &BTreeSet<ChangeId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
-        self.changed_files_from(self.base(parents)?, pathspecs)
+    pub fn changed_files(&self, metadata: &Metadata<'_>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        let span = self.span(metadata)?;
+        self.changed_files_from(self.merged(&span.bases)?, span.tip, pathspecs)
     }
 
-    /// The file-level changes a reviewer has left to read against `parents`: each file as its
-    /// tip differs from the file's review base (see [`Self::review_base`]), given `review`, the
-    /// tip they last marked each file reviewed at. Files are keyed by where they end up.
+    /// The file-level changes a reviewer has left to read: each file as the tip differs from the
+    /// file's review base (see [`Self::review_base`]), given `review`, the tip they last marked
+    /// each file reviewed at. Files are keyed by where they end up.
     pub fn review_files(
         &self,
-        parents: &BTreeSet<ChangeId>,
+        metadata: &Metadata<'_>,
         review: &BTreeMap<RepoPath, RevisionId>,
         pathspecs: &[Pathspec],
     ) -> Result<Vec<ChangedFile>> {
-        let bases = self.bases(parents)?;
+        let Span { bases, tip } = self.span(metadata)?;
         // One diff per distinct reviewed tip, `None` covering the files never marked.
         let mut groups: BTreeSet<Option<RevisionId>> = review.values().map(|revision| Some(*revision)).collect();
         groups.insert(None);
         let mut files = Vec::new();
         for reviewed in groups {
             let base = self.merged(&bases.iter().copied().chain(reviewed).collect())?;
-            let mut changed = self.changed_files_from(base, pathspecs)?;
+            let mut changed = self.changed_files_from(base, tip, pathspecs)?;
             changed.retain(|file| review.get(file.path()).copied() == reviewed);
             files.extend(changed);
         }
@@ -103,13 +113,18 @@ impl<'ctx> Branch<'ctx> {
         Ok(files)
     }
 
-    fn changed_files_from(&self, base: Option<RevisionId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+    fn changed_files_from(
+        &self,
+        base: Option<RevisionId>,
+        tip: RevisionId,
+        pathspecs: &[Pathspec],
+    ) -> Result<Vec<ChangedFile>> {
         let repo = &self.ctx.repo;
         let base = match base {
             None => None,
             Some(base) => Some(repo.find_commit(base.0)?.tree()?),
         };
-        let tip = repo.find_commit(self.tip.0)?.tree()?;
+        let tip = repo.find_commit(tip.0)?.tree()?;
         tree::changed_files(repo, base.as_ref(), &tip, pathspecs)
     }
 
