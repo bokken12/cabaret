@@ -308,13 +308,16 @@ class PageProvider
   }
 }
 
-/** One file of a change's `view`, as a two-sided diff shows it. */
-type FileDiff = { view: View; change: ChangeId; path: RepoPath };
+/**
+ * One file of a change's `view`, as a two-sided diff shows it. The `tip` is the change's when the
+ * diff was opened, so an action on the diff acts on what it shows even once the change moves on.
+ */
+type FileDiff = { view: View; change: ChangeId; path: RepoPath; tip: Revision };
 
 /**
- * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>[&revision=<rev>]`: the text at
- * `blobPath` in that revision, or empty with no revision, as one side of the file diff the query
- * names. The blob's own path differs from the diff's for the before side of a rename.
+ * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>&tip=<rev>[&revision=<rev>]`: the
+ * text at `blobPath` in that revision, or empty with no revision, as one side of the file diff the
+ * query names. The blob's own path differs from the diff's for the before side of a rename.
  */
 function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoPath): vscode.Uri {
   const query = new URLSearchParams(diff);
@@ -327,11 +330,16 @@ function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoP
 /** The file diff a blob is a side of. */
 function blobFileDiff(uri: vscode.Uri): FileDiff {
   const query = new URLSearchParams(uri.query);
-  const [view, change, path] = [query.get("view"), query.get("change"), query.get("path")];
-  if ((view !== "diff" && view !== "review" && view !== "workspace") || change === null || path === null) {
+  const [view, change, path, tip] = [query.get("view"), query.get("change"), query.get("path"), query.get("tip")];
+  if (
+    (view !== "diff" && view !== "review" && view !== "workspace") ||
+    change === null ||
+    path === null ||
+    tip === null
+  ) {
     throw new Error(`${uri.toString()} names no file diff`);
   }
-  return { view, change, path };
+  return { view, change, path, tip };
 }
 
 class BlobProvider implements vscode.TextDocumentContentProvider {
@@ -423,9 +431,8 @@ async function beforeRevision(
  * side is the file on disk itself, so it stays live and can be edited in place.
  */
 async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<[vscode.Uri, vscode.Uri]> {
-  const { change } = diff;
+  const { change, tip } = diff;
   const from = "from" in file ? file.from : file.path;
-  const { tip } = await cabaret.change(change);
   switch (diff.view) {
     case "diff":
     case "review":
@@ -444,7 +451,7 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
 }
 
 async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
-  const diff: FileDiff = { view, change, path: file.path };
+  const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
   const [before, after] = await sides(cabaret, diff, file);
   const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
   const title = `${file.path} (${change}${note})`;
@@ -864,6 +871,45 @@ async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fil
   }
 }
 
+/**
+ * `! m` on a file diff: record the file as reviewed up to the tip the diff shows, then move on to
+ * the next file in the view as `$` would, or after the last back to the view's page. A workspace
+ * diff shows nothing committed to review.
+ */
+async function markFile(
+  cabaret: Cabaret,
+  provider: PageProvider,
+  { view, change, path, tip }: FileDiff,
+): Promise<void> {
+  if (view === "workspace") {
+    throw new Error(`${path} is uncommitted in ${change}; commit it to review it`);
+  }
+  // Found before marking, which takes the file out of the review view.
+  const files = await viewFiles(cabaret, view, change);
+  const index = files.findIndex((file) => file.path === path);
+  const next = index === -1 ? undefined : files[index + 1];
+  await cabaret.mark(change, [path], tip);
+  vscode.window.showInformationMessage(`Cabaret: marked ${path} of ${change} reviewed up to ${tip.slice(0, 8)}`);
+  await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
+}
+
+/** `! m` on a diff or review page: record the selected files as reviewed up to the change's tip. */
+async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vscode.TextEditor): Promise<void> {
+  const route = parseRoute(editor.document.uri);
+  if (route.kind !== "diff" && route.kind !== "review") {
+    throw new Error(`the ${route.kind} page lists nothing to review`);
+  }
+  const page = provider.page(editor.document.uri);
+  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.kind);
+  if (files.length === 0) {
+    throw new Error("no file is selected");
+  }
+  const paths = files.map((file) => file.path);
+  await cabaret.mark(route.change, paths);
+  vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${route.change} reviewed`);
+  await refresh(provider);
+}
+
 /** Re-render the active page from the repository. */
 async function refresh(provider: PageProvider): Promise<void> {
   const editor = activePage();
@@ -1046,11 +1092,20 @@ async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `committed all files to ${change}`;
 }
 
+/** The target a row of a view's page leads to. */
+type FileTarget = Extract<Target, { file: ChangedFile }>;
+
+const FILE_TARGET: Record<View, FileTarget["kind"]> = {
+  diff: "Diff",
+  review: "ReviewDiff",
+  workspace: "WorkspaceDiff",
+};
+
 /**
- * The files on the rows the selections span, or on the cursor's row when nothing is selected. A
- * selection ending at the start of a line has not taken that line in.
+ * The files of `view` on the rows the selections span, or on the cursor's row when nothing is
+ * selected. A selection ending at the start of a line has not taken that line in.
  */
-function selectedFiles(page: Page, selections: readonly vscode.Selection[]): ChangedFile[] {
+function selectedFiles(page: Page, selections: readonly vscode.Selection[], view: View): ChangedFile[] {
   const rows = new Set<number>();
   for (const { start, end } of selections) {
     const last = end.character === 0 && end.line > start.line ? end.line - 1 : end.line;
@@ -1062,14 +1117,14 @@ function selectedFiles(page: Page, selections: readonly vscode.Selection[]): Cha
     .sort((a, b) => a - b)
     .flatMap((row) => {
       const target = page.lines[row]?.target;
-      return target?.kind === "WorkspaceDiff" ? [target.file] : [];
+      return target?.kind === FILE_TARGET[view] ? [target.file] : [];
     });
 }
 
 async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {
   const editor = activePage();
   const page = editor === undefined ? undefined : provider.page(editor.document.uri);
-  const files = editor === undefined || page === undefined ? [] : selectedFiles(page, editor.selections);
+  const files = editor === undefined || page === undefined ? [] : selectedFiles(page, editor.selections, "workspace");
   if (files.length === 0) {
     throw new Error("no file is selected");
   }
@@ -1148,6 +1203,18 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.refresh", () => refresh(provider)),
+    // `! m`: mark reviewed what is on screen, a file diff or the files selected on a page.
+    command("cabaret.mark", async (cabaret) => {
+      const fileDiff = activeFileDiff();
+      if (fileDiff !== undefined) {
+        await markFile(cabaret, provider, fileDiff);
+        return;
+      }
+      const editor = activePage();
+      if (editor !== undefined) {
+        await markSelected(cabaret, provider, editor);
+      }
+    }),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.createChild", provider, createChild, parentForNewChange),
