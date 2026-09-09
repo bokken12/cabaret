@@ -1,4 +1,5 @@
 mod cabaret;
+mod file_tree;
 mod home;
 #[cfg(feature = "napi")]
 mod node;
@@ -10,6 +11,7 @@ pub use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
+pub use file_tree::FileTree;
 pub use gix;
 pub use home::{Home, HomeGraph, HomeNode};
 pub use page::{Fold, Line, Page, Segment, Tag, Target};
