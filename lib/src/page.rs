@@ -3,7 +3,7 @@
 //! target under the cursor.
 // TODO-someday(joel): move page and UI details to a separate crate?
 
-use std::{fmt, path::Path};
+use std::{collections::BTreeMap, fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
@@ -167,17 +167,18 @@ impl Page {
         if files.is_empty() {
             return Self::message(empty);
         }
-        let row = |file: &ChangedFile| {
-            let (text, tag) = match file {
-                ChangedFile::Added { path } => (path.to_string(), Tag::Added),
-                ChangedFile::Deleted { path } => (path.to_string(), Tag::Deleted),
-                ChangedFile::Modified { path } => (path.to_string(), Tag::Modified),
-                ChangedFile::Renamed { from, path } => (format!("{from} -> {path}"), Tag::Renamed),
-                ChangedFile::Copied { from, path } => (format!("{from} => {path}"), Tag::Copied),
-            };
-            Line::default().push(Segment::tagged(text, tag)).leading_to(target(file.clone()))
-        };
-        Self { lines: files.iter().map(row).collect(), folds: Vec::new() }
+        let mut tree = FileTree::default();
+        for file in files {
+            let mut node = &mut tree;
+            for component in file.path().as_ref().split('/') {
+                node = node.children.entry(component).or_default();
+            }
+            node.files.push(file);
+        }
+        let mut page = Self::default();
+        tree.render(&mut page, 0, &target);
+        page.folds.sort_by_key(|fold| fold.start);
+        page
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each
@@ -219,6 +220,54 @@ impl Page {
         self.lines.extend(other.lines);
         self.folds
             .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + offset, end: fold.end + offset }));
+    }
+}
+
+/// A diff can delete a file and add a directory at the same path, so a node may hold both.
+#[derive(Default)]
+struct FileTree<'a> {
+    files: Vec<&'a ChangedFile>,
+    children: BTreeMap<&'a str, Self>,
+}
+
+impl FileTree<'_> {
+    fn render(&self, page: &mut Page, depth: usize, target: &impl Fn(ChangedFile) -> Target) {
+        for (name, child) in &self.children {
+            let mut name = (*name).to_owned();
+            let mut child = child;
+            // Only branching directories need a separate row, including along the path to a lone file.
+            while child.files.is_empty() && child.children.len() == 1 {
+                let (next, node) = child.children.first_key_value().expect("one child");
+                name.push('/');
+                name.push_str(next);
+                child = node;
+            }
+            let indent = "  ".repeat(depth);
+            for file in &child.files {
+                let (tag, source) = match file {
+                    ChangedFile::Added { .. } => (Tag::Added, None),
+                    ChangedFile::Deleted { .. } => (Tag::Deleted, None),
+                    ChangedFile::Modified { .. } => (Tag::Modified, None),
+                    ChangedFile::Renamed { from, .. } => (Tag::Renamed, Some(("moved", from))),
+                    ChangedFile::Copied { from, .. } => (Tag::Copied, Some(("copied", from))),
+                };
+                let mut row = Line::plain(&indent).push(Segment::tagged(&name, tag));
+                if let Some((verb, from)) = source {
+                    let (from_dir, from_name) = from.as_ref().rsplit_once('/').unwrap_or(("", from.as_ref()));
+                    let (to_dir, _) = file.path().as_ref().rsplit_once('/').unwrap_or(("", file.path().as_ref()));
+                    let source = if from_dir == to_dir { from_name } else { from.as_ref() };
+                    row = row.push(Segment::tagged(format!(" ← {verb} from {source}"), Tag::Muted));
+                }
+                page.lines.push(row.leading_to(target((*file).clone())));
+            }
+            if !child.children.is_empty() {
+                let start = u32::try_from(page.lines.len()).expect("pages are short");
+                page.lines.push(Line::plain(&indent).push(Segment::tagged(format!("{name}/"), Tag::Label)));
+                child.render(page, depth + 1, target);
+                let end = u32::try_from(page.lines.len() - 1).expect("pages are short");
+                page.folds.push(Fold { start, end });
+            }
+        }
     }
 }
 
