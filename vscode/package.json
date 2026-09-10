@@ -120,7 +120,7 @@
       },
       {
         "command": "cabaret.addWorkspace",
-        "title": "Cabaret: Add Workspace"
+        "title": "Cabaret: Create Workspace"
       },
       {
         "command": "cabaret.removeWorkspace",
@@ -262,7 +262,7 @@
       },
       {
         "command": "cabaret.addWorkspace",
-        "key": "shift+1 w a",
+        "key": "shift+1 w c",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'review') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
