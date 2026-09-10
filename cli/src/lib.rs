@@ -52,8 +52,8 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Command::Change { command } => command.run(cabaret()?)?,
-        Command::Config => todo!(),
-        Command::Fetch => todo!(),
+        Command::Config => return Err("config is not implemented yet".into()),
+        Command::Fetch => return Err("fetch is not implemented yet".into()),
         Command::Home { viewer } => {
             let cabaret = cabaret()?;
             let viewer = match viewer {
