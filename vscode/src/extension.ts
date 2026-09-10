@@ -846,41 +846,60 @@ async function gotoWorkspace(
   if (change === undefined) {
     return;
   }
-  await openWorkspace(context, await cabaret.workspacePath(change), activeDestination());
+  const destination = activeDestination();
+  const workspace = await workspaceFor(cabaret, change);
+  if (workspace === undefined) {
+    return;
+  }
+  if (workspace.kind === "Here") {
+    if (destination !== undefined) {
+      await provider.show(destination);
+    }
+  } else {
+    await openWorkspace(context, workspace.path, destination);
+  }
 }
 
-/**
- * Enter on a file diff: the file itself at the cursor's line, in the change's workspace. Without
- * one, offer to check the change out here, or where this workspace is another change's own, to
- * make it a workspace and open that in a new window.
- */
-async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fileDiff: FileDiff): Promise<void> {
-  const { change } = fileDiff;
-  const location = cursorLocation(fileDiff);
+/** Find a change's workspace, offering to create one or check out here if it has none. */
+async function workspaceFor(
+  cabaret: Cabaret,
+  change: ChangeId,
+): Promise<{ kind: "Here" } | { kind: "Elsewhere"; path: string } | undefined> {
   const placement = await cabaret.placement(change);
   switch (placement.kind) {
     case "Here":
-      await openFile(location);
-      return;
+      return { kind: "Here" };
     case "Elsewhere":
-      await openWorkspace(context, await cabaret.workspacePath(change), location);
-      return;
+      return { kind: "Elsewhere", path: await cabaret.workspacePath(change) };
     case "Nowhere": {
       const offer = placement.dedicated ? "Create Workspace" : "Check Out Here";
       const detail = placement.dedicated
-        ? `Create a workspace for ${change} and open ${location.path} there in a new window.`
-        : `Check ${change} out in this workspace and open ${location.path}.`;
+        ? `Create a workspace for ${change} and open it in a new window.`
+        : `Check ${change} out in this workspace.`;
       const message = `Cabaret: ${change} is not checked out in any workspace`;
       if ((await vscode.window.showInformationMessage(message, { modal: true, detail }, offer)) === undefined) {
-        return;
+        return undefined;
       }
       if (placement.dedicated) {
-        await openWorkspace(context, await cabaret.workspaceAdd(change), location);
-      } else {
-        await cabaret.workspaceSwitch(change);
-        await openFile(location);
+        return { kind: "Elsewhere", path: await cabaret.workspaceAdd(change) };
       }
+      await cabaret.workspaceSwitch(change);
+      return { kind: "Here" };
     }
+  }
+}
+
+/** Enter on a file diff opens the file at the cursor's line in the change's workspace. */
+async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fileDiff: FileDiff): Promise<void> {
+  const location = cursorLocation(fileDiff);
+  const workspace = await workspaceFor(cabaret, fileDiff.change);
+  if (workspace === undefined) {
+    return;
+  }
+  if (workspace.kind === "Here") {
+    await openFile(location);
+  } else {
+    await openWorkspace(context, workspace.path, location);
   }
 }
 
