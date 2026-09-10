@@ -50,43 +50,9 @@ fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
     }
 }
 
-/// The page with each fold bracketed in the margin: `╭` on the row that folds, `│` along the
-/// lines it hides, `╰` on the last, nested folds one column right of their enclosing one.
 fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
     let page = Page::graph(&graph(nodes)).unwrap();
-    let text = page.to_string();
-    let lines: Vec<&str> = text.lines().collect();
-    let mut margin = vec![Vec::<char>::new(); lines.len()];
-    let mut active: Vec<u32> = Vec::new();
-    for fold in &page.folds {
-        while active.last().is_some_and(|&end| end < fold.start) {
-            active.pop();
-        }
-        let col = active.len();
-        active.push(fold.end);
-        let (start, end) = (usize::try_from(fold.start).unwrap(), usize::try_from(fold.end).unwrap());
-        for (r, row) in margin.iter_mut().enumerate().take(end + 1).skip(start) {
-            if row.len() <= col {
-                row.resize(col + 1, ' ');
-            }
-            row[col] = match r {
-                _ if r == start => '╭',
-                _ if r == end => '╰',
-                _ => '│',
-            };
-        }
-    }
-    // A foldless page keeps no margin: a uniform one would not survive expect's dedent anyway.
-    let width = margin.iter().map(Vec::len).max().unwrap_or(0);
-    let bracketed: String = lines
-        .iter()
-        .zip(&margin)
-        .map(|(line, cells)| {
-            let cells: String = cells.iter().collect();
-            if width == 0 { format!("{line}\n") } else { format!("{cells:<width$}  {line}\n") }
-        })
-        .collect();
-    expect.assert_eq(&bracketed);
+    expect.assert_eq(&super::with_folds(&page, &page.to_string()));
 }
 
 #[test]

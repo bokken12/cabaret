@@ -11,7 +11,7 @@ fn empty_and_single_file_trees_need_no_folds() {
     let empty = render(&[]);
     assert_eq!(empty, Page::default());
     let single = render(&["src/parser/tokens.rs"]);
-    expect![["○ src/parser/tokens.rs\n"]].assert_eq(&single.to_string());
+    expect![["○ src/parser/tokens.rs\n"]].assert_eq(&super::with_folds(&single, &single.to_string()));
     assert!(single.folds.is_empty());
 }
 
@@ -20,19 +20,17 @@ fn nested_branches_keep_continuations_and_sorted_folds() {
     let page =
         render(&["z.txt", "src/z.rs", "src/a/二.rs", "src/a/一.rs", "src/a/deep/file.rs", "src/a/deep/other.rs"]);
     expect![[r"
-        ◌ src/
-        ├─◌ a/
-        │ ├─◌ deep/
-        │ │ ├─○ file.rs
-        │ │ ╰─○ other.rs
-        │ ├─○ 一.rs
-        │ ╰─○ 二.rs
-        ╰─○ z.rs
-        ○ z.txt
+        ╭    ◌ src/
+        │╭   ├─◌ a/
+        ││╭  │ ├─◌ deep/
+        │││  │ │ ├─○ file.rs
+        ││╰  │ │ ╰─○ other.rs
+        ││   │ ├─○ 一.rs
+        │╰   │ ╰─○ 二.rs
+        ╰    ╰─○ z.rs
+             ○ z.txt
     "]]
-    .assert_eq(&page.to_string());
-    expect![["[Fold { start: 0, end: 7 }, Fold { start: 1, end: 6 }, Fold { start: 2, end: 4 }]"]]
-        .assert_eq(&format!("{:?}", page.folds));
+    .assert_eq(&super::with_folds(&page, &page.to_string()));
 }
 
 #[test]
@@ -40,12 +38,11 @@ fn deleted_file_can_be_replaced_by_a_directory() {
     let files = [ChangedFile::Deleted { path: path("item") }, ChangedFile::Added { path: path("item/child") }];
     let page = FileTree::new(&files).render();
     expect![[r"
-        ○ [Deleted|item]
-        ◌ [Label|item/]
-        ╰─○ [Added|child]
+           ○ [Deleted|item]
+        ╭  ◌ [Label|item/]
+        ╰  ╰─○ [Added|child]
     "]]
-    .assert_eq(&super::page::markup(&page));
-    expect![["[Fold { start: 1, end: 2 }]"]].assert_eq(&format!("{:?}", page.folds));
+    .assert_eq(&super::with_folds(&page, &super::page::markup(&page)));
 }
 
 fn path(path: &str) -> RepoPath { path.parse().unwrap() }
@@ -62,14 +59,14 @@ fn mixed_changes_show_status_and_sources_under_the_destination() {
     ];
     let page = FileTree::new(&files).render();
     expect![[r"
-        ◌ [Label|src/parser/]
-        ├─○ [Added|added.rs]
-        ├─○ [Deleted|deleted.rs]
-        ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs]
-        ├─○ [Modified|modified.rs]
-        ├─○ [Renamed|new.rs][Muted| ← moved from old.rs]
-        ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs]
+        ╭  ◌ [Label|src/parser/]
+        │  ├─○ [Added|added.rs]
+        │  ├─○ [Deleted|deleted.rs]
+        │  ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs]
+        │  ├─○ [Modified|modified.rs]
+        │  ├─○ [Renamed|new.rs][Muted| ← moved from old.rs]
+        ╰  ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs]
     "]]
-    .assert_eq(&super::page::markup(&page));
+    .assert_eq(&super::with_folds(&page, &super::page::markup(&page)));
     assert!(page.lines.iter().all(|line| line.target.is_none()));
 }
