@@ -1,1 +1,5 @@
 In cabaret-vscode, when you attempt to "go to workspace" and the workspace does not exist, it should offer to either create the workspace for you or check it out in your current workspace depending on whether the current workspace is a dedicated workspace or not.
+
+Implementation: Go to Workspace and Enter on a file diff share the workspace lookup and offer. A dedicated workspace offers Create Workspace and opens the result in a new window; a reusable workspace offers Check Out Here and shows the destination locally. Existing workspaces open directly, and cancelling leaves the workspace untouched. The destination is captured before prompting.
+
+Validation: TypeScript typecheck, oxlint, source formatting, and whitespace checks pass. A mocked navigation check exercised 16 scenarios across both entry points, including existing local/remote workspaces, both offers, cancellation, and creation/checkout failures. Interactive VS Code was not exercised.
