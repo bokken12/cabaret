@@ -12,3 +12,4 @@ Other systems or ideas solving related problems or with good perspectives.
 - https://www.reviewable.io/
 - https://read.engineerscodex.com/p/how-google-takes-the-pain-out-of
 - https://pierre.computer/
+- https://ersc.io/blog/what-comes-after-git
