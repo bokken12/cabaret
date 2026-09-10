@@ -119,12 +119,12 @@
         "title": "Cabaret: Toggle Archived"
       },
       {
-        "command": "cabaret.addWorkspace",
+        "command": "cabaret.createWorkspace",
         "title": "Cabaret: Create Workspace"
       },
       {
-        "command": "cabaret.removeWorkspace",
-        "title": "Cabaret: Remove Workspace"
+        "command": "cabaret.deleteWorkspace",
+        "title": "Cabaret: Delete Workspace"
       },
       {
         "command": "cabaret.gotoWorkspace",
@@ -261,12 +261,12 @@
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'review') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
-        "command": "cabaret.addWorkspace",
+        "command": "cabaret.createWorkspace",
         "key": "shift+1 w c",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'review') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
-        "command": "cabaret.removeWorkspace",
+        "command": "cabaret.deleteWorkspace",
         "key": "shift+1 w d",
         "when": "editorTextFocus && (cabaret.page == 'home' || cabaret.page == 'show' || cabaret.page == 'diff' || cabaret.page == 'review') && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
