@@ -1,13 +1,9 @@
-use cabaret_lib::{FileTree, Line, Page, RepoPath, Segment, Tag};
+use cabaret_lib::{ChangedFile, FileTree, Page, RepoPath};
 use expect_test::expect;
 
 fn render(paths: &[&str]) -> Page {
-    let paths: Vec<RepoPath> = paths.iter().map(|path| path.parse().unwrap()).collect();
-    let mut tree = FileTree::default();
-    for path in &paths {
-        tree.insert(path, path);
-    }
-    tree.render(|_, name| Line::plain(name))
+    let files: Vec<_> = paths.iter().map(|path| ChangedFile::Modified { path: path.parse().unwrap() }).collect();
+    FileTree::new(&files).render()
 }
 
 #[test]
@@ -40,24 +36,40 @@ fn nested_branches_keep_continuations_and_sorted_folds() {
 }
 
 #[test]
-fn rendering_preserves_values_and_multiple_entries_at_the_same_path() {
-    let path: RepoPath = "item".parse().unwrap();
-    let child: RepoPath = "item/child".parse().unwrap();
-    let mut tree = FileTree::default();
-    tree.insert(&path, &1);
-    tree.insert(&path, &2);
-    tree.insert(&child, &3);
-    let page =
-        tree.render(|value, name| Line::default().push(Segment::tagged(format!("{name}: {value}"), Tag::Modified)));
+fn deleted_file_can_be_replaced_by_a_directory() {
+    let files = [ChangedFile::Deleted { path: path("item") }, ChangedFile::Added { path: path("item/child") }];
+    let page = FileTree::new(&files).render();
     expect![[r"
-        ○ item: 1
-        ○ item: 2
-        ◌ item/
-        ╰─○ child: 3
+        ○ [Deleted|item]
+        ◌ [Label|item/]
+        ╰─○ [Added|child]
     "]]
-    .assert_eq(&page.to_string());
-    expect![["[Fold { start: 2, end: 3 }]"]].assert_eq(&format!("{:?}", page.folds));
-    for index in [0, 1, 3] {
-        assert_eq!(page.lines[index].segments[1].tag, Some(Tag::Modified));
-    }
+    .assert_eq(&super::page::markup(&page));
+    expect![["[Fold { start: 1, end: 2 }]"]].assert_eq(&format!("{:?}", page.folds));
+}
+
+fn path(path: &str) -> RepoPath { path.parse().unwrap() }
+
+#[test]
+fn mixed_changes_show_status_and_sources_under_the_destination() {
+    let files = [
+        ChangedFile::Renamed { from: path("old/tokens.rs"), path: path("src/parser/tokens.rs") },
+        ChangedFile::Copied { from: path("shared/helper.rs"), path: path("src/parser/helper.rs") },
+        ChangedFile::Renamed { from: path("src/parser/old.rs"), path: path("src/parser/new.rs") },
+        ChangedFile::Added { path: path("src/parser/added.rs") },
+        ChangedFile::Deleted { path: path("src/parser/deleted.rs") },
+        ChangedFile::Modified { path: path("src/parser/modified.rs") },
+    ];
+    let page = FileTree::new(&files).render();
+    expect![[r"
+        ◌ [Label|src/parser/]
+        ├─○ [Added|added.rs]
+        ├─○ [Deleted|deleted.rs]
+        ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs]
+        ├─○ [Modified|modified.rs]
+        ├─○ [Renamed|new.rs][Muted| ← moved from old.rs]
+        ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs]
+    "]]
+    .assert_eq(&super::page::markup(&page));
+    assert!(page.lines.iter().all(|line| line.target.is_none()));
 }

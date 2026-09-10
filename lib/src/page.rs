@@ -169,27 +169,7 @@ impl Page {
         if files.is_empty() {
             return Self::message(empty);
         }
-        let mut tree = FileTree::default();
-        for file in files {
-            tree.insert(file.path(), file);
-        }
-        tree.render(|file, name| {
-            let (tag, source) = match file {
-                ChangedFile::Added { .. } => (Tag::Added, None),
-                ChangedFile::Deleted { .. } => (Tag::Deleted, None),
-                ChangedFile::Modified { .. } => (Tag::Modified, None),
-                ChangedFile::Renamed { from, .. } => (Tag::Renamed, Some(("moved", from))),
-                ChangedFile::Copied { from, .. } => (Tag::Copied, Some(("copied", from))),
-            };
-            let mut row = Line::default().push(Segment::tagged(name, tag));
-            if let Some((verb, from)) = source {
-                let (from_dir, from_name) = from.as_ref().rsplit_once('/').unwrap_or(("", from.as_ref()));
-                let (to_dir, _) = file.path().as_ref().rsplit_once('/').unwrap_or(("", file.path().as_ref()));
-                let source = if from_dir == to_dir { from_name } else { from.as_ref() };
-                row = row.push(Segment::tagged(format!(" ← {verb} from {source}"), Tag::Muted));
-            }
-            row.leading_to(target(file.clone()))
-        })
+        FileTree::new(files).render_with_targets(|file| Some(target(file.clone())))
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each
