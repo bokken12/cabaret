@@ -1262,12 +1262,12 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
-    action("cabaret.addWorkspace", provider, async (cabaret, change) => {
-      return `added a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
+    action("cabaret.createWorkspace", provider, async (cabaret, change) => {
+      return `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
     }),
-    action("cabaret.removeWorkspace", provider, async (cabaret, change) => {
+    action("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
       await cabaret.workspaceRemove(change);
-      return `removed the workspace holding ${change}`;
+      return `deleted the workspace holding ${change}`;
     }),
     command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
