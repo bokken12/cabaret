@@ -1,5 +1,7 @@
-cabaret-vscode should have a "create workspace" command and keybinding (! w c).
+Use Create Workspace and Delete Workspace in VS Code
 
-Implementation: Relabel the existing Add Workspace command as Create Workspace and bind it to ! w c instead of ! w a. Keep the cabaret.addWorkspace command ID so existing callers continue to work; its action already creates a workspace for the selected change.
+Expose workspace creation as cabaret.createWorkspace with ! w c, and deletion as cabaret.deleteWorkspace with ! w d. Update command-palette titles, registrations, keybindings, and success messages to use create/delete terminology.
 
-Validation: TypeScript typecheck, oxlint, JSON parsing, and whitespace checks pass. Verified the command title and unique ! w c binding. The package formatter reports an existing issue also present on main. Interactive VS Code was not exercised.
+The old cabaret.addWorkspace and cabaret.removeWorkspace command IDs are replaced, so custom bindings referencing them must use the new IDs.
+
+Validation: TypeScript typecheck, oxlint, source formatting, and whitespace checks pass. Verified both command IDs, titles, registrations, and bindings agree and that no old command IDs remain in the extension source or manifest. The package formatter has an existing issue also present on main. Interactive VS Code was not exercised.
