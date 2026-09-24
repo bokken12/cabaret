@@ -1,0 +1,1 @@
+Notes on Git Merge 2024–2025 talks: per-talk summaries plus the ideas most applicable to Cabaret (causal log ordering, keeping reviewed revisions reachable, change-id headers, remerge-diff, gittuf, pitfalls).
