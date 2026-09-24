@@ -1,0 +1,1 @@
+Bring docs/log.md and docs/state.md up to date with the per-commit log: actions.jsonl per write, author and time from the commit, fold order from the commit graph, and marks taking their revision as a parent. Suggested wording for human review.
