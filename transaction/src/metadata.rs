@@ -58,6 +58,9 @@ impl LogCommit {
     }
 }
 
+// TODO-someday(joel): every read folds the whole log. Materialize the state, stored on each log
+// commit or cached locally by head, and extend it by replaying only the commits after the latest
+// one that every other commit is an ancestor or descendant of, where the fold order agrees.
 /// Every action of the log ending at `head`, each after all those its commit was written on.
 /// Commits written without seeing each other go in time order, ties broken by id, so that every
 /// device folds the same log alike.
