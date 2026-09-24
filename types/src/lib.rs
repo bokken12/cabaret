@@ -22,6 +22,6 @@ pub use identity::Identity;
 pub use pathspec::Pathspec;
 pub use repo_path::RepoPath;
 pub use revision::RevisionId;
-pub use timestamp::TimestampMs;
+pub use timestamp::{TimestampMs, TimestampS};
 pub use tree_id::TreeId;
 pub use workspace_id::{WorkspaceId, WorkspaceIdRef};

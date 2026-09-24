@@ -2,6 +2,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+/// Git's timestamp resolution, as commit times are stored.
+pub type TimestampS = gix::date::SecondsSinceUnixEpoch;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TimestampMs(pub u64);

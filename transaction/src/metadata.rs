@@ -6,12 +6,11 @@
 use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TreeId,
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TimestampS, TreeId,
     log::{self, LogAction},
 };
 use gix::{
     ObjectId, Repository, Tree,
-    date::SecondsSinceUnixEpoch,
     objs::tree::{Entry, EntryKind},
     refs::{
         Target,
@@ -35,7 +34,7 @@ fn file(tree: &Tree<'_>, name: &str) -> Result<Option<String>> {
 
 /// One commit of a log: the actions it took, and the log commits it was written on.
 struct LogCommit {
-    time: SecondsSinceUnixEpoch,
+    time: TimestampS,
     parents: Vec<ObjectId>,
     actions: Vec<LogAction>,
 }
@@ -79,7 +78,7 @@ fn actions(repo: &Repository, head: ObjectId) -> Result<Vec<LogAction>> {
     }
     let mut unfolded_parents: BTreeMap<ObjectId, usize> =
         commits.iter().map(|(id, commit)| (*id, commit.parents.len())).collect();
-    let mut ready: BTreeSet<(SecondsSinceUnixEpoch, ObjectId)> =
+    let mut ready: BTreeSet<(TimestampS, ObjectId)> =
         commits.iter().filter(|(_, commit)| commit.parents.is_empty()).map(|(id, commit)| (commit.time, *id)).collect();
     let mut actions = Vec::new();
     while let Some((_, id)) = ready.pop_first() {
