@@ -105,7 +105,10 @@ impl<'ctx> Workspace<'ctx> {
     /// `git worktree add` does.
     pub fn create(&self, tip: RevisionId) -> Result<()> {
         let WorkspaceIdRef::Linked(id) = self.id() else { Err("the main workspace cannot be added")? };
-        let admin = self.ctx.repo.common_dir().join("worktrees").join(gix::path::from_bstr(id));
+        // Canonical, as a linked workspace reaches its common dir through `..` segments that
+        // stop resolving once that workspace is removed.
+        let common_dir = fs::canonicalize(self.ctx.repo.common_dir())?;
+        let admin = common_dir.join("worktrees").join(gix::path::from_bstr(id));
         if admin.exists() {
             Err(format!("workspace {id} already exists"))?;
         }
