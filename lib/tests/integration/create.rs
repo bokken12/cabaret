@@ -1,6 +1,7 @@
 //! Creating a change claims its id: an id already in use, whether by a cabaret change or a plain
 //! git branch, is refused rather than silently reused.
 
+use cabaret_lib::{Prefix, Scope};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -47,4 +48,43 @@ fn creating_a_parent_with_an_existing_id_is_refused() {
     let error = fixture.cabaret.create_parent(&id("sibling"), &id("child"), &alice()).unwrap_err();
     expect!["sibling already exists"].assert_eq(&format!("{error:?}"));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
+}
+
+#[test]
+fn prefix_goes_on_id_and_name_becomes_title() {
+    let mut fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.cabaret.set_config(Scope::Local, &"alice/".parse::<Prefix>().unwrap()).unwrap();
+    let created = fixture.cabaret.create(&id("child"), nebts![id("main")], &alice()).unwrap();
+    expect!["alice/child"].assert_eq(&created.to_string());
+    expect![[r#"
+        Some(
+            "child",
+        )
+    "#]]
+    .assert_debug_eq(&fixture.snapshot("alice/child").title);
+}
+
+#[test]
+fn prefix_goes_on_created_parent() {
+    let mut fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("child", "main", &alice());
+    fixture.cabaret.set_config(Scope::Local, &"alice/".parse::<Prefix>().unwrap()).unwrap();
+    let created = fixture.cabaret.create_parent(&id("parent"), &id("child"), &alice()).unwrap();
+    expect!["alice/parent"].assert_eq(&created.to_string());
+    expect![[r#"
+        {
+            "alice/parent",
+        }
+    "#]]
+    .assert_debug_eq(&fixture.snapshot("child").declared_parents);
+}
+
+#[test]
+fn without_prefix_id_is_name_and_title_is_unset() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("child", "main", &alice());
+    assert_eq!(fixture.snapshot("child").title, None);
 }

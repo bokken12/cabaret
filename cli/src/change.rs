@@ -24,7 +24,8 @@ pub enum ParentsCommand {
     Show,
     /// Insert a new change between this one and its parents
     Create {
-        id: ChangeId,
+        /// Its id behind your configured prefix, and its title when that makes them differ.
+        name: ChangeId,
     },
     Add {
         #[arg(add = change_completer())]
@@ -55,7 +56,8 @@ pub enum ChangeCommand {
         pathspecs: Vec<Pathspec>,
     },
     Create {
-        id: ChangeId,
+        /// Its id behind your configured prefix, and its title when that makes them differ.
+        name: ChangeId,
         #[arg(long, add = change_completer())]
         parent: Vec<ChangeId>,
         #[arg(long, add = change_completer(), conflicts_with = "parent")]
@@ -153,22 +155,22 @@ impl ChangeCommand {
                 cabaret.commit(&change, &pathspecs)?;
                 println!("committed to {change}");
             }
-            ChangeCommand::Create { id, parent, child } => {
+            ChangeCommand::Create { name, parent, child } => {
                 let owner = &cabaret.identity()?;
                 match (child, NEVec::try_from_vec(parent)) {
                     (Some(_), Some(_)) => Err("cannot pass both --parent and --child")?,
                     (Some(child), None) => {
-                        cabaret.create_parent(&id, &child, owner)?;
+                        let id = cabaret.create_parent(&name, &child, owner)?;
                         println!("created {id} as parent of {child}");
                     }
                     (None, Some(parents)) => {
-                        cabaret.create(&id, parents.into_nonempty_iter().collect(), owner)?;
+                        let id = cabaret.create(&name, parents.into_nonempty_iter().collect(), owner)?;
                         // TODO(joel): informative message
                         println!("created {id}");
                     }
                     (None, None) => {
                         let parent = cabaret.current_change()?;
-                        cabaret.create(&id, NEBTreeSet::new(parent.clone()), owner)?;
+                        let id = cabaret.create(&name, NEBTreeSet::new(parent.clone()), owner)?;
                         println!("created {id} with parent {parent}");
                     }
                 }
@@ -210,8 +212,8 @@ impl ChangeCommand {
                 let change = &or_current(change)?;
                 match command {
                     ParentsCommand::Show => return Err("change parents show is not implemented yet".into()),
-                    ParentsCommand::Create { id } => {
-                        cabaret.create_parent(&id, change, &cabaret.identity()?)?;
+                    ParentsCommand::Create { name } => {
+                        let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
                         println!("created {id} as parent of {change}");
                     }
                     ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,

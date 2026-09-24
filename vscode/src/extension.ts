@@ -1000,20 +1000,20 @@ function askChangeName(title: string): Thenable<ChangeId | undefined> {
 }
 
 async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome | undefined> {
-  const child = await askChangeName(`Cabaret: Create Child of ${parent}`);
-  if (child === undefined) {
+  const name = await askChangeName(`Cabaret: Create Child of ${parent}`);
+  if (name === undefined) {
     return undefined;
   }
-  await cabaret.create(child, parent);
+  const child = await cabaret.create(name, parent);
   return { report: `created ${child} with parent ${parent}`, show: { kind: "show", change: child } };
 }
 
 async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome | undefined> {
-  const parent = await askChangeName(`Cabaret: Create Parent of ${child}`);
-  if (parent === undefined) {
+  const name = await askChangeName(`Cabaret: Create Parent of ${child}`);
+  if (name === undefined) {
     return undefined;
   }
-  await cabaret.createParent(parent, child);
+  const parent = await cabaret.createParent(name, child);
   return { report: `created ${parent} as parent of ${child}`, show: { kind: "show", change: parent } };
 }
 

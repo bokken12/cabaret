@@ -10,6 +10,7 @@ napi = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
 gix.workspace = true
+jiff.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
 ref-cast.workspace = true

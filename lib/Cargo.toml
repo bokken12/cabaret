@@ -17,6 +17,7 @@ cabaret-agents.workspace = true
 cabaret-transaction.workspace = true
 cabaret-types.workspace = true
 gix.workspace = true
+jiff.workspace = true
 napi = { workspace = true, optional = true }
 napi-derive = { workspace = true, optional = true }
 nonempty-collections.workspace = true

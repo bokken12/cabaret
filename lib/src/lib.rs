@@ -8,8 +8,8 @@ mod page;
 pub use cabaret::{Cabaret, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId, Scope,
-    Setting, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, Prefix, RepoPath, Result,
+    RevisionId, Scope, Setting, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use file_tree::FileTree;
 pub use gix;

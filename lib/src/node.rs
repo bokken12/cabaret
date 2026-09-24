@@ -199,16 +199,16 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.commit(&change, &pathspecs)).await
     }
 
-    /// Create `change` as a child of `parent`, owned by git's user.email.
+    /// Create a change named `name` as a child of `parent`, owned by git's user.email, returning its id.
     #[napi]
-    pub async fn create(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.create(&change, NEBTreeSet::new(parent), &cabaret.identity()?)).await
+    pub async fn create(&self, name: ChangeId, parent: ChangeId) -> napi::Result<ChangeId> {
+        self.blocking(move |cabaret| cabaret.create(&name, NEBTreeSet::new(parent), &cabaret.identity()?)).await
     }
 
-    /// Create `change` as a parent of `child`, owned by git's user.email.
+    /// Create a change named `name` as a parent of `child`, owned by git's user.email, returning its id.
     #[napi]
-    pub async fn create_parent(&self, change: ChangeId, child: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.create_parent(&change, &child, &cabaret.identity()?)).await
+    pub async fn create_parent(&self, name: ChangeId, child: ChangeId) -> napi::Result<ChangeId> {
+        self.blocking(move |cabaret| cabaret.create_parent(&name, &child, &cabaret.identity()?)).await
     }
 
     #[napi]

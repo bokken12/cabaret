@@ -1,6 +1,7 @@
 mod file_tree;
 mod home;
 mod page;
+mod prefix;
 
 /// Bracket folds in the margin: `╭` on the folding row, `│` on hidden rows, `╰` on the last.
 /// Nested folds occupy successive columns; `text` may be plain or tagged page markup.

@@ -7,10 +7,11 @@ use std::{
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, Scope,
-    Setting, TimestampMs, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, Prefix, RepoPath, Result, RevisionId,
+    Scope, Setting, TimestampMs, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
+use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
@@ -414,37 +415,54 @@ impl Cabaret {
         Ok(Page::sessions(change_id, &self.sessions(change_id, claude)?, TimestampMs::now()))
     }
 
-    pub fn create(&self, change_id: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<()> {
-        let (first, rest) = parent_ids.nonempty_iter().next();
-        let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
-        let branches = [BranchOp::Insert { id: change_id, tip }];
-        self.store.transact(&[change_id], &branches, &[], |ctx, [metadata], [branch], []| {
-            for parent_id in rest {
-                branch.merge(ctx.branch(parent_id)?, "create")?;
-            }
-            metadata.declared_parents = parent_ids.iter().cloned().collect();
-            metadata.owners = BTreeSet::from([owner.clone()]);
-            Ok(())
+    /// The id a change named `name` is created under, and the title it keeps its name as when
+    /// the configured prefix makes the two differ.
+    fn claim(&self, name: &ChangeIdRef) -> Result<(ChangeId, Option<String>)> {
+        Ok(match self.config::<Prefix>()? {
+            Some(prefix) => (prefix.apply(name, &Zoned::now())?, Some(name.to_string())),
+            None => (name.to_owned(), None),
         })
     }
 
-    pub fn create_parent(&self, change_id: &ChangeIdRef, child_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
+    /// Create a change named `name` on `parent_ids`, returning its id.
+    pub fn create(&self, name: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
+        let (change_id, title) = self.claim(name)?;
+        let (first, rest) = parent_ids.nonempty_iter().next();
+        let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
+        let branches = [BranchOp::Insert { id: &change_id, tip }];
+        self.store.transact(&[&change_id], &branches, &[], |ctx, [metadata], [branch], []| {
+            for parent_id in rest {
+                branch.merge(ctx.branch(parent_id)?, "create")?;
+            }
+            metadata.title = title;
+            metadata.declared_parents = parent_ids.iter().cloned().collect();
+            metadata.owners = BTreeSet::from([owner.clone()]);
+            Ok(())
+        })?;
+        Ok(change_id)
+    }
+
+    /// Create a change named `name` between `child_id` and its parents, returning its id.
+    pub fn create_parent(&self, name: &ChangeIdRef, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
+        let (change_id, title) = self.claim(name)?;
         // TODO(joel): currently non-atomic to build tip
         let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;
         let mut to_merge = parents.iter();
         let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
 
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
-        let branches = [BranchOp::Insert { id: change_id, tip }];
-        self.store.transact(&[change_id, child_id], &branches, &[], |ctx, [change, child], [branch], []| {
+        let branches = [BranchOp::Insert { id: &change_id, tip }];
+        self.store.transact(&[&change_id, child_id], &branches, &[], |ctx, [change, child], [branch], []| {
             for parent_id in to_merge {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
+            change.title = title;
             change.declared_parents = parents.clone();
             change.owners = BTreeSet::from([owner.clone()]);
-            child.declared_parents = BTreeSet::from([change_id.to_owned()]);
+            child.declared_parents = BTreeSet::from([change_id.clone()]);
             Ok(())
-        })
+        })?;
+        Ok(change_id)
     }
 
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,

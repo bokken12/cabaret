@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, Identity, Result, Scope, Setting};
+use cabaret_lib::{Cabaret, Identity, Prefix, Result, Scope, Setting};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -7,6 +7,12 @@ pub enum ConfigCommand {
     Identity {
         #[command(subcommand)]
         command: SettingCommand<Identity>,
+    },
+    /// Put before the id of each change you create; strftime escapes like %Y%m%d expand to the
+    /// date it is created.
+    Prefix {
+        #[command(subcommand)]
+        command: SettingCommand<Prefix>,
     },
 }
 
@@ -42,6 +48,7 @@ impl ConfigCommand {
     pub fn run(self, cabaret: Cabaret) -> Result<()> {
         match self {
             ConfigCommand::Identity { command } => command.run(cabaret),
+            ConfigCommand::Prefix { command } => command.run(cabaret),
         }
     }
 }
