@@ -14,6 +14,7 @@ napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "cabaret-types/napi", "
 
 [dependencies]
 cabaret-agents.workspace = true
+cabaret-config.workspace = true
 cabaret-transaction.workspace = true
 cabaret-types.workspace = true
 gix.workspace = true

@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Setting};
+use crate::Error;
 
 // TODO-someday(joel): rename to "user" or "email"?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -30,8 +30,4 @@ impl FromStr for Identity {
         }
         Ok(Self(email.to_owned()))
     }
-}
-
-impl Setting for Identity {
-    const KEY: &'static str = "user.email";
 }
