@@ -1,12 +1,12 @@
-//! The log each change's metadata is stored as: append-only entries behind a ref, folded on
-//! read and merged by union across devices.
+//! The log each change's metadata is stored as: every write commits its own actions behind the
+//! change's ref, on the commits it saw, and reading folds them in the order that graph implies.
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath, timestamp::TimestampMs,
-};
+use crate::{RevisionId, change_id::ChangeId, error::Result, identity::Identity, repo_path::RepoPath};
 
+// TODO-someday(joel): move log to its own crate?
+// TODO-someday(joel): allow format evolution. protos? versioned?
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case")]
 pub enum LogAction {
@@ -21,24 +21,27 @@ pub enum LogAction {
     SetTitle { title: Option<String> },
 }
 
-// TODO-someday(joel): move log to its own crate?
-// TODO-someday(joel): allow format evolution. protos? versioned?
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LogEntry {
-    pub timestamp: TimestampMs,
-    pub user: Identity,
-    #[serde(flatten)]
-    pub action: LogAction,
+impl LogAction {
+    /// The revision this refers to, which its commit takes as a parent so that it is fetched and
+    /// kept for as long as the log is.
+    pub fn revision(&self) -> Option<RevisionId> {
+        match self {
+            LogAction::Mark { revision, .. } => Some(*revision),
+            _ => None,
+        }
+    }
 }
 
-/// The entries of a log stored as `text`, oldest first.
-pub fn parse(text: &str) -> Result<Vec<LogEntry>> { text.lines().map(|line| Ok(serde_json::from_str(line)?)).collect() }
+/// The actions stored as `text`, in the order they were taken.
+pub fn parse(text: &str) -> Result<Vec<LogAction>> {
+    text.lines().map(|line| Ok(serde_json::from_str(line)?)).collect()
+}
 
-/// `entries` as they are stored: one JSON object per line.
-pub fn render(entries: &[LogEntry]) -> Result<String> {
+/// `actions` as they are stored: one JSON object per line.
+pub fn render(actions: &[LogAction]) -> Result<String> {
     let mut text = String::new();
-    for entry in entries {
-        text.push_str(&serde_json::to_string(entry)?);
+    for action in actions {
+        text.push_str(&serde_json::to_string(action)?);
         text.push('\n');
     }
     Ok(text)
