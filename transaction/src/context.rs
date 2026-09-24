@@ -1,8 +1,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, RevisionId, TimestampMs, TreeId, WorkspaceId,
-    WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef,
 };
 use elsa::FrozenBTreeMap;
 use gix::{
@@ -16,10 +15,11 @@ use gix::{
 use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
 // TODO-someday(joel): rename `TransactionContext` -> `Transaction`?
-/// One transaction's view of the repository at a fixed time, holding its resources' locks
+// TODO(joel): each ref is read when first asked for, so another transaction's write to several
+// can be seen half applied; think about giving a transaction a single consistent view.
+/// One transaction's view of the repository, holding its resources' locks
 pub struct TransactionContext<'ctx> {
     pub repo: Repository,
-    pub timestamp: TimestampMs,
     metadata: FrozenBTreeMap<ChangeId, Box<Metadata<'ctx>>>,
     branches: FrozenBTreeMap<ChangeId, Box<Branch<'ctx>>>,
     workspaces: FrozenBTreeMap<WorkspaceId, Box<Workspace<'ctx>>>,
@@ -28,10 +28,7 @@ pub struct TransactionContext<'ctx> {
 
 impl fmt::Debug for TransactionContext<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TransactionContext")
-            .field("git_dir", &self.repo.git_dir())
-            .field("timestamp", &self.timestamp)
-            .finish_non_exhaustive()
+        f.debug_struct("TransactionContext").field("git_dir", &self.repo.git_dir()).finish_non_exhaustive()
     }
 }
 
@@ -39,7 +36,6 @@ impl<'ctx> TransactionContext<'ctx> {
     pub fn new(repo: Repository, locks: Vec<Marker>) -> Self {
         Self {
             repo,
-            timestamp: TimestampMs::now(),
             metadata: FrozenBTreeMap::new(),
             branches: FrozenBTreeMap::new(),
             workspaces: FrozenBTreeMap::new(),
@@ -47,7 +43,7 @@ impl<'ctx> TransactionContext<'ctx> {
         }
     }
 
-    /// `change_id`'s metadata as committed, folded up to `self.timestamp`.
+    /// `change_id`'s metadata as committed when first asked for.
     pub fn metadata(&'ctx self, change_id: &ChangeIdRef) -> Result<&'ctx Metadata<'ctx>> {
         if let Some(metadata) = self.metadata.get(change_id) {
             return Ok(metadata);

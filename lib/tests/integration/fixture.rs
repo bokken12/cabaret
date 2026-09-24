@@ -15,7 +15,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_lib::{Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId};
+use cabaret_lib::{
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId,
+    log::{self, LogAction},
+};
 use expect_test::expect;
 use gix::{
     index::entry::{Flags, Mode, Stat},
@@ -86,7 +89,11 @@ impl Fixture {
     pub fn tip(&self, change: &str) -> RevisionId { self.snapshot(change).tip }
 
     fn commit_tree(&self, tree: TreeId, parents: &[RevisionId]) -> RevisionId {
-        let time = gix::date::Time { seconds: self.clock.replace(self.clock.get() + 1), offset: 0 };
+        self.commit_tree_at(tree, parents, self.clock.replace(self.clock.get() + 1))
+    }
+
+    fn commit_tree_at(&self, tree: TreeId, parents: &[RevisionId], seconds: i64) -> RevisionId {
+        let time = gix::date::Time { seconds, offset: 0 };
         let author = gix::actor::Signature { name: "Alice Test".into(), email: alice().0.into(), time };
         let commit = gix::objs::Commit {
             tree: tree.0,
@@ -203,24 +210,33 @@ impl Fixture {
         self.repo.find_commit(revision.0).unwrap().message_raw().unwrap().to_string()
     }
 
-    /// `change`'s metadata commit as text: its message, then every file with its content, with
-    /// log timestamps written as `<time>` since they are taken from the clock.
+    /// The commit `change`'s log ref points at.
+    pub fn log_head(&self, change: &str) -> RevisionId {
+        RevisionId(self.repo.find_reference(&id(change).log_ref()).unwrap().peel_to_commit().unwrap().id)
+    }
+
+    /// `change`'s log head as text: its message, then every file with its content.
     pub fn metadata(&self, change: &str) -> String {
-        fn redact_timestamps(text: &str) -> String {
-            let mut pieces = text.split("\"timestamp\":");
-            let mut out = pieces.next().unwrap().to_string();
-            for piece in pieces {
-                out.push_str("\"timestamp\":<time>");
-                out.push_str(piece.trim_start_matches(|c: char| c.is_ascii_digit()));
-            }
-            out
-        }
-        let commit = self.repo.find_reference(&id(change).log_ref()).unwrap().peel_to_commit().unwrap();
-        let mut out = format!("message {:?}\n", redact_timestamps(&commit.message_raw().unwrap().to_string()));
-        for (path, content) in self.files_at(RevisionId(commit.id)) {
-            writeln!(out, "{path} {:?}", redact_timestamps(&content)).unwrap();
+        let head = self.log_head(change);
+        let mut out = format!("message {:?}\n", self.message(head));
+        for (path, content) in self.files_at(head) {
+            writeln!(out, "{path} {content:?}").unwrap();
         }
         out
+    }
+
+    /// A log commit of `actions` on `parents` at `seconds`, as another device might have written.
+    pub fn log_commit(&self, parents: &[RevisionId], seconds: i64, actions: &[LogAction]) -> RevisionId {
+        let files = BTreeMap::from([
+            ("actions.jsonl".into(), log::render(actions).unwrap()),
+            ("description.md".into(), String::new()),
+        ]);
+        self.commit_tree_at(write_tree(&self.repo, &files), parents, seconds)
+    }
+
+    /// Point `change`'s log ref at `revision`.
+    pub fn move_log(&self, change: &str, revision: RevisionId) {
+        self.repo.reference(id(change).log_ref(), revision.0, PreviousValue::Any, "fixture").unwrap();
     }
 
     /// A path inside the fixture's directory, where default workspace paths also land.

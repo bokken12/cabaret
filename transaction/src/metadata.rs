@@ -1,15 +1,16 @@
 //! What Cabaret knows about a change beyond where its branch points. Stored behind a ref as a
-//! commit holding a log, see [`cabaret_types::log`], beside the description as a file of its own
-//! so git merges edits to it; both are facts about storage rather than about the metadata.
+//! graph of commits each holding one write's actions, see [`cabaret_types::log`], beside the
+//! description as a file of its own so git merges edits to it; both are facts about storage
+//! rather than about the metadata.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TreeId,
-    log::{self, LogAction, LogEntry},
+    ChangeId, ChangeIdRef, Identity, RepoPath, Result, RevisionId, TimestampS, TreeId,
+    log::{self, LogAction},
 };
 use gix::{
-    ObjectId, Tree,
+    ObjectId, Repository, Tree,
     objs::tree::{Entry, EntryKind},
     refs::{
         Target,
@@ -19,7 +20,7 @@ use gix::{
 
 use crate::context::TransactionContext;
 
-const LOG_FILE: &str = "log.jsonl";
+const ACTIONS_FILE: &str = "actions.jsonl";
 /// Always present, empty for no description, so clearing it on one device while editing it on
 /// another merges as a text conflict rather than a modify/delete one.
 const DESCRIPTION_FILE: &str = "description.md";
@@ -31,9 +32,70 @@ fn file(tree: &Tree<'_>, name: &str) -> Result<Option<String>> {
     Ok(Some(String::from_utf8(blob.take_data())?))
 }
 
-/// The log in a metadata commit's `tree`, which every one holds.
-fn log(tree: &Tree<'_>) -> Result<String> {
-    file(tree, LOG_FILE)?.ok_or_else(|| format!("metadata tree {} has no {LOG_FILE}", tree.id).into())
+/// One commit of a log: the actions it took, and the log commits it was written on.
+struct LogCommit {
+    time: TimestampS,
+    parents: Vec<ObjectId>,
+    actions: Vec<LogAction>,
+}
+
+impl LogCommit {
+    /// Every parent of a log commit is another log commit except the revisions its actions refer
+    /// to, see [`LogAction::revision`].
+    fn read(repo: &Repository, id: ObjectId) -> Result<Self> {
+        let commit = repo.find_commit(id)?;
+        let text =
+            file(&commit.tree()?, ACTIONS_FILE)?.ok_or_else(|| format!("log commit {id} has no {ACTIONS_FILE}"))?;
+        let actions = log::parse(&text)?;
+        let referenced: BTreeSet<ObjectId> =
+            actions.iter().filter_map(LogAction::revision).map(ObjectId::from).collect();
+        let parents: Vec<ObjectId> = commit.parent_ids().map(gix::Id::detach).collect();
+        if let Some(missing) = referenced.iter().find(|revision| !parents.contains(revision)) {
+            Err(format!("log commit {id} refers to {missing} without taking it as a parent"))?;
+        }
+        let parents = parents.into_iter().filter(|parent| !referenced.contains(parent)).collect();
+        Ok(Self { time: commit.time()?.seconds, parents, actions })
+    }
+}
+
+// TODO-someday(joel): every read folds the whole log. Materialize the state, stored on each log
+// commit or cached locally by head, and extend it by replaying only the commits after the latest
+// one that every other commit is an ancestor or descendant of, where the fold order agrees.
+/// Every action of the log ending at `head`, each after all those its commit was written on.
+/// Commits written without seeing each other go in time order, ties broken by id, so that every
+/// device folds the same log alike.
+fn actions(repo: &Repository, head: ObjectId) -> Result<Vec<LogAction>> {
+    let mut commits = BTreeMap::new();
+    let mut frontier = vec![head];
+    while let Some(id) = frontier.pop() {
+        if let btree_map::Entry::Vacant(slot) = commits.entry(id) {
+            frontier.extend(&slot.insert(LogCommit::read(repo, id)?).parents);
+        }
+    }
+
+    let mut children: BTreeMap<ObjectId, Vec<ObjectId>> = BTreeMap::new();
+    for (id, commit) in &commits {
+        for parent in &commit.parents {
+            children.entry(*parent).or_default().push(*id);
+        }
+    }
+    let mut unfolded_parents: BTreeMap<ObjectId, usize> =
+        commits.iter().map(|(id, commit)| (*id, commit.parents.len())).collect();
+    let mut ready: BTreeSet<(TimestampS, ObjectId)> =
+        commits.iter().filter(|(_, commit)| commit.parents.is_empty()).map(|(id, commit)| (commit.time, *id)).collect();
+    let mut actions = Vec::new();
+    while let Some((_, id)) = ready.pop_first() {
+        actions.extend(commits.remove(&id).expect("each commit is ready once").actions);
+        for child in children.remove(&id).into_iter().flatten() {
+            let unfolded = unfolded_parents.get_mut(&child).expect("every child is a commit of the log");
+            *unfolded -= 1;
+            if *unfolded == 0 {
+                ready.insert((commits[&child].time, child));
+            }
+        }
+    }
+    assert!(commits.is_empty(), "every commit of a log is folded");
+    Ok(actions)
 }
 
 /// A change's metadata as of one instant: everything about it except where its branch points.
@@ -116,7 +178,7 @@ impl<'ctx> Metadata<'ctx> {
         self.ctx.maximal_changes(&candidates)
     }
 
-    /// Fold `id`'s log, up to `ctx.timestamp`, and read its description.
+    /// Fold `id`'s log and read its description.
     pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: &ChangeIdRef) -> Result<Self> {
         let Some(reference) = ctx.repo.try_find_reference(&id.log_ref())? else {
             return Ok(Metadata::new(ctx, id.to_owned(), None));
@@ -124,17 +186,15 @@ impl<'ctx> Metadata<'ctx> {
         let commit = reference.into_fully_peeled_id()?.detach();
         let tree = ctx.repo.find_commit(commit)?.tree()?;
         let mut metadata = Metadata::new(ctx, id.to_owned(), Some(commit));
-        for entry in log::parse(&log(&tree)?)? {
-            if entry.timestamp <= ctx.timestamp {
-                metadata.apply(&entry);
-            }
+        for action in actions(&ctx.repo, commit)? {
+            metadata.apply(&action);
         }
         metadata.description = file(&tree, DESCRIPTION_FILE)?.filter(|text| !text.is_empty());
         Ok(metadata)
     }
 
-    fn apply(&mut self, entry: &LogEntry) {
-        match &entry.action {
+    fn apply(&mut self, action: &LogAction) {
+        match action {
             LogAction::AddOwner { owner } => {
                 self.owners.insert(owner.clone());
             }
@@ -203,10 +263,9 @@ impl<'ctx> Metadata<'ctx> {
     }
 
     /// Write how this differs from `before` as a commit on the one this was read from: the actions
-    /// (see [`Self::actions_since`]) appended to the log at `ctx.timestamp`, and the description
-    /// as it now is. Returns the ref edit that publishes it, or `None` when nothing changed. The
-    /// edit expects the commit this was read from, so a concurrent write fails rather than being
-    /// overwritten.
+    /// (see [`Self::actions_since`]), and the description as it now is. Returns the ref edit that
+    /// publishes it, or `None` when nothing changed. The edit expects the commit this was read
+    /// from, so a concurrent write fails rather than being overwritten.
     pub fn write_since(&self, before: &Self) -> Result<Option<RefEdit>> {
         let actions = self.actions_since(before);
         let described = self.description != before.description;
@@ -216,20 +275,14 @@ impl<'ctx> Metadata<'ctx> {
 
         let ctx = self.ctx();
         let repo = &ctx.repo;
-        let user = ctx.identity()?;
-        let entries: Vec<LogEntry> = actions
-            .into_iter()
-            .map(|action| LogEntry { timestamp: ctx.timestamp, user: user.clone(), action })
-            .collect();
-        let appended = log::render(&entries)?;
-        let mut text = match self.commit {
-            Some(commit) => log(&repo.find_commit(commit)?.tree()?)?,
-            None => String::new(),
-        };
-        text.push_str(&appended);
+        let text = log::render(&actions)?;
         let description = self.description.as_deref().unwrap_or("");
         let mut entries = vec![
-            Entry { mode: EntryKind::Blob.into(), filename: LOG_FILE.into(), oid: repo.write_blob(text)?.detach() },
+            Entry {
+                mode: EntryKind::Blob.into(),
+                filename: ACTIONS_FILE.into(),
+                oid: repo.write_blob(&text)?.detach(),
+            },
             Entry {
                 mode: EntryKind::Blob.into(),
                 filename: DESCRIPTION_FILE.into(),
@@ -239,11 +292,13 @@ impl<'ctx> Metadata<'ctx> {
         entries.sort();
         let tree = TreeId(repo.write_object(&gix::objs::Tree { entries })?.detach());
 
-        let mut message = appended;
+        let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::revision).collect();
+        let parents = self.commit.map(RevisionId).into_iter().chain(referenced).collect();
+        let mut message = text;
         if described {
             message.push_str("edit description\n");
         }
-        let commit = ctx.commit(tree, self.commit.into_iter().map(RevisionId).collect(), message)?;
+        let commit = ctx.commit(tree, parents, message)?;
 
         Ok(Some(RefEdit {
             change: RefChange::Update {

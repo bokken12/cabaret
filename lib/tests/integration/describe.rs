@@ -18,8 +18,8 @@ fn description_is_a_file_beside_the_log() {
     fixture.cabaret.set_description(&id("child"), Some("What it does.\n\nAnd why.\n".into())).unwrap();
     expect![[r#"
         message "edit description\n"
+        actions.jsonl ""
         description.md "What it does.\n\nAnd why.\n"
-        log.jsonl "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-owner\",\"owner\":\"alice@example.com\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-parent\",\"parent\":\"main\"}\n"
     "#]]
     .assert_eq(&fixture.metadata("child"));
     assert_eq!(fixture.snapshot("child").description.as_deref(), Some("What it does.\n\nAnd why.\n"));
@@ -32,8 +32,8 @@ fn clearing_leaves_the_file_empty() {
     fixture.cabaret.set_description(&id("child"), None).unwrap();
     expect![[r#"
         message "edit description\n"
+        actions.jsonl ""
         description.md ""
-        log.jsonl "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-owner\",\"owner\":\"alice@example.com\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-parent\",\"parent\":\"main\"}\n"
     "#]]
     .assert_eq(&fixture.metadata("child"));
     assert_eq!(fixture.snapshot("child").description, None);
@@ -45,9 +45,9 @@ fn a_log_edit_carries_the_description_along() {
     fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
     fixture.cabaret.set_title(&id("child"), Some("Titled".into())).unwrap();
     expect![[r#"
-        message "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"set-title\",\"title\":\"Titled\"}\n"
+        message "{\"action\":\"set-title\",\"title\":\"Titled\"}\n"
+        actions.jsonl "{\"action\":\"set-title\",\"title\":\"Titled\"}\n"
         description.md "Described."
-        log.jsonl "{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-owner\",\"owner\":\"alice@example.com\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"add-parent\",\"parent\":\"main\"}\n{\"timestamp\":<time>,\"user\":\"alice@example.com\",\"action\":\"set-title\",\"title\":\"Titled\"}\n"
     "#]]
     .assert_eq(&fixture.metadata("child"));
 }
