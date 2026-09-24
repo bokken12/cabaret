@@ -24,7 +24,6 @@ pub enum ParentsCommand {
     Show,
     /// Insert a new change between this one and its parents
     Create {
-        /// Its id behind your configured prefix, and its title when that makes them differ.
         name: ChangeId,
     },
     Add {
@@ -56,7 +55,6 @@ pub enum ChangeCommand {
         pathspecs: Vec<Pathspec>,
     },
     Create {
-        /// Its id behind your configured prefix, and its title when that makes them differ.
         name: ChangeId,
         #[arg(long, add = change_completer())]
         parent: Vec<ChangeId>,
