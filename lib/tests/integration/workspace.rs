@@ -198,6 +198,15 @@ fn bare_add_from_inside_workspace_lands_beside_it() {
     expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
 
+#[test]
+fn workspace_outlives_workspace_it_was_added_from() {
+    let fixture = two_changes_in(Fixture::bare());
+    let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    let one = Cabaret::open(&two).unwrap().workspace_add(id("one"), None).unwrap();
+    fixture.cabaret.workspace_remove(linked("two").to_ref()).unwrap();
+    expect![[r#""one""#]].assert_eq(&format!("{:?}", Cabaret::open(&one).unwrap().workspace_current().unwrap()));
+}
+
 fn dedicated(fixture: &Fixture, workspace: WorkspaceId) -> bool {
     fixture.cabaret.workspace_is_dedicated(workspace.to_ref()).unwrap()
 }
