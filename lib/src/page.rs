@@ -3,7 +3,7 @@
 //! target under the cursor.
 // TODO-someday(joel): move page and UI details to a separate crate?
 
-use std::{collections::BTreeMap, fmt, path::Path};
+use std::{fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
@@ -116,15 +116,10 @@ pub struct Page {
 }
 
 impl Page {
-    /// Headed by the change's title, as every change is named where there is one; its id gets a
-    /// line of its own. `parent_titles` holds the titles of the parents that have one, and
-    /// `workspace` is the working directory of the workspace holding the change, if any.
-    pub fn show(
-        id: &ChangeIdRef,
-        change: &ChangeSnapshot,
-        parent_titles: &BTreeMap<ChangeId, String>,
-        workspace: Option<&Path>,
-    ) -> Self {
+    /// Headed by the change's title, with its id on a line of its own. Parents are listed by id,
+    /// as pointers out should be unique. `workspace` is the working directory of the workspace
+    /// holding the change, if any.
+    pub fn show(id: &ChangeIdRef, change: &ChangeSnapshot, workspace: Option<&Path>) -> Self {
         let heading = Line::default().push(Segment::tagged(name(id, change.title.as_deref()), Tag::Heading));
         let mut lines = vec![heading.leading_to(Target::Title { change: id.to_owned() }), Line::default()];
         let description = || Target::Description { change: id.to_owned() };
@@ -145,8 +140,7 @@ impl Page {
         lines.push(list(
             "Parents:",
             change.parents.iter().map(|parent| {
-                let parent_name = name(parent, parent_titles.get(parent).map(String::as_str));
-                Segment::tagged(parent_name, Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
+                Segment::tagged(parent.to_string(), Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
             }),
         ));
         let revision = |revision: &RevisionId| Segment::tagged(revision.to_string(), Tag::Revision);

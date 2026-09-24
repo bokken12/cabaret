@@ -327,17 +327,11 @@ impl Cabaret {
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
         self.store.query(|ctx| {
             let change = ctx.snapshot(change_id)?;
-            let mut parent_titles = BTreeMap::new();
-            for parent in &change.parents {
-                if let Some(title) = &ctx.metadata(parent)?.title {
-                    parent_titles.insert(parent.clone(), title.clone());
-                }
-            }
             let workspace = match &change.workspace {
                 Some(workspace) => Some(ctx.workspace(workspace.to_ref())?.path()),
                 None => None,
             };
-            Ok(Page::show(change_id, &change, &parent_titles, workspace))
+            Ok(Page::show(change_id, &change, workspace))
         })
     }
 
