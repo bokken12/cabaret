@@ -14,7 +14,7 @@ Radicle stores each collaborative object (issue, patch) as its own commit graph,
 
 ### Keeping Unreferenced Commits Alive
 
-Review state points at tips that later get rebased away. If git garbage-collects those commits, the diff since a user's last review can no longer be computed. Three precedents:
+Cabaret never rewrites history, so a reviewed tip stays reachable while its change's branch exists. It becomes unreachable only once the branch is deleted, force-pushed by another tool, or squashed. Git can then garbage-collect it, and the diff since that review is lost. Three precedents:
 
 - **jj (2025):** keeps a ref pointing at every visible commit that has no branch.
 - **GitButler (2024, 2025):** hides the head of its operation log in an entry of a reflog it controls and keeps rewriting. GC treats reflog entries as roots, but the commits never show up in `git branch` or `git log --all`.
@@ -24,12 +24,12 @@ Review state points at tips that later get rebased away. If git garbage-collects
 
 jj and GitButler write a random change ID into the commit header, not into a trailer, so it survives amend and rebase. As of 2025 they share the same header with Gerrit. Tools ignore unknown headers. GitHub dropped the header on rebase-merge in 2024, but by 2025 it keeps it because it uses `git replay`. GitLab's server-side rebase still loses it.
 
-This could let Cabaret match a reviewed commit to its rebased successor. Cabaret's tip-based review state may not need that, but it is the emerging standard if per-commit identity is ever needed.
+The header gives a commit an identity that survives rewrites. Cabaret doesn't need that, because it never rewrites commits and identifies a change by its ref. It would matter if landing ever squashes a change. A similar header could name the change a land merge came from.
 
 ### Headless Merge and Remerge-Diff (Elijah Newren, 2025)
 
 - `git merge-tree` and `git replay` merge and rebase without a worktree or index. They are the reference behaviour for computing the left side of a review diff, merge(last reviewed tip, bases), and for landing without a workspace. gix's merge support is still maturing, and so, as of 2024, was its rebase support.
-- `--remerge-diff` shows only what a human changed on top of the automatic merge. This fits reviewing a rebase: Cabaret's review state treats a clean rebase as needing no review, and remerge-diff would show exactly the conflict resolutions that do. It works only on merges, because git does not record what a rebased commit was rebased from. Cabaret knows the old tip, so it could remerge the old tip with the new base and diff that against the new tip.
+- `--remerge-diff` shows only what a human changed on top of the automatic merge. This fits reviewing a rebase: Cabaret's review state treats a clean rebase as needing no review, and remerge-diff would show exactly the conflict resolutions that do. It works only on merges, because git doesn't record what a rebased commit came from. Cabaret's rebases are merge commits, so it applies to them directly.
 - Newren's prototype stores conflicts in commit headers, as jj and GitButler do. The open risk is pushing a commit that still contains a conflict. jj refuses to push such commits.
 
 ### Policy and Approvals as Git Data (gittuf, 2024)
