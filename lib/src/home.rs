@@ -81,7 +81,7 @@ impl Page {
                 }
                 let tag = if node.selected { Tag::ChangeId } else { Tag::Muted };
                 line = line.push(Segment::tagged(row.id.to_string(), tag));
-                if let Some(title) = &node.title {
+                if let Some(title) = node.title.as_ref().filter(|title| **title != row.id.to_string()) {
                     line = line.push(Segment::plain(" ".repeat(title_start - width(row))));
                     line = line.push(if node.selected {
                         Segment::plain(title)

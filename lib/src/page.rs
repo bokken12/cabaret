@@ -119,7 +119,8 @@ impl Page {
     /// `workspace` is the working directory of the workspace holding the change, if any.
     pub fn show(id: &ChangeIdRef, change: &ChangeSnapshot, workspace: Option<&Path>) -> Self {
         let mut heading = Line::default().push(Segment::tagged(id.to_string(), Tag::Heading));
-        if let Some(title) = &change.title {
+        // A title that only repeats the id says nothing.
+        if let Some(title) = change.title.as_ref().filter(|title| **title != id.to_string()) {
             heading = heading.push(Segment::plain(" — ")).push(Segment::tagged(title, Tag::Heading));
         }
         let mut lines = vec![heading.leading_to(Target::Title { change: id.to_owned() }), Line::default()];

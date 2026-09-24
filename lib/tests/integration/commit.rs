@@ -38,6 +38,7 @@ fn edits_additions_and_deletions_become_tip() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +added.txt -main.txt +one.txt
     "]]
@@ -63,6 +64,7 @@ fn pathspecs_leave_other_files_uncommitted() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +in.txt +one.txt
     "]]
@@ -90,6 +92,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +a[1].txt +one.txt
     "]]
@@ -114,6 +117,7 @@ fn staged_files_are_committed() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +one.txt +staged.txt
     "]]
@@ -138,6 +142,7 @@ fn ignored_files_are_left_alone() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +.gitignore +one.txt
     "]]

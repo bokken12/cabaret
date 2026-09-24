@@ -387,18 +387,17 @@ impl Cabaret {
         Ok(Page::sessions(change_id, &self.sessions(change_id, claude)?, TimestampMs::now()))
     }
 
-    /// The id a change named `name` is created under, and the title it keeps its name as when
-    /// the configured prefix makes the two differ.
-    fn claim(&self, name: &str) -> Result<(ChangeId, Option<String>)> {
-        Ok(match self.config::<Prefix>()? {
-            Some(prefix) => (prefix.apply(name, &Zoned::now())?, Some(name.to_owned())),
-            None => (name.parse()?, None),
-        })
+    /// The id a change named `name` is created under: `name` behind the configured prefix.
+    fn claim(&self, name: &str) -> Result<ChangeId> {
+        match self.config::<Prefix>()? {
+            Some(prefix) => prefix.apply(name, &Zoned::now()),
+            None => Ok(name.parse()?),
+        }
     }
 
     /// Create a change named `name` on `parent_ids`, returning its id.
     pub fn create(&self, name: &str, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
-        let (change_id, title) = self.claim(name)?;
+        let change_id = self.claim(name)?;
         let (first, rest) = parent_ids.nonempty_iter().next();
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
         let branches = [BranchOp::Insert { id: &change_id, tip }];
@@ -406,7 +405,7 @@ impl Cabaret {
             for parent_id in rest {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
-            metadata.title = title;
+            metadata.title = Some(name.to_owned());
             metadata.declared_parents = parent_ids.iter().cloned().collect();
             metadata.owners = BTreeSet::from([owner.clone()]);
             Ok(())
@@ -416,7 +415,7 @@ impl Cabaret {
 
     /// Create a change named `name` between `child_id` and its parents, returning its id.
     pub fn create_parent(&self, name: &str, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
-        let (change_id, title) = self.claim(name)?;
+        let change_id = self.claim(name)?;
         // TODO(joel): currently non-atomic to build tip
         let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;
         let mut to_merge = parents.iter();
@@ -428,7 +427,7 @@ impl Cabaret {
             for parent_id in to_merge {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
-            change.title = title;
+            change.title = Some(name.to_owned());
             change.declared_parents = parents.clone();
             change.owners = BTreeSet::from([owner.clone()]);
             child.declared_parents = BTreeSet::from([change_id.clone()]);

@@ -537,28 +537,33 @@ fn scene_state() {
         advanced-parent 54a49f30
           parents main
           owners alice@example.com
+          title advanced-parent
           base main
           diff +advanced-parent.txt
         archived 8fd049ba
           parents main
           owners alice@example.com
           archived
+          title archived
           base main
           diff +archived.txt
         behind-child 2360539f
           parents advanced-parent
           owners alice@example.com
+          title behind-child
           base 77cc9daf
           diff +behind-child.txt
         child-of-archived 22e75840
           parents main
           declared archived
           owners alice@example.com
+          title child-of-archived
           base main
           diff +archived.txt +child-of-archived.txt
         co-owned 846dd910
           parents main
           owners alice@example.com bob@example.com
+          title co-owned
           base main
           diff +co-owned.txt
         described 8210a240
@@ -571,26 +576,31 @@ fn scene_state() {
         empty be64648c
           parents main
           owners alice@example.com
+          title empty
           base main
           diff (empty)
         fork-base b088f3ac
           parents main
           owners alice@example.com
+          title fork-base
           base main
           diff +fork-base.txt
         fork-join 16934e40
           parents fork-left fork-right
           owners carol@example.com
+          title fork-join
           base 5e1786ac
           diff +fork-join.txt
         fork-left 3454c042
           parents fork-base
           owners alice@example.com
+          title fork-left
           base fork-base
           diff +fork-left.txt
         fork-right a7b00c77
           parents fork-base
           owners bob@example.com
+          title fork-right
           base fork-base
           diff +fork-right.txt
         main be64648c
@@ -600,21 +610,25 @@ fn scene_state() {
           workspace main
           parents main
           owners alice@example.com
+          title single
           base main
           diff +single.txt
         stack-bottom cf5a0eef
           parents main
           owners alice@example.com
+          title stack-bottom
           base main
           diff +stack-bottom.txt
         stack-middle c247222b
           parents stack-bottom
           owners alice@example.com
+          title stack-middle
           base stack-bottom
           diff +stack-middle.txt
         stack-top 48008586
           parents stack-middle
           owners alice@example.com
+          title stack-top
           base stack-middle
           diff +stack-top.txt
         unlogged b86566a3

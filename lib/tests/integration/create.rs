@@ -82,11 +82,11 @@ fn prefix_goes_on_created_parent() {
 }
 
 #[test]
-fn without_prefix_id_is_name_and_title_is_unset() {
+fn without_prefix_id_and_title_are_name() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
-    assert_eq!(fixture.snapshot("child").title, None);
+    assert_eq!(fixture.snapshot("child").title.as_deref(), Some("child"));
 }
 
 #[test]

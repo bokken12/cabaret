@@ -20,7 +20,7 @@ fn second_transaction_waits_for_first() {
         let second = scope.spawn(|| fixture.cabaret.set_title(&id("child"), Some("titled".into())));
         thread::sleep(Duration::from_millis(500));
         assert!(!second.is_finished(), "the second transaction ran despite the held lock");
-        assert_eq!(fixture.snapshot("child").title, None);
+        assert_eq!(fixture.snapshot("child").title.as_deref(), Some("child"));
         drop(lock);
         second.join().unwrap().unwrap();
     });
@@ -39,7 +39,7 @@ fn other_changes_are_not_held_up() {
 fn queries_take_no_locks() {
     let fixture = parent_and_child();
     let _lock = fixture.hold_lock("metadata", "child");
-    assert_eq!(fixture.snapshot("child").title, None);
+    assert_eq!(fixture.snapshot("child").title.as_deref(), Some("child"));
 }
 
 #[test]

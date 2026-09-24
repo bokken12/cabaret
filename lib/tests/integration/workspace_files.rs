@@ -75,6 +75,7 @@ fn committing_moves_files_into_the_diff() {
           workspace main
           parents main
           owners alice@example.com
+          title one
           base main
           diff +added.txt +one.txt
     "]]

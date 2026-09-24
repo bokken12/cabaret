@@ -38,6 +38,7 @@ fn change_merged_into_parent_and_archived() {
           parents main
           owners alice@example.com
           archived
+          title child
           base e0d18e9e
           diff (empty)
     "]]

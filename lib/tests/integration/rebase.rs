@@ -34,6 +34,7 @@ fn parent_merged_into_change() {
           workspace main
           parents main
           owners alice@example.com
+          title child
           base main
           diff +child.txt
     "]]
