@@ -389,15 +389,15 @@ impl Cabaret {
 
     /// The id a change named `name` is created under, and the title it keeps its name as when
     /// the configured prefix makes the two differ.
-    fn claim(&self, name: &ChangeIdRef) -> Result<(ChangeId, Option<String>)> {
+    fn claim(&self, name: &str) -> Result<(ChangeId, Option<String>)> {
         Ok(match self.config::<Prefix>()? {
-            Some(prefix) => (prefix.apply(name, &Zoned::now())?, Some(name.to_string())),
-            None => (name.to_owned(), None),
+            Some(prefix) => (prefix.apply(name, &Zoned::now())?, Some(name.to_owned())),
+            None => (name.parse()?, None),
         })
     }
 
     /// Create a change named `name` on `parent_ids`, returning its id.
-    pub fn create(&self, name: &ChangeIdRef, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
+    pub fn create(&self, name: &str, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
         let (change_id, title) = self.claim(name)?;
         let (first, rest) = parent_ids.nonempty_iter().next();
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
@@ -415,7 +415,7 @@ impl Cabaret {
     }
 
     /// Create a change named `name` between `child_id` and its parents, returning its id.
-    pub fn create_parent(&self, name: &ChangeIdRef, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
+    pub fn create_parent(&self, name: &str, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
         let (change_id, title) = self.claim(name)?;
         // TODO(joel): currently non-atomic to build tip
         let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;

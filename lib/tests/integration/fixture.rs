@@ -122,7 +122,7 @@ impl Fixture {
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret.create(&id(change), NEBTreeSet::new(id(parent)), owner).unwrap();
+        self.cabaret.create(change, NEBTreeSet::new(id(parent)), owner).unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.

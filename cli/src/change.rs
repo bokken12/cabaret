@@ -24,7 +24,7 @@ pub enum ParentsCommand {
     Show,
     /// Insert a new change between this one and its parents
     Create {
-        name: ChangeId,
+        name: String,
     },
     Add {
         #[arg(add = change_completer())]
@@ -55,7 +55,7 @@ pub enum ChangeCommand {
         pathspecs: Vec<Pathspec>,
     },
     Create {
-        name: ChangeId,
+        name: String,
         #[arg(long, add = change_completer())]
         parent: Vec<ChangeId>,
         #[arg(long, add = change_completer(), conflicts_with = "parent")]

@@ -64,7 +64,7 @@ fn created_parent_sits_between_child_and_its_parents() {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("b", "2")]);
     fixture.commit("main", &[("c", "3")]);
-    fixture.cabaret.create_parent(&id("parent"), &id("child"), &alice()).unwrap();
+    fixture.cabaret.create_parent("parent", &id("child"), &alice()).unwrap();
     let parent = fixture.snapshot("parent");
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
     expect![[r#"{Identity("alice@example.com")}"#]].assert_eq(&format!("{:?}", parent.owners));
@@ -84,7 +84,7 @@ fn created_parent_sits_between_child_and_its_parents() {
 fn created_parent_requires_base() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
-    let error = fixture.cabaret.create_parent(&id("parent"), &id("main"), &alice()).unwrap_err();
+    let error = fixture.cabaret.create_parent("parent", &id("main"), &alice()).unwrap_err();
     expect!["main has no base to create a parent from"].assert_eq(&format!("{error:?}"));
 }
 
@@ -96,7 +96,7 @@ fn created_on_several_parents_starts_at_their_merge() {
     fixture.commit("left", &[("left.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
-    fixture.cabaret.create(&id("join"), nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
     expect![[r#"
         join
           parents left right
@@ -115,7 +115,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create(&id("join"), nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
     expect![[r#"
         join
           parents left right

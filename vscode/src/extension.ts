@@ -995,7 +995,7 @@ async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return report.join("; ");
 }
 
-function askChangeName(title: string): Thenable<ChangeId | undefined> {
+function askChangeName(title: string): Thenable<string | undefined> {
   return vscode.window.showInputBox({ title, prompt: "Name of the new change", ignoreFocusOut: true });
 }
 
