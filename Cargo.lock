@@ -182,6 +182,7 @@ version = "0.0.0"
 dependencies = [
  "cabaret-types",
  "gix",
+ "jiff",
 ]
 
 [[package]]
@@ -216,7 +217,6 @@ name = "cabaret-types"
 version = "0.0.0"
 dependencies = [
  "gix",
- "jiff",
  "napi",
  "napi-derive",
  "ref-cast",

@@ -1,8 +1,9 @@
 use std::{fmt, str::FromStr};
 
+use cabaret_types::{ChangeId, ChangeIdRef, Error, Result};
 use jiff::{Timestamp, Zoned, fmt::strtime, tz::TimeZone};
 
-use crate::{ChangeId, ChangeIdRef, Error, Result, Setting};
+use crate::Setting;
 
 /// Prepended to the id of each change you create, so ids you pick need only be unique among
 /// yours. Its strftime escapes (`%Y`, `%m`, `%d`, …) expand to the time the change is created.

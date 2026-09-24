@@ -5,19 +5,11 @@ use std::{
 };
 
 use cabaret_agents::{ClaudeCode, Session};
-use cabaret_config::{Scope, Setting};
+use cabaret_config::{Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-<<<<<<< change-id-prefix
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, Prefix, RepoPath, Result, RevisionId,
-    Scope, Setting, TimestampMs, WorkspaceId, WorkspaceIdRef,
-||||||| base
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, Scope,
-    Setting, TimestampMs, WorkspaceId, WorkspaceIdRef,
-=======
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
     WorkspaceId, WorkspaceIdRef,
->>>>>>> config-settings
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
