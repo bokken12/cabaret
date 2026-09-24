@@ -1,6 +1,8 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
+
+use crate::{Error, Setting};
 
 // TODO-someday(joel): rename to "user" or "email"?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -17,4 +19,19 @@ impl AsRef<str> for Identity {
 
 impl fmt::Display for Identity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
+}
+
+impl FromStr for Identity {
+    type Err = Error;
+
+    fn from_str(email: &str) -> Result<Self, Error> {
+        if email.is_empty() || email.contains(['<', '>', '\n']) {
+            Err(format!("{email:?} cannot be a git user.email"))?;
+        }
+        Ok(Self(email.to_owned()))
+    }
+}
+
+impl Setting for Identity {
+    const KEY: &'static str = "user.email";
 }

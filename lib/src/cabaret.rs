@@ -7,8 +7,8 @@ use std::{
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, Scope,
+    Setting, TimestampMs, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
@@ -75,6 +75,58 @@ impl Cabaret {
             }
         }
         fs::write(dir.join(".git"), GITFILE)?;
+        Ok(())
+    }
+
+    // Config operations
+
+    /// `S` as git config reads it here, from whichever scope sets it.
+    pub fn config<S: Setting>(&self) -> Result<Option<S>> {
+        let repo = self.store.repo.to_thread_local();
+        repo.config_snapshot().string(S::KEY).map(|value| value.to_str()?.parse()).transpose()
+    }
+
+    pub fn set_config<S: Setting>(&mut self, scope: Scope, value: &S) -> Result<()> {
+        self.edit_config(scope, |file| Ok(file.set_raw_value(S::KEY, value.to_string().as_str()).map(drop)?))
+    }
+
+    pub fn unset_config<S: Setting>(&mut self, scope: Scope) -> Result<()> {
+        let key = gix::config::KeyRef::parse_unvalidated(S::KEY.into()).expect("a setting's key is section.name");
+        self.edit_config(scope, |file| {
+            let removed = file
+                .section_mut(key.section_name, key.subsection_name)
+                .ok()
+                .and_then(|mut section| section.remove(key.value_name));
+            match removed {
+                Some(_) => Ok(()),
+                None => Err(format!("{} is not set in {scope} config", S::KEY))?,
+            }
+        })
+    }
+
+    /// Rewrite `scope`'s config file under git's lock on it, then reload it so this instance reads
+    /// the edit.
+    fn edit_config(&mut self, scope: Scope, edit: impl FnOnce(&mut gix::config::File) -> Result<()>) -> Result<()> {
+        let mut repo = self.store.repo.to_thread_local();
+        let (path, source) = match scope {
+            Scope::Local => (repo.common_dir().join("config"), gix::config::Source::Local),
+            Scope::Global => {
+                let source = gix::config::Source::User;
+                let path =
+                    source.storage_location(&mut |name| std::env::var_os(name)).ok_or("no home for global config")?;
+                (path, source)
+            }
+        };
+        let mut lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None)?;
+        let mut file = match fs::exists(&path)? {
+            true => gix::config::File::from_path_no_includes(path.clone(), source)?,
+            false => gix::config::File::new(gix::config::file::Metadata::from(source)),
+        };
+        edit(&mut file)?;
+        file.write_to(&mut lock)?;
+        lock.commit()?;
+        repo.reload()?;
+        self.store.repo = repo.into_sync();
         Ok(())
     }
 

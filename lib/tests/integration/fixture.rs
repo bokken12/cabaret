@@ -184,6 +184,15 @@ impl Fixture {
     /// The main working directory as text; see [`worktree`].
     pub fn worktree(&self) -> String { worktree(&self.repo) }
 
+    /// The `section` of the repository's local config file as written, without the rest, which
+    /// git fills in per platform.
+    pub fn local_config(&self, section: &str) -> String {
+        let config = fs::read_to_string(self.repo.common_dir().join("config")).unwrap();
+        let start = config.find(&format!("[{section}]")).unwrap();
+        let end = config[start + 1..].find('[').map_or(config.len(), |end| start + 1 + end);
+        config[start..end].to_owned()
+    }
+
     pub fn write(&self, path: &str, content: &str) {
         fs::write(self.repo.workdir().unwrap().join(path), content).unwrap();
     }

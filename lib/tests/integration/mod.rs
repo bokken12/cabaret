@@ -1,5 +1,6 @@
 mod changed_files;
 mod commit;
+mod config;
 mod create;
 mod describe;
 mod fixture;
