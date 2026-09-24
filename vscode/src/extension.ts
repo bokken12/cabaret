@@ -464,11 +464,10 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
 }
 
 async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
-  const snapshot = await cabaret.change(change);
-  const diff: FileDiff = { view, change, path: file.path, tip: snapshot.tip };
+  const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
   const [before, after] = await sides(cabaret, diff, file);
   const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
-  const title = `${file.path} (${snapshot.title ?? change}${note})`;
+  const title = `${file.path} (${change}${note})`;
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
   await replacingActive(after, async () => {
@@ -511,7 +510,7 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
   const { title } = await cabaret.change(change);
   const edited = (
     await vscode.window.showInputBox({
-      title: `Cabaret: Edit Title of ${title ?? change}`,
+      title: `Cabaret: Edit Title of ${change}`,
       value: title,
       prompt: "Title of the change, blank for none",
       ignoreFocusOut: true,
@@ -680,7 +679,7 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
       return;
     }
     vscode.window.setStatusBarMessage(
-      `Cabaret: ${path} has nothing ${view === "review" ? "unreviewed" : "changed"} in ${await nameOf(cabaret, change)}`,
+      `Cabaret: ${path} has nothing ${view === "review" ? "unreviewed" : "changed"} in ${change}`,
       3000,
     );
     await provider.open({ kind: view, change });
@@ -697,12 +696,12 @@ async function stepFile(cabaret: Cabaret, { view, change, path }: FileDiff, dire
   const files = await viewFiles(cabaret, view, change);
   const index = files.findIndex((file) => file.path === path);
   if (index === -1) {
-    throw new Error(`${path} is no longer in ${await nameOf(cabaret, change)}'s diff`);
+    throw new Error(`${path} is no longer in ${change}'s diff`);
   }
   const file = files[direction === "up" ? index - 1 : index + 1];
   if (file === undefined) {
     const end = direction === "up" ? "first" : "last";
-    vscode.window.setStatusBarMessage(`Cabaret: ${path} is the ${end} file in ${await nameOf(cabaret, change)}`, 3000);
+    vscode.window.setStatusBarMessage(`Cabaret: ${path} is the ${end} file in ${change}`, 3000);
     return;
   }
   await openFileDiff(cabaret, view, change, file);
@@ -730,7 +729,7 @@ async function step(cabaret: Cabaret, provider: PageProvider, direction: Directi
   const relation = direction === "up" ? "parents" : "children";
   const candidates = [...(direction === "up" ? (await cabaret.change(from)).parents : await cabaret.children(from))];
   if (candidates.length === 0) {
-    vscode.window.setStatusBarMessage(`Cabaret: ${await nameOf(cabaret, from)} has no ${relation}`, 3000);
+    vscode.window.setStatusBarMessage(`Cabaret: ${from} has no ${relation}`, 3000);
     return;
   }
   const to =
@@ -738,7 +737,7 @@ async function step(cabaret: Cabaret, provider: PageProvider, direction: Directi
       ? candidates[0]
       : (
           await vscode.window.showQuickPick(await changeItems(cabaret, candidates), {
-            title: `Cabaret: ${relation} of ${await nameOf(cabaret, from)}`,
+            title: `Cabaret: ${relation} of ${from}`,
           })
         )?.change;
   if (to === undefined) {
@@ -758,15 +757,6 @@ async function step(cabaret: Cabaret, provider: PageProvider, direction: Directi
   const position = editor.document.validatePosition(new vscode.Position(row, editor.selection.active.character));
   editor.selection = new vscode.Selection(position, position);
   editor.revealRange(new vscode.Range(position, position));
-}
-
-/** What `change` is called wherever it is shown: its title, or its id when it has none. */
-async function nameOf(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  return (await cabaret.change(change)).title ?? change;
-}
-
-async function namesOf(cabaret: Cabaret, changes: Iterable<ChangeId>): Promise<string> {
-  return words(await Promise.all([...changes].map((change) => nameOf(cabaret, change))));
 }
 
 type ChangeItem = vscode.QuickPickItem & { change: ChangeId };
@@ -895,11 +885,10 @@ async function workspaceFor(
       return { kind: "Elsewhere", path: await cabaret.workspacePath(change) };
     case "Nowhere": {
       const offer = placement.dedicated ? "Create Workspace" : "Check Out Here";
-      const name = await nameOf(cabaret, change);
       const detail = placement.dedicated
-        ? `Create a workspace for ${name} and open it in a new window.`
-        : `Check ${name} out in this workspace.`;
-      const message = `Cabaret: ${name} is not checked out in any workspace`;
+        ? `Create a workspace for ${change} and open it in a new window.`
+        : `Check ${change} out in this workspace.`;
+      const message = `Cabaret: ${change} is not checked out in any workspace`;
       if ((await vscode.window.showInformationMessage(message, { modal: true, detail }, offer)) === undefined) {
         return undefined;
       }
@@ -937,15 +926,14 @@ async function markFile(
   { view, change, path, tip }: FileDiff,
 ): Promise<void> {
   if (view === "workspace") {
-    throw new Error(`${path} is uncommitted in ${await nameOf(cabaret, change)}; commit it to review it`);
+    throw new Error(`${path} is uncommitted in ${change}; commit it to review it`);
   }
   // Found before marking, which takes the file out of the review view.
   const files = await viewFiles(cabaret, view, change);
   const index = files.findIndex((file) => file.path === path);
   const next = index === -1 ? undefined : files[index + 1];
   await cabaret.mark(change, [path], tip);
-  const name = await nameOf(cabaret, change);
-  vscode.window.showInformationMessage(`Cabaret: marked ${path} of ${name} reviewed up to ${tip.slice(0, 8)}`);
+  vscode.window.showInformationMessage(`Cabaret: marked ${path} of ${change} reviewed up to ${tip.slice(0, 8)}`);
   await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
 }
 
@@ -962,9 +950,7 @@ async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vs
   }
   const paths = files.map((file) => file.path);
   await cabaret.mark(route.change, paths);
-  vscode.window.showInformationMessage(
-    `Cabaret: marked ${words(paths)} of ${await nameOf(cabaret, route.change)} reviewed`,
-  );
+  vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${route.change} reviewed`);
   await refresh(provider);
 }
 
@@ -1009,17 +995,14 @@ const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
 async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
   const rebase = await cabaret.rebase(change);
-  const name = await nameOf(cabaret, change);
   const report = [
-    rebase.merged.size === 0
-      ? `${name} is already up to date`
-      : `rebased ${name} onto ${await namesOf(cabaret, rebase.merged)}`,
+    rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
   if (rebase.conflicts.size > 0) {
     report.push(`conflicts in ${words(rebase.conflicts)}`);
   }
   if (rebase.remaining.size > 0) {
-    report.push(`resolve them and rebase again to continue onto ${await namesOf(cabaret, rebase.remaining)}`);
+    report.push(`resolve them and rebase again to continue onto ${words(rebase.remaining)}`);
   }
   return report.join("; ");
 }
@@ -1029,29 +1012,26 @@ function askChangeName(title: string): Thenable<string | undefined> {
 }
 
 async function createChild(cabaret: Cabaret, parent: ChangeId): Promise<Outcome | undefined> {
-  const parentName = await nameOf(cabaret, parent);
-  const name = await askChangeName(`Cabaret: Create Child of ${parentName}`);
+  const name = await askChangeName(`Cabaret: Create Child of ${parent}`);
   if (name === undefined) {
     return undefined;
   }
   const child = await cabaret.create(name, parent);
-  return { report: `created ${name} with parent ${parentName}`, show: { kind: "show", change: child } };
+  return { report: `created ${child} with parent ${parent}`, show: { kind: "show", change: child } };
 }
 
 async function createParent(cabaret: Cabaret, child: ChangeId): Promise<Outcome | undefined> {
-  const childName = await nameOf(cabaret, child);
-  const name = await askChangeName(`Cabaret: Create Parent of ${childName}`);
+  const name = await askChangeName(`Cabaret: Create Parent of ${child}`);
   if (name === undefined) {
     return undefined;
   }
   const parent = await cabaret.createParent(name, child);
-  return { report: `created ${name} as parent of ${childName}`, show: { kind: "show", change: parent } };
+  return { report: `created ${parent} as parent of ${child}`, show: { kind: "show", change: parent } };
 }
 
 async function addOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const name = await nameOf(cabaret, change);
   const owner = await vscode.window.showInputBox({
-    title: `Cabaret: Add Owner of ${name}`,
+    title: `Cabaret: Add Owner of ${change}`,
     prompt: "Email of the new owner",
     ignoreFocusOut: true,
   });
@@ -1059,45 +1039,41 @@ async function addOwner(cabaret: Cabaret, change: ChangeId): Promise<string | un
     return undefined;
   }
   await cabaret.addOwner(change, owner);
-  return `added ${owner} as an owner of ${name}`;
+  return `added ${owner} as an owner of ${change}`;
 }
 
 async function removeOwner(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const { owners, title } = await cabaret.change(change);
-  const name = title ?? change;
-  const owner = await vscode.window.showQuickPick([...owners], { title: `Cabaret: Remove Owner of ${name}` });
+  const { owners } = await cabaret.change(change);
+  const owner = await vscode.window.showQuickPick([...owners], { title: `Cabaret: Remove Owner of ${change}` });
   if (owner === undefined) {
     return undefined;
   }
   await cabaret.removeOwner(change, owner);
-  return `removed ${owner} as an owner of ${name}`;
+  return `removed ${owner} as an owner of ${change}`;
 }
 
 async function addParent(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const name = await nameOf(cabaret, change);
-  const parent = await pickChange(cabaret, `Cabaret: Add Parent of ${name}`);
+  const parent = await pickChange(cabaret, `Cabaret: Add Parent of ${change}`);
   if (parent === undefined) {
     return undefined;
   }
   await cabaret.addParent(change, parent);
-  return `added ${await nameOf(cabaret, parent)} as a parent of ${name}`;
+  return `added ${parent} as a parent of ${change}`;
 }
 
 async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const { declaredParents, title } = await cabaret.change(change);
-  const name = title ?? change;
-  const items = await changeItems(cabaret, declaredParents);
+  const items = await changeItems(cabaret, (await cabaret.change(change)).declaredParents);
   const parent = (
     await vscode.window.showQuickPick(items, {
-      title: `Cabaret: Remove Parent of ${name}`,
-      placeHolder: items.length === 0 ? `${name} declares no parents` : undefined,
+      title: `Cabaret: Remove Parent of ${change}`,
+      placeHolder: items.length === 0 ? `${change} declares no parents` : undefined,
     })
   )?.change;
   if (parent === undefined) {
     return undefined;
   }
   await cabaret.removeParent(change, parent);
-  return `removed ${await nameOf(cabaret, parent)} as a parent of ${name}`;
+  return `removed ${parent} as a parent of ${change}`;
 }
 
 /**
@@ -1105,9 +1081,8 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
  * create a workspace for a change checked out nowhere.
  */
 async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const name = await nameOf(cabaret, change);
   const prompt = await vscode.window.showInputBox({
-    title: `Cabaret: Start Session on ${name}`,
+    title: `Cabaret: Start Session on ${change}`,
     prompt: "What should the agent do?",
     ignoreFocusOut: true,
   });
@@ -1116,7 +1091,7 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   }
   if ((await cabaret.placement(change)).kind === "Nowhere") {
     const create = await vscode.window.showWarningMessage(
-      `${name} is not checked out in any workspace. Create one for it?`,
+      `${change} is not checked out in any workspace. Create one for it?`,
       { modal: true },
       "Create Workspace",
     );
@@ -1129,7 +1104,7 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
     .getConfiguration("cabaret")
     .get<string[]>("sessionArgs", ["--permission-mode", "auto", "--permission-prompts", "none"]);
   await cabaret.startSession(change, prompt, args);
-  return `started a session on ${name}`;
+  return `started a session on ${change}`;
 }
 
 /**
@@ -1137,9 +1112,8 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
  * nothing left to do there. A permanent change stays open, so its workspace is not offered.
  */
 async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  const into = await cabaret.land(change);
-  const { archived, workspace, title } = await cabaret.change(change);
-  const landed = `landed ${title ?? change} into ${await nameOf(cabaret, into)}`;
+  const landed = `landed ${change} into ${await cabaret.land(change)}`;
+  const { archived, workspace } = await cabaret.change(change);
   if (!archived || workspace === undefined) {
     return landed;
   }
@@ -1156,12 +1130,12 @@ async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${await nameOf(cabaret, change)}`;
+  return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
 }
 
 async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
   await cabaret.commit(change, []);
-  return `committed all files to ${await nameOf(cabaret, change)}`;
+  return `committed all files to ${change}`;
 }
 
 /** The target a row of a view's page leads to. */
@@ -1201,7 +1175,7 @@ async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: 
     throw new Error("no file is selected");
   }
   await cabaret.commit(change, files);
-  return `committed ${words(files.map((file) => file.path))} to ${await nameOf(cabaret, change)}`;
+  return `committed ${words(files.map((file) => file.path))} to ${change}`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -1303,11 +1277,11 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
     action("cabaret.createWorkspace", provider, async (cabaret, change) => {
-      return `created a workspace for ${await nameOf(cabaret, change)} at ${await cabaret.workspaceAdd(change)}`;
+      return `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
     }),
     action("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
       await cabaret.workspaceRemove(change);
-      return `deleted the workspace holding ${await nameOf(cabaret, change)}`;
+      return `deleted the workspace holding ${change}`;
     }),
     command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
