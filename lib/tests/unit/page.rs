@@ -67,39 +67,47 @@ pub fn markup(page: &Page) -> String {
 }
 
 #[test]
-fn a_show_page_tags_its_parts_and_targets_its_parents() {
+fn a_show_page_is_headed_by_its_title_and_names_parents_by_theirs() {
     let change = snapshot(
         Some("Add the parser"),
         Some("A recursive descent parser.\n\nWith tests."),
         &["alice@example.com", "bob@example.com"],
         &["lexer", "tokens"],
     );
-    let page = Page::show(&"add-parser".parse::<ChangeId>().unwrap(), &change, Some(Path::new("/repo/add-parser")));
+    let parent_titles = BTreeMap::from([("lexer".parse().unwrap(), "Lex the input".to_owned())]);
+    let page = Page::show(
+        &"add-parser".parse::<ChangeId>().unwrap(),
+        &change,
+        &parent_titles,
+        Some(Path::new("/repo/add-parser")),
+    );
     expect![[r"
-        [Heading|add-parser] — [Heading|Add the parser] => title:add-parser
+        [Heading|Add the parser] => title:add-parser
 
         A recursive descent parser. => description:add-parser
          => description:add-parser
         With tests. => description:add-parser
 
+        [Label|Id:] [ChangeId|add-parser]
         [Label|Status:] open
         [Label|Owners:] alice@example.com, bob@example.com
-        [Label|Parents:] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Label|Parents:] [ChangeId>change:lexer|Lex the input], [ChangeId>change:tokens|tokens]
         [Label|Tip:] [Revision|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]
         [Label|Bases:] [Revision|1111111111111111111111111111111111111111], [Revision|2222222222222222222222222222222222222222]
         [Label|Workspace:] /repo/add-parser
     "]]
     .assert_eq(&markup(&page));
     expect![[r"
-        add-parser — Add the parser
+        Add the parser
 
         A recursive descent parser.
 
         With tests.
 
+        Id: add-parser
         Status: open
         Owners: alice@example.com, bob@example.com
-        Parents: lexer, tokens
+        Parents: Lex the input, tokens
         Tip: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         Bases: 1111111111111111111111111111111111111111, 2222222222222222222222222222222222222222
         Workspace: /repo/add-parser
@@ -109,12 +117,14 @@ fn a_show_page_tags_its_parts_and_targets_its_parents() {
 
 #[test]
 fn a_bare_show_page_marks_what_is_missing() {
-    let page = Page::show(&"bare".parse::<ChangeId>().unwrap(), &snapshot(None, None, &[], &[]), None);
+    let page =
+        Page::show(&"bare".parse::<ChangeId>().unwrap(), &snapshot(None, None, &[], &[]), &BTreeMap::new(), None);
     expect![[r"
         [Heading|bare] => title:bare
 
         [Muted|(no description)] => description:bare
 
+        [Label|Id:] [ChangeId|bare]
         [Label|Status:] open
         [Label|Owners:] [Muted|(none)]
         [Label|Parents:] [Muted|(none)]
@@ -129,8 +139,8 @@ fn a_bare_show_page_marks_what_is_missing() {
 fn show_page_status_is_archived_else_permanent_else_open() {
     let status = |archived: bool, permanent: bool| {
         let change = ChangeSnapshot { archived, permanent, ..snapshot(None, None, &[], &[]) };
-        let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None);
-        page.to_string().lines().nth(4).unwrap().to_owned()
+        let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, &BTreeMap::new(), None);
+        page.to_string().lines().nth(5).unwrap().to_owned()
     };
     expect![[r"Status: open"]].assert_eq(&status(false, false));
     expect![[r"Status: permanent"]].assert_eq(&status(false, true));

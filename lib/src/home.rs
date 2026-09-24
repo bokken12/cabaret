@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{ChangeId, Identity, Result};
 
-use crate::page::{Fold, Line, Page, Segment, Tag, Target};
+use crate::page::{Fold, Line, Page, Segment, Tag, Target, name};
 
 /// A change in a home graph: one the graph is about, or an open ancestor shown as context.
 pub struct HomeNode {
@@ -58,7 +58,8 @@ impl Page {
     }
 
     /// `○` marks the selected changes, `◌` ancestors shown as context, and `»` a label that
-    /// plumbing pushed right of its depth position. Titles sit in a column right of every label.
+    /// plumbing pushed right of its depth position. Each change is labelled by its title, or its id
+    /// when untitled.
     /// Connected components render one after another, each starting with a root on the left
     /// margin; every row leads to its change, and a change whose stack sits directly below it
     /// folds that stack away.
@@ -69,8 +70,6 @@ impl Page {
             rows.extend(draw(graph, &component, &depths)?);
         }
 
-        let width = |row: &Row| row.art.chars().count() + row.id.to_string().chars().count();
-        let title_start = rows.iter().map(width).max().expect("a non-empty graph has rows") + 2;
         let lines = rows
             .iter()
             .map(|row| {
@@ -80,15 +79,7 @@ impl Page {
                     line = line.push(Segment::tagged("»", Tag::Muted));
                 }
                 let tag = if node.selected { Tag::ChangeId } else { Tag::Muted };
-                line = line.push(Segment::tagged(row.id.to_string(), tag));
-                if let Some(title) = node.title.as_ref().filter(|title| **title != row.id.to_string()) {
-                    line = line.push(Segment::plain(" ".repeat(title_start - width(row))));
-                    line = line.push(if node.selected {
-                        Segment::plain(title)
-                    } else {
-                        Segment::tagged(title, Tag::Muted)
-                    });
-                }
+                line = line.push(Segment::tagged(name(row.id, node.title.as_deref()), tag));
                 line.leading_to(Target::Change { change: row.id.clone() })
             })
             .collect();

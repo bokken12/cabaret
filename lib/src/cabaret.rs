@@ -272,6 +272,19 @@ impl Cabaret {
 
     pub fn changes(&self) -> Result<Vec<ChangeId>> { self.store.query(|ctx| ctx.changes()) }
 
+    /// The title of every change that has one.
+    pub fn titles(&self) -> Result<BTreeMap<ChangeId, String>> {
+        self.store.query(|ctx| {
+            let mut titles = BTreeMap::new();
+            for change in ctx.changes()? {
+                if let Some(title) = &ctx.metadata(&change)?.title {
+                    titles.insert(change, title.clone());
+                }
+            }
+            Ok(titles)
+        })
+    }
+
     pub fn identity(&self) -> Result<Identity> { self.store.query(|ctx| ctx.identity()) }
 
     pub fn current_change(&self) -> Result<ChangeId> { self.store.query(|ctx| ctx.current_change()) }
@@ -314,11 +327,17 @@ impl Cabaret {
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
         self.store.query(|ctx| {
             let change = ctx.snapshot(change_id)?;
+            let mut parent_titles = BTreeMap::new();
+            for parent in &change.parents {
+                if let Some(title) = &ctx.metadata(parent)?.title {
+                    parent_titles.insert(parent.clone(), title.clone());
+                }
+            }
             let workspace = match &change.workspace {
                 Some(workspace) => Some(ctx.workspace(workspace.to_ref())?.path()),
                 None => None,
             };
-            Ok(Page::show(change_id, &change, workspace))
+            Ok(Page::show(change_id, &change, &parent_titles, workspace))
         })
     }
 

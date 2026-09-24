@@ -30,7 +30,7 @@ fn owned_changes_plus_open_ancestors_as_context() {
 
         Owned
         ◌   infra
-        ╰─○   feature  My feature
+        ╰─○   My feature
 
         Workspaces
         ○   main

@@ -96,3 +96,17 @@ fn name_that_cannot_be_id_is_refused() {
     let error = fixture.cabaret.create("two words", nebts![id("main")], &alice()).unwrap_err();
     expect![[r#"Reference name contains invalid byte: " ""#]].assert_eq(&format!("{error:?}"));
 }
+
+#[test]
+fn titles_cover_changes_with_one() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("child", "main", &alice());
+    fixture.branch("unlogged", "main");
+    expect![[r#"
+        {
+            "child": "child",
+        }
+    "#]]
+    .assert_debug_eq(&fixture.cabaret.titles().unwrap());
+}

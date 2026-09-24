@@ -163,22 +163,22 @@ fn unowned_ancestors_render_as_context() {
 }
 
 #[test]
-fn titles_sit_in_a_column_after_the_ids() {
+fn titles_stand_in_for_ids() {
     let mut graph =
         graph(&[("infra-core", false, "main"), ("api-routes", true, "infra-core"), ("ui", true, "api-routes")]);
     titled(&mut graph, "infra-core", "Core infrastructure");
     titled(&mut graph, "ui", "Add the UI");
     let page = Page::graph(&graph).unwrap();
     expect![[r"
-        ◌   infra-core    Core infrastructure
+        ◌   Core infrastructure
         ╰─○   api-routes
-          ╰─○   ui        Add the UI
+          ╰─○   Add the UI
     "]]
     .assert_eq(&page.to_string());
     expect![[r"
-        ◌   [Muted|infra-core]    [Muted|Core infrastructure] => change:infra-core
+        ◌   [Muted|Core infrastructure] => change:infra-core
         ╰─○   [ChangeId|api-routes] => change:api-routes
-          ╰─○   [ChangeId|ui]        Add the UI => change:ui
+          ╰─○   [ChangeId|Add the UI] => change:ui
     "]]
     .assert_eq(&super::page::markup(&page));
 }

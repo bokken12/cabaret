@@ -2,7 +2,11 @@
 // TODO-someday(joel): move js wrapper to a separate crate?
 #![allow(clippy::needless_pass_by_value)]
 
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use cabaret_agents::ClaudeCode;
 use cabaret_types::{
@@ -67,6 +71,13 @@ impl CabaretJs {
 
     #[napi]
     pub async fn changes(&self) -> napi::Result<Vec<ChangeId>> { self.blocking(Cabaret::changes).await }
+
+    /// The title of every change that has one, by change id.
+    #[napi]
+    pub async fn titles(&self) -> napi::Result<HashMap<String, String>> {
+        let titles = self.blocking(Cabaret::titles).await?;
+        Ok(titles.into_iter().map(|(change, title)| (change.to_string(), title)).collect())
+    }
 
     #[napi]
     pub async fn current_change(&self) -> napi::Result<ChangeId> { self.blocking(Cabaret::current_change).await }
