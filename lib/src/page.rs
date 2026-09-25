@@ -31,7 +31,7 @@ pub enum Tag {
 /// what the workspace holding it has on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "lowercase"))]
-pub enum View {
+pub enum DiffView {
     Diff,
     Review,
     Workspace,
@@ -46,7 +46,7 @@ pub enum Target {
     },
     /// Files of `change`, as its `view` diffs them.
     Diff {
-        view: View,
+        view: DiffView,
         change: ChangeId,
         files: Vec<ChangedFile>,
     },
@@ -154,11 +154,11 @@ impl Page {
     /// The files `change`'s `view` diffs, headed by the change's name, which links to the first
     /// file listed so that diffs can be read in order from the top; below, each file leads to its
     /// own diff and each folder to all under it.
-    pub fn files(change: &ChangeIdRef, title: Option<&str>, view: View, files: &[ChangedFile]) -> Self {
+    pub fn files(change: &ChangeIdRef, title: Option<&str>, view: DiffView, files: &[ChangedFile]) -> Self {
         let kind = match view {
-            View::Diff => "changed",
-            View::Review => "unreviewed",
-            View::Workspace => "uncommitted",
+            DiffView::Diff => "changed",
+            DiffView::Review => "unreviewed",
+            DiffView::Workspace => "uncommitted",
         };
         let target = |files: &[&ChangedFile]| Target::Diff {
             view,

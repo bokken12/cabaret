@@ -17,7 +17,7 @@ use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode},
-    page::{Page, View},
+    page::{DiffView, Page},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -367,15 +367,20 @@ impl Cabaret {
     }
 
     /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty).
-    pub fn view_files(&self, change_id: &ChangeIdRef, view: View, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+    pub fn view_files(
+        &self,
+        change_id: &ChangeIdRef,
+        view: DiffView,
+        pathspecs: &[Pathspec],
+    ) -> Result<Vec<ChangedFile>> {
         match view {
-            View::Diff => self.changed_files(change_id, pathspecs),
-            View::Review => self.review_files(change_id, pathspecs),
-            View::Workspace => self.workspace_files(change_id, pathspecs),
+            DiffView::Diff => self.changed_files(change_id, pathspecs),
+            DiffView::Review => self.review_files(change_id, pathspecs),
+            DiffView::Workspace => self.workspace_files(change_id, pathspecs),
         }
     }
 
-    pub fn files_page(&self, change_id: &ChangeIdRef, view: View, pathspecs: &[Pathspec]) -> Result<Page> {
+    pub fn files_page(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<Page> {
         let files = self.view_files(change_id, view, pathspecs)?;
         Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
     }

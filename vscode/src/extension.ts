@@ -9,7 +9,7 @@ import {
   type SessionId,
   type Tag,
   type Target,
-  type View,
+  type DiffView,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -37,9 +37,9 @@ function openCabaret(): Cabaret {
 }
 
 /** The views whose sides are both committed, so the reviewer only reads. */
-type CommittedView = Exclude<View, "workspace">;
+type CommittedView = Exclude<DiffView, "workspace">;
 
-type Route = { kind: "home" } | { kind: "show" | View; change: ChangeId };
+type Route = { kind: "home" } | { kind: "show" | DiffView; change: ChangeId };
 
 function routeUri(route: Route): vscode.Uri {
   const path = route.kind === "home" ? "/home" : `/${route.kind}/${route.change}`;
@@ -343,7 +343,7 @@ class PageProvider
  * One file of a change's `view`, as a two-sided diff shows it. The `tip` is the change's when the
  * diff was opened, so an action on the diff acts on what it shows even once the change moves on.
  */
-type FileDiff = { view: View; change: ChangeId; path: RepoPath; tip: Revision };
+type FileDiff = { view: DiffView; change: ChangeId; path: RepoPath; tip: Revision };
 
 /** The files of a diff tab: one for a two-sided diff, several for a multi-file diff. */
 type FilesDiff = Omit<FileDiff, "path"> & { paths: [RepoPath, ...RepoPath[]] };
@@ -484,12 +484,12 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
   }
 }
 
-function diffTitle(subject: string, view: View, change: ChangeId): string {
+function diffTitle(subject: string, view: DiffView, change: ChangeId): string {
   const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
   return `${subject} (${change}${note})`;
 }
 
-async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
+async function openFileDiff(cabaret: Cabaret, view: DiffView, change: ChangeId, file: ChangedFile): Promise<void> {
   const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
   const [before, after] = await sides(cabaret, diff, file);
   // Pinned: a preview would take over the tab about to be closed.
@@ -500,7 +500,7 @@ async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file
 }
 
 /** Several files of a change's `view` in one multi-file diff; a lone file in a plain file diff. */
-async function openFileDiffs(cabaret: Cabaret, view: View, change: ChangeId, files: ChangedFile[]): Promise<void> {
+async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId, files: ChangedFile[]): Promise<void> {
   const [only, ...rest] = files;
   if (only === undefined) {
     throw new Error(`no files of ${change} to diff`);
@@ -1207,7 +1207,7 @@ async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
  * The files of `view` on the rows the selections span, or on the cursor's row when nothing is
  * selected. A selection ending at the start of a line has not taken that line in.
  */
-function selectedFiles(page: Page, selections: readonly vscode.Selection[], view: View): ChangedFile[] {
+function selectedFiles(page: Page, selections: readonly vscode.Selection[], view: DiffView): ChangedFile[] {
   const rows = new Set<number>();
   for (const { start, end } of selections) {
     const last = end.character === 0 && end.line > start.line ? end.line - 1 : end.line;
