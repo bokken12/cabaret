@@ -1,0 +1,1 @@
+Discard uncommitted changes: `Workspace::discard` puts matched paths back as HEAD has them on disk and in the index, leaving other staged files alone. Exposed as `cab change discard <pathspecs>...` (a pathspec is required; `.` for everything) and in VS Code as `! - c` (Cabaret: Discard Selected) on the uncommitted changes page, which always asks for confirmation.
