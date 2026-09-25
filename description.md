@@ -1,0 +1,1 @@
+List the diff views once, with a compile-time check that the list is exhaustive, instead of repeating the literals in parseRoute's regex, its check and blobFileDiff.
