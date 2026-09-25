@@ -179,11 +179,18 @@ impl Page {
     ) -> Self {
         let owned = |files: &[&ChangedFile]| files.iter().map(|&file| file.clone()).collect();
         let tree = FileTree::new(files);
-        let heading = Line::default()
-            .push(Segment::tagged(name(change, title), Tag::Heading))
-            .push(Segment::tagged(format!(" · {kind} files"), Tag::Muted));
         let first = tree.listed_files().first().map(|&first| target(vec![first.clone()]));
-        let mut page = Self { lines: vec![Line { target: first, ..heading }, Line::default()], folds: Vec::new() };
+        // Linked from its text rather than led to by the line, as selections gather the files of
+        // lines and the heading is not one.
+        let heading = [
+            Segment::tagged(name(change, title), Tag::Heading),
+            Segment::tagged(format!(" · {kind} files"), Tag::Muted),
+        ]
+        .into_iter()
+        .map(|segment| Segment { target: first.clone(), ..segment })
+        .collect();
+        let mut page =
+            Self { lines: vec![Line { segments: heading, target: None }, Line::default()], folds: Vec::new() };
         page.append(match files.is_empty() {
             true => Self::message(format!("no {kind} files")),
             false => tree.render_with_targets(|files| Some(target(owned(files)))),

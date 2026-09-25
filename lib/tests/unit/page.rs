@@ -156,7 +156,7 @@ fn a_diff_page_targets_each_file() {
     ];
     let page = Page::diff(&"change".parse::<ChangeId>().unwrap(), Some("Tidy the parser"), &files);
     expect![[r"
-        [Heading|Tidy the parser][Muted| · changed files] => diff:change:b.rs
+        [Heading>diff:change:b.rs|Tidy the parser][Muted>diff:change:b.rs| · changed files]
 
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => diff:change:b.rs
         ○ [Copied|d.rs][Muted| ← copied from c.rs] => diff:change:d.rs
@@ -185,7 +185,7 @@ fn a_review_page_targets_each_unreviewed_file() {
     let files = [ChangedFile::Modified { path: path("src/lib.rs") }, ChangedFile::Added { path: path("src/new.rs") }];
     let page = Page::review(&"change".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        [Heading|change][Muted| · unreviewed files] => review:change:src/lib.rs
+        [Heading>review:change:src/lib.rs|change][Muted>review:change:src/lib.rs| · unreviewed files]
 
         ◌ [Label|src/] => review:change:src/lib.rs,src/new.rs
         ├─○ [Modified|lib.rs] => review:change:src/lib.rs
@@ -214,7 +214,7 @@ fn a_workspace_page_targets_each_file_on_disk() {
     ];
     let change = "change".parse::<ChangeId>().unwrap();
     expect![[r"
-        [Heading|change][Muted| · uncommitted files] => workspace:change:b.rs
+        [Heading>workspace:change:b.rs|change][Muted>workspace:change:b.rs| · uncommitted files]
 
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => workspace:change:b.rs
         ○ [Modified|src/lib.rs] => workspace:change:src/lib.rs
@@ -275,7 +275,7 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
     let change = "tree".parse::<ChangeId>().unwrap();
     let page = Page::diff(&change, None, &files);
     expect![[r"
-        [Heading|tree][Muted| · changed files] => diff:tree:README.md
+        [Heading>diff:tree:README.md|tree][Muted>diff:tree:README.md| · changed files]
 
         ○ [Modified|README.md] => diff:tree:README.md
         ◌ [Label|src/] => diff:tree:src/main.rs,src/parser/expression.rs,src/parser/tokens.rs
@@ -313,7 +313,7 @@ fn moves_and_copies_live_once_at_the_destination_with_their_original_targets() {
     ];
     let page = Page::review(&"tree".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        [Heading|tree][Muted| · unreviewed files] => review:tree:src/parser/helper.rs
+        [Heading>review:tree:src/parser/helper.rs|tree][Muted>review:tree:src/parser/helper.rs| · unreviewed files]
 
         ◌ [Label|src/parser/] => review:tree:src/parser/helper.rs,src/parser/new.rs,src/parser/tokens.rs
         ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs] => review:tree:src/parser/helper.rs
@@ -339,7 +339,7 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
     ];
     let page = Page::workspace(&"tree".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        [Heading|tree][Muted| · uncommitted files] => workspace:tree:src/item
+        [Heading>workspace:tree:src/item|tree][Muted>workspace:tree:src/item| · uncommitted files]
 
         ◌ [Label|src/] => workspace:tree:src/item,src/item/child.rs,src/item-other.rs
         ├─○ [Deleted|item] => workspace:tree:src/item
