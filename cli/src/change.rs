@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, RevisionId};
+use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, Identity, Pathspec, RepoPath, Result, RevisionId, View};
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
@@ -183,10 +183,11 @@ impl ChangeCommand {
             ChangeCommand::Diff { change, workspace, pathspecs } => {
                 // TODO(joel): show file content not just file names
                 let change = or_current(change)?;
-                match workspace {
-                    false => print!("{}", cabaret.diff_page(&change, &pathspecs)?),
-                    true => print!("{}", cabaret.workspace_page(&change, &pathspecs)?),
-                }
+                let view = match workspace {
+                    false => View::Diff,
+                    true => View::Workspace,
+                };
+                print!("{}", cabaret.files_page(&change, view, &pathspecs)?);
             }
             ChangeCommand::Land { change } => {
                 let change = or_current(change)?;
@@ -223,7 +224,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
             ChangeCommand::Review { change, pathspecs } => {
-                print!("{}", cabaret.review_page(&or_current(change)?, &pathspecs)?);
+                print!("{}", cabaret.files_page(&or_current(change)?, View::Review, &pathspecs)?);
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {

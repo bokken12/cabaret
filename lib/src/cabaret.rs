@@ -17,7 +17,7 @@ use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode},
-    page::Page,
+    page::{Page, View},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -339,10 +339,6 @@ impl Cabaret {
         })
     }
 
-    pub fn diff_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::diff(change_id, self.title(change_id)?.as_deref(), &self.changed_files(change_id, pathspecs)?))
-    }
-
     /// The revision this repository's identity reviews `path` of `change_id` against; see
     /// `Branch::review_base`.
     pub fn review_base(&self, change_id: &ChangeIdRef, path: &RepoPath) -> Result<Option<RevisionId>> {
@@ -363,10 +359,6 @@ impl Cabaret {
         })
     }
 
-    pub fn review_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::review(change_id, self.title(change_id)?.as_deref(), &self.review_files(change_id, pathspecs)?))
-    }
-
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
     /// restricted to `pathspecs` (all when empty): what [`Self::commit`] would record.
     pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
@@ -374,8 +366,18 @@ impl Cabaret {
         self.store.query(|ctx| ctx.workspace(workspace_id.to_ref())?.changed_files(pathspecs))
     }
 
-    pub fn workspace_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::workspace(change_id, self.title(change_id)?.as_deref(), &self.workspace_files(change_id, pathspecs)?))
+    /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty).
+    pub fn view_files(&self, change_id: &ChangeIdRef, view: View, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        match view {
+            View::Diff => self.changed_files(change_id, pathspecs),
+            View::Review => self.review_files(change_id, pathspecs),
+            View::Workspace => self.workspace_files(change_id, pathspecs),
+        }
+    }
+
+    pub fn files_page(&self, change_id: &ChangeIdRef, view: View, pathspecs: &[Pathspec]) -> Result<Page> {
+        let files = self.view_files(change_id, view, pathspecs)?;
+        Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
     }
 
     /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is

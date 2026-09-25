@@ -26,6 +26,17 @@ pub enum Tag {
     Copied,
 }
 
+/// The three diffs of a change: `Diff` from its base to its tip, `Review` from the merge of its
+/// bases with what the reviewer last marked reviewed to its tip, and `Workspace` from its tip to
+/// what the workspace holding it has on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "lowercase"))]
+pub enum View {
+    Diff,
+    Review,
+    Workspace,
+}
+
 /// Where a piece of text leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind"))]
@@ -33,19 +44,9 @@ pub enum Target {
     Change {
         change: ChangeId,
     },
-    /// Files of `change`'s diff: from its base to its tip.
+    /// Files of `change`, as its `view` diffs them.
     Diff {
-        change: ChangeId,
-        files: Vec<ChangedFile>,
-    },
-    /// Files of `change`'s workspace diff: from its tip to what its workspace has on disk.
-    WorkspaceDiff {
-        change: ChangeId,
-        files: Vec<ChangedFile>,
-    },
-    /// Files of `change`'s review diff: each from the merge of its bases with the tip the
-    /// reviewer last marked it reviewed at, to its tip.
-    ReviewDiff {
+        view: View,
         change: ChangeId,
         files: Vec<ChangedFile>,
     },
@@ -150,36 +151,22 @@ impl Page {
         Self { lines, folds: Vec::new() }
     }
 
-    /// The files `change` presents against its base, leading to their diffs.
-    pub fn diff(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
-        Self::files(change, title, "changed", files, |files| Target::Diff { change: change.to_owned(), files })
-    }
-
-    /// The files `change`'s workspace has on disk beyond its tip, leading to their diffs.
-    pub fn workspace(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
-        Self::files(change, title, "uncommitted", files, |files| Target::WorkspaceDiff {
+    /// The files `change`'s `view` diffs, headed by the change's name, which links to the first
+    /// file listed so that diffs can be read in order from the top; below, each file leads to its
+    /// own diff and each folder to all under it.
+    pub fn files(change: &ChangeIdRef, title: Option<&str>, view: View, files: &[ChangedFile]) -> Self {
+        let kind = match view {
+            View::Diff => "changed",
+            View::Review => "unreviewed",
+            View::Workspace => "uncommitted",
+        };
+        let target = |files: &[&ChangedFile]| Target::Diff {
+            view,
             change: change.to_owned(),
-            files,
-        })
-    }
-
-    /// The files of `change` its reviewer has left to read, leading to their review diffs.
-    pub fn review(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
-        Self::files(change, title, "unreviewed", files, |files| Target::ReviewDiff { change: change.to_owned(), files })
-    }
-
-    /// Headed by the change's name, leading to the first file listed so that diffs can be read in
-    /// order from the top; below, each file leads to its own diff and each folder to all under it.
-    fn files(
-        change: &ChangeIdRef,
-        title: Option<&str>,
-        kind: &str,
-        files: &[ChangedFile],
-        target: impl Fn(Vec<ChangedFile>) -> Target,
-    ) -> Self {
-        let owned = |files: &[&ChangedFile]| files.iter().map(|&file| file.clone()).collect();
+            files: files.iter().map(|&file| file.clone()).collect(),
+        };
         let tree = FileTree::new(files);
-        let first = tree.listed_files().first().map(|&first| target(vec![first.clone()]));
+        let first = tree.listed_files().first().map(|&first| target(&[first]));
         // Linked from its text rather than led to by the line, as selections gather the files of
         // lines and the heading is not one.
         let heading = [
@@ -193,7 +180,7 @@ impl Page {
             Self { lines: vec![Line { segments: heading, target: None }, Line::default()], folds: Vec::new() };
         page.append(match files.is_empty() {
             true => Self::message(format!("no {kind} files")),
-            false => tree.render_with_targets(|files| Some(target(owned(files)))),
+            false => tree.render_with_targets(|files| Some(target(files))),
         });
         page
     }

@@ -9,6 +9,7 @@ import {
   type SessionId,
   type Tag,
   type Target,
+  type View,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -34,13 +35,6 @@ function openCabaret(): Cabaret {
   }
   return session.cabaret;
 }
-
-/**
- * The three diffs of a change: `diff` from its base to its tip, `review` from the merge of its
- * bases with what the reviewer last marked reviewed to its tip, and `workspace` from its tip to
- * what the workspace holding it has on disk.
- */
-type View = "diff" | "review" | "workspace";
 
 /** The views whose sides are both committed, so the reviewer only reads. */
 type CommittedView = Exclude<View, "workspace">;
@@ -82,11 +76,9 @@ function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
     case "show":
       return cabaret.showPage(route.change);
     case "diff":
-      return cabaret.diffPage(route.change);
     case "review":
-      return cabaret.reviewPage(route.change);
     case "workspace":
-      return cabaret.workspacePage(route.change);
+      return cabaret.filesPage(route.change, route.kind);
   }
 }
 
@@ -537,13 +529,7 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await provider.open({ kind: "show", change: target.change });
       break;
     case "Diff":
-      await openFileDiffs(cabaret, "diff", target.change, target.files);
-      break;
-    case "WorkspaceDiff":
-      await openFileDiffs(cabaret, "workspace", target.change, target.files);
-      break;
-    case "ReviewDiff":
-      await openFileDiffs(cabaret, "review", target.change, target.files);
+      await openFileDiffs(cabaret, target.view, target.change, target.files);
       break;
     case "Title":
       await editTitle(cabaret, provider, target.change);
@@ -728,17 +714,6 @@ function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
 
 type Direction = "up" | "down";
 
-function viewFiles(cabaret: Cabaret, view: View, change: ChangeId): Promise<ChangedFile[]> {
-  switch (view) {
-    case "diff":
-      return cabaret.changedFiles(change);
-    case "review":
-      return cabaret.reviewFiles(change);
-    case "workspace":
-      return cabaret.workspaceFiles(change);
-  }
-}
-
 /**
  * `d`/`r`: the change's diff or review page, or from a file diff of the other committed view,
  * the same files seen in `view`; files with nothing left in `view` are dropped, and with none
@@ -748,7 +723,7 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
   const filesDiff = activeFilesDiff();
   if (filesDiff !== undefined && filesDiff.view !== "workspace") {
     const { change, paths } = filesDiff;
-    const files = (await viewFiles(cabaret, view, change)).filter((file) => paths.includes(file.path));
+    const files = (await cabaret.viewFiles(change, view)).filter((file) => paths.includes(file.path));
     const missing = paths.filter((path) => !files.some((file) => file.path === path));
     if (missing.length > 0) {
       vscode.window.setStatusBarMessage(
@@ -767,7 +742,7 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
 
 /** On a file diff, `^`/`$` go to the file above or below its files in the same view of the change. */
 async function stepFile(cabaret: Cabaret, { view, change, paths }: FilesDiff, direction: Direction): Promise<void> {
-  const files = await viewFiles(cabaret, view, change);
+  const files = await cabaret.viewFiles(change, view);
   const shown = (file: ChangedFile) => paths.includes(file.path);
   const index = direction === "up" ? files.findIndex(shown) : files.findLastIndex(shown);
   const edge = files[index];
@@ -1005,7 +980,7 @@ async function markFiles(
     throw new Error(`${words(paths)} is uncommitted in ${change}; commit it to review it`);
   }
   // Found before marking, which takes the files out of the review view.
-  const files = await viewFiles(cabaret, view, change);
+  const files = await cabaret.viewFiles(change, view);
   const index = files.findLastIndex((file) => paths.includes(file.path));
   const next = index === -1 ? undefined : files[index + 1];
   await cabaret.mark(change, paths, tip);
@@ -1228,15 +1203,6 @@ async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `committed all files to ${change}`;
 }
 
-/** The target a row of a view's page leads to. */
-type FileTarget = Extract<Target, { files: ChangedFile[] }>;
-
-const FILE_TARGET: Record<View, FileTarget["kind"]> = {
-  diff: "Diff",
-  review: "ReviewDiff",
-  workspace: "WorkspaceDiff",
-};
-
 /**
  * The files of `view` on the rows the selections span, or on the cursor's row when nothing is
  * selected. A selection ending at the start of a line has not taken that line in.
@@ -1253,7 +1219,7 @@ function selectedFiles(page: Page, selections: readonly vscode.Selection[], view
     .sort((a, b) => a - b)
     .flatMap((row) => {
       const target = page.lines[row]?.target;
-      return target?.kind === FILE_TARGET[view] ? target.files : [];
+      return target?.kind === "Diff" && target.view === view ? target.files : [];
     });
   // A folder's row repeats the files on the rows under it.
   return [...new Map(files.map((file) => [file.path, file])).values()];

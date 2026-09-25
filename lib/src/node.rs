@@ -18,7 +18,7 @@ use nonempty_collections::NEBTreeSet;
 
 use crate::{
     cabaret::{Cabaret, Rebase},
-    page::Page,
+    page::{Page, View},
 };
 
 /// How the workspace a [`Cabaret`] was opened in reaches a change's files.
@@ -101,18 +101,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn changed_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
-        self.blocking(move |cabaret| cabaret.changed_files(&change, &[])).await
-    }
-
-    #[napi]
     pub async fn show_page(&self, change: ChangeId) -> napi::Result<Page> {
         self.blocking(move |cabaret| cabaret.show_page(&change)).await
-    }
-
-    #[napi]
-    pub async fn diff_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.diff_page(&change, &[])).await
     }
 
     /// The revision git's user.email reviews `path` of `change` against.
@@ -121,26 +111,15 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.review_base(&change, &path)).await
     }
 
-    /// The files of `change` git's user.email has left to review.
+    /// The files `change`'s `view` diffs; for review, those git's user.email has left to read.
     #[napi]
-    pub async fn review_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
-        self.blocking(move |cabaret| cabaret.review_files(&change, &[])).await
+    pub async fn view_files(&self, change: ChangeId, view: View) -> napi::Result<Vec<ChangedFile>> {
+        self.blocking(move |cabaret| cabaret.view_files(&change, view, &[])).await
     }
 
     #[napi]
-    pub async fn review_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.review_page(&change, &[])).await
-    }
-
-    /// The files the workspace holding `change` has on disk beyond its tip.
-    #[napi]
-    pub async fn workspace_files(&self, change: ChangeId) -> napi::Result<Vec<ChangedFile>> {
-        self.blocking(move |cabaret| cabaret.workspace_files(&change, &[])).await
-    }
-
-    #[napi]
-    pub async fn workspace_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.workspace_page(&change, &[])).await
+    pub async fn files_page(&self, change: ChangeId, view: View) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.files_page(&change, view, &[])).await
     }
 
     /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
