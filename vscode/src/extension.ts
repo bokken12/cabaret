@@ -176,9 +176,16 @@ function tabFileDiffs(tab: vscode.Tab | undefined): { sides: vscode.TabInputText
       : input instanceof vscode.TabInputTextMultiDiff
         ? input.textDiffs
         : [];
-  return inputs.flatMap((sides) => {
-    const blob = blobSide(sides);
-    return blob === undefined ? [] : [{ sides, diff: blobFileDiff(blob) }];
+  const blobs = inputs.map(blobSide);
+  if (blobs.every((blob) => blob === undefined)) {
+    return [];
+  }
+  return inputs.map((sides, index) => {
+    const blob = blobs[index];
+    if (blob === undefined) {
+      throw new Error(`${sides.modified.toString()} is diffed alongside cabaret files but is not one`);
+    }
+    return { sides, diff: blobFileDiff(blob) };
   });
 }
 
