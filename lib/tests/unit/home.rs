@@ -1,4 +1,4 @@
-use cabaret_lib::{ChangeId, Home, HomeGraph, HomeNode, Identity, Page, Target};
+use cabaret_lib::{ChangeId, Home, HomeGraph, HomeNode, HomeSection, Identity, Page, Target};
 use expect_test::{Expect, expect};
 
 /// Nodes are (id, selected, space-separated parents). Parents that are not listed as nodes are
@@ -205,13 +205,13 @@ fn a_parent_cycle_is_an_error() {
 fn home_heads_each_graph_and_says_when_one_is_empty() {
     let home = Home {
         viewer: Identity("alice@example.com".into()),
-        to_review: graph(&[]),
+        review: graph(&[]),
         owned: graph(&[("feat", true, "")]),
         workspaces: graph(&[]),
     };
     let page = Page::home(&home).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -219,7 +219,7 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
 
         Workspaces
         no changes checked out in a workspace
-    "]]
+    "#]]
     .assert_eq(&page.to_string());
     expect!["[Fold { start: 0, end: 1 }, Fold { start: 3, end: 4 }, Fold { start: 6, end: 7 }]"]
         .assert_eq(&format!("{:?}", page.folds));
@@ -229,10 +229,10 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
 fn home_headings_fold_their_sections_around_the_graph_folds() {
     let stack = || graph(&[("base", true, ""), ("top", true, "base")]);
     let home =
-        Home { viewer: Identity("alice@example.com".into()), to_review: stack(), owned: stack(), workspaces: stack() };
+        Home { viewer: Identity("alice@example.com".into()), review: stack(), owned: stack(), workspaces: stack() };
     let page = Page::home(&home).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         ○   base
         ╰─○   top
 
@@ -243,7 +243,7 @@ fn home_headings_fold_their_sections_around_the_graph_folds() {
         Workspaces
         ○   base
         ╰─○   top
-    "]]
+    "#]]
     .assert_eq(&page.to_string());
     expect![[r"
         [Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }, Fold { start: 8, end: 10 }, Fold { start: 9, end: 10 }]
@@ -520,4 +520,25 @@ fn a_dense_thicket_routes_completely() {
             ○   c08
         "]],
     );
+}
+
+#[test]
+fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
+    let home = Home {
+        viewer: Identity("alice@example.com".into()),
+        review: graph(&[]),
+        owned: graph(&[("base", false, ""), ("top", true, "base"), ("side", true, "")]),
+        workspaces: graph(&[("top", true, "")]),
+    };
+    let page = Page::home_section(&home, HomeSection::Owned).unwrap();
+    expect![[r#"
+        [Muted>home:Review| review 0 ] [Heading>home:Owned| owned 2 ] [>home:Workspaces| workspaces 1 ]
+        ───────────[Heading|━━━━━━━━━]───────────────
+
+        ◌   [Muted|base] => change:base
+        ╰─○   [ChangeId|top] => change:top
+        ○   [ChangeId|side] => change:side
+    "#]]
+    .assert_eq(&super::page::markup(&page));
+    expect!["[Fold { start: 3, end: 4 }]"].assert_eq(&format!("{:?}", page.folds));
 }

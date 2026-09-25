@@ -24,8 +24,8 @@ fn owned_changes_plus_open_ancestors_as_context() {
     fixture.create("feature", "infra", &alice());
     fixture.create("unrelated", "main", &bob());
     fixture.cabaret.set_title(&id("feature"), Some("My feature".into())).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -34,7 +34,7 @@ fn owned_changes_plus_open_ancestors_as_context() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -45,8 +45,8 @@ fn archived_changes_are_never_drawn_as_context() {
     fixture.create("base", "main", &alice());
     fixture.create("top", "base", &alice());
     fixture.cabaret.archive(&id("base")).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -54,7 +54,7 @@ fn archived_changes_are_never_drawn_as_context() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -67,8 +67,8 @@ fn workspaces_section_shows_checked_out_changes_with_context() {
     fixture.create("theirs", "main", &bob());
     fixture.checkout("theirs");
     fixture.add_workspace("feature");
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -79,7 +79,7 @@ fn workspaces_section_shows_checked_out_changes_with_context() {
         ◌   infra
         ╰─○   feature
         ○   theirs
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -93,8 +93,8 @@ fn workspaces_section_keeps_archived_changes() {
     fixture.cabaret.archive(&id("done")).unwrap();
     fixture.checkout("done");
     fixture.add_workspace("after-done");
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -103,7 +103,7 @@ fn workspaces_section_keeps_archived_changes() {
         Workspaces
         ○   after-done
         ○   done
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -116,8 +116,8 @@ fn checked_out_trunk_roots_its_stacks() {
     fixture.create("other", "main", &bob());
     fixture.add_workspace("feature");
     fixture.add_workspace("other");
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -127,7 +127,7 @@ fn checked_out_trunk_roots_its_stacks() {
         ○   main
         ├─○   feature
         ╰─○   other
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -136,8 +136,8 @@ fn nothing_owned_says_so() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("theirs", "main", &bob());
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -145,7 +145,7 @@ fn nothing_owned_says_so() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -160,8 +160,8 @@ fn owned_changes_with_unmarked_files_await_review() {
     fixture.create("feature", "infra", &alice());
     fixture.commit("feature", &[("feature.txt", "feature\n")]);
     fixture.create("empty", "main", &alice());
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         ◌   infra
         ╰─○   feature
 
@@ -172,11 +172,11 @@ fn owned_changes_with_unmarked_files_await_review() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
     mark_all(&fixture, "feature");
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -186,11 +186,11 @@ fn owned_changes_with_unmarked_files_await_review() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
     fixture.commit("feature", &[("feature.txt", "feature 2\n")]);
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         ◌   infra
         ╰─○   feature
 
@@ -201,7 +201,7 @@ fn owned_changes_with_unmarked_files_await_review() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }
 
@@ -216,8 +216,8 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     mark_all(&fixture, "feature");
     fixture.commit("main", &[("main.txt", "main\n")]);
     fixture.cabaret.rebase(&id("feature"), None).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         nothing awaiting review by alice@example.com
 
         Owned
@@ -225,12 +225,12 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
     fixture.cabaret.rebase(&id("feature"), None).unwrap();
-    expect![[r"
-        To review
+    expect![[r#"
+        Review
         ○   feature
 
         Owned
@@ -238,6 +238,6 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
 
         Workspaces
         ○   main
-    "]]
+    "#]]
     .assert_eq(&home(&fixture));
 }

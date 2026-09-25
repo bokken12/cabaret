@@ -18,6 +18,7 @@ use nonempty_collections::NEBTreeSet;
 
 use crate::{
     cabaret::{Cabaret, Rebase},
+    home::HomeSection,
     page::{DiffView, Page},
 };
 
@@ -123,8 +124,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn tabs_page(&self, change: ChangeId, view: Option<DiffView>) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.tabs_page(&change, view)).await
+    pub async fn change_tabs_page(&self, change: ChangeId, view: Option<DiffView>) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.change_tabs_page(&change, view)).await
     }
 
     /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
@@ -140,15 +141,15 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.sessions_page(&change, &ClaudeCode::locate()?)).await
     }
 
-    /// The home page for `viewer`, defaulting to git's user.email.
+    /// `section` of the home page for `viewer`, defaulting to git's user.email.
     #[napi]
-    pub async fn home_page(&self, viewer: Option<Identity>) -> napi::Result<Page> {
+    pub async fn home_section_page(&self, viewer: Option<Identity>, section: HomeSection) -> napi::Result<Page> {
         self.blocking(move |cabaret| {
             let viewer = match viewer {
                 Some(viewer) => viewer,
                 None => cabaret.identity()?,
             };
-            cabaret.home_page(&viewer)
+            cabaret.home_section_page(&viewer, section)
         })
         .await
     }
