@@ -156,16 +156,10 @@ const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
 
 const TAGS = Object.keys(STYLES) as Tag[];
 
-/** The page or, for a file diff, the after side a tab shows, when it is one of ours. */
-function cabaretTabUri(tab: vscode.Tab): vscode.Uri | undefined {
+/** Whether a tab shows one of our pages, file diffs or multi-file diffs. */
+function isCabaretTab(tab: vscode.Tab): boolean {
   const input = tab.input;
-  if (input instanceof vscode.TabInputText && input.uri.scheme === SCHEME) {
-    return input.uri;
-  }
-  if (input instanceof vscode.TabInputTextDiff && blobSide(input) !== undefined) {
-    return input.modified;
-  }
-  return undefined;
+  return (input instanceof vscode.TabInputText && input.uri.scheme === SCHEME) || tabFileDiffs(tab).length > 0;
 }
 
 /** A side of a two-sided diff that is one of our blobs; a file diff of ours has at least one. */
@@ -173,15 +167,29 @@ function blobSide(input: vscode.TabInputTextDiff): vscode.Uri | undefined {
   return [input.modified, input.original].find((uri) => uri.scheme === BLOB_SCHEME);
 }
 
+/** The file diffs of ours a tab shows, with their sides: one in a diff, several in a multi-file diff. */
+function tabFileDiffs(tab: vscode.Tab | undefined): { sides: vscode.TabInputTextDiff; diff: FileDiff }[] {
+  const input = tab?.input;
+  const inputs =
+    input instanceof vscode.TabInputTextDiff
+      ? [input]
+      : input instanceof vscode.TabInputTextMultiDiff
+        ? input.textDiffs
+        : [];
+  return inputs.flatMap((sides) => {
+    const blob = blobSide(sides);
+    return blob === undefined ? [] : [{ sides, diff: blobFileDiff(blob) }];
+  });
+}
+
 /**
- * `open` something identified by `destination`, then close the cabaret tab it was opened from:
- * moving around cabaret replaces the view, as in a browser, rather than piling up tabs.
+ * `open` something, then close the cabaret tab it was opened from unless it was reopened: moving
+ * around cabaret replaces the view, as in a browser, rather than piling up tabs.
  */
-async function replacingActive(destination: vscode.Uri, open: () => Promise<void>): Promise<void> {
+async function replacingActive(open: () => Promise<void>): Promise<void> {
   const from = vscode.window.tabGroups.activeTabGroup.activeTab;
   await open();
-  const fromUri = from === undefined ? undefined : cabaretTabUri(from);
-  if (from !== undefined && fromUri !== undefined && fromUri.toString() !== destination.toString()) {
+  if (from !== undefined && isCabaretTab(from) && from !== vscode.window.tabGroups.activeTabGroup.activeTab) {
     await vscode.window.tabGroups.close(from);
   }
 }
@@ -306,7 +314,7 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = this.invalidate(route);
-    await replacingActive(uri, async () => {
+    await replacingActive(async () => {
       const document = await vscode.workspace.openTextDocument(uri);
       this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
     });
@@ -326,6 +334,11 @@ class PageProvider
  * diff was opened, so an action on the diff acts on what it shows even once the change moves on.
  */
 type FileDiff = { view: View; change: ChangeId; path: RepoPath; tip: Revision };
+
+/** The files of a diff tab: one for a two-sided diff, several for a multi-file diff. */
+type FilesDiff = Omit<FileDiff, "path"> & { paths: [RepoPath, ...RepoPath[]] };
+
+const lastOf = <T>(items: [T, ...T[]]): T => items[items.length - 1] ?? items[0];
 
 /**
  * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>&tip=<rev>[&revision=<rev>]`: the
@@ -463,15 +476,42 @@ async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promi
   }
 }
 
+function diffTitle(subject: string, view: View, change: ChangeId): string {
+  const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
+  return `${subject} (${change}${note})`;
+}
+
 async function openFileDiff(cabaret: Cabaret, view: View, change: ChangeId, file: ChangedFile): Promise<void> {
   const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
   const [before, after] = await sides(cabaret, diff, file);
-  const note = { diff: "", review: ", unreviewed", workspace: ", uncommitted" }[view];
-  const title = `${file.path} (${change}${note})`;
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
-  await replacingActive(after, async () => {
-    await vscode.commands.executeCommand("vscode.diff", before, after, title, options);
+  await replacingActive(async () => {
+    await vscode.commands.executeCommand("vscode.diff", before, after, diffTitle(file.path, view, change), options);
+  });
+}
+
+/** Several files of a change's `view` in one multi-file diff; a lone file in a plain file diff. */
+async function openFileDiffs(cabaret: Cabaret, view: View, change: ChangeId, files: ChangedFile[]): Promise<void> {
+  const [only, ...rest] = files;
+  if (only === undefined) {
+    throw new Error(`no files of ${change} to diff`);
+  }
+  if (rest.length === 0) {
+    await openFileDiff(cabaret, view, change, only);
+    return;
+  }
+  const { tip } = await cabaret.change(change);
+  const resources = await Promise.all(
+    files.map(async (file) => {
+      const [before, after] = await sides(cabaret, { view, change, path: file.path, tip }, file);
+      return [after, before, after];
+    }),
+  );
+  await replacingActive(async () => {
+    await vscode.commands.executeCommand("vscode.changes", diffTitle(`${files.length} files`, view, change), resources);
+    // Pinned, as `vscode.changes` offers no option to open it so.
+    await vscode.commands.executeCommand("workbench.action.keepEditor");
   });
 }
 
@@ -561,11 +601,29 @@ function activePage(): vscode.TextEditor | undefined {
   return editor?.document.uri.scheme === SCHEME ? editor : undefined;
 }
 
-/** The file diff the active tab shows, if it is one. */
-function activeFileDiff(): FileDiff | undefined {
-  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
-  const blob = input instanceof vscode.TabInputTextDiff ? blobSide(input) : undefined;
-  return blob === undefined ? undefined : blobFileDiff(blob);
+/** The files the active tab diffs, if it is a file diff or multi-file diff of ours. */
+function activeFilesDiff(): FilesDiff | undefined {
+  const [first, ...rest] = tabFileDiffs(vscode.window.tabGroups.activeTabGroup.activeTab).map(({ diff }) => diff);
+  if (first === undefined) {
+    return undefined;
+  }
+  const { view, change, tip } = first;
+  const stray = rest.find((diff) => diff.view !== view || diff.change !== change || diff.tip !== tip);
+  if (stray !== undefined) {
+    throw new Error(`${stray.path} is not in the ${view} of ${change} at ${tip} like the rest of its tab`);
+  }
+  return { view, change, tip, paths: [first.path, ...rest.map((diff) => diff.path)] };
+}
+
+/** The file diff holding the cursor on the active tab: in a multi-file diff, the focused file's. */
+function focusedFileDiff(): FileDiff | undefined {
+  const diffs = tabFileDiffs(vscode.window.tabGroups.activeTabGroup.activeTab);
+  const cursor = vscode.window.activeTextEditor?.document.uri.toString();
+  const focused =
+    diffs.length === 1
+      ? diffs[0]
+      : diffs.find(({ sides }) => [sides.original, sides.modified].some((uri) => uri.toString() === cursor));
+  return focused?.diff;
 }
 
 type PageKind = Route["kind"] | "file";
@@ -575,12 +633,12 @@ type PageKind = Route["kind"] | "file";
  * `cabaret.view`, so keybindings can scope to pages.
  */
 function updatePageContext(): void {
-  const fileDiff = activeFileDiff();
+  const filesDiff = activeFilesDiff();
   const editor = activePage();
   const kind: PageKind | undefined =
-    fileDiff !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
+    filesDiff !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
-  vscode.commands.executeCommand("setContext", "cabaret.view", fileDiff?.view);
+  vscode.commands.executeCommand("setContext", "cabaret.view", filesDiff?.view);
 }
 
 /** The scope enclosing a page: a change's diffs sit in its show page, which sits in home. */
@@ -611,9 +669,9 @@ async function parentForNewChange(cabaret: Cabaret, provider: PageProvider): Pro
 }
 
 async function impliedChange(cabaret: Cabaret, provider: PageProvider): Promise<ChangeId | undefined> {
-  const fileDiff = activeFileDiff();
-  if (fileDiff !== undefined) {
-    return fileDiff.change;
+  const filesDiff = activeFilesDiff();
+  if (filesDiff !== undefined) {
+    return filesDiff.change;
   }
   const editor = vscode.window.activeTextEditor;
   if (editor === undefined) {
@@ -667,22 +725,22 @@ function viewFiles(cabaret: Cabaret, view: View, change: ChangeId): Promise<Chan
 
 /**
  * `d`/`r`: the change's diff or review page, or from a file diff of the other committed view,
- * the same file seen in `view`; a file with nothing left in `view` falls back to its page.
+ * the same files seen in `view`; files with nothing left in `view` are dropped, and with none
+ * left it falls back to the page.
  */
 async function switchView(cabaret: Cabaret, provider: PageProvider, view: CommittedView): Promise<void> {
-  const fileDiff = activeFileDiff();
-  if (fileDiff !== undefined && fileDiff.view !== "workspace") {
-    const { change, path } = fileDiff;
-    const file = (await viewFiles(cabaret, view, change)).find((file) => file.path === path);
-    if (file !== undefined) {
-      await openFileDiff(cabaret, view, change, file);
-      return;
+  const filesDiff = activeFilesDiff();
+  if (filesDiff !== undefined && filesDiff.view !== "workspace") {
+    const { change, paths } = filesDiff;
+    const files = (await viewFiles(cabaret, view, change)).filter((file) => paths.includes(file.path));
+    const missing = paths.filter((path) => !files.some((file) => file.path === path));
+    if (missing.length > 0) {
+      vscode.window.setStatusBarMessage(
+        `Cabaret: ${words(missing)} has nothing ${view === "review" ? "unreviewed" : "changed"} in ${change}`,
+        3000,
+      );
     }
-    vscode.window.setStatusBarMessage(
-      `Cabaret: ${path} has nothing ${view === "review" ? "unreviewed" : "changed"} in ${change}`,
-      3000,
-    );
-    await provider.open({ kind: view, change });
+    await (files.length === 0 ? provider.open({ kind: view, change }) : openFileDiffs(cabaret, view, change, files));
     return;
   }
   const change = await activeChange(cabaret, provider);
@@ -691,8 +749,9 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
   }
 }
 
-/** On a file diff, `^`/`$` go to the file above or below it in the same view of the change. */
-async function stepFile(cabaret: Cabaret, { view, change, path }: FileDiff, direction: Direction): Promise<void> {
+/** On a file diff, `^`/`$` go to the file above or below its files in the same view of the change. */
+async function stepFile(cabaret: Cabaret, { view, change, paths }: FilesDiff, direction: Direction): Promise<void> {
+  const path = direction === "up" ? paths[0] : lastOf(paths);
   const files = await viewFiles(cabaret, view, change);
   const index = files.findIndex((file) => file.path === path);
   if (index === -1) {
@@ -713,9 +772,9 @@ async function stepFile(cabaret: Cabaret, { view, change, path }: FileDiff, dire
  * page by opening the same kind of page for it. On a file diff, step between the change's files.
  */
 async function step(cabaret: Cabaret, provider: PageProvider, direction: Direction): Promise<void> {
-  const fileDiff = activeFileDiff();
-  if (fileDiff !== undefined) {
-    await stepFile(cabaret, fileDiff, direction);
+  const filesDiff = activeFilesDiff();
+  if (filesDiff !== undefined) {
+    await stepFile(cabaret, filesDiff, direction);
     return;
   }
   const editor = activePage();
@@ -841,7 +900,7 @@ function cursorLocation({ path }: FileDiff): Location {
 
 /** The file at the cursor on the active file diff, else the active page. */
 function activeDestination(): Destination | undefined {
-  const fileDiff = activeFileDiff();
+  const fileDiff = focusedFileDiff();
   if (fileDiff !== undefined) {
     return cursorLocation(fileDiff);
   }
@@ -916,24 +975,24 @@ async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fil
 }
 
 /**
- * `! m` on a file diff: record the file as reviewed up to the tip the diff shows, then move on to
+ * `! m` on a file diff: record its files as reviewed up to the tip the diff shows, then move on to
  * the next file in the view as `$` would, or after the last back to the view's page. A workspace
  * diff shows nothing committed to review.
  */
-async function markFile(
+async function markFiles(
   cabaret: Cabaret,
   provider: PageProvider,
-  { view, change, path, tip }: FileDiff,
+  { view, change, paths, tip }: FilesDiff,
 ): Promise<void> {
   if (view === "workspace") {
-    throw new Error(`${path} is uncommitted in ${change}; commit it to review it`);
+    throw new Error(`${words(paths)} is uncommitted in ${change}; commit it to review it`);
   }
-  // Found before marking, which takes the file out of the review view.
+  // Found before marking, which takes the files out of the review view.
   const files = await viewFiles(cabaret, view, change);
-  const index = files.findIndex((file) => file.path === path);
+  const index = files.findIndex((file) => file.path === lastOf(paths));
   const next = index === -1 ? undefined : files[index + 1];
-  await cabaret.mark(change, [path], tip);
-  vscode.window.showInformationMessage(`Cabaret: marked ${path} of ${change} reviewed up to ${tip.slice(0, 8)}`);
+  await cabaret.mark(change, paths, tip);
+  vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`);
   await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
 }
 
@@ -952,6 +1011,20 @@ async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vs
   await cabaret.mark(route.change, paths);
   vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${route.change} reviewed`);
   await refresh(provider);
+}
+
+/** Enter over a selection on a view's page: the selected files side by side in a multi-file diff. */
+async function diffSelected(cabaret: Cabaret, provider: PageProvider, editor: vscode.TextEditor): Promise<void> {
+  const route = parseRoute(editor.document.uri);
+  if (route.kind !== "diff" && route.kind !== "review" && route.kind !== "workspace") {
+    throw new Error(`the ${route.kind} page lists no files to diff`);
+  }
+  const page = provider.page(editor.document.uri);
+  const files = page === undefined ? [] : selectedFiles(page, editor.selections, route.kind);
+  if (files.length === 0) {
+    throw new Error("no file is selected");
+  }
+  await openFileDiffs(cabaret, route.kind, route.change, files);
 }
 
 /** Re-render the active page from the repository. */
@@ -1223,14 +1296,19 @@ export function activate(context: vscode.ExtensionContext) {
     onChange("cabaret.workspaceDiff", provider, (_, change) => provider.open({ kind: "workspace", change })),
     onChange("cabaret.editTitle", provider, (cabaret, change) => editTitle(cabaret, provider, change)),
     onChange("cabaret.editDescription", provider, (_, change) => editDescription(change)),
-    // Enter: follow whatever the cursor is on; on a file diff, into the file itself.
+    // Enter: follow whatever the cursor is on, or diff the files selected on a view's page all at
+    // once; on a file diff, into the file itself.
     command("cabaret.stepIn", async (cabaret) => {
-      const fileDiff = activeFileDiff();
+      const fileDiff = focusedFileDiff();
       if (fileDiff !== undefined) {
         await enterFile(context, cabaret, fileDiff);
         return;
       }
       const editor = activePage();
+      if (editor !== undefined && editor.selections.some((selection) => !selection.isEmpty)) {
+        await diffSelected(cabaret, provider, editor);
+        return;
+      }
       const target = editor === undefined ? undefined : provider.targetUnderCursor(editor);
       if (target !== undefined) {
         await follow(cabaret, provider, target);
@@ -1238,9 +1316,9 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     // Escape: out one scope, a file diff into the view it came from.
     command("cabaret.stepOut", async () => {
-      const fileDiff = activeFileDiff();
-      if (fileDiff !== undefined) {
-        await provider.open({ kind: fileDiff.view, change: fileDiff.change });
+      const filesDiff = activeFilesDiff();
+      if (filesDiff !== undefined) {
+        await provider.open({ kind: filesDiff.view, change: filesDiff.change });
         return;
       }
       const editor = activePage();
@@ -1252,9 +1330,9 @@ export function activate(context: vscode.ExtensionContext) {
     command("cabaret.refresh", () => refresh(provider)),
     // `! m`: mark reviewed what is on screen, a file diff or the files selected on a page.
     command("cabaret.mark", async (cabaret) => {
-      const fileDiff = activeFileDiff();
-      if (fileDiff !== undefined) {
-        await markFile(cabaret, provider, fileDiff);
+      const filesDiff = activeFilesDiff();
+      if (filesDiff !== undefined) {
+        await markFiles(cabaret, provider, filesDiff);
         return;
       }
       const editor = activePage();
