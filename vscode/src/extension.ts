@@ -983,10 +983,13 @@ async function markFiles(
   // Found before marking, which takes the files out of the review view.
   const files = await cabaret.viewFiles(change, view);
   const index = files.findLastIndex((file) => paths.includes(file.path));
+  if (index === -1) {
+    throw new Error(`${words(paths)} is no longer in ${change}'s diff`);
+  }
   await cabaret.mark(change, paths, tip);
   vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`);
   const unreviewed = new Set((await cabaret.viewFiles(change, "review")).map((file) => file.path));
-  const next = (index === -1 ? undefined : files[index + 1]) ?? files.find((file) => unreviewed.has(file.path));
+  const next = files[index + 1] ?? files.find((file) => unreviewed.has(file.path));
   await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
 }
 
