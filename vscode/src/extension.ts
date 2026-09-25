@@ -632,9 +632,13 @@ function focusedFileDiff(): FileDiff | undefined {
 
 type PageKind = Route["kind"] | "file";
 
+/** The pages whose `!` keys act on their change; the workspace page's commit its files instead. */
+const ACTS_ON_CHANGE: PageKind[] = ["home", "show", "diff", "review"];
+
 /**
- * Expose the active page's kind as the `cabaret.page` context, and on a file diff its view as
- * `cabaret.view`, so keybindings can scope to pages.
+ * Expose the active page's kind as the `cabaret.page` context, on a file diff its view as
+ * `cabaret.view`, and whether its `!` keys act on its change as `cabaret.actsOnChange`, so
+ * keybindings can scope to pages.
  */
 function updatePageContext(): void {
   const filesDiff = activeFilesDiff();
@@ -643,6 +647,8 @@ function updatePageContext(): void {
     filesDiff !== undefined ? "file" : editor === undefined ? undefined : parseRoute(editor.document.uri).kind;
   vscode.commands.executeCommand("setContext", "cabaret.page", kind);
   vscode.commands.executeCommand("setContext", "cabaret.view", filesDiff?.view);
+  const actsOnChange = kind !== undefined && ACTS_ON_CHANGE.includes(kind);
+  vscode.commands.executeCommand("setContext", "cabaret.actsOnChange", actsOnChange);
 }
 
 /** The scope enclosing a page: a change's diffs sit in its show page, which sits in home. */
