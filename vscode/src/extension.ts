@@ -197,6 +197,11 @@ class PageProvider
   private readonly pages = new Map<string, Page>();
   /** Pages completed by a late part, to serve on the re-read that `changed` triggers. */
   private readonly completed = new Map<string, Page>();
+  /**
+   * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
+   * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise.
+   */
+  private readonly selections = new Map<string, vscode.Selection>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly decorations = Object.fromEntries(
     TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
@@ -210,6 +215,7 @@ class PageProvider
     }
     this.pages.clear();
     this.completed.clear();
+    this.selections.clear();
   }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -278,6 +284,10 @@ class PageProvider
     return page === undefined ? undefined : targetAt(page, editor.selection.active);
   }
 
+  rememberSelection({ document, selection }: vscode.TextEditor): void {
+    this.selections.set(document.uri.toString(), selection);
+  }
+
   decorate(editor: vscode.TextEditor): void {
     const page = this.page(editor.document.uri);
     if (page === undefined) {
@@ -306,9 +316,10 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = this.invalidate(route);
+    const selection = this.selections.get(uri.toString());
     await replacingActive(uri, async () => {
       const document = await vscode.workspace.openTextDocument(uri);
-      this.decorate(await vscode.window.showTextDocument(document, { preview: false }));
+      this.decorate(await vscode.window.showTextDocument(document, { preview: false, selection }));
     });
   }
 
@@ -1192,6 +1203,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
         provider.decorate(editor);
+      }
+    }),
+    vscode.window.onDidChangeTextEditorSelection(({ textEditor }) => {
+      if (textEditor.document.uri.scheme === SCHEME) {
+        provider.rememberSelection(textEditor);
       }
     }),
     vscode.window.onDidCloseTerminal((terminal) => {
