@@ -222,14 +222,54 @@ impl<'ctx> Workspace<'ctx> {
         Ok(tree)
     }
 
+    /// Put the paths `pathspecs` match, all when empty, back as HEAD has them, on disk and in the
+    /// index, dropping their local changes. Takes `&mut self` to keep it to reserved workspaces.
+    pub fn discard(&mut self, pathspecs: &[Pathspec]) -> Result<()> {
+        let repo = self.repo()?;
+        let disk = repo.find_tree(disk_tree(&repo, pathspecs)?.0.0)?;
+        let (written, removed) = self.write_paths(&repo, &disk, &repo.head_tree()?)?;
+
+        // The rest of the index may hold staged files of its own, so only the touched paths change.
+        let mut index = (**repo.index_or_empty()?).clone();
+        index.remove_tree();
+        index.remove_entries(|_, path, _| removed.contains(path) || written.entry_by_path(path).is_some());
+        for entry in written.entries() {
+            index.dangerously_push_entry(entry.stat, entry.id, entry.flags, entry.mode, entry.path(&written));
+        }
+        index.sort_entries();
+        index.write(gix::index::write::Options::default())?;
+        Ok(())
+    }
+
     /// Write the paths that differ between `from`, which the files are at, and `to`, and an
     /// index at `to`.
-    // TODO(joel): untracked files at paths `to` adds are overwritten; refuse or merge instead
     fn write_files(&self, repo: &Repository, from: &Tree<'_>, to: &Tree<'_>) -> Result<()> {
+        let (written, _) = self.write_paths(repo, from, to)?;
+        // Stat data lets status trust unchanged files instead of rehashing them.
+        let old = repo.index_or_empty()?;
+        let mut index = repo.index_from_tree(&to.id)?;
+        for (entry, path) in index.entries_mut_with_paths() {
+            let source = written.entry_by_path(path).or_else(|| old.entry_by_path(path));
+            entry.stat = source.expect("every path in `to` was just written or is unchanged from `from`").stat;
+        }
+        index.write(gix::index::write::Options::default())?;
+        Ok(())
+    }
+
+    /// Write the paths that differ between `from`, which the files are at, and `to`, returning
+    /// index entries for the files written and the paths whose files were removed.
+    // TODO(joel): untracked files at paths `to` adds are overwritten; refuse or merge instead
+    fn write_paths(
+        &self,
+        repo: &Repository,
+        from: &Tree<'_>,
+        to: &Tree<'_>,
+    ) -> Result<(gix::index::State, BTreeSet<BString>)> {
         let workdir = repo.workdir().expect("workspaces have working directories");
 
         // gix checks out a whole index, so the files to write get one of their own.
         let mut written = gix::index::State::new(repo.object_hash());
+        let mut removed = BTreeSet::new();
         for change in repo.diff_tree_to_tree(from, to, gix::diff::Options::default().with_rewrites(None))? {
             use gix::diff::tree_with_rewrites::Change::{Addition, Deletion, Modification, Rewrite};
             if change.entry_mode().is_tree() {
@@ -239,6 +279,7 @@ impl<'ctx> Workspace<'ctx> {
                 let path = workdir.join(gix::path::from_bstr(location));
                 fs::remove_file(&path)?;
                 prune_empty_dirs(workdir, path.parent().expect("workspace files have a parent"));
+                removed.insert(location.clone());
             }
             if let Addition { location, entry_mode, id, .. } | Modification { location, entry_mode, id, .. } = &change {
                 written.dangerously_push_entry(
@@ -266,16 +307,7 @@ impl<'ctx> Workspace<'ctx> {
         if let Some(collision) = outcome.collisions.first() {
             Err(format!("{} is in the way in workspace {}", collision.path, self.id))?;
         }
-
-        // Stat data lets status trust unchanged files instead of rehashing them.
-        let old = repo.index_or_empty()?;
-        let mut index = repo.index_from_tree(&to.id)?;
-        for (entry, path) in index.entries_mut_with_paths() {
-            let source = written.entry_by_path(path).or_else(|| old.entry_by_path(path));
-            entry.stat = source.expect("every path in `to` was just written or is unchanged from `from`").stat;
-        }
-        index.write(gix::index::write::Options::default())?;
-        Ok(())
+        Ok((written, removed))
     }
 }
 

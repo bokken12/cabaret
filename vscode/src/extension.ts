@@ -1230,15 +1230,36 @@ function selectedFiles(page: Page, selections: readonly vscode.Selection[], view
   return [...new Map(files.map((file) => [file.path, file])).values()];
 }
 
-async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {
+/** The uncommitted files selected on the active page, refusing none. */
+function selectedWorkspaceFiles(provider: PageProvider): ChangedFile[] {
   const editor = activePage();
   const page = editor === undefined ? undefined : provider.page(editor.document.uri);
   const files = editor === undefined || page === undefined ? [] : selectedFiles(page, editor.selections, "workspace");
   if (files.length === 0) {
     throw new Error("no file is selected");
   }
+  return files;
+}
+
+async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {
+  const files = selectedWorkspaceFiles(provider);
   await cabaret.commit(change, files);
   return `committed ${words(files.map((file) => file.path))} to ${change}`;
+}
+
+async function discardSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string | undefined> {
+  const files = selectedWorkspaceFiles(provider);
+  const paths = words(files.map((file) => file.path));
+  const discard = await vscode.window.showWarningMessage(
+    `Discard the uncommitted changes to ${paths} in ${change}?`,
+    { modal: true, detail: "They are not recorded anywhere, so this cannot be undone." },
+    "Discard",
+  );
+  if (discard === undefined) {
+    return undefined;
+  }
+  await cabaret.discard(change, files);
+  return `discarded ${paths} from ${change}`;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -1348,6 +1369,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
+    action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
     action("cabaret.createWorkspace", provider, async (cabaret, change) => {
       return `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;

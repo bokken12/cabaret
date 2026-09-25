@@ -55,6 +55,10 @@
         "title": "Cabaret: Commit Selected"
       },
       {
+        "command": "cabaret.discardSelected",
+        "title": "Cabaret: Discard Selected"
+      },
+      {
         "command": "cabaret.refresh",
         "title": "Cabaret: Refresh"
       },
@@ -163,6 +167,11 @@
       {
         "command": "cabaret.commitSelected",
         "key": "shift+1 c",
+        "when": "editorTextFocus && cabaret.page == 'workspace' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
+      },
+      {
+        "command": "cabaret.discardSelected",
+        "key": "shift+1 - c",
         "when": "editorTextFocus && cabaret.page == 'workspace' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
       },
       {

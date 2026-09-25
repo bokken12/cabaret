@@ -189,6 +189,14 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.commit(&change, &pathspecs)).await
     }
 
+    /// Discard `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
+    /// rename go, so the moved file returns to where it was.
+    #[napi]
+    pub async fn discard(&self, change: ChangeId, files: Vec<ChangedFile>) -> napi::Result<()> {
+        let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
+        self.blocking(move |cabaret| cabaret.discard(&change, &pathspecs)).await
+    }
+
     /// Create a change named `name` as a child of `parent`, owned by git's user.email, returning its id.
     #[napi]
     pub async fn create(&self, name: String, parent: ChangeId) -> napi::Result<ChangeId> {

@@ -77,6 +77,13 @@ pub enum ChangeCommand {
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
     },
+    /// Drop the workspace's uncommitted changes at the given paths, back to the change's tip
+    Discard {
+        #[arg(long, add = change_completer())]
+        change: Option<ChangeId>,
+        #[arg(required = true, value_hint = ValueHint::AnyPath)]
+        pathspecs: Vec<Pathspec>,
+    },
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -188,6 +195,11 @@ impl ChangeCommand {
                     true => DiffView::Workspace,
                 };
                 print!("{}", cabaret.files_page(&change, view, &pathspecs)?);
+            }
+            ChangeCommand::Discard { change, pathspecs } => {
+                let change = or_current(change)?;
+                cabaret.discard(&change, &pathspecs)?;
+                println!("discarded from {change}");
             }
             ChangeCommand::Land { change } => {
                 let change = or_current(change)?;

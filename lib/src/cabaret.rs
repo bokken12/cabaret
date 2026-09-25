@@ -484,6 +484,20 @@ impl Cabaret {
         })
     }
 
+    /// Drop what `change_id`'s workspace has on disk at the paths `pathspecs` match, all when
+    /// empty, putting them back as the change's tip has them.
+    pub fn discard(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<()> {
+        let workspace_id = self.workspace_of(change_id)?;
+        let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
+        self.store.transact(&[], &[], &workspaces, |_ctx, [], [], [workspace]| {
+            // The workspace was found before its lock was taken, so it may have switched since.
+            if workspace.change().is_none_or(|held| **held != *change_id) {
+                Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;
+            }
+            workspace.discard(pathspecs)
+        })
+    }
+
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
     pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
