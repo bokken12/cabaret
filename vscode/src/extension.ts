@@ -968,8 +968,9 @@ async function enterFile(context: vscode.ExtensionContext, cabaret: Cabaret, fil
 
 /**
  * `! m` on a file diff: record its files as reviewed up to the tip the diff shows, then move on to
- * the next file in the view as `$` would, or after the last back to the view's page. A workspace
- * diff shows nothing committed to review.
+ * the next file in the view as `$` would; after the last, wrap to the view's first file still
+ * unreviewed, or back to the view's page once none is. A workspace diff shows nothing committed
+ * to review.
  */
 async function markFiles(
   cabaret: Cabaret,
@@ -982,9 +983,10 @@ async function markFiles(
   // Found before marking, which takes the files out of the review view.
   const files = await cabaret.viewFiles(change, view);
   const index = files.findLastIndex((file) => paths.includes(file.path));
-  const next = index === -1 ? undefined : files[index + 1];
   await cabaret.mark(change, paths, tip);
   vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`);
+  const unreviewed = new Set((await cabaret.viewFiles(change, "review")).map((file) => file.path));
+  const next = (index === -1 ? undefined : files[index + 1]) ?? files.find((file) => unreviewed.has(file.path));
   await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
 }
 
