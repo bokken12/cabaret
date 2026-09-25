@@ -8,7 +8,7 @@ use std::{fmt, path::Path};
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
 
-use crate::file_tree::FileTree;
+use crate::{file_tree::FileTree, home::HomeSection};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +43,10 @@ pub enum DiffView {
 pub enum Target {
     Change {
         change: ChangeId,
+    },
+    /// One section of the home page.
+    Home {
+        section: HomeSection,
     },
     /// The page listing the files `change`'s `view` diffs.
     Files {
@@ -130,6 +134,15 @@ pub struct TabCounts {
     pub workspace: Option<usize>,
 }
 
+/// One tab of a [`Page::strip`]: `showing` for the page it heads, `muted` when it leads to
+/// nothing.
+pub struct Tab {
+    pub text: String,
+    pub showing: bool,
+    pub muted: bool,
+    pub target: Target,
+}
+
 impl Page {
     /// Headed by the change's title, with its id on a line of its own. Parents are listed by id,
     /// as pointers out should be unique. `workspace` is the working directory of the workspace
@@ -202,29 +215,39 @@ impl Page {
     /// A strip of tabs over a change's pages, its show page first, then one per view naming the
     /// key frontends bind to it and how many files it lists. The tab of `view`, the page showing
     /// (`None` for the show page), is underlined; a view with nothing to list is muted.
-    pub fn tabs(change: &ChangeIdRef, view: Option<DiffView>, counts: TabCounts) -> Self {
-        let files = |view: DiffView, key: char, name: &str, count: Option<usize>| {
-            let text = match count {
+    pub fn change_tabs(change: &ChangeIdRef, view: Option<DiffView>, counts: TabCounts) -> Self {
+        let files = |tab: DiffView, key: char, name: &str, count: Option<usize>| Tab {
+            text: match count {
                 Some(count) => format!("[{key}] {name} {count}"),
                 None => format!("[{key}] {name}"),
-            };
-            (Some(view), text, count.is_none_or(|count| count == 0), Target::Files { view, change: change.to_owned() })
+            },
+            showing: view == Some(tab),
+            muted: count.is_none_or(|count| count == 0),
+            target: Target::Files { view: tab, change: change.to_owned() },
         };
-        let tabs = [
-            (None, "overview".to_owned(), false, Target::Change { change: change.to_owned() }),
+        Self::strip([
+            Tab {
+                text: "overview".to_owned(),
+                showing: view.is_none(),
+                muted: false,
+                target: Target::Change { change: change.to_owned() },
+            },
             files(DiffView::Diff, 'd', "diff", Some(counts.diff)),
             files(DiffView::Review, 'r', "review", Some(counts.review)),
             files(DiffView::Workspace, 'w', "workspace", counts.workspace),
-        ];
+        ])
+    }
+
+    /// Tabs side by side over a rule, heavy under the one showing.
+    pub fn strip(tabs: impl IntoIterator<Item = Tab>) -> Self {
         let mut labels = Line::default();
         let mut rule = Line::default();
-        for (i, (tab, text, empty, target)) in tabs.into_iter().enumerate() {
+        for (i, Tab { text, showing, muted, target }) in tabs.into_iter().enumerate() {
             if i > 0 {
                 labels = labels.push(Segment::plain(" "));
                 rule = rule.push(Segment::plain("─"));
             }
-            let showing = tab == view;
-            let tag = match (showing, empty) {
+            let tag = match (showing, muted) {
                 (true, _) => Some(Tag::Heading),
                 (false, true) => Some(Tag::Muted),
                 (false, false) => None,

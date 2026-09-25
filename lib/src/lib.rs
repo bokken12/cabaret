@@ -14,5 +14,5 @@ pub use cabaret_types::{
 };
 pub use file_tree::FileTree;
 pub use gix;
-pub use home::{Home, HomeGraph, HomeNode};
+pub use home::{Home, HomeGraph, HomeNode, HomeSection};
 pub use page::{DiffView, Fold, Line, Page, Segment, TabCounts, Tag, Target};

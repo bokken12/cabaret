@@ -16,7 +16,7 @@ use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
-    home::{Home, HomeGraph, HomeNode},
+    home::{Home, HomeGraph, HomeNode, HomeSection},
     page::{DiffView, Page, TabCounts},
 };
 
@@ -386,14 +386,14 @@ impl Cabaret {
     }
 
     /// The tabs over `change_id`'s pages, with `view`'s showing (`None` for its show page).
-    pub fn tabs_page(&self, change_id: &ChangeIdRef, view: Option<DiffView>) -> Result<Page> {
+    pub fn change_tabs_page(&self, change_id: &ChangeIdRef, view: Option<DiffView>) -> Result<Page> {
         let count = |view| -> Result<usize> { Ok(self.view_files(change_id, view, &[])?.len()) };
         let workspace = match self.workspace_holding(change_id)? {
             Some(_) => Some(count(DiffView::Workspace)?),
             None => None,
         };
         let counts = TabCounts { diff: count(DiffView::Diff)?, review: count(DiffView::Review)?, workspace };
-        Ok(Page::tabs(change_id, view, counts))
+        Ok(Page::change_tabs(change_id, view, counts))
     }
 
     /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is
@@ -716,7 +716,7 @@ impl Cabaret {
             }
             Ok(Home {
                 viewer: viewer.clone(),
-                to_review: home_graph(&changes, &to_review, &trunk)?,
+                review: home_graph(&changes, &to_review, &trunk)?,
                 owned: home_graph(&changes, &owned, &trunk)?,
                 workspaces: home_graph(&changes, &checked_out, &trunk)?,
             })
@@ -724,6 +724,10 @@ impl Cabaret {
     }
 
     pub fn home_page(&self, viewer: &Identity) -> Result<Page> { Page::home(&self.home(viewer)?) }
+
+    pub fn home_section_page(&self, viewer: &Identity, section: HomeSection) -> Result<Page> {
+        Page::home_section(&self.home(viewer)?, section)
+    }
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

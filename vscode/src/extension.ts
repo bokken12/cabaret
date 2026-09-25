@@ -11,6 +11,7 @@ import {
   type Target,
   type DiffView,
   type Fold,
+  type HomeSection,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -49,22 +50,29 @@ function isDiffView(text: string | null | undefined): text is DiffView {
 /** The views whose sides are both committed, so the reviewer only reads. */
 type CommittedView = Exclude<DiffView, "workspace">;
 
-type Route = { kind: "home" } | { kind: "show" | DiffView; change: ChangeId };
+/** Every `HomeSection`; the `satisfies` stops compiling until a new section is listed here. */
+const HOME_SECTIONS = Object.keys({ review: true, owned: true, workspaces: true } satisfies Record<HomeSection, true>);
+
+function isHomeSection(text: string | undefined): text is HomeSection {
+  return HOME_SECTIONS.some((section) => section === text);
+}
+
+type Route = { kind: "home"; section: HomeSection } | { kind: "show" | DiffView; change: ChangeId };
 
 function routeUri(route: Route): vscode.Uri {
-  const path = route.kind === "home" ? "/home" : `/${route.kind}/${route.change}`;
+  const path = `/${route.kind}/${route.kind === "home" ? route.section : route.change}`;
   return vscode.Uri.from({ scheme: SCHEME, path });
 }
 
 function parseRoute(uri: vscode.Uri): Route {
-  if (uri.path === "/home") {
-    return { kind: "home" };
+  const [, kind, rest] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
+  if (kind === "home" && isHomeSection(rest)) {
+    return { kind, section: rest };
   }
-  const [, kind, change] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
-  if ((kind !== "show" && !isDiffView(kind)) || change === undefined) {
-    throw new Error(`unknown page ${uri.toString()}`);
+  if ((kind === "show" || isDiffView(kind)) && rest !== undefined) {
+    return { kind, change: rest };
   }
-  return { kind, change };
+  throw new Error(`unknown page ${uri.toString()}`);
 }
 
 /** A file in the workspace, as Enter on a file diff leads to. */
@@ -81,11 +89,11 @@ async function openFile({ path, line }: Location): Promise<void> {
 
 async function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
   if (route.kind === "home") {
-    return cabaret.homePage();
+    return cabaret.homeSectionPage(undefined, route.section);
   }
   const view = route.kind === "show" ? undefined : route.kind;
   const [tabs, page] = await Promise.all([
-    cabaret.tabsPage(route.change, view),
+    cabaret.changeTabsPage(route.change, view),
     view === undefined ? cabaret.showPage(route.change) : cabaret.filesPage(route.change, view),
   ]);
   // Under the heading, which names the change the tabs are of.
@@ -241,6 +249,8 @@ class PageProvider
    * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise.
    */
   private readonly selections = new Map<string, vscode.Selection>();
+  /** The home section last shown, for the way back home to return to. */
+  homeSection: HomeSection = "review";
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly decorations = Object.fromEntries(
     TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
@@ -266,6 +276,9 @@ class PageProvider
       return pageText(completed);
     }
     const route = parseRoute(uri);
+    if (route.kind === "home") {
+      this.homeSection = route.section;
+    }
     const page = await renderRoute(openCabaret(), route);
     this.pages.set(key, page);
     if (route.kind === "show") {
@@ -551,6 +564,8 @@ function targetRoute(target: Target | undefined): Route | undefined {
       return { kind: "show", change: target.change };
     case "Files":
       return { kind: target.view, change: target.change };
+    case "Home":
+      return { kind: "home", section: target.section };
     default:
       return undefined;
   }
@@ -563,6 +578,9 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       break;
     case "Files":
       await provider.open({ kind: target.view, change: target.change });
+      break;
+    case "Home":
+      await provider.open({ kind: "home", section: target.section });
       break;
     case "Diff":
       await openFileDiffs(cabaret, target.view, target.change, target.files);
@@ -685,13 +703,16 @@ function updatePageContext(): void {
   vscode.commands.executeCommand("setContext", "cabaret.actsOnChange", actsOnChange);
 }
 
-/** The scope enclosing a page: a change's diffs sit in its show page, which sits in home. */
-function enclosing(route: Route): Route | undefined {
+/**
+ * The scope enclosing a page: a change's diffs sit in its show page, which sits in home, shown at
+ * `homeSection`.
+ */
+function enclosing(route: Route, homeSection: HomeSection): Route | undefined {
   switch (route.kind) {
     case "home":
       return undefined;
     case "show":
-      return { kind: "home" };
+      return { kind: "home", section: homeSection };
     case "diff":
     case "review":
     case "workspace":
@@ -744,14 +765,10 @@ function onChange(
   });
 }
 
-/** The row leading to `change` nearest `near`; the home page may draw a change in both sections. */
-function rowOf(page: Page, change: ChangeId, near: number): number | undefined {
-  const rows = page.lines.flatMap((line, row) =>
-    line.target?.kind === "Change" && line.target.change === change ? [row] : [],
-  );
-  return rows.length === 0
-    ? undefined
-    : rows.reduce((best, row) => (Math.abs(row - near) < Math.abs(best - near) ? row : best));
+/** The row leading to `change`, if the page draws it. */
+function rowOf(page: Page, change: ChangeId): number | undefined {
+  const row = page.lines.findIndex((line) => line.target?.kind === "Change" && line.target.change === change);
+  return row === -1 ? undefined : row;
 }
 
 type Direction = "up" | "down";
@@ -842,7 +859,7 @@ async function step(cabaret: Cabaret, provider: PageProvider, direction: Directi
     return;
   }
   const page = provider.page(editor.document.uri);
-  const row = page === undefined ? undefined : rowOf(page, to, editor.selection.active.line);
+  const row = page === undefined ? undefined : rowOf(page, to);
   if (row === undefined) {
     await provider.open({ kind: "show", change: to });
     return;
@@ -1351,7 +1368,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.window.tabGroups.onDidChangeTabs(updatePageContext),
     command("cabaret.home", async () => {
-      await provider.open({ kind: "home" });
+      await provider.open({ kind: "home", section: provider.homeSection });
     }),
     onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
     command("cabaret.diff", (cabaret) => switchView(cabaret, provider, "diff")),
@@ -1385,7 +1402,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const editor = activePage();
-      const out = editor === undefined ? undefined : enclosing(parseRoute(editor.document.uri));
+      const out = editor === undefined ? undefined : enclosing(parseRoute(editor.document.uri), provider.homeSection);
       if (out !== undefined) {
         await provider.open(out);
       }

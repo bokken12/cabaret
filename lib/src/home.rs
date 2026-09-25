@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{ChangeId, Identity, Result};
 
-use crate::page::{Fold, Line, Page, Segment, Tag, Target, name};
+use crate::page::{Fold, Line, Page, Segment, Tab, Tag, Target, name};
 
 /// A change in a home graph: one the graph is about, or an open ancestor shown as context.
 pub struct HomeNode {
@@ -25,7 +25,7 @@ pub struct HomeGraph {
 /// changes they own, and the changes checked out in its workspaces.
 pub struct Home {
     pub viewer: Identity,
-    pub to_review: HomeGraph,
+    pub review: HomeGraph,
     pub owned: HomeGraph,
     // TODO-someday(joel): just showing workspaces on this device is insufficient for many real workflows. Consider
     // adding remote workspaces, SSH'd devices, cloud agents, or other?
@@ -36,24 +36,81 @@ pub struct Home {
 /// with depth; rails wider than the gutter push them aside.
 const LABEL_GUTTER: usize = 4;
 
+/// A graph of a [`Home`], each shown in its own section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "lowercase"))]
+pub enum HomeSection {
+    Review,
+    Owned,
+    Workspaces,
+}
+
+impl HomeSection {
+    const ALL: [Self; 3] = [Self::Review, Self::Owned, Self::Workspaces];
+
+    fn heading(self) -> &'static str {
+        match self {
+            Self::Review => "Review",
+            Self::Owned => "Owned",
+            Self::Workspaces => "Workspaces",
+        }
+    }
+}
+
+impl Home {
+    fn graph(&self, section: HomeSection) -> &HomeGraph {
+        match section {
+            HomeSection::Review => &self.review,
+            HomeSection::Owned => &self.owned,
+            HomeSection::Workspaces => &self.workspaces,
+        }
+    }
+
+    /// A section's graph, or a muted line where it is empty.
+    fn body(&self, section: HomeSection) -> Result<Page> {
+        let graph = self.graph(section);
+        if !graph.nodes.is_empty() {
+            return Page::graph(graph);
+        }
+        Ok(Page::message(match section {
+            HomeSection::Review => format!("nothing awaiting review by {}", self.viewer),
+            HomeSection::Owned => format!("no open changes owned by {}", self.viewer),
+            HomeSection::Workspaces => "no changes checked out in a workspace".to_owned(),
+        }))
+    }
+}
+
 impl Page {
     /// Each graph under a heading that folds it away, with a muted line where one is empty.
     pub fn home(home: &Home) -> Result<Self> {
-        let section = |page: &mut Self, heading: &str, graph: &HomeGraph, empty: String| -> Result<()> {
-            let body = if graph.nodes.is_empty() { Self::message(empty) } else { Self::graph(graph)? };
+        let mut page = Self::default();
+        for (i, section) in HomeSection::ALL.into_iter().enumerate() {
+            if i > 0 {
+                page.lines.push(Line::default());
+            }
+            let body = home.body(section)?;
             let line = |n: usize| u32::try_from(n).expect("a home page is short");
             let start = line(page.lines.len());
             page.folds.push(Fold { start, end: start + line(body.lines.len()) });
-            page.lines.push(Line::default().push(Segment::tagged(heading, Tag::Heading)));
+            page.lines.push(Line::default().push(Segment::tagged(section.heading(), Tag::Heading)));
             page.append(body);
-            Ok(())
-        };
-        let mut page = Self::default();
-        section(&mut page, "To review", &home.to_review, format!("nothing awaiting review by {}", home.viewer))?;
+        }
+        Ok(page)
+    }
+
+    /// One graph of `home` under tabs leading to each section, counting the changes it is about.
+    pub fn home_section(home: &Home, section: HomeSection) -> Result<Self> {
+        let mut page = Self::strip(HomeSection::ALL.map(|tab| {
+            let count = home.graph(tab).nodes.values().filter(|node| node.selected).count();
+            Tab {
+                text: format!("{} {count}", tab.heading().to_lowercase()),
+                showing: tab == section,
+                muted: count == 0,
+                target: Target::Home { section: tab },
+            }
+        }));
         page.lines.push(Line::default());
-        section(&mut page, "Owned", &home.owned, format!("no open changes owned by {}", home.viewer))?;
-        page.lines.push(Line::default());
-        section(&mut page, "Workspaces", &home.workspaces, "no changes checked out in a workspace".into())?;
+        page.append(home.body(section)?);
         Ok(page)
     }
 
