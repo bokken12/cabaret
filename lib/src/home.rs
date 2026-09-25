@@ -140,7 +140,7 @@ impl Page {
                 line.leading_to(Target::Change { change: row.id.clone() })
             })
             .collect();
-        Ok(Self { lines, folds: folds(graph, &rows) })
+        Ok(Self { lines, folds: folds(graph, &rows), ..Self::default() })
     }
 }
 

@@ -44,10 +44,11 @@ fn describe(target: &Target) -> String {
     }
 }
 
-/// Each segment as `text`, `[Tag|text]`, or `[Tag>target|text]`; a line's own target follows `=>`.
+/// Each segment as `text`, `[Tag|text]`, or `[Tag>target|text]`; a line's own target follows `=>`,
+/// and the cursor's line, unless it starts at the top, ends with `<cursor>`.
 pub fn markup(page: &Page) -> String {
     let mut out = String::new();
-    for line in &page.lines {
+    for (i, line) in page.lines.iter().enumerate() {
         for Segment { text, tag, target } in &line.segments {
             match (tag, target) {
                 (None, None) => out.push_str(text),
@@ -65,6 +66,9 @@ pub fn markup(page: &Page) -> String {
         }
         if let Some(target) = &line.target {
             out.push_str(&format!(" => {}", describe(target)));
+        }
+        if page.cursor != 0 && u32::try_from(i).unwrap() == page.cursor {
+            out.push_str(" <cursor>");
         }
         out.push('\n');
     }
@@ -158,9 +162,9 @@ fn a_diff_page_targets_each_file() {
     ];
     let page = Page::files(&"change".parse::<ChangeId>().unwrap(), Some("Tidy the parser"), DiffView::Diff, &files);
     expect![[r"
-        [Heading>diff:change:b.rs|Tidy the parser][Muted>diff:change:b.rs| · changed files]
+        [Heading|Tidy the parser][Muted| · changed files]
 
-        ○ [Renamed|b.rs][Muted| ← moved from a.rs] => diff:change:b.rs
+        ○ [Renamed|b.rs][Muted| ← moved from a.rs] => diff:change:b.rs <cursor>
         ○ [Copied|d.rs][Muted| ← copied from c.rs] => diff:change:d.rs
         ◌ [Label|src/] => diff:change:src/lib.rs,src/new.rs,src/old.rs
         ├─○ [Modified|lib.rs] => diff:change:src/lib.rs
@@ -187,10 +191,10 @@ fn a_review_page_targets_each_unreviewed_file() {
     let files = [ChangedFile::Modified { path: path("src/lib.rs") }, ChangedFile::Added { path: path("src/new.rs") }];
     let page = Page::files(&"change".parse::<ChangeId>().unwrap(), None, DiffView::Review, &files);
     expect![[r"
-        [Heading>review:change:src/lib.rs|change][Muted>review:change:src/lib.rs| · unreviewed files]
+        [Heading|change][Muted| · unreviewed files]
 
         ◌ [Label|src/] => review:change:src/lib.rs,src/new.rs
-        ├─○ [Modified|lib.rs] => review:change:src/lib.rs
+        ├─○ [Modified|lib.rs] => review:change:src/lib.rs <cursor>
         ╰─○ [Added|new.rs] => review:change:src/new.rs
     "]]
     .assert_eq(&markup(&page));
@@ -216,9 +220,9 @@ fn a_workspace_page_targets_each_file_on_disk() {
     ];
     let change = "change".parse::<ChangeId>().unwrap();
     expect![[r"
-        [Heading>workspace:change:b.rs|change][Muted>workspace:change:b.rs| · uncommitted files]
+        [Heading|change][Muted| · uncommitted files]
 
-        ○ [Renamed|b.rs][Muted| ← moved from a.rs] => workspace:change:b.rs
+        ○ [Renamed|b.rs][Muted| ← moved from a.rs] => workspace:change:b.rs <cursor>
         ○ [Modified|src/lib.rs] => workspace:change:src/lib.rs
     "]]
     .assert_eq(&markup(&Page::files(&change, None, DiffView::Workspace, &files)));
@@ -277,9 +281,9 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
     let change = "tree".parse::<ChangeId>().unwrap();
     let page = Page::files(&change, None, DiffView::Diff, &files);
     expect![[r"
-        [Heading>diff:tree:README.md|tree][Muted>diff:tree:README.md| · changed files]
+        [Heading|tree][Muted| · changed files]
 
-        ○ [Modified|README.md] => diff:tree:README.md
+        ○ [Modified|README.md] => diff:tree:README.md <cursor>
         ◌ [Label|src/] => diff:tree:src/main.rs,src/parser/expression.rs,src/parser/tokens.rs
         ├─○ [Modified|main.rs] => diff:tree:src/main.rs
         ╰─◌ [Label|parser/] => diff:tree:src/parser/expression.rs,src/parser/tokens.rs
@@ -317,10 +321,10 @@ fn moves_and_copies_live_once_at_the_destination_with_their_original_targets() {
     ];
     let page = Page::files(&"tree".parse::<ChangeId>().unwrap(), None, DiffView::Review, &files);
     expect![[r"
-        [Heading>review:tree:src/parser/helper.rs|tree][Muted>review:tree:src/parser/helper.rs| · unreviewed files]
+        [Heading|tree][Muted| · unreviewed files]
 
         ◌ [Label|src/parser/] => review:tree:src/parser/helper.rs,src/parser/new.rs,src/parser/tokens.rs
-        ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs] => review:tree:src/parser/helper.rs
+        ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs] => review:tree:src/parser/helper.rs <cursor>
         ├─○ [Renamed|new.rs][Muted| ← moved from old.rs] => review:tree:src/parser/new.rs
         ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs] => review:tree:src/parser/tokens.rs
     "]]
@@ -343,10 +347,10 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
     ];
     let page = Page::files(&"tree".parse::<ChangeId>().unwrap(), None, DiffView::Workspace, &files);
     expect![[r"
-        [Heading>workspace:tree:src/item|tree][Muted>workspace:tree:src/item| · uncommitted files]
+        [Heading|tree][Muted| · uncommitted files]
 
         ◌ [Label|src/] => workspace:tree:src/item,src/item/child.rs,src/item-other.rs
-        ├─○ [Deleted|item] => workspace:tree:src/item
+        ├─○ [Deleted|item] => workspace:tree:src/item <cursor>
         ├─◌ [Label|item/] => workspace:tree:src/item/child.rs
         │ ╰─○ [Added|child.rs] => workspace:tree:src/item/child.rs
         ╰─○ [Modified|item-other.rs] => workspace:tree:src/item-other.rs

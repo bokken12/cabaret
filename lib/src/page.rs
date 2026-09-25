@@ -123,6 +123,8 @@ pub struct Page {
     pub lines: Vec<Line>,
     /// Sorted by start; folds nest or stay disjoint.
     pub folds: Vec<Fold>,
+    /// The line to start the cursor on when there is no position to return to.
+    pub cursor: u32,
 }
 
 /// How many files each view of a change diffs; `workspace` is `None` when the change is checked
@@ -175,12 +177,12 @@ impl Page {
         lines.push(list("Tip:", std::iter::once(revision(&change.tip))));
         lines.push(list("Bases:", change.bases.iter().map(revision)));
         lines.push(list("Workspace:", workspace.map(|path| Segment::plain(path.display().to_string())).into_iter()));
-        Self { lines, folds: Vec::new() }
+        Self { lines, ..Self::default() }
     }
 
-    /// The files `change`'s `view` diffs, headed by the change's name, which links to the first
-    /// file listed so that diffs can be read in order from the top; below, each file leads to its
-    /// own diff and each folder to all under it.
+    /// The files `change`'s `view` diffs, headed by the change's name; below, each file leads to
+    /// its own diff and each folder to all under it. The cursor starts on the first file listed,
+    /// so that diffs can be read in order from the top.
     pub fn files(change: &ChangeIdRef, title: Option<&str>, view: DiffView, files: &[ChangedFile]) -> Self {
         let kind = match view {
             DiffView::Diff => "changed",
@@ -193,22 +195,19 @@ impl Page {
             files: files.iter().map(|&file| file.clone()).collect(),
         };
         let tree = FileTree::new(files);
-        let first = tree.listed_files().first().map(|&first| target(&[first]));
-        // Linked from its text rather than led to by the line, as selections gather the files of
-        // lines and the heading is not one.
-        let heading = [
-            Segment::tagged(name(change, title), Tag::Heading),
-            Segment::tagged(format!(" · {kind} files"), Tag::Muted),
-        ]
-        .into_iter()
-        .map(|segment| Segment { target: first.clone(), ..segment })
-        .collect();
-        let mut page =
-            Self { lines: vec![Line { segments: heading, target: None }, Line::default()], folds: Vec::new() };
+        let heading = Line::default()
+            .push(Segment::tagged(name(change, title), Tag::Heading))
+            .push(Segment::tagged(format!(" · {kind} files"), Tag::Muted));
+        let mut page = Self { lines: vec![heading, Line::default()], ..Self::default() };
         page.append(match files.is_empty() {
             true => Self::message(format!("no {kind} files")),
             false => tree.render_with_targets(|files| Some(target(files))),
         });
+        if let Some(&first) = tree.listed_files().first() {
+            let first = Some(target(&[first]));
+            let row = page.lines.iter().position(|line| line.target == first).expect("every listed file has a row");
+            page.cursor = u32::try_from(row).expect("pages are short");
+        }
         page
     }
 
@@ -272,7 +271,7 @@ impl Page {
                 .push(border("│"));
         }
         let rule = |text: String| Line::default().push(Segment::tagged(text, Tag::Muted));
-        Self { lines: vec![rule(top), labels, rule(bottom)], folds: Vec::new() }
+        Self { lines: vec![rule(top), labels, rule(bottom)], ..Self::default() }
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each
@@ -280,7 +279,7 @@ impl Page {
     /// order them.
     pub fn sessions(change: &ChangeIdRef, sessions: &[Session], now: TimestampMs) -> Self {
         if sessions.is_empty() {
-            return Self { lines: vec![Line::default(), list("Sessions:", std::iter::empty())], folds: Vec::new() };
+            return Self { lines: vec![Line::default(), list("Sessions:", std::iter::empty())], ..Self::default() };
         }
         let mut lines = vec![Line::default(), Line::default().push(Segment::tagged("Sessions:", Tag::Label))];
         for session in sessions {
@@ -300,12 +299,12 @@ impl Page {
             );
         }
         let end = u32::try_from(lines.len() - 1).expect("pages are short");
-        Self { lines, folds: vec![Fold { start: 1, end }] }
+        Self { lines, folds: vec![Fold { start: 1, end }], ..Self::default() }
     }
 
     /// A page of one muted line, for when there is nothing to show.
     pub fn message(text: impl Into<String>) -> Self {
-        Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], folds: Vec::new() }
+        Self { lines: vec![Line::default().push(Segment::tagged(text, Tag::Muted))], ..Self::default() }
     }
 
     /// Continue with `other`'s lines, its folds moved down to them.

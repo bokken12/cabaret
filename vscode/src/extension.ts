@@ -100,7 +100,7 @@ async function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
   return inserted(page, 1, tabs);
 }
 
-/** `page` with `insert`'s lines put before its line `at`, and folds moved to match. */
+/** `page` with `insert`'s lines put before its line `at`, and folds and cursor moved to match. */
 function inserted(page: Page, at: number, insert: Page): Page {
   const shifted = (fold: Fold, by: number): Fold => ({ start: fold.start + by, end: fold.end + by });
   if (page.folds.some((fold) => fold.start < at && at <= fold.end)) {
@@ -112,6 +112,7 @@ function inserted(page: Page, at: number, insert: Page): Page {
       ...page.folds.map((fold) => (fold.start < at ? fold : shifted(fold, insert.lines.length))),
       ...insert.folds.map((fold) => shifted(fold, at)),
     ].toSorted((a, b) => a.start - b.start),
+    cursor: page.cursor < at ? page.cursor : page.cursor + insert.lines.length,
   };
 }
 
@@ -127,6 +128,7 @@ async function sessionsPage(cabaret: Cabaret, change: ChangeId): Promise<Page> {
     return {
       lines: [{ segments: [] }, { segments: [{ text: `Sessions: unavailable (${message})`, tag: "Muted" }] }],
       folds: [],
+      cursor: 0,
     };
   }
 }
@@ -246,7 +248,8 @@ class PageProvider
   private readonly completed = new Map<string, Page>();
   /**
    * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
-   * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise.
+   * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise. A
+   * page never visited starts at its own cursor.
    */
   private readonly selections = new Map<string, vscode.Selection>();
   /** The home section last shown, for the way back home to return to. */
@@ -330,6 +333,15 @@ class PageProvider
     return page === undefined ? undefined : targetAt(page, editor.selection.active);
   }
 
+  private startSelection(uri: vscode.Uri): vscode.Selection {
+    const page = this.page(uri);
+    if (page === undefined) {
+      throw new Error(`${uri.toString()} is not rendered`);
+    }
+    const start = new vscode.Position(page.cursor, 0);
+    return new vscode.Selection(start, start);
+  }
+
   rememberSelection({ document, selection }: vscode.TextEditor): void {
     this.selections.set(document.uri.toString(), selection);
   }
@@ -362,9 +374,9 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = this.invalidate(route);
-    const selection = this.selections.get(uri.toString());
     await replacingActive(async () => {
       const document = await inPageLanguage(await vscode.workspace.openTextDocument(uri));
+      const selection = this.selections.get(uri.toString()) ?? this.startSelection(uri);
       this.decorate(await vscode.window.showTextDocument(document, { preview: false, selection }));
     });
   }
