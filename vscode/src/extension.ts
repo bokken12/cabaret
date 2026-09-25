@@ -345,8 +345,6 @@ type FileDiff = { view: View; change: ChangeId; path: RepoPath; tip: Revision };
 /** The files of a diff tab: one for a two-sided diff, several for a multi-file diff. */
 type FilesDiff = Omit<FileDiff, "path"> & { paths: [RepoPath, ...RepoPath[]] };
 
-const lastOf = <T>(items: [T, ...T[]]): T => items[items.length - 1] ?? items[0];
-
 /**
  * `cabaret-blob:/<blob path>?view=<view>&change=<id>&path=<path>&tip=<rev>[&revision=<rev>]`: the
  * text at `blobPath` in that revision, or empty with no revision, as one side of the file diff the
@@ -758,16 +756,17 @@ async function switchView(cabaret: Cabaret, provider: PageProvider, view: Commit
 
 /** On a file diff, `^`/`$` go to the file above or below its files in the same view of the change. */
 async function stepFile(cabaret: Cabaret, { view, change, paths }: FilesDiff, direction: Direction): Promise<void> {
-  const path = direction === "up" ? paths[0] : lastOf(paths);
   const files = await viewFiles(cabaret, view, change);
-  const index = files.findIndex((file) => file.path === path);
-  if (index === -1) {
-    throw new Error(`${path} is no longer in ${change}'s diff`);
+  const shown = (file: ChangedFile) => paths.includes(file.path);
+  const index = direction === "up" ? files.findIndex(shown) : files.findLastIndex(shown);
+  const edge = files[index];
+  if (edge === undefined) {
+    throw new Error(`${words(paths)} is no longer in ${change}'s diff`);
   }
   const file = files[direction === "up" ? index - 1 : index + 1];
   if (file === undefined) {
     const end = direction === "up" ? "first" : "last";
-    vscode.window.setStatusBarMessage(`Cabaret: ${path} is the ${end} file in ${change}`, 3000);
+    vscode.window.setStatusBarMessage(`Cabaret: ${edge.path} is the ${end} file in ${change}`, 3000);
     return;
   }
   await openFileDiff(cabaret, view, change, file);
@@ -996,7 +995,7 @@ async function markFiles(
   }
   // Found before marking, which takes the files out of the review view.
   const files = await viewFiles(cabaret, view, change);
-  const index = files.findIndex((file) => file.path === lastOf(paths));
+  const index = files.findLastIndex((file) => paths.includes(file.path));
   const next = index === -1 ? undefined : files[index + 1];
   await cabaret.mark(change, paths, tip);
   vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`);
