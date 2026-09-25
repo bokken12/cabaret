@@ -293,6 +293,10 @@ impl Cabaret {
 
     pub fn resolve(&self, spec: &str) -> Result<RevisionId> { self.store.query(|ctx| ctx.resolve(spec)) }
 
+    pub fn title(&self, change_id: &ChangeIdRef) -> Result<Option<String>> {
+        self.store.query(|ctx| Ok(ctx.metadata(change_id)?.title.clone()))
+    }
+
     pub fn snapshot(&self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {
         self.store.query(|ctx| ctx.snapshot(change_id))
     }
@@ -336,7 +340,7 @@ impl Cabaret {
     }
 
     pub fn diff_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::diff(change_id, &self.changed_files(change_id, pathspecs)?))
+        Ok(Page::diff(change_id, self.title(change_id)?.as_deref(), &self.changed_files(change_id, pathspecs)?))
     }
 
     /// The revision this repository's identity reviews `path` of `change_id` against; see
@@ -360,7 +364,7 @@ impl Cabaret {
     }
 
     pub fn review_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::review(change_id, &self.review_files(change_id, pathspecs)?))
+        Ok(Page::review(change_id, self.title(change_id)?.as_deref(), &self.review_files(change_id, pathspecs)?))
     }
 
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
@@ -371,7 +375,7 @@ impl Cabaret {
     }
 
     pub fn workspace_page(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Page> {
-        Ok(Page::workspace(change_id, &self.workspace_files(change_id, pathspecs)?))
+        Ok(Page::workspace(change_id, self.title(change_id)?.as_deref(), &self.workspace_files(change_id, pathspecs)?))
     }
 
     /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is

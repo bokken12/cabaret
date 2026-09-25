@@ -28,11 +28,14 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
 }
 
 fn describe(target: &Target) -> String {
+    let paths = |files: &[ChangedFile]| {
+        files.iter().map(|file| file.paths().last().unwrap().to_string()).collect::<Vec<_>>().join(",")
+    };
     match target {
         Target::Change { change } => format!("change:{change}"),
-        Target::Diff { change, file } => format!("diff:{change}:{}", file.paths().last().unwrap()),
-        Target::WorkspaceDiff { change, file } => format!("workspace:{change}:{}", file.paths().last().unwrap()),
-        Target::ReviewDiff { change, file } => format!("review:{change}:{}", file.paths().last().unwrap()),
+        Target::Diff { change, files } => format!("diff:{change}:{}", paths(files)),
+        Target::WorkspaceDiff { change, files } => format!("workspace:{change}:{}", paths(files)),
+        Target::ReviewDiff { change, files } => format!("review:{change}:{}", paths(files)),
         Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
         Target::Session { change, session } => format!("session:{change}:{session}"),
@@ -151,11 +154,13 @@ fn a_diff_page_targets_each_file() {
         ChangedFile::Renamed { from: path("a.rs"), path: path("b.rs") },
         ChangedFile::Copied { from: path("c.rs"), path: path("d.rs") },
     ];
-    let page = Page::diff(&"change".parse::<ChangeId>().unwrap(), &files);
+    let page = Page::diff(&"change".parse::<ChangeId>().unwrap(), Some("Tidy the parser"), &files);
     expect![[r"
+        [Heading|Tidy the parser][Muted| · changed files] => diff:change:b.rs
+
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => diff:change:b.rs
         ○ [Copied|d.rs][Muted| ← copied from c.rs] => diff:change:d.rs
-        ◌ [Label|src/]
+        ◌ [Label|src/] => diff:change:src/lib.rs,src/new.rs,src/old.rs
         ├─○ [Modified|lib.rs] => diff:change:src/lib.rs
         ├─○ [Added|new.rs] => diff:change:src/new.rs
         ╰─○ [Deleted|old.rs] => diff:change:src/old.rs
@@ -165,8 +170,10 @@ fn a_diff_page_targets_each_file() {
 
 #[test]
 fn an_empty_diff_page_says_so() {
-    let page = Page::diff(&"empty".parse::<ChangeId>().unwrap(), &[]);
+    let page = Page::diff(&"empty".parse::<ChangeId>().unwrap(), None, &[]);
     expect![[r"
+        [Heading|empty][Muted| · changed files]
+
         [Muted|no changed files]
     "]]
     .assert_eq(&markup(&page));
@@ -176,9 +183,11 @@ fn an_empty_diff_page_says_so() {
 fn a_review_page_targets_each_unreviewed_file() {
     let path = |path: &str| path.parse().unwrap();
     let files = [ChangedFile::Modified { path: path("src/lib.rs") }, ChangedFile::Added { path: path("src/new.rs") }];
-    let page = Page::review(&"change".parse::<ChangeId>().unwrap(), &files);
+    let page = Page::review(&"change".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        ◌ [Label|src/]
+        [Heading|change][Muted| · unreviewed files] => review:change:src/lib.rs
+
+        ◌ [Label|src/] => review:change:src/lib.rs,src/new.rs
         ├─○ [Modified|lib.rs] => review:change:src/lib.rs
         ╰─○ [Added|new.rs] => review:change:src/new.rs
     "]]
@@ -187,8 +196,10 @@ fn a_review_page_targets_each_unreviewed_file() {
 
 #[test]
 fn an_empty_review_page_says_so() {
-    let page = Page::review(&"reviewed".parse::<ChangeId>().unwrap(), &[]);
+    let page = Page::review(&"reviewed".parse::<ChangeId>().unwrap(), None, &[]);
     expect![[r"
+        [Heading|reviewed][Muted| · unreviewed files]
+
         [Muted|no unreviewed files]
     "]]
     .assert_eq(&markup(&page));
@@ -203,14 +214,18 @@ fn a_workspace_page_targets_each_file_on_disk() {
     ];
     let change = "change".parse::<ChangeId>().unwrap();
     expect![[r"
+        [Heading|change][Muted| · uncommitted files] => workspace:change:b.rs
+
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => workspace:change:b.rs
         ○ [Modified|src/lib.rs] => workspace:change:src/lib.rs
     "]]
-    .assert_eq(&markup(&Page::workspace(&change, &files)));
+    .assert_eq(&markup(&Page::workspace(&change, None, &files)));
     expect![[r"
+        [Heading|change][Muted| · uncommitted files]
+
         [Muted|no uncommitted files]
     "]]
-    .assert_eq(&markup(&Page::workspace(&change, &[])));
+    .assert_eq(&markup(&Page::workspace(&change, None, &[])));
 }
 
 #[test]
@@ -258,25 +273,33 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
             .map(|path| ChangedFile::Modified { path: path.parse().unwrap() })
             .collect();
     let change = "tree".parse::<ChangeId>().unwrap();
-    let page = Page::diff(&change, &files);
+    let page = Page::diff(&change, None, &files);
     expect![[r"
+        [Heading|tree][Muted| · changed files] => diff:tree:README.md
+
         ○ [Modified|README.md] => diff:tree:README.md
-        ◌ [Label|src/]
+        ◌ [Label|src/] => diff:tree:src/main.rs,src/parser/expression.rs,src/parser/tokens.rs
         ├─○ [Modified|main.rs] => diff:tree:src/main.rs
-        ╰─◌ [Label|parser/]
+        ╰─◌ [Label|parser/] => diff:tree:src/parser/expression.rs,src/parser/tokens.rs
           ├─○ [Modified|expression.rs] => diff:tree:src/parser/expression.rs
           ╰─○ [Modified|tokens.rs] => diff:tree:src/parser/tokens.rs
         ○ [Modified|tests/parser/basic.rs] => diff:tree:tests/parser/basic.rs
     "]]
     .assert_eq(&markup(&page));
-    expect!["[Fold { start: 1, end: 5 }, Fold { start: 3, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
-    // Every view has the same shape; only its file targets differ.
-    for other in [Page::review(&change, &files), Page::workspace(&change, &files)] {
-        assert_eq!(page.to_string(), other.to_string());
+    expect!["[Fold { start: 3, end: 7 }, Fold { start: 5, end: 7 }]"].assert_eq(&format!("{:?}", page.folds));
+    // Every view has the same shape; only its heading and file targets differ.
+    let tree = |page: &Page| page.to_string().lines().skip(1).map(str::to_owned).collect::<Vec<_>>();
+    for other in [Page::review(&change, None, &files), Page::workspace(&change, None, &files)] {
+        assert_eq!(tree(&page), tree(&other));
         assert_eq!(page.folds, other.folds);
     }
-    let single = Page::review(&change, &files[..1]);
-    assert_eq!(single.to_string(), "○ tests/parser/basic.rs\n");
+    let single = Page::review(&change, None, &files[..1]);
+    expect![[r"
+        tree · unreviewed files
+
+        ○ tests/parser/basic.rs
+    "]]
+    .assert_eq(&single.to_string());
     assert!(single.folds.is_empty());
 }
 
@@ -288,19 +311,20 @@ fn moves_and_copies_live_once_at_the_destination_with_their_original_targets() {
         ChangedFile::Copied { from: path("shared/helper.rs"), path: path("src/parser/helper.rs") },
         ChangedFile::Renamed { from: path("src/parser/old.rs"), path: path("src/parser/new.rs") },
     ];
-    let page = Page::review(&"tree".parse::<ChangeId>().unwrap(), &files);
+    let page = Page::review(&"tree".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        ◌ [Label|src/parser/]
+        [Heading|tree][Muted| · unreviewed files] => review:tree:src/parser/helper.rs
+
+        ◌ [Label|src/parser/] => review:tree:src/parser/helper.rs,src/parser/new.rs,src/parser/tokens.rs
         ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs] => review:tree:src/parser/helper.rs
         ├─○ [Renamed|new.rs][Muted| ← moved from old.rs] => review:tree:src/parser/new.rs
         ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs] => review:tree:src/parser/tokens.rs
     "]]
     .assert_eq(&markup(&page));
     let targets: Vec<_> = page.lines.iter().filter_map(|line| line.target.as_ref()).collect();
-    assert_eq!(targets.len(), files.len());
     for file in files {
         assert!(
-            targets.iter().any(|target| matches!(target, Target::ReviewDiff { file: actual, .. } if *actual == file))
+            targets.iter().any(|target| matches!(target, Target::ReviewDiff { files, .. } if *files == [file.clone()]))
         );
     }
 }
@@ -313,14 +337,16 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
         ChangedFile::Added { path: path("src/item/child.rs") },
         ChangedFile::Modified { path: path("src/item-other.rs") },
     ];
-    let page = Page::workspace(&"tree".parse::<ChangeId>().unwrap(), &files);
+    let page = Page::workspace(&"tree".parse::<ChangeId>().unwrap(), None, &files);
     expect![[r"
-        ◌ [Label|src/]
+        [Heading|tree][Muted| · uncommitted files] => workspace:tree:src/item
+
+        ◌ [Label|src/] => workspace:tree:src/item,src/item/child.rs,src/item-other.rs
         ├─○ [Deleted|item] => workspace:tree:src/item
-        ├─◌ [Label|item/]
+        ├─◌ [Label|item/] => workspace:tree:src/item/child.rs
         │ ╰─○ [Added|child.rs] => workspace:tree:src/item/child.rs
         ╰─○ [Modified|item-other.rs] => workspace:tree:src/item-other.rs
     "]]
     .assert_eq(&markup(&page));
-    expect!["[Fold { start: 0, end: 4 }, Fold { start: 2, end: 3 }]"].assert_eq(&format!("{:?}", page.folds));
+    expect!["[Fold { start: 2, end: 6 }, Fold { start: 4, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
 }

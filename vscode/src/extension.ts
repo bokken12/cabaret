@@ -537,13 +537,13 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await provider.open({ kind: "show", change: target.change });
       break;
     case "Diff":
-      await openFileDiff(cabaret, "diff", target.change, target.file);
+      await openFileDiffs(cabaret, "diff", target.change, target.files);
       break;
     case "WorkspaceDiff":
-      await openFileDiff(cabaret, "workspace", target.change, target.file);
+      await openFileDiffs(cabaret, "workspace", target.change, target.files);
       break;
     case "ReviewDiff":
-      await openFileDiff(cabaret, "review", target.change, target.file);
+      await openFileDiffs(cabaret, "review", target.change, target.files);
       break;
     case "Title":
       await editTitle(cabaret, provider, target.change);
@@ -1229,7 +1229,7 @@ async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
 }
 
 /** The target a row of a view's page leads to. */
-type FileTarget = Extract<Target, { file: ChangedFile }>;
+type FileTarget = Extract<Target, { files: ChangedFile[] }>;
 
 const FILE_TARGET: Record<View, FileTarget["kind"]> = {
   diff: "Diff",
@@ -1249,12 +1249,14 @@ function selectedFiles(page: Page, selections: readonly vscode.Selection[], view
       rows.add(row);
     }
   }
-  return [...rows]
+  const files = [...rows]
     .sort((a, b) => a - b)
     .flatMap((row) => {
       const target = page.lines[row]?.target;
-      return target?.kind === FILE_TARGET[view] ? [target.file] : [];
+      return target?.kind === FILE_TARGET[view] ? target.files : [];
     });
+  // A folder's row repeats the files on the rows under it.
+  return [...new Map(files.map((file) => [file.path, file])).values()];
 }
 
 async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {

@@ -33,21 +33,21 @@ pub enum Target {
     Change {
         change: ChangeId,
     },
-    /// A file of `change`'s diff: from its base to its tip.
+    /// Files of `change`'s diff: from its base to its tip.
     Diff {
         change: ChangeId,
-        file: ChangedFile,
+        files: Vec<ChangedFile>,
     },
-    /// A file of `change`'s workspace diff: from its tip to what its workspace has on disk.
+    /// Files of `change`'s workspace diff: from its tip to what its workspace has on disk.
     WorkspaceDiff {
         change: ChangeId,
-        file: ChangedFile,
+        files: Vec<ChangedFile>,
     },
-    /// A file of `change`'s review diff: from the merge of its bases with the tip the reviewer
-    /// last marked the file reviewed at, to its tip.
+    /// Files of `change`'s review diff: each from the merge of its bases with the tip the
+    /// reviewer last marked it reviewed at, to its tip.
     ReviewDiff {
         change: ChangeId,
-        file: ChangedFile,
+        files: Vec<ChangedFile>,
     },
     /// The title of `change`, for editing.
     Title {
@@ -150,26 +150,45 @@ impl Page {
         Self { lines, folds: Vec::new() }
     }
 
-    /// The files `change` presents against its base, each leading to its diff.
-    pub fn diff(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
-        Self::files(files, "no changed files", |file| Target::Diff { change: change.to_owned(), file })
+    /// The files `change` presents against its base, leading to their diffs.
+    pub fn diff(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
+        Self::files(change, title, "changed", files, |files| Target::Diff { change: change.to_owned(), files })
     }
 
-    /// The files `change`'s workspace has on disk beyond its tip, each leading to its diff.
-    pub fn workspace(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
-        Self::files(files, "no uncommitted files", |file| Target::WorkspaceDiff { change: change.to_owned(), file })
+    /// The files `change`'s workspace has on disk beyond its tip, leading to their diffs.
+    pub fn workspace(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
+        Self::files(change, title, "uncommitted", files, |files| Target::WorkspaceDiff {
+            change: change.to_owned(),
+            files,
+        })
     }
 
-    /// The files of `change` its reviewer has left to read, each leading to its review diff.
-    pub fn review(change: &ChangeIdRef, files: &[ChangedFile]) -> Self {
-        Self::files(files, "no unreviewed files", |file| Target::ReviewDiff { change: change.to_owned(), file })
+    /// The files of `change` its reviewer has left to read, leading to their review diffs.
+    pub fn review(change: &ChangeIdRef, title: Option<&str>, files: &[ChangedFile]) -> Self {
+        Self::files(change, title, "unreviewed", files, |files| Target::ReviewDiff { change: change.to_owned(), files })
     }
 
-    fn files(files: &[ChangedFile], empty: &str, target: impl Fn(ChangedFile) -> Target) -> Self {
-        if files.is_empty() {
-            return Self::message(empty);
-        }
-        FileTree::new(files).render_with_targets(|file| Some(target(file.clone())))
+    /// Headed by the change's name, leading to the first file listed so that diffs can be read in
+    /// order from the top; below, each file leads to its own diff and each folder to all under it.
+    fn files(
+        change: &ChangeIdRef,
+        title: Option<&str>,
+        kind: &str,
+        files: &[ChangedFile],
+        target: impl Fn(Vec<ChangedFile>) -> Target,
+    ) -> Self {
+        let owned = |files: &[&ChangedFile]| files.iter().map(|&file| file.clone()).collect();
+        let tree = FileTree::new(files);
+        let heading = Line::default()
+            .push(Segment::tagged(name(change, title), Tag::Heading))
+            .push(Segment::tagged(format!(" · {kind} files"), Tag::Muted));
+        let first = tree.listed_files().first().map(|&first| target(vec![first.clone()]));
+        let mut page = Self { lines: vec![Line { target: first, ..heading }, Line::default()], folds: Vec::new() };
+        page.append(match files.is_empty() {
+            true => Self::message(format!("no {kind} files")),
+            false => tree.render_with_targets(|files| Some(target(owned(files)))),
+        });
+        page
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each

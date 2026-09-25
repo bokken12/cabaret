@@ -27,7 +27,13 @@ impl<'a> FileTree<'a> {
     /// Render changed-file labels and folder folds without Cabaret change navigation.
     pub fn render(&self) -> Page { self.render_with_targets(|_| None) }
 
-    pub(crate) fn render_with_targets(&self, target: impl Fn(&ChangedFile) -> Option<Target>) -> Page {
+    /// Every file in the tree, in the order it renders them.
+    pub fn listed_files(&self) -> Vec<&'a ChangedFile> {
+        self.children.values().flat_map(|child| [child.files.clone(), child.listed_files()].concat()).collect()
+    }
+
+    /// `target` leads a file's row to that file, and a folder's row to every file under it.
+    pub(crate) fn render_with_targets(&self, target: impl Fn(&[&ChangedFile]) -> Option<Target>) -> Page {
         let mut page = Page::default();
         self.render_into(&mut page, None, &target);
         page.folds.sort_by_key(|fold| fold.start);
@@ -35,7 +41,7 @@ impl<'a> FileTree<'a> {
     }
 
     /// Match the home graph: files are nodes, folders are context, and roots start at the margin.
-    fn render_into(&self, page: &mut Page, prefix: Option<&str>, target: &impl Fn(&ChangedFile) -> Option<Target>) {
+    fn render_into(&self, page: &mut Page, prefix: Option<&str>, target: &impl Fn(&[&ChangedFile]) -> Option<Target>) {
         for (index, (name, child)) in self.children.iter().enumerate() {
             let mut name = (*name).to_owned();
             let mut child = child;
@@ -54,13 +60,14 @@ impl<'a> FileTree<'a> {
             for (index, file) in child.files.iter().enumerate() {
                 let last_file = last && child.children.is_empty() && index + 1 == child.files.len();
                 let mut line = file_row(file, &name);
-                line.target = target(file);
+                line.target = target(&[file]);
                 line.segments.insert(0, Segment::plain(art(last_file, '○')));
                 page.lines.push(line);
             }
             if !child.children.is_empty() {
                 let start = u32::try_from(page.lines.len()).expect("pages are short");
-                page.lines.push(Line::plain(art(last, '◌')).push(Segment::tagged(format!("{name}/"), Tag::Label)));
+                let row = Line::plain(art(last, '◌')).push(Segment::tagged(format!("{name}/"), Tag::Label));
+                page.lines.push(Line { target: target(&child.listed_files()), ..row });
                 let continuation = match prefix {
                     None => String::new(),
                     Some(prefix) => format!("{prefix}{}", if last { "  " } else { "│ " }),
