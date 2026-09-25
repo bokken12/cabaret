@@ -1,0 +1,3 @@
+{"action":"add-owner","owner":"me@joel.place"}
+{"action":"add-parent","parent":"vscode-diff-views"}
+{"action":"set-title","title":"vscode-acts-on-change-context"}
