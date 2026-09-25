@@ -17,6 +17,8 @@ import * as vscode from "vscode";
 const SCHEME = "cabaret";
 const BLOB_SCHEME = "cabaret-blob";
 const DESCRIPTION_SCHEME = "cabaret-description";
+/** The language of pages, whose `configurationDefaults` close line gaps in their box drawing. */
+const PAGE_LANGUAGE = "cabaret";
 
 /** The cabaret workspace this window is open on. */
 function workspaceFolder(): vscode.Uri {
@@ -216,6 +218,13 @@ async function replacingActive(open: () => Promise<void>): Promise<void> {
   }
 }
 
+/** `document`, in the page language if it is a page. */
+async function inPageLanguage(document: vscode.TextDocument): Promise<vscode.TextDocument> {
+  return document.uri.scheme !== SCHEME || document.languageId === PAGE_LANGUAGE
+    ? document
+    : vscode.languages.setTextDocumentLanguage(document, PAGE_LANGUAGE);
+}
+
 /** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
 class PageProvider
   implements
@@ -342,7 +351,7 @@ class PageProvider
     const uri = this.invalidate(route);
     const selection = this.selections.get(uri.toString());
     await replacingActive(async () => {
-      const document = await vscode.workspace.openTextDocument(uri);
+      const document = await inPageLanguage(await vscode.workspace.openTextDocument(uri));
       this.decorate(await vscode.window.showTextDocument(document, { preview: false, selection }));
     });
   }
@@ -1297,6 +1306,9 @@ async function discardSelected(cabaret: Cabaret, provider: PageProvider, change:
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new PageProvider();
+  for (const document of vscode.workspace.textDocuments) {
+    void inPageLanguage(document);
+  }
   context.subscriptions.push(
     provider,
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, provider),
@@ -1306,6 +1318,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.registerFileSystemProvider(DESCRIPTION_SCHEME, new DescriptionProvider(provider), {
       isCaseSensitive: true,
     }),
+    // Pages restored with the window or opened by a link skip `open`.
+    vscode.workspace.onDidOpenTextDocument(inPageLanguage),
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
       for (const editor of editors) {
         provider.decorate(editor);

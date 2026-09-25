@@ -25,6 +25,19 @@
     "typescript": "catalog:"
   },
   "contributes": {
+    "languages": [
+      {
+        "id": "cabaret",
+        "aliases": [
+          "Cabaret"
+        ]
+      }
+    ],
+    "configurationDefaults": {
+      "[cabaret]": {
+        "editor.lineHeight": 1.15
+      }
+    },
     "commands": [
       {
         "command": "cabaret.home",
