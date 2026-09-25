@@ -312,7 +312,7 @@ class PageProvider
     }
     return [...placed(page)].flatMap(({ segment, range }) => {
       const route = targetRoute(segment.target);
-      return route === undefined ? [] : [new vscode.DocumentLink(range, routeUri(route))];
+      return route === undefined ? [] : [new vscode.DocumentLink(range, openPageUri(route))];
     });
   }
 
@@ -555,6 +555,15 @@ async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId,
     // Pinned, as `vscode.changes` offers no option to open it so.
     await vscode.commands.executeCommand("workbench.action.keepEditor");
   });
+}
+
+/**
+ * A link opening `route` through `cabaret.openPage`, so that a click replaces the page as Enter
+ * does rather than opening beside it.
+ */
+function openPageUri(route: Route): vscode.Uri {
+  const query = JSON.stringify([routeUri(route).toString()]);
+  return vscode.Uri.from({ scheme: "command", path: "cabaret.openPage", query });
 }
 
 /** The page a target leads to, for those that lead to one. */
@@ -1367,6 +1376,9 @@ export function activate(context: vscode.ExtensionContext) {
     // A switch updates the active editor and the tab model separately, so recompute on either.
     vscode.window.onDidChangeActiveTextEditor(updatePageContext),
     vscode.window.tabGroups.onDidChangeTabs(updatePageContext),
+    vscode.commands.registerCommand("cabaret.openPage", (uri: string) =>
+      reporting(() => provider.open(parseRoute(vscode.Uri.parse(uri)))),
+    ),
     command("cabaret.home", async () => {
       await provider.open({ kind: "home", section: provider.homeSection });
     }),
