@@ -331,14 +331,8 @@ class PageProvider
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = this.invalidate(route);
-<<<<<<< multi-file-diff
-    await replacingActive(async () => {
-||||||| base
-    await replacingActive(uri, async () => {
-=======
     const selection = this.selections.get(uri.toString());
-    await replacingActive(uri, async () => {
->>>>>>> main
+    await replacingActive(async () => {
       const document = await vscode.workspace.openTextDocument(uri);
       this.decorate(await vscode.window.showTextDocument(document, { preview: false, selection }));
     });
