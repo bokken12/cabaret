@@ -36,6 +36,13 @@ function openCabaret(): Cabaret {
   return session.cabaret;
 }
 
+/** Every `DiffView`; the `satisfies` stops compiling until a new view is listed here. */
+const DIFF_VIEWS = Object.keys({ diff: true, review: true, workspace: true } satisfies Record<DiffView, true>);
+
+function isDiffView(text: string | null | undefined): text is DiffView {
+  return DIFF_VIEWS.some((view) => view === text);
+}
+
 /** The views whose sides are both committed, so the reviewer only reads. */
 type CommittedView = Exclude<DiffView, "workspace">;
 
@@ -50,8 +57,8 @@ function parseRoute(uri: vscode.Uri): Route {
   if (uri.path === "/home") {
     return { kind: "home" };
   }
-  const [, kind, change] = /^\/(show|diff|review|workspace)\/(.+)$/.exec(uri.path) ?? [];
-  if ((kind !== "show" && kind !== "diff" && kind !== "review" && kind !== "workspace") || change === undefined) {
+  const [, kind, change] = /^\/([^/]+)\/(.+)$/.exec(uri.path) ?? [];
+  if ((kind !== "show" && !isDiffView(kind)) || change === undefined) {
     throw new Error(`unknown page ${uri.toString()}`);
   }
   return { kind, change };
@@ -365,12 +372,7 @@ function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoP
 function blobFileDiff(uri: vscode.Uri): FileDiff {
   const query = new URLSearchParams(uri.query);
   const [view, change, path, tip] = [query.get("view"), query.get("change"), query.get("path"), query.get("tip")];
-  if (
-    (view !== "diff" && view !== "review" && view !== "workspace") ||
-    change === null ||
-    path === null ||
-    tip === null
-  ) {
+  if (!isDiffView(view) || change === null || path === null || tip === null) {
     throw new Error(`${uri.toString()} names no file diff`);
   }
   return { view, change, path, tip };
