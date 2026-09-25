@@ -5,7 +5,7 @@ use std::{
 
 use cabaret_lib::{
     ChangeId, ChangeSnapshot, ChangedFile, DiffView, Identity, Page, RevisionId, Segment, Session, SessionId, Status,
-    Target, TimestampMs,
+    TabCounts, Target, TimestampMs,
 };
 use expect_test::expect;
 
@@ -33,6 +33,7 @@ fn describe(target: &Target) -> String {
     };
     match target {
         Target::Change { change } => format!("change:{change}"),
+        Target::Files { view, change } => format!("files:{}:{change}", format!("{view:?}").to_lowercase()),
         Target::Diff { view, change, files } => {
             format!("{}:{change}:{}", format!("{view:?}").to_lowercase(), paths(files))
         }
@@ -351,4 +352,31 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
     "]]
     .assert_eq(&markup(&page));
     expect!["[Fold { start: 2, end: 6 }, Fold { start: 4, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
+}
+
+#[test]
+fn tabs_underline_showing_page_and_mute_empty_views() {
+    let change = "change".parse::<ChangeId>().unwrap();
+    let counts = TabCounts { diff: 12, review: 0, workspace: None };
+    let page = Page::tabs(&change, Some(DiffView::Diff), counts);
+    expect![[r#"
+        [>change:change| overview ] [Heading>files:diff:change| [d] diff 12 ] [Muted>files:review:change| [r] review 0 ] [Muted>files:workspace:change| [w] workspace ]
+        ───────────[Heading|━━━━━━━━━━━━━]───────────────────────────────
+    "#]].assert_eq(&markup(&page));
+    expect![[r#"
+         overview   [d] diff 12   [r] review 0   [w] workspace 
+        ───────────━━━━━━━━━━━━━───────────────────────────────
+    "#]]
+    .assert_eq(&page.to_string());
+}
+
+#[test]
+fn show_page_tab_is_overview() {
+    let change = "change".parse::<ChangeId>().unwrap();
+    let page = Page::tabs(&change, None, TabCounts { diff: 1, review: 1, workspace: Some(2) });
+    expect![[r#"
+         overview   [d] diff 1   [r] review 1   [w] workspace 2 
+        ━━━━━━━━━━──────────────────────────────────────────────
+    "#]]
+    .assert_eq(&page.to_string());
 }

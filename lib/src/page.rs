@@ -44,6 +44,11 @@ pub enum Target {
     Change {
         change: ChangeId,
     },
+    /// The page listing the files `change`'s `view` diffs.
+    Files {
+        view: DiffView,
+        change: ChangeId,
+    },
     /// Files of `change`, as its `view` diffs them.
     Diff {
         view: DiffView,
@@ -116,6 +121,15 @@ pub struct Page {
     pub folds: Vec<Fold>,
 }
 
+/// How many files each view of a change diffs; `workspace` is `None` when the change is checked
+/// out nowhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TabCounts {
+    pub diff: usize,
+    pub review: usize,
+    pub workspace: Option<usize>,
+}
+
 impl Page {
     /// Headed by the change's title, with its id on a line of its own. Parents are listed by id,
     /// as pointers out should be unique. `workspace` is the working directory of the workspace
@@ -183,6 +197,43 @@ impl Page {
             false => tree.render_with_targets(|files| Some(target(files))),
         });
         page
+    }
+
+    /// A strip of tabs over a change's pages, its show page first, then one per view naming the
+    /// key frontends bind to it and how many files it lists. The tab of `view`, the page showing
+    /// (`None` for the show page), is underlined; a view with nothing to list is muted.
+    pub fn tabs(change: &ChangeIdRef, view: Option<DiffView>, counts: TabCounts) -> Self {
+        let files = |view: DiffView, key: char, name: &str, count: Option<usize>| {
+            let text = match count {
+                Some(count) => format!("[{key}] {name} {count}"),
+                None => format!("[{key}] {name}"),
+            };
+            (Some(view), text, count.is_none_or(|count| count == 0), Target::Files { view, change: change.to_owned() })
+        };
+        let tabs = [
+            (None, "overview".to_owned(), false, Target::Change { change: change.to_owned() }),
+            files(DiffView::Diff, 'd', "diff", Some(counts.diff)),
+            files(DiffView::Review, 'r', "review", Some(counts.review)),
+            files(DiffView::Workspace, 'w', "workspace", counts.workspace),
+        ];
+        let mut labels = Line::default();
+        let mut rule = Line::default();
+        for (i, (tab, text, empty, target)) in tabs.into_iter().enumerate() {
+            if i > 0 {
+                labels = labels.push(Segment::plain(" "));
+                rule = rule.push(Segment::plain("─"));
+            }
+            let showing = tab == view;
+            let tag = match (showing, empty) {
+                (true, _) => Some(Tag::Heading),
+                (false, true) => Some(Tag::Muted),
+                (false, false) => None,
+            };
+            let underline = (if showing { "━" } else { "─" }).repeat(text.chars().count() + 2);
+            labels = labels.push(Segment { tag, ..Segment::plain(format!(" {text} ")).leading_to(target) });
+            rule = rule.push(Segment { tag: showing.then_some(Tag::Heading), ..Segment::plain(underline) });
+        }
+        Self { lines: vec![labels, rule], folds: Vec::new() }
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each

@@ -10,6 +10,7 @@ import {
   type Tag,
   type Target,
   type DiffView,
+  type Fold,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -76,17 +77,32 @@ async function openFile({ path, line }: Location): Promise<void> {
   });
 }
 
-function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
-  switch (route.kind) {
-    case "home":
-      return cabaret.homePage();
-    case "show":
-      return cabaret.showPage(route.change);
-    case "diff":
-    case "review":
-    case "workspace":
-      return cabaret.filesPage(route.change, route.kind);
+async function renderRoute(cabaret: Cabaret, route: Route): Promise<Page> {
+  if (route.kind === "home") {
+    return cabaret.homePage();
   }
+  const view = route.kind === "show" ? undefined : route.kind;
+  const [tabs, page] = await Promise.all([
+    cabaret.tabsPage(route.change, view),
+    view === undefined ? cabaret.showPage(route.change) : cabaret.filesPage(route.change, view),
+  ]);
+  // Under the heading, which names the change the tabs are of.
+  return inserted(page, 1, tabs);
+}
+
+/** `page` with `insert`'s lines put before its line `at`, and folds moved to match. */
+function inserted(page: Page, at: number, insert: Page): Page {
+  const shifted = (fold: Fold, by: number): Fold => ({ start: fold.start + by, end: fold.end + by });
+  if (page.folds.some((fold) => fold.start < at && at <= fold.end)) {
+    throw new Error(`line ${at} is inside a fold`);
+  }
+  return {
+    lines: page.lines.toSpliced(at, 0, ...insert.lines),
+    folds: [
+      ...page.folds.map((fold) => (fold.start < at ? fold : shifted(fold, insert.lines.length))),
+      ...insert.folds.map((fold) => shifted(fold, at)),
+    ].toSorted((a, b) => a.start - b.start),
+  };
 }
 
 /**
@@ -263,11 +279,7 @@ class PageProvider
     if (tail.lines.length === 0 || !open || this.pages.get(key) !== page) {
       return;
     }
-    const offset = page.lines.length;
-    this.completed.set(key, {
-      lines: [...page.lines, ...tail.lines],
-      folds: [...page.folds, ...tail.folds.map(({ start, end }) => ({ start: start + offset, end: end + offset }))],
-    });
+    this.completed.set(key, inserted(page, page.lines.length, tail));
     this.changed.fire(uri);
   }
 
@@ -277,10 +289,8 @@ class PageProvider
       return [];
     }
     return [...placed(page)].flatMap(({ segment, range }) => {
-      const target = segment.target;
-      return target?.kind === "Change"
-        ? [new vscode.DocumentLink(range, routeUri({ kind: "show", change: target.change }))]
-        : [];
+      const route = targetRoute(segment.target);
+      return route === undefined ? [] : [new vscode.DocumentLink(range, routeUri(route))];
     });
   }
 
@@ -525,10 +535,25 @@ async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId,
   });
 }
 
+/** The page a target leads to, for those that lead to one. */
+function targetRoute(target: Target | undefined): Route | undefined {
+  switch (target?.kind) {
+    case "Change":
+      return { kind: "show", change: target.change };
+    case "Files":
+      return { kind: target.view, change: target.change };
+    default:
+      return undefined;
+  }
+}
+
 async function follow(cabaret: Cabaret, provider: PageProvider, target: Target): Promise<void> {
   switch (target.kind) {
     case "Change":
       await provider.open({ kind: "show", change: target.change });
+      break;
+    case "Files":
+      await provider.open({ kind: target.view, change: target.change });
       break;
     case "Diff":
       await openFileDiffs(cabaret, target.view, target.change, target.files);

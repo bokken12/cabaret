@@ -17,7 +17,7 @@ use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode},
-    page::{DiffView, Page},
+    page::{DiffView, Page, TabCounts},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -383,6 +383,17 @@ impl Cabaret {
     pub fn files_page(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<Page> {
         let files = self.view_files(change_id, view, pathspecs)?;
         Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
+    }
+
+    /// The tabs over `change_id`'s pages, with `view`'s showing (`None` for its show page).
+    pub fn tabs_page(&self, change_id: &ChangeIdRef, view: Option<DiffView>) -> Result<Page> {
+        let count = |view| -> Result<usize> { Ok(self.view_files(change_id, view, &[])?.len()) };
+        let workspace = match self.workspace_holding(change_id)? {
+            Some(_) => Some(count(DiffView::Workspace)?),
+            None => None,
+        };
+        let counts = TabCounts { diff: count(DiffView::Diff)?, review: count(DiffView::Review)?, workspace };
+        Ok(Page::tabs(change_id, view, counts))
     }
 
     /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is

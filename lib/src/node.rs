@@ -122,6 +122,11 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.files_page(&change, view, &[])).await
     }
 
+    #[napi]
+    pub async fn tabs_page(&self, change: ChangeId, view: Option<DiffView>) -> napi::Result<Page> {
+        self.blocking(move |cabaret| cabaret.tabs_page(&change, view)).await
+    }
+
     /// Start a Claude Code session on `prompt` in the workspace holding `change`, returning once
     /// it is running. `args` go to the CLI ahead of the prompt.
     #[napi]
