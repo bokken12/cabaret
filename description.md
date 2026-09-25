@@ -1,0 +1,1 @@
+Name the set of pages whose `!` keys act on their change as the `cabaret.actsOnChange` context, so the twelve change actions stop repeating the page list in their `when` clauses. `w` and Tab happen to share the list but for other reasons, so they keep theirs.
