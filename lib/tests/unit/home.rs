@@ -532,13 +532,14 @@ fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
     };
     let page = Page::home_section(&home, HomeSection::Owned).unwrap();
     expect![[r#"
-        [Muted>home:Review| review 0 ] [Heading>home:Owned| owned 2 ] [>home:Workspaces| workspaces 1 ]
-        ───────────[Heading|━━━━━━━━━]───────────────
+        [Muted| ╭──────────┬─────────┬──────────────╮]
+        [Muted| │][Muted>home:Review| review 0 ][Muted|│][Heading>home:Owned| owned 2 ][Muted|│][>home:Workspaces| workspaces 1 ][Muted|│]
+        [Muted|─┴──────────┘         └──────────────┴─]
 
         ◌   [Muted|base] => change:base
         ╰─○   [ChangeId|top] => change:top
         ○   [ChangeId|side] => change:side
     "#]]
     .assert_eq(&super::page::markup(&page));
-    expect!["[Fold { start: 3, end: 4 }]"].assert_eq(&format!("{:?}", page.folds));
+    expect!["[Fold { start: 4, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
 }

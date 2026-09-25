@@ -361,12 +361,14 @@ fn tabs_underline_showing_page_and_mute_empty_views() {
     let counts = TabCounts { diff: 12, review: 0, workspace: None };
     let page = Page::change_tabs(&change, Some(DiffView::Diff), counts);
     expect![[r#"
-        [>change:change| overview ] [Heading>files:diff:change| [d] diff 12 ] [Muted>files:review:change| [r] review 0 ] [Muted>files:workspace:change| [w] workspace ]
-        ───────────[Heading|━━━━━━━━━━━━━]───────────────────────────────
+        [Muted| ╭──────────┬─────────────┬──────────────┬───────────────╮]
+        [Muted| │][>change:change| overview ][Muted|│][Heading>files:diff:change| [d] diff 12 ][Muted|│][Muted>files:review:change| [r] review 0 ][Muted|│][Muted>files:workspace:change| [w] workspace ][Muted|│]
+        [Muted|─┴──────────┘             └──────────────┴───────────────┴─]
     "#]].assert_eq(&markup(&page));
     expect![[r#"
-         overview   [d] diff 12   [r] review 0   [w] workspace 
-        ───────────━━━━━━━━━━━━━───────────────────────────────
+         ╭──────────┬─────────────┬──────────────┬───────────────╮
+         │ overview │ [d] diff 12 │ [r] review 0 │ [w] workspace │
+        ─┴──────────┘             └──────────────┴───────────────┴─
     "#]]
     .assert_eq(&page.to_string());
 }
@@ -376,8 +378,9 @@ fn show_page_tab_is_overview() {
     let change = "change".parse::<ChangeId>().unwrap();
     let page = Page::change_tabs(&change, None, TabCounts { diff: 1, review: 1, workspace: Some(2) });
     expect![[r#"
-         overview   [d] diff 1   [r] review 1   [w] workspace 2 
-        ━━━━━━━━━━──────────────────────────────────────────────
+         ╭──────────┬────────────┬──────────────┬─────────────────╮
+         │ overview │ [d] diff 1 │ [r] review 1 │ [w] workspace 2 │
+        ─┘          └────────────┴──────────────┴─────────────────┴─
     "#]]
     .assert_eq(&page.to_string());
 }

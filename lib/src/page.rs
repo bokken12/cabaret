@@ -238,25 +238,41 @@ impl Page {
         ])
     }
 
-    /// Tabs side by side over a rule, heavy under the one showing.
+    /// Tabs drawn as boxes sharing their borders, over a baseline left open under the one showing.
     pub fn strip(tabs: impl IntoIterator<Item = Tab>) -> Self {
-        let mut labels = Line::default();
-        let mut rule = Line::default();
-        for (i, Tab { text, showing, muted, target }) in tabs.into_iter().enumerate() {
-            if i > 0 {
-                labels = labels.push(Segment::plain(" "));
-                rule = rule.push(Segment::plain("─"));
-            }
+        let tabs: Vec<Tab> = tabs.into_iter().collect();
+        let width = |tab: &Tab| tab.text.chars().count() + 2;
+        let showing = |i: Option<usize>| i.and_then(|i| tabs.get(i)).is_some_and(|tab| tab.showing);
+        // The border left of tab `i`, as it meets the baseline.
+        let foot = |i: usize| match (showing(i.checked_sub(1)), showing(Some(i))) {
+            (true, _) => '└',
+            (_, true) => '┘',
+            _ => '┴',
+        };
+        let mut top = String::from(" ╭");
+        let mut bottom = String::from("─");
+        for (i, tab) in tabs.iter().enumerate() {
+            top.push_str(&"─".repeat(width(tab)));
+            top.push(if i + 1 == tabs.len() { '╮' } else { '┬' });
+            bottom.push(foot(i));
+            bottom.push_str(&(if tab.showing { " " } else { "─" }).repeat(width(tab)));
+        }
+        bottom.push(foot(tabs.len()));
+        bottom.push('─');
+        let border = |text: &str| Segment::tagged(text, Tag::Muted);
+        let mut labels = Line::default().push(border(" │"));
+        for Tab { text, showing, muted, target } in tabs {
             let tag = match (showing, muted) {
                 (true, _) => Some(Tag::Heading),
                 (false, true) => Some(Tag::Muted),
                 (false, false) => None,
             };
-            let underline = (if showing { "━" } else { "─" }).repeat(text.chars().count() + 2);
-            labels = labels.push(Segment { tag, ..Segment::plain(format!(" {text} ")).leading_to(target) });
-            rule = rule.push(Segment { tag: showing.then_some(Tag::Heading), ..Segment::plain(underline) });
+            labels = labels
+                .push(Segment { tag, ..Segment::plain(format!(" {text} ")).leading_to(target) })
+                .push(border("│"));
         }
-        Self { lines: vec![labels, rule], folds: Vec::new() }
+        let rule = |text: String| Line::default().push(Segment::tagged(text, Tag::Muted));
+        Self { lines: vec![rule(top), labels, rule(bottom)], folds: Vec::new() }
     }
 
     /// The tail of a show page: one line per Claude Code session that worked on `change`, each
