@@ -5,7 +5,7 @@ use std::{
 };
 
 use cabaret_agents::{ClaudeCode, Session};
-use cabaret_config::{Prefix, Scope, Setting};
+use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
@@ -393,7 +393,7 @@ impl Cabaret {
             None => None,
         };
         let counts = TabCounts { diff: count(DiffView::Diff)?, review: count(DiffView::Review)?, workspace };
-        Ok(Page::change_tabs(change_id, view, counts))
+        Ok(Page::change_tabs(change_id, view, counts, self.config::<Hints>()?.unwrap_or_default()))
     }
 
     /// The Claude Code sessions launched in the workspace holding `change_id`, or, when it is

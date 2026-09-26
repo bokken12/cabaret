@@ -1,7 +1,7 @@
 //! Settings live in git config: writing one rewrites the scope's file, and the writer reads the
 //! new value back without reopening.
 
-use cabaret_lib::{Identity, Scope};
+use cabaret_lib::{Hints, Identity, Scope};
 use expect_test::expect;
 
 use super::fixture::{Fixture, bob};
@@ -43,4 +43,69 @@ fn unsetting_absent_setting_is_refused() {
 fn malformed_identity_is_refused() {
     let error = "Bob <bob@example.com>".parse::<Identity>().unwrap_err();
     expect![[r#""Bob <bob@example.com>" cannot be a git user.email"#]].assert_eq(&format!("{error:?}"));
+}
+
+#[test]
+fn hints_parse_as_git_booleans() {
+    let parsed =
+        ["true", "yes", "on", "1", "false", "no", "off", "0", "maybe"].map(|value| (value, value.parse::<Hints>()));
+    expect![[r#"
+        [
+            (
+                "true",
+                Ok(
+                    Shown,
+                ),
+            ),
+            (
+                "yes",
+                Ok(
+                    Shown,
+                ),
+            ),
+            (
+                "on",
+                Ok(
+                    Shown,
+                ),
+            ),
+            (
+                "1",
+                Ok(
+                    Shown,
+                ),
+            ),
+            (
+                "false",
+                Ok(
+                    Hidden,
+                ),
+            ),
+            (
+                "no",
+                Ok(
+                    Hidden,
+                ),
+            ),
+            (
+                "off",
+                Ok(
+                    Hidden,
+                ),
+            ),
+            (
+                "0",
+                Ok(
+                    Hidden,
+                ),
+            ),
+            (
+                "maybe",
+                Err(
+                    "maybe" is not a boolean,
+                ),
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&parsed);
 }

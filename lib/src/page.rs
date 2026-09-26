@@ -6,6 +6,7 @@
 use std::{fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
+use cabaret_config::Hints;
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
 
 use crate::{file_tree::FileTree, home::HomeSection};
@@ -211,18 +212,25 @@ impl Page {
         page
     }
 
-    /// A strip of tabs over a change's pages, its show page first, then one per view naming the
-    /// key frontends bind to it and how many files it lists. The tab of `view`, the page showing
-    /// (`None` for the show page), is underlined; a view with nothing to list is muted.
-    pub fn change_tabs(change: &ChangeIdRef, view: Option<DiffView>, counts: TabCounts) -> Self {
-        let files = |tab: DiffView, key: char, name: &str, count: Option<usize>| Tab {
-            text: match count {
-                Some(count) => format!("[{key}] {name} {count}"),
-                None => format!("[{key}] {name}"),
-            },
-            showing: view == Some(tab),
-            muted: count.is_none_or(|count| count == 0),
-            target: Target::Files { view: tab, change: change.to_owned() },
+    /// A strip of tabs over a change's pages, its show page first, then one per view naming how
+    /// many files it lists and, when `hints` are shown, the key frontends bind to it. The tab of
+    /// `view`, the page showing (`None` for the show page), is underlined; a view with nothing to
+    /// list is muted.
+    pub fn change_tabs(change: &ChangeIdRef, view: Option<DiffView>, counts: TabCounts, hints: Hints) -> Self {
+        let files = |tab: DiffView, key: char, name: &str, count: Option<usize>| {
+            let hint = match hints {
+                Hints::Shown => format!("[{key}] "),
+                Hints::Hidden => String::new(),
+            };
+            Tab {
+                text: match count {
+                    Some(count) => format!("{hint}{name} {count}"),
+                    None => format!("{hint}{name}"),
+                },
+                showing: view == Some(tab),
+                muted: count.is_none_or(|count| count == 0),
+                target: Target::Files { view: tab, change: change.to_owned() },
+            }
         };
         Self::strip([
             Tab {

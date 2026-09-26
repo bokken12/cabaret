@@ -4,8 +4,8 @@ use std::{
 };
 
 use cabaret_lib::{
-    ChangeId, ChangeSnapshot, ChangedFile, DiffView, Identity, Page, RevisionId, Segment, Session, SessionId, Status,
-    TabCounts, Target, TimestampMs,
+    ChangeId, ChangeSnapshot, ChangedFile, DiffView, Hints, Identity, Page, RevisionId, Segment, Session, SessionId,
+    Status, TabCounts, Target, TimestampMs,
 };
 use expect_test::expect;
 
@@ -363,7 +363,7 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
 fn tabs_underline_showing_page_and_mute_empty_views() {
     let change = "change".parse::<ChangeId>().unwrap();
     let counts = TabCounts { diff: 12, review: 0, workspace: None };
-    let page = Page::change_tabs(&change, Some(DiffView::Diff), counts);
+    let page = Page::change_tabs(&change, Some(DiffView::Diff), counts, Hints::Shown);
     expect![[r#"
         [Muted| ╭──────────┬─────────────┬──────────────┬───────────────╮]
         [Muted| │][>change:change| overview ][Muted|│][Heading>files:diff:change| [d] diff 12 ][Muted|│][Muted>files:review:change| [r] review 0 ][Muted|│][Muted>files:workspace:change| [w] workspace ][Muted|│]
@@ -380,11 +380,23 @@ fn tabs_underline_showing_page_and_mute_empty_views() {
 #[test]
 fn show_page_tab_is_overview() {
     let change = "change".parse::<ChangeId>().unwrap();
-    let page = Page::change_tabs(&change, None, TabCounts { diff: 1, review: 1, workspace: Some(2) });
+    let page = Page::change_tabs(&change, None, TabCounts { diff: 1, review: 1, workspace: Some(2) }, Hints::Shown);
     expect![[r#"
          ╭──────────┬────────────┬──────────────┬─────────────────╮
          │ overview │ [d] diff 1 │ [r] review 1 │ [w] workspace 2 │
         ─┘          └────────────┴──────────────┴─────────────────┴─
+    "#]]
+    .assert_eq(&page.to_string());
+}
+
+#[test]
+fn hidden_hints_leave_keys_off_tabs() {
+    let change = "change".parse::<ChangeId>().unwrap();
+    let page = Page::change_tabs(&change, None, TabCounts { diff: 1, review: 1, workspace: None }, Hints::Hidden);
+    expect![[r#"
+         ╭──────────┬────────┬──────────┬───────────╮
+         │ overview │ diff 1 │ review 1 │ workspace │
+        ─┘          └────────┴──────────┴───────────┴─
     "#]]
     .assert_eq(&page.to_string());
 }

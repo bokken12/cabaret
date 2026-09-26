@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, Identity, Prefix, Result, Scope, Setting};
+use cabaret_lib::{Cabaret, Hints, Identity, Prefix, Result, Scope, Setting};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -13,6 +13,11 @@ pub enum ConfigCommand {
     Prefix {
         #[command(subcommand)]
         command: SettingCommand<Prefix>,
+    },
+    /// Whether editors show keybinding hints, such as on a change's tabs; true unless set false.
+    Hints {
+        #[command(subcommand)]
+        command: SettingCommand<Hints>,
     },
 }
 
@@ -49,6 +54,7 @@ impl ConfigCommand {
         match self {
             ConfigCommand::Identity { command } => command.run(cabaret),
             ConfigCommand::Prefix { command } => command.run(cabaret),
+            ConfigCommand::Hints { command } => command.run(cabaret),
         }
     }
 }
