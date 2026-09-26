@@ -118,7 +118,7 @@ cabaret.mark
   cabaret-blob:/src/b.txt:0: b
 cabaret.mark
   > feature
-  cabaret:/review/feature:5: no unreviewed files
+  cabaret:/review/feature:6:
 `,
     );
   });
