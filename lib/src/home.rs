@@ -66,6 +66,16 @@ impl Home {
         }
     }
 
+    /// How many changes a section is about, leaving out the ancestors shown as context.
+    fn count(&self, section: HomeSection) -> usize {
+        self.graph(section).nodes.values().filter(|node| node.selected).count()
+    }
+
+    /// The first section with any changes in it, or review when all are empty.
+    pub fn first_section(&self) -> HomeSection {
+        HomeSection::ALL.into_iter().find(|&section| self.count(section) > 0).unwrap_or(HomeSection::Review)
+    }
+
     /// A section's graph, or a muted line where it is empty.
     fn body(&self, section: HomeSection) -> Result<Page> {
         let graph = self.graph(section);
@@ -101,7 +111,7 @@ impl Page {
     /// One graph of `home` under tabs leading to each section, counting the changes it is about.
     pub fn home_section(home: &Home, section: HomeSection) -> Result<Self> {
         let mut page = Self::strip(HomeSection::ALL.map(|tab| {
-            let count = home.graph(tab).nodes.values().filter(|node| node.selected).count();
+            let count = home.count(tab);
             Tab {
                 text: format!("{} {count}", tab.heading().to_lowercase()),
                 showing: tab == section,

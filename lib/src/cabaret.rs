@@ -728,6 +728,10 @@ impl Cabaret {
     pub fn home_section_page(&self, viewer: &Identity, section: HomeSection) -> Result<Page> {
         Page::home_section(&self.home(viewer)?, section)
     }
+
+    pub fn first_home_section(&self, viewer: &Identity) -> Result<HomeSection> {
+        Ok(self.home(viewer)?.first_section())
+    }
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

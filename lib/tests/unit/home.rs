@@ -543,3 +543,16 @@ fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
     .assert_eq(&super::page::markup(&page));
     expect!["[Fold { start: 4, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
 }
+
+#[test]
+fn the_first_section_with_selected_changes_leads_home() {
+    let first = |review: HomeGraph, owned: HomeGraph, workspaces: HomeGraph| {
+        Home { viewer: Identity("alice@example.com".into()), review, owned, workspaces }.first_section()
+    };
+    let context = || graph(&[("base", false, "")]);
+    let selected = || graph(&[("top", true, "")]);
+    expect!["Review"].assert_eq(&format!("{:?}", first(selected(), selected(), selected())));
+    expect!["Owned"].assert_eq(&format!("{:?}", first(context(), selected(), selected())));
+    expect!["Workspaces"].assert_eq(&format!("{:?}", first(graph(&[]), context(), selected())));
+    expect!["Review"].assert_eq(&format!("{:?}", first(graph(&[]), context(), graph(&[]))));
+}

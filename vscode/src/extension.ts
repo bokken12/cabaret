@@ -253,7 +253,7 @@ class PageProvider
    */
   private readonly selections = new Map<string, vscode.Selection>();
   /** The home section last shown, for the way back home to return to. */
-  homeSection: HomeSection = "review";
+  private homeSection: HomeSection | undefined;
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly decorations = Object.fromEntries(
     TAGS.map((tag) => [tag, vscode.window.createTextEditorDecorationType(STYLES[tag])]),
@@ -268,6 +268,11 @@ class PageProvider
     this.pages.clear();
     this.completed.clear();
     this.selections.clear();
+  }
+
+  /** Home at the section last shown, or before any was, the first with changes in it. */
+  async home(cabaret: Cabaret): Promise<Route> {
+    return { kind: "home", section: this.homeSection ?? (await cabaret.firstHomeSection()) };
   }
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
@@ -724,16 +729,13 @@ function updatePageContext(): void {
   vscode.commands.executeCommand("setContext", "cabaret.actsOnChange", actsOnChange);
 }
 
-/**
- * The scope enclosing a page: a change's diffs sit in its show page, which sits in home, shown at
- * `homeSection`.
- */
-function enclosing(route: Route, homeSection: HomeSection): Route | undefined {
+/** The scope enclosing a page: a change's diffs sit in its show page, which sits in `home`. */
+async function enclosing(route: Route, home: () => Promise<Route>): Promise<Route | undefined> {
   switch (route.kind) {
     case "home":
       return undefined;
     case "show":
-      return { kind: "home", section: homeSection };
+      return home();
     case "diff":
     case "review":
     case "workspace":
@@ -1391,8 +1393,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("cabaret.openPage", (uri: string) =>
       reporting(() => provider.open(parseRoute(vscode.Uri.parse(uri)))),
     ),
-    command("cabaret.home", async () => {
-      await provider.open({ kind: "home", section: provider.homeSection });
+    command("cabaret.home", async (cabaret) => {
+      await provider.open(await provider.home(cabaret));
     }),
     onChange("cabaret.showChange", provider, (_, change) => provider.open({ kind: "show", change })),
     command("cabaret.diff", (cabaret) => switchView(cabaret, provider, "diff")),
@@ -1419,14 +1421,17 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     // Escape: out one scope, a file diff into the view it came from.
-    command("cabaret.stepOut", async () => {
+    command("cabaret.stepOut", async (cabaret) => {
       const filesDiff = activeFilesDiff();
       if (filesDiff !== undefined) {
         await provider.open({ kind: filesDiff.view, change: filesDiff.change });
         return;
       }
       const editor = activePage();
-      const out = editor === undefined ? undefined : enclosing(parseRoute(editor.document.uri), provider.homeSection);
+      const out =
+        editor === undefined
+          ? undefined
+          : await enclosing(parseRoute(editor.document.uri), () => provider.home(cabaret));
       if (out !== undefined) {
         await provider.open(out);
       }

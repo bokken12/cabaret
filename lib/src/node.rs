@@ -154,6 +154,12 @@ impl CabaretJs {
         .await
     }
 
+    /// The first section of git's user.email's home page with changes in it.
+    #[napi]
+    pub async fn first_home_section(&self) -> napi::Result<HomeSection> {
+        self.blocking(|cabaret| cabaret.first_home_section(&cabaret.identity()?)).await
+    }
+
     #[napi]
     pub async fn blob(&self, revision_id: RevisionId, path: RepoPath) -> napi::Result<Option<String>> {
         self.blocking(move |cabaret| cabaret.blob(revision_id, &path)).await
