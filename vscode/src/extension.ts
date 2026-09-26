@@ -1108,7 +1108,9 @@ async function markFiles(
     throw new Error(`${words(paths)} is no longer in ${change}'s diff`);
   }
   await cabaret.mark(change, paths, tip);
-  vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`);
+  vscode.window.showInformationMessage(
+    `Cabaret: marked ${words(paths)} of ${change} reviewed up to ${tip.slice(0, 8)}`,
+  );
   const unreviewed = new Set((await cabaret.viewFiles(change, "review")).map((file) => file.path));
   const next = files[index + 1] ?? files.find((file) => unreviewed.has(file.path));
   await (next === undefined ? provider.open({ kind: view, change }) : openFileDiff(cabaret, view, change, next));
@@ -1435,7 +1437,11 @@ async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: 
   return `committed ${words(files.map((file) => file.path))} to ${change}`;
 }
 
-async function discardSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string | undefined> {
+async function discardSelected(
+  cabaret: Cabaret,
+  provider: PageProvider,
+  change: ChangeId,
+): Promise<string | undefined> {
   const files = selectedWorkspaceFiles(provider);
   const paths = words(files.map((file) => file.path));
   const discard = await vscode.window.showWarningMessage(
