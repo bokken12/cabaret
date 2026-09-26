@@ -151,7 +151,7 @@ impl Page {
     /// as pointers out should be unique. `workspace` is the working directory of the workspace
     /// holding the change, if any. When `hints` are shown, the next step names the key frontends
     /// bind to taking it, where there is one and it is `viewer`'s to take: reviewing for its
-    /// reviewers, anything else for owners.
+    /// reviewers, acting on the change itself for owners, and stepping up to parents for anyone.
     pub fn show(
         id: &ChangeIdRef,
         change: &ChangeSnapshot,
@@ -343,12 +343,12 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         NextStep::ResolveConflicts { files } => {
             (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
         }
-        NextStep::ResolveParentConflicts { parents } => (None, "resolve conflicts in".to_owned(), parents.clone()),
+        NextStep::ResolveParentConflicts { parents } => (Some("^"), "resolve conflicts in".to_owned(), parents.clone()),
         NextStep::Rebase { parents } => (owner.then_some("!r"), "rebase onto".to_owned(), parents.clone()),
         NextStep::Review { reviewers } => {
             (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
         }
-        NextStep::LandParents { parents } => (None, "land parents".to_owned(), parents.clone()),
+        NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone()),
         NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
     };
     let hint = match (key, hints) {

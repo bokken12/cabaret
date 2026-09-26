@@ -61,7 +61,7 @@ fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     fixture.cabaret.add_owner(&id("fork-join"), &alice()).unwrap();
     fixture.cabaret.remove_owner(&id("fork-join"), &carol()).unwrap();
     review(&fixture, "fork-join");
-    expect!["land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
+    expect!["[^] land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
 }
 
 /// `child` rebased onto a conflicting `main`, and `grandchild` forked from `child` before that.
@@ -86,7 +86,7 @@ fn conflict_markers_are_resolved_first() {
 #[test]
 fn rebase_waits_for_parent_conflicts() {
     let fixture = conflicted();
-    expect!["resolve conflicts in child"].assert_eq(&next_step(&fixture, "grandchild"));
+    expect!["[^] resolve conflicts in child"].assert_eq(&next_step(&fixture, "grandchild"));
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     expect!["[!r] rebase onto child"].assert_eq(&next_step(&fixture, "grandchild"));
 }
