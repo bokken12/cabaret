@@ -15,6 +15,8 @@ import {
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
+// TODO-someday(joel): ensure unicode glyph appearance is okay on linux and windows.
+
 const SCHEME = "cabaret";
 const BLOB_SCHEME = "cabaret-blob";
 const DESCRIPTION_SCHEME = "cabaret-description";
