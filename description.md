@@ -1,0 +1,3 @@
+Extension-host integration tests for cabaret-vscode, run on purpose with `pnpm test:vscode` (`pnpm test` stays fast: cargo only). A fixture repo is built in .vscode-test.mjs; each test is a transcript of commands and the resulting tabs/cursor.
+
+TODO: the review-marking test fails on a real bug: PageProvider.open shows a page whose document VS Code still caches (its tab just closed) before the invalidation's re-render lands, so the stale review page flashes with files still listed.
