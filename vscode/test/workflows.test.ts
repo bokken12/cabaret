@@ -90,6 +90,8 @@ cabaret.stepOut
     );
   });
 
+  // TODO: fails, as `PageProvider.open` shows a page VS Code still holds from its closed tab before
+  // the re-render lands, so the review page first appears with its files still listed.
   test("marking file diffs reviewed moves through review to its emptied page", async () => {
     const actual = await transcript([
       ["cabaret.home"],
