@@ -150,7 +150,8 @@ impl Page {
     /// Headed by the change's title, with its id on a line of its own. Parents are listed by id,
     /// as pointers out should be unique. `workspace` is the working directory of the workspace
     /// holding the change, if any. When `hints` are shown, the next step names the key frontends
-    /// bind to taking it, where there is one `viewer` can press.
+    /// bind to taking it, where there is one and it is `viewer`'s to take: reviewing for its
+    /// reviewers, anything else for owners.
     pub fn show(
         id: &ChangeIdRef,
         change: &ChangeSnapshot,
@@ -175,7 +176,7 @@ impl Page {
         };
         lines.push(list("Id:", std::iter::once(Segment::tagged(id.to_string(), Tag::ChangeId))));
         lines.push(list("Status:", std::iter::once(Segment::plain(status))));
-        lines.push(self::next_step(next_step, viewer, hints));
+        lines.push(self::next_step(next_step, change.owners.contains(viewer), viewer, hints));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
         lines.push(list(
             "Parents:",
@@ -333,8 +334,9 @@ impl Page {
     }
 }
 
-/// `Next step: what to do`, preceded by the key taking it when `hints` are shown and `viewer` can.
-fn next_step(step: Option<&NextStep>, viewer: &Identity, hints: Hints) -> Line {
+/// `Next step: what to do`, preceded by the key taking it when `hints` are shown and it is
+/// `viewer`'s to take.
+fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hints) -> Line {
     let Some(step) = step else { return list("Next step:", std::iter::empty()) };
     let (key, text, changes) = match step {
         NextStep::AddCode => (None, "add code".to_owned(), BTreeSet::new()),
@@ -342,12 +344,12 @@ fn next_step(step: Option<&NextStep>, viewer: &Identity, hints: Hints) -> Line {
             (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
         }
         NextStep::ResolveParentConflicts { parents } => (None, "resolve conflicts in".to_owned(), parents.clone()),
-        NextStep::Rebase { parents } => (Some("!r"), "rebase onto".to_owned(), parents.clone()),
+        NextStep::Rebase { parents } => (owner.then_some("!r"), "rebase onto".to_owned(), parents.clone()),
         NextStep::Review { reviewers } => {
             (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
         }
         NextStep::LandParents { parents } => (None, "land parents".to_owned(), parents.clone()),
-        NextStep::Land { into } => (Some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
+        NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
     };
     let hint = match (key, hints) {
         (Some(key), Hints::Shown) => format!("[{key}] "),

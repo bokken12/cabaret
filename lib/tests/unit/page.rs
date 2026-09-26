@@ -421,7 +421,7 @@ fn hidden_hints_leave_keys_off_tabs() {
 }
 
 #[test]
-fn show_page_next_step_links_changes_and_hints_viewer_keys() {
+fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     let changes = |ids: &[&str]| ids.iter().map(|id| id.parse::<ChangeId>().unwrap()).collect::<BTreeSet<_>>();
     let identities = |ids: &[&str]| ids.iter().map(|id| Identity((*id).into())).collect::<BTreeSet<_>>();
     let steps = [
@@ -434,20 +434,24 @@ fn show_page_next_step_links_changes_and_hints_viewer_keys() {
         NextStep::LandParents { parents: changes(&["lexer", "tokens"]) },
         NextStep::Land { into: "lexer".parse().unwrap() },
     ];
-    let change = snapshot(None, None, &[], &[]);
     let mut out = String::new();
-    for step in &steps {
-        let page =
-            Page::show(&"parser".parse::<ChangeId>().unwrap(), &change, None, Some(step), &viewer(), Hints::Shown);
-        let line = page
-            .lines
-            .into_iter()
-            .find(|line| line.segments.first().is_some_and(|label| label.text == "Next step:"))
-            .unwrap();
-        let line = Page { lines: vec![line], ..Page::default() };
-        out.push_str(&markup(&line));
+    for (heading, owners) in [("owned by viewer", "alice@example.com"), ("owned by another", "bob@example.com")] {
+        out.push_str(&format!("{heading}:\n"));
+        let change = snapshot(None, None, &[owners], &[]);
+        for step in &steps {
+            let page =
+                Page::show(&"parser".parse::<ChangeId>().unwrap(), &change, None, Some(step), &viewer(), Hints::Shown);
+            let line = page
+                .lines
+                .into_iter()
+                .find(|line| line.segments.first().is_some_and(|label| label.text == "Next step:"))
+                .unwrap();
+            let line = Page { lines: vec![line], ..Page::default() };
+            out.push_str(&markup(&line));
+        }
     }
     expect![[r#"
+        owned by viewer:
         [Label|Next step:] add code
         [Label|Next step:] resolve conflicts in a.txt, b.txt
         [Label|Next step:] resolve conflicts in [ChangeId>change:lexer|lexer]
@@ -456,6 +460,15 @@ fn show_page_next_step_links_changes_and_hints_viewer_keys() {
         [Label|Next step:] review by bob@example.com
         [Label|Next step:] land parents [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
         [Label|Next step:] [!l] land into [ChangeId>change:lexer|lexer]
+        owned by another:
+        [Label|Next step:] add code
+        [Label|Next step:] resolve conflicts in a.txt, b.txt
+        [Label|Next step:] resolve conflicts in [ChangeId>change:lexer|lexer]
+        [Label|Next step:] rebase onto [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Label|Next step:] [r] review by alice@example.com, bob@example.com
+        [Label|Next step:] review by bob@example.com
+        [Label|Next step:] land parents [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [Label|Next step:] land into [ChangeId>change:lexer|lexer]
     "#]]
     .assert_eq(&out);
 }

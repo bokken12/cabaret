@@ -26,7 +26,7 @@ fn scene_next_steps() {
     for change in fixture.cabaret.changes().unwrap() {
         writeln!(out, "{change}: {}", next_step(&fixture, &change.to_string())).unwrap();
     }
-    expect![[r"
+    expect![[r#"
         advanced-parent: [r] review by alice@example.com
         archived: (none)
         behind-child: [!r] rebase onto advanced-parent
@@ -43,8 +43,8 @@ fn scene_next_steps() {
         stack-bottom: [r] review by alice@example.com
         stack-middle: [r] review by alice@example.com
         stack-top: [r] review by alice@example.com
-        unlogged: [!l] land into main
-    "]]
+        unlogged: land into main
+    "#]]
     .assert_eq(&out);
 }
 
