@@ -1114,6 +1114,70 @@ async function refresh(provider: PageProvider): Promise<void> {
   }
 }
 
+/**
+ * The changes on the rows selected on the active home page, top down, refusing none; undefined
+ * when there is no selection there.
+ */
+function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
+  const editor = activePage();
+  if (
+    editor === undefined ||
+    parseRoute(editor.document.uri).kind !== "home" ||
+    editor.selections.every((selection) => selection.isEmpty)
+  ) {
+    return undefined;
+  }
+  const page = provider.page(editor.document.uri);
+  if (page === undefined) {
+    throw new Error(`${editor.document.uri.toString()} is not rendered`);
+  }
+  const changes = selectedRows(editor.selections).flatMap((row) => {
+    const target = page.lines[row]?.target;
+    return target?.kind === "Change" ? [target.change] : [];
+  });
+  if (changes.length === 0) {
+    throw new Error("no change is selected");
+  }
+  return [...new Set(changes)];
+}
+
+/** What a step of a sequence did, and whether the sequence may go on past it. */
+type Step = { report: string; complete: boolean };
+
+/**
+ * Like `action`, but over a selection on the home page `run` goes through the selected changes
+ * top down, stopping at the first it cannot complete.
+ */
+function sequencedAction(
+  name: string,
+  provider: PageProvider,
+  run: (cabaret: Cabaret, change: ChangeId) => Promise<Step>,
+): vscode.Disposable {
+  return command(name, async (cabaret) => {
+    const selected = selectedChanges(provider);
+    const active = selected === undefined ? await activeChange(cabaret, provider) : undefined;
+    const changes = selected ?? (active === undefined ? [] : [active]);
+    const reports: string[] = [];
+    try {
+      for (const [index, change] of changes.entries()) {
+        const { report, complete } = await run(cabaret, change);
+        reports.push(report);
+        const skipped = changes.slice(index + 1);
+        if (!complete && skipped.length > 0) {
+          reports.push(`stopped before ${words(skipped)}`);
+          break;
+        }
+      }
+    } finally {
+      // A failure partway through still leaves the earlier steps done, so report and show them.
+      if (reports.length > 0) {
+        vscode.window.showInformationMessage(`Cabaret: ${reports.join("; ")}`);
+        await refresh(provider);
+      }
+    }
+  });
+}
+
 /** What an action did, and the page its result is on when not the active one. */
 type Outcome = string | { report: string; show: Route };
 
@@ -1145,7 +1209,7 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
-async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
+async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
   const rebase = await cabaret.rebase(change);
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
@@ -1156,7 +1220,7 @@ async function rebase(cabaret: Cabaret, change: ChangeId): Promise<string> {
   if (rebase.remaining.size > 0) {
     report.push(`resolve them and rebase again to continue onto ${words(rebase.remaining)}`);
   }
-  return report.join("; ");
+  return { report: report.join("; "), complete: rebase.conflicts.size === 0 && rebase.remaining.size === 0 };
 }
 
 function askChangeName(title: string): Thenable<string | undefined> {
@@ -1291,10 +1355,10 @@ async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
 }
 
 /**
- * The files of `view` on the rows the selections span, or on the cursor's row when nothing is
- * selected. A selection ending at the start of a line has not taken that line in.
+ * The rows the selections span, top down, or the cursor's row when nothing is selected. A
+ * selection ending at the start of a line has not taken that line in.
  */
-function selectedFiles(page: Page, selections: readonly vscode.Selection[], view: DiffView): ChangedFile[] {
+function selectedRows(selections: readonly vscode.Selection[]): number[] {
   const rows = new Set<number>();
   for (const { start, end } of selections) {
     const last = end.character === 0 && end.line > start.line ? end.line - 1 : end.line;
@@ -1302,12 +1366,15 @@ function selectedFiles(page: Page, selections: readonly vscode.Selection[], view
       rows.add(row);
     }
   }
-  const files = [...rows]
-    .sort((a, b) => a - b)
-    .flatMap((row) => {
-      const target = page.lines[row]?.target;
-      return target?.kind === "Diff" && target.view === view ? target.files : [];
-    });
+  return [...rows].sort((a, b) => a - b);
+}
+
+/** The files of `view` on the selected rows. */
+function selectedFiles(page: Page, selections: readonly vscode.Selection[], view: DiffView): ChangedFile[] {
+  const files = selectedRows(selections).flatMap((row) => {
+    const target = page.lines[row]?.target;
+    return target?.kind === "Diff" && target.view === view ? target.files : [];
+  });
   // A folder's row repeats the files on the rows under it.
   return [...new Map(files.map((file) => [file.path, file])).values()];
 }
@@ -1457,8 +1524,11 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    action("cabaret.land", provider, land),
-    action("cabaret.rebase", provider, rebase),
+    sequencedAction("cabaret.land", provider, async (cabaret, change) => ({
+      report: await land(cabaret, change),
+      complete: true,
+    })),
+    sequencedAction("cabaret.rebase", provider, rebase),
     action("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),

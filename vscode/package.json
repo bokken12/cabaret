@@ -278,9 +278,19 @@
         "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
+        "command": "cabaret.land",
+        "key": "shift+1 l",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
+      },
+      {
         "command": "cabaret.rebase",
         "key": "shift+1 r",
         "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.rebase",
+        "key": "shift+1 r",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
       },
       {
         "command": "cabaret.toggleArchived",
