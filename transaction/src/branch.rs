@@ -3,9 +3,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
-use gix::merge::{
-    blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
-    tree::TreatAsUnresolved,
+use gix::{
+    bstr::ByteSlice,
+    merge::{
+        blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
+        tree::TreatAsUnresolved,
+    },
 };
 
 use crate::{context::TransactionContext, tree};
@@ -101,6 +104,22 @@ impl<'ctx> Branch<'ctx> {
         }
         files.sort_by(|a, b| a.path().cmp(b.path()));
         Ok(files)
+    }
+
+    /// The files this branch changes against `parents` whose tip holds conflict markers, as a
+    /// conflicting [`Self::merge`] commits them until resolved.
+    pub fn conflicted_files(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RepoPath>> {
+        let marker = format!("{} ", "<".repeat(Conflict::DEFAULT_MARKER_SIZE.into()));
+        let tip = self.ctx.repo.find_commit(self.tip.0)?.tree()?;
+        let mut conflicted = BTreeSet::new();
+        for file in self.changed_files(parents, &[])? {
+            // A deleted file holds nothing.
+            let Some(entry) = tip.lookup_entry_by_path(file.path().as_ref())? else { continue };
+            if entry.object()?.data.lines().any(|line| line.starts_with(marker.as_bytes())) {
+                conflicted.insert(file.path().clone());
+            }
+        }
+        Ok(conflicted)
     }
 
     fn changed_files_from(&self, base: Option<RevisionId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {

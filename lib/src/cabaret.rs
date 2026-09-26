@@ -6,7 +6,7 @@ use std::{
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{BranchOp, Head, Metadata, Store, WorkspaceOp};
+use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
     WorkspaceId, WorkspaceIdRef,
@@ -34,6 +34,36 @@ pub struct Rebase {
     pub conflicts: BTreeSet<RepoPath>,
     /// Parents not reached because of the conflicts; rebasing again after resolving them continues.
     pub remaining: BTreeSet<ChangeId>,
+}
+
+/// The first thing standing between a change and landing, in the order they must be resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextStep {
+    /// Its tip adds nothing to its base, so there is nothing to land.
+    AddCode,
+    /// Files its tip holds conflict markers in; they are resolved before anything more is merged.
+    ResolveConflicts {
+        files: BTreeSet<RepoPath>,
+    },
+    /// Parents it lags behind that hold conflict markers of their own, which a rebase would take on.
+    ResolveParentConflicts {
+        parents: BTreeSet<ChangeId>,
+    },
+    /// Parents whose tips its bases lag behind.
+    Rebase {
+        parents: BTreeSet<ChangeId>,
+    },
+    /// Owners with files left to review, since owners are to review every file of their changes.
+    Review {
+        reviewers: BTreeSet<Identity>,
+    },
+    /// A change lands into one parent, so several must first coalesce by landing.
+    LandParents {
+        parents: BTreeSet<ChangeId>,
+    },
+    Land {
+        into: ChangeId,
+    },
 }
 
 /// What [`Cabaret::workspace_prune`] did.
@@ -329,13 +359,14 @@ impl Cabaret {
     }
 
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {
+        let hints = self.config::<Hints>()?.unwrap_or_default();
         self.store.query(|ctx| {
             let change = ctx.snapshot(change_id)?;
             let workspace = match &change.workspace {
                 Some(workspace) => Some(ctx.workspace(workspace.to_ref())?.path()),
                 None => None,
             };
-            Ok(Page::show(change_id, &change, workspace))
+            Ok(Page::show(change_id, &change, workspace, next_step(ctx, change_id)?.as_ref(), &ctx.identity()?, hints))
         })
     }
 
@@ -732,6 +763,56 @@ impl Cabaret {
     pub fn first_home_section(&self, viewer: &Identity) -> Result<HomeSection> {
         Ok(self.home(viewer)?.first_section())
     }
+}
+
+/// `None` for a change that cannot land: an archived one, or a root.
+fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Option<NextStep>> {
+    let metadata = ctx.metadata(change_id)?;
+    let parents = metadata.parents()?;
+    if metadata.archived || parents.is_empty() {
+        return Ok(None);
+    }
+    let branch = ctx.branch(change_id)?;
+    if branch.changed_files(&parents, &[])?.is_empty() {
+        return Ok(Some(NextStep::AddCode));
+    }
+    let files = branch.conflicted_files(&parents)?;
+    if !files.is_empty() {
+        return Ok(Some(NextStep::ResolveConflicts { files }));
+    }
+    let mut stale = BTreeSet::new();
+    for parent in &parents {
+        if !ctx.is_predecessor(ctx.branch(parent)?.tip, branch.tip)? {
+            stale.insert(parent.clone());
+        }
+    }
+    let mut conflicted = BTreeSet::new();
+    // TODO-someday(joel): a root parent changes its whole tree, so this reads every file of trunk
+    for parent in &stale {
+        if !ctx.branch(parent)?.conflicted_files(&ctx.metadata(parent)?.parents()?)?.is_empty() {
+            conflicted.insert(parent.clone());
+        }
+    }
+    if !conflicted.is_empty() {
+        return Ok(Some(NextStep::ResolveParentConflicts { parents: conflicted }));
+    }
+    if !stale.is_empty() {
+        return Ok(Some(NextStep::Rebase { parents: stale }));
+    }
+    let mut reviewers = BTreeSet::new();
+    for owner in &metadata.owners {
+        let review = metadata.review.get(owner).cloned().unwrap_or_default();
+        if !branch.review_files(&parents, &review, &[])?.is_empty() {
+            reviewers.insert(owner.clone());
+        }
+    }
+    if !reviewers.is_empty() {
+        return Ok(Some(NextStep::Review { reviewers }));
+    }
+    Ok(Some(match parents.iter().collect::<Vec<_>>().as_slice() {
+        [into] => NextStep::Land { into: (*into).clone() },
+        _ => NextStep::LandParents { parents: parents.clone() },
+    }))
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

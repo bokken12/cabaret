@@ -3,13 +3,13 @@
 //! target under the cursor.
 // TODO-someday(joel): move page and UI details to a separate crate?
 
-use std::{fmt, path::Path};
+use std::{collections::BTreeSet, fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, RevisionId, TimestampMs};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RevisionId, TimestampMs};
 
-use crate::{file_tree::FileTree, home::HomeSection};
+use crate::{cabaret::NextStep, file_tree::FileTree, home::HomeSection};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,8 +149,16 @@ pub struct Tab {
 impl Page {
     /// Headed by the change's title, with its id on a line of its own. Parents are listed by id,
     /// as pointers out should be unique. `workspace` is the working directory of the workspace
-    /// holding the change, if any.
-    pub fn show(id: &ChangeIdRef, change: &ChangeSnapshot, workspace: Option<&Path>) -> Self {
+    /// holding the change, if any. When `hints` are shown, the next step names the key frontends
+    /// bind to taking it, where there is one `viewer` can press.
+    pub fn show(
+        id: &ChangeIdRef,
+        change: &ChangeSnapshot,
+        workspace: Option<&Path>,
+        next_step: Option<&NextStep>,
+        viewer: &Identity,
+        hints: Hints,
+    ) -> Self {
         let heading = Line::default().push(Segment::tagged(name(id, change.title.as_deref()), Tag::Heading));
         let mut lines = vec![heading.leading_to(Target::Title { change: id.to_owned() }), Line::default()];
         let description = || Target::Description { change: id.to_owned() };
@@ -167,6 +175,7 @@ impl Page {
         };
         lines.push(list("Id:", std::iter::once(Segment::tagged(id.to_string(), Tag::ChangeId))));
         lines.push(list("Status:", std::iter::once(Segment::plain(status))));
+        lines.push(self::next_step(next_step, viewer, hints));
         lines.push(list("Owners:", change.owners.iter().map(|owner| Segment::plain(owner.to_string()))));
         lines.push(list(
             "Parents:",
@@ -322,6 +331,41 @@ impl Page {
         self.folds
             .extend(other.folds.into_iter().map(|fold| Fold { start: fold.start + offset, end: fold.end + offset }));
     }
+}
+
+/// `Next step: what to do`, preceded by the key taking it when `hints` are shown and `viewer` can.
+fn next_step(step: Option<&NextStep>, viewer: &Identity, hints: Hints) -> Line {
+    let Some(step) = step else { return list("Next step:", std::iter::empty()) };
+    let (key, text, changes) = match step {
+        NextStep::AddCode => (None, "add code".to_owned(), BTreeSet::new()),
+        NextStep::ResolveConflicts { files } => {
+            (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
+        }
+        NextStep::ResolveParentConflicts { parents } => (None, "resolve conflicts in".to_owned(), parents.clone()),
+        NextStep::Rebase { parents } => (Some("!r"), "rebase onto".to_owned(), parents.clone()),
+        NextStep::Review { reviewers } => {
+            (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
+        }
+        NextStep::LandParents { parents } => (None, "land parents".to_owned(), parents.clone()),
+        NextStep::Land { into } => (Some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
+    };
+    let hint = match (key, hints) {
+        (Some(key), Hints::Shown) => format!("[{key}] "),
+        _ => String::new(),
+    };
+    let mut line =
+        Line::default().push(Segment::tagged("Next step:", Tag::Label)).push(Segment::plain(format!(" {hint}{text}")));
+    for (i, change) in changes.into_iter().enumerate() {
+        line = line
+            .push(Segment::plain(if i == 0 { " " } else { ", " }))
+            .push(Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change }));
+    }
+    line
+}
+
+/// `a, b, c`.
+fn joined(items: &BTreeSet<impl fmt::Display>) -> String {
+    items.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 /// How long before `now` something happened, coarsely: the reader wants to know whether a session
