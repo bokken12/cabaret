@@ -1,3 +1,1 @@
-{"action":"add-owner","owner":"me@joel.place"}
-{"action":"add-parent","parent":"main"}
-{"action":"set-title","title":"review-marks-tip"}
+{"action":"mark","reviewer":"me@joel.place","file":"docs/agent/bugs.md","revision":"693fc8d585b206cbce811c901bb1ca06416063a1"}
