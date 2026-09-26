@@ -1,3 +1,1 @@
-{"action":"add-owner","owner":"me@joel.place"}
-{"action":"add-parent","parent":"main"}
-{"action":"set-title","title":"fmt"}
+{"action":"mark","reviewer":"me@joel.place","file":"CLAUDE.md","revision":"d782236964591ff85111d1a8c04aa41589bb4c1e"}
