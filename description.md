@@ -1,0 +1,1 @@
+Adds docs/agent/bugs.md, where agents record bugs they have noticed but not fixed.
