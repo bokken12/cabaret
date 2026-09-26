@@ -82,7 +82,7 @@ fn prefix_goes_on_created_parent() {
 }
 
 #[test]
-fn without_prefix_id_and_title_are_name() {
+fn empty_prefix_leaves_id_and_title_as_name() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());

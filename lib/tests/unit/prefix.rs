@@ -40,4 +40,7 @@ fn unknown_escape_is_refused() {
 }
 
 #[test]
-fn empty_prefix_is_refused() { check("", expect!["an empty prefix is none; unset it instead"]); }
+fn empty_prefix_leaves_name() { check("", expect!["foo"]); }
+
+#[test]
+fn default_prefix_is_date() { check(&Prefix::default().to_string(), expect!["2026-09-24-foo"]); }

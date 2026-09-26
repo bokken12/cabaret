@@ -7,8 +7,13 @@ use crate::Setting;
 
 /// Prepended to the id of each change you create, so ids you pick need only be unique among
 /// yours. Its strftime escapes (`%Y`, `%m`, `%d`, …) expand to the time the change is created.
+/// Unset, it defaults to the date; set empty, ids are just their names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prefix(String);
+
+impl Default for Prefix {
+    fn default() -> Self { Self("%Y-%m-%d-".to_owned()) }
+}
 
 impl Prefix {
     /// The id of a change named `name` created at `now`.
@@ -21,9 +26,6 @@ impl FromStr for Prefix {
     type Err = Error;
 
     fn from_str(template: &str) -> Result<Self> {
-        if template.is_empty() {
-            Err("an empty prefix is none; unset it instead")?;
-        }
         let prefix = Self(template.to_owned());
         prefix
             .apply("name", &Timestamp::UNIX_EPOCH.to_zoned(TimeZone::UTC))

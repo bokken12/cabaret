@@ -9,7 +9,7 @@ pub enum ConfigCommand {
         command: SettingCommand<Identity>,
     },
     /// Put before the id of each change you create; strftime escapes like %Y%m%d expand to the
-    /// date it is created.
+    /// date it is created. Unset, it is %Y-%m-%d-; set it empty for none.
     Prefix {
         #[command(subcommand)]
         command: SettingCommand<Prefix>,

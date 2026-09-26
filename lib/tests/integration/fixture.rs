@@ -56,7 +56,11 @@ fn tempdir() -> (tempfile::TempDir, PathBuf) {
 fn configure(repo: &gix::Repository) {
     let config_path = repo.git_dir().join("config");
     let config = fs::read_to_string(&config_path).unwrap();
-    fs::write(config_path, format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n")).unwrap();
+    fs::write(
+        config_path,
+        format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n[cabaret]\n\tprefix =\n"),
+    )
+    .unwrap();
 }
 
 impl Fixture {

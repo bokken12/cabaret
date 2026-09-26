@@ -455,10 +455,7 @@ impl Cabaret {
 
     /// The id a change named `name` is created under: `name` behind the configured prefix.
     fn claim(&self, name: &str) -> Result<ChangeId> {
-        match self.config::<Prefix>()? {
-            Some(prefix) => prefix.apply(name, &Zoned::now()),
-            None => Ok(name.parse()?),
-        }
+        self.config::<Prefix>()?.unwrap_or_default().apply(name, &Zoned::now())
     }
 
     /// Create a change named `name` on `parent_ids`, returning its id.
