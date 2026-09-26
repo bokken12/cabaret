@@ -1,0 +1,1 @@
+Adds a config setting to cabaret controlling whether cabaret-vscode displays keybinding hints (such as on the tabs when showing a change). This should default to true/on/enabled, but it should be possible to disable it through the CLI to hide them.
