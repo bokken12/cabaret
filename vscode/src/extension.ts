@@ -408,10 +408,27 @@ class PageProvider
         }
         resolve();
       }
+      // Closed while rendering, so no event is coming; the next open reads the completed page.
+      if (document.isClosed) {
+        done();
+      }
     });
     this.completed.set(key, page);
     this.changed.fire(uri);
     await updated;
+  }
+
+  /**
+   * Render a page VS Code kept open through an extension host restart, which the new host has no
+   * render of, so its targets, folds and colours work without reopening it.
+   */
+  async revive(uri: vscode.Uri): Promise<void> {
+    await this.rerender(uri);
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.uri.toString() === uri.toString()) {
+        this.decorate(editor);
+      }
+    }
   }
 
   /** Re-render `route` from the repository and show it. */
@@ -1587,6 +1604,11 @@ export function activate(context: vscode.ExtensionContext) {
   // this extension registering its own; a rescan picks the bindings up either way.
   if (vscode.extensions.getExtension("JimmyZJX.leaderkey") !== undefined) {
     void vscode.commands.executeCommand("leaderkey.refreshConfigs").then(undefined, () => undefined);
+  }
+  for (const document of vscode.workspace.textDocuments) {
+    if (document.uri.scheme === SCHEME) {
+      void reporting(() => provider.revive(document.uri));
+    }
   }
   void reporting(() => takeHandoff(context, provider));
 }
