@@ -283,16 +283,21 @@ class PageProvider
       this.pages.set(key, completed);
       return pageText(completed);
     }
+    return pageText(await this.render(uri));
+  }
+
+  /** Render `uri` from the repository as the page it now shows, a show page's sessions to follow. */
+  private async render(uri: vscode.Uri): Promise<Page> {
     const route = parseRoute(uri);
     if (route.kind === "home") {
       this.homeSection = route.section;
     }
     const page = await renderRoute(openCabaret(), route);
-    this.pages.set(key, page);
+    this.pages.set(uri.toString(), page);
     if (route.kind === "show") {
       void this.addSessions(uri, page, route.change);
     }
-    return pageText(page);
+    return page;
   }
 
   /**
@@ -376,9 +381,43 @@ class PageProvider
     return uri;
   }
 
+  /**
+   * Bring a document of `uri` VS Code still holds, perhaps from a closed tab, up to date, rather
+   * than show it stale until the re-read that `changed` triggers lands.
+   */
+  private async rerender(uri: vscode.Uri): Promise<void> {
+    const key = uri.toString();
+    this.completed.delete(key);
+    const document = vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === key);
+    if (document === undefined) {
+      return;
+    }
+    const page = await this.render(uri);
+    // VS Code applies no edit, so raises no event, for a re-read of the same text.
+    if (pageText(page) === document.getText()) {
+      return;
+    }
+    const updated = new Promise<void>((resolve) => {
+      const listeners = [
+        vscode.workspace.onDidChangeTextDocument((event) => event.document === document && done()),
+        vscode.workspace.onDidCloseTextDocument((closed) => closed === document && done()),
+      ];
+      function done(): void {
+        for (const listener of listeners) {
+          listener.dispose();
+        }
+        resolve();
+      }
+    });
+    this.completed.set(key, page);
+    this.changed.fire(uri);
+    await updated;
+  }
+
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
-    const uri = this.invalidate(route);
+    const uri = routeUri(route);
+    await this.rerender(uri);
     await replacingActive(async () => {
       const document = await inPageLanguage(await vscode.workspace.openTextDocument(uri));
       const selection = this.selections.get(uri.toString()) ?? this.startSelection(uri);
