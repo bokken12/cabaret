@@ -45,8 +45,8 @@ async function fixture() {
 await fixture();
 
 /**
- * The downloaded VS Code, copied as a background-only app so that macOS never lets a test window
- * take focus. Editing `Info.plist` voids the signature, so the copy is re-signed ad hoc; that no
+ * The downloaded VS Code, copied as a macOS background-only app so that a test window never
+ * takes focus. Editing `Info.plist` voids the signature, so the copy is re-signed ad hoc; that no
  * longer matches the keychain's grant to VS Code, hence its `--use-mock-keychain`.
  */
 async function backgroundVSCode() {
@@ -67,8 +67,9 @@ async function backgroundVSCode() {
 export default defineConfig({
   files: "out/test/**/*.test.js",
   workspaceFolder: workspace,
-  useInstallation: { fromPath: await backgroundVSCode() },
+  useInstallation: process.platform === "darwin" ? { fromPath: await backgroundVSCode() } : undefined,
   // Valued, as test-cli appends the workspace folder, which a bare unknown flag would swallow.
+  // Chromium reads it only on macOS.
   launchArgs: ["--disable-extensions", "--use-mock-keychain=true"],
   env,
   mocha: { ui: "tdd", timeout: 20_000 },
