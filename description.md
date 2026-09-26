@@ -1,0 +1,1 @@
+When selecting multiple changes on the cabaret-vscode home page dag, the rebase and land keybindings should be available and apply to all of them. They should work top down in the same order as shown visually, and attempt to rebase/land each change one at a time. If at any point a rebase or land fails, it should stop there and not proceed with any further rebases/lands.
