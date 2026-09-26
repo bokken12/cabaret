@@ -1,0 +1,1 @@
+Run the VS Code integration tests in a background-only copy of VS Code (LSBackgroundOnly, re-signed ad hoc, mock keychain), so a test run never takes focus from whoever is using the machine.
