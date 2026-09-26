@@ -1,0 +1,1 @@
+In cabaret-vscode, going to "home" should default to the first non-zero tab. So if you would have no features to review, it should go to your owned features, and if you have no owned features it should go to your workspaces, and if you have no workspaces it should ultimately default back to review.
