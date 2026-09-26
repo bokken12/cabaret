@@ -11,6 +11,7 @@ Therefore, when applicable, Cabaret will attempt to surface relevant sessions to
 The cleanest way to do so appears to be through Zed/Jetbrain's Agent Client Protocol (ACP). I will try and get the required functionality out of this so that I do not find myself building support for a zoo of harnesses, although may end up needing to abandon it and go custom.
 
 Good cabaret workflows to support might include:
+
 - When reviewing a change your local agent wrote, you re-open its session in the editor and ask it some questions about the code or tell it to make changes.
 - After writing up the title and description of a new change, you delegate an initial implementation to an agent, or ask it to create 3 possible versions as children.
 
