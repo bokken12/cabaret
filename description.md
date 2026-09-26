@@ -1,0 +1,1 @@
+PageProvider.open brings a document VS Code still holds (e.g. from a just-closed tab) up to date before showing it, rather than showing it stale until the re-read that `changed` triggers lands. Seen as the review page still listing files right after marking the last one; the workflows integration test goes green.
