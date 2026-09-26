@@ -1,7 +1,1 @@
-{"action":"mark","reviewer":"me@joel.place","file":"lib/src/cabaret.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"lib/src/lib.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"lib/src/page.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"lib/tests/integration/mod.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"lib/tests/integration/next_step.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"lib/tests/unit/page.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
-{"action":"mark","reviewer":"me@joel.place","file":"transaction/src/branch.rs","revision":"e4562ba5b6ef83e7820db8b0df0e9efcdc42aaf1"}
+{"action":"set-archived","archived":true}
