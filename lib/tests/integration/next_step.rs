@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use cabaret_lib::{Hints, RepoPath, Scope};
 use expect_test::expect;
+use nonempty_collections::nebts;
 
 use super::fixture::{Fixture, alice, carol, id, scene};
 
@@ -89,6 +90,29 @@ fn rebase_waits_for_parent_conflicts() {
     expect!["[^] resolve conflicts in child"].assert_eq(&next_step(&fixture, "grandchild"));
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     expect!["[!r] rebase onto child"].assert_eq(&next_step(&fixture, "grandchild"));
+}
+
+#[test]
+fn conflict_between_parents_is_resolved_in_their_join() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("file.txt", "original\n")]);
+    fixture.create("left", "main", &alice());
+    fixture.commit("left", &[("file.txt", "left\n")]);
+    fixture.create("right", "main", &alice());
+    fixture.commit("right", &[("file.txt", "right\n")]);
+    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
+    expect!["resolve conflicts in file.txt"].assert_eq(&next_step(&fixture, "join"));
+}
+
+#[test]
+fn trunk_is_never_conflicted() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("markers.txt", "<<<<<<< not a conflict\n")]);
+    fixture.create("child", "main", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.commit("main", &[("main.txt", "main\n")]);
+    // TODO: trunk is never considered conflicted, so this should be `[!r] rebase onto main`
+    expect!["[^] resolve conflicts in main"].assert_eq(&next_step(&fixture, "child"));
 }
 
 #[test]
