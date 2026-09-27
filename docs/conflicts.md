@@ -10,16 +10,20 @@ In the best scenario one should avoid creating conflicts altogether. Cabaret's a
 
 One of the worst features of git's default config resolution mechanism is how it creates unfinished intermediate states, in which the user is asked to resolve conflicts in order to finish an operation, or may need to abort the operation otherwise. Cabaret never allows an ongoing unfinished action: conflicts will always either immediately cause an operation to fail, or allow the operation to finish, leaving a change in a "conflicted" state.
 
-## Detection & Representation
+## Representation
 
-If changes can be "conflicted", it must be possible to determine which changes are in this state. A naive method here could search for conflict markers in the tree, but this would be quite expensive for basic operations like computing next steps (these may even appear on the home page and thus for many changes at once).
+Some recent VCSs, notably jj, adopt novel conflict representation, storing metadata which points to the merged versions. This is an interesting strategy, allowing for some enticing algebra over conflicts. However, this requires materialization from a special conflicting trees format into something that git can understand, which is not something Cabaret wants. The conflict must exist in the file, as understood natively by git.
 
-Therefore, Cabaret joins other git wrappers like jj in storing metadata concerning whether a commit has conflicts (a list of conflicted files). A new commit on a conflicted commit will have to update this metadata, but crucially the expensive operation occurs only on write, and not on read.
+One further alternative here could be to keep both some metadata representation and the default git view: either to permit greater manipulation or just for efficiency to avoid searching. However, muddying the waters on the source of truth here feels undesirable, and so is also discarded. Ultimately, conflicts will be the conflict markers.
 
-Note that commits made through plain git may not have this metadata. These may either be forced to fall back to naive tree inspection or simply assume no conflicts. This is not the officially-supported path, and can have some caveats.
+## Detection
 
-TODO(joel): alternatively, conflict metadata could be an add/delete log so plain commits represent no change.
+Cabaret must work on large monorepos, and so scanning the entire codebase for conflicts is a non-starter, especially when determining the presence of conflicts is necessary for almost all common operations, and even on many changes at once to determine their status in the home page. We must limit our search space.
+
+To do this, Cabaret searches for conflicts through only the files which have been edited in a given change since a common ancestor with any of its parents (effectively since its bases). Users are not permitted to rebase onto parents which currently have conflicts, so any conflicts which exist must have occurred since then.
+
+The one exception here is the trunk branch which has no parents, but the trunk is never allowed to have conflicts since landing cannot introduce conflicts. Similar mechanisms can be used to find TODOs introduced in a change.
 
 ## Uniformity
 
-Since conflicts are automatically committed, to minimize further conflicts on those conflicts, it is important that in the distributed system, if two people independently encounter the same conflict, they generate the same automatic conflict-containing commit. This means that we cannot allow users to specify their own conflict styles or merge drivers, but must impose a uniform style, at least per repository.
+Since conflicts are automatically committed, to minimize further conflicts on those conflicts, it is important that in the distributed system, if two people independently encounter the same conflict, they generate the same automatic conflict-containing tree. This means that we cannot allow users to specify their own conflict styles or merge drivers, but must impose a uniform style, at least per repository.
