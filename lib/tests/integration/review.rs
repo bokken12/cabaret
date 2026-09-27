@@ -9,7 +9,7 @@ use super::fixture::{Fixture, alice, id, short};
 
 fn path(file: &str) -> RepoPath { file.parse().unwrap() }
 
-/// Every mark as `user file bases..head`, with short hashes.
+/// Every mark as `user file revision`, with short hashes.
 fn review(fixture: &Fixture, change: &str) -> String {
     let mut out = String::new();
     for (user, files) in fixture.snapshot(change).review {
@@ -39,15 +39,14 @@ fn stacked() -> Fixture {
 }
 
 #[test]
-fn mark_defaults_to_bases_and_tip() {
+fn mark_defaults_to_tip() {
     let fixture = stacked();
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt", "extra.txt"], None));
-    let (base, tip) = (short(fixture.tip("main")), short(fixture.tip("child")));
     expect![[r#"
-        alice@example.com extra.txt BASE..TIP
-        alice@example.com greeting.txt BASE..TIP
+        alice@example.com extra.txt TIP
+        alice@example.com greeting.txt TIP
     "#]]
-    .assert_eq(&review(&fixture, "child").replace(&base, "BASE").replace(&tip, "TIP"));
+    .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("child")), "TIP"));
 }
 
 #[test]
@@ -56,24 +55,19 @@ fn later_mark_replaces_earlier_one() {
     fixture.branch("earlier", "child");
     fixture.commit("child", &[("greeting.txt", "hey\n")]);
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], Some("earlier")));
-    let earlier = short(fixture.tip("earlier"));
     expect![[r#"
-        alice@example.com greeting.txt BASE..EARLIER
+        alice@example.com greeting.txt EARLIER
     "#]]
-    .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("main")), "BASE").replace(&earlier, "EARLIER"));
+    .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("earlier")), "EARLIER"));
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     expect![[r#"
-        alice@example.com greeting.txt BASE..TIP
+        alice@example.com greeting.txt TIP
     "#]]
-    .assert_eq(
-        &review(&fixture, "child")
-            .replace(&short(fixture.tip("main")), "BASE")
-            .replace(&short(fixture.tip("child")), "TIP"),
-    );
+    .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("child")), "TIP"));
 }
 
 #[test]
-fn marking_same_range_again_refuses() {
+fn marking_same_revision_again_refuses() {
     let fixture = stacked();
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     expect!["error: child already had these files marked reviewed there"].assert_eq(&mark(
