@@ -8,8 +8,8 @@ Cabaret hopes to support a number of different front-end interfaces for interact
 - Zed Extension
 - TUI
 
-This raises a lot of questions for how exactly they should be architected to share the same look and feel.
+This raises a lot of questions for how exactly they should be architected to share the same look and feel. Ideally, most of the core logic lives separately and need not be rebuilt in frontends.
 
 For the time being however, I believe the best path is not to consider this. They can share the same logical core, but each one can develop its UI fairly independently to what is available for it.
 
-Ideally any keybindings and approximate flows should be similar between formats, and If sufficient common patterns emerge we may be able to extract these out at the time, but not prematurely.
+Ideally any keybindings and approximate flows should be similar between formats, and if sufficient common patterns emerge we may be able to extract these out at the time, but not prematurely.
