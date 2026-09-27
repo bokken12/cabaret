@@ -69,6 +69,30 @@ fn conflicts_committed_with_markers() {
 }
 
 #[test]
+fn conflict_keeps_lines_common_to_both_sides_within_markers() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("file.txt", "one\ntwo\nthree\n")]);
+    fixture.create("child", "main", &alice());
+    fixture.commit("child", &[("file.txt", "one\nsame\nchild\nthree\n")]);
+    fixture.commit("main", &[("file.txt", "one\nsame\nmain\nthree\n")]);
+    rebase(&fixture, "child", None);
+    expect![[r#"
+        one
+        <<<<<<< child
+        same
+        child
+        ||||||| base
+        two
+        =======
+        same
+        main
+        >>>>>>> main
+        three
+    "#]]
+    .assert_eq(&fixture.cabaret.blob(fixture.tip("child"), &"file.txt".parse().unwrap()).unwrap().unwrap());
+}
+
+#[test]
 fn change_without_commits_fast_forwards() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
