@@ -784,7 +784,6 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
         }
     }
     let mut conflicted = BTreeSet::new();
-    // TODO-someday(joel): a root parent changes its whole tree, so this reads every file of trunk
     for parent in &stale {
         if !ctx.branch(parent)?.conflicted_files(&ctx.metadata(parent)?.parents()?)?.is_empty() {
             conflicted.insert(parent.clone());

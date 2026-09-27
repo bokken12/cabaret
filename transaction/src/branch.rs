@@ -106,20 +106,54 @@ impl<'ctx> Branch<'ctx> {
         Ok(files)
     }
 
-    /// The files this branch changes against `parents` whose tip holds conflict markers, as a
-    /// conflicting [`Self::merge`] commits them until resolved.
+    /// The files whose tip holds conflict markers, as a conflicting [`Self::merge`] commits them
+    /// until resolved, among those written by the revisions exclusive to this branch: any
+    /// conflict older than those came from a parent, and is that parent's to resolve. A root is
+    /// never conflicted, since landing refuses conflicts.
     pub fn conflicted_files(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RepoPath>> {
+        if parents.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let ctx = self.ctx;
+        let mut parent_tips = Vec::new();
+        for parent in parents {
+            parent_tips.push(ctx.branch(parent)?.tip.0);
+        }
+        let mut written = BTreeSet::new();
+        for info in ctx.repo.rev_walk([self.tip.0]).with_hidden(parent_tips).all()? {
+            written.extend(self.written_files(RevisionId(info?.id))?);
+        }
+
         let marker = format!("{} ", "<".repeat(Conflict::DEFAULT_MARKER_SIZE.into()));
-        let tip = self.ctx.repo.find_commit(self.tip.0)?.tree()?;
+        let tip = ctx.repo.find_commit(self.tip.0)?.tree()?;
         let mut conflicted = BTreeSet::new();
-        for file in self.changed_files(parents, &[])? {
+        for path in written {
             // A deleted file holds nothing.
-            let Some(entry) = tip.lookup_entry_by_path(file.path().as_ref())? else { continue };
+            let Some(entry) = tip.lookup_entry_by_path(path.as_ref())? else { continue };
             if entry.object()?.data.lines().any(|line| line.starts_with(marker.as_bytes())) {
-                conflicted.insert(file.path().clone());
+                conflicted.insert(path);
             }
         }
         Ok(conflicted)
+    }
+
+    /// The files `revision` itself writes: those differing from every one of its parents, so a
+    /// merge counts only the files it did not take whole from one side, where its conflicts are.
+    fn written_files(&self, revision: RevisionId) -> Result<BTreeSet<RepoPath>> {
+        let repo = &self.ctx.repo;
+        let commit = repo.find_commit(revision.0)?;
+        let tree = commit.tree()?;
+        let changed_since = |from: Option<&gix::Tree<'_>>| -> Result<BTreeSet<RepoPath>> {
+            Ok(tree::changed_files(repo, from, &tree, &[])?.into_iter().map(|file| file.path().clone()).collect())
+        };
+        let mut parents = commit.parent_ids();
+        let Some(first) = parents.next() else { return changed_since(None) };
+        let mut written = changed_since(Some(&repo.find_commit(first)?.tree()?))?;
+        for parent in parents {
+            let changed = changed_since(Some(&repo.find_commit(parent)?.tree()?))?;
+            written.retain(|path| changed.contains(path));
+        }
+        Ok(written)
     }
 
     fn changed_files_from(&self, base: Option<RevisionId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {

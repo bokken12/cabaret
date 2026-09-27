@@ -111,8 +111,7 @@ fn trunk_is_never_conflicted() {
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
     fixture.commit("main", &[("main.txt", "main\n")]);
-    // TODO: trunk is never considered conflicted, so this should be `[!r] rebase onto main`
-    expect!["[^] resolve conflicts in main"].assert_eq(&next_step(&fixture, "child"));
+    expect!["[!r] rebase onto main"].assert_eq(&next_step(&fixture, "child"));
 }
 
 #[test]
