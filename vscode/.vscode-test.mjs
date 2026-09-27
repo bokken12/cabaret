@@ -32,6 +32,8 @@ async function fixture() {
   git("init", "--initial-branch=main");
   git("config", "user.name", "Test");
   git("config", "user.email", "test@example.com");
+  // Unprefixed, so changes keep the names the tests use.
+  git("config", "cabaret.prefix", "");
   write({ "README.md": "# fixture\n" });
   git("add", ".");
   git("commit", "--message=initial");
