@@ -35,5 +35,5 @@ impl fmt::Display for Hints {
 }
 
 impl Setting for Hints {
-    const KEY: &'static str = "cabaret.hints";
+    const KEY: &'static str = "cabaret.vscode.hints";
 }
