@@ -1,9 +1,9 @@
-Offer committing a hunk from a hover, not the lightbulb
+Offer committing from the right-click menu, not the lightbulb
 
-VS Code runs no code actions in read-only editors (`codeActionModel.ts` requires `!readOnly`). Since the workspace diff became read-only, the lightbulb from the change below could never appear. Its test called `vscode.executeCodeActionProvider` directly, which skips that check, so it still passed.
+VS Code runs no code actions in read-only editors (`codeActionModel.ts` requires `!readOnly`). Since the workspace diff became read-only, the lightbulb from the change below could never appear. Its test called `vscode.executeCodeActionProvider` directly, which skips that check, so it still passed. The lightbulb is removed.
 
-A hover replaces it. On the side of a workspace file diff that holds the cursor, hovering the highlighted hunk shows "Commit hunk to <change>", and hovering a selected line shows "Commit selected lines to <change>". Either is a link to `! c` (`cabaret.commitSelected`). The text is not styled as a link; only the popup has one. Hover providers are not gated on read-only; the only read-only check in VS Code's hover code hides quick-fix links in diagnostic hovers.
+Right-clicking a workspace file diff now offers "Cabaret: Commit Hunk" (no selection) or "Cabaret: Commit Selected Lines" (with one), and "Cabaret: Commit File". The first two run what `! c` does, and the third what `! C` does on a file diff. A menu entry shows its command's own title, so these are commands of their own, hidden from the command palette where they would duplicate `! c`/`! C`. Right-clicking outside the selection moves the cursor there first, so the hunk highlighted is the one committed.
 
-The hover is offered only on the side holding the cursor. `! c` reads the active editor's cursor, and clicking a link in the other side's hover might move focus there.
+The change is named `commit-hunk-hover` because it first offered the commit as a hover link. We dropped that: a hover pops up uninvited while you read, and VS Code puts range actions like git's "Stage Selected Ranges" in the right-click menu.
 
-Tested in `vscode/test/workflows.test.ts` through `vscode.executeHoverProvider`.
+Tested in `vscode/test/workflows.test.ts` by running the menu's commands; the menu entries themselves are not tested.
