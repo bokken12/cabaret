@@ -1,1 +1,1 @@
-On the home page, h/l step to the section tab left/right of the one showing, stopping at either end. Bound only in vim normal mode with no selection, so visual-mode h/l still extend selections.
+h/l step to the tab left/right of the one showing, on any page headed by tabs: the home sections and a change's overview/diff/review/workspace. A Page records the targets beside its showing tab, so frontends follow them without knowing which page they are on. Bound only in vim normal mode with no selection, and not on file diffs, where h/l stay cursor motions.
