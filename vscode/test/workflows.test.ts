@@ -1,4 +1,6 @@
 import * as assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import * as vscode from "vscode";
 
 /** Every tab, the active one marked, then the cursor's line in the active editor. */
@@ -121,5 +123,46 @@ cabaret.mark
   cabaret:/review/feature:6:
 `,
     );
+  });
+
+  test("workspace file diffs show what was saved as they opened", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, "no workspace folder");
+    const file = join(folder.uri.fsPath, "src/a.txt");
+    writeFileSync(file, "a, saved\n");
+    try {
+      const actual = await transcript([
+        ["cabaret.home"],
+        ["cabaret.stepIn", "workspaces"],
+        ["cabaret.stepIn", "feature"],
+        ["cabaret.workspaceDiff"],
+        ["cabaret.stepIn", "a.txt"],
+      ]);
+      assert.equal(
+        actual,
+        `cabaret.home
+  > review
+  cabaret:/home/review:4: nothing awaiting review by test@example.com
+cabaret.stepIn at "workspaces"
+  > workspaces
+  cabaret:/home/workspaces:0:  ╭──────────┬─────────┬──────────────╮
+cabaret.stepIn at "feature"
+  > feature
+  cabaret:/show/feature:0: feature
+cabaret.workspaceDiff
+  > feature
+  cabaret:/workspace/feature:5: ○ src/a.txt
+cabaret.stepIn at "a.txt"
+  > src/a.txt (feature, uncommitted)
+  cabaret-blob:/src/a.txt:0: a, saved
+`,
+      );
+      writeFileSync(file, "a, saved again\n");
+      const editor = vscode.window.activeTextEditor;
+      assert.ok(editor, "no active editor");
+      assert.equal(editor.document.getText(), "a, saved\n");
+    } finally {
+      writeFileSync(file, "a\n");
+    }
   });
 });

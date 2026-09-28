@@ -397,6 +397,16 @@ impl Cabaret {
         self.store.query(|ctx| ctx.workspace(workspace_id.to_ref())?.changed_files(pathspecs))
     }
 
+    /// What the workspace holding `change_id` has saved, as a commit on the change's tip that no
+    /// branch holds: the after side of its workspace diff, fixed as a revision is.
+    pub fn workspace_saved(&self, change_id: &ChangeIdRef) -> Result<RevisionId> {
+        let workspace_id = self.workspace_of(change_id)?;
+        self.store.query(|ctx| {
+            let tree = ctx.workspace(workspace_id.to_ref())?.saved_tree()?;
+            ctx.commit(tree, vec![ctx.branch(change_id)?.tip], change_id.as_bstr())
+        })
+    }
+
     /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty).
     pub fn view_files(
         &self,

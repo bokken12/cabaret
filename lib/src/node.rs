@@ -176,6 +176,12 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref())).await
     }
 
+    /// What `change`'s workspace has saved, as a commit on its tip that no branch holds.
+    #[napi]
+    pub async fn workspace_saved(&self, change: ChangeId) -> napi::Result<RevisionId> {
+        self.blocking(move |cabaret| cabaret.workspace_saved(&change)).await
+    }
+
     #[napi]
     pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {
         self.blocking(move |cabaret| path_string(cabaret.workspace_path(cabaret.workspace_of(&change)?.to_ref())?))

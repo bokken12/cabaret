@@ -194,6 +194,10 @@ impl<'ctx> Workspace<'ctx> {
         tree::changed_files(&repo, Some(&head), &disk, &[])
     }
 
+    /// The tree of what is on disk, laid over HEAD's tree, as [`Self::snapshot`] would take it but
+    /// leaving the index be. Only objects are written, so this is safe to run unreserved.
+    pub fn saved_tree(&self) -> Result<TreeId> { Ok(disk_tree(&self.repo()?, &[])?.0) }
+
     /// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
     /// HEAD's tree; and an index at that tree. Whatever the index holds beyond HEAD counts as on
     /// disk too, since git tools stage there. Beyond that the index is only a stat cache of the

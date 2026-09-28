@@ -49,7 +49,7 @@ function isDiffView(text: string | null | undefined): text is DiffView {
   return DIFF_VIEWS.some((view) => view === text);
 }
 
-/** The views whose sides are both committed, so the reviewer only reads. */
+/** The views whose sides are both committed. */
 type CommittedView = Exclude<DiffView, "workspace">;
 
 /** Every `HomeSection`; the `satisfies` stops compiling until a new section is listed here. */
@@ -552,15 +552,14 @@ class DescriptionProvider implements vscode.FileSystemProvider {
   }
 }
 
-/** What `file` is measured against in a committed `view`: nothing for an addition. */
-async function beforeRevision(
-  cabaret: Cabaret,
-  view: CommittedView,
-  change: ChangeId,
-  file: ChangedFile,
-): Promise<Revision | undefined> {
+/** What `file` is measured against in `diff`: nothing for an addition. */
+async function beforeRevision(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<Revision | undefined> {
+  const { view, change, tip } = diff;
   if (file.kind === "Added") {
     return undefined;
+  }
+  if (view === "workspace") {
+    return tip;
   }
   const base = view === "diff" ? await cabaret.base(change) : await cabaret.reviewBase(change, file.path);
   if (base === null) {
@@ -570,27 +569,25 @@ async function beforeRevision(
 }
 
 /**
- * The before and after sides of `file` in `diff`. Blobs, except that the workspace view's after
- * side is the file on disk itself, so it stays live and can be edited in place.
+ * What `view` of `change` at `tip` shows its files as: the tip, or for the workspace view, what its
+ * workspace has saved, taken now so the diff stays as it opened.
  */
-async function sides(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<[vscode.Uri, vscode.Uri]> {
-  const { change, tip } = diff;
+async function afterRevision(cabaret: Cabaret, view: DiffView, change: ChangeId, tip: Revision): Promise<Revision> {
+  return view === "workspace" ? await cabaret.workspaceSaved(change) : tip;
+}
+
+/** The before and after sides of `file` in `diff`, with the after side at `after`. */
+async function sides(
+  cabaret: Cabaret,
+  diff: FileDiff,
+  after: Revision,
+  file: ChangedFile,
+): Promise<[vscode.Uri, vscode.Uri]> {
   const from = "from" in file ? file.from : file.path;
-  switch (diff.view) {
-    case "diff":
-    case "review":
-      return [
-        blobUri(diff, await beforeRevision(cabaret, diff.view, change, file), from),
-        blobUri(diff, file.kind === "Deleted" ? undefined : tip, file.path),
-      ];
-    case "workspace": {
-      const before = blobUri(diff, file.kind === "Added" ? undefined : tip, from);
-      if (file.kind === "Deleted") {
-        return [before, blobUri(diff, undefined, file.path)];
-      }
-      return [before, vscode.Uri.joinPath(vscode.Uri.file(await cabaret.workspacePath(change)), file.path)];
-    }
-  }
+  return [
+    blobUri(diff, await beforeRevision(cabaret, diff, file), from),
+    blobUri(diff, file.kind === "Deleted" ? undefined : after, file.path),
+  ];
 }
 
 function diffTitle(subject: string, view: DiffView, change: ChangeId): string {
@@ -599,8 +596,9 @@ function diffTitle(subject: string, view: DiffView, change: ChangeId): string {
 }
 
 async function openFileDiff(cabaret: Cabaret, view: DiffView, change: ChangeId, file: ChangedFile): Promise<void> {
-  const diff: FileDiff = { view, change, path: file.path, tip: (await cabaret.change(change)).tip };
-  const [before, after] = await sides(cabaret, diff, file);
+  const { tip } = await cabaret.change(change);
+  const diff: FileDiff = { view, change, path: file.path, tip };
+  const [before, after] = await sides(cabaret, diff, await afterRevision(cabaret, view, change, tip), file);
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
   await replacingActive(async () => {
@@ -619,9 +617,10 @@ async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId,
     return;
   }
   const { tip } = await cabaret.change(change);
+  const shown = await afterRevision(cabaret, view, change, tip);
   const resources = await Promise.all(
     files.map(async (file) => {
-      const [before, after] = await sides(cabaret, { view, change, path: file.path, tip }, file);
+      const [before, after] = await sides(cabaret, { view, change, path: file.path, tip }, shown, file);
       return [after, before, after];
     }),
   );
