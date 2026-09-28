@@ -7,12 +7,11 @@ use crate::Setting;
 
 /// Prepended to the id of each change you create, so ids you pick need only be unique among
 /// yours. Its strftime escapes (`%Y`, `%m`, `%d`, …) expand to the time the change is created.
-/// Unset, it defaults to the date; set empty, ids are just their names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prefix(String);
 
 impl Default for Prefix {
-    fn default() -> Self { Self("%Y-%m-%d-".to_owned()) }
+    fn default() -> Self { Self("".to_owned()) }
 }
 
 impl Prefix {
