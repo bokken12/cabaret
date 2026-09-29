@@ -1,0 +1,8 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/safeguards.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/commit.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/land.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/mod.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/permanence.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"459f66e17e275a4db5b3cc4170dec9820e87e24f"}
