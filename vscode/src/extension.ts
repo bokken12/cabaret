@@ -1404,8 +1404,9 @@ async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
   return `${landed}; removed workspace ${workspace}`;
 }
 
-async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  return `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
+async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step> {
+  const report = `${(await cabaret.toggleArchived(change)) ? "archived" : "unarchived"} ${change}`;
+  return { report, complete: true };
 }
 
 async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
@@ -1592,7 +1593,7 @@ export function activate(context: vscode.ExtensionContext) {
       complete: true,
     })),
     sequencedAction("cabaret.rebase", provider, rebase),
-    action("cabaret.toggleArchived", provider, toggleArchived),
+    sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
