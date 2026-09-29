@@ -1,0 +1,1 @@
+Rebase safeguards: conflicted (its own unresolved conflicts) and parent-conflicted (a parent it would merge in holds conflicts; parents already merged are skipped). rebase_safeguards takes onto, like rebase.
