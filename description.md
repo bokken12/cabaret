@@ -1,0 +1,1 @@
+Fast-forwarding a workspace merges its local changes into the new tip instead of leaving the workspace behind, where git showed the whole update as undone locally. Collisions, including untracked files the tip adds, are left as diff3 markers labelled local and the change id.
