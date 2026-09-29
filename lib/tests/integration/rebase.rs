@@ -23,7 +23,8 @@ fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
 fn rebase_even_though(fixture: &Fixture, change: &str, onto: Option<&str>, even_though: &[Reason]) -> String {
     let onto = onto.map(id);
     match fixture.cabaret.rebase(&id(change), onto.as_deref(), even_though) {
-        Ok(rebase) => format!("{rebase:?}"),
+        Ok(Ok(rebase)) => format!("{rebase:?}"),
+        Ok(Err(discouraged)) => format!("discouraged: {:?}", discouraged.concerns),
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -188,7 +189,7 @@ fn not_owner_refuses_unless_acknowledged() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
     let tip = fixture.tip("child");
-    expect!["error: rebasing child is discouraged: not-owner: owned by bob@example.com"]
+    expect![[r#"discouraged: [NotOwner { owners: {Identity("bob@example.com")} }]"#]]
         .assert_eq(&rebase(&fixture, "child", None));
     assert_eq!(fixture.tip("child"), tip);
     expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_even_though(
@@ -197,4 +198,11 @@ fn not_owner_refuses_unless_acknowledged() {
         None,
         &[Reason::NotOwner],
     ));
+}
+
+#[test]
+fn hard_refusals_come_before_concerns() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }

@@ -67,7 +67,7 @@ fn conflicted() -> Fixture {
     fixture.create("grandchild", "child", &alice());
     fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("child"), None, &[]).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, &[]).unwrap().unwrap();
     fixture
 }
 

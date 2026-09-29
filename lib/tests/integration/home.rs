@@ -207,7 +207,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     fixture.commit("feature", &[("greeting.txt", "hi\n")]);
     fixture.mark_all("feature");
     fixture.commit("main", &[("main.txt", "main\n")]);
-    fixture.cabaret.rebase(&id("feature"), None, &[]).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, &[]).unwrap().unwrap();
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
@@ -220,7 +220,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     "#]]
     .assert_eq(&home(&fixture));
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("feature"), None, &[]).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, &[]).unwrap().unwrap();
     expect![[r#"
         Review
         ○   feature

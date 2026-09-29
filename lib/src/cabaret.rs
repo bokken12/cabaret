@@ -14,7 +14,7 @@ use cabaret_types::{
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
-use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode, HomeSection},
@@ -128,6 +128,29 @@ impl fmt::Display for Concern {
             Self::NotOwner { owners } if owners.is_empty() => write!(f, "{reason}: it has no owners"),
             Self::NotOwner { owners } => write!(f, "{reason}: owned by {}", joined(owners)),
         }
+    }
+}
+
+/// A discouraged action refused, for concerns whose reasons were not acknowledged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discouraged {
+    /// What was refused, such as `landing x`.
+    pub action: String,
+    pub concerns: NEVec<Concern>,
+}
+
+impl Discouraged {
+    /// The refusal of `action` for those of `concerns` whose reasons are not in `even_though`.
+    fn unless(action: String, concerns: Vec<Concern>, even_though: &[Reason]) -> Option<Self> {
+        let concerns = concerns.into_iter().filter(|concern| !even_though.contains(&concern.reason())).collect();
+        Some(Self { action, concerns: NEVec::try_from_vec(concerns)? })
+    }
+}
+
+impl fmt::Display for Discouraged {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let concerns: Vec<_> = self.concerns.iter().map(ToString::to_string).collect();
+        write!(f, "{} is discouraged: {}", self.action, concerns.join("; "))
     }
 }
 
@@ -649,7 +672,11 @@ impl Cabaret {
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts are refused rather than landed: rebase and resolve them first. Landing
     /// is discouraged while unreviewed or by a non-owner; see [`Reason`].
-    pub fn land(&self, change_id: &ChangeIdRef, even_though: &[Reason]) -> Result<ChangeId> {
+    pub fn land(
+        &self,
+        change_id: &ChangeIdRef,
+        even_though: &[Reason],
+    ) -> Result<std::result::Result<ChangeId, Discouraged>> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -659,7 +686,7 @@ impl Cabaret {
         })?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+        self.store.transact_or_abort(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -670,11 +697,15 @@ impl Cabaret {
                 }
                 Some(_) => {}
             }
-            refuse_unacknowledged(&format!("landing {change_id}"), land_concerns(child, child_branch)?, even_though)?;
+            if let Some(discouraged) =
+                Discouraged::unless(format!("landing {change_id}"), land_concerns(child, child_branch)?, even_though)
+            {
+                return Ok(Err(discouraged));
+            }
             if !child.permanent {
                 child.archived = true;
             }
-            Ok(parent_id.clone())
+            Ok(Ok(parent_id.clone()))
         })
     }
 
@@ -687,10 +718,9 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         onto: Option<&ChangeIdRef>,
         even_though: &[Reason],
-    ) -> Result<Rebase> {
-        self.store.update_branch(change_id, |ctx, branch| {
+    ) -> Result<std::result::Result<Rebase, Discouraged>> {
+        self.store.transact_or_abort(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
-            refuse_unacknowledged(&format!("rebasing {change_id}"), rebase_concerns(metadata)?, even_though)?;
             let parents = metadata.parents()?;
             let targets = match onto {
                 None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
@@ -698,6 +728,11 @@ impl Cabaret {
                 Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
                 Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
             };
+            if let Some(discouraged) =
+                Discouraged::unless(format!("rebasing {change_id}"), rebase_concerns(metadata)?, even_though)
+            {
+                return Ok(Err(discouraged));
+            }
 
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
@@ -711,7 +746,7 @@ impl Cabaret {
                 }
             }
             rebase.remaining = targets.collect();
-            Ok(rebase)
+            Ok(Ok(rebase))
         })
     }
 
@@ -951,15 +986,6 @@ fn land_concerns(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<Con
 fn rebase_concerns(metadata: &Metadata<'_>) -> Result<Vec<Concern>> {
     let owner = metadata.owners.contains(&metadata.ctx().identity()?);
     Ok(Vec::from_iter((!owner).then(|| Concern::NotOwner { owners: metadata.owners.clone() })))
-}
-
-fn refuse_unacknowledged(action: &str, concerns: Vec<Concern>, even_though: &[Reason]) -> Result<()> {
-    let unacknowledged: Vec<_> =
-        concerns.iter().filter(|concern| !even_though.contains(&concern.reason())).map(ToString::to_string).collect();
-    match unacknowledged.is_empty() {
-        true => Ok(()),
-        false => Err(format!("{action} is discouraged: {}", unacknowledged.join("; ")))?,
-    }
 }
 
 /// `a, b, c`.

@@ -18,7 +18,7 @@ use napi_derive::napi;
 use nonempty_collections::NEBTreeSet;
 
 use crate::{
-    cabaret::{Cabaret, Reason, Rebase},
+    cabaret::{Cabaret, Concern, Discouraged, Reason, Rebase},
     home::HomeSection,
     page::{DiffView, Page},
 };
@@ -34,6 +34,42 @@ pub enum Placement {
     /// The change is checked out nowhere. This workspace could switch to it, unless it is
     /// dedicated to the change it holds; see [`Cabaret::workspace_is_dedicated`].
     Nowhere { dedicated: bool },
+}
+
+/// A [`Concern`] as a frontend shows it.
+#[napi(object, object_from_js = false, js_name = "Concern")]
+pub struct ConcernJs {
+    pub reason: Reason,
+    pub message: String,
+}
+
+fn concerns(discouraged: Discouraged) -> Vec<ConcernJs> {
+    let concern = |concern: Concern| ConcernJs { reason: concern.reason(), message: concern.to_string() };
+    discouraged.concerns.into_iter().map(concern).collect()
+}
+
+/// What [`Cabaret::land`] did.
+#[napi(discriminant = "kind", object_from_js = false)]
+pub enum Landed {
+    Done {
+        into: ChangeId,
+    },
+    /// Refused; landing again with these reasons acknowledged proceeds unless others arose.
+    Discouraged {
+        concerns: Vec<ConcernJs>,
+    },
+}
+
+/// What [`Cabaret::rebase`] did.
+#[napi(discriminant = "kind", object_from_js = false)]
+pub enum Rebased {
+    Done {
+        rebase: Rebase,
+    },
+    /// Refused; rebasing again with these reasons acknowledged proceeds unless others arose.
+    Discouraged {
+        concerns: Vec<ConcernJs>,
+    },
 }
 
 fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
@@ -263,8 +299,12 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId, even_though: Vec<Reason>) -> napi::Result<ChangeId> {
-        self.blocking(move |cabaret| cabaret.land(&change, &even_though)).await
+    pub async fn land(&self, change: ChangeId, even_though: Vec<Reason>) -> napi::Result<Landed> {
+        let landed = self.blocking(move |cabaret| cabaret.land(&change, &even_though)).await?;
+        Ok(match landed {
+            Ok(into) => Landed::Done { into },
+            Err(discouraged) => Landed::Discouraged { concerns: concerns(discouraged) },
+        })
     }
 
     #[napi]
@@ -278,7 +318,11 @@ impl CabaretJs {
         change: ChangeId,
         onto: Option<ChangeId>,
         even_though: Vec<Reason>,
-    ) -> napi::Result<Rebase> {
-        self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref(), &even_though)).await
+    ) -> napi::Result<Rebased> {
+        let rebased = self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref(), &even_though)).await?;
+        Ok(match rebased {
+            Ok(rebase) => Rebased::Done { rebase },
+            Err(discouraged) => Rebased::Discouraged { concerns: concerns(discouraged) },
+        })
     }
 }

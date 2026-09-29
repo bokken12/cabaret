@@ -2,6 +2,7 @@ import {
   Cabaret,
   type ChangedFile,
   type ChangeId,
+  type Concern,
   type Page,
   type RepoPath,
   type Revision,
@@ -12,6 +13,7 @@ import {
   type DiffView,
   type Fold,
   type HomeSection,
+  type Reason,
   type WorkspaceId,
 } from "@cabaret/node";
 import * as vscode from "vscode";
@@ -1273,8 +1275,42 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
+type Attempt<T> = ({ kind: "Done" } & T) | { kind: "Discouraged"; concerns: Concern[] };
+
+/**
+ * Run a discouraged action on `change`, asking whether to proceed anyway each time it refuses
+ * and retrying with every reason acknowledged so far; `undefined` once the user backs out.
+ */
+async function despite<T>(
+  verb: string,
+  change: ChangeId,
+  attempt: (evenThough: Reason[]) => Promise<Attempt<T>>,
+): Promise<T | undefined> {
+  const evenThough: Reason[] = [];
+  for (;;) {
+    const result = await attempt(evenThough);
+    if (result.kind === "Done") {
+      return result;
+    }
+    const proceed = `${verb} Anyway`;
+    const choice = await vscode.window.showWarningMessage(
+      `${verb} ${change} even though it is discouraged?`,
+      { modal: true, detail: result.concerns.map((concern) => concern.message).join("\n") },
+      proceed,
+    );
+    if (choice !== proceed) {
+      return undefined;
+    }
+    evenThough.push(...result.concerns.map((concern) => concern.reason));
+  }
+}
+
 async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
-  const rebase = await cabaret.rebase(change, undefined, []);
+  const rebased = await despite("Rebase", change, (evenThough) => cabaret.rebase(change, undefined, evenThough));
+  if (rebased === undefined) {
+    return { report: `did not rebase ${change}`, complete: false };
+  }
+  const { rebase } = rebased;
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
@@ -1449,7 +1485,11 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landed = `landed ${change} into ${await cabaret.land(change, [])}`;
+      const done = await despite("Land", change, (evenThough) => cabaret.land(change, evenThough));
+      if (done === undefined) {
+        return { report: `did not land ${change}`, complete: false };
+      }
+      const landed = `landed ${change} into ${done.into}`;
       const workspace = doomed.get(change);
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };

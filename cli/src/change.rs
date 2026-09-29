@@ -216,7 +216,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Land { change, even_though } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change, &even_though)?;
+                let parent = cabaret.land(&change, &even_though)??;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
@@ -291,7 +291,7 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, even_though: &[Reason]) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
-    let rebase = cabaret.rebase(change, onto, even_though)?;
+    let rebase = cabaret.rebase(change, onto, even_though)??;
     match rebase.merged.is_empty() {
         true => println!("{change} is already up to date"),
         false => println!("rebased {change} onto {}", words(rebase.merged.iter().map(ToString::to_string).collect())),
