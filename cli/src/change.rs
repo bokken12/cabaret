@@ -273,8 +273,7 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
                 Ok(Some(cabaret.blob(revision, path)?.expect("a changed file is on the side it differs on")))
             };
             for FileDiff { file, before, after } in &diff.files {
-                let from = file.paths().next().expect("a file has a path");
-                let (before, after) = (version(*before, from)?, version(*after, file.path())?);
+                let (before, after) = (version(*before, file.source())?, version(*after, file.path())?);
                 out.write_all(&unified(file, before.as_ref(), after.as_ref()))?;
             }
         }

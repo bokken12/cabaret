@@ -25,6 +25,14 @@ impl ChangedFile {
         }
     }
 
+    /// Where this takes the file from: its source for a rename or copy, else its own path.
+    pub fn source(&self) -> &RepoPath {
+        match self {
+            Self::Renamed { from, .. } | Self::Copied { from, .. } => from,
+            Self::Added { path } | Self::Deleted { path } | Self::Modified { path } => path,
+        }
+    }
+
     /// The paths this touches: the file's, preceded by its source for a rename or copy.
     pub fn paths(&self) -> impl Iterator<Item = &RepoPath> {
         let from = match self {

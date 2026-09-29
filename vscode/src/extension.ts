@@ -562,12 +562,12 @@ async function fileDiffSides(
   view: DiffView,
   change: ChangeId,
   files: ChangedFile[],
-): Promise<{ file: ChangedFile; before: vscode.Uri; after: vscode.Uri }[]> {
+): Promise<{ before: vscode.Uri; after: vscode.Uri }[]> {
   const { tip, files: diffs } = await cabaret.viewDiff(change, view, files.map((file) => file.path));
   return diffs.map(({ file, before, after }) => {
     const diff: FileDiff = { view, change, path: file.path, tip };
     const from = "from" in file ? file.from : file.path;
-    return { file, before: blobUri(diff, before, from), after: blobUri(diff, after, file.path) };
+    return { before: blobUri(diff, before, from), after: blobUri(diff, after, file.path) };
   });
 }
 
@@ -605,7 +605,7 @@ async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId,
   }
   const resources = sides.map(({ before, after }) => [after, before, after]);
   await replacingActive(async () => {
-    await vscode.commands.executeCommand("vscode.changes", diffTitle(`${files.length} files`, view, change), resources);
+    await vscode.commands.executeCommand("vscode.changes", diffTitle(`${sides.length} files`, view, change), resources);
     // Pinned, as `vscode.changes` offers no option to open it so.
     await vscode.commands.executeCommand("workbench.action.keepEditor");
   });

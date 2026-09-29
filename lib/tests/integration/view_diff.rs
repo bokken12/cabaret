@@ -20,8 +20,7 @@ fn view_diff(fixture: &Fixture, change: &str, view: DiffView, pathspecs: &[&str]
     };
     let mut out = String::new();
     for FileDiff { file, before, after } in &diff.files {
-        let from = file.paths().next().unwrap();
-        writeln!(out, "{file:?}: {} -> {}", side(*before, from), side(*after, file.path())).unwrap();
+        writeln!(out, "{file:?}: {} -> {}", side(*before, file.source()), side(*after, file.path())).unwrap();
     }
     out
 }

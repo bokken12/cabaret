@@ -13,7 +13,7 @@ use cabaret_lib::{
 
 /// `file`'s diff from `before` to `after`, with fixed options so that every clone renders it alike.
 pub fn unified(file: &ChangedFile, before: Option<&FileVersion>, after: Option<&FileVersion>) -> BString {
-    let (from, path) = (file.paths().next().expect("a file has a path"), file.path());
+    let (from, path) = (file.source(), file.path());
     let mut diff = BString::from(format!("diff --git a/{from} b/{path}\n"));
     match (before, after) {
         (None, Some(after)) => diff.push_str(format!("new file mode {:o}\n", after.mode)),
