@@ -277,7 +277,7 @@ impl Store {
         }
         // Workspaces are written once the branches have moved: a failed transaction leaves them
         // behind rather than ahead of it.
-        for (op, workspace) in workspace_ops.iter().zip(&workspaces) {
+        for (op, workspace) in workspace_ops.iter().zip(&mut workspaces) {
             match op {
                 WorkspaceOp::Insert { .. } => workspace.create(checkout_tip(workspace, &branches)?)?,
                 WorkspaceOp::Update { id } => {

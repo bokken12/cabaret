@@ -6,11 +6,21 @@ use std::{
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{
+    Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp,
+};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LandAllow, LandSafeguard,
-    NonOwner, Pathspec, RebaseAllow, RebaseSafeguard, RepoPath, Result, RevisionId, TimestampMs, Unreviewed, ViewDiff,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
+    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    safeguard::{
+        AddParentAllow, AddParentSafeguard, ArchiveAllow, ArchiveSafeguard, ArchivedParent, ArchivedParents, BaseMoves,
+        CommitAllow, CommitSafeguard, Conflicted, Empty, ImpermanentParents, LandAllow, LandSafeguard,
+        NoCommonAncestor, NonOwner, OpenChildren, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted,
+        ParentUnreviewed, Parentless, PermanenceAllow, PermanenceSafeguard, Permanent, RebaseAllow, RebaseSafeguard,
+        RedundantParent, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow, RemoveWorkspaceSafeguard,
+        RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, UnarchiveAllow, UnarchiveSafeguard, Uncommitted,
+        Unreviewed,
+    },
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
@@ -226,23 +236,44 @@ impl Cabaret {
         Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
     }
 
-    /// Removing a workspace needs the branch it holds, which is only known once read; the
-    /// transaction re-checks it under the lock.
-    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
+    /// The safeguards that would refuse removing `workspace_id` now, for a frontend to ask about first.
+    pub fn workspace_remove_safeguards(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+    ) -> Result<Vec<RemoveWorkspaceSafeguard>> {
+        self.store.query(|ctx| remove_workspace_safeguards(ctx.workspace(workspace_id)?))
+    }
+
+    /// Remove `workspace_id`; allowing uncommitted changes deletes them with it. Removing a
+    /// workspace needs the branch it holds, which is only known once read; the transaction
+    /// re-checks it under the lock.
+    pub fn workspace_remove(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+        allow: RemoveWorkspaceAllow,
+    ) -> Result<std::result::Result<(), NEVec<RemoveWorkspaceSafeguard>>> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
+        let remove = |workspace: &mut Workspace<'_>| {
+            if workspace_id == WorkspaceIdRef::Main {
+                Err("the main workspace cannot be removed")?;
+            }
+            if let Some(refused) = allow.refused(remove_workspace_safeguards(workspace)?) {
+                return Ok(Err(refused));
+            }
+            workspace.drop_local_changes = allow.uncommitted;
+            Ok(Ok(()))
+        };
         match self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))? {
-            Some(held) => self.store.transact(
+            Some(held) => self.store.transact_or_abort(
                 &[],
                 &[BranchOp::Update(&held)],
                 &delete,
-                |_ctx, [], [_branch], [_workspace]| Ok(()),
+                |_ctx, [], [_branch], [workspace]| remove(workspace),
             ),
-            None => self.store.transact(&[], &[], &delete, |_ctx, [], [], [_workspace]| Ok(())),
+            None => self.store.transact_or_abort(&[], &[], &delete, |_ctx, [], [], [workspace]| remove(workspace)),
         }
     }
 
-    /// Remove every workspace holding an archived change. Each goes in its own transaction, which
-    /// re-checks the change under its lock, so one that cannot go leaves the rest to be pruned.
     pub fn workspace_prune(&self) -> Result<Prune> {
         let archived = self.store.query(|ctx| {
             let mut archived = Vec::new();
@@ -278,14 +309,29 @@ impl Cabaret {
         Ok(prune)
     }
 
-    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId) -> Result<()> {
-        self.store.transact(
+    /// Check out `change_id` in `workspace_id`; allowing uncommitted changes drops those to
+    /// tracked files, leaving untracked ones be.
+    pub fn workspace_switch(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+        change_id: ChangeId,
+        allow: SwitchWorkspaceAllow,
+    ) -> Result<std::result::Result<(), NEVec<SwitchWorkspaceSafeguard>>> {
+        self.store.transact_or_abort(
             &[],
             &[BranchOp::Update(&change_id)],
             &[WorkspaceOp::Update { id: workspace_id }],
             |_ctx, [], [_branch], [workspace]| {
+                // Untracked files are left where they are, so only changes to tracked ones are at risk.
+                if workspace.status()? == Status::Modified {
+                    let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
+                    if let Some(refused) = allow.refused(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)]) {
+                        return Ok(Err(refused));
+                    }
+                }
+                workspace.drop_local_changes = allow.uncommitted;
                 workspace.head = Head::Change(change_id.clone());
-                Ok(())
+                Ok(Ok(()))
             },
         )
     }
@@ -339,16 +385,7 @@ impl Cabaret {
     /// The open changes targeting `change_id`, the inverse of `ChangeSnapshot::parents`. Archived
     /// changes are left out: every landed change targets trunk forever.
     pub fn children(&self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
-        self.store.query(|ctx| {
-            let mut children = BTreeSet::new();
-            for id in ctx.changes()? {
-                let metadata = ctx.metadata(&id)?;
-                if !metadata.archived && metadata.parents()?.contains(change_id) {
-                    children.insert(id);
-                }
-            }
-            Ok(children)
-        })
+        self.store.query(|ctx| open_children(ctx, change_id))
     }
 
     pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<FileVersion>> {
@@ -449,7 +486,7 @@ impl Cabaret {
                 }
                 DiffView::Workspace => {
                     let workspace = ctx.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;
-                    let saved = ctx.commit(workspace.saved_tree()?, vec![tip], change_id.as_bstr())?;
+                    let saved = ctx.commit(workspace.saved_tree(&[])?, vec![tip], change_id.as_bstr())?;
                     workspace
                         .changed_files(pathspecs)?
                         .into_iter()
@@ -547,11 +584,16 @@ impl Cabaret {
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
     /// all when empty, as a new commit on the change, returning it. The commit is named for the
     /// change and nothing more: commits are for the computer, not for reading.
-    pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<RevisionId> {
+    pub fn commit(
+        &self,
+        change_id: &ChangeIdRef,
+        pathspecs: &[Pathspec],
+        allow: CommitAllow,
+    ) -> Result<std::result::Result<RevisionId, NEVec<CommitSafeguard>>> {
         let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
+        self.store.transact_or_abort(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
             if ctx.metadata(change_id)?.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -559,12 +601,27 @@ impl Cabaret {
             if workspace.change().is_none_or(|held| **held != *change_id) {
                 Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;
             }
-            let tree = workspace.snapshot(pathspecs)?;
+            // The index is only staged once nothing refuses, so a refusal leaves the workspace be.
+            let tree = workspace.saved_tree(pathspecs)?;
             if tree.0 == ctx.repo.find_commit(branch.tip)?.tree_id()?.detach() {
                 Err(format!("{change_id} has nothing to commit"))?;
             }
-            branch.tip = ctx.commit(tree, vec![branch.tip], change_id.as_bstr())?;
-            Ok(branch.tip)
+            let mut committed = branch.clone();
+            committed.tip = ctx.commit(tree, vec![branch.tip], change_id.as_bstr())?;
+            let parents = ctx.metadata(change_id)?.parents()?;
+            let before = branch.conflicted_files(&parents)?;
+            let added = committed.conflicted_files(&parents)?.difference(&before).cloned().collect();
+            let safeguards = Vec::from_iter(
+                NEBTreeSet::try_from_set(added).map(|files| CommitSafeguard::Conflicted(Conflicted { files })),
+            );
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            if workspace.snapshot(pathspecs)? != tree {
+                Err(format!("files changed while committing to {change_id}; commit again"))?;
+            }
+            branch.tip = committed.tip;
+            Ok(Ok(branch.tip))
         })
     }
 
@@ -584,27 +641,39 @@ impl Cabaret {
 
     /// The safeguards that would refuse landing `change_id` now, for a frontend to ask about first.
     pub fn land_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<LandSafeguard>> {
-        self.store.query(|ctx| land_safeguards(ctx.metadata(change_id)?, ctx.branch(change_id)?))
+        self.store.query(|ctx| {
+            let parent_id = landing_parent(ctx, change_id)?;
+            let child_branch = ctx.branch(change_id)?;
+            // A trial merge, whose commit nothing will point to, is how landing's result is known.
+            let merged = ctx.branch(&parent_id)?.clone().merge(child_branch, "land")?;
+            land_safeguards(ctx.metadata(change_id)?, child_branch, &parent_id, merged.as_ref())
+        })
     }
 
+<<<<<<< land-records-log
     /// Merge `change_id` into its one parent, record there the log it landed with, and archive it
     /// unless it is permanent, returning the parent. Conflicts are errors rather than landed:
     /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
     /// allowing them cannot run into an error.
+||||||| base
+    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
+    /// parent. Conflicts are errors rather than landed: rebase and resolve them first. Safeguards
+    /// not in `allow` refuse, checked last so that allowing them cannot run into an error.
+=======
+    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
+    /// parent. Conflicts landing in a root are errors, since a root is never searched for them:
+    /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
+    /// allowing them cannot run into an error.
+>>>>>>> main
     pub fn land(
         &self,
         change_id: &ChangeIdRef,
         allow: LandAllow,
     ) -> Result<std::result::Result<ChangeId, NEVec<LandSafeguard>>> {
-        let parent_id = self.store.query(|ctx| {
-            match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
-                [] => Err(format!("{change_id} cannot land while it has no parents"))?,
-                [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
-                [parent] => Ok((*parent).clone()),
-            }
-        })?;
+        let parent_id = self.store.query(|ctx| landing_parent(ctx, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
+<<<<<<< land-records-log
         let metadata = [change_id, &parent_id];
         self.store.transact_or_abort(
             &metadata,
@@ -632,11 +701,58 @@ impl Cabaret {
                 Ok(Ok(parent_id.clone()))
             },
         )
+||||||| base
+        self.store.transact_or_abort(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+            if child.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            match parent.merge(child_branch, "land")? {
+                None => Err(format!("{change_id} has nothing to land"))?,
+                Some(conflicts) if !conflicts.is_empty() => {
+                    Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
+                }
+                Some(_) => {}
+            }
+            if let Some(refused) = allow.refused(land_safeguards(child, child_branch)?) {
+                return Ok(Err(refused));
+            }
+            if !child.permanent {
+                child.archived = true;
+            }
+            Ok(Ok(parent_id.clone()))
+        })
+=======
+        self.store.transact_or_abort(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
+            if child.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            let merged = parent.merge(child_branch, "land")?;
+            let conflicted = merged.as_ref().is_some_and(|conflicts| !conflicts.is_empty())
+                || !child_branch.conflicted_files(&child.parents()?)?.is_empty();
+            if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
+                Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
+            }
+            if let Some(refused) = allow.refused(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?) {
+                return Ok(Err(refused));
+            }
+            if !child.permanent {
+                child.archived = true;
+            }
+            Ok(Ok(parent_id.clone()))
+        })
+>>>>>>> main
     }
 
     /// The safeguards that would refuse rebasing `change_id` now, for a frontend to ask about first.
-    pub fn rebase_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<RebaseSafeguard>> {
-        self.store.query(|ctx| rebase_safeguards(ctx.metadata(change_id)?))
+    pub fn rebase_safeguards(
+        &self,
+        change_id: &ChangeIdRef,
+        onto: Option<&ChangeIdRef>,
+    ) -> Result<Vec<RebaseSafeguard>> {
+        self.store.query(|ctx| {
+            let metadata = ctx.metadata(change_id)?;
+            rebase_safeguards(metadata, ctx.branch(change_id)?, &rebase_targets(metadata, onto)?)
+        })
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
@@ -651,14 +767,8 @@ impl Cabaret {
     ) -> Result<std::result::Result<Rebase, NEVec<RebaseSafeguard>>> {
         self.store.transact_or_abort(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
-            let parents = metadata.parents()?;
-            let targets = match onto {
-                None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
-                None => parents,
-                Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
-                Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
-            };
-            if let Some(refused) = allow.refused(rebase_safeguards(metadata)?) {
+            let targets = rebase_targets(metadata, onto)?;
+            if let Some(refused) = allow.refused(rebase_safeguards(metadata, branch, &targets)?) {
                 return Ok(Err(refused));
             }
 
@@ -678,33 +788,54 @@ impl Cabaret {
         })
     }
 
-    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if children unarchived?
-            match metadata.archived {
-                true => Err(format!("{change_id} has already been archived"))?,
-                false => metadata.archived = true,
-            };
-            Ok(())
+    pub fn archive(
+        &self,
+        change_id: &ChangeIdRef,
+        allow: ArchiveAllow,
+    ) -> Result<std::result::Result<(), NEVec<ArchiveSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.archived {
+                Err(format!("{change_id} has already been archived"))?;
+            }
+            let mut safeguards = Vec::new();
+            if let Some(children) = NEBTreeSet::try_from_set(open_children(ctx, change_id)?) {
+                safeguards.push(ArchiveSafeguard::OpenChildren(OpenChildren { children }));
+            }
+            if metadata.permanent {
+                safeguards.push(ArchiveSafeguard::Permanent(Permanent));
+            }
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.archived = true;
+            Ok(Ok(()))
         })
     }
 
-    pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if parents archived?
-            match metadata.archived {
-                false => Err(format!("{change_id} has not been archived"))?,
-                true => metadata.archived = false,
-            };
-            Ok(())
-        })
-    }
-
-    /// Archive `change_id`, or unarchive it if it already is, returning whether it is now archived.
-    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<bool> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            metadata.archived = !metadata.archived;
-            Ok(metadata.archived)
+    pub fn unarchive(
+        &self,
+        change_id: &ChangeIdRef,
+        allow: UnarchiveAllow,
+    ) -> Result<std::result::Result<(), NEVec<UnarchiveSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if !metadata.archived {
+                Err(format!("{change_id} has not been archived"))?;
+            }
+            let mut archived = BTreeSet::new();
+            for parent in &metadata.declared_parents {
+                if ctx.metadata(parent)?.archived {
+                    archived.insert(parent.clone());
+                }
+            }
+            let safeguards = Vec::from_iter(
+                NEBTreeSet::try_from_set(archived)
+                    .map(|parents| UnarchiveSafeguard::ArchivedParents(ArchivedParents { parents })),
+            );
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.archived = false;
+            Ok(Ok(()))
         })
     }
 
@@ -715,38 +846,84 @@ impl Cabaret {
         })
     }
 
-    pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners.remove(owner) {
-            false => Err(format!("{owner} did not own {change_id}"))?,
-            true if metadata.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
-            true => Ok(()),
+    pub fn remove_owner(
+        &self,
+        change_id: &ChangeIdRef,
+        owner: &Identity,
+        allow: OwnersAllow,
+    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            let before = metadata.owners.clone();
+            if !metadata.owners.remove(owner) {
+                Err(format!("{owner} did not own {change_id}"))?;
+            }
+            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &before, &metadata.owners)) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
-    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners == owners {
-            true => Err(format!("{change_id} already had these owners"))?,
-            false if owners.len() == 0 => Err(format!("{change_id} should have at least one owner"))?,
-            false => Ok(metadata.owners = owners),
+    pub fn set_owners(
+        &self,
+        change_id: &ChangeIdRef,
+        owners: BTreeSet<Identity>,
+        allow: OwnersAllow,
+    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.owners == owners {
+                Err(format!("{change_id} already had these owners"))?;
+            }
+            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners)) {
+                return Ok(Err(refused));
+            }
+            metadata.owners = owners.clone();
+            Ok(Ok(()))
         })
     }
 
     // TODO(joel): some helper that aligns the parent set with the derived parent set?
 
-    pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): check for cyclic dependencies
-            match metadata.declared_parents.insert(parent_id.to_owned()) {
-                false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
-                true => Ok(()),
+    /// Declare `parent_id` a parent of `change_id`. A parent descending from the change is an
+    /// error, since the graph would cycle.
+    pub fn add_parent(
+        &self,
+        change_id: &ChangeIdRef,
+        parent_id: &ChangeIdRef,
+        allow: AddParentAllow,
+    ) -> Result<std::result::Result<(), NEVec<AddParentSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if !metadata.declared_parents.insert(parent_id.to_owned()) {
+                Err(format!("{parent_id} was already a parent of {change_id}"))?;
             }
+            if parent_id == change_id {
+                Err(format!("{change_id} cannot be its own parent"))?;
+            }
+            if ctx.metadata(parent_id)?.is_descendant(change_id)? {
+                Err(format!("{parent_id} descends from {change_id}, so it cannot be its parent"))?;
+            }
+            if let Some(refused) = allow.refused(add_parent_safeguards(metadata, parent_id)?) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
-    pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.declared_parents.remove(parent_id) {
-            false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
-            true => Ok(()),
+    pub fn remove_parent(
+        &self,
+        change_id: &ChangeIdRef,
+        parent_id: &ChangeIdRef,
+        allow: RemoveParentAllow,
+    ) -> Result<std::result::Result<(), NEVec<RemoveParentSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |_ctx, [metadata], [], []| {
+            let before = metadata.clone();
+            if !metadata.declared_parents.remove(parent_id) {
+                Err(format!("{parent_id} was not a parent of {change_id}"))?;
+            }
+            if let Some(refused) = allow.refused(remove_parent_safeguards(&before, metadata, parent_id)?) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
@@ -781,14 +958,35 @@ impl Cabaret {
         })
     }
 
-    pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if parents non-permanent?
-            match metadata.archived {
-                true => Err(format!("{change_id} is archived"))?,
-                _ => metadata.permanent = permanent,
-            };
-            Ok(())
+    pub fn set_permanent(
+        &self,
+        change_id: &ChangeIdRef,
+        permanent: bool,
+        allow: PermanenceAllow,
+    ) -> Result<std::result::Result<(), NEVec<PermanenceSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(PermanenceSafeguard::NonOwner));
+            if permanent {
+                let mut impermanent = BTreeSet::new();
+                for parent_id in metadata.parents()? {
+                    let parent = ctx.metadata(&parent_id)?;
+                    // A root never lands, so is as permanent as a change gets.
+                    if !parent.permanent && !parent.parents()?.is_empty() {
+                        impermanent.insert(parent_id);
+                    }
+                }
+                if let Some(parents) = NEBTreeSet::try_from_set(impermanent) {
+                    safeguards.push(PermanenceSafeguard::ImpermanentParents(ImpermanentParents { parents }));
+                }
+            }
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.permanent = permanent;
+            Ok(Ok(()))
         })
     }
 }
@@ -903,16 +1101,184 @@ fn unreviewed(
     Ok(reviewers)
 }
 
-fn land_safeguards(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<LandSafeguard>> {
+fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<RemoveWorkspaceSafeguard>> {
+    Ok(match workspace.status()? {
+        Status::Clean => Vec::new(),
+        Status::Untracked | Status::Modified => {
+            vec![RemoveWorkspaceSafeguard::Uncommitted(Uncommitted { workspace: workspace.id().into_owned() })]
+        }
+    })
+}
+
+/// The open changes landing into `change_id`.
+fn open_children<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+    let mut children = BTreeSet::new();
+    for id in ctx.changes()? {
+        let metadata = ctx.metadata(&id)?;
+        if !metadata.archived && metadata.parents()?.contains(change_id) {
+            children.insert(id);
+        }
+    }
+    Ok(children)
+}
+
+/// The one parent `change_id` lands into.
+fn landing_parent<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<ChangeId> {
+    match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
+        [] => Err(format!("{change_id} cannot land while it has no parents"))?,
+        [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
+        [parent] => Ok((*parent).clone()),
+    }
+}
+
+/// `merged` is what merging the change into `parent_id` gave: the files it conflicted in, or
+/// `None` when the parent already held everything.
+fn land_safeguards(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    parent_id: &ChangeIdRef,
+    merged: Option<&BTreeSet<RepoPath>>,
+) -> Result<Vec<LandSafeguard>> {
+    let ctx = metadata.ctx();
+    let parents = metadata.parents()?;
     let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(LandSafeguard::NonOwner));
-    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &metadata.parents()?)?) {
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
         safeguards.push(LandSafeguard::Unreviewed(Unreviewed { reviewers }));
+    }
+    let parent = ctx.metadata(parent_id)?;
+    let grandparents = parent.parents()?;
+    // A root has no diff of its own to review.
+    if !grandparents.is_empty()
+        && let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(parent_id)?, &grandparents)?)
+    {
+        safeguards.push(LandSafeguard::ParentUnreviewed(ParentUnreviewed { parent: parent_id.to_owned(), reviewers }));
+    }
+    match merged {
+        None => safeguards.push(LandSafeguard::Empty(Empty { parent: parent_id.to_owned() })),
+        Some(conflicts) => {
+            let files = branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
+            if let Some(files) = NEBTreeSet::try_from_set(files) {
+                safeguards.push(LandSafeguard::Conflicted(Conflicted { files }));
+            }
+        }
+    }
+    if let Some(workspace) = branch.workspace()?
+        && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
+    {
+        safeguards.push(LandSafeguard::Uncommitted(Uncommitted { workspace }));
     }
     Ok(safeguards)
 }
 
-fn rebase_safeguards(metadata: &Metadata<'_>) -> Result<Vec<RebaseSafeguard>> {
-    Ok(Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner)))
+/// What changing a change's owners from `before` to `after` risks, done by `you`.
+fn owners_safeguards(you: &Identity, before: &BTreeSet<Identity>, after: &BTreeSet<Identity>) -> Vec<OwnersSafeguard> {
+    let others: BTreeSet<Identity> = before.difference(after).filter(|owner| *owner != you).cloned().collect();
+    let mut safeguards = Vec::from_iter(
+        NEBTreeSet::try_from_set(others).map(|owners| OwnersSafeguard::RemovesOthers(RemovesOthers { owners })),
+    );
+    if after.is_empty() {
+        safeguards.push(OwnersSafeguard::Ownerless(Ownerless));
+    }
+    safeguards
+}
+
+/// What declaring `added` a parent, as `metadata` now does, risks.
+fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result<Vec<AddParentSafeguard>> {
+    let ctx = metadata.ctx();
+    let mut safeguards = Vec::new();
+    if ctx.metadata(added)?.archived && !metadata.archived {
+        safeguards.push(AddParentSafeguard::ArchivedParent(ArchivedParent { parent: added.to_owned() }));
+    }
+    for other in metadata.declared_parents.iter().filter(|other| other.as_ref() != added) {
+        if ctx.metadata(other)?.is_descendant(added)? {
+            let redundant = RedundantParent { parent: added.to_owned(), descendant: other.clone() };
+            safeguards.push(AddParentSafeguard::RedundantParent(redundant));
+            break;
+        }
+    }
+    safeguards.extend(no_common_ancestor(metadata)?.map(AddParentSafeguard::NoCommonAncestor));
+    Ok(safeguards)
+}
+
+/// What removing `removed` from `before`'s parents, as `after` has done, risks.
+fn remove_parent_safeguards(
+    before: &Metadata<'_>,
+    after: &Metadata<'_>,
+    removed: &ChangeIdRef,
+) -> Result<Vec<RemoveParentSafeguard>> {
+    let ctx = after.ctx();
+    let mut safeguards = Vec::new();
+    let (old, new) = (before.parents()?, after.parents()?);
+    let branch = ctx.branch(after.id())?;
+    if branch.base(&old)? != branch.base(&new)? {
+        safeguards.push(RemoveParentSafeguard::BaseMoves(BaseMoves { removed: removed.to_owned() }));
+    }
+    if new.is_empty() {
+        safeguards.push(RemoveParentSafeguard::Parentless(Parentless));
+    }
+    safeguards.extend(no_common_ancestor(after)?.map(RemoveParentSafeguard::NoCommonAncestor));
+    Ok(safeguards)
+}
+
+/// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.
+fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<NoCommonAncestor>> {
+    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
+    let mut common: Option<BTreeSet<ChangeId>> = None;
+    for parent in &parents {
+        let ancestors = ancestors(metadata.ctx(), parent)?;
+        common = Some(match common {
+            None => ancestors,
+            Some(common) => &common & &ancestors,
+        });
+    }
+    Ok(common.is_some_and(|common| common.is_empty()).then_some(NoCommonAncestor { parents }))
+}
+
+/// `change_id` and every change it lands through.
+fn ancestors<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+    let mut ancestors = BTreeSet::new();
+    let mut frontier = vec![change_id.to_owned()];
+    while let Some(id) = frontier.pop() {
+        if ancestors.insert(id.clone()) {
+            frontier.extend(ctx.metadata(&id)?.parents()?);
+        }
+    }
+    Ok(ancestors)
+}
+
+/// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.
+fn rebase_targets(metadata: &Metadata<'_>, onto: Option<&ChangeIdRef>) -> Result<BTreeSet<ChangeId>> {
+    let change_id = metadata.id();
+    let parents = metadata.parents()?;
+    Ok(match onto {
+        None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
+        None => parents,
+        Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
+        Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
+    })
+}
+
+fn rebase_safeguards(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    targets: &BTreeSet<ChangeId>,
+) -> Result<Vec<RebaseSafeguard>> {
+    let ctx = metadata.ctx();
+    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner));
+    if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
+        safeguards.push(RebaseSafeguard::Conflicted(Conflicted { files }));
+    }
+    for target in targets {
+        let parent = ctx.branch(target)?;
+        // A parent already merged in brings nothing, conflicts included.
+        if ctx.is_predecessor(parent.tip, branch.tip)? {
+            continue;
+        }
+        if let Some(files) = NEBTreeSet::try_from_set(parent.conflicted_files(&ctx.metadata(target)?.parents()?)?) {
+            safeguards.push(RebaseSafeguard::ParentConflicted(ParentConflicted { parent: target.clone(), files }));
+        }
+    }
+    Ok(safeguards)
 }
 
 fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {

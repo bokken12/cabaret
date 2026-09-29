@@ -10,12 +10,16 @@ use std::{
 
 use cabaret_agents::ClaudeCode;
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LandAllow, Pathspec, RebaseAllow, RepoPath, Result,
-    RevisionId, SafeguardKind, ViewDiff, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
+    WorkspaceId,
+    safeguard::{
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow,
+        RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
+    },
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
-use nonempty_collections::NEBTreeSet;
+use nonempty_collections::{NEBTreeSet, NEVec};
 
 use crate::{
     cabaret::{Cabaret, Rebase},
@@ -45,17 +49,42 @@ fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
     })
 }
 
-/// A [`cabaret_types::Safeguard`] as a frontend presents it.
+/// A [`cabaret_types::safeguard::Safeguard`] as a frontend presents it.
 #[napi(object, object_from_js = false)]
 pub struct Safeguard {
     pub kind: SafeguardKind,
     pub message: String,
 }
 
-fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::Safeguard>>) -> Vec<Safeguard> {
-    let present =
-        |safeguard: cabaret_types::Safeguard| Safeguard { kind: safeguard.kind(), message: safeguard.to_string() };
+fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::safeguard::Safeguard>>) -> Vec<Safeguard> {
+    let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
+        kind: safeguard.kind(),
+        message: safeguard.to_string(),
+    };
     safeguards.into_iter().map(Into::into).map(present).collect()
+}
+
+/// What an action with nothing to report did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Attempt {
+    Done,
+    Refused { safeguards: Vec<Safeguard> },
+}
+
+impl<S: Into<cabaret_types::safeguard::Safeguard>> From<std::result::Result<(), NEVec<S>>> for Attempt {
+    fn from(attempt: std::result::Result<(), NEVec<S>>) -> Self {
+        match attempt {
+            Ok(()) => Self::Done,
+            Err(refused) => Self::Refused { safeguards: presented(refused) },
+        }
+    }
+}
+
+/// What [`Cabaret::commit`] did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Committed {
+    Done { revision: RevisionId },
+    Refused { safeguards: Vec<Safeguard> },
 }
 
 /// What [`Cabaret::land`] did.
@@ -203,8 +232,22 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn workspace_remove(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref())).await
+    pub async fn workspace_remove_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
+        let safeguards = self
+            .blocking(move |cabaret| cabaret.workspace_remove_safeguards(cabaret.workspace_of(&change)?.to_ref()))
+            .await?;
+        Ok(presented(safeguards))
+    }
+
+    #[napi]
+    pub async fn workspace_remove(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                let allow = RemoveWorkspaceAllow::try_from(allow.as_slice())?;
+                cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), allow)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]
@@ -220,16 +263,33 @@ impl CabaretJs {
 
     /// Check `change` out in the workspace this instance was opened in.
     #[napi]
-    pub async fn workspace_switch(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change)).await
+    pub async fn workspace_switch(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                let allow = SwitchWorkspaceAllow::try_from(allow.as_slice())?;
+                cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, allow)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     /// Commit `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
     /// rename go, so the move is committed rather than a copy.
     #[napi]
-    pub async fn commit(&self, change: ChangeId, files: Vec<ChangedFile>) -> napi::Result<RevisionId> {
+    pub async fn commit(
+        &self,
+        change: ChangeId,
+        files: Vec<ChangedFile>,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Committed> {
         let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
-        self.blocking(move |cabaret| cabaret.commit(&change, &pathspecs)).await
+        let committed = self
+            .blocking(move |cabaret| cabaret.commit(&change, &pathspecs, CommitAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(match committed {
+            Ok(revision) => Committed::Done { revision },
+            Err(refused) => Committed::Refused { safeguards: presented(refused) },
+        })
     }
 
     /// Discard `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
@@ -258,18 +318,44 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn remove_owner(&self, change: ChangeId, owner: Identity) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.remove_owner(&change, &owner)).await
+    pub async fn remove_owner(
+        &self,
+        change: ChangeId,
+        owner: Identity,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let removed = self
+            .blocking(move |cabaret| cabaret.remove_owner(&change, &owner, OwnersAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(removed))
     }
 
     #[napi]
-    pub async fn add_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.add_parent(&change, &parent)).await
+    pub async fn add_parent(
+        &self,
+        change: ChangeId,
+        parent: ChangeId,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| cabaret.add_parent(&change, &parent, AddParentAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]
-    pub async fn remove_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.remove_parent(&change, &parent)).await
+    pub async fn remove_parent(
+        &self,
+        change: ChangeId,
+        parent: ChangeId,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                cabaret.remove_parent(&change, &parent, RemoveParentAllow::try_from(allow.as_slice())?)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     /// Record that git's user.email has reviewed `files` of `change` up to `head`, defaulting to
@@ -296,7 +382,8 @@ impl CabaretJs {
 
     #[napi]
     pub async fn land(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Landed> {
-        let landed = self.blocking(move |cabaret| cabaret.land(&change, LandAllow::from(allow.as_slice()))).await?;
+        let landed =
+            self.blocking(move |cabaret| cabaret.land(&change, LandAllow::try_from(allow.as_slice())?)).await?;
         Ok(match landed {
             Ok(into) => Landed::Done { into },
             Err(refused) => Landed::Refused { safeguards: presented(refused) },
@@ -304,13 +391,23 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<bool> {
-        self.blocking(move |cabaret| cabaret.toggle_archived(&change)).await
+    pub async fn archive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt =
+            self.blocking(move |cabaret| cabaret.archive(&change, ArchiveAllow::try_from(allow.as_slice())?)).await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]
-    pub async fn rebase_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
-        Ok(presented(self.blocking(move |cabaret| cabaret.rebase_safeguards(&change)).await?))
+    pub async fn unarchive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| cabaret.unarchive(&change, UnarchiveAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(attempt))
+    }
+
+    #[napi]
+    pub async fn rebase_safeguards(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Vec<Safeguard>> {
+        Ok(presented(self.blocking(move |cabaret| cabaret.rebase_safeguards(&change, onto.as_deref())).await?))
     }
 
     #[napi]

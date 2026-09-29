@@ -110,7 +110,11 @@ fn two_parent_change_diffs_against_merged_bases() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right")).unwrap();
+    fixture
+        .cabaret
+        .add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default())
+        .unwrap()
+        .unwrap();
     fixture.merge("join", "right", &[("join.txt", "join\n")]);
     expect![[r#"[Added { path: "join.txt" }]"#]].assert_eq(&changed_files(&fixture, "join", &[]));
 }

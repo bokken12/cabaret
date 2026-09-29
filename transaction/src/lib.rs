@@ -12,4 +12,4 @@ pub use metadata::Metadata;
 pub use revision::Revision;
 pub use store::{BranchOp, Store, WorkspaceOp};
 pub use tree::Tree;
-pub use workspace::{Head, Workspace};
+pub use workspace::{Head, Status, Workspace};

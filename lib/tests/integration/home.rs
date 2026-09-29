@@ -1,6 +1,6 @@
 //! The home page: what each section includes for a viewer and how the page draws it.
 
-use cabaret_lib::RebaseAllow;
+use cabaret_lib::safeguard::RebaseAllow;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -37,7 +37,7 @@ fn archived_changes_are_never_drawn_as_context() {
     fixture.root("main", &[]);
     fixture.create("base", "main", &alice());
     fixture.create("top", "base", &alice());
-    fixture.cabaret.archive(&id("base")).unwrap();
+    fixture.archive("base");
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
@@ -83,7 +83,7 @@ fn workspaces_section_keeps_archived_changes() {
     fixture.root("main", &[]);
     fixture.create("done", "main", &alice());
     fixture.create("after-done", "done", &alice());
-    fixture.cabaret.archive(&id("done")).unwrap();
+    fixture.archive("done");
     fixture.checkout("done");
     fixture.add_workspace("after-done");
     expect![[r#"

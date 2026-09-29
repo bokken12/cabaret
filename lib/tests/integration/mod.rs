@@ -1,3 +1,4 @@
+mod archive;
 mod changed_files;
 mod commit;
 mod config;
@@ -11,7 +12,9 @@ mod layout;
 mod locking;
 mod log;
 mod next_step;
+mod owners;
 mod parents;
+mod permanence;
 mod rebase;
 mod review;
 mod review_files;

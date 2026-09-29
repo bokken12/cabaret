@@ -2,6 +2,7 @@ mod error;
 pub mod log;
 #[cfg(feature = "napi")]
 mod napi;
+pub mod safeguard;
 
 mod change_id;
 mod change_snapshot;
@@ -12,7 +13,6 @@ mod identity;
 mod pathspec;
 mod repo_path;
 mod revision;
-mod safeguard;
 mod timestamp;
 mod tree_id;
 mod view_diff;
@@ -28,9 +28,6 @@ pub use identity::Identity;
 pub use pathspec::Pathspec;
 pub use repo_path::RepoPath;
 pub use revision::RevisionId;
-pub use safeguard::{
-    LandAllow, LandSafeguard, NonOwner, RebaseAllow, RebaseSafeguard, Safeguard, SafeguardKind, Unreviewed,
-};
 pub use timestamp::{TimestampMs, TimestampS};
 pub use tree_id::TreeId;
 pub use view_diff::ViewDiff;

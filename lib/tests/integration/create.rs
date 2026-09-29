@@ -34,7 +34,7 @@ fn creating_an_archived_change_is_refused() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
-    fixture.cabaret.archive(&id("child")).unwrap();
+    fixture.archive("child");
     let error = fixture.cabaret.create("child", nebts![id("main")], &alice()).unwrap_err();
     expect!["child already exists"].assert_eq(&format!("{error:?}"));
 }

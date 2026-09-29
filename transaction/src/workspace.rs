@@ -14,7 +14,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cabaret_types::{ChangeId, ChangedFile, Pathspec, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{
+    ChangeId, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef,
+};
 use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
@@ -52,6 +54,9 @@ pub struct Workspace<'ctx> {
     id: WorkspaceId,
     path: PathBuf,
     pub head: Head,
+    /// Whether switching or deleting may lose local changes: a switch drops those to tracked
+    /// files first, and a deletion takes everything.
+    pub drop_local_changes: bool,
 }
 
 impl fmt::Debug for Workspace<'_> {
@@ -61,8 +66,8 @@ impl fmt::Debug for Workspace<'_> {
 }
 
 /// How a working directory and index differ from a tree.
-#[derive(PartialEq, Eq)]
-enum Status {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
     Clean,
     /// Only files the tree does not have.
     Untracked,
@@ -72,7 +77,7 @@ enum Status {
 impl<'ctx> Workspace<'ctx> {
     /// A workspace that does not exist yet, to be made at `path` by [`Self::create`].
     pub fn new(ctx: &'ctx TransactionContext<'ctx>, path: &Path, head: Head) -> Result<Self> {
-        Ok(Self { ctx, id: WorkspaceId::linked_at(path)?, path: path.to_owned(), head })
+        Ok(Self { ctx, id: WorkspaceId::linked_at(path)?, path: path.to_owned(), head, drop_local_changes: false })
     }
 
     pub fn load(ctx: &'ctx TransactionContext<'ctx>, id: WorkspaceIdRef<'_>) -> Result<Self> {
@@ -82,7 +87,7 @@ impl<'ctx> Workspace<'ctx> {
             None => Head::Detached(RevisionId(repo.head_id()?.detach())),
         };
         let path = repo.workdir().ok_or_else(|| format!("workspace {id} has no working directory"))?.to_owned();
-        Ok(Self { ctx, id: id.into_owned(), path, head })
+        Ok(Self { ctx, id: id.into_owned(), path, head, drop_local_changes: false })
     }
 
     pub fn id(&self) -> WorkspaceIdRef<'_> { self.id.to_ref() }
@@ -130,8 +135,12 @@ impl<'ctx> Workspace<'ctx> {
     }
 
     /// Check out `to` in place of `from`, the revision the files are at, and point HEAD at the
-    /// head. Local changes are refused rather than carried over or lost.
-    pub fn switch(&self, from: RevisionId, to: RevisionId) -> Result<()> {
+    /// head. Local changes are refused rather than carried over, or dropped when
+    /// [`Self::drop_local_changes`] says so.
+    pub fn switch(&mut self, from: RevisionId, to: RevisionId) -> Result<()> {
+        if self.drop_local_changes {
+            self.discard_tracked()?;
+        }
         let repo = self.repo()?;
         let from = repo.find_commit(from)?.tree()?;
         if status(&repo, &from)? == Status::Modified {
@@ -154,6 +163,12 @@ impl<'ctx> Workspace<'ctx> {
         Ok(())
     }
 
+    /// How the files differ from HEAD's.
+    pub fn status(&self) -> Result<Status> {
+        let repo = self.repo()?;
+        status(&repo, &repo.head_commit()?.tree()?)
+    }
+
     /// Delete git's record of the working directory and then the directory, as `git worktree
     /// remove` does. Only a workspace holding nothing of its own goes: local changes and untracked
     /// files alike would be lost. The record goes first, so a tool writing into the directory
@@ -164,6 +179,7 @@ impl<'ctx> Workspace<'ctx> {
         }
         let repo = self.repo()?;
         match status(&repo, &repo.head_commit()?.tree()?)? {
+            _ if self.drop_local_changes => {}
             Status::Modified => Err(format!("workspace {} has local changes", self.id))?,
             Status::Untracked => Err(format!("workspace {} has untracked files", self.id))?,
             Status::Clean => {}
@@ -196,9 +212,10 @@ impl<'ctx> Workspace<'ctx> {
         tree::changed_files(&repo, Some(&head), &disk, &[])
     }
 
-    /// The tree of what is on disk, laid over HEAD's tree, as [`Self::snapshot`] would take it but
-    /// leaving the index be. Only objects are written, so this is safe to run unreserved.
-    pub fn saved_tree(&self) -> Result<TreeId> { Ok(disk_tree(&self.repo()?, &[])?.0) }
+    /// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
+    /// HEAD's tree, as [`Self::snapshot`] would take it but leaving the index be. Only objects are written, so this is
+    /// safe to run unreserved.
+    pub fn saved_tree(&self, pathspecs: &[Pathspec]) -> Result<TreeId> { Ok(disk_tree(&self.repo()?, pathspecs)?.0) }
 
     /// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
     /// HEAD's tree; and an index at that tree. Whatever the index holds beyond HEAD counts as on
@@ -245,6 +262,23 @@ impl<'ctx> Workspace<'ctx> {
         index.sort_entries();
         index.write(gix::index::write::Options::default())?;
         Ok(())
+    }
+
+    /// Put every tracked file back as HEAD has it, leaving untracked files be.
+    fn discard_tracked(&mut self) -> Result<()> {
+        let repo = self.repo()?;
+        let index = repo.index_or_empty()?;
+        let mut tracked = Vec::new();
+        for path in changed_paths(&repo, Vec::new())? {
+            if index.entry_by_path(path.as_ref()).is_some() {
+                tracked.push(Pathspec::literal(&RepoPath::from_bytes(path.as_ref())?));
+            }
+        }
+        // No pathspecs would discard everything.
+        match tracked.is_empty() {
+            true => Ok(()),
+            false => self.discard(&tracked),
+        }
     }
 
     /// Write the paths that differ between `from`, which the files are at, and `to`, and an
