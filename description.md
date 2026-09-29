@@ -1,0 +1,3 @@
+Refresh open pages when the repository's refs move, so a page in view follows changes made elsewhere: the CLI in VS Code's own terminal, an agent, another window. None of those change the window's focus or the page's visibility, which the parent change refreshes on.
+
+Watches `HEAD`, `packed-refs`, `refs/**` and each worktree's `HEAD` in the common git dir, now exposed as `Cabaret.commonDir`, and refreshes once writes settle for 100ms. The watch starts with the first page rendered, since the extension activates in windows that aren't on a repository.
