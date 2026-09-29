@@ -1383,25 +1383,33 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
 }
 
 /**
- * Land, then offer to remove the workspace that held the change, since an archived change has
- * nothing left to do there. A permanent change stays open, so its workspace is not offered.
+ * Land once the user confirms, since landing cannot be undone. Landing archives a change that is
+ * not permanent, leaving its workspace nothing to do, so deleting that workspace is the default.
  */
-async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  const landed = `landed ${change} into ${await cabaret.land(change)}`;
-  const { archived, workspace } = await cabaret.change(change);
-  if (!archived || workspace === undefined) {
-    return landed;
-  }
-  const remove = await vscode.window.showInformationMessage(
-    `Cabaret: ${landed}`,
-    { modal: true, detail: `Remove the workspace ${workspace} that held it?` },
-    "Remove Workspace",
+async function land(cabaret: Cabaret, change: ChangeId): Promise<Step> {
+  const { permanent, workspace } = await cabaret.change(change);
+  const offerDelete = !permanent && workspace !== undefined;
+  const landAndDelete = "Land and Delete Workspace";
+  const landOnly = offerDelete ? "Land and Keep Workspace" : "Land";
+  const choice = await vscode.window.showWarningMessage(
+    `Land ${change}?`,
+    {
+      modal: true,
+      detail: offerDelete
+        ? `This cannot be undone. Its workspace ${workspace} will have nothing left to do.`
+        : "This cannot be undone.",
+    },
+    ...(offerDelete ? [landAndDelete, landOnly] : [landOnly]),
   );
-  if (remove === undefined) {
-    return landed;
+  if (choice === undefined) {
+    return { report: `did not land ${change}`, complete: false };
+  }
+  const landed = `landed ${change} into ${await cabaret.land(change)}`;
+  if (choice !== landAndDelete) {
+    return { report: landed, complete: true };
   }
   await cabaret.workspaceRemove(change);
-  return `${landed}; removed workspace ${workspace}`;
+  return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step> {
@@ -1588,10 +1596,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    sequencedAction("cabaret.land", provider, async (cabaret, change) => ({
-      report: await land(cabaret, change),
-      complete: true,
-    })),
+    sequencedAction("cabaret.land", provider, land),
     sequencedAction("cabaret.rebase", provider, rebase),
     sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
