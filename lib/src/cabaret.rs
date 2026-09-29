@@ -6,12 +6,17 @@ use std::{
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{BranchOp, Environment, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
     WorkspaceId, WorkspaceIdRef,
 };
-use gix::bstr::ByteSlice;
+use gix::{
+    ThreadSafeRepository,
+    bstr::ByteSlice,
+    clone::PrepareFetch,
+    create::{self, Kind},
+};
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
@@ -81,30 +86,41 @@ pub struct Cabaret {
 
 // TODO-someday(joel): split implementation into files by topic
 impl Cabaret {
-    pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(Self { store: Store::open(dir)? }) }
+    pub fn open(dir: impl AsRef<Path>, environment: Environment) -> Result<Self> {
+        Ok(Self { store: Store::open(dir, environment)? })
+    }
 
     /// A new repository at `dir`, made if need be, empty or cloned from `from`. An empty
     /// directory becomes a project directory, the bare repository `.bare` with room beside it
     /// for one workspace per change. One with contents becomes the main workspace of an empty
     /// repository, as `git init` makes; a clone needs an empty one.
-    pub fn init(dir: &Path, from: Option<&str>) -> Result<()> {
+    pub fn init(dir: &Path, from: Option<&str>, environment: Environment) -> Result<()> {
+        let init = |path: PathBuf, kind: Kind| -> Result<()> {
+            match environment.open_options() {
+                None => ThreadSafeRepository::init(path, kind, create::Options::default())?,
+                Some(options) => ThreadSafeRepository::init_opts(path, kind, create::Options::default(), options)?,
+            };
+            Ok(())
+        };
         let dir = std::path::absolute(dir)?;
         fs::create_dir_all(&dir)?;
         if dir.read_dir()?.next().is_some() {
             if from.is_some() {
                 Err(format!("{} is not empty", dir.display()))?;
             }
-            gix::init(&dir)?;
-            return Ok(());
+            return init(dir, Kind::WithWorktree);
         }
         match from {
             Some(url) => {
-                gix::prepare_clone_bare(url, dir.join(".bare"))?
-                    .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+                let mut clone = match environment.open_options() {
+                    None => gix::prepare_clone_bare(url, dir.join(".bare"))?,
+                    Some(options) => {
+                        PrepareFetch::new(url, dir.join(".bare"), Kind::Bare, create::Options::default(), options)?
+                    }
+                };
+                clone.fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
             }
-            None => {
-                gix::init_bare(dir.join(".bare"))?;
-            }
+            None => init(dir.join(".bare"), Kind::Bare)?,
         }
         fs::write(dir.join(".git"), GITFILE)?;
         Ok(())

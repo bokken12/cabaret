@@ -16,11 +16,12 @@ use std::{
 };
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId,
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Environment, Identity, RevisionId, TreeId,
     log::{self, LogAction},
 };
 use expect_test::expect;
 use gix::{
+    create::Kind,
     index::entry::{Flags, Mode, Stat},
     objs::tree::EntryKind,
     refs::transaction::PreviousValue,
@@ -53,6 +54,17 @@ fn tempdir() -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
+/// `path`'s repository through its own config alone, as every test sees it, whoever runs it.
+pub fn open_repo(path: impl Into<PathBuf>) -> gix::Repository {
+    gix::open_opts(path, gix::open::Options::isolated()).unwrap()
+}
+
+fn init(path: &Path, kind: Kind) -> gix::Repository {
+    gix::ThreadSafeRepository::init_opts(path, kind, gix::create::Options::default(), gix::open::Options::isolated())
+        .unwrap()
+        .to_thread_local()
+}
+
 fn configure(repo: &gix::Repository) {
     let config_path = repo.git_dir().join("config");
     let config = fs::read_to_string(&config_path).unwrap();
@@ -67,7 +79,7 @@ impl Fixture {
     pub fn new() -> Self {
         let (dir, root) = tempdir();
         let main = root.join("main");
-        configure(&gix::init(&main).unwrap());
+        configure(&init(&main, Kind::WithWorktree));
         Self::open(dir, root, &main)
     }
 
@@ -77,14 +89,14 @@ impl Fixture {
         let (dir, root) = tempdir();
         let project = root.join("project");
         fs::create_dir(&project).unwrap();
-        configure(&gix::init_bare(project.join(".bare")).unwrap());
+        configure(&init(&project.join(".bare"), Kind::Bare));
         fs::write(project.join(".git"), "gitdir: ./.bare\n").unwrap();
         Self::open(dir, root, &project)
     }
 
     fn open(dir: tempfile::TempDir, root: PathBuf, path: &Path) -> Self {
-        let cabaret = Cabaret::open(path).unwrap();
-        let repo = gix::open(path).unwrap();
+        let cabaret = Cabaret::open(path, Environment::Isolated).unwrap();
+        let repo = open_repo(path);
         Self { _dir: dir, root, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
@@ -275,7 +287,7 @@ impl Fixture {
 
     /// Add a workspace holding `change` at the default path, through the real creation path.
     pub fn add_workspace(&self, change: &str) -> gix::Repository {
-        gix::open(self.cabaret.workspace_add(id(change), None).unwrap()).unwrap()
+        open_repo(self.cabaret.workspace_add(id(change), None).unwrap())
     }
 
     /// Point `repo`'s HEAD at `change` and write its tip's files and index, over whatever is there.

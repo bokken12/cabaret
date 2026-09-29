@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, Identity, Result};
+use cabaret_lib::{Cabaret, Environment, Identity, Result};
 use clap::{Parser, Subcommand, ValueHint};
 
 pub mod args;
@@ -52,7 +52,7 @@ pub struct Cli {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
-    let cabaret = || Cabaret::open(std::env::current_dir()?);
+    let cabaret = || Cabaret::open(std::env::current_dir()?, Environment::User);
 
     match cli.command {
         Command::Change { command } => command.run(cabaret()?)?,
@@ -71,7 +71,7 @@ pub fn run() -> Result<()> {
                 Some(dir) => dir,
                 None => std::env::current_dir()?,
             };
-            Cabaret::init(&dir, from.as_deref())?;
+            Cabaret::init(&dir, from.as_deref(), Environment::User)?;
         }
         Command::Workspace { command } => command.run(cabaret()?)?,
     }

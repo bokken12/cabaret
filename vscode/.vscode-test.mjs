@@ -11,8 +11,16 @@ const { Cabaret } = createRequire(import.meta.url)("@cabaret/node");
 const root = realpathSync(mkdtempSync(join(tmpdir(), "cabaret-vscode-test-")));
 process.on("exit", () => rmSync(root, { recursive: true, force: true }));
 
-// Neither the fixture nor the extension under test sees the developer's own git config or Claude sessions.
-const env = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", CLAUDE_CONFIG_DIR: join(root, "claude") };
+// Neither the fixture nor the extension under test sees the developer's own git config, identity, or Claude sessions.
+const env = {
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_AUTHOR_NAME: "Test",
+  GIT_AUTHOR_EMAIL: "test@example.com",
+  GIT_COMMITTER_NAME: "Test",
+  GIT_COMMITTER_EMAIL: "test@example.com",
+  CLAUDE_CONFIG_DIR: join(root, "claude"),
+};
 Object.assign(process.env, env);
 mkdirSync(env.CLAUDE_CONFIG_DIR);
 
@@ -30,8 +38,6 @@ function write(files) {
 async function fixture() {
   mkdirSync(workspace);
   git("init", "--initial-branch=main");
-  git("config", "user.name", "Test");
-  git("config", "user.email", "test@example.com");
   // Unprefixed, so changes keep the names the tests use.
   git("config", "cabaret.prefix", "");
   write({ "README.md": "# fixture\n" });

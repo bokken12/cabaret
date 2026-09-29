@@ -9,6 +9,7 @@ use std::{
 };
 
 use cabaret_agents::ClaudeCode;
+use cabaret_transaction::Environment;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, WorkspaceId,
 };
@@ -68,7 +69,9 @@ impl CabaretJs {
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?) }) }
+    pub fn new(dir: String) -> napi::Result<Self> {
+        Ok(Self { cabaret: Arc::new(Cabaret::open(&dir, Environment::User)?) })
+    }
 
     #[napi]
     pub async fn changes(&self) -> napi::Result<Vec<ChangeId>> { self.blocking(Cabaret::changes).await }
