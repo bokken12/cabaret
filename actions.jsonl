@@ -1,7 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/Cargo.toml","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/lib.rs","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
+{"action":"mark","reviewer":"me@joel.place","file":"types/Cargo.toml","revision":"e3832df65486a216c5085fd74f8c8835256d91bf"}
