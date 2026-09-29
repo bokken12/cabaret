@@ -150,6 +150,29 @@ fn remove_refuses_workspace_with_untracked_files() {
     assert!(two.workdir().unwrap().join("scratch.txt").exists());
 }
 
+/// A parent that cannot lose the directory stands in for a running tool writing into it
+/// mid-removal: the files go, but the directory itself stays.
+#[test]
+fn remove_failing_partway() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    let fixture = two_changes();
+    let two = fixture.add_workspace("two");
+    let workdir = two.workdir().unwrap().to_owned();
+    let parent = workdir.parent().unwrap();
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o555)).unwrap();
+    let error = fixture.cabaret.workspace_remove(linked("main-two").to_ref()).unwrap_err();
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o755)).unwrap();
+    let left: Vec<_> = fs::read_dir(&workdir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    // TODO: the files go before git's record of them, leaving a registered workspace emptied of
+    // even its `.git` file.
+    expect![[r#"
+        Permission denied (os error 13)
+        {"main": Some("one"), "main-two": Some("two")}
+        []"#]]
+    .assert_eq(&format!("{error:?}\n{}\n{left:?}", workspaces(&fixture)));
+}
+
 #[test]
 fn main_workspace_cannot_be_removed() {
     let fixture = two_changes();
