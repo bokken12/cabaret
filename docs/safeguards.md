@@ -2,18 +2,25 @@
 
 Cabaret seeks to be friendly to newcomers, keeping them on "the happy path" both by pushing towards suggested modes of use (e.g. with keybinding hints and "next step" guidance) and also by protecting against more dangerous actions. However, Cabaret hopes to be valuable to experienced operators who may sometimes need to venture off the beaten path.
 
-To balance between these competing priorities, Cabaret has a notion of "safeguards". These are conditions under which actions are considered to be unwise or discouraged, but which users can choose to explicitly bypass when needed. Below is a (non-exhaustive) list of safeguards on actions in Cabaret and reasons why they should apply.
+To balance between these competing priorities, Cabaret has a notion of "safeguards". These are conditions under which actions are considered to be unwise or discouraged, but which users can choose to explicitly bypass when needed. Below is a (non-exhaustive) list of safeguards on actions in Cabaret and reasons why they should apply. **Hard Guards** cannot be overridden.
 
 ## Land
 
+- **Multiple parents**
+    - would end up merging all parents into each other
 - Not owner
     - Many users performing distributed merges leads to complex commit graphs and conflicts
+- Empty change
+    - pure noise without updating the parent
+- Workspace has uncommitted edits
+    - those edits would be stranded or may have been intended to be included
 - Review obligations not met
     - self-explanatory
 - Parent review obligations not met
     - requires re-review of the child diff on the parent
 - Conflicted
     - causes the parent to become conflicted
+- Outstanding TODOs?
 - Parent conflicted?
 - Archived?
 - Parent archived?
@@ -36,9 +43,12 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
 - Change left with no owners
     - May cause change to become orphaned
 - Edit archived?
+- Unknown identity?
 
 ## Parents
 
+- **Ancestry cycle**
+    - Change graph becomes invalid
 - Remove parent which causes the base to be changed
     - May cause that parent's diff to be included in the child
 - Change left with no parents
@@ -47,23 +57,32 @@ To balance between these competing priorities, Cabaret has a notion of "safeguar
     - May prevent change from ever reaching a single parent
 - Add archived parent to unarchived child
     - Will be automaticaly skipped by parent inference
+- Add ancestor of existing parent
+    - Will be automatically skipped by parent inference
 - Edit archived?
 
 ## Workspace
 
-- Remove with uncommitted changes
+- Remove or switch with uncommitted changes
     - Those changes are lost permanently
 - Add archived?
 
 ## Commit
 
+- Adds conflict markers
+    - Change becomes conflicted
 - Commit to archived?
 
 ## Permanence
 
+- Not owner
+- Parents not permanent
 - Edit archived?
 
 ## Archiving
 
+- Archive change with unarchived children
+- Unarchive change with archived parents
+    - Ends up including parent work
 - Archive permanent feature
     - Intended to be permanent?
