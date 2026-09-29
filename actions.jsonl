@@ -1,10 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/safeguards.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/commit.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/discard.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/workspace_files.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/workspace.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
+{"action":"mark","reviewer":"me@joel.place","file":"cli/src/change.rs","revision":"3705de7427d9ff455434b592d8121dedcb758b02"}
