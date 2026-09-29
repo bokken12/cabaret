@@ -312,9 +312,19 @@
         "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
       },
       {
+        "command": "cabaret.createWorkspace",
+        "key": "shift+1 w c",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
+      },
+      {
         "command": "cabaret.deleteWorkspace",
         "key": "shift+1 w d",
         "when": "editorTextFocus && cabaret.actsOnChange && !editorHasSelection && (!vim.active || vim.mode == 'Normal')"
+      },
+      {
+        "command": "cabaret.deleteWorkspace",
+        "key": "shift+1 w d",
+        "when": "editorTextFocus && cabaret.page == 'home' && (!vim.active || vim.mode == 'Normal' || vim.mode == 'Visual' || vim.mode == 'VisualLine')"
       },
       {
         "command": "cabaret.gotoWorkspace",

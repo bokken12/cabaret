@@ -1598,12 +1598,13 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
     action("cabaret.startSession", provider, startSession),
-    action("cabaret.createWorkspace", provider, async (cabaret, change) => {
-      return `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`;
-    }),
-    action("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
+    sequencedAction("cabaret.createWorkspace", provider, async (cabaret, change) => ({
+      report: `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`,
+      complete: true,
+    })),
+    sequencedAction("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
       await cabaret.workspaceRemove(change);
-      return `deleted the workspace holding ${change}`;
+      return { report: `deleted the workspace holding ${change}`, complete: true };
     }),
     command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
