@@ -85,9 +85,13 @@ macro_rules! safeguards {
             /// The kinds of safeguard checked, one per field.
             pub const KINDS: &[SafeguardKind] = &[$(SafeguardKind::$kind),+];
 
-            /// Those of `safeguards` not allowed, which refuse the action.
-            pub fn refused(self, safeguards: Vec<$safeguard>) -> Option<NEVec<$safeguard>> {
-                NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
+            /// Refuse the action if any of `safeguards` is not allowed.
+            pub fn check(self, safeguards: Vec<$safeguard>) -> Result<()> {
+                let refused = safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).map(Safeguard::from);
+                match NEVec::try_from_vec(refused.collect()) {
+                    Some(refused) => Err(Error::Refused(refused)),
+                    None => Ok(()),
+                }
             }
 
             fn allows(self, safeguard: &$safeguard) -> bool {

@@ -1,9 +1,6 @@
 //! Committing: what a change's workspace has on disk becomes the change's new tip.
 
-use cabaret_lib::{
-    Pathspec,
-    safeguard::{CommitAllow, Safeguard},
-};
+use cabaret_lib::{Error, Pathspec, safeguard::CommitAllow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -27,10 +24,9 @@ fn commit(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
 fn commit_allowing(fixture: &Fixture, change: &str, pathspecs: &[&str], allow: CommitAllow) -> String {
     let pathspecs = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect::<Vec<_>>();
     match fixture.cabaret.commit(&id(change), &pathspecs, allow) {
-        Ok(Ok(revision)) => format!("committed {:?}", fixture.message(revision)),
-        Ok(Err(refused)) => {
-            let shown: Vec<String> =
-                refused.into_iter().map(|safeguard| Safeguard::from(safeguard).to_string()).collect();
+        Ok(revision) => format!("committed {:?}", fixture.message(revision)),
+        Err(Error::Refused(refused)) => {
+            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
             format!("refused: {}", shown.join("; "))
         }
         Err(error) => format!("error: {error:?}"),
@@ -98,7 +94,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
     fixture.write("a[1].txt", "bracketed\n");
     fixture.write("a1.txt", "plain\n");
     let literal = Pathspec::literal(&"a[1].txt".parse().unwrap());
-    fixture.cabaret.commit(&id("one"), &[literal], CommitAllow::default()).unwrap().unwrap();
+    fixture.cabaret.commit(&id("one"), &[literal], CommitAllow::default()).unwrap();
     expect![[r"
         one
           workspace main

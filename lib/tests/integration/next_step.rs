@@ -57,7 +57,7 @@ fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     let fixture = scene();
     fixture.cabaret.add_owner(&id("fork-join"), &alice()).unwrap();
     let allow = OwnersAllow { removes_others: true, ..OwnersAllow::default() };
-    fixture.cabaret.remove_owner(&id("fork-join"), &carol(), allow).unwrap().unwrap();
+    fixture.cabaret.remove_owner(&id("fork-join"), &carol(), allow).unwrap();
     fixture.mark_all("fork-join");
     expect!["[^] land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
 }
@@ -71,7 +71,7 @@ fn conflicted() -> Fixture {
     fixture.create("grandchild", "child", &alice());
     fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("child"), None, RebaseAllow::default()).unwrap().unwrap();
+    fixture.cabaret.rebase(&id("child"), None, RebaseAllow::default()).unwrap();
     fixture
 }
 

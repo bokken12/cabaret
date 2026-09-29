@@ -1,9 +1,6 @@
 //! Owners: who shepherds a change, and the safeguards on removing them.
 
-use cabaret_lib::{
-    Identity,
-    safeguard::{OwnersAllow, Safeguard},
-};
+use cabaret_lib::{Error, Identity, safeguard::OwnersAllow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -17,11 +14,11 @@ fn co_owned() -> Fixture {
     fixture
 }
 
-fn shown(attempt: cabaret_lib::Result<Result<(), nonempty_collections::NEVec<impl Into<Safeguard>>>>) -> String {
+fn shown(attempt: cabaret_lib::Result<()>) -> String {
     match attempt {
-        Ok(Ok(())) => "done".to_owned(),
-        Ok(Err(refused)) => {
-            let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
+        Ok(()) => "done".to_owned(),
+        Err(Error::Refused(refused)) => {
+            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
             format!("refused: {}", shown.join("; "))
         }
         Err(error) => format!("error: {error:?}"),

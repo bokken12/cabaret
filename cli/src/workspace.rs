@@ -63,8 +63,8 @@ impl WorkspaceCommand {
                 };
                 let allow = SwitchWorkspaceAllow { uncommitted: allow_uncommitted };
                 cabaret
-                    .workspace_switch(workspace.to_ref(), switch_to.clone(), allow)?
-                    .map_err(|refused| refusal(&format!("switch workspace {workspace} to {switch_to}"), refused))?;
+                    .workspace_switch(workspace.to_ref(), switch_to.clone(), allow)
+                    .map_err(|error| refusal(&format!("switch workspace {workspace} to {switch_to}"), error))?;
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -90,8 +90,8 @@ impl WorkspaceCommand {
             WorkspaceCommand::Remove { change, path, allow_uncommitted } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
                 cabaret
-                    .workspace_remove(workspace.to_ref(), RemoveWorkspaceAllow { uncommitted: allow_uncommitted })?
-                    .map_err(|refused| refusal(&format!("remove workspace {workspace}"), refused))?;
+                    .workspace_remove(workspace.to_ref(), RemoveWorkspaceAllow { uncommitted: allow_uncommitted })
+                    .map_err(|error| refusal(&format!("remove workspace {workspace}"), error))?;
             }
         }
 

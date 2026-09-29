@@ -1,7 +1,10 @@
 //! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
 //! change follows its branch.
 
-use cabaret_lib::safeguard::{OwnersAllow, RebaseAllow, Safeguard};
+use cabaret_lib::{
+    Error,
+    safeguard::{OwnersAllow, RebaseAllow},
+};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id, worktree};
@@ -23,10 +26,9 @@ fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
 fn rebase_allowing(fixture: &Fixture, change: &str, onto: Option<&str>, allow: RebaseAllow) -> String {
     let onto = onto.map(id);
     match fixture.cabaret.rebase(&id(change), onto.as_deref(), allow) {
-        Ok(Ok(rebase)) => format!("{rebase:?}"),
-        Ok(Err(refused)) => {
-            let shown: Vec<String> =
-                refused.into_iter().map(|safeguard| Safeguard::from(safeguard).to_string()).collect();
+        Ok(rebase) => format!("{rebase:?}"),
+        Err(Error::Refused(refused)) => {
+            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
             format!("refused: {}", shown.join("; "))
         }
         Err(error) => format!("error: {error:?}"),
@@ -121,11 +123,7 @@ fn onto_merges_only_that_parent() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.create("join", "left", &alice());
-    fixture
-        .cabaret
-        .add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default())
-        .unwrap()
-        .unwrap();
+    fixture.cabaret.add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default()).unwrap();
     fixture.commit("left", &[("left.txt", "left\n")]);
     expect![[r#"Rebase { merged: {"right"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase(
         &fixture,
@@ -143,11 +141,7 @@ fn conflict_stops_before_next_parent() {
     fixture.create("left", "main", &alice());
     fixture.create("right", "main", &alice());
     fixture.create("join", "left", &alice());
-    fixture
-        .cabaret
-        .add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default())
-        .unwrap()
-        .unwrap();
+    fixture.cabaret.add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default()).unwrap();
     fixture.commit("join", &[("file.txt", "join\n")]);
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.commit("right", &[("right.txt", "right\n")]);
@@ -199,7 +193,7 @@ fn linked_workspace_follows_change() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap();
     let tip = fixture.tip("child");
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"]
         .assert_eq(&rebase(&fixture, "child", None));
@@ -215,7 +209,7 @@ fn non_owner_refuses_unless_allowed() {
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap();
     expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }
 

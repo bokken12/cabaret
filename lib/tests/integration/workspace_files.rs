@@ -68,7 +68,7 @@ fn pathspec_narrows() {
 fn committing_moves_files_into_the_diff() {
     let fixture = two_changes();
     fixture.write("added.txt", "added\n");
-    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap().unwrap();
+    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap();
     expect!["[]"].assert_eq(&workspace_files(&fixture, "one", &[]));
     expect![[r"
         one

@@ -5,11 +5,11 @@ use cabaret_cli::{
     workspace::WorkspaceCommand,
 };
 use cabaret_lib::{
-    ChangeId, Identity,
+    ChangeId, Error, Identity,
     safeguard::{
-        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, PermanenceAllow,
-        RebaseAllow, RebaseSafeguard, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow,
-        UnarchiveAllow, Unreviewed,
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, NonOwner, OwnersAllow, PermanenceAllow, RebaseAllow,
+        RemoveParentAllow, RemoveWorkspaceAllow, Safeguard, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
+        Unreviewed,
     },
 };
 use clap::Parser;
@@ -38,22 +38,22 @@ fn non_owner() -> NonOwner {
 
 #[test]
 fn one_safeguard_on_one_line() {
-    let refused = nev![RebaseSafeguard::NonOwner(non_owner())];
+    let refused = nev![Safeguard::NonOwner(non_owner())];
     expect!["cannot rebase child: you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override"]
-        .assert_eq(&format!("{:?}", refusal(&format!("rebase {}", child()), refused)));
+        .assert_eq(&format!("{:?}", refusal(&format!("rebase {}", child()), Error::Refused(refused))));
 }
 
 #[test]
 fn several_safeguards_one_per_line() {
     let refused = nev![
-        LandSafeguard::NonOwner(non_owner()),
-        LandSafeguard::Unreviewed(Unreviewed { reviewers: nebts![identity("bob@example.com")] }),
+        Safeguard::NonOwner(non_owner()),
+        Safeguard::Unreviewed(Unreviewed { reviewers: nebts![identity("bob@example.com")] }),
     ];
     expect![[r#"
         cannot land child:
           you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override
           bob@example.com has files left to review; pass --allow-unreviewed to override"#]]
-    .assert_eq(&format!("{:?}", refusal(&format!("land {}", child()), refused)));
+    .assert_eq(&format!("{:?}", refusal(&format!("land {}", child()), Error::Refused(refused))));
 }
 
 /// Refusals name `--allow-<kind>`, so each command needs a flag spelled so for every safeguard it checks.

@@ -102,7 +102,7 @@ fn other_staged_files_stay_staged() {
     fixture.stage("staged.txt", "staged\n");
     fixture.write("one.txt", "one, edited\n");
     expect![[r#"uncommitted [Added { path: "staged.txt" }]"#]].assert_eq(&discard(&fixture, "one", &["one.txt"]));
-    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap().unwrap();
+    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap();
     expect![[r#"
         clean
         main.txt "main\n"
@@ -116,7 +116,7 @@ fn other_staged_files_stay_staged() {
 fn ignored_files_are_left_alone() {
     let fixture = two_changes();
     fixture.write(".gitignore", "ignored.txt\n");
-    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap().unwrap();
+    fixture.cabaret.commit(&id("one"), &[], CommitAllow::default()).unwrap();
     fixture.write("ignored.txt", "ignored\n");
     expect!["uncommitted []"].assert_eq(&discard(&fixture, "one", &[]));
     assert!(fixture.exists("ignored.txt"));

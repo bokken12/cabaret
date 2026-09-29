@@ -2,11 +2,10 @@
 //! switching, and removing them.
 
 use cabaret_lib::{
-    Cabaret, WorkspaceId,
-    safeguard::{RemoveWorkspaceAllow, Safeguard, SwitchWorkspaceAllow},
+    Cabaret, Error, WorkspaceId,
+    safeguard::{RemoveWorkspaceAllow, SwitchWorkspaceAllow},
 };
 use expect_test::expect;
-use nonempty_collections::NEVec;
 
 use super::fixture::{Fixture, alice, id, open_cabaret, open_repo, worktree};
 
@@ -14,11 +13,11 @@ fn workspaces(fixture: &Fixture) -> String { format!("{:?}", fixture.cabaret.wor
 
 fn linked(name: &str) -> WorkspaceId { WorkspaceId::Linked(name.into()) }
 
-fn shown<S: Into<Safeguard>>(attempt: cabaret_lib::Result<Result<(), NEVec<S>>>) -> String {
+fn shown(attempt: cabaret_lib::Result<()>) -> String {
     match attempt {
-        Ok(Ok(())) => "done".to_owned(),
-        Ok(Err(refused)) => {
-            let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
+        Ok(()) => "done".to_owned(),
+        Err(Error::Refused(refused)) => {
+            let shown: Vec<String> = refused.iter().map(ToString::to_string).collect();
             format!("refused: {}", shown.join("; "))
         }
         Err(error) => format!("error: {error:?}"),
@@ -231,12 +230,9 @@ fn remove_failing_partway() {
 fn main_workspace_cannot_be_removed() {
     let fixture = two_changes();
     fixture.write("scratch.txt", "scratch\n");
-    expect!["error: the main workspace cannot be removed"].assert_eq(
-        &fixture
-            .cabaret
-            .workspace_remove(WorkspaceId::Main.to_ref(), RemoveWorkspaceAllow::default())
-            .map_or_else(|error| format!("error: {error:?}"), |_| "removed".to_owned()),
-    );
+    expect!["error: the main workspace cannot be removed"].assert_eq(&shown(
+        fixture.cabaret.workspace_remove(WorkspaceId::Main.to_ref(), RemoveWorkspaceAllow::default()),
+    ));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
 }
 
