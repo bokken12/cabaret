@@ -2,13 +2,14 @@ use std::io::Write;
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, name, safeguard::Allow,
+    RevisionId, name,
+    safeguard::{Allow, SafeguardKind},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
-    args::{Allowing, change_completer, parse_revision, revision_completer},
+    args::{change_completer, parse_revision, revision_completer, safeguard_kind},
     diff::unified,
 };
 
@@ -20,13 +21,13 @@ pub enum OwnersCommand {
     },
     Remove {
         owner: Identity,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     Set {
         owners: Vec<Identity>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
 }
 
@@ -40,14 +41,14 @@ pub enum ParentsCommand {
     Add {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     Set {
         #[arg(required = true, add = change_completer())]
@@ -62,16 +63,16 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     Commit {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     Create {
         name: String,
@@ -107,8 +108,8 @@ pub enum ChangeCommand {
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -116,8 +117,8 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     /// Mark files as reviewed by you.
     Mark {
@@ -147,8 +148,8 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
     /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
@@ -182,12 +183,12 @@ impl ChangeCommand {
                 match undo {
                     false => {
                         cabaret
-                            .archive(&change, &Allow::from(allow))
+                            .archive(&change, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("archive {change}"), error))?;
                     }
                     true => {
                         cabaret
-                            .unarchive(&change, &Allow::from(allow))
+                            .unarchive(&change, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("unarchive {change}"), error))?;
                     }
                 }
@@ -195,7 +196,7 @@ impl ChangeCommand {
             ChangeCommand::Commit { change, pathspecs, allow } => {
                 let change = or_current(change)?;
                 cabaret
-                    .commit(&change, &pathspecs, &Allow::from(allow))
+                    .commit(&change, &pathspecs, &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("commit to {change}"), error))?;
                 println!("committed to {change}");
             }
@@ -241,14 +242,16 @@ impl ChangeCommand {
             ChangeCommand::Land { change, allow } => {
                 let change = or_current(change)?;
                 let parent = cabaret
-                    .land(&change, &Allow::from(allow))
+                    .land(&change, &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("land {change}"), error))?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo, allow } => {
                 let change = or_current(change)?;
                 let action = format!("make {change} {}", if undo { "impermanent" } else { "permanent" });
-                cabaret.set_permanent(&change, !undo, &Allow::from(allow)).map_err(|error| refusal(&action, error))?;
+                cabaret
+                    .set_permanent(&change, !undo, &Allow::from_iter(allow))
+                    .map_err(|error| refusal(&action, error))?;
             }
             ChangeCommand::Mark { change, tip, files } => {
                 cabaret.mark(&or_current(change)?, &files, tip)?;
@@ -260,12 +263,12 @@ impl ChangeCommand {
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
                     OwnersCommand::Remove { owner, allow } => {
                         cabaret
-                            .remove_owner(change, &owner, &Allow::from(allow))
+                            .remove_owner(change, &owner, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("remove {owner} as an owner of {change}"), error))?;
                     }
                     OwnersCommand::Set { owners, allow } => {
                         cabaret
-                            .set_owners(change, owners.into_iter().collect(), &Allow::from(allow))
+                            .set_owners(change, owners.into_iter().collect(), &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("set the owners of {change}"), error))?;
                     }
                 }
@@ -280,12 +283,12 @@ impl ChangeCommand {
                     }
                     ParentsCommand::Add { parent, allow } => {
                         cabaret
-                            .add_parent(change, &parent, &Allow::from(allow))
+                            .add_parent(change, &parent, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("add {parent} as a parent of {change}"), error))?;
                     }
                     ParentsCommand::Remove { parent, allow } => {
                         cabaret
-                            .remove_parent(change, &parent, &Allow::from(allow))
+                            .remove_parent(change, &parent, &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("remove {parent} as a parent of {change}"), error))?;
                     }
                     ParentsCommand::Set { parents: _ } => {
@@ -294,7 +297,7 @@ impl ChangeCommand {
                 }
             }
             ChangeCommand::Rebase { change, onto, allow } => {
-                rebase(&cabaret, &or_current(change)?, onto.as_deref(), &Allow::from(allow))?;
+                rebase(&cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
             }
             ChangeCommand::Review { change, pathspecs } => {
                 diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;

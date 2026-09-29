@@ -1,32 +1,13 @@
-//! Argument values: the safeguards to allow, and those needing the repository: parsing revisions,
+//! Argument values: safeguard kinds, and those needing the repository: parsing revisions,
 //! and completing changes and revisions.
 
 use std::ffi::OsStr;
 
-use cabaret_lib::{
-    Cabaret, Result, RevisionId,
-    safeguard::{Allow, SafeguardKind},
-};
-use clap::{
-    Args,
-    builder::{PossibleValuesParser, TypedValueParser},
-};
+use cabaret_lib::{Cabaret, Result, RevisionId, safeguard::SafeguardKind};
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
-// The safeguards a command is told to go ahead despite. Not a doc comment, which clap would show
-// as the about of every command without its own.
-#[derive(Args)]
-pub struct Allowing {
-    /// Go ahead despite safeguards of this kind; repeat for several.
-    #[arg(long = "allow", value_name = "SAFEGUARD", value_parser = safeguard_kind())]
-    kinds: Vec<SafeguardKind>,
-}
-
-impl From<Allowing> for Allow {
-    fn from(allowing: Allowing) -> Self { allowing.kinds.into_iter().collect() }
-}
-
-fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
+pub fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
     PossibleValuesParser::new(SafeguardKind::ALL.iter().map(|kind| kind.name())).map(|name| {
         *SafeguardKind::ALL.iter().find(|kind| kind.name() == name).expect("only safeguard kinds are possible")
     })

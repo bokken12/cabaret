@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, ChangeId, Result, WorkspaceId, safeguard::Allow};
+use cabaret_lib::{
+    Cabaret, ChangeId, Result, WorkspaceId,
+    safeguard::{Allow, SafeguardKind},
+};
 use clap::{Subcommand, ValueHint};
 
 use crate::{
-    args::{Allowing, change_completer},
+    args::{change_completer, safeguard_kind},
     change::refusal,
 };
 
@@ -25,8 +28,8 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
     List,
     /// Find the path of the workspace holding a change.
@@ -42,8 +45,8 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
-        #[command(flatten)]
-        allow: Allowing,
+        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        allow: Vec<SafeguardKind>,
     },
 }
 
@@ -60,7 +63,7 @@ impl WorkspaceCommand {
                     None => cabaret.workspace_current()?,
                 };
                 cabaret
-                    .workspace_switch(workspace.to_ref(), switch_to.clone(), &Allow::from(allow))
+                    .workspace_switch(workspace.to_ref(), switch_to.clone(), &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("switch workspace {workspace} to {switch_to}"), error))?;
             }
             WorkspaceCommand::List => {
@@ -87,7 +90,7 @@ impl WorkspaceCommand {
             WorkspaceCommand::Remove { change, path, allow } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
                 cabaret
-                    .workspace_remove(workspace.to_ref(), &Allow::from(allow))
+                    .workspace_remove(workspace.to_ref(), &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("remove workspace {workspace}"), error))?;
             }
         }
