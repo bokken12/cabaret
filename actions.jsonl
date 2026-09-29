@@ -1,1 +1,15 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs\ncli/src/diff.rs\ncli/tests/diff.rs\nlib/src/cabaret.rs\nlib/src/node.rs\nlib/tests/integration/commit.rs\nlib/tests/integration/fixture.rs\nlib/tests/integration/parents.rs\nlib/tests/integration/rebase.rs\nlib/tests/integration/review_files.rs\nlib/tests/integration/view_diff.rs\nlib/tests/integration/workspace_files.rs\ntransaction/src/context.rs\ntypes/src/changed_file.rs\nvscode/src/extension.ts","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/diff.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/diff.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/commit.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/fixture.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/parents.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/rebase.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/review_files.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/view_diff.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/workspace_files.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/context.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/changed_file.rs","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"4e454fbd0d7eb004c32b687d21e5422b96214827"}
