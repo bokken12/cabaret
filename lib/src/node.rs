@@ -10,8 +10,8 @@ use std::{
 
 use cabaret_agents::ClaudeCode;
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
-    WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LandAllow, Pathspec, RebaseAllow, RepoPath, Result,
+    RevisionId, SafeguardKind, ViewDiff, WorkspaceId,
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -21,7 +21,6 @@ use crate::{
     cabaret::{Cabaret, Rebase},
     home::HomeSection,
     page::{DiffView, Page},
-    safeguard::{LandAllow, RebaseAllow, SafeguardKind},
 };
 
 /// How the workspace a [`Cabaret`] was opened in reaches a change's files.
@@ -46,15 +45,16 @@ fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
     })
 }
 
-/// A [`crate::Safeguard`] as a frontend presents it.
+/// A [`cabaret_types::Safeguard`] as a frontend presents it.
 #[napi(object, object_from_js = false)]
 pub struct Safeguard {
     pub kind: SafeguardKind,
     pub message: String,
 }
 
-fn presented(safeguards: impl IntoIterator<Item: Into<crate::Safeguard>>) -> Vec<Safeguard> {
-    let present = |safeguard: crate::Safeguard| Safeguard { kind: safeguard.kind(), message: safeguard.to_string() };
+fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::Safeguard>>) -> Vec<Safeguard> {
+    let present =
+        |safeguard: cabaret_types::Safeguard| Safeguard { kind: safeguard.kind(), message: safeguard.to_string() };
     safeguards.into_iter().map(Into::into).map(present).collect()
 }
 

@@ -8,8 +8,9 @@ use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LandAllow, LandSafeguard,
+    NonOwner, Pathspec, RebaseAllow, RebaseSafeguard, RepoPath, Result, RevisionId, TimestampMs, Unreviewed, ViewDiff,
+    WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
@@ -18,7 +19,6 @@ use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 use crate::{
     home::{Home, HomeGraph, HomeNode, HomeSection},
     page::{DiffView, Page, TabCounts},
-    safeguard::{LandAllow, LandSafeguard, RebaseAllow, RebaseSafeguard, land_safeguards, rebase_safeguards},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -879,7 +879,7 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
 }
 
 /// Owners with files left to review, since owners are to review every file of their changes.
-pub fn unreviewed(
+fn unreviewed(
     metadata: &Metadata<'_>,
     branch: &Branch<'_>,
     parents: &BTreeSet<ChangeId>,
@@ -892,6 +892,23 @@ pub fn unreviewed(
         }
     }
     Ok(reviewers)
+}
+
+fn land_safeguards(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<LandSafeguard>> {
+    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(LandSafeguard::NonOwner));
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &metadata.parents()?)?) {
+        safeguards.push(LandSafeguard::Unreviewed(Unreviewed { reviewers }));
+    }
+    Ok(safeguards)
+}
+
+fn rebase_safeguards(metadata: &Metadata<'_>) -> Result<Vec<RebaseSafeguard>> {
+    Ok(Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner)))
+}
+
+fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {
+    let you = metadata.ctx().identity()?;
+    Ok((!metadata.owners.contains(&you)).then(|| NonOwner { you, owners: metadata.owners.clone() }))
 }
 
 /// `a, b, c`.

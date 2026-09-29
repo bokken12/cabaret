@@ -4,11 +4,17 @@
 
 use std::{collections::BTreeSet, fmt};
 
-use cabaret_transaction::{Branch, Metadata};
-use cabaret_types::{Error, Identity, Result};
 use nonempty_collections::{NEBTreeSet, NEVec};
 
-use crate::cabaret::{joined, unreviewed};
+use crate::{
+    error::{Error, Result},
+    identity::Identity,
+};
+
+/// `a, b, c`.
+fn joined<'a>(identities: impl IntoIterator<Item = &'a Identity>) -> String {
+    identities.into_iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+}
 
 /// A safeguard without its particulars, as frontends name one to allow it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -81,7 +87,7 @@ impl fmt::Display for Safeguard {
     }
 }
 
-/// The safeguards of [`crate::Cabaret::land`].
+/// The safeguards of `Cabaret::land`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LandSafeguard {
     Unreviewed(Unreviewed),
@@ -130,7 +136,7 @@ impl From<&[SafeguardKind]> for LandAllow {
     }
 }
 
-/// The safeguards of [`crate::Cabaret::rebase`].
+/// The safeguards of `Cabaret::rebase`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RebaseSafeguard {
     NonOwner(NonOwner),
@@ -175,21 +181,4 @@ impl TryFrom<&[SafeguardKind]> for RebaseAllow {
         }
         Ok(allow)
     }
-}
-
-pub fn land_safeguards(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<LandSafeguard>> {
-    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(LandSafeguard::NonOwner));
-    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &metadata.parents()?)?) {
-        safeguards.push(LandSafeguard::Unreviewed(Unreviewed { reviewers }));
-    }
-    Ok(safeguards)
-}
-
-pub fn rebase_safeguards(metadata: &Metadata<'_>) -> Result<Vec<RebaseSafeguard>> {
-    Ok(Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner)))
-}
-
-fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {
-    let you = metadata.ctx().identity()?;
-    Ok((!metadata.owners.contains(&you)).then(|| NonOwner { you, owners: metadata.owners.clone() }))
 }
