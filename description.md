@@ -1,0 +1,1 @@
+Witness workspace removal failing partway. TODO: the files are deleted before git's record of the worktree, so a failure leaves a registered workspace with no files.
