@@ -1,0 +1,1 @@
+VSCode asks about safeguards. Land and rebase preview them first (landSafeguards/rebaseSafeguards), folding them into land's existing confirm and a new rebase confirm, then allow what the user accepted. Should a safeguard arise between asking and acting, the refused action asks again for just that change and retries; declining stops the sequence.
