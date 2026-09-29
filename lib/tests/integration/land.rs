@@ -86,7 +86,7 @@ fn plain_branch_lands_without_log() {
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "unlogged",
-        LandAllow { unreviewed: true, non_owner: true },
+        LandAllow { unreviewed: true, non_owner: true, ..LandAllow::default() },
     ));
     expect![[r#"
         message "{\"action\":\"land\",\"change\":\"unlogged\",\"log\":null}\n"

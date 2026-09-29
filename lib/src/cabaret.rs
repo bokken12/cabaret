@@ -650,21 +650,10 @@ impl Cabaret {
         })
     }
 
-<<<<<<< land-records-log
     /// Merge `change_id` into its one parent, record there the log it landed with, and archive it
-    /// unless it is permanent, returning the parent. Conflicts are errors rather than landed:
-    /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
-    /// allowing them cannot run into an error.
-||||||| base
-    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are errors rather than landed: rebase and resolve them first. Safeguards
-    /// not in `allow` refuse, checked last so that allowing them cannot run into an error.
-=======
-    /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts landing in a root are errors, since a root is never searched for them:
-    /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
-    /// allowing them cannot run into an error.
->>>>>>> main
+    /// unless it is permanent, returning the parent. Conflicts landing in a root are errors, since
+    /// a root is never searched for them: rebase and resolve them first. Safeguards not in `allow`
+    /// refuse, checked last so that allowing them cannot run into an error.
     pub fn land(
         &self,
         change_id: &ChangeIdRef,
@@ -673,7 +662,6 @@ impl Cabaret {
         let parent_id = self.store.query(|ctx| landing_parent(ctx, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-<<<<<<< land-records-log
         let metadata = [change_id, &parent_id];
         self.store.transact_or_abort(
             &metadata,
@@ -683,16 +671,16 @@ impl Cabaret {
                 if child.archived {
                     Err(format!("{change_id} is archived"))?;
                 }
-                match parent_branch.merge(child_branch, "land")? {
-                    None => Err(format!("{change_id} has nothing to land"))?,
-                    Some(conflicts) if !conflicts.is_empty() => {
-                        Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
-                    }
-                    Some(_) => {}
+                let merged = parent_branch.merge(child_branch, "land")?;
+                let conflicted = merged.as_ref().is_some_and(|conflicts| !conflicts.is_empty())
+                    || !child_branch.conflicted_files(&child.parents()?)?.is_empty();
+                if conflicted && parent.parents()?.is_empty() {
+                    Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
                 }
                 // TODO-someday(joel): also refer to the merge commit the change landed as?
                 parent.landed.insert(change_id.to_owned(), child.commit().map(RevisionId));
-                if let Some(refused) = allow.refused(land_safeguards(child, child_branch)?) {
+                if let Some(refused) = allow.refused(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?)
+                {
                     return Ok(Err(refused));
                 }
                 if !child.permanent {
@@ -701,46 +689,6 @@ impl Cabaret {
                 Ok(Ok(parent_id.clone()))
             },
         )
-||||||| base
-        self.store.transact_or_abort(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
-            if child.archived {
-                Err(format!("{change_id} is archived"))?;
-            }
-            match parent.merge(child_branch, "land")? {
-                None => Err(format!("{change_id} has nothing to land"))?,
-                Some(conflicts) if !conflicts.is_empty() => {
-                    Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
-                }
-                Some(_) => {}
-            }
-            if let Some(refused) = allow.refused(land_safeguards(child, child_branch)?) {
-                return Ok(Err(refused));
-            }
-            if !child.permanent {
-                child.archived = true;
-            }
-            Ok(Ok(parent_id.clone()))
-        })
-=======
-        self.store.transact_or_abort(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
-            if child.archived {
-                Err(format!("{change_id} is archived"))?;
-            }
-            let merged = parent.merge(child_branch, "land")?;
-            let conflicted = merged.as_ref().is_some_and(|conflicts| !conflicts.is_empty())
-                || !child_branch.conflicted_files(&child.parents()?)?.is_empty();
-            if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
-                Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
-            }
-            if let Some(refused) = allow.refused(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?) {
-                return Ok(Err(refused));
-            }
-            if !child.permanent {
-                child.archived = true;
-            }
-            Ok(Ok(parent_id.clone()))
-        })
->>>>>>> main
     }
 
     /// The safeguards that would refuse rebasing `change_id` now, for a frontend to ask about first.
