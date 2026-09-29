@@ -1,0 +1,1 @@
+Pass the vscode test fixture's `workspaceSwitch` and `commit` the `allow` list they now take, which the fixture was loading without.
