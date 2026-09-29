@@ -1,7 +1,7 @@
 //! Diffs as `git diff` shows them, so that people, agents and git tools alike can read them.
 
 use cabaret_lib::{
-    ChangedFile, FileDiff,
+    ChangedFile, FileVersion,
     gix::{
         bstr::{BString, ByteVec},
         diff::blob::{
@@ -11,9 +11,8 @@ use cabaret_lib::{
     },
 };
 
-/// `file`'s diff, with fixed options so that every clone renders it alike.
-pub fn unified(file: &FileDiff) -> BString {
-    let FileDiff { file, before, after } = file;
+/// `file`'s diff from `before` to `after`, with fixed options so that every clone renders it alike.
+pub fn unified(file: &ChangedFile, before: Option<&FileVersion>, after: Option<&FileVersion>) -> BString {
     let (from, path) = (file.paths().next().expect("a file has a path"), file.path());
     let mut diff = BString::from(format!("diff --git a/{from} b/{path}\n"));
     match (before, after) {
@@ -30,11 +29,11 @@ pub fn unified(file: &FileDiff) -> BString {
         ChangedFile::Added { .. } | ChangedFile::Deleted { .. } | ChangedFile::Modified { .. } => {}
     }
 
-    let a = before.as_ref().map_or_else(|| "/dev/null".to_owned(), |_| format!("a/{from}"));
-    let b = after.as_ref().map_or_else(|| "/dev/null".to_owned(), |_| format!("b/{path}"));
+    let a = before.map_or_else(|| "/dev/null".to_owned(), |_| format!("a/{from}"));
+    let b = after.map_or_else(|| "/dev/null".to_owned(), |_| format!("b/{path}"));
     let empty = BString::default();
-    let old = before.as_ref().map_or(&empty, |before| &before.data);
-    let new = after.as_ref().map_or(&empty, |after| &after.data);
+    let old = before.map_or(&empty, |before| &before.data);
+    let new = after.map_or(&empty, |after| &after.data);
     if old == new {
         return diff;
     }

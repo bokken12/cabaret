@@ -137,5 +137,5 @@ fn created_on_conflicting_parents_carries_the_conflict() {
         right
         >>>>>>> right
     "]]
-    .assert_eq(&fixture.cabaret.blob(tip, &"file.txt".parse().unwrap()).unwrap().unwrap());
+    .assert_eq(&fixture.text(tip, "file.txt").unwrap());
 }

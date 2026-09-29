@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, fmt};
 
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, RepoPath, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, Identity, Result, RevisionId, TreeId, WorkspaceId, WorkspaceIdRef,
 };
 use elsa::FrozenBTreeMap;
 use gix::{
@@ -131,15 +131,6 @@ impl<'ctx> TransactionContext<'ctx> {
 
     pub fn current_change(&'ctx self) -> Result<ChangeId> {
         Ok(self.workspace(self.current_workspace()?.to_ref())?.change().ok_or("HEAD is detached")?.clone())
-    }
-
-    /// The text of `path` at `revision`, or `None` when no file is there.
-    // TODO-someday(joel): binary files
-    pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<String>> {
-        let tree = self.repo.find_commit(revision.0)?.tree()?;
-        let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
-        let mut blob = entry.object()?.try_into_blob()?;
-        Ok(Some(String::from_utf8(blob.take_data())?))
     }
 
     pub fn snapshot(&'ctx self, change_id: &ChangeIdRef) -> Result<ChangeSnapshot> {

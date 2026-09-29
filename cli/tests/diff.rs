@@ -2,7 +2,7 @@
 
 use cabaret_cli::diff::unified;
 use cabaret_lib::{
-    ChangedFile, FileDiff, FileVersion,
+    ChangedFile, FileVersion,
     gix::objs::tree::{EntryKind, EntryMode},
 };
 use expect_test::expect;
@@ -10,7 +10,7 @@ use expect_test::expect;
 fn version(data: &str) -> Option<FileVersion> { Some(FileVersion { mode: EntryKind::Blob.into(), data: data.into() }) }
 
 fn render(file: ChangedFile, before: Option<FileVersion>, after: Option<FileVersion>) -> String {
-    String::from_utf8(unified(&FileDiff { file, before, after }).into()).unwrap()
+    String::from_utf8(unified(&file, before.as_ref(), after.as_ref()).into()).unwrap()
 }
 
 fn modified() -> ChangedFile { ChangedFile::Modified { path: "file.txt".parse().unwrap() } }

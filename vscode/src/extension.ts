@@ -553,42 +553,22 @@ class DescriptionProvider implements vscode.FileSystemProvider {
   }
 }
 
-/** What `file` is measured against in `diff`: nothing for an addition. */
-async function beforeRevision(cabaret: Cabaret, diff: FileDiff, file: ChangedFile): Promise<Revision | undefined> {
-  const { view, change, tip } = diff;
-  if (file.kind === "Added") {
-    return undefined;
-  }
-  if (view === "workspace") {
-    return tip;
-  }
-  const base = view === "diff" ? await cabaret.base(change) : await cabaret.reviewBase(change, file.path);
-  if (base === null) {
-    throw new Error(`${change} has no base, yet ${file.path} was not added`);
-  }
-  return base;
-}
-
 /**
- * What `view` of `change` at `tip` shows its files as: the tip, or for the workspace view, what its
- * workspace has saved, taken now so the diff stays as it opened.
+ * `files` of `change`'s `view` as two-sided diffs, every side read at one tip; files no longer in
+ * the view are left out.
  */
-async function afterRevision(cabaret: Cabaret, view: DiffView, change: ChangeId, tip: Revision): Promise<Revision> {
-  return view === "workspace" ? await cabaret.workspaceSaved(change) : tip;
-}
-
-/** The before and after sides of `file` in `diff`, with the after side at `after`. */
-async function sides(
+async function fileDiffSides(
   cabaret: Cabaret,
-  diff: FileDiff,
-  after: Revision,
-  file: ChangedFile,
-): Promise<[vscode.Uri, vscode.Uri]> {
-  const from = "from" in file ? file.from : file.path;
-  return [
-    blobUri(diff, await beforeRevision(cabaret, diff, file), from),
-    blobUri(diff, file.kind === "Deleted" ? undefined : after, file.path),
-  ];
+  view: DiffView,
+  change: ChangeId,
+  files: ChangedFile[],
+): Promise<{ file: ChangedFile; before: vscode.Uri; after: vscode.Uri }[]> {
+  const { tip, files: diffs } = await cabaret.viewDiff(change, view, files.map((file) => file.path));
+  return diffs.map(({ file, before, after }) => {
+    const diff: FileDiff = { view, change, path: file.path, tip };
+    const from = "from" in file ? file.from : file.path;
+    return { file, before: blobUri(diff, before, from), after: blobUri(diff, after, file.path) };
+  });
 }
 
 function diffTitle(subject: string, view: DiffView, change: ChangeId): string {
@@ -597,9 +577,11 @@ function diffTitle(subject: string, view: DiffView, change: ChangeId): string {
 }
 
 async function openFileDiff(cabaret: Cabaret, view: DiffView, change: ChangeId, file: ChangedFile): Promise<void> {
-  const { tip } = await cabaret.change(change);
-  const diff: FileDiff = { view, change, path: file.path, tip };
-  const [before, after] = await sides(cabaret, diff, await afterRevision(cabaret, view, change, tip), file);
+  const [sides] = await fileDiffSides(cabaret, view, change, [file]);
+  if (sides === undefined) {
+    throw new Error(`${file.path} is no longer in ${change}'s ${view}`);
+  }
+  const { before, after } = sides;
   // Pinned: a preview would take over the tab about to be closed.
   const options = { preview: false } satisfies vscode.TextDocumentShowOptions;
   await replacingActive(async () => {
@@ -617,14 +599,11 @@ async function openFileDiffs(cabaret: Cabaret, view: DiffView, change: ChangeId,
     await openFileDiff(cabaret, view, change, only);
     return;
   }
-  const { tip } = await cabaret.change(change);
-  const shown = await afterRevision(cabaret, view, change, tip);
-  const resources = await Promise.all(
-    files.map(async (file) => {
-      const [before, after] = await sides(cabaret, { view, change, path: file.path, tip }, shown, file);
-      return [after, before, after];
-    }),
-  );
+  const sides = await fileDiffSides(cabaret, view, change, files);
+  if (sides.length === 0) {
+    throw new Error(`${words(files.map((file) => file.path))} is no longer in ${change}'s ${view}`);
+  }
+  const resources = sides.map(({ before, after }) => [after, before, after]);
   await replacingActive(async () => {
     await vscode.commands.executeCommand("vscode.changes", diffTitle(`${files.length} files`, view, change), resources);
     // Pinned, as `vscode.changes` offers no option to open it so.

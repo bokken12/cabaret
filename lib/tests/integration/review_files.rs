@@ -4,7 +4,7 @@
 use cabaret_lib::{Pathspec, RepoPath};
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id, short};
+use super::fixture::{Fixture, alice, id};
 
 fn review_files(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
     let pathspecs: Vec<Pathspec> = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect();
@@ -53,17 +53,6 @@ fn a_file_changed_since_its_mark_shows_only_that() {
         "change",
         &[],
     ));
-}
-
-#[test]
-fn review_base_merges_bases_with_the_reviewed_tip() {
-    let fixture = stacked();
-    mark(&fixture, "change", &["a.txt"]);
-    let reviewed = fixture.tip("change");
-    fixture.commit("change", &[("a.txt", "a3\n")]);
-    let base = |path: &str| short(fixture.cabaret.review_base(&id("change"), &path.parse().unwrap()).unwrap().unwrap());
-    expect!["REVIEWED"].assert_eq(&base("a.txt").replace(&short(reviewed), "REVIEWED"));
-    expect!["BASE"].assert_eq(&base("b.txt").replace(&short(fixture.tip("main")), "BASE"));
 }
 
 #[test]

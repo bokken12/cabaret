@@ -109,6 +109,12 @@ impl Fixture {
 
     pub fn tip(&self, change: &str) -> RevisionId { self.snapshot(change).tip }
 
+    /// The text of `path` at `revision`, or `None` when no file is there.
+    pub fn text(&self, revision: RevisionId, path: &str) -> Option<String> {
+        let version = self.cabaret.blob(revision, &path.parse().unwrap()).unwrap()?;
+        Some(String::from_utf8(version.data.into()).unwrap())
+    }
+
     fn commit_tree(&self, tree: TreeId, parents: &[RevisionId]) -> RevisionId {
         self.commit_tree_at(tree, parents, self.clock.replace(self.clock.get() + 1))
     }

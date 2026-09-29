@@ -9,7 +9,7 @@ use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    TreeId, WorkspaceId, WorkspaceIdRef,
+    WorkspaceId, WorkspaceIdRef,
 };
 use gix::{
     bstr::{BString, ByteSlice},
@@ -41,21 +41,38 @@ pub struct Rebase {
 
 /// The files a view of a change diffs, as of the change's `tip`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct ViewDiff {
     pub tip: RevisionId,
     pub files: Vec<FileDiff>,
 }
 
-/// A file with both sides of its diff: `before` is `None` just when it is added, and `after`
-/// just when it is deleted.
+/// A file with the revisions holding each side of its diff, the before side at the path it
+/// comes from: `before` is `None` just when it is added, and `after` just when it is deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
 pub struct FileDiff {
     pub file: ChangedFile,
-    pub before: Option<FileVersion>,
-    pub after: Option<FileVersion>,
+    pub before: Option<RevisionId>,
+    pub after: Option<RevisionId>,
 }
 
-/// A file as one side of a diff has it.
+impl FileDiff {
+    /// `file` as it differs from `before` to `after`, keeping only the sides it is on.
+    fn new(file: ChangedFile, before: Option<RevisionId>, after: RevisionId) -> Self {
+        let before = match file {
+            ChangedFile::Added { .. } => None,
+            _ => Some(before.expect("only an added file has no before side")),
+        };
+        let after = match file {
+            ChangedFile::Deleted { .. } => None,
+            _ => Some(after),
+        };
+        Self { file, before, after }
+    }
+}
+
+/// A file as a revision has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileVersion {
     pub mode: EntryMode,
@@ -376,8 +393,13 @@ impl Cabaret {
         })
     }
 
-    pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<String>> {
-        self.store.query(|ctx| ctx.blob(revision, path))
+    /// `path` as `revision` has it, or `None` when no file is there.
+    pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<FileVersion>> {
+        self.store.query(|ctx| {
+            let tree = ctx.repo.find_commit(revision.0)?.tree()?;
+            let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
+            Ok(Some(FileVersion { mode: entry.mode(), data: entry.object()?.try_into_blob()?.take_data().into() }))
+        })
     }
 
     pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<RevisionId>> {
@@ -400,16 +422,6 @@ impl Cabaret {
         })
     }
 
-    /// The revision this repository's identity reviews `path` of `change_id` against; see
-    /// `Branch::review_base`.
-    pub fn review_base(&self, change_id: &ChangeIdRef, path: &RepoPath) -> Result<Option<RevisionId>> {
-        self.store.query(|ctx| {
-            let metadata = ctx.metadata(change_id)?;
-            let reviewed = metadata.review.get(&ctx.identity()?).and_then(|files| files.get(path)).copied();
-            ctx.branch(change_id)?.review_base(&metadata.parents()?, reviewed)
-        })
-    }
-
     /// The files of `change_id` this repository's identity has left to review, restricted to
     /// `pathspecs` (all when empty); see `Branch::review_files`.
     pub fn review_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
@@ -425,16 +437,6 @@ impl Cabaret {
     pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         let workspace_id = self.workspace_of(change_id)?;
         self.store.query(|ctx| ctx.workspace(workspace_id.to_ref())?.changed_files(pathspecs))
-    }
-
-    /// What the workspace holding `change_id` has saved, as a commit on the change's tip that no
-    /// branch holds: the after side of its workspace diff, fixed as a revision is.
-    pub fn workspace_saved(&self, change_id: &ChangeIdRef) -> Result<RevisionId> {
-        let workspace_id = self.workspace_of(change_id)?;
-        self.store.query(|ctx| {
-            let tree = ctx.workspace(workspace_id.to_ref())?.saved_tree()?;
-            ctx.commit(tree, vec![ctx.branch(change_id)?.tip], change_id.as_bstr())
-        })
     }
 
     /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty).
@@ -456,8 +458,10 @@ impl Cabaret {
         Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
     }
 
-    /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty), with
-    /// both sides of each, all read at once.
+    /// The files `change_id`'s `view` diffs, restricted to `pathspecs` (all when empty), with the
+    /// revisions holding both sides of each, all read at once. The workspace view's after side is
+    /// what the workspace has saved, as a commit on the tip that no branch holds, so that it stays
+    /// as it was read.
     pub fn view_diff(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<ViewDiff> {
         let workspace_id = match view {
             DiffView::Workspace => Some(self.workspace_of(change_id)?),
@@ -466,19 +470,15 @@ impl Cabaret {
         self.store.query(|ctx| {
             let (metadata, branch) = (ctx.metadata(change_id)?, ctx.branch(change_id)?);
             let parents = metadata.parents()?;
-            let tree = |revision: RevisionId| -> Result<TreeId> {
-                Ok(TreeId(ctx.repo.find_commit(revision.0)?.tree_id()?.detach()))
-            };
-            let tip = tree(branch.tip)?;
-            let side = |file, before, after| file_diff(&ctx.repo, file, before, after);
+            let tip = branch.tip;
             let files = match view {
                 DiffView::Diff => {
-                    let base = branch.base(&parents)?.map(tree).transpose()?;
+                    let base = branch.base(&parents)?;
                     branch
                         .changed_files(&parents, pathspecs)?
                         .into_iter()
-                        .map(|file| side(file, base, tip))
-                        .collect::<Result<_>>()?
+                        .map(|file| FileDiff::new(file, base, tip))
+                        .collect()
                 }
                 DiffView::Review => {
                     let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
@@ -488,26 +488,23 @@ impl Cabaret {
                         let reviewed = review.get(file.path()).copied();
                         let base = match bases.get(&reviewed) {
                             Some(&base) => base,
-                            None => {
-                                let base = branch.review_base(&parents, reviewed)?.map(tree).transpose()?;
-                                *bases.entry(reviewed).or_insert(base)
-                            }
+                            None => *bases.entry(reviewed).or_insert(branch.review_base(&parents, reviewed)?),
                         };
-                        files.push(side(file, base, tip)?);
+                        files.push(FileDiff::new(file, base, tip));
                     }
                     files
                 }
                 DiffView::Workspace => {
                     let workspace = ctx.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;
-                    let saved = workspace.saved_tree()?;
+                    let saved = ctx.commit(workspace.saved_tree()?, vec![tip], change_id.as_bstr())?;
                     workspace
                         .changed_files(pathspecs)?
                         .into_iter()
-                        .map(|file| side(file, Some(tip), saved))
-                        .collect::<Result<_>>()?
+                        .map(|file| FileDiff::new(file, Some(tip), saved))
+                        .collect()
                 }
             };
-            Ok(ViewDiff { tip: branch.tip, files })
+            Ok(ViewDiff { tip, files })
         })
     }
 
@@ -929,23 +926,4 @@ fn home_graph(
         nodes.insert(id, node);
     }
     Ok(HomeGraph { nodes })
-}
-
-/// `file` with its sides in `before` and `after`.
-fn file_diff(repo: &gix::Repository, file: ChangedFile, before: Option<TreeId>, after: TreeId) -> Result<FileDiff> {
-    let version = |tree: TreeId, path: &RepoPath| -> Result<FileVersion> {
-        let tree = repo.find_tree(tree.0)?;
-        let entry = tree.lookup_entry_by_path(path.as_ref())?.expect("a changed file is on the side it differs on");
-        Ok(FileVersion { mode: entry.mode(), data: entry.object()?.detach().data.into() })
-    };
-    let from = file.paths().next().expect("a file has a path");
-    let before = match file {
-        ChangedFile::Added { .. } => None,
-        _ => Some(version(before.expect("only an added file has no before side"), from)?),
-    };
-    let after = match file {
-        ChangedFile::Deleted { .. } => None,
-        _ => Some(version(after, file.path())?),
-    };
-    Ok(FileDiff { file, before, after })
 }

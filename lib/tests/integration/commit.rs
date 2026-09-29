@@ -77,7 +77,7 @@ fn pathspecs_leave_other_files_uncommitted() {
         out.txt "out\n"
     "#]]
     .assert_eq(&fixture.worktree());
-    assert_eq!(fixture.cabaret.blob(fixture.tip("one"), &"one.txt".parse().unwrap()).unwrap().unwrap(), "one\n");
+    assert_eq!(fixture.text(fixture.tip("one"), "one.txt").unwrap(), "one\n");
 }
 
 #[test]

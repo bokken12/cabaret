@@ -89,7 +89,7 @@ fn conflict_keeps_lines_common_to_both_sides_within_markers() {
         >>>>>>> main
         three
     "#]]
-    .assert_eq(&fixture.cabaret.blob(fixture.tip("child"), &"file.txt".parse().unwrap()).unwrap().unwrap());
+    .assert_eq(&fixture.text(fixture.tip("child"), "file.txt").unwrap());
 }
 
 #[test]

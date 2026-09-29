@@ -17,7 +17,7 @@ use napi_derive::napi;
 use nonempty_collections::NEBTreeSet;
 
 use crate::{
-    cabaret::{Cabaret, Rebase},
+    cabaret::{Cabaret, Rebase, ViewDiff},
     home::HomeSection,
     page::{DiffView, Page},
 };
@@ -97,19 +97,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn base(&self, change: ChangeId) -> napi::Result<Option<RevisionId>> {
-        self.blocking(move |cabaret| cabaret.base(&change)).await
-    }
-
-    #[napi]
     pub async fn show_page(&self, change: ChangeId) -> napi::Result<Page> {
         self.blocking(move |cabaret| cabaret.show_page(&change)).await
-    }
-
-    /// The revision git's user.email reviews `path` of `change` against.
-    #[napi]
-    pub async fn review_base(&self, change: ChangeId, path: RepoPath) -> napi::Result<Option<RevisionId>> {
-        self.blocking(move |cabaret| cabaret.review_base(&change, &path)).await
     }
 
     /// The files `change`'s `view` diffs; for review, those git's user.email has left to read.
@@ -160,9 +149,23 @@ impl CabaretJs {
         self.blocking(|cabaret| cabaret.first_home_section(&cabaret.identity()?)).await
     }
 
+    /// The text of `path` at `revision_id`, or `None` when no file is there.
+    // TODO-someday(joel): binary files
     #[napi]
     pub async fn blob(&self, revision_id: RevisionId, path: RepoPath) -> napi::Result<Option<String>> {
-        self.blocking(move |cabaret| cabaret.blob(revision_id, &path)).await
+        self.blocking(move |cabaret| match cabaret.blob(revision_id, &path)? {
+            Some(version) => Ok(Some(String::from_utf8(version.data.into())?)),
+            None => Ok(None),
+        })
+        .await
+    }
+
+    /// The files `change`'s `view` diffs among `paths`, with the revisions holding both sides of
+    /// each; for review, those git's user.email has left to read.
+    #[napi]
+    pub async fn view_diff(&self, change: ChangeId, view: DiffView, paths: Vec<RepoPath>) -> napi::Result<ViewDiff> {
+        let pathspecs: Vec<Pathspec> = paths.iter().map(Pathspec::literal).collect();
+        self.blocking(move |cabaret| cabaret.view_diff(&change, view, &pathspecs)).await
     }
 
     /// Create a workspace holding `change` at the default location, returning its path.
@@ -174,12 +177,6 @@ impl CabaretJs {
     #[napi]
     pub async fn workspace_remove(&self, change: ChangeId) -> napi::Result<()> {
         self.blocking(move |cabaret| cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref())).await
-    }
-
-    /// What `change`'s workspace has saved, as a commit on its tip that no branch holds.
-    #[napi]
-    pub async fn workspace_saved(&self, change: ChangeId) -> napi::Result<RevisionId> {
-        self.blocking(move |cabaret| cabaret.workspace_saved(&change)).await
     }
 
     #[napi]

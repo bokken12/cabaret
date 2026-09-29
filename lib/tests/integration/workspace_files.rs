@@ -97,16 +97,3 @@ fn change_without_workspace_refuses() {
     let fixture = two_changes();
     expect!["error: two is not checked out in any workspace"].assert_eq(&workspace_files(&fixture, "two", &[]));
 }
-
-#[test]
-fn saved_keeps_what_was_on_disk_when_taken() {
-    let fixture = two_changes();
-    fixture.write("one.txt", "one, edited\n");
-    fixture.delete("main.txt");
-    let tip = fixture.tip("one");
-    let saved = fixture.cabaret.workspace_saved(&id("one")).unwrap();
-    fixture.write("one.txt", "one, edited again\n");
-    let blob = |path: &str| fixture.cabaret.blob(saved, &path.parse().unwrap()).unwrap();
-    expect![[r#"(Some("one, edited\n"), None)"#]].assert_eq(&format!("{:?}", (blob("one.txt"), blob("main.txt"))));
-    assert_eq!(fixture.tip("one"), tip);
-}
