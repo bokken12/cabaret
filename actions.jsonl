@@ -1,0 +1,15 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/safeguards.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/home.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/land.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/locking.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/next_step.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/rebase.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/review_files.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/lib.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/workspace.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/lib.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"f0df0658727291d4e98d09319abd7cfe170c2c0a"}
