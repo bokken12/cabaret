@@ -1,0 +1,1 @@
+Show diff contents from `cab change diff` and `cab change review` when given pathspecs (`'*'` for all); with none they still list files. Diffs render in-process via gix as git-compatible unified diffs, headed by the tip to `mark --tip` at.
