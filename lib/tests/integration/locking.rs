@@ -4,16 +4,7 @@
 
 use std::{thread, time::Duration};
 
-<<<<<<< generic-allow
-use cabaret_lib::safeguard::Allow;
-||||||| base
-use cabaret_lib::safeguard::RebaseAllow;
-=======
-use cabaret_lib::{
-    WorkspaceId,
-    safeguard::{RebaseAllow, SwitchWorkspaceAllow},
-};
->>>>>>> main
+use cabaret_lib::{WorkspaceId, safeguard::Allow};
 
 use super::fixture::{Fixture, alice, id};
 
@@ -77,10 +68,8 @@ fn switch_waits_for_branch_it_leaves() {
     fixture.checkout("main");
     let lock = fixture.hold_lock("branch", "main");
     thread::scope(|scope| {
-        let switch = scope.spawn(|| {
-            let allow = SwitchWorkspaceAllow::default();
-            fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), id("child"), allow)
-        });
+        let switch = scope
+            .spawn(|| fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), id("child"), &Allow::default()));
         thread::sleep(Duration::from_millis(500));
         assert!(!switch.is_finished(), "the switch ran despite the held lock");
         drop(lock);

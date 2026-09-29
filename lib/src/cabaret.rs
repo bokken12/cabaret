@@ -299,47 +299,14 @@ impl Cabaret {
     /// tracked files, leaving untracked ones be. Switching needs the branch the workspace leaves,
     /// which is only known once read; the transaction re-checks it under the lock.
     pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId, allow: &Allow) -> Result<()> {
-<<<<<<< generic-allow
-        self.store.transact(
-            &[],
-            &[BranchOp::Update(&change_id)],
-            &[WorkspaceOp::Update { id: workspace_id }],
-            |_ctx, [], [_branch], [workspace]| {
-                // Untracked files are left where they are, so only changes to tracked ones are at risk.
-                if workspace.status()? == Status::Modified {
-                    let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
-                    allow.check(vec![Safeguard::Uncommitted(uncommitted)])?;
-                }
-                workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
-                workspace.head = Head::Change(change_id.clone());
-                Ok(())
-            },
-        )
-||||||| base
-        self.store.transact(
-            &[],
-            &[BranchOp::Update(&change_id)],
-            &[WorkspaceOp::Update { id: workspace_id }],
-            |_ctx, [], [_branch], [workspace]| {
-                // Untracked files are left where they are, so only changes to tracked ones are at risk.
-                if workspace.status()? == Status::Modified {
-                    let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
-                    allow.check(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)])?;
-                }
-                workspace.drop_local_changes = allow.uncommitted;
-                workspace.head = Head::Change(change_id.clone());
-                Ok(())
-            },
-        )
-=======
         let update = [WorkspaceOp::Update { id: workspace_id }];
         let switch = |workspace: &mut Workspace<'_>| {
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
             if workspace.status()? == Status::Modified {
                 let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
-                allow.check(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)])?;
+                allow.check(vec![Safeguard::Uncommitted(uncommitted)])?;
             }
-            workspace.drop_local_changes = allow.uncommitted;
+            workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
             workspace.head = Head::Change(change_id.clone());
             Ok(())
         };
@@ -357,7 +324,6 @@ impl Cabaret {
                 })
             }
         }
->>>>>>> main
     }
 
     /// Whether a workspace sits at the default location for the change it holds, which names it
