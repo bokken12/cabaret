@@ -1397,20 +1397,34 @@ async function changeHere(cabaret: Cabaret, changes: Iterable<ChangeId>): Promis
   return undefined;
 }
 
-async function confirmDeleteHere(change: ChangeId): Promise<boolean> {
-  const confirm = "Delete and Close Window";
+/**
+ * Once the user confirms, close every editor so unsaved files are dealt with before anything is
+ * deleted.
+ */
+async function releaseHere(change: ChangeId): Promise<boolean> {
+  const confirm = "Delete and Close Folder";
   const choice = await vscode.window.showWarningMessage(
     `Delete the workspace holding ${change}, which is open in this window?`,
-    { modal: true, detail: "This window will close once the workspace is deleted." },
+    { modal: true, detail: "Every editor closes first, then this window's folder once the workspace is deleted." },
     confirm,
   );
-  return choice === confirm;
+  if (choice !== confirm) {
+    return false;
+  }
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  if (vscode.workspace.textDocuments.some((document) => document.isDirty)) {
+    throw new Error(`kept the workspace holding ${change}, as closing its unsaved files was cancelled`);
+  }
+  return true;
 }
 
-/** Delete this window's workspace, which is left for last as the window's `Cabaret` is opened in it. */
-async function deleteHereAndClose(cabaret: Cabaret, change: ChangeId): Promise<void> {
+/**
+ * Delete this window's workspace, which is left for last as the window's `Cabaret` is opened in it.
+ * Closing the folder restarts the extension host, so nothing may follow it.
+ */
+async function deleteHereAndCloseFolder(cabaret: Cabaret, change: ChangeId): Promise<void> {
   await cabaret.workspaceRemove(change);
-  await vscode.commands.executeCommand("workbench.action.closeWindow");
+  await vscode.commands.executeCommand("workbench.action.closeFolder");
 }
 
 /**
@@ -1444,7 +1458,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   const deleting = choice === landAndDelete;
   const here = deleting ? await changeHere(cabaret, doomed.keys()) : undefined;
-  if (here !== undefined && !(await confirmDeleteHere(here))) {
+  if (here !== undefined && !(await releaseHere(here))) {
     return undefined;
   }
   return {
@@ -1457,13 +1471,13 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       await cabaret.workspaceRemove(change);
       return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndClose(cabaret, here),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
   };
 }
 
 async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const here = await changeHere(cabaret, changes);
-  if (here !== undefined && !(await confirmDeleteHere(here))) {
+  if (here !== undefined && !(await releaseHere(here))) {
     return undefined;
   }
   return {
@@ -1474,7 +1488,7 @@ async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Prom
       await cabaret.workspaceRemove(change);
       return { report: `deleted the workspace holding ${change}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndClose(cabaret, here),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
   };
 }
 
