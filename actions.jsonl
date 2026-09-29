@@ -1,7 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/fixture.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/layout.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/workspace.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/unit/prefix.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/store.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/.vscode-test.mjs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/lib.rs","revision":"bc07fe9117dc9435ea38d648edb51eeb7a12952e"}
