@@ -16,5 +16,6 @@ mod rebase;
 mod review;
 mod review_files;
 mod sessions;
+mod todos;
 mod workspace;
 mod workspace_files;

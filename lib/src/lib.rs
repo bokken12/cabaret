@@ -9,8 +9,8 @@ pub use cabaret::{Cabaret, NextStep, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_config::{Hints, Prefix, Scope, Setting};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
-    TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
+    AddedLine, ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result,
+    RevisionId, TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use file_tree::FileTree;
 pub use gix;

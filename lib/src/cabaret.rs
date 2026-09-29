@@ -8,8 +8,8 @@ use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    WorkspaceId, WorkspaceIdRef,
+    AddedLine, ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId,
+    TimestampMs, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
@@ -356,6 +356,12 @@ impl Cabaret {
 
     pub fn changed_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         self.store.query(|ctx| ctx.branch(change_id)?.changed_files(&ctx.metadata(change_id)?.parents()?, pathspecs))
+    }
+
+    /// The lines `change_id`'s diff adds that mention a TODO.
+    pub fn todos(&self, change_id: &ChangeIdRef) -> Result<Vec<AddedLine>> {
+        let lines = self.store.query(|ctx| ctx.branch(change_id)?.added_lines(&ctx.metadata(change_id)?.parents()?))?;
+        Ok(lines.into_iter().filter(|line| line.text.contains_str("TODO")).collect())
     }
 
     pub fn show_page(&self, change_id: &ChangeIdRef) -> Result<Page> {

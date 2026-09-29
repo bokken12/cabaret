@@ -1,4 +1,6 @@
-use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, DiffView, Identity, Pathspec, RepoPath, Result, RevisionId};
+use cabaret_lib::{
+    Cabaret, ChangeId, ChangeIdRef, DiffView, Identity, Pathspec, RepoPath, Result, RevisionId, gix::bstr::ByteSlice,
+};
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
@@ -239,8 +241,10 @@ impl ChangeCommand {
                 print!("{}", cabaret.files_page(&or_current(change)?, DiffView::Review, &pathspecs)?);
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
-            ChangeCommand::Todo { change: _ } => {
-                return Err("change todo is not implemented yet".into());
+            ChangeCommand::Todo { change } => {
+                for line in cabaret.todos(&or_current(change)?)? {
+                    println!("{}:{}: {}", line.path, line.number, line.text.trim_start().as_bstr());
+                }
             }
         }
 

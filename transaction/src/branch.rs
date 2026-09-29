@@ -2,9 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
+use cabaret_types::{AddedLine, ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Result, RevisionId, TreeId};
 use gix::{
     bstr::ByteSlice,
+    diff::blob::{self, Algorithm, InternedInput},
     merge::{
         blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
         tree::TreatAsUnresolved,
@@ -164,6 +165,48 @@ impl<'ctx> Branch<'ctx> {
         };
         let tip = repo.find_commit(self.tip.0)?.tree()?;
         tree::changed_files(repo, base.as_ref(), &tip, pathspecs)
+    }
+
+    /// The lines this branch adds against `parents`, by file as [`Self::changed_files`] orders
+    /// them and then by line. A binary file, one whose tip holds a NUL as git judges it, adds none.
+    pub fn added_lines(&self, parents: &BTreeSet<ChangeId>) -> Result<Vec<AddedLine>> {
+        let repo = &self.ctx.repo;
+        let base = match self.base(parents)? {
+            None => None,
+            Some(base) => Some(repo.find_commit(base.0)?.tree()?),
+        };
+        let tip = repo.find_commit(self.tip.0)?.tree()?;
+        let content = |tree: &gix::Tree<'_>, path: &RepoPath| -> Result<Vec<u8>> {
+            let entry = tree.lookup_entry_by_path(path.as_ref())?.ok_or(format!("{path} is missing from its tree"))?;
+            Ok(entry.object()?.detach().data)
+        };
+
+        let mut lines = Vec::new();
+        for file in tree::changed_files(repo, base.as_ref(), &tip, &[])? {
+            let from = match &file {
+                ChangedFile::Deleted { .. } => continue,
+                ChangedFile::Added { .. } => None,
+                ChangedFile::Modified { path } => Some(path),
+                ChangedFile::Renamed { from, .. } | ChangedFile::Copied { from, .. } => Some(from),
+            };
+            let after = content(&tip, file.path())?;
+            if after.contains(&0) {
+                continue;
+            }
+            let before = match from {
+                None => Vec::new(),
+                Some(from) => content(base.as_ref().expect("only a diff against a base has sources"), from)?,
+            };
+            let input = InternedInput::new(before.as_slice(), after.as_slice());
+            let diff = blob::diff_with_slider_heuristics(Algorithm::Histogram, &input);
+            for (index, token) in input.after.iter().enumerate() {
+                if diff.is_added(index.try_into()?) {
+                    let text = input.interner[*token].trim_end_with(|c| c == '\n' || c == '\r');
+                    lines.push(AddedLine { path: file.path().clone(), number: index + 1, text: text.into() });
+                }
+            }
+        }
+        Ok(lines)
     }
 
     // TODO(joel): for users who are not used to stacking workflows, they may find the rebases encouraged by the change

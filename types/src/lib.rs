@@ -3,6 +3,7 @@ pub mod log;
 #[cfg(feature = "napi")]
 mod napi;
 
+mod added_line;
 mod change_id;
 mod change_snapshot;
 mod changed_file;
@@ -14,6 +15,7 @@ mod timestamp;
 mod tree_id;
 mod workspace_id;
 
+pub use added_line::AddedLine;
 pub use change_id::{ChangeId, ChangeIdRef};
 pub use change_snapshot::ChangeSnapshot;
 pub use changed_file::ChangedFile;
