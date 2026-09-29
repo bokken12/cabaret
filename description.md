@@ -1,0 +1,1 @@
+Permanence safeguards on set_permanent: non-owner, and impermanent-parents when making a change permanent whose parents will land and be archived (roots count as permanent). Resolves the TODO(joel) there.
