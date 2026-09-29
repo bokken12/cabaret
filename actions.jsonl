@@ -1,10 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/safeguards.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/changed_files.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/fixture.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/parents.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/rebase.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
+{"action":"mark","reviewer":"me@joel.place","file":"cli/src/change.rs","revision":"a8a00af38034c029a5b08fe0ee86a5464096c1f6"}
