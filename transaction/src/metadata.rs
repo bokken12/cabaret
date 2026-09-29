@@ -40,15 +40,15 @@ struct LogCommit {
 }
 
 impl LogCommit {
-    /// Every parent of a log commit is another log commit except the revisions its actions refer
-    /// to, see [`LogAction::revision`].
+    /// Every parent of a log commit is another log commit except the commits its actions refer
+    /// to, see [`LogAction::referenced`].
     fn read(repo: &Repository, id: ObjectId) -> Result<Self> {
         let commit = repo.find_commit(id)?;
         let text =
             file(&commit.tree()?, ACTIONS_FILE)?.ok_or_else(|| format!("log commit {id} has no {ACTIONS_FILE}"))?;
         let actions = log::parse(&text)?;
         let referenced: BTreeSet<ObjectId> =
-            actions.iter().filter_map(LogAction::revision).map(ObjectId::from).collect();
+            actions.iter().filter_map(LogAction::referenced).map(ObjectId::from).collect();
         let parents: Vec<ObjectId> = commit.parent_ids().map(gix::Id::detach).collect();
         if let Some(missing) = referenced.iter().find(|revision| !parents.contains(revision)) {
             Err(format!("log commit {id} refers to {missing} without taking it as a parent"))?;
@@ -111,6 +111,9 @@ pub struct Metadata<'ctx> {
     pub owners: BTreeSet<Identity>,
     pub declared_parents: BTreeSet<ChangeId>,
     pub review: BTreeMap<Identity, BTreeMap<RepoPath, RevisionId>>,
+    /// The changes landed here, each with its log as of its latest landing, `None` for a plain git
+    /// branch. Referring to it keeps it for as long as this log is, even once the change is deleted.
+    pub landed: BTreeMap<ChangeId, Option<RevisionId>>,
 }
 
 impl<'ctx> Metadata<'ctx> {
@@ -127,6 +130,7 @@ impl<'ctx> Metadata<'ctx> {
             owners: BTreeSet::new(),
             declared_parents: BTreeSet::new(),
             review: BTreeMap::new(),
+            landed: BTreeMap::new(),
         }
     }
 
@@ -204,6 +208,9 @@ impl<'ctx> Metadata<'ctx> {
             LogAction::Forget { reviewer, file } => {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
+            LogAction::Land { change, log } => {
+                self.landed.insert(change.clone(), *log);
+            }
             LogAction::Mark { reviewer, file, revision } => {
                 self.review.entry(reviewer.clone()).or_default().insert(file.clone(), revision.clone());
             }
@@ -259,6 +266,11 @@ impl<'ctx> Metadata<'ctx> {
                 });
             }
         }
+        for (change, log) in &self.landed {
+            if before.landed.get(change) != Some(log) {
+                actions.push(LogAction::Land { change: change.clone(), log: *log });
+            }
+        }
         actions
     }
 
@@ -292,7 +304,7 @@ impl<'ctx> Metadata<'ctx> {
         entries.sort();
         let tree = TreeId(repo.write_object(&gix::objs::Tree { entries })?.detach());
 
-        let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::revision).collect();
+        let referenced: BTreeSet<RevisionId> = actions.iter().filter_map(LogAction::referenced).collect();
         let parents = self.commit.map(RevisionId).into_iter().chain(referenced).collect();
         let mut message = text;
         if described {

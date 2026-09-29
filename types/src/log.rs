@@ -13,6 +13,7 @@ pub enum LogAction {
     AddOwner { owner: Identity },
     AddParent { parent: ChangeId },
     Forget { reviewer: Identity, file: RepoPath },
+    Land { change: ChangeId, log: Option<RevisionId> },
     Mark { reviewer: Identity, file: RepoPath, revision: RevisionId },
     RemoveOwner { owner: Identity },
     RemoveParent { parent: ChangeId },
@@ -22,10 +23,11 @@ pub enum LogAction {
 }
 
 impl LogAction {
-    /// The revision this refers to, which its commit takes as a parent so that it is fetched and
+    /// The commit this refers to, which its log commit takes as a parent so that it is fetched and
     /// kept for as long as the log is.
-    pub fn revision(&self) -> Option<RevisionId> {
+    pub fn referenced(&self) -> Option<RevisionId> {
         match self {
+            LogAction::Land { log, .. } => *log,
             LogAction::Mark { revision, .. } => Some(*revision),
             _ => None,
         }

@@ -64,6 +64,39 @@ fn change_merged_into_parent_and_archived() {
 }
 
 #[test]
+fn parent_log_takes_landed_log_as_parent() {
+    let fixture = diverged();
+    let landed = fixture.log_head("child");
+    expect!["landed into main"].assert_eq(&land(&fixture, "child"));
+    assert_eq!(fixture.parents(fixture.log_head("main")), [landed]);
+    expect![[r#"
+        message "{\"action\":\"land\",\"change\":\"child\",\"log\":\"CHILD_LOG\"}\n"
+        actions.jsonl "{\"action\":\"land\",\"change\":\"child\",\"log\":\"CHILD_LOG\"}\n"
+        description.md ""
+    "#]]
+    .assert_eq(&fixture.metadata("main").replace(&landed.to_string(), "CHILD_LOG"));
+}
+
+#[test]
+fn plain_branch_lands_without_log() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.branch("unlogged", "main");
+    fixture.commit("unlogged", &[("unlogged.txt", "unlogged\n")]);
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "unlogged",
+        LandAllow { unreviewed: true, non_owner: true },
+    ));
+    expect![[r#"
+        message "{\"action\":\"land\",\"change\":\"unlogged\",\"log\":null}\n"
+        actions.jsonl "{\"action\":\"land\",\"change\":\"unlogged\",\"log\":null}\n"
+        description.md ""
+    "#]]
+    .assert_eq(&fixture.metadata("main"));
+}
+
+#[test]
 fn parent_that_has_not_moved_fast_forwards() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
