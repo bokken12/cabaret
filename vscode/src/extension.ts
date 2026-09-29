@@ -12,6 +12,7 @@ import {
   type DiffView,
   type Fold,
   type HomeSection,
+  type WorkspaceId,
 } from "@cabaret/node";
 import * as vscode from "vscode";
 
@@ -1212,14 +1213,33 @@ function sequencedAction(
   provider: PageProvider,
   run: (cabaret: Cabaret, change: ChangeId) => Promise<Step>,
 ): vscode.Disposable {
+  return plannedSequence(name, provider, async (cabaret) => (change) => run(cabaret, change));
+}
+
+/**
+ * Like `sequencedAction`, but `plan` first sees every change the sequence will go through, and
+ * gives the step to run on each, or nothing when the user backed out.
+ */
+function plannedSequence(
+  name: string,
+  provider: PageProvider,
+  plan: (cabaret: Cabaret, changes: ChangeId[]) => Promise<((change: ChangeId) => Promise<Step>) | undefined>,
+): vscode.Disposable {
   return command(name, async (cabaret) => {
     const selected = selectedChanges(provider);
     const active = selected === undefined ? await activeChange(cabaret, provider) : undefined;
     const changes = selected ?? (active === undefined ? [] : [active]);
+    if (changes.length === 0) {
+      return;
+    }
+    const run = await plan(cabaret, changes);
+    if (run === undefined) {
+      return;
+    }
     const reports: string[] = [];
     try {
       for (const [index, change] of changes.entries()) {
-        const { report, complete } = await run(cabaret, change);
+        const { report, complete } = await run(change);
         reports.push(report);
         const skipped = changes.slice(index + 1);
         if (!complete && skipped.length > 0) {
@@ -1383,25 +1403,46 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
 }
 
 /**
- * Land, then offer to remove the workspace that held the change, since an archived change has
- * nothing left to do there. A permanent change stays open, so its workspace is not offered.
+ * Land once the user confirms, since landing cannot be undone. Landing archives a change that is
+ * not permanent, leaving its workspace nothing to do, so deleting those workspaces is the default.
  */
-async function land(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  const landed = `landed ${change} into ${await cabaret.land(change)}`;
-  const { archived, workspace } = await cabaret.change(change);
-  if (!archived || workspace === undefined) {
-    return landed;
+async function planLand(
+  cabaret: Cabaret,
+  changes: ChangeId[],
+): Promise<((change: ChangeId) => Promise<Step>) | undefined> {
+  const doomed = new Map<ChangeId, WorkspaceId>();
+  for (const change of changes) {
+    const { permanent, workspace } = await cabaret.change(change);
+    if (!permanent && workspace !== undefined) {
+      doomed.set(change, workspace);
+    }
   }
-  const remove = await vscode.window.showInformationMessage(
-    `Cabaret: ${landed}`,
-    { modal: true, detail: `Remove the workspace ${workspace} that held it?` },
-    "Remove Workspace",
+  const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
+  const landAndDelete = `Land and Delete ${noun}`;
+  const landOnly = doomed.size === 0 ? "Land" : `Land and Keep ${noun}`;
+  const choice = await vscode.window.showWarningMessage(
+    `Land ${words(changes)}?`,
+    {
+      modal: true,
+      detail:
+        doomed.size === 0
+          ? "This cannot be undone."
+          : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`,
+    },
+    ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
-  if (remove === undefined) {
-    return landed;
+  if (choice === undefined) {
+    return undefined;
   }
-  await cabaret.workspaceRemove(change);
-  return `${landed}; removed workspace ${workspace}`;
+  return async (change) => {
+    const landed = `landed ${change} into ${await cabaret.land(change)}`;
+    const workspace = doomed.get(change);
+    if (choice !== landAndDelete || workspace === undefined) {
+      return { report: landed, complete: true };
+    }
+    await cabaret.workspaceRemove(change);
+    return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
+  };
 }
 
 async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step> {
@@ -1588,10 +1629,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeOwner", provider, removeOwner),
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
-    sequencedAction("cabaret.land", provider, async (cabaret, change) => ({
-      report: await land(cabaret, change),
-      complete: true,
-    })),
+    plannedSequence("cabaret.land", provider, planLand),
     sequencedAction("cabaret.rebase", provider, rebase),
     sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
