@@ -5,12 +5,12 @@ mod home;
 mod node;
 mod page;
 
-pub use cabaret::{Cabaret, FileDiff, FileVersion, NextStep, Prune, Rebase, ViewDiff};
+pub use cabaret::{Cabaret, NextStep, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_config::{Hints, Prefix, Scope, Setting};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
-    TimestampMs, TreeId, WorkspaceId, WorkspaceIdRef, log,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath,
+    Result, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use file_tree::FileTree;
 pub use gix;

@@ -8,13 +8,10 @@ use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
+    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
 };
-use gix::{
-    bstr::{BString, ByteSlice},
-    objs::tree::EntryMode,
-};
+use gix::bstr::ByteSlice;
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
@@ -37,46 +34,6 @@ pub struct Rebase {
     pub conflicts: BTreeSet<RepoPath>,
     /// Parents not reached because of the conflicts; rebasing again after resolving them continues.
     pub remaining: BTreeSet<ChangeId>,
-}
-
-/// The files a view of a change diffs, as of the change's `tip`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-pub struct ViewDiff {
-    pub tip: RevisionId,
-    pub files: Vec<FileDiff>,
-}
-
-/// A file with the revisions holding each side of its diff, the before side at the path it
-/// comes from: `before` is `None` just when it is added, and `after` just when it is deleted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "napi", napi_derive::napi(object, object_from_js = false))]
-pub struct FileDiff {
-    pub file: ChangedFile,
-    pub before: Option<RevisionId>,
-    pub after: Option<RevisionId>,
-}
-
-impl FileDiff {
-    /// `file` as it differs from `before` to `after`, keeping only the sides it is on.
-    fn new(file: ChangedFile, before: Option<RevisionId>, after: RevisionId) -> Self {
-        let before = match file {
-            ChangedFile::Added { .. } => None,
-            _ => Some(before.expect("only an added file has no before side")),
-        };
-        let after = match file {
-            ChangedFile::Deleted { .. } => None,
-            _ => Some(after),
-        };
-        Self { file, before, after }
-    }
-}
-
-/// A file as a revision has it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileVersion {
-    pub mode: EntryMode,
-    pub data: BString,
 }
 
 /// The first thing standing between a change and landing, in the order they must be resolved.
@@ -393,13 +350,8 @@ impl Cabaret {
         })
     }
 
-    /// `path` as `revision` has it, or `None` when no file is there.
     pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<FileVersion>> {
-        self.store.query(|ctx| {
-            let tree = ctx.repo.find_commit(revision.0)?.tree()?;
-            let Some(entry) = tree.lookup_entry_by_path(path.as_ref())? else { return Ok(None) };
-            Ok(Some(FileVersion { mode: entry.mode(), data: entry.object()?.try_into_blob()?.take_data().into() }))
-        })
+        self.store.query(|ctx| ctx.blob(revision, path))
     }
 
     pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<RevisionId>> {

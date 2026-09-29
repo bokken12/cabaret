@@ -10,14 +10,15 @@ use std::{
 
 use cabaret_agents::ClaudeCode;
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, WorkspaceId,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
+    WorkspaceId,
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 use nonempty_collections::NEBTreeSet;
 
 use crate::{
-    cabaret::{Cabaret, Rebase, ViewDiff},
+    cabaret::{Cabaret, Rebase},
     home::HomeSection,
     page::{DiffView, Page},
 };
