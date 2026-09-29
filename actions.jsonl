@@ -1,0 +1,12 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/home.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/land.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/locking.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/next_step.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/rebase.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/review_files.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/store.rs","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"294b688ef7e6d4abb8772991644af169a28d6bd4"}
