@@ -1,0 +1,1 @@
+Declare safeguards with macros: every_safeguard! lists each safeguard once (Safeguard, SafeguardKind, their Display and kind), and safeguards! declares an action's enum and Allow struct, so the stack of new safeguards above adds a line per action rather than ~40. TryFrom<&[SafeguardKind]> is now uniform, refusing kinds the action does not check.
