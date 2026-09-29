@@ -1,8 +1,0 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/mod.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/todos.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/branch.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/added_line.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/lib.rs","revision":"6a06726bb78036d4288881abb7f31fe8b739f087"}
