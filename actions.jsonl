@@ -1,16 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/safeguards.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/archive.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/commit.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/create.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/fixture.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/home.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/land.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/mod.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/parents.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/permanence.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/workspace.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
+{"action":"mark","reviewer":"me@joel.place","file":"cli/src/change.rs","revision":"3f122934cefa75ff5873af7be86db10534740ecd"}
