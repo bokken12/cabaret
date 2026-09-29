@@ -1,1 +1,1 @@
-{"action":"add-owner","owner":"me@joel.place"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"9d6eb80aa36ad368aa97e2448d4eb9226447fe59"}
