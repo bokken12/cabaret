@@ -1673,6 +1673,8 @@ async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promis
   }
   return {
     step: async (change) => {
+      // TODO-someday(joel): archive safeguards refuse per step, after the workspace dialog; checking
+      // them up front, as landSafeguards does for land, would fold them into that one dialog.
       const toggled = await toggleArchived(cabaret, change);
       const workspace = doomed.get(change);
       if (!toggled.complete || !deleting || workspace === undefined || change === here) {
