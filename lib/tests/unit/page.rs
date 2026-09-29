@@ -34,7 +34,7 @@ fn describe(target: &Target) -> String {
         files.iter().map(|file| file.paths().last().unwrap().to_string()).collect::<Vec<_>>().join(",")
     };
     match target {
-        Target::Change { change } => format!("change:{change}"),
+        Target::Change { change, context } => format!("{}:{change}", if *context { "context" } else { "change" }),
         Target::Home { section } => format!("home:{section:?}"),
         Target::Files { view, change } => format!("files:{}:{change}", format!("{view:?}").to_lowercase()),
         Target::Diff { view, change, files } => {
