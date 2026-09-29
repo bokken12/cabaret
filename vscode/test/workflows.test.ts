@@ -165,4 +165,53 @@ cabaret.stepIn at "a.txt"
       writeFileSync(file, "a\n");
     }
   });
+
+  test("page coming back into view shows what changed while it was hidden", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, "no workspace folder");
+    const file = join(folder.uri.fsPath, "src/a.txt");
+    await transcript([
+      ["cabaret.home"],
+      ["cabaret.stepIn", "workspaces"],
+      ["cabaret.stepIn", "feature"],
+      ["cabaret.workspaceDiff"],
+    ]);
+    const page = vscode.window.activeTextEditor?.document;
+    assert.ok(page, "no active editor");
+    const before = page.getText();
+    await vscode.window.showTextDocument(vscode.Uri.joinPath(folder.uri, "README.md"), { preview: false });
+    // Behind VS Code's back, as an agent in a terminal would.
+    writeFileSync(file, "a, edited\n");
+    try {
+      const updated = new Promise<void>((resolve) => {
+        const listener = vscode.workspace.onDidChangeTextDocument(({ document }) => {
+          if (document === page) {
+            listener.dispose();
+            resolve();
+          }
+        });
+      });
+      await vscode.window.showTextDocument(page);
+      await updated;
+      assert.equal(
+        `${before}---\n${page.getText()}`,
+        `feature · uncommitted files
+ ╭──────────┬────────────┬──────────────┬─────────────────╮
+ │ overview │ [d] diff 2 │ [r] review 0 │ [w] workspace 0 │
+─┴──────────┴────────────┴──────────────┘                 └─
+
+no uncommitted files
+---
+feature · uncommitted files
+ ╭──────────┬────────────┬──────────────┬─────────────────╮
+ │ overview │ [d] diff 2 │ [r] review 0 │ [w] workspace 1 │
+─┴──────────┴────────────┴──────────────┘                 └─
+
+○ src/a.txt
+`,
+      );
+    } finally {
+      writeFileSync(file, "a\n");
+    }
+  });
 });

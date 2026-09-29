@@ -121,6 +121,10 @@ function inserted(page: Page, at: number, insert: Page): Page {
   };
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * The sessions tail of a show page. A failure to list is reported in place of the list rather
  * than failing the page.
@@ -129,9 +133,11 @@ async function sessionsPage(cabaret: Cabaret, change: ChangeId): Promise<Page> {
   try {
     return await cabaret.sessionsPage(change);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     return {
-      lines: [{ segments: [] }, { segments: [{ text: `Sessions: unavailable (${message})`, tag: "Muted" }] }],
+      lines: [
+        { segments: [] },
+        { segments: [{ text: `Sessions: unavailable (${errorMessage(error)})`, tag: "Muted" }] },
+      ],
       folds: [],
       cursor: 0,
     };
@@ -240,7 +246,24 @@ async function inPageLanguage(document: vscode.TextDocument): Promise<vscode.Tex
     : vscode.languages.setTextDocumentLanguage(document, PAGE_LANGUAGE);
 }
 
-/** Serves `cabaret:` pages and paints their tags onto whichever editors show them. */
+/** A page as its document shows it: rendered from the repository, and on a show page its sessions. */
+type Served = { base: Page; tail: Page | undefined };
+
+function whole({ base, tail }: Served): Page {
+  return tail === undefined ? base : inserted(base, base.lines.length, tail);
+}
+
+function openDocument(uri: vscode.Uri): vscode.TextDocument | undefined {
+  return vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
+}
+
+/**
+ * Serves `cabaret:` pages and paints their tags onto whichever editors show them.
+ *
+ * A page shows repository state that anything, in this window or not, may change at any time, so
+ * rather than track which pages an action affects, every open page is re-rendered whenever the
+ * state may have changed, and each page again as it comes into view.
+ */
 class PageProvider
   implements
     vscode.TextDocumentContentProvider,
@@ -248,9 +271,13 @@ class PageProvider
     vscode.FoldingRangeProvider,
     vscode.Disposable
 {
-  private readonly pages = new Map<string, Page>();
-  /** Pages completed by a late part, to serve on the re-read that `changed` triggers. */
-  private readonly completed = new Map<string, Page>();
+  private readonly served = new Map<string, Served>();
+  /** What to serve on the re-read that `changed` triggers. */
+  private readonly pending = new Map<string, Served>();
+  /** Each page's latest update, so that updates are served in the order they were started. */
+  private readonly updates = new Map<string, Promise<void>>();
+  /** The pages on screen, to tell those coming into view. */
+  private onScreen = new Set<string>();
   /**
    * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
    * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise. A
@@ -270,8 +297,8 @@ class PageProvider
     for (const decoration of Object.values(this.decorations)) {
       decoration.dispose();
     }
-    this.pages.clear();
-    this.completed.clear();
+    this.served.clear();
+    this.pending.clear();
     this.selections.clear();
   }
 
@@ -282,49 +309,138 @@ class PageProvider
 
   async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     const key = uri.toString();
-    const completed = this.completed.get(key);
-    if (completed !== undefined) {
-      this.completed.delete(key);
-      this.pages.set(key, completed);
-      return pageText(completed);
+    const pending = this.pending.get(key);
+    if (pending !== undefined) {
+      this.pending.delete(key);
+      this.served.set(key, pending);
+      return pageText(whole(pending));
     }
-    return pageText(await this.render(uri));
+    const served = { base: await this.render(uri), tail: this.served.get(key)?.tail };
+    this.served.set(key, served);
+    return pageText(whole(served));
   }
 
-  /** Render `uri` from the repository as the page it now shows, a show page's sessions to follow. */
+  /** The page `uri` now shows in the repository, without its sessions. */
   private async render(uri: vscode.Uri): Promise<Page> {
     const route = parseRoute(uri);
     if (route.kind === "home") {
       this.homeSection = route.section;
     }
-    const page = await renderRoute(openCabaret(), route);
-    this.pages.set(uri.toString(), page);
-    if (route.kind === "show") {
-      void this.addSessions(uri, page, route.change);
+    return renderRoute(openCabaret(), route);
+  }
+
+  /** `run` an update of the page at `uri` once its earlier updates are done. */
+  private update(uri: vscode.Uri, run: () => Promise<void>): Promise<void> {
+    const key = uri.toString();
+    const updated = (this.updates.get(key) ?? Promise.resolve()).then(run, run);
+    this.updates.set(key, updated);
+    return updated;
+  }
+
+  /**
+   * Show `next` in the open document of `uri`, rather than leave it stale until the re-read that
+   * `changed` triggers lands.
+   */
+  private async serve(uri: vscode.Uri, next: Served): Promise<void> {
+    const key = uri.toString();
+    const document = openDocument(uri);
+    if (document === undefined) {
+      return;
     }
-    return page;
+    // VS Code applies no edit, so raises no event, for a re-read of the same text.
+    if (pageText(whole(next)) === document.getText()) {
+      this.served.set(key, next);
+      return;
+    }
+    const updated = new Promise<void>((resolve) => {
+      const listeners = [
+        vscode.workspace.onDidChangeTextDocument((event) => event.document === document && done()),
+        vscode.workspace.onDidCloseTextDocument((closed) => closed === document && done()),
+      ];
+      function done(): void {
+        for (const listener of listeners) {
+          listener.dispose();
+        }
+        resolve();
+      }
+    });
+    this.pending.set(key, next);
+    this.changed.fire(uri);
+    await updated;
+    // Left by a close before the re-read, it would be served stale on the next open.
+    this.pending.delete(key);
+  }
+
+  /**
+   * Re-render `uri` from the repository if a document of it is open, its sessions to follow. A
+   * failure is shown on the page, which no longer shows what is there, rather than reported:
+   * nothing the user did just now failed.
+   */
+  private refresh(uri: vscode.Uri): Promise<void> {
+    return this.update(uri, async () => {
+      if (openDocument(uri) === undefined) {
+        return;
+      }
+      const base = await this.render(uri).catch((error: unknown): Page => ({
+        lines: [{ segments: [{ text: `unavailable (${errorMessage(error)})`, tag: "Muted" }] }],
+        folds: [],
+        cursor: 0,
+      }));
+      // The sessions listed before stay until relisted, rather than blink out.
+      await this.serve(uri, { base, tail: this.served.get(uri.toString())?.tail });
+      void this.listSessions(uri, base);
+    });
   }
 
   /**
    * Listing sessions reads every transcript in the workspace, which is slow next to reading the
-   * repository, so a show page renders without them and grows a tail when they arrive, unless it
-   * was re-rendered meanwhile.
+   * repository, so a show page is served without its sessions and gains them once listed, unless
+   * re-rendered meanwhile.
    */
-  private async addSessions(uri: vscode.Uri, page: Page, change: ChangeId): Promise<void> {
-    const tail = await sessionsPage(openCabaret(), change);
-    const key = uri.toString();
-    // A closed document is not re-read on `changed`, so a completed page would wait to be served
-    // stale on the next open.
-    const open = vscode.workspace.textDocuments.some((document) => document.uri.toString() === key);
-    if (tail.lines.length === 0 || !open || this.pages.get(key) !== page) {
+  private async listSessions(uri: vscode.Uri, base: Page): Promise<void> {
+    const route = parseRoute(uri);
+    if (route.kind !== "show") {
       return;
     }
-    this.completed.set(key, inserted(page, page.lines.length, tail));
-    this.changed.fire(uri);
+    const tail = await sessionsPage(openCabaret(), route.change);
+    await this.update(uri, async () => {
+      if (this.served.get(uri.toString())?.base === base) {
+        await this.serve(uri, { base, tail });
+      }
+    });
+  }
+
+  /** Re-render every open page, as the repository may have changed underneath them. */
+  async refreshOpen(): Promise<void> {
+    const pages = vscode.workspace.textDocuments.filter((document) => document.uri.scheme === SCHEME);
+    await Promise.all(pages.map((document) => this.refresh(document.uri)));
+  }
+
+  /**
+   * Re-render the pages coming into view among `editors`, which may have missed a change nothing
+   * reports, such as an edit to another workspace's files.
+   */
+  async refreshArrivals(editors: readonly vscode.TextEditor[]): Promise<void> {
+    const uris = editors.map((editor) => editor.document.uri);
+    const arrivals = uris.filter((uri) => uri.scheme === SCHEME && !this.onScreen.has(uri.toString()));
+    this.onScreen = new Set(uris.map((uri) => uri.toString()));
+    await Promise.all(arrivals.map((uri) => this.refresh(uri)));
+  }
+
+  /**
+   * Render the pages VS Code kept open through an extension host restart, which the new host has
+   * no render of, so their targets, folds and colours work without reopening them.
+   */
+  async revive(): Promise<void> {
+    this.onScreen = new Set(vscode.window.visibleTextEditors.map((editor) => editor.document.uri.toString()));
+    await this.refreshOpen();
+    for (const editor of vscode.window.visibleTextEditors) {
+      this.decorate(editor);
+    }
   }
 
   provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
-    const page = this.pages.get(document.uri.toString());
+    const page = this.page(document.uri);
     if (page === undefined) {
       return [];
     }
@@ -335,12 +451,13 @@ class PageProvider
   }
 
   provideFoldingRanges(document: vscode.TextDocument): vscode.FoldingRange[] {
-    const page = this.pages.get(document.uri.toString());
+    const page = this.page(document.uri);
     return (page?.folds ?? []).map((fold) => new vscode.FoldingRange(fold.start, fold.end));
   }
 
   page(uri: vscode.Uri): Page | undefined {
-    return this.pages.get(uri.toString());
+    const served = this.served.get(uri.toString());
+    return served === undefined ? undefined : whole(served);
   }
 
   targetUnderCursor(editor: vscode.TextEditor): Target | undefined {
@@ -378,68 +495,14 @@ class PageProvider
     }
   }
 
-  /** Drop what was rendered for `route`, so an open document of it re-reads the repository. */
-  invalidate(route: Route): vscode.Uri {
-    const uri = routeUri(route);
-    this.completed.delete(uri.toString());
-    this.changed.fire(uri);
-    return uri;
-  }
-
-  /**
-   * Bring a document of `uri` VS Code still holds, perhaps from a closed tab, up to date, rather
-   * than show it stale until the re-read that `changed` triggers lands.
-   */
-  private async rerender(uri: vscode.Uri): Promise<void> {
-    const key = uri.toString();
-    this.completed.delete(key);
-    const document = vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === key);
-    if (document === undefined) {
-      return;
-    }
-    const page = await this.render(uri);
-    // VS Code applies no edit, so raises no event, for a re-read of the same text.
-    if (pageText(page) === document.getText()) {
-      return;
-    }
-    const updated = new Promise<void>((resolve) => {
-      const listeners = [
-        vscode.workspace.onDidChangeTextDocument((event) => event.document === document && done()),
-        vscode.workspace.onDidCloseTextDocument((closed) => closed === document && done()),
-      ];
-      function done(): void {
-        for (const listener of listeners) {
-          listener.dispose();
-        }
-        resolve();
-      }
-      // Closed while rendering, so no event is coming; the next open reads the completed page.
-      if (document.isClosed) {
-        done();
-      }
-    });
-    this.completed.set(key, page);
-    this.changed.fire(uri);
-    await updated;
-  }
-
-  /**
-   * Render a page VS Code kept open through an extension host restart, which the new host has no
-   * render of, so its targets, folds and colours work without reopening it.
-   */
-  async revive(uri: vscode.Uri): Promise<void> {
-    await this.rerender(uri);
-    for (const editor of vscode.window.visibleTextEditors) {
-      if (editor.document.uri.toString() === uri.toString()) {
-        this.decorate(editor);
-      }
-    }
-  }
-
   /** Re-render `route` from the repository and show it. */
   async open(route: Route): Promise<void> {
     const uri = routeUri(route);
-    await this.rerender(uri);
+    // A page not yet open is rendered as it opens, and its sessions listed as it comes into view.
+    if (openDocument(uri) !== undefined) {
+      await this.refresh(uri);
+      this.onScreen.add(uri.toString());
+    }
     await replacingActive(async () => {
       const document = await inPageLanguage(await vscode.workspace.openTextDocument(uri));
       const selection = this.selections.get(uri.toString()) ?? this.startSelection(uri);
@@ -516,8 +579,6 @@ function descriptionChange(uri: vscode.Uri): ChangeId {
 class DescriptionProvider implements vscode.FileSystemProvider {
   readonly onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>().event;
 
-  constructor(private readonly pages: PageProvider) {}
-
   watch(): vscode.Disposable {
     return new vscode.Disposable(() => undefined);
   }
@@ -535,7 +596,6 @@ class DescriptionProvider implements vscode.FileSystemProvider {
     const change = descriptionChange(uri);
     const text = Buffer.from(content).toString();
     await openCabaret().setDescription(change, text.trim() === "" ? undefined : text);
-    this.pages.invalidate({ kind: "show", change });
   }
 
   readDirectory(): never {
@@ -565,7 +625,11 @@ async function fileDiffSides(
   change: ChangeId,
   files: ChangedFile[],
 ): Promise<{ before: vscode.Uri; after: vscode.Uri }[]> {
-  const { tip, files: diffs } = await cabaret.viewDiff(change, view, files.map((file) => file.path));
+  const { tip, files: diffs } = await cabaret.viewDiff(
+    change,
+    view,
+    files.map((file) => file.path),
+  );
   return diffs.map(({ file, before, after }) => {
     const diff: FileDiff = { view, change, path: file.path, tip };
     const from = "from" in file ? file.from : file.path;
@@ -681,7 +745,7 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
     return;
   }
   await cabaret.setTitle(change, edited === "" ? undefined : edited);
-  provider.invalidate({ kind: "show", change });
+  await provider.refreshOpen();
 }
 
 /** Terminals showing a resumed session, so a second Enter reveals the same one. */
@@ -956,7 +1020,7 @@ async function reporting(run: () => Promise<void>): Promise<void> {
   try {
     await run();
   } catch (error) {
-    vscode.window.showErrorMessage(`Cabaret: ${error instanceof Error ? error.message : String(error)}`);
+    vscode.window.showErrorMessage(`Cabaret: ${errorMessage(error)}`);
   }
 }
 
@@ -1133,7 +1197,7 @@ async function markSelected(cabaret: Cabaret, provider: PageProvider, editor: vs
   const paths = files.map((file) => file.path);
   await cabaret.mark(route.change, paths);
   vscode.window.showInformationMessage(`Cabaret: marked ${words(paths)} of ${route.change} reviewed`);
-  await refresh(provider);
+  await provider.refreshOpen();
 }
 
 /** Enter over a selection on a view's page: the selected files side by side in a multi-file diff. */
@@ -1148,14 +1212,6 @@ async function diffSelected(cabaret: Cabaret, provider: PageProvider, editor: vs
     throw new Error("no file is selected");
   }
   await openFileDiffs(cabaret, route.kind, route.change, files);
-}
-
-/** Re-render the active page from the repository. */
-async function refresh(provider: PageProvider): Promise<void> {
-  const editor = activePage();
-  if (editor !== undefined) {
-    await provider.open(parseRoute(editor.document.uri));
-  }
 }
 
 /**
@@ -1245,7 +1301,7 @@ function plannedSequence(
       // A failure partway through still leaves the earlier steps done, so report and show them.
       if (reports.length > 0) {
         vscode.window.showInformationMessage(`Cabaret: ${reports.join("; ")}`);
-        await refresh(provider);
+        await provider.refreshOpen();
       }
     }
   });
@@ -1276,7 +1332,7 @@ function action(
     }
     const { report, show } = typeof outcome === "string" ? { report: outcome, show: undefined } : outcome;
     vscode.window.showInformationMessage(`Cabaret: ${report}`);
-    await (show === undefined ? refresh(provider) : provider.open(show));
+    await (show === undefined ? provider.refreshOpen() : provider.open(show));
   });
 }
 
@@ -1773,7 +1829,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerDocumentLinkProvider({ scheme: SCHEME }, provider),
     vscode.languages.registerFoldingRangeProvider({ scheme: SCHEME }, provider),
     vscode.workspace.registerTextDocumentContentProvider(BLOB_SCHEME, new BlobProvider()),
-    vscode.workspace.registerFileSystemProvider(DESCRIPTION_SCHEME, new DescriptionProvider(provider), {
+    vscode.workspace.registerFileSystemProvider(DESCRIPTION_SCHEME, new DescriptionProvider(), {
       isCaseSensitive: true,
     }),
     // Pages restored with the window or opened by a link skip `open`.
@@ -1782,7 +1838,16 @@ export function activate(context: vscode.ExtensionContext) {
       for (const editor of editors) {
         provider.decorate(editor);
       }
+      void reporting(() => provider.refreshArrivals(editors));
     }),
+    // Coming back to the window, as from a terminal, is when changes made outside it show up.
+    vscode.window.onDidChangeWindowState(({ focused }) => {
+      if (focused) {
+        void reporting(() => provider.refreshOpen());
+      }
+    }),
+    // Saving a file changes what the workspace page shows, saving a description the show page.
+    vscode.workspace.onDidSaveTextDocument(() => reporting(() => provider.refreshOpen())),
     vscode.window.onDidChangeTextEditorSelection(({ textEditor }) => {
       if (textEditor.document.uri.scheme === SCHEME) {
         provider.rememberSelection(textEditor);
@@ -1854,7 +1919,7 @@ export function activate(context: vscode.ExtensionContext) {
         await provider.open(out);
       }
     }),
-    command("cabaret.refresh", () => refresh(provider)),
+    command("cabaret.refresh", () => provider.refreshOpen()),
     // `! m`: mark reviewed what is on screen, a file diff or the files selected on a page.
     command("cabaret.mark", async (cabaret) => {
       const filesDiff = activeFilesDiff();
@@ -1895,10 +1960,6 @@ export function activate(context: vscode.ExtensionContext) {
   if (vscode.extensions.getExtension("JimmyZJX.leaderkey") !== undefined) {
     void vscode.commands.executeCommand("leaderkey.refreshConfigs").then(undefined, () => undefined);
   }
-  for (const document of vscode.workspace.textDocuments) {
-    if (document.uri.scheme === SCHEME) {
-      void reporting(() => provider.revive(document.uri));
-    }
-  }
+  void reporting(() => provider.revive());
   void reporting(() => takeHandoff(context, provider));
 }
