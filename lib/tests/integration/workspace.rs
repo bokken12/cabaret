@@ -163,14 +163,13 @@ fn remove_failing_partway() {
     fs::set_permissions(parent, fs::Permissions::from_mode(0o555)).unwrap();
     let error = fixture.cabaret.workspace_remove(linked("main-two").to_ref()).unwrap_err();
     fs::set_permissions(parent, fs::Permissions::from_mode(0o755)).unwrap();
+    let error = format!("{error:?}").replace(&workdir.display().to_string(), "<workdir>");
     let left: Vec<_> = fs::read_dir(&workdir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
-    // TODO: the files go before git's record of them, leaving a registered workspace emptied of
-    // even its `.git` file.
     expect![[r#"
-        Permission denied (os error 13)
-        {"main": Some("one"), "main-two": Some("two")}
+        workspace main-two is removed, but deleting <workdir> failed: Permission denied (os error 13)
+        {"main": Some("one")}
         []"#]]
-    .assert_eq(&format!("{error:?}\n{}\n{left:?}", workspaces(&fixture)));
+    .assert_eq(&format!("{error}\n{}\n{left:?}", workspaces(&fixture)));
 }
 
 #[test]
