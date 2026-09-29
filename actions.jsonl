@@ -1,7 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/land.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/rebase.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/safeguard.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
+{"action":"mark","reviewer":"me@joel.place","file":"cli/src/change.rs","revision":"07c20fb4276851b7f73dc0acd3a29d4ab1216dbb"}
