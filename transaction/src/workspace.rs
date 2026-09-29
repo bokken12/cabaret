@@ -21,6 +21,7 @@ use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
     index::entry::{Flags, Stat},
+    merge::blob::builtin_driver::text::Labels,
     objs::tree::EntryKind,
     refs::{
         Target,
@@ -190,16 +191,20 @@ impl<'ctx> Workspace<'ctx> {
         })
     }
 
-    /// Move the files from `from` to `to`, touching only the paths that differ. A workspace that
-    /// is not cleanly at `from` stays where it is. Takes `&mut self` to keep it to reserved
-    /// workspaces; only the files change.
-    pub fn fast_forward(&mut self, from: RevisionId, to: RevisionId) -> Result<()> {
+    /// Move the files from `from` to `branch`'s tip, merging in local changes and leaving
+    /// conflict markers where they collide. The index goes to the tip, so staged changes stay
+    /// only on disk. Takes `&mut self` to keep it to reserved workspaces; only the files change.
+    pub fn fast_forward(&mut self, from: RevisionId, branch: &Branch<'_>) -> Result<()> {
         let repo = self.repo()?;
-        let from = repo.find_commit(from)?.tree()?;
-        if status(&repo, &from)? == Status::Modified {
-            return Ok(());
-        }
-        self.write_files(&repo, &from, &repo.find_commit(to)?.tree()?)
+        let from = repo.find_commit(from)?.tree_id()?;
+        let to = repo.find_commit(branch.tip)?.tree()?;
+        let disk = repo.find_tree(disk_tree(&repo, &[])?.0.0)?;
+        let labels =
+            Labels { ancestor: Some("base".into()), current: Some("local".into()), other: Some(branch.id().as_bstr()) };
+        let mut merge = repo.merge_trees(from, disk.id, to.id, labels, tree::merge_options(&repo)?)?;
+        let merged = repo.find_tree(merge.tree.write()?.detach())?;
+        let (written, _) = self.write_paths(&repo, &disk, &merged)?;
+        write_index(&repo, &to, &written)
     }
 
     /// The files that differ between HEAD's tree and what is on disk at the paths `pathspecs`
@@ -285,15 +290,7 @@ impl<'ctx> Workspace<'ctx> {
     /// index at `to`.
     fn write_files(&self, repo: &Repository, from: &Tree<'_>, to: &Tree<'_>) -> Result<()> {
         let (written, _) = self.write_paths(repo, from, to)?;
-        // Stat data lets status trust unchanged files instead of rehashing them.
-        let old = repo.index_or_empty()?;
-        let mut index = repo.index_from_tree(&to.id)?;
-        for (entry, path) in index.entries_mut_with_paths() {
-            let source = written.entry_by_path(path).or_else(|| old.entry_by_path(path));
-            entry.stat = source.expect("every path in `to` was just written or is unchanged from `from`").stat;
-        }
-        index.write(gix::index::write::Options::default())?;
-        Ok(())
+        write_index(repo, to, &written)
     }
 
     /// Write the paths that differ between `from`, which the files are at, and `to`, returning
@@ -372,6 +369,21 @@ impl TransactionContext<'_> {
             Some(id) => WorkspaceId::Linked(id.to_owned()),
         })
     }
+}
+
+/// Write an index at `tree`, keeping the stat data of `written` and the old index only where
+/// they hold the same blob, since stat data lets status trust a file instead of rehashing it.
+fn write_index(repo: &Repository, tree: &Tree<'_>, written: &gix::index::State) -> Result<()> {
+    let old = repo.index_or_empty()?;
+    let mut index = repo.index_from_tree(&tree.id)?;
+    for (entry, path) in index.entries_mut_with_paths() {
+        entry.stat = match written.entry_by_path(path).or_else(|| old.entry_by_path(path)) {
+            Some(source) if source.id == entry.id => source.stat,
+            _ => Stat::default(),
+        };
+    }
+    index.write(gix::index::write::Options::default())?;
+    Ok(())
 }
 
 /// The repository as seen from `workspace`: its HEAD, index, and working directory. Only a

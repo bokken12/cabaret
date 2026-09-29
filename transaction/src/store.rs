@@ -265,7 +265,7 @@ impl Store {
         }
         for (branch, from) in moved {
             if let Some(workspace) = branch.workspace()? {
-                Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch.tip)?;
+                Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch)?;
             }
         }
         Ok(out)
