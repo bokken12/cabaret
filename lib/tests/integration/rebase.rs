@@ -1,5 +1,5 @@
-//! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
-//! change follows its branch.
+//! Rebasing: each parent's tip is merged into the change, and the workspace holding the change
+//! follows its branch, keeping its local changes.
 
 use cabaret_lib::safeguard::{OwnersAllow, RebaseAllow, Safeguard};
 use expect_test::expect;
@@ -166,7 +166,7 @@ fn onto_must_be_a_parent() {
 }
 
 #[test]
-fn dirty_workspace_is_left_behind() {
+fn workspace_keeps_local_changes() {
     let fixture = diverged();
     fixture.checkout("child");
     fixture.write("child.txt", "uncommitted\n");
@@ -175,6 +175,56 @@ fn dirty_workspace_is_left_behind() {
     expect![[r#"
         dirty
         child.txt "uncommitted\n"
+        main.txt "main\n"
+        shared.txt "shared\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
+}
+
+#[test]
+fn local_changes_conflicting_with_parent_get_markers() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.commit("main", &[("shared.txt", "from main\n")]);
+    fixture.write("shared.txt", "from child\n");
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
+        .assert_eq(&rebase(&fixture, "child", None));
+    expect![[r#"
+        dirty
+        child.txt "child\n"
+        main.txt "main\n"
+        shared.txt "<<<<<<< local\nfrom child\n||||||| base\nshared\n=======\nfrom main\n>>>>>>> child\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
+}
+
+#[test]
+fn staged_changes_stay_on_disk() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.stage("child.txt", "staged\n");
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
+        .assert_eq(&rebase(&fixture, "child", None));
+    expect![[r#"
+        dirty
+        child.txt "staged\n"
+        main.txt "main\n"
+        shared.txt "shared\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
+}
+
+#[test]
+fn untracked_file_parent_adds_gets_markers() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.write("main.txt", "untracked\n");
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
+        .assert_eq(&rebase(&fixture, "child", None));
+    expect![[r#"
+        dirty
+        child.txt "child\n"
+        main.txt "<<<<<<< local\nuntracked\n||||||| base\n=======\nmain\n>>>>>>> child\n"
         shared.txt "shared\n"
     "#]]
     .assert_eq(&fixture.worktree());

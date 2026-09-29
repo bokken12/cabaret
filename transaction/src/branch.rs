@@ -6,7 +6,7 @@ use cabaret_types::{ChangeId, ChangeIdRef, ChangedFile, Pathspec, RepoPath, Resu
 use gix::{
     bstr::ByteSlice,
     merge::{
-        blob::builtin_driver::text::{Conflict, ConflictStyle, Labels},
+        blob::builtin_driver::text::{Conflict, Labels},
         tree::TreatAsUnresolved,
     },
 };
@@ -187,19 +187,12 @@ impl<'ctx> Branch<'ctx> {
             return Ok(Some(BTreeSet::new()));
         }
 
-        // Conflict style and labels are forced rather than read from config so the committed
-        // conflict text is identical no matter whose clone performs the merge. Diff3 rather than
-        // zealous diff3 keeps each side whole within the markers, so the conflict's terms can be
-        // read back from the file.
+        // Labels are forced rather than read from config so the committed conflict text is
+        // identical no matter whose clone performs the merge.
         let repo = &ctx.repo;
         let labels =
             Labels { ancestor: Some("base".into()), current: Some(self.id.as_bstr()), other: Some(other.id.as_bstr()) };
-        let mut options: gix::merge::plumbing::tree::Options = repo.tree_merge_options()?.into();
-        options.blob_merge.text.conflict = Conflict::Keep {
-            style: ConflictStyle::Diff3,
-            marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero"),
-        };
-        let mut merge = repo.merge_commits(self.tip, other.tip, labels, options.into())?;
+        let mut merge = repo.merge_commits(self.tip, other.tip, labels, tree::merge_options(repo)?.into())?;
         let tree = TreeId(merge.tree_merge.tree.write()?.detach());
         let conflicts = merge
             .tree_merge
