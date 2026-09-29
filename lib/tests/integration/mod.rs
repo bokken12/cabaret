@@ -13,6 +13,7 @@ mod log;
 mod next_step;
 mod owners;
 mod parents;
+mod permanence;
 mod rebase;
 mod review;
 mod review_files;

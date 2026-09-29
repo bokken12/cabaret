@@ -1,6 +1,6 @@
 //! Landing: the parent merges the change in and the change is archived.
 
-use cabaret_lib::safeguard::{LandAllow, OwnersAllow, Safeguard};
+use cabaret_lib::safeguard::{LandAllow, OwnersAllow, PermanenceAllow, Safeguard};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -167,7 +167,7 @@ fn uncommitted_refuses_unless_allowed() {
 fn permanent_change_stays_open() {
     let fixture = diverged();
     fixture.checkout("main");
-    fixture.cabaret.set_permanent(&id("child"), true).unwrap();
+    fixture.cabaret.set_permanent(&id("child"), true, PermanenceAllow::default()).unwrap().unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
 }

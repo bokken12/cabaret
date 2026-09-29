@@ -3,7 +3,9 @@ use std::io::Write;
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, name,
-    safeguard::{AddParentAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, Safeguard},
+    safeguard::{
+        AddParentAllow, CommitAllow, LandAllow, OwnersAllow, PermanenceAllow, RebaseAllow, RemoveParentAllow, Safeguard,
+    },
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -154,6 +156,12 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
+        /// Change it even though you do not own it.
+        #[arg(long)]
+        allow_non_owner: bool,
+        /// Make it permanent even though its parents are not.
+        #[arg(long)]
+        allow_impermanent_parents: bool,
     },
     /// Mark files as reviewed by you.
     Mark {
@@ -292,7 +300,13 @@ impl ChangeCommand {
                     cabaret.land(&change, allow)?.map_err(|refused| refusal(&format!("land {change}"), refused))?;
                 println!("landed {change} into {parent}");
             }
-            ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
+            ChangeCommand::MakePermanent { change, undo, allow_non_owner, allow_impermanent_parents } => {
+                let change = or_current(change)?;
+                let allow =
+                    PermanenceAllow { non_owner: allow_non_owner, impermanent_parents: allow_impermanent_parents };
+                let action = format!("make {change} {}", if undo { "impermanent" } else { "permanent" });
+                cabaret.set_permanent(&change, !undo, allow)?.map_err(|refused| refusal(&action, refused))?;
+            }
             ChangeCommand::Mark { change, tip, files } => {
                 cabaret.mark(&or_current(change)?, &files, tip)?;
             }

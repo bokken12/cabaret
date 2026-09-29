@@ -14,10 +14,11 @@ use cabaret_types::{
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
         AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, CommitAllow, CommitSafeguard, Conflicted, Empty,
-        LandAllow, LandSafeguard, NoCommonAncestor, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard,
-        ParentConflicted, ParentUnreviewed, Parentless, RebaseAllow, RebaseSafeguard, RedundantParent,
-        RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow, RemoveWorkspaceSafeguard, RemovesOthers,
-        SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, Uncommitted, Unreviewed,
+        ImpermanentParents, LandAllow, LandSafeguard, NoCommonAncestor, NonOwner, Ownerless, OwnersAllow,
+        OwnersSafeguard, ParentConflicted, ParentUnreviewed, Parentless, PermanenceAllow, PermanenceSafeguard,
+        RebaseAllow, RebaseSafeguard, RedundantParent, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow,
+        RemoveWorkspaceSafeguard, RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, Uncommitted,
+        Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -883,14 +884,35 @@ impl Cabaret {
         })
     }
 
-    pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if parents non-permanent?
-            match metadata.archived {
-                true => Err(format!("{change_id} is archived"))?,
-                _ => metadata.permanent = permanent,
-            };
-            Ok(())
+    pub fn set_permanent(
+        &self,
+        change_id: &ChangeIdRef,
+        permanent: bool,
+        allow: PermanenceAllow,
+    ) -> Result<std::result::Result<(), NEVec<PermanenceSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.archived {
+                Err(format!("{change_id} is archived"))?;
+            }
+            let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(PermanenceSafeguard::NonOwner));
+            if permanent {
+                let mut impermanent = BTreeSet::new();
+                for parent_id in metadata.parents()? {
+                    let parent = ctx.metadata(&parent_id)?;
+                    // A root never lands, so is as permanent as a change gets.
+                    if !parent.permanent && !parent.parents()?.is_empty() {
+                        impermanent.insert(parent_id);
+                    }
+                }
+                if let Some(parents) = NEBTreeSet::try_from_set(impermanent) {
+                    safeguards.push(PermanenceSafeguard::ImpermanentParents(ImpermanentParents { parents }));
+                }
+            }
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.permanent = permanent;
+            Ok(Ok(()))
         })
     }
 }

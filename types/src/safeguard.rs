@@ -130,6 +130,7 @@ every_safeguard! {
     NoCommonAncestor = "no-common-ancestor",
     ArchivedParent = "archived-parent",
     RedundantParent = "redundant-parent",
+    ImpermanentParents = "impermanent-parents",
 }
 
 safeguards!(
@@ -157,6 +158,11 @@ safeguards!(
     "remove a parent",
     RemoveParentSafeguard,
     RemoveParentAllow { BaseMoves: base_moves, Parentless: parentless, NoCommonAncestor: no_common_ancestor }
+);
+safeguards!(
+    "change permanence",
+    PermanenceSafeguard,
+    PermanenceAllow { NonOwner: non_owner, ImpermanentParents: impermanent_parents }
 );
 safeguards!("commit", CommitSafeguard, CommitAllow { Conflicted: conflicted });
 safeguards!("remove a workspace", RemoveWorkspaceSafeguard, RemoveWorkspaceAllow { Uncommitted: uncommitted });
@@ -335,5 +341,18 @@ pub struct RedundantParent {
 impl fmt::Display for RedundantParent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} is already an ancestor of {}, so it would be skipped", self.parent, self.descendant)
+    }
+}
+
+/// Parents that will land and be archived, leaving a permanent change nowhere lasting to land.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImpermanentParents {
+    pub parents: NEBTreeSet<ChangeId>,
+}
+
+impl fmt::Display for ImpermanentParents {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
+        write!(f, "{} {verb} not permanent", joined(&self.parents))
     }
 }

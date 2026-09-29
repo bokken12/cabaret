@@ -216,6 +216,7 @@ fn adding_conflict_markers_refuses_unless_allowed() {
         dirty
         main.txt "main\n"
         one.txt "<<<<<<< ours\none\n=======\nuno\n>>>>>>> theirs\n"
-    "#]].assert_eq(&fixture.worktree());
+    "#]]
+    .assert_eq(&fixture.worktree());
     expect![[r#"committed "one""#]].assert_eq(&commit_allowing(&fixture, "one", &[], CommitAllow { conflicted: true }));
 }
