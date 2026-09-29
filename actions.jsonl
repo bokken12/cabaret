@@ -1,8 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/node.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"transaction/src/context.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/file_diff.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/file_version.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/lib.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"types/src/view_diff.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
+{"action":"mark","reviewer":"me@joel.place","file":"cli/src/change.rs","revision":"224c21c112d697a632759fa6d938d412b34a5de3"}
