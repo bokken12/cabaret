@@ -15,5 +15,6 @@ Where the `action` may be any of (incomplete)
 - `add-owner` user
 - `remove-owner` user
 - `mark` file as reviewed at revision, whose commit also takes that revision as a parent so it is fetched and kept along with the log
+- `land` change, written to the log of the change it landed into, naming the landed change's log head as it stood when landed (none for a plain git branch), whose commit also takes that log head as a parent so the landed change's log is kept even once its own ref is deleted
 
 Logs entries written by one version of Cabaret must always be readable by all future versions of Cabaret, and so actions will likely be versioned. We do not make the same guarantee that newer versions always be readable by older versions.
