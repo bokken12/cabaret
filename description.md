@@ -1,0 +1,1 @@
+Error grows a Refused(NEVec<Safeguard>) variant beside Failed(String), so every Result can carry a refusal and Store::transact_or_abort goes: safeguarded actions return plain Result<T>, and Allow::check refuses with ?. Gives up per-action safeguard types in signatures; an alternative to transact-refusals, for comparison.
