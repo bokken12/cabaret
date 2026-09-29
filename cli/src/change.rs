@@ -2,17 +2,13 @@ use std::io::Write;
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, name,
-    safeguard::{
-        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, PermanenceAllow, RebaseAllow,
-        RemoveParentAllow, UnarchiveAllow,
-    },
+    RevisionId, name, safeguard::Allow,
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
-    args::{change_completer, parse_revision, revision_completer},
+    args::{Allowing, change_completer, parse_revision, revision_completer},
     diff::unified,
 };
 
@@ -24,21 +20,13 @@ pub enum OwnersCommand {
     },
     Remove {
         owner: Identity,
-        /// Remove them even though they are not you.
-        #[arg(long)]
-        allow_removes_others: bool,
-        /// Remove them even though it leaves no owners.
-        #[arg(long)]
-        allow_ownerless: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     Set {
         owners: Vec<Identity>,
-        /// Set them even though owners other than you are dropped.
-        #[arg(long)]
-        allow_removes_others: bool,
-        /// Set them even though there are none.
-        #[arg(long)]
-        allow_ownerless: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
 }
 
@@ -52,28 +40,14 @@ pub enum ParentsCommand {
     Add {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        /// Add it even though it is archived.
-        #[arg(long)]
-        allow_archived_parent: bool,
-        /// Add it even though it is already an ancestor of another parent.
-        #[arg(long)]
-        allow_redundant_parent: bool,
-        /// Add it even though the parents would share no ancestor.
-        #[arg(long)]
-        allow_no_common_ancestor: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        /// Remove it even though its work would join the change's diff.
-        #[arg(long)]
-        allow_base_moves: bool,
-        /// Remove it even though the change would have nowhere to land.
-        #[arg(long)]
-        allow_parentless: bool,
-        /// Remove it even though the remaining parents share no ancestor.
-        #[arg(long)]
-        allow_no_common_ancestor: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     Set {
         #[arg(required = true, add = change_completer())]
@@ -88,24 +62,16 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        /// Archive it even though open changes land into it.
-        #[arg(long, conflicts_with = "undo")]
-        allow_open_children: bool,
-        /// Archive it even though it is permanent.
-        #[arg(long, conflicts_with = "undo")]
-        allow_permanent: bool,
-        /// Unarchive it even though parents it declares are archived.
-        #[arg(long, requires = "undo")]
-        allow_archived_parents: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     Commit {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
-        /// Commit even though it adds conflict markers.
-        #[arg(long)]
-        allow_conflicted: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     Create {
         name: String,
@@ -141,24 +107,8 @@ pub enum ChangeCommand {
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
-        /// Land even though owners have files left to review.
-        #[arg(long)]
-        allow_unreviewed: bool,
-        /// Land even though you do not own it.
-        #[arg(long)]
-        allow_non_owner: bool,
-        /// Land even though the parent's owners have files of it left to review.
-        #[arg(long)]
-        allow_parent_unreviewed: bool,
-        /// Land even though it adds nothing, just archiving it.
-        #[arg(long)]
-        allow_empty: bool,
-        /// Land even though it leaves the parent holding conflict markers.
-        #[arg(long)]
-        allow_conflicted: bool,
-        /// Land even though its workspace has uncommitted changes.
-        #[arg(long)]
-        allow_uncommitted: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -166,12 +116,8 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        /// Change it even though you do not own it.
-        #[arg(long)]
-        allow_non_owner: bool,
-        /// Make it permanent even though its parents are not.
-        #[arg(long)]
-        allow_impermanent_parents: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     /// Mark files as reviewed by you.
     Mark {
@@ -201,15 +147,8 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
-        /// Rebase even though you do not own it.
-        #[arg(long)]
-        allow_non_owner: bool,
-        /// Rebase even though it has conflicts of its own left to resolve.
-        #[arg(long)]
-        allow_conflicted: bool,
-        /// Rebase even though a parent holds conflicts, which would come along.
-        #[arg(long)]
-        allow_parent_conflicted: bool,
+        #[command(flatten)]
+        allow: Allowing,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
     /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
@@ -238,27 +177,25 @@ impl ChangeCommand {
             None => cabaret.current_change(),
         };
         match self {
-            ChangeCommand::Archive { change, undo, allow_open_children, allow_permanent, allow_archived_parents } => {
+            ChangeCommand::Archive { change, undo, allow } => {
                 let change = or_current(change)?;
                 match undo {
                     false => {
-                        let allow = ArchiveAllow { open_children: allow_open_children, permanent: allow_permanent };
                         cabaret
-                            .archive(&change, allow)
+                            .archive(&change, &Allow::from(allow))
                             .map_err(|error| refusal(&format!("archive {change}"), error))?;
                     }
                     true => {
-                        let allow = UnarchiveAllow { archived_parents: allow_archived_parents };
                         cabaret
-                            .unarchive(&change, allow)
+                            .unarchive(&change, &Allow::from(allow))
                             .map_err(|error| refusal(&format!("unarchive {change}"), error))?;
                     }
                 }
             }
-            ChangeCommand::Commit { change, pathspecs, allow_conflicted } => {
+            ChangeCommand::Commit { change, pathspecs, allow } => {
                 let change = or_current(change)?;
                 cabaret
-                    .commit(&change, &pathspecs, CommitAllow { conflicted: allow_conflicted })
+                    .commit(&change, &pathspecs, &Allow::from(allow))
                     .map_err(|error| refusal(&format!("commit to {change}"), error))?;
                 println!("committed to {change}");
             }
@@ -301,33 +238,17 @@ impl ChangeCommand {
                 cabaret.discard(&change, &pathspecs)?;
                 println!("discarded from {change}");
             }
-            ChangeCommand::Land {
-                change,
-                allow_unreviewed,
-                allow_non_owner,
-                allow_parent_unreviewed,
-                allow_empty,
-                allow_conflicted,
-                allow_uncommitted,
-            } => {
+            ChangeCommand::Land { change, allow } => {
                 let change = or_current(change)?;
-                let allow = LandAllow {
-                    unreviewed: allow_unreviewed,
-                    non_owner: allow_non_owner,
-                    parent_unreviewed: allow_parent_unreviewed,
-                    empty: allow_empty,
-                    conflicted: allow_conflicted,
-                    uncommitted: allow_uncommitted,
-                };
-                let parent = cabaret.land(&change, allow).map_err(|error| refusal(&format!("land {change}"), error))?;
+                let parent = cabaret
+                    .land(&change, &Allow::from(allow))
+                    .map_err(|error| refusal(&format!("land {change}"), error))?;
                 println!("landed {change} into {parent}");
             }
-            ChangeCommand::MakePermanent { change, undo, allow_non_owner, allow_impermanent_parents } => {
+            ChangeCommand::MakePermanent { change, undo, allow } => {
                 let change = or_current(change)?;
-                let allow =
-                    PermanenceAllow { non_owner: allow_non_owner, impermanent_parents: allow_impermanent_parents };
                 let action = format!("make {change} {}", if undo { "impermanent" } else { "permanent" });
-                cabaret.set_permanent(&change, !undo, allow).map_err(|error| refusal(&action, error))?;
+                cabaret.set_permanent(&change, !undo, &Allow::from(allow)).map_err(|error| refusal(&action, error))?;
             }
             ChangeCommand::Mark { change, tip, files } => {
                 cabaret.mark(&or_current(change)?, &files, tip)?;
@@ -337,16 +258,14 @@ impl ChangeCommand {
                 match command {
                     OwnersCommand::Show => return Err("change owners show is not implemented yet".into()),
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
-                    OwnersCommand::Remove { owner, allow_removes_others, allow_ownerless } => {
-                        let allow = OwnersAllow { removes_others: allow_removes_others, ownerless: allow_ownerless };
+                    OwnersCommand::Remove { owner, allow } => {
                         cabaret
-                            .remove_owner(change, &owner, allow)
+                            .remove_owner(change, &owner, &Allow::from(allow))
                             .map_err(|error| refusal(&format!("remove {owner} as an owner of {change}"), error))?;
                     }
-                    OwnersCommand::Set { owners, allow_removes_others, allow_ownerless } => {
-                        let allow = OwnersAllow { removes_others: allow_removes_others, ownerless: allow_ownerless };
+                    OwnersCommand::Set { owners, allow } => {
                         cabaret
-                            .set_owners(change, owners.into_iter().collect(), allow)
+                            .set_owners(change, owners.into_iter().collect(), &Allow::from(allow))
                             .map_err(|error| refusal(&format!("set the owners of {change}"), error))?;
                     }
                 }
@@ -359,29 +278,14 @@ impl ChangeCommand {
                         let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
                         println!("created {id} as parent of {change}");
                     }
-                    ParentsCommand::Add {
-                        parent,
-                        allow_archived_parent,
-                        allow_redundant_parent,
-                        allow_no_common_ancestor,
-                    } => {
-                        let allow = AddParentAllow {
-                            archived_parent: allow_archived_parent,
-                            redundant_parent: allow_redundant_parent,
-                            no_common_ancestor: allow_no_common_ancestor,
-                        };
+                    ParentsCommand::Add { parent, allow } => {
                         cabaret
-                            .add_parent(change, &parent, allow)
+                            .add_parent(change, &parent, &Allow::from(allow))
                             .map_err(|error| refusal(&format!("add {parent} as a parent of {change}"), error))?;
                     }
-                    ParentsCommand::Remove { parent, allow_base_moves, allow_parentless, allow_no_common_ancestor } => {
-                        let allow = RemoveParentAllow {
-                            base_moves: allow_base_moves,
-                            parentless: allow_parentless,
-                            no_common_ancestor: allow_no_common_ancestor,
-                        };
+                    ParentsCommand::Remove { parent, allow } => {
                         cabaret
-                            .remove_parent(change, &parent, allow)
+                            .remove_parent(change, &parent, &Allow::from(allow))
                             .map_err(|error| refusal(&format!("remove {parent} as a parent of {change}"), error))?;
                     }
                     ParentsCommand::Set { parents: _ } => {
@@ -389,13 +293,8 @@ impl ChangeCommand {
                     }
                 }
             }
-            ChangeCommand::Rebase { change, onto, allow_non_owner, allow_conflicted, allow_parent_conflicted } => {
-                let allow = RebaseAllow {
-                    non_owner: allow_non_owner,
-                    conflicted: allow_conflicted,
-                    parent_conflicted: allow_parent_conflicted,
-                };
-                rebase(&cabaret, &or_current(change)?, onto.as_deref(), allow)?;
+            ChangeCommand::Rebase { change, onto, allow } => {
+                rebase(&cabaret, &or_current(change)?, onto.as_deref(), &Allow::from(allow))?;
             }
             ChangeCommand::Review { change, pathspecs } => {
                 diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;
@@ -436,7 +335,7 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
     Ok(())
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: RebaseAllow) -> Result<()> {
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: &Allow) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
     let rebase = cabaret.rebase(change, onto, allow).map_err(|error| refusal(&format!("rebase {change}"), error))?;
     match rebase.merged.is_empty() {
@@ -453,13 +352,13 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allo
     Ok(())
 }
 
-/// Why `action` failed; a refusal names the flag that allows each safeguard. The flags are
-/// spelled `--allow-<kind>` on every command.
+/// Why `action` failed; a refusal names the flag that allows each safeguard, `--allow <kind>`
+/// on every command.
 pub fn refusal(action: &str, error: Error) -> Error {
     let Error::Refused(refused) = error else { return error };
     let reasons: Vec<String> = refused
         .into_iter()
-        .map(|safeguard| format!("{safeguard}; pass --allow-{} to override", safeguard.kind()))
+        .map(|safeguard| format!("{safeguard}; pass --allow {} to override", safeguard.kind()))
         .collect();
     match reasons.as_slice() {
         [reason] => format!("cannot {action}: {reason}"),

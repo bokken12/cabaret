@@ -1,6 +1,9 @@
 //! Owners: who shepherds a change, and the safeguards on removing them.
 
-use cabaret_lib::{Error, Identity, safeguard::OwnersAllow};
+use cabaret_lib::{
+    Error, Identity,
+    safeguard::{Allow, SafeguardKind},
+};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -33,7 +36,7 @@ fn owners(fixture: &Fixture) -> String {
 #[test]
 fn removing_yourself_needs_no_allowing() {
     let fixture = co_owned();
-    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &alice(), OwnersAllow::default())));
+    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &alice(), &Allow::default())));
     expect!["bob@example.com"].assert_eq(&owners(&fixture));
 }
 
@@ -43,24 +46,24 @@ fn removing_others_refuses_unless_allowed() {
     expect!["refused: bob@example.com would no longer own it"].assert_eq(&shown(fixture.cabaret.remove_owner(
         &id("change"),
         &bob(),
-        OwnersAllow::default(),
+        &Allow::default(),
     )));
     expect!["alice@example.com bob@example.com"].assert_eq(&owners(&fixture));
-    let allow = OwnersAllow { removes_others: true, ..OwnersAllow::default() };
-    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &bob(), allow)));
+    let allow = Allow::from_iter([SafeguardKind::RemovesOthers]);
+    expect!["done"].assert_eq(&shown(fixture.cabaret.remove_owner(&id("change"), &bob(), &allow)));
     expect!["alice@example.com"].assert_eq(&owners(&fixture));
 }
 
 #[test]
 fn leaving_no_owners_refuses_unless_allowed() {
     let fixture = co_owned();
-    let everyone = OwnersAllow { removes_others: true, ..OwnersAllow::default() };
+    let everyone = Allow::from_iter([SafeguardKind::RemovesOthers]);
     expect!["refused: it would have no owners"].assert_eq(&shown(fixture.cabaret.set_owners(
         &id("change"),
         [].into(),
-        everyone,
+        &everyone,
     )));
-    let allow = OwnersAllow { removes_others: true, ownerless: true };
-    expect!["done"].assert_eq(&shown(fixture.cabaret.set_owners(&id("change"), [].into(), allow)));
+    let allow = Allow::from_iter([SafeguardKind::RemovesOthers, SafeguardKind::Ownerless]);
+    expect!["done"].assert_eq(&shown(fixture.cabaret.set_owners(&id("change"), [].into(), &allow)));
     expect![""].assert_eq(&owners(&fixture));
 }

@@ -12,10 +12,7 @@ use cabaret_agents::ClaudeCode;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     ViewDiff, WorkspaceId,
-    safeguard::{
-        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow,
-        RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
-    },
+    safeguard::{Allow, SafeguardKind},
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -56,12 +53,12 @@ pub struct Safeguard {
     pub message: String,
 }
 
-fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::safeguard::Safeguard>>) -> Vec<Safeguard> {
+fn presented(safeguards: impl IntoIterator<Item = cabaret_types::safeguard::Safeguard>) -> Vec<Safeguard> {
     let present = |safeguard: cabaret_types::safeguard::Safeguard| Safeguard {
         kind: safeguard.kind(),
         message: safeguard.to_string(),
     };
-    safeguards.into_iter().map(Into::into).map(present).collect()
+    safeguards.into_iter().map(present).collect()
 }
 
 /// Refusals as a value to present, other failures as the errors they are.
@@ -80,8 +77,8 @@ pub enum Attempt {
     Refused { safeguards: Vec<Safeguard> },
 }
 
-impl<S: Into<cabaret_types::safeguard::Safeguard>> From<std::result::Result<(), NEVec<S>>> for Attempt {
-    fn from(attempt: std::result::Result<(), NEVec<S>>) -> Self {
+impl From<std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>> for Attempt {
+    fn from(attempt: std::result::Result<(), NEVec<cabaret_types::safeguard::Safeguard>>) -> Self {
         match attempt {
             Ok(()) => Self::Done,
             Err(refused) => Self::Refused { safeguards: presented(refused) },
@@ -252,8 +249,8 @@ impl CabaretJs {
     pub async fn workspace_remove(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
         let attempt = self
             .blocking(move |cabaret| {
-                let allow = RemoveWorkspaceAllow::try_from(allow.as_slice())?;
-                outcome(cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), allow))
+                let allow = Allow::from_iter(allow);
+                outcome(cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), &allow))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -275,8 +272,8 @@ impl CabaretJs {
     pub async fn workspace_switch(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
         let attempt = self
             .blocking(move |cabaret| {
-                let allow = SwitchWorkspaceAllow::try_from(allow.as_slice())?;
-                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, allow))
+                let allow = Allow::from_iter(allow);
+                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, &allow))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -293,9 +290,7 @@ impl CabaretJs {
     ) -> napi::Result<Committed> {
         let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
         let committed = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.commit(&change, &pathspecs, CommitAllow::try_from(allow.as_slice())?))
-            })
+            .blocking(move |cabaret| outcome(cabaret.commit(&change, &pathspecs, &Allow::from_iter(allow))))
             .await?;
         Ok(match committed {
             Ok(revision) => Committed::Done { revision },
@@ -336,9 +331,7 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Attempt> {
         let removed = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.remove_owner(&change, &owner, OwnersAllow::try_from(allow.as_slice())?))
-            })
+            .blocking(move |cabaret| outcome(cabaret.remove_owner(&change, &owner, &Allow::from_iter(allow))))
             .await?;
         Ok(Attempt::from(removed))
     }
@@ -351,9 +344,7 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Attempt> {
         let attempt = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.add_parent(&change, &parent, AddParentAllow::try_from(allow.as_slice())?))
-            })
+            .blocking(move |cabaret| outcome(cabaret.add_parent(&change, &parent, &Allow::from_iter(allow))))
             .await?;
         Ok(Attempt::from(attempt))
     }
@@ -366,9 +357,7 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Attempt> {
         let attempt = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.remove_parent(&change, &parent, RemoveParentAllow::try_from(allow.as_slice())?))
-            })
+            .blocking(move |cabaret| outcome(cabaret.remove_parent(&change, &parent, &Allow::from_iter(allow))))
             .await?;
         Ok(Attempt::from(attempt))
     }
@@ -397,9 +386,7 @@ impl CabaretJs {
 
     #[napi]
     pub async fn land(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Landed> {
-        let landed = self
-            .blocking(move |cabaret| outcome(cabaret.land(&change, LandAllow::try_from(allow.as_slice())?)))
-            .await?;
+        let landed = self.blocking(move |cabaret| outcome(cabaret.land(&change, &Allow::from_iter(allow)))).await?;
         Ok(match landed {
             Ok(into) => Landed::Done { into },
             Err(refused) => Landed::Refused { safeguards: presented(refused) },
@@ -408,17 +395,14 @@ impl CabaretJs {
 
     #[napi]
     pub async fn archive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self
-            .blocking(move |cabaret| outcome(cabaret.archive(&change, ArchiveAllow::try_from(allow.as_slice())?)))
-            .await?;
+        let attempt = self.blocking(move |cabaret| outcome(cabaret.archive(&change, &Allow::from_iter(allow)))).await?;
         Ok(Attempt::from(attempt))
     }
 
     #[napi]
     pub async fn unarchive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt = self
-            .blocking(move |cabaret| outcome(cabaret.unarchive(&change, UnarchiveAllow::try_from(allow.as_slice())?)))
-            .await?;
+        let attempt =
+            self.blocking(move |cabaret| outcome(cabaret.unarchive(&change, &Allow::from_iter(allow)))).await?;
         Ok(Attempt::from(attempt))
     }
 
@@ -435,9 +419,7 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Rebased> {
         let rebased = self
-            .blocking(move |cabaret| {
-                outcome(cabaret.rebase(&change, onto.as_deref(), RebaseAllow::try_from(allow.as_slice())?))
-            })
+            .blocking(move |cabaret| outcome(cabaret.rebase(&change, onto.as_deref(), &Allow::from_iter(allow))))
             .await?;
         Ok(match rebased {
             Ok(rebase) => Rebased::Done { rebase },

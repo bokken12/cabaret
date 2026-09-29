@@ -1,7 +1,7 @@
 //! The files a reviewer has left to read: each as the tip differs from the merge of the bases
 //! with the tip they last marked it reviewed at.
 
-use cabaret_lib::{Pathspec, RepoPath, safeguard::RebaseAllow};
+use cabaret_lib::{Pathspec, RepoPath, safeguard::Allow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};
@@ -60,7 +60,7 @@ fn a_rebase_after_the_mark_leaves_nothing_to_review() {
     let fixture = stacked();
     mark(&fixture, "change", &["a.txt", "b.txt"]);
     fixture.commit("main", &[("main.txt", "main\n")]);
-    fixture.cabaret.rebase(&id("change"), None, RebaseAllow::default()).unwrap();
+    fixture.cabaret.rebase(&id("change"), None, &Allow::default()).unwrap();
     expect!["[]"].assert_eq(&review_files(&fixture, "change", &[]));
 }
 

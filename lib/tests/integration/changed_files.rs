@@ -1,7 +1,7 @@
 //! The files a change presents: its tip's tree against its base's, with renames detected and
 //! pathspecs narrowing the result.
 
-use cabaret_lib::Pathspec;
+use cabaret_lib::{Pathspec, safeguard::Allow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};
@@ -110,7 +110,7 @@ fn two_parent_change_diffs_against_merged_bases() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default()).unwrap();
+    fixture.cabaret.add_parent(&id("join"), &id("right"), &Allow::default()).unwrap();
     fixture.merge("join", "right", &[("join.txt", "join\n")]);
     expect![[r#"[Added { path: "join.txt" }]"#]].assert_eq(&changed_files(&fixture, "join", &[]));
 }

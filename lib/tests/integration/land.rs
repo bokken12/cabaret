@@ -2,14 +2,14 @@
 
 use cabaret_lib::{
     Error,
-    safeguard::{LandAllow, OwnersAllow, PermanenceAllow, Safeguard},
+    safeguard::{Allow, Safeguard, SafeguardKind},
 };
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
 
-fn shown(safeguards: impl IntoIterator<Item: Into<Safeguard>>) -> String {
-    let shown: Vec<String> = safeguards.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
+fn shown(safeguards: impl IntoIterator<Item = Safeguard>) -> String {
+    let shown: Vec<String> = safeguards.into_iter().map(|safeguard| safeguard.to_string()).collect();
     shown.join("; ")
 }
 
@@ -25,9 +25,9 @@ fn diverged() -> Fixture {
     fixture
 }
 
-fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, change, LandAllow::default()) }
+fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, change, &Allow::default()) }
 
-fn land_allowing(fixture: &Fixture, change: &str, allow: LandAllow) -> String {
+fn land_allowing(fixture: &Fixture, change: &str, allow: &Allow) -> String {
     match fixture.cabaret.land(&id(change), allow) {
         Ok(parent) => format!("landed into {parent}"),
         Err(Error::Refused(refused)) => format!("refused: {}", shown(refused)),
@@ -85,9 +85,9 @@ fn conflicts_into_root_refuse() {
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
     let tip = fixture.tip("main");
-    let allow = LandAllow { conflicted: true, unreviewed: true, ..LandAllow::default() };
+    let allow = Allow::from_iter([SafeguardKind::Conflicted, SafeguardKind::Unreviewed]);
     expect!["error: child would land conflicts in main, a root; rebase and resolve first"]
-        .assert_eq(&land_allowing(&fixture, "child", allow));
+        .assert_eq(&land_allowing(&fixture, "child", &allow));
     assert_eq!(fixture.tip("main"), tip);
     assert!(!fixture.snapshot("child").archived);
 }
@@ -112,7 +112,7 @@ fn conflicts_refuse_unless_allowed() {
     expect!["landed into mid"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { conflicted: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::Conflicted]),
     ));
     expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
         &fixture
@@ -132,11 +132,7 @@ fn empty_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("empty", "main", &alice());
     expect!["refused: it adds nothing to main"].assert_eq(&land(&fixture, "empty"));
-    expect!["landed into main"].assert_eq(&land_allowing(
-        &fixture,
-        "empty",
-        LandAllow { empty: true, ..LandAllow::default() },
-    ));
+    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", &Allow::from_iter([SafeguardKind::Empty])));
     assert!(fixture.snapshot("empty").archived);
 }
 
@@ -144,12 +140,12 @@ fn empty_refuses_unless_allowed() {
 fn unreviewed_parent_refuses_unless_allowed() {
     let fixture = conflicting();
     fixture.commit("mid", &[("greeting.txt", "hi\n")]);
-    fixture.cabaret.rebase(&id("child"), None, cabaret_lib::safeguard::RebaseAllow::default()).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, &Allow::default()).unwrap();
     expect!["refused: alice@example.com has files of mid left to review"].assert_eq(&land(&fixture, "child"));
     expect!["landed into mid"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { parent_unreviewed: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::ParentUnreviewed]),
     ));
 }
 
@@ -162,7 +158,7 @@ fn uncommitted_refuses_unless_allowed() {
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { uncommitted: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::Uncommitted]),
     ));
 }
 
@@ -170,7 +166,7 @@ fn uncommitted_refuses_unless_allowed() {
 fn permanent_change_stays_open() {
     let fixture = diverged();
     fixture.checkout("main");
-    fixture.cabaret.set_permanent(&id("child"), true, PermanenceAllow::default()).unwrap();
+    fixture.cabaret.set_permanent(&id("child"), true, &Allow::default()).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
 }
@@ -185,31 +181,31 @@ fn unreviewed_refuses_unless_allowed() {
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::Unreviewed]),
     ));
 }
 
 #[test]
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::Unreviewed]),
     ));
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, non_owner: true, ..LandAllow::default() },
+        &Allow::from_iter([SafeguardKind::Unreviewed, SafeguardKind::NonOwner]),
     ));
 }
 
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
     fixture.archive("child");
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
@@ -217,7 +213,7 @@ fn errors_come_before_safeguards() {
 #[test]
 fn safeguards_foretell_refusal() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
     expect![
         "you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"
     ]

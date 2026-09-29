@@ -3,7 +3,7 @@
 
 use cabaret_lib::{
     Cabaret, Error, WorkspaceId,
-    safeguard::{RemoveWorkspaceAllow, SwitchWorkspaceAllow},
+    safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
 
@@ -25,11 +25,11 @@ fn shown(attempt: cabaret_lib::Result<()>) -> String {
 }
 
 /// Switch the main workspace to `change`.
-fn switch(fixture: &Fixture, change: &str, allow: SwitchWorkspaceAllow) -> String {
+fn switch(fixture: &Fixture, change: &str, allow: &Allow) -> String {
     shown(fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), id(change), allow))
 }
 
-fn remove(fixture: &Fixture, workspace: &str, allow: RemoveWorkspaceAllow) -> String {
+fn remove(fixture: &Fixture, workspace: &str, allow: &Allow) -> String {
     shown(fixture.cabaret.workspace_remove(linked(workspace).to_ref(), allow))
 }
 
@@ -103,7 +103,7 @@ fn add_refuses_change_already_checked_out() {
 #[test]
 fn switch_swaps_files_and_head() {
     let fixture = two_changes();
-    expect!["done"].assert_eq(&switch(&fixture, "two", SwitchWorkspaceAllow::default()));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &Allow::default()));
     expect![[r#"{"main": Some("two")}"#]].assert_eq(&workspaces(&fixture));
     expect![[r#"
         clean
@@ -118,13 +118,9 @@ fn switch_refuses_dirty_workspace_unless_allowed() {
     let fixture = two_changes();
     fixture.write("one.txt", "edited\n");
     fixture.write("scratch.txt", "scratch\n");
-    expect!["refused: workspace main has uncommitted changes"].assert_eq(&switch(
-        &fixture,
-        "two",
-        SwitchWorkspaceAllow::default(),
-    ));
+    expect!["refused: workspace main has uncommitted changes"].assert_eq(&switch(&fixture, "two", &Allow::default()));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
-    expect!["done"].assert_eq(&switch(&fixture, "two", SwitchWorkspaceAllow { uncommitted: true }));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &Allow::from_iter([SafeguardKind::Uncommitted])));
     expect![[r#"
         clean
         main.txt "main\n"
@@ -138,7 +134,7 @@ fn switch_refuses_dirty_workspace_unless_allowed() {
 fn switch_keeps_untracked_files() {
     let fixture = two_changes();
     fixture.write("scratch.txt", "scratch\n");
-    expect!["done"].assert_eq(&switch(&fixture, "two", SwitchWorkspaceAllow::default()));
+    expect!["done"].assert_eq(&switch(&fixture, "two", &Allow::default()));
     expect![[r#"
         clean
         main.txt "main\n"
@@ -155,7 +151,7 @@ fn switch_refuses_change_checked_out_elsewhere() {
     expect!["error: two is already checked out in workspace main-two"].assert_eq(&switch(
         &fixture,
         "two",
-        SwitchWorkspaceAllow::default(),
+        &Allow::default(),
     ));
     expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -164,7 +160,7 @@ fn switch_refuses_change_checked_out_elsewhere() {
 fn remove_deletes_clean_workspace() {
     let fixture = two_changes();
     let two = fixture.add_workspace("two");
-    expect!["done"].assert_eq(&remove(&fixture, "main-two", RemoveWorkspaceAllow::default()));
+    expect!["done"].assert_eq(&remove(&fixture, "main-two", &Allow::default()));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
     expect!["None"].assert_eq(&format!("{:?}", fixture.snapshot("two").workspace));
     assert!(!two.workdir().unwrap().exists());
@@ -179,7 +175,7 @@ fn remove_refuses_dirty_workspace_unless_allowed() {
     expect!["refused: workspace main-two has uncommitted changes"].assert_eq(&remove(
         &fixture,
         "main-two",
-        RemoveWorkspaceAllow::default(),
+        &Allow::default(),
     ));
     expect![[r#"
         dirty
@@ -187,7 +183,7 @@ fn remove_refuses_dirty_workspace_unless_allowed() {
         two.txt "edited\n"
     "#]]
     .assert_eq(&worktree(&two));
-    expect!["done"].assert_eq(&remove(&fixture, "main-two", RemoveWorkspaceAllow { uncommitted: true }));
+    expect!["done"].assert_eq(&remove(&fixture, "main-two", &Allow::from_iter([SafeguardKind::Uncommitted])));
     assert!(!two.workdir().unwrap().exists());
 }
 
@@ -199,7 +195,7 @@ fn remove_refuses_workspace_with_untracked_files() {
     expect!["refused: workspace main-two has uncommitted changes"].assert_eq(&remove(
         &fixture,
         "main-two",
-        RemoveWorkspaceAllow::default(),
+        &Allow::default(),
     ));
     assert!(two.workdir().unwrap().join("scratch.txt").exists());
 }
@@ -215,7 +211,7 @@ fn remove_failing_partway() {
     let workdir = two.workdir().unwrap().to_owned();
     let parent = workdir.parent().unwrap();
     fs::set_permissions(parent, fs::Permissions::from_mode(0o555)).unwrap();
-    let error = remove(&fixture, "main-two", RemoveWorkspaceAllow::default());
+    let error = remove(&fixture, "main-two", &Allow::default());
     fs::set_permissions(parent, fs::Permissions::from_mode(0o755)).unwrap();
     let error = error.replace(&workdir.display().to_string(), "<workdir>");
     let left: Vec<_> = fs::read_dir(&workdir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
@@ -230,9 +226,8 @@ fn remove_failing_partway() {
 fn main_workspace_cannot_be_removed() {
     let fixture = two_changes();
     fixture.write("scratch.txt", "scratch\n");
-    expect!["error: the main workspace cannot be removed"].assert_eq(&shown(
-        fixture.cabaret.workspace_remove(WorkspaceId::Main.to_ref(), RemoveWorkspaceAllow::default()),
-    ));
+    expect!["error: the main workspace cannot be removed"]
+        .assert_eq(&shown(fixture.cabaret.workspace_remove(WorkspaceId::Main.to_ref(), &Allow::default())));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
 }
 
@@ -281,7 +276,7 @@ fn workspace_outlives_workspace_it_was_added_from() {
     let fixture = two_changes_in(Fixture::bare());
     let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
     let one = open_cabaret(&two).workspace_add(id("one"), None).unwrap();
-    expect!["done"].assert_eq(&remove(&fixture, "two", RemoveWorkspaceAllow::default()));
+    expect!["done"].assert_eq(&remove(&fixture, "two", &Allow::default()));
     expect![[r#""one""#]].assert_eq(&format!("{:?}", open_cabaret(&one).workspace_current().unwrap()));
 }
 

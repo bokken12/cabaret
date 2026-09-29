@@ -18,7 +18,7 @@ use std::{
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TreeId,
     log::{self, LogAction},
-    safeguard::ArchiveAllow,
+    safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
 use gix::{
@@ -155,8 +155,8 @@ impl Fixture {
 
     /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.
     pub fn archive(&self, change: &str) {
-        let allow = ArchiveAllow { open_children: true, permanent: true };
-        self.cabaret.archive(&id(change), allow).unwrap();
+        let allow = Allow::from_iter([SafeguardKind::OpenChildren, SafeguardKind::Permanent]);
+        self.cabaret.archive(&id(change), &allow).unwrap();
     }
 
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
@@ -541,10 +541,7 @@ pub fn scene() -> Fixture {
     fixture.create("fork-right", "fork-base", &bob());
     fixture.commit("fork-right", &[("fork-right.txt", "fork-right\n")]);
     fixture.create("fork-join", "fork-left", &carol());
-    fixture
-        .cabaret
-        .add_parent(&id("fork-join"), &id("fork-right"), cabaret_lib::safeguard::AddParentAllow::default())
-        .unwrap();
+    fixture.cabaret.add_parent(&id("fork-join"), &id("fork-right"), &Allow::default()).unwrap();
     fixture.merge("fork-join", "fork-right", &[("fork-join.txt", "fork-join\n")]);
 
     fixture.create("empty", "main", &alice());

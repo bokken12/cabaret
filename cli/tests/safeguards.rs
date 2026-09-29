@@ -1,32 +1,12 @@
-//! Refusals by safeguards, and the flags they name to allow each.
+//! Refusals by safeguards, and the flag they name to allow each.
 
-use cabaret_cli::{
-    change::{ChangeCommand, refusal},
-    workspace::WorkspaceCommand,
-};
+use cabaret_cli::change::refusal;
 use cabaret_lib::{
     ChangeId, Error, Identity,
-    safeguard::{
-        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, NonOwner, OwnersAllow, PermanenceAllow, RebaseAllow,
-        RemoveParentAllow, RemoveWorkspaceAllow, Safeguard, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
-        Unreviewed,
-    },
+    safeguard::{NonOwner, Safeguard, Unreviewed},
 };
-use clap::Parser;
 use expect_test::expect;
 use nonempty_collections::{nebts, nev};
-
-#[derive(Parser)]
-struct Cli {
-    #[command(subcommand)]
-    command: ChangeCommand,
-}
-
-#[derive(Parser)]
-struct Workspace {
-    #[command(subcommand)]
-    command: WorkspaceCommand,
-}
 
 fn child() -> ChangeId { "child".parse().unwrap() }
 
@@ -39,7 +19,7 @@ fn non_owner() -> NonOwner {
 #[test]
 fn one_safeguard_on_one_line() {
     let refused = nev![Safeguard::NonOwner(non_owner())];
-    expect!["cannot rebase child: you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override"]
+    expect!["cannot rebase child: you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow non-owner to override"]
         .assert_eq(&format!("{:?}", refusal(&format!("rebase {}", child()), Error::Refused(refused))));
 }
 
@@ -51,44 +31,7 @@ fn several_safeguards_one_per_line() {
     ];
     expect![[r#"
         cannot land child:
-          you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override
-          bob@example.com has files left to review; pass --allow-unreviewed to override"#]]
+          you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow non-owner to override
+          bob@example.com has files left to review; pass --allow unreviewed to override"#]]
     .assert_eq(&format!("{:?}", refusal(&format!("land {}", child()), Error::Refused(refused))));
-}
-
-/// Refusals name `--allow-<kind>`, so each command needs a flag spelled so for every safeguard it checks.
-#[test]
-fn flags_match_kinds() {
-    let parse = |command: &str, kinds: &[SafeguardKind]| {
-        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
-        Cli::try_parse_from(["cab".to_owned(), command.to_owned()].into_iter().chain(flags)).unwrap();
-    };
-    parse("land", LandAllow::KINDS);
-    parse("rebase", RebaseAllow::KINDS);
-    parse("commit", CommitAllow::KINDS);
-    parse("make-permanent", PermanenceAllow::KINDS);
-    parse("archive", ArchiveAllow::KINDS);
-    let unarchive = UnarchiveAllow::KINDS.iter().map(|kind| format!("--allow-{kind}"));
-    Cli::try_parse_from(["cab", "archive", "--undo"].map(str::to_owned).into_iter().chain(unarchive)).unwrap();
-    let owners = |command: &str| {
-        let flags = OwnersAllow::KINDS.iter().map(|kind| format!("--allow-{kind}"));
-        let args = ["cab", "owners", command, "me@example.com"].map(str::to_owned);
-        Cli::try_parse_from(args.into_iter().chain(flags)).unwrap();
-    };
-    owners("remove");
-    owners("set");
-    let parents = |command: &str, kinds: &[SafeguardKind]| {
-        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
-        let args = ["cab", "parents", command, "main"].map(str::to_owned);
-        Cli::try_parse_from(args.into_iter().chain(flags)).unwrap();
-    };
-    parents("add", AddParentAllow::KINDS);
-    parents("remove", RemoveParentAllow::KINDS);
-    let workspace = |command: &str, kinds: &[SafeguardKind]| {
-        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
-        let args = ["cab", command, "main"].map(str::to_owned);
-        Workspace::try_parse_from(args.into_iter().chain(flags)).unwrap();
-    };
-    workspace("switch", SwitchWorkspaceAllow::KINDS);
-    workspace("remove", RemoveWorkspaceAllow::KINDS);
 }

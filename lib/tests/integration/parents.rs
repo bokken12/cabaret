@@ -1,6 +1,6 @@
 use cabaret_lib::{
     Error,
-    safeguard::{AddParentAllow, RemoveParentAllow},
+    safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
 use nonempty_collections::nebts;
@@ -18,11 +18,11 @@ fn shown(attempt: cabaret_lib::Result<()>) -> String {
     }
 }
 
-fn add_parent(fixture: &Fixture, change: &str, parent: &str, allow: AddParentAllow) -> String {
+fn add_parent(fixture: &Fixture, change: &str, parent: &str, allow: &Allow) -> String {
     shown(fixture.cabaret.add_parent(&id(change), &id(parent), allow))
 }
 
-fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: RemoveParentAllow) -> String {
+fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: &Allow) -> String {
     shown(fixture.cabaret.remove_parent(&id(change), &id(parent), allow))
 }
 
@@ -65,10 +65,10 @@ fn ancestor_of_parent_dropped() {
         &fixture,
         "child",
         "main",
-        AddParentAllow::default(),
+        &Allow::default(),
     ));
-    let allow = AddParentAllow { redundant_parent: true, ..AddParentAllow::default() };
-    expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", allow));
+    let allow = Allow::from_iter([SafeguardKind::RedundantParent]);
+    expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", &allow));
     let snapshot = fixture.snapshot("child");
     expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
@@ -180,13 +180,13 @@ fn cycle_refuses() {
         &fixture,
         "parent",
         "child",
-        AddParentAllow::default(),
+        &Allow::default(),
     ));
     expect!["error: parent cannot be its own parent"].assert_eq(&add_parent(
         &fixture,
         "parent",
         "parent",
-        AddParentAllow::default(),
+        &Allow::default(),
     ));
 }
 
@@ -201,10 +201,10 @@ fn archived_parent_refuses_unless_allowed() {
         &fixture,
         "change",
         "done",
-        AddParentAllow::default(),
+        &Allow::default(),
     ));
-    let allow = AddParentAllow { archived_parent: true, ..AddParentAllow::default() };
-    expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", allow));
+    let allow = Allow::from_iter([SafeguardKind::ArchivedParent]);
+    expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", &allow));
 }
 
 /// A change declaring no parents lands into trunk, so trunk is common to nearly every set of
@@ -215,7 +215,7 @@ fn inferred_trunk_is_common_ancestor() {
     fixture.root("main", &[]);
     fixture.create("change", "main", &alice());
     fixture.root("other", &[("other.txt", "other\n")]);
-    expect!["done"].assert_eq(&add_parent(&fixture, "change", "other", AddParentAllow::default()));
+    expect!["done"].assert_eq(&add_parent(&fixture, "change", "other", &Allow::default()));
 }
 
 #[test]
@@ -230,9 +230,9 @@ fn removal_moving_base_refuses_unless_allowed() {
         &fixture,
         "child",
         "parent",
-        RemoveParentAllow::default(),
+        &Allow::default(),
     ));
-    let allow = RemoveParentAllow { base_moves: true, ..RemoveParentAllow::default() };
-    expect!["done"].assert_eq(&remove_parent(&fixture, "child", "parent", allow));
+    let allow = Allow::from_iter([SafeguardKind::BaseMoves]);
+    expect!["done"].assert_eq(&remove_parent(&fixture, "child", "parent", &allow));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }

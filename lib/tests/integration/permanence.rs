@@ -2,7 +2,7 @@
 
 use cabaret_lib::{
     Error,
-    safeguard::{OwnersAllow, PermanenceAllow},
+    safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
 
@@ -17,7 +17,7 @@ fn stacked() -> Fixture {
     fixture
 }
 
-fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: PermanenceAllow) -> String {
+fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: &Allow) -> String {
     match fixture.cabaret.set_permanent(&id(change), permanent, allow) {
         Ok(()) => format!("permanent: {}", fixture.snapshot(change).permanent),
         Err(Error::Refused(refused)) => {
@@ -31,33 +31,28 @@ fn set_permanent(fixture: &Fixture, change: &str, permanent: bool, allow: Perman
 #[test]
 fn change_on_root_needs_no_allowing() {
     let fixture = stacked();
-    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, PermanenceAllow::default()));
+    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, &Allow::default()));
 }
 
 #[test]
 fn impermanent_parent_refuses_unless_allowed() {
     let fixture = stacked();
-    expect!["refused: feature is not permanent"].assert_eq(&set_permanent(
-        &fixture,
-        "child",
-        true,
-        PermanenceAllow::default(),
-    ));
-    let allow = PermanenceAllow { impermanent_parents: true, ..PermanenceAllow::default() };
-    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "child", true, allow));
-    expect!["permanent: false"].assert_eq(&set_permanent(&fixture, "child", false, PermanenceAllow::default()));
+    expect!["refused: feature is not permanent"].assert_eq(&set_permanent(&fixture, "child", true, &Allow::default()));
+    let allow = Allow::from_iter([SafeguardKind::ImpermanentParents]);
+    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "child", true, &allow));
+    expect!["permanent: false"].assert_eq(&set_permanent(&fixture, "child", false, &Allow::default()));
 }
 
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = stacked();
-    fixture.cabaret.set_owners(&id("feature"), [bob()].into(), OwnersAllow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("feature"), [bob()].into(), &Allow::default()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&set_permanent(
         &fixture,
         "feature",
         true,
-        PermanenceAllow::default(),
+        &Allow::default(),
     ));
-    let allow = PermanenceAllow { non_owner: true, ..PermanenceAllow::default() };
-    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, allow));
+    let allow = Allow::from_iter([SafeguardKind::NonOwner]);
+    expect!["permanent: true"].assert_eq(&set_permanent(&fixture, "feature", true, &allow));
 }

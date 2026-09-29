@@ -1,6 +1,4 @@
-//! Safeguards: checks that refuse an action unless the caller allows it anyway. Each action
-//! names the safeguards it checks in its own types, which widen into [`Safeguard`] for frontends
-//! that treat every action alike.
+//! Safeguards: checks that refuse an action unless the caller allows it anyway.
 
 use std::{collections::BTreeSet, fmt};
 
@@ -25,12 +23,18 @@ macro_rules! every_safeguard {
             $($kind),+
         }
 
-        impl fmt::Display for SafeguardKind {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(match self {
+        impl SafeguardKind {
+            pub const ALL: &[Self] = &[$(Self::$kind),+];
+
+            pub fn name(self) -> &'static str {
+                match self {
                     $(Self::$kind => $name),+
-                })
+                }
             }
+        }
+
+        impl fmt::Display for SafeguardKind {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.name()) }
         }
 
         /// Any action's safeguard.
@@ -57,68 +61,6 @@ macro_rules! every_safeguard {
     };
 }
 
-/// Declares the safeguards `$verb` checks: an enum of them, widening into [`Safeguard`], and a
-/// struct of which to allow, with a field for each.
-macro_rules! safeguards {
-    ($verb:literal, $safeguard:ident, $allow:ident { $($kind:ident: $field:ident),+ $(,)? }) => {
-        #[doc = concat!("The safeguards checked before you ", $verb, ".")]
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum $safeguard {
-            $($kind($kind)),+
-        }
-
-        impl From<$safeguard> for Safeguard {
-            fn from(safeguard: $safeguard) -> Self {
-                match safeguard {
-                    $($safeguard::$kind(particulars) => Self::$kind(particulars)),+
-                }
-            }
-        }
-
-        #[doc = concat!("Which [`", stringify!($safeguard), "`]s to ", $verb, " despite.")]
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-        pub struct $allow {
-            $(pub $field: bool),+
-        }
-
-        impl $allow {
-            /// The kinds of safeguard checked, one per field.
-            pub const KINDS: &[SafeguardKind] = &[$(SafeguardKind::$kind),+];
-
-            /// Refuse the action if any of `safeguards` is not allowed.
-            pub fn check(self, safeguards: Vec<$safeguard>) -> Result<()> {
-                let refused = safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).map(Safeguard::from);
-                match NEVec::try_from_vec(refused.collect()) {
-                    Some(refused) => Err(Error::Refused(refused)),
-                    None => Ok(()),
-                }
-            }
-
-            fn allows(self, safeguard: &$safeguard) -> bool {
-                match safeguard {
-                    $($safeguard::$kind(_) => self.$field),+
-                }
-            }
-        }
-
-        impl TryFrom<&[SafeguardKind]> for $allow {
-            type Error = Error;
-
-            fn try_from(kinds: &[SafeguardKind]) -> Result<Self> {
-                let mut allow = Self::default();
-                for kind in kinds {
-                    match kind {
-                        $(SafeguardKind::$kind => allow.$field = true,)+
-                        #[allow(unreachable_patterns)]
-                        other => Err(format!("nothing to allow: {other} is not checked before you {}", $verb))?,
-                    }
-                }
-                Ok(allow)
-            }
-        }
-    };
-}
-
 every_safeguard! {
     Unreviewed = "unreviewed",
     NonOwner = "non-owner",
@@ -140,48 +82,26 @@ every_safeguard! {
     ArchivedParents = "archived-parents",
 }
 
-safeguards!(
-    "land",
-    LandSafeguard,
-    LandAllow {
-        Unreviewed: unreviewed,
-        NonOwner: non_owner,
-        ParentUnreviewed: parent_unreviewed,
-        Empty: empty,
-        Conflicted: conflicted,
-        Uncommitted: uncommitted,
+/// The kinds of safeguard the caller allows, letting the action go ahead despite them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Allow(BTreeSet<SafeguardKind>);
+
+impl Allow {
+    pub fn allows(&self, kind: SafeguardKind) -> bool { self.0.contains(&kind) }
+
+    /// Refuse the action if any of `safeguards` is not allowed.
+    pub fn check(&self, safeguards: Vec<Safeguard>) -> Result<()> {
+        let refused = safeguards.into_iter().filter(|safeguard| !self.allows(safeguard.kind())).collect();
+        match NEVec::try_from_vec(refused) {
+            Some(refused) => Err(Error::Refused(refused)),
+            None => Ok(()),
+        }
     }
-);
-safeguards!(
-    "add a parent",
-    AddParentSafeguard,
-    AddParentAllow {
-        ArchivedParent: archived_parent,
-        RedundantParent: redundant_parent,
-        NoCommonAncestor: no_common_ancestor,
-    }
-);
-safeguards!(
-    "remove a parent",
-    RemoveParentSafeguard,
-    RemoveParentAllow { BaseMoves: base_moves, Parentless: parentless, NoCommonAncestor: no_common_ancestor }
-);
-safeguards!(
-    "change permanence",
-    PermanenceSafeguard,
-    PermanenceAllow { NonOwner: non_owner, ImpermanentParents: impermanent_parents }
-);
-safeguards!("archive", ArchiveSafeguard, ArchiveAllow { OpenChildren: open_children, Permanent: permanent });
-safeguards!("unarchive", UnarchiveSafeguard, UnarchiveAllow { ArchivedParents: archived_parents });
-safeguards!("commit", CommitSafeguard, CommitAllow { Conflicted: conflicted });
-safeguards!("remove a workspace", RemoveWorkspaceSafeguard, RemoveWorkspaceAllow { Uncommitted: uncommitted });
-safeguards!("switch a workspace", SwitchWorkspaceSafeguard, SwitchWorkspaceAllow { Uncommitted: uncommitted });
-safeguards!("change owners", OwnersSafeguard, OwnersAllow { RemovesOthers: removes_others, Ownerless: ownerless });
-safeguards!(
-    "rebase",
-    RebaseSafeguard,
-    RebaseAllow { NonOwner: non_owner, Conflicted: conflicted, ParentConflicted: parent_conflicted }
-);
+}
+
+impl FromIterator<SafeguardKind> for Allow {
+    fn from_iter<I: IntoIterator<Item = SafeguardKind>>(kinds: I) -> Self { Self(kinds.into_iter().collect()) }
+}
 
 /// `a, b, c`.
 fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
