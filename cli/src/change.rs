@@ -69,8 +69,7 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         description: Option<String>,
     },
-    /// List the files the change's diff touches, or show the diffs of those matching the given
-    /// pathspecs (`'*'` for all).
+    /// List the files the change's diff touches, or show diffs of those matching the given pathspecs.
     Diff {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -128,9 +127,8 @@ pub enum ChangeCommand {
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
     },
-    /// List the files you have left to review, or show the diffs of those matching the given
-    /// pathspecs (`'*'` for all): each as the tip differs from the merge of the change's bases
-    /// with the tip you last marked it reviewed at.
+    /// List the files you have left to review, or show diffs of those matching the given pathspecs:
+    /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
         #[arg(long, add = change_completer())]
