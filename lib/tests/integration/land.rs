@@ -1,22 +1,33 @@
 //! Landing: the parent merges the change in and the change is archived.
 
+use cabaret_lib::{LandAllow, Safeguard};
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id};
+use super::fixture::{Fixture, alice, bob, id};
 
-/// `child` and its parent `main` have each committed since `child` forked.
+fn shown(safeguards: impl IntoIterator<Item: Into<Safeguard>>) -> String {
+    let shown: Vec<String> = safeguards.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
+    shown.join("; ")
+}
+
+/// `child` and its parent `main` have each committed since `child` forked, and its owner alice
+/// has reviewed it.
 fn diverged() -> Fixture {
     let fixture = Fixture::new();
     fixture.root("main", &[("shared.txt", "shared\n")]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
     fixture.commit("main", &[("main.txt", "main\n")]);
     fixture
 }
 
-fn land(fixture: &Fixture, change: &str) -> String {
-    match fixture.cabaret.land(&id(change)) {
-        Ok(parent) => format!("landed into {parent}"),
+fn land(fixture: &Fixture, change: &str) -> String { land_allowing(fixture, change, LandAllow::default()) }
+
+fn land_allowing(fixture: &Fixture, change: &str, allow: LandAllow) -> String {
+    match fixture.cabaret.land(&id(change), allow) {
+        Ok(Ok(parent)) => format!("landed into {parent}"),
+        Ok(Err(refused)) => format!("refused: {}", shown(refused)),
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -58,6 +69,7 @@ fn parent_that_has_not_moved_fast_forwards() {
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), fixture.tip("child"));
 }
@@ -90,4 +102,53 @@ fn permanent_change_stays_open() {
     fixture.cabaret.set_permanent(&id("child"), true).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
+}
+
+#[test]
+fn unreviewed_refuses_unless_allowed() {
+    let fixture = diverged();
+    fixture.commit("child", &[("more.txt", "more\n")]);
+    let tip = fixture.tip("main");
+    expect!["refused: alice@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
+    assert_eq!(fixture.tip("main"), tip);
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { unreviewed: true, non_owner: false },
+    ));
+}
+
+#[test]
+fn each_safeguard_needs_allowing() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { unreviewed: true, non_owner: false },
+    ));
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { unreviewed: true, non_owner: true },
+    ));
+}
+
+#[test]
+fn errors_come_before_safeguards() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("empty", "main", &bob());
+    expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
+}
+
+#[test]
+fn safeguards_foretell_refusal() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    expect![
+        "you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"
+    ]
+    .assert_eq(&shown(fixture.cabaret.land_safeguards(&id("child")).unwrap()));
 }

@@ -1,18 +1,11 @@
 //! The home page: what each section includes for a viewer and how the page draws it.
 
-use cabaret_lib::RepoPath;
+use cabaret_lib::RebaseAllow;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
 
 fn home(fixture: &Fixture) -> String { fixture.cabaret.home_page(&alice()).unwrap().to_string() }
-
-/// Mark every file alice has left to review in `change` reviewed at its tip.
-fn mark_all(fixture: &Fixture, change: &str) {
-    let files: Vec<RepoPath> =
-        fixture.cabaret.review_files(&id(change), &[]).unwrap().iter().map(|file| file.path().clone()).collect();
-    fixture.cabaret.mark(&id(change), &files, None).unwrap();
-}
 
 /// Trunk is drawn only where it is selected, as the fixture's main workspace has it checked out;
 /// as mere context under every stack it is dropped.
@@ -174,7 +167,7 @@ fn owned_changes_with_unmarked_files_await_review() {
         ○   main
     "#]]
     .assert_eq(&home(&fixture));
-    mark_all(&fixture, "feature");
+    fixture.mark_all("feature");
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
@@ -213,9 +206,9 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     fixture.root("main", &[("greeting.txt", "hello\n")]);
     fixture.create("feature", "main", &alice());
     fixture.commit("feature", &[("greeting.txt", "hi\n")]);
-    mark_all(&fixture, "feature");
+    fixture.mark_all("feature");
     fixture.commit("main", &[("main.txt", "main\n")]);
-    fixture.cabaret.rebase(&id("feature"), None).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, RebaseAllow::default()).unwrap().unwrap();
     expect![[r#"
         Review
         nothing awaiting review by alice@example.com
@@ -228,7 +221,7 @@ fn a_rebase_awaits_review_only_when_it_conflicted() {
     "#]]
     .assert_eq(&home(&fixture));
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("feature"), None).unwrap();
+    fixture.cabaret.rebase(&id("feature"), None, RebaseAllow::default()).unwrap().unwrap();
     expect![[r#"
         Review
         ○   feature

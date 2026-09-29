@@ -9,7 +9,11 @@ use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
 use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RevisionId, TimestampMs};
 
-use crate::{cabaret::NextStep, file_tree::FileTree, home::HomeSection};
+use crate::{
+    cabaret::{NextStep, joined},
+    file_tree::FileTree,
+    home::HomeSection,
+};
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,11 +374,6 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
             .push(Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change }));
     }
     line
-}
-
-/// `a, b, c`.
-fn joined(items: &BTreeSet<impl fmt::Display>) -> String {
-    items.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 /// How long before `now` something happened, coarsely: the reader wants to know whether a session

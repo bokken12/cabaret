@@ -1,9 +1,10 @@
 //! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
 //! change follows its branch.
 
+use cabaret_lib::{RebaseAllow, Safeguard};
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id, worktree};
+use super::fixture::{Fixture, alice, bob, id, worktree};
 
 /// `child` and its parent `main` have each committed since `child` forked.
 fn diverged() -> Fixture {
@@ -16,9 +17,18 @@ fn diverged() -> Fixture {
 }
 
 fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
+    rebase_allowing(fixture, change, onto, RebaseAllow::default())
+}
+
+fn rebase_allowing(fixture: &Fixture, change: &str, onto: Option<&str>, allow: RebaseAllow) -> String {
     let onto = onto.map(id);
-    match fixture.cabaret.rebase(&id(change), onto.as_deref()) {
-        Ok(rebase) => format!("{rebase:?}"),
+    match fixture.cabaret.rebase(&id(change), onto.as_deref(), allow) {
+        Ok(Ok(rebase)) => format!("{rebase:?}"),
+        Ok(Err(refused)) => {
+            let shown: Vec<String> =
+                refused.into_iter().map(|safeguard| Safeguard::from(safeguard).to_string()).collect();
+            format!("refused: {}", shown.join("; "))
+        }
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -176,4 +186,27 @@ fn linked_workspace_follows_change() {
         shared.txt "shared\n"
     "#]]
     .assert_eq(&worktree(&linked));
+}
+
+#[test]
+fn non_owner_refuses_unless_allowed() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    let tip = fixture.tip("child");
+    expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"]
+        .assert_eq(&rebase(&fixture, "child", None));
+    assert_eq!(fixture.tip("child"), tip);
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(
+        &fixture,
+        "child",
+        None,
+        RebaseAllow { non_owner: true },
+    ));
+}
+
+#[test]
+fn errors_come_before_safeguards() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }

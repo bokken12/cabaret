@@ -1,23 +1,24 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
-use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode, HomeSection},
     page::{DiffView, Page, TabCounts},
+    safeguard::{LandAllow, LandSafeguard, RebaseAllow, RebaseSafeguard, land_safeguards, rebase_safeguards},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -581,9 +582,19 @@ impl Cabaret {
         })
     }
 
+    /// The safeguards that would refuse landing `change_id` now, for a frontend to ask about first.
+    pub fn land_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<LandSafeguard>> {
+        self.store.query(|ctx| land_safeguards(ctx.metadata(change_id)?, ctx.branch(change_id)?))
+    }
+
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
-    pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
+    /// parent. Conflicts are errors rather than landed: rebase and resolve them first. Safeguards
+    /// not in `allow` refuse, checked last so that allowing them cannot run into an error.
+    pub fn land(
+        &self,
+        change_id: &ChangeIdRef,
+        allow: LandAllow,
+    ) -> Result<std::result::Result<ChangeId, NEVec<LandSafeguard>>> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -593,7 +604,7 @@ impl Cabaret {
         })?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+        self.store.transact_or_abort(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -604,25 +615,43 @@ impl Cabaret {
                 }
                 Some(_) => {}
             }
+            if let Some(refused) = allow.refused(land_safeguards(child, child_branch)?) {
+                return Ok(Err(refused));
+            }
             if !child.permanent {
                 child.archived = true;
             }
-            Ok(parent_id.clone())
+            Ok(Ok(parent_id.clone()))
         })
+    }
+
+    /// The safeguards that would refuse rebasing `change_id` now, for a frontend to ask about first.
+    pub fn rebase_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<RebaseSafeguard>> {
+        self.store.query(|ctx| rebase_safeguards(ctx.metadata(change_id)?))
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
     /// Cabaret never rewrites history, so each parent's tip is merged in; a conflicting merge is
     /// committed with markers and stops the rebase there, so those are resolved before the next.
-    pub fn rebase(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Rebase> {
-        self.store.update_branch(change_id, |ctx, branch| {
-            let parents = ctx.metadata(change_id)?.parents()?;
+    /// Safeguards not in `allow` refuse, before anything is merged.
+    pub fn rebase(
+        &self,
+        change_id: &ChangeIdRef,
+        onto: Option<&ChangeIdRef>,
+        allow: RebaseAllow,
+    ) -> Result<std::result::Result<Rebase, NEVec<RebaseSafeguard>>> {
+        self.store.transact_or_abort(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
+            let metadata = ctx.metadata(change_id)?;
+            let parents = metadata.parents()?;
             let targets = match onto {
                 None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
                 None => parents,
                 Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
                 Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
             };
+            if let Some(refused) = allow.refused(rebase_safeguards(metadata)?) {
+                return Ok(Err(refused));
+            }
 
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
@@ -636,7 +665,7 @@ impl Cabaret {
                 }
             }
             rebase.remaining = targets.collect();
-            Ok(rebase)
+            Ok(Ok(rebase))
         })
     }
 
@@ -839,13 +868,7 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if !stale.is_empty() {
         return Ok(Some(NextStep::Rebase { parents: stale }));
     }
-    let mut reviewers = BTreeSet::new();
-    for owner in &metadata.owners {
-        let review = metadata.review.get(owner).cloned().unwrap_or_default();
-        if !branch.review_files(&parents, &review, &[])?.is_empty() {
-            reviewers.insert(owner.clone());
-        }
-    }
+    let reviewers = unreviewed(metadata, branch, &parents)?;
     if !reviewers.is_empty() {
         return Ok(Some(NextStep::Review { reviewers }));
     }
@@ -853,6 +876,27 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
         [into] => NextStep::Land { into: (*into).clone() },
         _ => NextStep::LandParents { parents: parents.clone() },
     }))
+}
+
+/// Owners with files left to review, since owners are to review every file of their changes.
+pub fn unreviewed(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    parents: &BTreeSet<ChangeId>,
+) -> Result<BTreeSet<Identity>> {
+    let mut reviewers = BTreeSet::new();
+    for owner in &metadata.owners {
+        let review = metadata.review.get(owner).cloned().unwrap_or_default();
+        if !branch.review_files(parents, &review, &[])?.is_empty() {
+            reviewers.insert(owner.clone());
+        }
+    }
+    Ok(reviewers)
+}
+
+/// `a, b, c`.
+pub fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
+    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

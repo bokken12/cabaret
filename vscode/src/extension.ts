@@ -5,6 +5,7 @@ import {
   type Page,
   type RepoPath,
   type Revision,
+  type Safeguard,
   type Segment,
   type SessionId,
   type Tag,
@@ -1273,8 +1274,17 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
+/** A step that safeguards refused. */
+function refused(verb: string, change: ChangeId, safeguards: Safeguard[]): Step {
+  return { report: `cannot ${verb} ${change}: ${safeguards.map(({ message }) => message).join("; ")}`, complete: false };
+}
+
 async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
-  const rebase = await cabaret.rebase(change);
+  const rebased = await cabaret.rebase(change, undefined, []);
+  if (rebased.outcome === "Refused") {
+    return refused("rebase", change, rebased.safeguards);
+  }
+  const { rebase } = rebased;
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
@@ -1463,7 +1473,11 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landed = `landed ${change} into ${await cabaret.land(change)}`;
+      const landing = await cabaret.land(change, []);
+      if (landing.outcome === "Refused") {
+        return refused("land", change, landing.safeguards);
+      }
+      const landed = `landed ${change} into ${landing.into}`;
       const workspace = doomed.get(change);
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };

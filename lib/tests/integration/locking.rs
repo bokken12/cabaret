@@ -3,6 +3,8 @@
 
 use std::{thread, time::Duration};
 
+use cabaret_lib::RebaseAllow;
+
 use super::fixture::{Fixture, alice, id};
 
 fn parent_and_child() -> Fixture {
@@ -55,6 +57,6 @@ fn held_metadata_does_not_hold_up_the_branch() {
     let fixture = parent_and_child();
     fixture.commit("main", &[("main.txt", "main\n")]);
     let _lock = fixture.hold_lock("metadata", "child");
-    fixture.cabaret.rebase(&id("child"), None).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, RebaseAllow::default()).unwrap().unwrap();
     assert_eq!(fixture.tip("child"), fixture.tip("main"));
 }

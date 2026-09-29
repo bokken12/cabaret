@@ -4,6 +4,7 @@ mod home;
 #[cfg(feature = "napi")]
 mod node;
 mod page;
+mod safeguard;
 
 pub use cabaret::{Cabaret, NextStep, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
@@ -16,3 +17,6 @@ pub use file_tree::FileTree;
 pub use gix;
 pub use home::{Home, HomeGraph, HomeNode, HomeSection};
 pub use page::{DiffView, Fold, Line, Page, Segment, TabCounts, Tag, Target, name};
+pub use safeguard::{
+    LandAllow, LandSafeguard, NonOwner, RebaseAllow, RebaseSafeguard, Safeguard, SafeguardKind, Unreviewed,
+};

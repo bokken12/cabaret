@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeIdRef, DiffView, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result, RevisionId,
-    name,
+    Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, LandAllow, Pathspec, RebaseAllow,
+    RepoPath, Result, RevisionId, Safeguard, name,
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -96,6 +96,12 @@ pub enum ChangeCommand {
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        /// Land even though owners have files left to review.
+        #[arg(long)]
+        allow_unreviewed: bool,
+        /// Land even though you do not own it.
+        #[arg(long)]
+        allow_non_owner: bool,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -132,6 +138,9 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
+        /// Rebase even though you do not own it.
+        #[arg(long)]
+        allow_non_owner: bool,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
     /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
@@ -208,9 +217,10 @@ impl ChangeCommand {
                 cabaret.discard(&change, &pathspecs)?;
                 println!("discarded from {change}");
             }
-            ChangeCommand::Land { change } => {
+            ChangeCommand::Land { change, allow_unreviewed, allow_non_owner } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change)?;
+                let allow = LandAllow { unreviewed: allow_unreviewed, non_owner: allow_non_owner };
+                let parent = cabaret.land(&change, allow)?.map_err(|refused| refusal("land", &change, refused))?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
@@ -241,7 +251,9 @@ impl ChangeCommand {
                     }
                 }
             }
-            ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
+            ChangeCommand::Rebase { change, onto, allow_non_owner } => {
+                rebase(&cabaret, &or_current(change)?, onto.as_deref(), RebaseAllow { non_owner: allow_non_owner })?;
+            }
             ChangeCommand::Review { change, pathspecs } => {
                 diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;
             }
@@ -281,9 +293,9 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
     Ok(())
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>) -> Result<()> {
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: RebaseAllow) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
-    let rebase = cabaret.rebase(change, onto)?;
+    let rebase = cabaret.rebase(change, onto, allow)?.map_err(|refused| refusal("rebase", change, refused))?;
     match rebase.merged.is_empty() {
         true => println!("{change} is already up to date"),
         false => println!("rebased {change} onto {}", words(rebase.merged.iter().map(ToString::to_string).collect())),
@@ -296,4 +308,19 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>) -> R
         println!("resolve them and rebase again to continue onto {remaining}");
     }
     Ok(())
+}
+
+/// Why `verb`ing `change` was refused, naming the flag that allows each safeguard. The flags are
+/// spelled `--allow-<kind>` on every command.
+pub fn refusal(verb: &str, change: &ChangeIdRef, refused: NEVec<impl Into<Safeguard>>) -> Error {
+    let reasons: Vec<String> = refused
+        .into_iter()
+        .map(Into::into)
+        .map(|safeguard: Safeguard| format!("{safeguard}; pass --allow-{} to {verb} anyway", safeguard.kind()))
+        .collect();
+    match reasons.as_slice() {
+        [reason] => format!("cannot {verb} {change}: {reason}"),
+        _ => format!("cannot {verb} {change}:\n  {}", reasons.join("\n  ")),
+    }
+    .into()
 }

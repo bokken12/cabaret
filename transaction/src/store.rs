@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    convert::Infallible,
     fmt,
     path::{Path, PathBuf},
     time::Duration,
@@ -189,6 +190,29 @@ impl Store {
             &mut [Workspace<'ctx>; N],
         ) -> Result<T>,
     {
+        let out =
+            self.transact_or_abort(metadata_ids, branch_ops, workspace_ops, |ctx, metadata, branches, workspaces| {
+                f(ctx, metadata, branches, workspaces).map(Ok::<T, Infallible>)
+            })?;
+        Ok(out.unwrap_or_else(|never| match never {}))
+    }
+
+    /// Like [`Self::transact`], but `f` may also abort with a value, recording nothing.
+    pub fn transact_or_abort<const L: usize, const M: usize, const N: usize, T, A, F>(
+        &self,
+        metadata_ids: &[&ChangeIdRef; L],
+        branch_ops: &[BranchOp<'_>; M],
+        workspace_ops: &[WorkspaceOp<'_>; N],
+        f: F,
+    ) -> Result<std::result::Result<T, A>>
+    where
+        F: for<'ctx> FnOnce(
+            &'ctx TransactionContext<'ctx>,
+            &mut [Metadata<'ctx>; L],
+            &mut [Branch<'ctx>; M],
+            &mut [Workspace<'ctx>; N],
+        ) -> Result<std::result::Result<T, A>>,
+    {
         // metadata, then branches, then workspaces, always, so two transactions cannot wait on
         // each other
         let mut locks = self.lock(Resource::Metadata, metadata_ids.iter().copied())?;
@@ -217,7 +241,10 @@ impl Store {
         }
         let mut workspaces: [Workspace<'_>; N] = workspaces.try_into().expect("one workspace per op");
 
-        let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
+        let out = match f(&ctx, &mut metadata, &mut branches, &mut workspaces)? {
+            Ok(out) => out,
+            Err(abort) => return Ok(Err(abort)),
+        };
 
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
@@ -267,7 +294,7 @@ impl Store {
                 Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch.tip)?;
             }
         }
-        Ok(out)
+        Ok(Ok(out))
     }
 
     pub fn query<T, F>(&self, f: F) -> Result<T>
@@ -282,12 +309,5 @@ impl Store {
         F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Metadata<'ctx>) -> Result<T>,
     {
         self.transact(&[id], &[], &[], |ctx, [metadata], [], []| f(ctx, metadata))
-    }
-
-    pub fn update_branch<T, F>(&self, id: &ChangeIdRef, f: F) -> Result<T>
-    where
-        F: for<'ctx> FnOnce(&'ctx TransactionContext<'ctx>, &mut Branch<'ctx>) -> Result<T>,
-    {
-        self.transact(&[], &[BranchOp::Update(id)], &[], |ctx, [], [branch], []| f(ctx, branch))
     }
 }

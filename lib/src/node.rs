@@ -21,6 +21,7 @@ use crate::{
     cabaret::{Cabaret, Rebase},
     home::HomeSection,
     page::{DiffView, Page},
+    safeguard::{LandAllow, RebaseAllow, SafeguardKind},
 };
 
 /// How the workspace a [`Cabaret`] was opened in reaches a change's files.
@@ -43,6 +44,32 @@ fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
         Some(workspace) => Placement::Elsewhere { workspace },
         None => Placement::Nowhere { dedicated: cabaret.workspace_is_dedicated(current.to_ref())? },
     })
+}
+
+/// A [`crate::Safeguard`] as a frontend presents it.
+#[napi(object, object_from_js = false)]
+pub struct Safeguard {
+    pub kind: SafeguardKind,
+    pub message: String,
+}
+
+fn presented(safeguards: impl IntoIterator<Item: Into<crate::Safeguard>>) -> Vec<Safeguard> {
+    let present = |safeguard: crate::Safeguard| Safeguard { kind: safeguard.kind(), message: safeguard.to_string() };
+    safeguards.into_iter().map(Into::into).map(present).collect()
+}
+
+/// What [`Cabaret::land`] did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Landed {
+    Done { into: ChangeId },
+    Refused { safeguards: Vec<Safeguard> },
+}
+
+/// What [`Cabaret::rebase`] did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Rebased {
+    Done { rebase: Rebase },
+    Refused { safeguards: Vec<Safeguard> },
 }
 
 fn path_string(path: PathBuf) -> Result<String> {
@@ -263,8 +290,17 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
-        self.blocking(move |cabaret| cabaret.land(&change)).await
+    pub async fn land_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
+        Ok(presented(self.blocking(move |cabaret| cabaret.land_safeguards(&change)).await?))
+    }
+
+    #[napi]
+    pub async fn land(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Landed> {
+        let landed = self.blocking(move |cabaret| cabaret.land(&change, LandAllow::from(allow.as_slice()))).await?;
+        Ok(match landed {
+            Ok(into) => Landed::Done { into },
+            Err(refused) => Landed::Refused { safeguards: presented(refused) },
+        })
     }
 
     #[napi]
@@ -273,7 +309,23 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn rebase(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Rebase> {
-        self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref())).await
+    pub async fn rebase_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
+        Ok(presented(self.blocking(move |cabaret| cabaret.rebase_safeguards(&change)).await?))
+    }
+
+    #[napi]
+    pub async fn rebase(
+        &self,
+        change: ChangeId,
+        onto: Option<ChangeId>,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Rebased> {
+        let rebased = self
+            .blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref(), RebaseAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(match rebased {
+            Ok(rebase) => Rebased::Done { rebase },
+            Err(refused) => Rebased::Refused { safeguards: presented(refused) },
+        })
     }
 }

@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use cabaret_lib::{Hints, RepoPath, Scope};
+use cabaret_lib::{Hints, RebaseAllow, Scope};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -11,13 +11,6 @@ use super::fixture::{Fixture, alice, carol, id, scene};
 fn next_step(fixture: &Fixture, change: &str) -> String {
     let page = fixture.cabaret.show_page(&id(change)).unwrap().to_string();
     page.lines().find_map(|line| line.strip_prefix("Next step: ")).unwrap().to_owned()
-}
-
-/// Mark every file of `change` reviewed as the fixture's identity.
-fn review(fixture: &Fixture, change: &str) {
-    let files = fixture.cabaret.review_files(&id(change), &[]).unwrap();
-    let files: Vec<RepoPath> = files.iter().map(|file| file.path().clone()).collect();
-    fixture.cabaret.mark(&id(change), &files, None).unwrap();
 }
 
 #[test]
@@ -52,7 +45,7 @@ fn scene_next_steps() {
 #[test]
 fn reviewed_change_lands_into_its_parent() {
     let fixture = scene();
-    review(&fixture, "single");
+    fixture.mark_all("single");
     expect!["[!l] land into main"].assert_eq(&next_step(&fixture, "single"));
 }
 
@@ -61,7 +54,7 @@ fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     let fixture = scene();
     fixture.cabaret.add_owner(&id("fork-join"), &alice()).unwrap();
     fixture.cabaret.remove_owner(&id("fork-join"), &carol()).unwrap();
-    review(&fixture, "fork-join");
+    fixture.mark_all("fork-join");
     expect!["[^] land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
 }
 
@@ -74,7 +67,7 @@ fn conflicted() -> Fixture {
     fixture.create("grandchild", "child", &alice());
     fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
-    fixture.cabaret.rebase(&id("child"), None).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, RebaseAllow::default()).unwrap().unwrap();
     fixture
 }
 
