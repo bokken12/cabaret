@@ -1,7 +1,27 @@
+use cabaret_lib::safeguard::{AddParentAllow, RemoveParentAllow, Safeguard};
 use expect_test::expect;
-use nonempty_collections::nebts;
+use nonempty_collections::{NEVec, nebts};
 
-use super::fixture::{Fixture, alice, id};
+use super::fixture::{Fixture, alice, bob, id};
+
+fn shown<S: Into<Safeguard>>(attempt: cabaret_lib::Result<Result<(), NEVec<S>>>) -> String {
+    match attempt {
+        Ok(Ok(())) => "done".to_owned(),
+        Ok(Err(refused)) => {
+            let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
+            format!("refused: {}", shown.join("; "))
+        }
+        Err(error) => format!("error: {error:?}"),
+    }
+}
+
+fn add_parent(fixture: &Fixture, change: &str, parent: &str, allow: AddParentAllow) -> String {
+    shown(fixture.cabaret.add_parent(&id(change), &id(parent), allow))
+}
+
+fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: RemoveParentAllow) -> String {
+    shown(fixture.cabaret.remove_parent(&id(change), &id(parent), allow))
+}
 
 #[test]
 fn no_parents_implies_default_parent() {
@@ -38,7 +58,14 @@ fn ancestor_of_parent_dropped() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
-    fixture.cabaret.add_parent(&id("child"), &id("main")).unwrap();
+    expect!["refused: main is already an ancestor of parent, so it would be skipped"].assert_eq(&add_parent(
+        &fixture,
+        "child",
+        "main",
+        AddParentAllow::default(),
+    ));
+    let allow = AddParentAllow { redundant_parent: true, ..AddParentAllow::default() };
+    expect!["done"].assert_eq(&add_parent(&fixture, "child", "main", allow));
     let snapshot = fixture.snapshot("child");
     expect![[r#"{"main", "parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
@@ -138,4 +165,71 @@ fn created_on_conflicting_parents_carries_the_conflict() {
         >>>>>>> right
     "]]
     .assert_eq(&fixture.text(tip, "file.txt").unwrap());
+}
+
+#[test]
+fn cycle_refuses() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &alice());
+    fixture.create("child", "parent", &alice());
+    expect!["error: child descends from parent, so it cannot be its parent"].assert_eq(&add_parent(
+        &fixture,
+        "parent",
+        "child",
+        AddParentAllow::default(),
+    ));
+    expect!["error: parent cannot be its own parent"].assert_eq(&add_parent(
+        &fixture,
+        "parent",
+        "parent",
+        AddParentAllow::default(),
+    ));
+}
+
+#[test]
+fn archived_parent_refuses_unless_allowed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("done", "main", &alice());
+    fixture.create("change", "main", &alice());
+    fixture.cabaret.archive(&id("done")).unwrap();
+    expect!["refused: done is archived, so it would be skipped"].assert_eq(&add_parent(
+        &fixture,
+        "change",
+        "done",
+        AddParentAllow::default(),
+    ));
+    let allow = AddParentAllow { archived_parent: true, ..AddParentAllow::default() };
+    expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", allow));
+}
+
+/// A change declaring no parents lands into trunk, so trunk is common to nearly every set of
+/// parents; only chains of archived changes declaring none can share no ancestor.
+#[test]
+fn inferred_trunk_is_common_ancestor() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("change", "main", &alice());
+    fixture.root("other", &[("other.txt", "other\n")]);
+    expect!["done"].assert_eq(&add_parent(&fixture, "change", "other", AddParentAllow::default()));
+}
+
+#[test]
+fn removal_moving_base_refuses_unless_allowed() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("parent", "main", &bob());
+    fixture.commit("parent", &[("parent.txt", "parent\n")]);
+    fixture.create("child", "parent", &alice());
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    expect!["refused: its diff would take in the work of parent"].assert_eq(&remove_parent(
+        &fixture,
+        "child",
+        "parent",
+        RemoveParentAllow::default(),
+    ));
+    let allow = RemoveParentAllow { base_moves: true, ..RemoveParentAllow::default() };
+    expect!["done"].assert_eq(&remove_parent(&fixture, "child", "parent", allow));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }

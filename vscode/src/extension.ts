@@ -1425,7 +1425,17 @@ async function addParent(cabaret: Cabaret, change: ChangeId): Promise<string | u
   if (parent === undefined) {
     return undefined;
   }
-  await cabaret.addParent(change, parent);
+  let allow: SafeguardKind[] = [];
+  let attempt = await cabaret.addParent(change, parent, allow);
+  while (attempt.outcome === "Refused") {
+    const action = `Add ${parent} as a parent of ${change}`;
+    const more = await allowAnyway(action, "Add Anyway", allow, attempt.safeguards);
+    if (more === undefined) {
+      return undefined;
+    }
+    allow = more;
+    attempt = await cabaret.addParent(change, parent, allow);
+  }
   return `added ${parent} as a parent of ${change}`;
 }
 
@@ -1440,7 +1450,17 @@ async function removeParent(cabaret: Cabaret, change: ChangeId): Promise<string 
   if (parent === undefined) {
     return undefined;
   }
-  await cabaret.removeParent(change, parent);
+  let allow: SafeguardKind[] = [];
+  let attempt = await cabaret.removeParent(change, parent, allow);
+  while (attempt.outcome === "Refused") {
+    const action = `Remove ${parent} as a parent of ${change}`;
+    const more = await allowAnyway(action, "Remove Anyway", allow, attempt.safeguards);
+    if (more === undefined) {
+      return undefined;
+    }
+    allow = more;
+    attempt = await cabaret.removeParent(change, parent, allow);
+  }
   return `removed ${parent} as a parent of ${change}`;
 }
 

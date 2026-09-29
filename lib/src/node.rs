@@ -12,7 +12,7 @@ use cabaret_agents::ClaudeCode;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
-    safeguard::{LandAllow, OwnersAllow, RebaseAllow, SafeguardKind},
+    safeguard::{AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, SafeguardKind},
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -290,13 +290,31 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn add_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.add_parent(&change, &parent)).await
+    pub async fn add_parent(
+        &self,
+        change: ChangeId,
+        parent: ChangeId,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| cabaret.add_parent(&change, &parent, AddParentAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]
-    pub async fn remove_parent(&self, change: ChangeId, parent: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.remove_parent(&change, &parent)).await
+    pub async fn remove_parent(
+        &self,
+        change: ChangeId,
+        parent: ChangeId,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                cabaret.remove_parent(&change, &parent, RemoveParentAllow::try_from(allow.as_slice())?)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     /// Record that git's user.email has reviewed `files` of `change` up to `head`, defaulting to

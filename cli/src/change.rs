@@ -3,7 +3,7 @@ use std::io::Write;
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, name,
-    safeguard::{LandAllow, OwnersAllow, RebaseAllow, Safeguard},
+    safeguard::{AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, Safeguard},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -49,10 +49,28 @@ pub enum ParentsCommand {
     Add {
         #[arg(add = change_completer())]
         parent: ChangeId,
+        /// Add it even though it is archived.
+        #[arg(long)]
+        allow_archived_parent: bool,
+        /// Add it even though it is already an ancestor of another parent.
+        #[arg(long)]
+        allow_redundant_parent: bool,
+        /// Add it even though the parents would share no ancestor.
+        #[arg(long)]
+        allow_no_common_ancestor: bool,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
+        /// Remove it even though its work would join the change's diff.
+        #[arg(long)]
+        allow_base_moves: bool,
+        /// Remove it even though the change would have nowhere to land.
+        #[arg(long)]
+        allow_parentless: bool,
+        /// Remove it even though the remaining parents share no ancestor.
+        #[arg(long)]
+        allow_no_common_ancestor: bool,
     },
     Set {
         #[arg(required = true, add = change_completer())]
@@ -300,8 +318,31 @@ impl ChangeCommand {
                         let id = cabaret.create_parent(&name, change, &cabaret.identity()?)?;
                         println!("created {id} as parent of {change}");
                     }
-                    ParentsCommand::Add { parent } => cabaret.add_parent(change, &parent)?,
-                    ParentsCommand::Remove { parent } => cabaret.remove_parent(change, &parent)?,
+                    ParentsCommand::Add {
+                        parent,
+                        allow_archived_parent,
+                        allow_redundant_parent,
+                        allow_no_common_ancestor,
+                    } => {
+                        let allow = AddParentAllow {
+                            archived_parent: allow_archived_parent,
+                            redundant_parent: allow_redundant_parent,
+                            no_common_ancestor: allow_no_common_ancestor,
+                        };
+                        cabaret
+                            .add_parent(change, &parent, allow)?
+                            .map_err(|refused| refusal(&format!("add {parent} as a parent of {change}"), refused))?;
+                    }
+                    ParentsCommand::Remove { parent, allow_base_moves, allow_parentless, allow_no_common_ancestor } => {
+                        let allow = RemoveParentAllow {
+                            base_moves: allow_base_moves,
+                            parentless: allow_parentless,
+                            no_common_ancestor: allow_no_common_ancestor,
+                        };
+                        cabaret
+                            .remove_parent(change, &parent, allow)?
+                            .map_err(|refused| refusal(&format!("remove {parent} as a parent of {change}"), refused))?;
+                    }
                     ParentsCommand::Set { parents: _ } => {
                         return Err("change parents set is not implemented yet".into());
                     }

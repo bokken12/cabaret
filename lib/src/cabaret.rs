@@ -11,8 +11,10 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
-        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard,
-        ParentConflicted, ParentUnreviewed, RebaseAllow, RebaseSafeguard, RemovesOthers, Uncommitted, Unreviewed,
+        AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, Conflicted, Empty, LandAllow, LandSafeguard,
+        NoCommonAncestor, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted, ParentUnreviewed,
+        Parentless, RebaseAllow, RebaseSafeguard, RedundantParent, RemoveParentAllow, RemoveParentSafeguard,
+        RemovesOthers, Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -748,20 +750,46 @@ impl Cabaret {
 
     // TODO(joel): some helper that aligns the parent set with the derived parent set?
 
-    pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): check for cyclic dependencies
-            match metadata.declared_parents.insert(parent_id.to_owned()) {
-                false => Err(format!("{parent_id} was already a parent of {change_id}"))?,
-                true => Ok(()),
+    /// Declare `parent_id` a parent of `change_id`. A parent descending from the change is an
+    /// error, since the graph would cycle.
+    pub fn add_parent(
+        &self,
+        change_id: &ChangeIdRef,
+        parent_id: &ChangeIdRef,
+        allow: AddParentAllow,
+    ) -> Result<std::result::Result<(), NEVec<AddParentSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if !metadata.declared_parents.insert(parent_id.to_owned()) {
+                Err(format!("{parent_id} was already a parent of {change_id}"))?;
             }
+            if parent_id == change_id {
+                Err(format!("{change_id} cannot be its own parent"))?;
+            }
+            if ctx.metadata(parent_id)?.is_descendant(change_id)? {
+                Err(format!("{parent_id} descends from {change_id}, so it cannot be its parent"))?;
+            }
+            if let Some(refused) = allow.refused(add_parent_safeguards(metadata, parent_id)?) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
-    pub fn remove_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.declared_parents.remove(parent_id) {
-            false => Err(format!("{parent_id} was not a parent of {change_id}"))?,
-            true => Ok(()),
+    pub fn remove_parent(
+        &self,
+        change_id: &ChangeIdRef,
+        parent_id: &ChangeIdRef,
+        allow: RemoveParentAllow,
+    ) -> Result<std::result::Result<(), NEVec<RemoveParentSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |_ctx, [metadata], [], []| {
+            let before = metadata.clone();
+            if !metadata.declared_parents.remove(parent_id) {
+                Err(format!("{parent_id} was not a parent of {change_id}"))?;
+            }
+            if let Some(refused) = allow.refused(remove_parent_safeguards(&before, metadata, parent_id)?) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
@@ -976,6 +1004,70 @@ fn owners_safeguards(you: &Identity, before: &BTreeSet<Identity>, after: &BTreeS
         safeguards.push(OwnersSafeguard::Ownerless(Ownerless));
     }
     safeguards
+}
+
+/// What declaring `added` a parent, as `metadata` now does, risks.
+fn add_parent_safeguards(metadata: &Metadata<'_>, added: &ChangeIdRef) -> Result<Vec<AddParentSafeguard>> {
+    let ctx = metadata.ctx();
+    let mut safeguards = Vec::new();
+    if ctx.metadata(added)?.archived && !metadata.archived {
+        safeguards.push(AddParentSafeguard::ArchivedParent(ArchivedParent { parent: added.to_owned() }));
+    }
+    for other in metadata.declared_parents.iter().filter(|other| other.as_ref() != added) {
+        if ctx.metadata(other)?.is_descendant(added)? {
+            let redundant = RedundantParent { parent: added.to_owned(), descendant: other.clone() };
+            safeguards.push(AddParentSafeguard::RedundantParent(redundant));
+            break;
+        }
+    }
+    safeguards.extend(no_common_ancestor(metadata)?.map(AddParentSafeguard::NoCommonAncestor));
+    Ok(safeguards)
+}
+
+/// What removing `removed` from `before`'s parents, as `after` has done, risks.
+fn remove_parent_safeguards(
+    before: &Metadata<'_>,
+    after: &Metadata<'_>,
+    removed: &ChangeIdRef,
+) -> Result<Vec<RemoveParentSafeguard>> {
+    let ctx = after.ctx();
+    let mut safeguards = Vec::new();
+    let (old, new) = (before.parents()?, after.parents()?);
+    let branch = ctx.branch(after.id())?;
+    if branch.base(&old)? != branch.base(&new)? {
+        safeguards.push(RemoveParentSafeguard::BaseMoves(BaseMoves { removed: removed.to_owned() }));
+    }
+    if new.is_empty() {
+        safeguards.push(RemoveParentSafeguard::Parentless(Parentless));
+    }
+    safeguards.extend(no_common_ancestor(after)?.map(RemoveParentSafeguard::NoCommonAncestor));
+    Ok(safeguards)
+}
+
+/// Whether `metadata`'s parents share no ancestor, so could never coalesce into one to land into.
+fn no_common_ancestor(metadata: &Metadata<'_>) -> Result<Option<NoCommonAncestor>> {
+    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
+    let mut common: Option<BTreeSet<ChangeId>> = None;
+    for parent in &parents {
+        let ancestors = ancestors(metadata.ctx(), parent)?;
+        common = Some(match common {
+            None => ancestors,
+            Some(common) => &common & &ancestors,
+        });
+    }
+    Ok(common.is_some_and(|common| common.is_empty()).then_some(NoCommonAncestor { parents }))
+}
+
+/// `change_id` and every change it lands through.
+fn ancestors<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+    let mut ancestors = BTreeSet::new();
+    let mut frontier = vec![change_id.to_owned()];
+    while let Some(id) = frontier.pop() {
+        if ancestors.insert(id.clone()) {
+            frontier.extend(ctx.metadata(&id)?.parents()?);
+        }
+    }
+    Ok(ancestors)
 }
 
 /// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.

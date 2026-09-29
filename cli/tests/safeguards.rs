@@ -4,7 +4,8 @@ use cabaret_cli::change::{ChangeCommand, refusal};
 use cabaret_lib::{
     ChangeId, Identity,
     safeguard::{
-        LandAllow, LandSafeguard, NonOwner, OwnersAllow, RebaseAllow, RebaseSafeguard, SafeguardKind, Unreviewed,
+        AddParentAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, RebaseAllow, RebaseSafeguard,
+        RemoveParentAllow, SafeguardKind, Unreviewed,
     },
 };
 use clap::Parser;
@@ -61,4 +62,11 @@ fn flags_match_kinds() {
     };
     owners("remove");
     owners("set");
+    let parents = |command: &str, kinds: &[SafeguardKind]| {
+        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
+        let args = ["cab", "parents", command, "main"].map(str::to_owned);
+        Cli::try_parse_from(args.into_iter().chain(flags)).unwrap();
+    };
+    parents("add", AddParentAllow::KINDS);
+    parents("remove", RemoveParentAllow::KINDS);
 }

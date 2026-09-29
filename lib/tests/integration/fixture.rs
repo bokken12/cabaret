@@ -534,7 +534,11 @@ pub fn scene() -> Fixture {
     fixture.create("fork-right", "fork-base", &bob());
     fixture.commit("fork-right", &[("fork-right.txt", "fork-right\n")]);
     fixture.create("fork-join", "fork-left", &carol());
-    fixture.cabaret.add_parent(&id("fork-join"), &id("fork-right")).unwrap();
+    fixture
+        .cabaret
+        .add_parent(&id("fork-join"), &id("fork-right"), cabaret_lib::safeguard::AddParentAllow::default())
+        .unwrap()
+        .unwrap();
     fixture.merge("fork-join", "fork-right", &[("fork-join.txt", "fork-join\n")]);
 
     fixture.create("empty", "main", &alice());

@@ -121,7 +121,11 @@ fn onto_merges_only_that_parent() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right")).unwrap();
+    fixture
+        .cabaret
+        .add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default())
+        .unwrap()
+        .unwrap();
     fixture.commit("left", &[("left.txt", "left\n")]);
     expect![[r#"Rebase { merged: {"right"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase(
         &fixture,
@@ -139,7 +143,11 @@ fn conflict_stops_before_next_parent() {
     fixture.create("left", "main", &alice());
     fixture.create("right", "main", &alice());
     fixture.create("join", "left", &alice());
-    fixture.cabaret.add_parent(&id("join"), &id("right")).unwrap();
+    fixture
+        .cabaret
+        .add_parent(&id("join"), &id("right"), cabaret_lib::safeguard::AddParentAllow::default())
+        .unwrap()
+        .unwrap();
     fixture.commit("join", &[("file.txt", "join\n")]);
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.commit("right", &[("right.txt", "right\n")]);

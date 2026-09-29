@@ -125,6 +125,11 @@ every_safeguard! {
     ParentConflicted = "parent-conflicted",
     RemovesOthers = "removes-others",
     Ownerless = "ownerless",
+    BaseMoves = "base-moves",
+    Parentless = "parentless",
+    NoCommonAncestor = "no-common-ancestor",
+    ArchivedParent = "archived-parent",
+    RedundantParent = "redundant-parent",
 }
 
 safeguards!(
@@ -138,6 +143,20 @@ safeguards!(
         Conflicted: conflicted,
         Uncommitted: uncommitted,
     }
+);
+safeguards!(
+    "add a parent",
+    AddParentSafeguard,
+    AddParentAllow {
+        ArchivedParent: archived_parent,
+        RedundantParent: redundant_parent,
+        NoCommonAncestor: no_common_ancestor,
+    }
+);
+safeguards!(
+    "remove a parent",
+    RemoveParentSafeguard,
+    RemoveParentAllow { BaseMoves: base_moves, Parentless: parentless, NoCommonAncestor: no_common_ancestor }
 );
 safeguards!("change owners", OwnersSafeguard, OwnersAllow { RemovesOthers: removes_others, Ownerless: ownerless });
 safeguards!(
@@ -257,4 +276,61 @@ pub struct Ownerless;
 
 impl fmt::Display for Ownerless {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it would have no owners") }
+}
+
+/// Removing a parent moves the change's base back, taking the parent's work into its diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaseMoves {
+    pub removed: ChangeId,
+}
+
+impl fmt::Display for BaseMoves {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "its diff would take in the work of {}", self.removed)
+    }
+}
+
+/// The change would be left with no parent to land into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Parentless;
+
+impl fmt::Display for Parentless {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it would have nowhere to land") }
+}
+
+/// The change's parents share no ancestor, so they could never coalesce into one to land into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoCommonAncestor {
+    pub parents: NEBTreeSet<ChangeId>,
+}
+
+impl fmt::Display for NoCommonAncestor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} share no ancestor, so it could never land", joined(&self.parents))
+    }
+}
+
+/// An archived parent, which working out the change's parents skips.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchivedParent {
+    pub parent: ChangeId,
+}
+
+impl fmt::Display for ArchivedParent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is archived, so it would be skipped", self.parent)
+    }
+}
+
+/// A parent that is already an ancestor of another, which working out the change's parents skips.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RedundantParent {
+    pub parent: ChangeId,
+    pub descendant: ChangeId,
+}
+
+impl fmt::Display for RedundantParent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is already an ancestor of {}, so it would be skipped", self.parent, self.descendant)
+    }
 }
