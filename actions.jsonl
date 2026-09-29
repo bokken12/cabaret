@@ -1,2 +1,1 @@
-{"action":"remove-parent","parent":"main"}
-{"action":"add-parent","parent":"workspace-remove-unregisters-first"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"3c1eaeea145111b12656fc9b15a2db38a43f8cb6"}
