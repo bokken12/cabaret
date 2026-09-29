@@ -5,5 +5,3 @@ kept, for as long as the parent's log is, even after the change's own refs are d
 
 The referenced log is the one read at the start of the land, so it excludes the `set-archived`
 the same land writes; a plain git branch with no log records `"log": null`.
-
-TODO(joel): document the `land` action in docs/log.md.
