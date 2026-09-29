@@ -1324,7 +1324,7 @@ async function allowAnyway(
 
 /** Rebase, once the user accepts any safeguards that would refuse it. */
 async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
-  const safeguards = await safeguarded(changes, (change) => cabaret.rebaseSafeguards(change));
+  const safeguards = await safeguarded(changes, (change) => cabaret.rebaseSafeguards(change, undefined));
   if (safeguards.size > 0) {
     const proceed = "Rebase Anyway";
     const choice = await vscode.window.showWarningMessage(

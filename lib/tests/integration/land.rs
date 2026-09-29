@@ -83,7 +83,8 @@ fn conflicts_into_root_refuse() {
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
     let tip = fixture.tip("main");
     let allow = LandAllow { conflicted: true, unreviewed: true, ..LandAllow::default() };
-    expect!["error: child would land conflicts in main, a root; rebase and resolve first"].assert_eq(&land_allowing(&fixture, "child", allow));
+    expect!["error: child would land conflicts in main, a root; rebase and resolve first"]
+        .assert_eq(&land_allowing(&fixture, "child", allow));
     assert_eq!(fixture.tip("main"), tip);
     assert!(!fixture.snapshot("child").archived);
 }
@@ -105,7 +106,11 @@ fn conflicting() -> Fixture {
 fn conflicts_refuse_unless_allowed() {
     let fixture = conflicting();
     expect!["refused: conflicts in greeting.txt"].assert_eq(&land(&fixture, "child"));
-    expect!["landed into mid"].assert_eq(&land_allowing(&fixture, "child", LandAllow { conflicted: true, ..LandAllow::default() }));
+    expect!["landed into mid"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { conflicted: true, ..LandAllow::default() },
+    ));
     expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
         &fixture
             .cabaret
@@ -124,7 +129,11 @@ fn empty_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("empty", "main", &alice());
     expect!["refused: it adds nothing to main"].assert_eq(&land(&fixture, "empty"));
-    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", LandAllow { empty: true, ..LandAllow::default() }));
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "empty",
+        LandAllow { empty: true, ..LandAllow::default() },
+    ));
     assert!(fixture.snapshot("empty").archived);
 }
 
@@ -147,7 +156,11 @@ fn uncommitted_refuses_unless_allowed() {
     fixture.checkout("child");
     fixture.write("draft.txt", "draft\n");
     expect!["refused: workspace main has uncommitted changes"].assert_eq(&land(&fixture, "child"));
-    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "child", LandAllow { uncommitted: true, ..LandAllow::default() }));
+    expect!["landed into main"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { uncommitted: true, ..LandAllow::default() },
+    ));
 }
 
 #[test]

@@ -11,8 +11,8 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
-        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, ParentUnreviewed, RebaseAllow, RebaseSafeguard,
-        Uncommitted, Unreviewed,
+        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, ParentConflicted, ParentUnreviewed, RebaseAllow,
+        RebaseSafeguard, Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -629,8 +629,15 @@ impl Cabaret {
     }
 
     /// The safeguards that would refuse rebasing `change_id` now, for a frontend to ask about first.
-    pub fn rebase_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<RebaseSafeguard>> {
-        self.store.query(|ctx| rebase_safeguards(ctx.metadata(change_id)?))
+    pub fn rebase_safeguards(
+        &self,
+        change_id: &ChangeIdRef,
+        onto: Option<&ChangeIdRef>,
+    ) -> Result<Vec<RebaseSafeguard>> {
+        self.store.query(|ctx| {
+            let metadata = ctx.metadata(change_id)?;
+            rebase_safeguards(metadata, ctx.branch(change_id)?, &rebase_targets(metadata, onto)?)
+        })
     }
 
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
@@ -645,14 +652,8 @@ impl Cabaret {
     ) -> Result<std::result::Result<Rebase, NEVec<RebaseSafeguard>>> {
         self.store.transact_or_abort(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
-            let parents = metadata.parents()?;
-            let targets = match onto {
-                None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
-                None => parents,
-                Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
-                Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
-            };
-            if let Some(refused) = allow.refused(rebase_safeguards(metadata)?) {
+            let targets = rebase_targets(metadata, onto)?;
+            if let Some(refused) = allow.refused(rebase_safeguards(metadata, branch, &targets)?) {
                 return Ok(Err(refused));
             }
 
@@ -945,8 +946,39 @@ fn land_safeguards(
     Ok(safeguards)
 }
 
-fn rebase_safeguards(metadata: &Metadata<'_>) -> Result<Vec<RebaseSafeguard>> {
-    Ok(Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner)))
+/// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.
+fn rebase_targets(metadata: &Metadata<'_>, onto: Option<&ChangeIdRef>) -> Result<BTreeSet<ChangeId>> {
+    let change_id = metadata.id();
+    let parents = metadata.parents()?;
+    Ok(match onto {
+        None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
+        None => parents,
+        Some(onto) if parents.contains(onto) => BTreeSet::from([onto.to_owned()]),
+        Some(onto) => Err(format!("{onto} is not a parent of {change_id}"))?,
+    })
+}
+
+fn rebase_safeguards(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    targets: &BTreeSet<ChangeId>,
+) -> Result<Vec<RebaseSafeguard>> {
+    let ctx = metadata.ctx();
+    let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(RebaseSafeguard::NonOwner));
+    if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(&metadata.parents()?)?) {
+        safeguards.push(RebaseSafeguard::Conflicted(Conflicted { files }));
+    }
+    for target in targets {
+        let parent = ctx.branch(target)?;
+        // A parent already merged in brings nothing, conflicts included.
+        if ctx.is_predecessor(parent.tip, branch.tip)? {
+            continue;
+        }
+        if let Some(files) = NEBTreeSet::try_from_set(parent.conflicted_files(&ctx.metadata(target)?.parents()?)?) {
+            safeguards.push(RebaseSafeguard::ParentConflicted(ParentConflicted { parent: target.clone(), files }));
+        }
+    }
+    Ok(safeguards)
 }
 
 fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {

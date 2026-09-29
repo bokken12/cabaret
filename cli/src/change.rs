@@ -154,6 +154,12 @@ pub enum ChangeCommand {
         /// Rebase even though you do not own it.
         #[arg(long)]
         allow_non_owner: bool,
+        /// Rebase even though it has conflicts of its own left to resolve.
+        #[arg(long)]
+        allow_conflicted: bool,
+        /// Rebase even though a parent holds conflicts, which would come along.
+        #[arg(long)]
+        allow_parent_conflicted: bool,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
     /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
@@ -279,8 +285,13 @@ impl ChangeCommand {
                     }
                 }
             }
-            ChangeCommand::Rebase { change, onto, allow_non_owner } => {
-                rebase(&cabaret, &or_current(change)?, onto.as_deref(), RebaseAllow { non_owner: allow_non_owner })?;
+            ChangeCommand::Rebase { change, onto, allow_non_owner, allow_conflicted, allow_parent_conflicted } => {
+                let allow = RebaseAllow {
+                    non_owner: allow_non_owner,
+                    conflicted: allow_conflicted,
+                    parent_conflicted: allow_parent_conflicted,
+                };
+                rebase(&cabaret, &or_current(change)?, onto.as_deref(), allow)?;
             }
             ChangeCommand::Review { change, pathspecs } => {
                 diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;

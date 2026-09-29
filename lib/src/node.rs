@@ -313,8 +313,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn rebase_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
-        Ok(presented(self.blocking(move |cabaret| cabaret.rebase_safeguards(&change)).await?))
+    pub async fn rebase_safeguards(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Vec<Safeguard>> {
+        Ok(presented(self.blocking(move |cabaret| cabaret.rebase_safeguards(&change, onto.as_deref())).await?))
     }
 
     #[napi]

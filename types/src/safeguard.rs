@@ -122,6 +122,7 @@ every_safeguard! {
     Empty = "empty",
     Conflicted = "conflicted",
     Uncommitted = "uncommitted",
+    ParentConflicted = "parent-conflicted",
 }
 
 safeguards!(
@@ -136,7 +137,11 @@ safeguards!(
         Uncommitted: uncommitted,
     }
 );
-safeguards!("rebase", RebaseSafeguard, RebaseAllow { NonOwner: non_owner });
+safeguards!(
+    "rebase",
+    RebaseSafeguard,
+    RebaseAllow { NonOwner: non_owner, Conflicted: conflicted, ParentConflicted: parent_conflicted }
+);
 
 /// `a, b, c`.
 fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
@@ -215,5 +220,18 @@ pub struct Uncommitted {
 impl fmt::Display for Uncommitted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "workspace {} has uncommitted changes", self.workspace)
+    }
+}
+
+/// A parent to be merged in holds conflict markers, which would come along.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParentConflicted {
+    pub parent: ChangeId,
+    pub files: NEBTreeSet<RepoPath>,
+}
+
+impl fmt::Display for ParentConflicted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} has conflicts in {}", self.parent, joined(&self.files))
     }
 }

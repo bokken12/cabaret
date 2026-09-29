@@ -200,7 +200,7 @@ fn non_owner_refuses_unless_allowed() {
         &fixture,
         "child",
         None,
-        RebaseAllow { non_owner: true },
+        RebaseAllow { non_owner: true, ..RebaseAllow::default() },
     ));
 }
 
@@ -209,4 +209,44 @@ fn errors_come_before_safeguards() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
     expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
+}
+
+/// `child` has rebased onto `main` into a conflict, and `main` has moved on since.
+fn conflicted() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("greeting.txt", "hello\n")]);
+    fixture.create("child", "main", &alice());
+    fixture.commit("child", &[("greeting.txt", "hi\n")]);
+    fixture.commit("main", &[("greeting.txt", "hey\n")]);
+    rebase(&fixture, "child", None);
+    fixture.commit("main", &[("main.txt", "main\n")]);
+    fixture
+}
+
+#[test]
+fn conflicted_refuses_unless_allowed() {
+    let fixture = conflicted();
+    expect!["refused: conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "child", None));
+    let allow = RebaseAllow { conflicted: true, ..RebaseAllow::default() };
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(&fixture, "child", None, allow));
+}
+
+#[test]
+fn conflicted_parent_refuses_unless_allowed() {
+    let fixture = conflicted();
+    fixture.create("grandchild", "child", &alice());
+    fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
+    fixture.commit("child", &[("child.txt", "child\n")]);
+    expect!["refused: child has conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "grandchild", None));
+    let allow = RebaseAllow { parent_conflicted: true, ..RebaseAllow::default() };
+    expect![[r#"Rebase { merged: {"child"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(&fixture, "grandchild", None, allow));
+}
+
+#[test]
+fn merged_parent_brings_no_conflicts() {
+    let fixture = conflicted();
+    fixture.create("grandchild", "child", &alice());
+    fixture.commit("grandchild", &[("grandchild.txt", "grandchild\n")]);
+    let concerns = fixture.cabaret.rebase_safeguards(&id("grandchild"), None).unwrap();
+    expect!["[]"].assert_eq(&format!("{concerns:?}"));
 }
