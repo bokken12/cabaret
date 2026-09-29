@@ -4,19 +4,16 @@ mod home;
 #[cfg(feature = "napi")]
 mod node;
 mod page;
-mod safeguard;
 
 pub use cabaret::{Cabaret, NextStep, Prune, Rebase};
 pub use cabaret_agents::{ClaudeCode, Session, SessionId, Status};
 pub use cabaret_config::{Hints, Prefix, Scope, Setting};
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath,
-    Result, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, log,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, LandAllow,
+    LandSafeguard, NonOwner, Pathspec, RebaseAllow, RebaseSafeguard, RepoPath, Result, RevisionId, Safeguard,
+    SafeguardKind, TimestampMs, TreeId, Unreviewed, ViewDiff, WorkspaceId, WorkspaceIdRef, log,
 };
 pub use file_tree::FileTree;
 pub use gix;
 pub use home::{Home, HomeGraph, HomeNode, HomeSection};
 pub use page::{DiffView, Fold, Line, Page, Segment, TabCounts, Tag, Target, name};
-pub use safeguard::{
-    LandAllow, LandSafeguard, NonOwner, RebaseAllow, RebaseSafeguard, Safeguard, SafeguardKind, Unreviewed,
-};

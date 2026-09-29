@@ -220,6 +220,7 @@ dependencies = [
  "gix",
  "napi",
  "napi-derive",
+ "nonempty-collections",
  "ref-cast",
  "serde",
  "serde_json",
