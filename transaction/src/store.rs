@@ -217,6 +217,15 @@ impl Store {
             workspaces.push(op.before(&ctx)?);
         }
         let mut workspaces: [Workspace<'_>; N] = workspaces.try_into().expect("one workspace per op");
+        // A fast-forward writes a workspace's files under only the lock of the branch it holds,
+        // so everything else writing there must hold that lock too.
+        for workspace in &workspaces {
+            if let Some(held) = workspace.change()
+                && !branch_ops.iter().any(|op| *op.id() == **held)
+            {
+                Err(format!("{held} must be declared to touch workspace {}", workspace.id()))?;
+            }
+        }
 
         let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
 
@@ -245,6 +254,11 @@ impl Store {
                 name: branch.id().branch_ref(),
                 deref: false,
             });
+        }
+        for (branch, _) in &moved {
+            if let Some(workspace) = branch.workspace()? {
+                Workspace::load(&ctx, workspace.to_ref())?.check_settled()?;
+            }
         }
         if !edits.is_empty() {
             ctx.repo.edit_references(edits)?;
