@@ -9,15 +9,22 @@ use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, TimestampMs,
-    WorkspaceId, WorkspaceIdRef,
+    TreeId, WorkspaceId, WorkspaceIdRef,
 };
-use gix::bstr::ByteSlice;
+use gix::{
+    bstr::{BString, ByteSlice, ByteVec},
+    diff::blob::{
+        Algorithm, InternedInput, UnifiedDiff, diff_with_slider_heuristics,
+        unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
+    },
+    objs::tree::EntryMode,
+};
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode, HomeSection},
-    page::{DiffView, Page, TabCounts},
+    page::{DiffView, Page, TabCounts, name},
 };
 
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
@@ -428,6 +435,65 @@ impl Cabaret {
     pub fn files_page(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<Page> {
         let files = self.view_files(change_id, view, pathspecs)?;
         Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
+    }
+
+    /// `change_id`'s `view` of the files `pathspecs` match, all when empty, as `git diff` shows
+    /// them, headed by the change's name and tip: the tip to mark what was read reviewed at.
+    pub fn diff(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<BString> {
+        let workspace_id = match view {
+            DiffView::Workspace => Some(self.workspace_of(change_id)?),
+            DiffView::Diff | DiffView::Review => None,
+        };
+        self.store.query(|ctx| {
+            let (metadata, branch) = (ctx.metadata(change_id)?, ctx.branch(change_id)?);
+            let parents = metadata.parents()?;
+            let tree = |revision: RevisionId| -> Result<TreeId> {
+                Ok(TreeId(ctx.repo.find_commit(revision.0)?.tree_id()?.detach()))
+            };
+            let tip = tree(branch.tip)?;
+            // Each file with the trees it differs between.
+            let sides: Vec<(ChangedFile, Option<TreeId>, TreeId)> = match view {
+                DiffView::Diff => {
+                    let base = branch.base(&parents)?.map(tree).transpose()?;
+                    branch.changed_files(&parents, pathspecs)?.into_iter().map(|file| (file, base, tip)).collect()
+                }
+                DiffView::Review => {
+                    let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
+                    let mut bases = BTreeMap::new();
+                    let mut sides = Vec::new();
+                    for file in branch.review_files(&parents, &review, pathspecs)? {
+                        let reviewed = review.get(file.path()).copied();
+                        let base = match bases.get(&reviewed) {
+                            Some(&base) => base,
+                            None => {
+                                let base = branch.review_base(&parents, reviewed)?.map(tree).transpose()?;
+                                *bases.entry(reviewed).or_insert(base)
+                            }
+                        };
+                        sides.push((file, base, tip));
+                    }
+                    sides
+                }
+                DiffView::Workspace => {
+                    let workspace = ctx.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;
+                    let saved = workspace.saved_tree()?;
+                    workspace.changed_files(pathspecs)?.into_iter().map(|file| (file, Some(tip), saved)).collect()
+                }
+            };
+            let kind = view.kind();
+            let mut diff = BString::from(format!(
+                "{} · {kind} files at {}\n\n",
+                name(change_id, metadata.title.as_deref()),
+                branch.tip
+            ));
+            if sides.is_empty() {
+                diff.push_str(format!("no {kind} files\n"));
+            }
+            for (file, before, after) in &sides {
+                diff.extend_from_slice(&file_diff(&ctx.repo, file, *before, *after)?);
+            }
+            Ok(diff)
+        })
     }
 
     /// The tabs over `change_id`'s pages, with `view`'s showing (`None` for its show page).
@@ -848,4 +914,78 @@ fn home_graph(
         nodes.insert(id, node);
     }
     Ok(HomeGraph { nodes })
+}
+
+/// `file`'s diff from `before` to `after` as `git diff` shows it, with fixed options so that
+/// every clone renders it alike.
+fn file_diff(repo: &gix::Repository, file: &ChangedFile, before: Option<TreeId>, after: TreeId) -> Result<BString> {
+    let entry = |tree: TreeId, path: &RepoPath| -> Result<(EntryMode, Vec<u8>)> {
+        let tree = repo.find_tree(tree.0)?;
+        let entry = tree.lookup_entry_by_path(path.as_ref())?.expect("a changed file is on the side it differs on");
+        Ok((entry.mode(), entry.object()?.detach().data))
+    };
+    let (from, path) = (file.paths().next().expect("a file has a path"), file.path());
+    let old = match file {
+        ChangedFile::Added { .. } => None,
+        _ => Some(entry(before.expect("only an added file has no before side"), from)?),
+    };
+    let new = match file {
+        ChangedFile::Deleted { .. } => None,
+        _ => Some(entry(after, path)?),
+    };
+
+    let mut diff = BString::from(format!("diff --git a/{from} b/{path}\n"));
+    match (&old, &new) {
+        (None, Some((mode, _))) => diff.push_str(format!("new file mode {mode:o}\n")),
+        (Some((mode, _)), None) => diff.push_str(format!("deleted file mode {mode:o}\n")),
+        (Some((old, _)), Some((new, _))) if old != new => {
+            diff.push_str(format!("old mode {old:o}\nnew mode {new:o}\n"))
+        }
+        _ => {}
+    }
+    match file {
+        ChangedFile::Renamed { .. } => diff.push_str(format!("rename from {from}\nrename to {path}\n")),
+        ChangedFile::Copied { .. } => diff.push_str(format!("copy from {from}\ncopy to {path}\n")),
+        ChangedFile::Added { .. } | ChangedFile::Deleted { .. } | ChangedFile::Modified { .. } => {}
+    }
+
+    let a = old.as_ref().map_or_else(|| "/dev/null".to_owned(), |_| format!("a/{from}"));
+    let b = new.as_ref().map_or_else(|| "/dev/null".to_owned(), |_| format!("b/{path}"));
+    let (old, new) = (old.map_or_else(Vec::new, |(_, data)| data), new.map_or_else(Vec::new, |(_, data)| data));
+    if old == new {
+        return Ok(diff);
+    }
+    // As git decides, by a NUL byte early on.
+    let binary = |data: &[u8]| data[..data.len().min(8000)].contains(&0);
+    if binary(&old) || binary(&new) {
+        diff.push_str(format!("Binary files {a} and {b} differ\n"));
+        return Ok(diff);
+    }
+    diff.push_str(format!("--- {a}\n+++ {b}\n"));
+    let input = InternedInput::new(old.as_slice(), new.as_slice());
+    let lines = diff_with_slider_heuristics(Algorithm::Histogram, &input);
+    diff.extend_from_slice(&UnifiedDiff::new(&lines, &input, Hunks::default(), ContextSize::symmetrical(3)).consume()?);
+    Ok(diff)
+}
+
+/// Hunks as unified diff text, marking lines that end without a newline as git does.
+#[derive(Default)]
+struct Hunks(BString);
+
+impl ConsumeHunk for Hunks {
+    type Out = BString;
+
+    fn consume_hunk(&mut self, header: HunkHeader, lines: &[(DiffLineKind, &[u8])]) -> std::io::Result<()> {
+        self.0.push_str(format!("{header}\n"));
+        for &(kind, line) in lines {
+            self.0.push_char(kind.to_prefix());
+            self.0.extend_from_slice(line);
+            if !line.ends_with(b"\n") {
+                self.0.push_str("\n\\ No newline at end of file\n");
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> BString { self.0 }
 }

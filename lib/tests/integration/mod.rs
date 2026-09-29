@@ -3,6 +3,7 @@ mod commit;
 mod config;
 mod create;
 mod describe;
+mod diff;
 mod discard;
 mod fixture;
 mod home;

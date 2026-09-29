@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, DiffView, Identity, Pathspec, RepoPath, Result, RevisionId};
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -67,6 +69,8 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         description: Option<String>,
     },
+    /// List the files the change's diff touches, or show the diffs of those matching the given
+    /// pathspecs (`'*'` for all).
     Diff {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -124,8 +128,9 @@ pub enum ChangeCommand {
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
     },
-    /// Show the files you have left to review: each as the tip differs from the merge of the
-    /// change's bases with the tip you last marked it reviewed at.
+    /// List the files you have left to review, or show the diffs of those matching the given
+    /// pathspecs (`'*'` for all): each as the tip differs from the merge of the change's bases
+    /// with the tip you last marked it reviewed at.
     // TODO-someday(joel): consider merging with `Diff` via flag?
     Review {
         #[arg(long, add = change_completer())]
@@ -188,13 +193,11 @@ impl ChangeCommand {
                 cabaret.set_description(&or_current(change)?, Some(text).filter(|text| !text.trim().is_empty()))?;
             }
             ChangeCommand::Diff { change, workspace, pathspecs } => {
-                // TODO(joel): show file content not just file names
-                let change = or_current(change)?;
                 let view = match workspace {
                     false => DiffView::Diff,
                     true => DiffView::Workspace,
                 };
-                print!("{}", cabaret.files_page(&change, view, &pathspecs)?);
+                diff(&cabaret, &or_current(change)?, view, &pathspecs)?;
             }
             ChangeCommand::Discard { change, pathspecs } => {
                 let change = or_current(change)?;
@@ -236,7 +239,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
             ChangeCommand::Review { change, pathspecs } => {
-                print!("{}", cabaret.files_page(&or_current(change)?, DiffView::Review, &pathspecs)?);
+                diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {
@@ -246,6 +249,16 @@ impl ChangeCommand {
 
         Ok(())
     }
+}
+
+/// The files `change`'s `view` touches, or with pathspecs the diffs of those matching: reading
+/// every diff at once is rarely wanted, so it takes asking for.
+fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<()> {
+    match pathspecs.is_empty() {
+        true => print!("{}", cabaret.files_page(change, view, pathspecs)?),
+        false => std::io::stdout().write_all(&cabaret.diff(change, view, pathspecs)?)?,
+    }
+    Ok(())
 }
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>) -> Result<()> {

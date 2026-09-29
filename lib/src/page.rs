@@ -38,6 +38,17 @@ pub enum DiffView {
     Workspace,
 }
 
+impl DiffView {
+    /// What the files this view diffs are, to the reader.
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Diff => "changed",
+            Self::Review => "unreviewed",
+            Self::Workspace => "uncommitted",
+        }
+    }
+}
+
 /// Where a piece of text leads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "napi", napi_derive::napi(discriminant = "kind"))]
@@ -195,11 +206,7 @@ impl Page {
     /// its own diff and each folder to all under it. The cursor starts on the first file listed,
     /// so that diffs can be read in order from the top.
     pub fn files(change: &ChangeIdRef, title: Option<&str>, view: DiffView, files: &[ChangedFile]) -> Self {
-        let kind = match view {
-            DiffView::Diff => "changed",
-            DiffView::Review => "unreviewed",
-            DiffView::Workspace => "uncommitted",
-        };
+        let kind = view.kind();
         let target = |files: &[&ChangedFile]| Target::Diff {
             view,
             change: change.to_owned(),
