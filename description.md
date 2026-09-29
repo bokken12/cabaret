@@ -1,0 +1,1 @@
+Unregister a workspace before deleting its files, so a removal that fails partway leaves a stray directory rather than a registered workspace missing its files.
