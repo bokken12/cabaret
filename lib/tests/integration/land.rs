@@ -1,6 +1,6 @@
 //! Landing: the parent merges the change in and the change is archived.
 
-use cabaret_lib::{LandAllow, Safeguard};
+use cabaret_lib::safeguard::{LandAllow, Safeguard};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -75,24 +75,79 @@ fn parent_that_has_not_moved_fast_forwards() {
 }
 
 #[test]
-fn conflicts_refuse() {
+fn conflicts_into_root_refuse() {
     let fixture = Fixture::new();
     fixture.root("main", &[("greeting.txt", "hello\n")]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("greeting.txt", "hi\n")]);
     fixture.commit("main", &[("greeting.txt", "hey\n")]);
     let tip = fixture.tip("main");
-    expect!["error: child conflicts with main; rebase and resolve first"].assert_eq(&land(&fixture, "child"));
+    let allow = LandAllow { conflicted: true, unreviewed: true, ..LandAllow::default() };
+    expect!["error: child would land conflicts in main, a root; rebase and resolve first"].assert_eq(&land_allowing(&fixture, "child", allow));
     assert_eq!(fixture.tip("main"), tip);
     assert!(!fixture.snapshot("child").archived);
 }
 
+/// `child` conflicts with its parent `mid`, which sits on `main`.
+fn conflicting() -> Fixture {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("greeting.txt", "hello\n")]);
+    fixture.create("mid", "main", &alice());
+    fixture.create("child", "mid", &alice());
+    fixture.commit("child", &[("greeting.txt", "hi\n")]);
+    fixture.commit("mid", &[("greeting.txt", "hey\n")]);
+    fixture.mark_all("mid");
+    fixture.mark_all("child");
+    fixture
+}
+
 #[test]
-fn nothing_to_land_refuses() {
+fn conflicts_refuse_unless_allowed() {
+    let fixture = conflicting();
+    expect!["refused: conflicts in greeting.txt"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into mid"].assert_eq(&land_allowing(&fixture, "child", LandAllow { conflicted: true, ..LandAllow::default() }));
+    expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
+        &fixture
+            .cabaret
+            .show_page(&id("mid"))
+            .unwrap()
+            .to_string()
+            .lines()
+            .find(|line| line.starts_with("Next step"))
+            .unwrap(),
+    );
+}
+
+#[test]
+fn empty_refuses_unless_allowed() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("empty", "main", &alice());
-    expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
+    expect!["refused: it adds nothing to main"].assert_eq(&land(&fixture, "empty"));
+    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "empty", LandAllow { empty: true, ..LandAllow::default() }));
+    assert!(fixture.snapshot("empty").archived);
+}
+
+#[test]
+fn unreviewed_parent_refuses_unless_allowed() {
+    let fixture = conflicting();
+    fixture.commit("mid", &[("greeting.txt", "hi\n")]);
+    fixture.cabaret.rebase(&id("child"), None, cabaret_lib::safeguard::RebaseAllow::default()).unwrap().unwrap();
+    expect!["refused: alice@example.com has files of mid left to review"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into mid"].assert_eq(&land_allowing(
+        &fixture,
+        "child",
+        LandAllow { parent_unreviewed: true, ..LandAllow::default() },
+    ));
+}
+
+#[test]
+fn uncommitted_refuses_unless_allowed() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.write("draft.txt", "draft\n");
+    expect!["refused: workspace main has uncommitted changes"].assert_eq(&land(&fixture, "child"));
+    expect!["landed into main"].assert_eq(&land_allowing(&fixture, "child", LandAllow { uncommitted: true, ..LandAllow::default() }));
 }
 
 #[test]
@@ -114,7 +169,7 @@ fn unreviewed_refuses_unless_allowed() {
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, non_owner: false },
+        LandAllow { unreviewed: true, ..LandAllow::default() },
     ));
 }
 
@@ -126,21 +181,21 @@ fn each_safeguard_needs_allowing() {
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, non_owner: false },
+        LandAllow { unreviewed: true, ..LandAllow::default() },
     ));
     expect!["landed into main"].assert_eq(&land_allowing(
         &fixture,
         "child",
-        LandAllow { unreviewed: true, non_owner: true },
+        LandAllow { unreviewed: true, non_owner: true, ..LandAllow::default() },
     ));
 }
 
 #[test]
 fn errors_come_before_safeguards() {
-    let fixture = Fixture::new();
-    fixture.root("main", &[]);
-    fixture.create("empty", "main", &bob());
-    expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.archive(&id("child")).unwrap();
+    expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
 
 #[test]

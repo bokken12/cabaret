@@ -3,7 +3,7 @@
 
 use std::{thread, time::Duration};
 
-use cabaret_lib::RebaseAllow;
+use cabaret_lib::safeguard::RebaseAllow;
 
 use super::fixture::{Fixture, alice, id};
 

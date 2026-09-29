@@ -1,6 +1,6 @@
 //! The home page: what each section includes for a viewer and how the page draws it.
 
-use cabaret_lib::RebaseAllow;
+use cabaret_lib::safeguard::RebaseAllow;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};

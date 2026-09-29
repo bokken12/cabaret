@@ -1,7 +1,7 @@
 //! The files a reviewer has left to read: each as the tip differs from the merge of the bases
 //! with the tip they last marked it reviewed at.
 
-use cabaret_lib::{Pathspec, RebaseAllow, RepoPath};
+use cabaret_lib::{Pathspec, RepoPath, safeguard::RebaseAllow};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id};

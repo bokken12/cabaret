@@ -61,8 +61,8 @@ impl fmt::Debug for Workspace<'_> {
 }
 
 /// How a working directory and index differ from a tree.
-#[derive(PartialEq, Eq)]
-enum Status {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
     Clean,
     /// Only files the tree does not have.
     Untracked,
@@ -152,6 +152,12 @@ impl<'ctx> Workspace<'ctx> {
             deref: false,
         })?;
         Ok(())
+    }
+
+    /// How the files differ from HEAD's.
+    pub fn status(&self) -> Result<Status> {
+        let repo = self.repo()?;
+        status(&repo, &repo.head_commit()?.tree()?)
     }
 
     /// Delete git's record of the working directory and then the directory, as `git worktree

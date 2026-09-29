@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use cabaret_lib::{Hints, RebaseAllow, Scope};
+use cabaret_lib::{Hints, Scope, safeguard::RebaseAllow};
 use expect_test::expect;
 use nonempty_collections::nebts;
 

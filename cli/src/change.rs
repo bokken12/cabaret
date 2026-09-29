@@ -1,8 +1,9 @@
 use std::io::Write;
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, LandAllow, Pathspec, RebaseAllow,
-    RepoPath, Result, RevisionId, Safeguard, name,
+    Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
+    RevisionId, name,
+    safeguard::{LandAllow, RebaseAllow, Safeguard},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -102,6 +103,18 @@ pub enum ChangeCommand {
         /// Land even though you do not own it.
         #[arg(long)]
         allow_non_owner: bool,
+        /// Land even though the parent's owners have files of it left to review.
+        #[arg(long)]
+        allow_parent_unreviewed: bool,
+        /// Land even though it adds nothing, just archiving it.
+        #[arg(long)]
+        allow_empty: bool,
+        /// Land even though it leaves the parent holding conflict markers.
+        #[arg(long)]
+        allow_conflicted: bool,
+        /// Land even though its workspace has uncommitted changes.
+        #[arg(long)]
+        allow_uncommitted: bool,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -217,9 +230,24 @@ impl ChangeCommand {
                 cabaret.discard(&change, &pathspecs)?;
                 println!("discarded from {change}");
             }
-            ChangeCommand::Land { change, allow_unreviewed, allow_non_owner } => {
+            ChangeCommand::Land {
+                change,
+                allow_unreviewed,
+                allow_non_owner,
+                allow_parent_unreviewed,
+                allow_empty,
+                allow_conflicted,
+                allow_uncommitted,
+            } => {
                 let change = or_current(change)?;
-                let allow = LandAllow { unreviewed: allow_unreviewed, non_owner: allow_non_owner };
+                let allow = LandAllow {
+                    unreviewed: allow_unreviewed,
+                    non_owner: allow_non_owner,
+                    parent_unreviewed: allow_parent_unreviewed,
+                    empty: allow_empty,
+                    conflicted: allow_conflicted,
+                    uncommitted: allow_uncommitted,
+                };
                 let parent = cabaret.land(&change, allow)?.map_err(|refused| refusal("land", &change, refused))?;
                 println!("landed {change} into {parent}");
             }

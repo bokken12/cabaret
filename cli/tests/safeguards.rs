@@ -1,7 +1,10 @@
 //! Refusals by safeguards, and the flags they name to allow each.
 
 use cabaret_cli::change::{ChangeCommand, refusal};
-use cabaret_lib::{ChangeId, Identity, LandSafeguard, NonOwner, RebaseSafeguard, SafeguardKind, Unreviewed};
+use cabaret_lib::{
+    ChangeId, Identity,
+    safeguard::{LandAllow, LandSafeguard, NonOwner, RebaseAllow, RebaseSafeguard, SafeguardKind, Unreviewed},
+};
 use clap::Parser;
 use expect_test::expect;
 use nonempty_collections::{nebts, nev};
@@ -43,8 +46,10 @@ fn several_safeguards_one_per_line() {
 /// Refusals name `--allow-<kind>`, so each command needs a flag spelled so for every safeguard it checks.
 #[test]
 fn flags_match_kinds() {
-    let allow = |kind: SafeguardKind| format!("--allow-{kind}");
-    let land = ["cab", "land", &allow(SafeguardKind::Unreviewed), &allow(SafeguardKind::NonOwner)];
-    Cli::try_parse_from(land).unwrap();
-    Cli::try_parse_from(["cab", "rebase", &allow(SafeguardKind::NonOwner)]).unwrap();
+    let parse = |command: &str, kinds: &[SafeguardKind]| {
+        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
+        Cli::try_parse_from(["cab".to_owned(), command.to_owned()].into_iter().chain(flags)).unwrap();
+    };
+    parse("land", LandAllow::KINDS);
+    parse("rebase", RebaseAllow::KINDS);
 }

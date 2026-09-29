@@ -7,8 +7,11 @@ use std::{collections::BTreeSet, fmt};
 use nonempty_collections::{NEBTreeSet, NEVec};
 
 use crate::{
+    change_id::ChangeId,
     error::{Error, Result},
     identity::Identity,
+    repo_path::RepoPath,
+    workspace_id::WorkspaceId,
 };
 
 /// Declares every safeguard, each named by the struct holding its particulars: [`Safeguard`]
@@ -79,6 +82,9 @@ macro_rules! safeguards {
         }
 
         impl $allow {
+            /// The kinds of safeguard checked, one per field.
+            pub const KINDS: &[SafeguardKind] = &[$(SafeguardKind::$kind),+];
+
             /// Those of `safeguards` not allowed, which refuse the action.
             pub fn refused(self, safeguards: Vec<$safeguard>) -> Option<NEVec<$safeguard>> {
                 NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
@@ -112,14 +118,29 @@ macro_rules! safeguards {
 every_safeguard! {
     Unreviewed = "unreviewed",
     NonOwner = "non-owner",
+    ParentUnreviewed = "parent-unreviewed",
+    Empty = "empty",
+    Conflicted = "conflicted",
+    Uncommitted = "uncommitted",
 }
 
-safeguards!("land", LandSafeguard, LandAllow { Unreviewed: unreviewed, NonOwner: non_owner });
+safeguards!(
+    "land",
+    LandSafeguard,
+    LandAllow {
+        Unreviewed: unreviewed,
+        NonOwner: non_owner,
+        ParentUnreviewed: parent_unreviewed,
+        Empty: empty,
+        Conflicted: conflicted,
+        Uncommitted: uncommitted,
+    }
+);
 safeguards!("rebase", RebaseSafeguard, RebaseAllow { NonOwner: non_owner });
 
 /// `a, b, c`.
-fn joined<'a>(identities: impl IntoIterator<Item = &'a Identity>) -> String {
-    identities.into_iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
+    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
 
 /// Owners have files of the change left to review.
@@ -148,5 +169,51 @@ impl fmt::Display for NonOwner {
             true => write!(f, "you ({}) are not an owner (it has no owners)", self.you),
             false => write!(f, "you ({}) are not an owner (owners: {})", self.you, joined(&self.owners)),
         }
+    }
+}
+
+/// Owners of the parent have files of it left to review, which landing would bury in its diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParentUnreviewed {
+    pub parent: ChangeId,
+    pub reviewers: NEBTreeSet<Identity>,
+}
+
+impl fmt::Display for ParentUnreviewed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let verb = if self.reviewers.len().get() == 1 { "has" } else { "have" };
+        write!(f, "{} {verb} files of {} left to review", joined(&self.reviewers), self.parent)
+    }
+}
+
+/// The change adds nothing to its parent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Empty {
+    pub parent: ChangeId,
+}
+
+impl fmt::Display for Empty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "it adds nothing to {}", self.parent) }
+}
+
+/// Files would be left holding conflict markers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflicted {
+    pub files: NEBTreeSet<RepoPath>,
+}
+
+impl fmt::Display for Conflicted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "conflicts in {}", joined(&self.files)) }
+}
+
+/// The change's workspace has changes not yet committed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Uncommitted {
+    pub workspace: WorkspaceId,
+}
+
+impl fmt::Display for Uncommitted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "workspace {} has uncommitted changes", self.workspace)
     }
 }

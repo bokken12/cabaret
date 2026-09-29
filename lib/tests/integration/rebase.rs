@@ -1,7 +1,7 @@
 //! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
 //! change follows its branch.
 
-use cabaret_lib::{RebaseAllow, Safeguard};
+use cabaret_lib::safeguard::{RebaseAllow, Safeguard};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id, worktree};

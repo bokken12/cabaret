@@ -6,11 +6,14 @@ use std::{
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LandAllow, LandSafeguard,
-    NonOwner, Pathspec, RebaseAllow, RebaseSafeguard, RepoPath, Result, RevisionId, TimestampMs, Unreviewed, ViewDiff,
-    WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
+    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    safeguard::{
+        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, ParentUnreviewed, RebaseAllow, RebaseSafeguard,
+        Uncommitted, Unreviewed,
+    },
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
@@ -584,38 +587,38 @@ impl Cabaret {
 
     /// The safeguards that would refuse landing `change_id` now, for a frontend to ask about first.
     pub fn land_safeguards(&self, change_id: &ChangeIdRef) -> Result<Vec<LandSafeguard>> {
-        self.store.query(|ctx| land_safeguards(ctx.metadata(change_id)?, ctx.branch(change_id)?))
+        self.store.query(|ctx| {
+            let parent_id = landing_parent(ctx, change_id)?;
+            let child_branch = ctx.branch(change_id)?;
+            // A trial merge, whose commit nothing will point to, is how landing's result is known.
+            let merged = ctx.branch(&parent_id)?.clone().merge(child_branch, "land")?;
+            land_safeguards(ctx.metadata(change_id)?, child_branch, &parent_id, merged.as_ref())
+        })
     }
 
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are errors rather than landed: rebase and resolve them first. Safeguards
-    /// not in `allow` refuse, checked last so that allowing them cannot run into an error.
+    /// parent. Conflicts landing in a root are errors, since a root is never searched for them:
+    /// rebase and resolve them first. Safeguards not in `allow` refuse, checked last so that
+    /// allowing them cannot run into an error.
     pub fn land(
         &self,
         change_id: &ChangeIdRef,
         allow: LandAllow,
     ) -> Result<std::result::Result<ChangeId, NEVec<LandSafeguard>>> {
-        let parent_id = self.store.query(|ctx| {
-            match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
-                [] => Err(format!("{change_id} cannot land while it has no parents"))?,
-                [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
-                [parent] => Ok((*parent).clone()),
-            }
-        })?;
+        let parent_id = self.store.query(|ctx| landing_parent(ctx, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact_or_abort(&[change_id], &branches, &[], |_ctx, [child], [parent, child_branch], []| {
+        self.store.transact_or_abort(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
-            match parent.merge(child_branch, "land")? {
-                None => Err(format!("{change_id} has nothing to land"))?,
-                Some(conflicts) if !conflicts.is_empty() => {
-                    Err(format!("{change_id} conflicts with {parent_id}; rebase and resolve first"))?;
-                }
-                Some(_) => {}
+            let merged = parent.merge(child_branch, "land")?;
+            let conflicted = merged.as_ref().is_some_and(|conflicts| !conflicts.is_empty())
+                || !child_branch.conflicted_files(&child.parents()?)?.is_empty();
+            if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
+                Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
             }
-            if let Some(refused) = allow.refused(land_safeguards(child, child_branch)?) {
+            if let Some(refused) = allow.refused(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?) {
                 return Ok(Err(refused));
             }
             if !child.permanent {
@@ -894,10 +897,50 @@ fn unreviewed(
     Ok(reviewers)
 }
 
-fn land_safeguards(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<LandSafeguard>> {
+/// The one parent `change_id` lands into.
+fn landing_parent<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<ChangeId> {
+    match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
+        [] => Err(format!("{change_id} cannot land while it has no parents"))?,
+        [_, _, ..] => Err(format!("{change_id} cannot land while it has multiple parents"))?,
+        [parent] => Ok((*parent).clone()),
+    }
+}
+
+/// `merged` is what merging the change into `parent_id` gave: the files it conflicted in, or
+/// `None` when the parent already held everything.
+fn land_safeguards(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    parent_id: &ChangeIdRef,
+    merged: Option<&BTreeSet<RepoPath>>,
+) -> Result<Vec<LandSafeguard>> {
+    let ctx = metadata.ctx();
+    let parents = metadata.parents()?;
     let mut safeguards = Vec::from_iter(non_owner(metadata)?.map(LandSafeguard::NonOwner));
-    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &metadata.parents()?)?) {
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &parents)?) {
         safeguards.push(LandSafeguard::Unreviewed(Unreviewed { reviewers }));
+    }
+    let parent = ctx.metadata(parent_id)?;
+    let grandparents = parent.parents()?;
+    // A root has no diff of its own to review.
+    if !grandparents.is_empty()
+        && let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(parent, ctx.branch(parent_id)?, &grandparents)?)
+    {
+        safeguards.push(LandSafeguard::ParentUnreviewed(ParentUnreviewed { parent: parent_id.to_owned(), reviewers }));
+    }
+    match merged {
+        None => safeguards.push(LandSafeguard::Empty(Empty { parent: parent_id.to_owned() })),
+        Some(conflicts) => {
+            let files = branch.conflicted_files(&parents)?.into_iter().chain(conflicts.iter().cloned()).collect();
+            if let Some(files) = NEBTreeSet::try_from_set(files) {
+                safeguards.push(LandSafeguard::Conflicted(Conflicted { files }));
+            }
+        }
+    }
+    if let Some(workspace) = branch.workspace()?
+        && ctx.workspace(workspace.to_ref())?.status()? != Status::Clean
+    {
+        safeguards.push(LandSafeguard::Uncommitted(Uncommitted { workspace }));
     }
     Ok(safeguards)
 }
