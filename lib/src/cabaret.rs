@@ -296,8 +296,10 @@ impl Cabaret {
     }
 
     /// Check out `change_id` in `workspace_id`; allowing uncommitted changes drops those to
-    /// tracked files, leaving untracked ones be.
+    /// tracked files, leaving untracked ones be. Switching needs the branch the workspace leaves,
+    /// which is only known once read; the transaction re-checks it under the lock.
     pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId, allow: &Allow) -> Result<()> {
+<<<<<<< generic-allow
         self.store.transact(
             &[],
             &[BranchOp::Update(&change_id)],
@@ -313,6 +315,49 @@ impl Cabaret {
                 Ok(())
             },
         )
+||||||| base
+        self.store.transact(
+            &[],
+            &[BranchOp::Update(&change_id)],
+            &[WorkspaceOp::Update { id: workspace_id }],
+            |_ctx, [], [_branch], [workspace]| {
+                // Untracked files are left where they are, so only changes to tracked ones are at risk.
+                if workspace.status()? == Status::Modified {
+                    let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
+                    allow.check(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)])?;
+                }
+                workspace.drop_local_changes = allow.uncommitted;
+                workspace.head = Head::Change(change_id.clone());
+                Ok(())
+            },
+        )
+=======
+        let update = [WorkspaceOp::Update { id: workspace_id }];
+        let switch = |workspace: &mut Workspace<'_>| {
+            // Untracked files are left where they are, so only changes to tracked ones are at risk.
+            if workspace.status()? == Status::Modified {
+                let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
+                allow.check(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)])?;
+            }
+            workspace.drop_local_changes = allow.uncommitted;
+            workspace.head = Head::Change(change_id.clone());
+            Ok(())
+        };
+        let held = self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))?;
+        match held.filter(|held| *held != change_id) {
+            Some(held) => self.store.transact(
+                &[],
+                &[BranchOp::Update(&change_id), BranchOp::Update(&held)],
+                &update,
+                |_ctx, [], [_to, _from], [workspace]| switch(workspace),
+            ),
+            None => {
+                self.store.transact(&[], &[BranchOp::Update(&change_id)], &update, |_ctx, [], [_to], [workspace]| {
+                    switch(workspace)
+                })
+            }
+        }
+>>>>>>> main
     }
 
     /// Whether a workspace sits at the default location for the change it holds, which names it
@@ -601,8 +646,9 @@ impl Cabaret {
     /// empty, putting them back as the change's tip has them.
     pub fn discard(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<()> {
         let workspace_id = self.workspace_of(change_id)?;
+        let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact(&[], &[], &workspaces, |_ctx, [], [], [workspace]| {
+        self.store.transact(&[], &branches, &workspaces, |_ctx, [], [_branch], [workspace]| {
             // The workspace was found before its lock was taken, so it may have switched since.
             if workspace.change().is_none_or(|held| **held != *change_id) {
                 Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;

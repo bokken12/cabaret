@@ -225,6 +225,26 @@ fn untracked_file_parent_adds_gets_markers() {
 }
 
 #[test]
+fn workspace_partway_through_git_merge_refuses() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.start_git_merge("main");
+    let tip = fixture.tip("child");
+    expect!["error: workspace main has a git operation in progress: Merge"].assert_eq(&rebase(&fixture, "child", None));
+    assert_eq!(fixture.tip("child"), tip);
+}
+
+#[test]
+fn workspace_with_conflicts_in_index_refuses() {
+    let fixture = diverged();
+    fixture.checkout("child");
+    fixture.stage_conflict("shared.txt", "ours\n");
+    let tip = fixture.tip("child");
+    expect!["error: workspace main has conflicts in its index"].assert_eq(&rebase(&fixture, "child", None));
+    assert_eq!(fixture.tip("child"), tip);
+}
+
+#[test]
 fn linked_workspace_follows_change() {
     let fixture = diverged();
     fixture.checkout("main");

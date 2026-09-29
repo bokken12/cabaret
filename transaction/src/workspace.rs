@@ -20,7 +20,7 @@ use cabaret_types::{
 use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
-    index::entry::{Flags, Stat},
+    index::entry::{Flags, Stage, Stat},
     merge::blob::builtin_driver::text::Labels,
     objs::tree::EntryKind,
     refs::{
@@ -189,6 +189,19 @@ impl<'ctx> Workspace<'ctx> {
         fs::remove_dir_all(&self.path).map_err(|error| {
             format!("workspace {} is removed, but deleting {} failed: {error}", self.id, self.path.display()).into()
         })
+    }
+
+    /// Fail if git is partway through an operation here, such as a conflicted merge, whose state
+    /// in the index and git dir moving the files would scramble.
+    pub fn check_settled(&self) -> Result<()> {
+        let repo = self.repo()?;
+        if let Some(operation) = repo.state() {
+            Err(format!("workspace {} has a git operation in progress: {operation:?}", self.id))?;
+        }
+        if repo.index_or_empty()?.entries().iter().any(|entry| entry.stage() != Stage::Unconflicted) {
+            Err(format!("workspace {} has conflicts in its index", self.id))?;
+        }
+        Ok(())
     }
 
     /// Move the files from `from` to `branch`'s tip, merging in local changes and leaving

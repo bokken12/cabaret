@@ -23,7 +23,7 @@ use cabaret_lib::{
 use expect_test::expect;
 use gix::{
     create::Kind,
-    index::entry::{Flags, Mode, Stat},
+    index::entry::{Flags, Mode, Stage, Stat},
     objs::tree::EntryKind,
     refs::transaction::PreviousValue,
 };
@@ -246,6 +246,22 @@ impl Fixture {
         let blob = self.repo.write_blob(content.as_bytes()).unwrap().detach();
         let mut index = self.repo.open_index().unwrap();
         index.dangerously_push_entry(Stat::default(), blob, Flags::empty(), Mode::FILE, path.into());
+        index.sort_entries();
+        index.write(gix::index::write::Options::default()).unwrap();
+    }
+
+    /// Leave the main workspace partway through a `git merge` of `change`, as one stopped for
+    /// conflicts would.
+    pub fn start_git_merge(&self, change: &str) {
+        fs::write(self.repo.git_dir().join("MERGE_HEAD"), format!("{}\n", self.tip(change))).unwrap();
+    }
+
+    /// Add `content` to the main workspace's index as `path`'s side of a conflict, as `git stash
+    /// pop` leaves one without recording an operation in progress.
+    pub fn stage_conflict(&self, path: &str, content: &str) {
+        let blob = self.repo.write_blob(content.as_bytes()).unwrap().detach();
+        let mut index = self.repo.open_index().unwrap();
+        index.dangerously_push_entry(Stat::default(), blob, Flags::from_stage(Stage::Ours), Mode::FILE, path.into());
         index.sort_entries();
         index.write(gix::index::write::Options::default()).unwrap();
     }
