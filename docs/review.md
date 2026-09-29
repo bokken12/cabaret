@@ -39,7 +39,7 @@ When a change is rebased, its tip moves along with one of its bases. Unless ther
 
 ### Land
 
-When a child change is landed into its parent, their review states must be considered together. The following cases apply per user as assessed against all of their file review collectively so that a single change's review stays together rather than being split.
+When a child change is landed into its parent, their review states must be considered together. The following cases apply per user as assessed against all of their file review collectively so that a single change's review stays together rather than being split. The exception here is in the bad case, which can fast-forward individual files which are reviewed (or not edited) in the parent to minimize duplicated review.
 
 #### Parent & Child Both Reviewed
 
