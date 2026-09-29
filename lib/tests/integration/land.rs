@@ -1,21 +1,26 @@
 //! Landing: the parent merges the change in and the change is archived.
 
+use cabaret_lib::Reason;
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id};
+use super::fixture::{Fixture, alice, bob, id};
 
-/// `child` and its parent `main` have each committed since `child` forked.
+/// `child` and its parent `main` have each committed since `child` forked, and its owner alice
+/// has reviewed it.
 fn diverged() -> Fixture {
     let fixture = Fixture::new();
     fixture.root("main", &[("shared.txt", "shared\n")]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
     fixture.commit("main", &[("main.txt", "main\n")]);
     fixture
 }
 
-fn land(fixture: &Fixture, change: &str) -> String {
-    match fixture.cabaret.land(&id(change)) {
+fn land(fixture: &Fixture, change: &str) -> String { land_even_though(fixture, change, &[]) }
+
+fn land_even_though(fixture: &Fixture, change: &str, even_though: &[Reason]) -> String {
+    match fixture.cabaret.land(&id(change), even_though) {
         Ok(parent) => format!("landed into {parent}"),
         Err(error) => format!("error: {error:?}"),
     }
@@ -58,6 +63,7 @@ fn parent_that_has_not_moved_fast_forwards() {
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
     fixture.commit("child", &[("child.txt", "child\n")]);
+    fixture.mark_all("child");
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert_eq!(fixture.tip("main"), fixture.tip("child"));
 }
@@ -90,4 +96,41 @@ fn permanent_change_stays_open() {
     fixture.cabaret.set_permanent(&id("child"), true).unwrap();
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
     assert!(!fixture.snapshot("child").archived);
+}
+
+#[test]
+fn unreviewed_refuses_unless_acknowledged() {
+    let fixture = diverged();
+    fixture.commit("child", &[("more.txt", "more\n")]);
+    let tip = fixture.tip("main");
+    expect!["error: landing child is discouraged: unreviewed: alice@example.com left to review"]
+        .assert_eq(&land(&fixture, "child"));
+    assert_eq!(fixture.tip("main"), tip);
+    expect!["landed into main"].assert_eq(&land_even_though(&fixture, "child", &[Reason::Unreviewed]));
+}
+
+#[test]
+fn each_reason_needs_acknowledging() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    expect!["error: landing child is discouraged: not-owner: owned by bob@example.com; unreviewed: bob@example.com left to review"]
+        .assert_eq(&land(&fixture, "child"));
+    expect!["error: landing child is discouraged: not-owner: owned by bob@example.com"].assert_eq(&land_even_though(
+        &fixture,
+        "child",
+        &[Reason::Unreviewed],
+    ));
+    expect!["landed into main"].assert_eq(&land_even_though(
+        &fixture,
+        "child",
+        &[Reason::Unreviewed, Reason::NotOwner],
+    ));
+}
+
+#[test]
+fn hard_refusals_come_before_concerns() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("empty", "main", &bob());
+    expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
 }

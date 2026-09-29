@@ -1274,7 +1274,7 @@ function action(
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
 async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
-  const rebase = await cabaret.rebase(change);
+  const rebase = await cabaret.rebase(change, undefined, []);
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
@@ -1449,7 +1449,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landed = `landed ${change} into ${await cabaret.land(change)}`;
+      const landed = `landed ${change} into ${await cabaret.land(change, [])}`;
       const workspace = doomed.get(change);
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };

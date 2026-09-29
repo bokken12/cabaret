@@ -1,14 +1,14 @@
 use std::io::Write;
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeIdRef, DiffView, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result, RevisionId,
-    name,
+    Cabaret, ChangeId, ChangeIdRef, DiffView, FileDiff, FileVersion, Identity, Pathspec, Reason, RepoPath, Result,
+    RevisionId, name,
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
-    args::{change_completer, parse_revision, revision_completer},
+    args::{change_completer, parse_reason, parse_revision, revision_completer},
     diff::unified,
 };
 
@@ -96,6 +96,9 @@ pub enum ChangeCommand {
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
+        /// Land despite this reason it is discouraged: unreviewed, not-owner.
+        #[arg(long, value_parser = parse_reason)]
+        even_though: Vec<Reason>,
     },
     #[command(alias = "make-permament")]
     MakePermanent {
@@ -132,6 +135,9 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
+        /// Rebase despite this reason it is discouraged: not-owner.
+        #[arg(long, value_parser = parse_reason)]
+        even_though: Vec<Reason>,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
     /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
@@ -208,9 +214,9 @@ impl ChangeCommand {
                 cabaret.discard(&change, &pathspecs)?;
                 println!("discarded from {change}");
             }
-            ChangeCommand::Land { change } => {
+            ChangeCommand::Land { change, even_though } => {
                 let change = or_current(change)?;
-                let parent = cabaret.land(&change)?;
+                let parent = cabaret.land(&change, &even_though)?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
@@ -241,7 +247,9 @@ impl ChangeCommand {
                     }
                 }
             }
-            ChangeCommand::Rebase { change, onto } => rebase(&cabaret, &or_current(change)?, onto.as_deref())?,
+            ChangeCommand::Rebase { change, onto, even_though } => {
+                rebase(&cabaret, &or_current(change)?, onto.as_deref(), &even_though)?;
+            }
             ChangeCommand::Review { change, pathspecs } => {
                 diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;
             }
@@ -281,9 +289,9 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
     Ok(())
 }
 
-fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>) -> Result<()> {
+fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, even_though: &[Reason]) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
-    let rebase = cabaret.rebase(change, onto)?;
+    let rebase = cabaret.rebase(change, onto, even_though)?;
     match rebase.merged.is_empty() {
         true => println!("{change} is already up to date"),
         false => println!("rebased {change} onto {}", words(rebase.merged.iter().map(ToString::to_string).collect())),

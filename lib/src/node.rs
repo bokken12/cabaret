@@ -18,7 +18,7 @@ use napi_derive::napi;
 use nonempty_collections::NEBTreeSet;
 
 use crate::{
-    cabaret::{Cabaret, Rebase},
+    cabaret::{Cabaret, Reason, Rebase},
     home::HomeSection,
     page::{DiffView, Page},
 };
@@ -263,8 +263,8 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn land(&self, change: ChangeId) -> napi::Result<ChangeId> {
-        self.blocking(move |cabaret| cabaret.land(&change)).await
+    pub async fn land(&self, change: ChangeId, even_though: Vec<Reason>) -> napi::Result<ChangeId> {
+        self.blocking(move |cabaret| cabaret.land(&change, &even_though)).await
     }
 
     #[napi]
@@ -273,7 +273,12 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn rebase(&self, change: ChangeId, onto: Option<ChangeId>) -> napi::Result<Rebase> {
-        self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref())).await
+    pub async fn rebase(
+        &self,
+        change: ChangeId,
+        onto: Option<ChangeId>,
+        even_though: Vec<Reason>,
+    ) -> napi::Result<Rebase> {
+        self.blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref(), &even_though)).await
     }
 }

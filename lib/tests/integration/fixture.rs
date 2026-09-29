@@ -16,7 +16,7 @@ use std::{
 };
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId,
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TreeId,
     log::{self, LogAction},
 };
 use expect_test::expect;
@@ -150,6 +150,13 @@ impl Fixture {
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
         self.cabaret.create(change, NEBTreeSet::new(id(parent)), owner).unwrap();
+    }
+
+    /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
+    pub fn mark_all(&self, change: &str) {
+        let files = self.cabaret.review_files(&id(change), &[]).unwrap();
+        let files: Vec<RepoPath> = files.iter().map(|file| file.path().clone()).collect();
+        self.cabaret.mark(&id(change), &files, None).unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.

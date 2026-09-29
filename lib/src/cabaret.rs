@@ -1,15 +1,16 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    fs,
+    fmt, fs,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Store, TransactionContext, WorkspaceOp};
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath,
+    Result, RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
@@ -64,6 +65,70 @@ pub enum NextStep {
     Land {
         into: ChangeId,
     },
+}
+
+/// Why an action is discouraged. Discouraged actions take the reasons to proceed despite, and
+/// refuse if any other applies; the check runs inside the action, against the state it acts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
+pub enum Reason {
+    /// Owners have files of the change left to review.
+    Unreviewed,
+    /// You do not own the change.
+    NotOwner,
+}
+
+impl Reason {
+    const ALL: [Self; 2] = [Self::Unreviewed, Self::NotOwner];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Unreviewed => "unreviewed",
+            Self::NotOwner => "not-owner",
+        }
+    }
+}
+
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.name()) }
+}
+
+impl FromStr for Reason {
+    type Err = Error;
+
+    fn from_str(name: &str) -> Result<Self> {
+        match Self::ALL.into_iter().find(|reason| reason.name() == name) {
+            Some(reason) => Ok(reason),
+            None => Err(format!("{name:?} is not a reason; expected one of {}", joined(Self::ALL)))?,
+        }
+    }
+}
+
+/// A [`Reason`] that applies, with the particulars behind it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Concern {
+    Unreviewed { reviewers: NEBTreeSet<Identity> },
+    NotOwner { owners: BTreeSet<Identity> },
+}
+
+impl Concern {
+    pub fn reason(&self) -> Reason {
+        match self {
+            Self::Unreviewed { .. } => Reason::Unreviewed,
+            Self::NotOwner { .. } => Reason::NotOwner,
+        }
+    }
+}
+
+impl fmt::Display for Concern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let reason = self.reason();
+        match self {
+            Self::Unreviewed { reviewers } => write!(f, "{reason}: {} left to review", joined(reviewers)),
+            Self::NotOwner { owners } if owners.is_empty() => write!(f, "{reason}: it has no owners"),
+            Self::NotOwner { owners } => write!(f, "{reason}: owned by {}", joined(owners)),
+        }
+    }
 }
 
 /// What [`Cabaret::workspace_prune`] did.
@@ -582,8 +647,9 @@ impl Cabaret {
     }
 
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
-    /// parent. Conflicts are refused rather than landed: rebase and resolve them first.
-    pub fn land(&self, change_id: &ChangeIdRef) -> Result<ChangeId> {
+    /// parent. Conflicts are refused rather than landed: rebase and resolve them first. Landing
+    /// is discouraged while unreviewed or by a non-owner; see [`Reason`].
+    pub fn land(&self, change_id: &ChangeIdRef, even_though: &[Reason]) -> Result<ChangeId> {
         let parent_id = self.store.query(|ctx| {
             match ctx.metadata(change_id)?.parents()?.iter().collect::<Vec<_>>().as_slice() {
                 [] => Err(format!("{change_id} cannot land while it has no parents"))?,
@@ -604,6 +670,7 @@ impl Cabaret {
                 }
                 Some(_) => {}
             }
+            refuse_unacknowledged(&format!("landing {change_id}"), land_concerns(child, child_branch)?, even_though)?;
             if !child.permanent {
                 child.archived = true;
             }
@@ -614,9 +681,17 @@ impl Cabaret {
     /// Bring `change_id` up to date with `onto`, or with every parent when `onto` is `None`.
     /// Cabaret never rewrites history, so each parent's tip is merged in; a conflicting merge is
     /// committed with markers and stops the rebase there, so those are resolved before the next.
-    pub fn rebase(&self, change_id: &ChangeIdRef, onto: Option<&ChangeIdRef>) -> Result<Rebase> {
+    /// Rebasing is discouraged by a non-owner; see [`Reason`].
+    pub fn rebase(
+        &self,
+        change_id: &ChangeIdRef,
+        onto: Option<&ChangeIdRef>,
+        even_though: &[Reason],
+    ) -> Result<Rebase> {
         self.store.update_branch(change_id, |ctx, branch| {
-            let parents = ctx.metadata(change_id)?.parents()?;
+            let metadata = ctx.metadata(change_id)?;
+            refuse_unacknowledged(&format!("rebasing {change_id}"), rebase_concerns(metadata)?, even_though)?;
+            let parents = metadata.parents()?;
             let targets = match onto {
                 None if parents.is_empty() => Err(format!("{change_id} has no parents to rebase onto"))?,
                 None => parents,
@@ -839,13 +914,7 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if !stale.is_empty() {
         return Ok(Some(NextStep::Rebase { parents: stale }));
     }
-    let mut reviewers = BTreeSet::new();
-    for owner in &metadata.owners {
-        let review = metadata.review.get(owner).cloned().unwrap_or_default();
-        if !branch.review_files(&parents, &review, &[])?.is_empty() {
-            reviewers.insert(owner.clone());
-        }
-    }
+    let reviewers = unreviewed(metadata, branch, &parents)?;
     if !reviewers.is_empty() {
         return Ok(Some(NextStep::Review { reviewers }));
     }
@@ -853,6 +922,49 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
         [into] => NextStep::Land { into: (*into).clone() },
         _ => NextStep::LandParents { parents: parents.clone() },
     }))
+}
+
+/// Owners with files left to review, since owners are to review every file of their changes.
+fn unreviewed(
+    metadata: &Metadata<'_>,
+    branch: &Branch<'_>,
+    parents: &BTreeSet<ChangeId>,
+) -> Result<BTreeSet<Identity>> {
+    let mut reviewers = BTreeSet::new();
+    for owner in &metadata.owners {
+        let review = metadata.review.get(owner).cloned().unwrap_or_default();
+        if !branch.review_files(parents, &review, &[])?.is_empty() {
+            reviewers.insert(owner.clone());
+        }
+    }
+    Ok(reviewers)
+}
+
+fn land_concerns(metadata: &Metadata<'_>, branch: &Branch<'_>) -> Result<Vec<Concern>> {
+    let mut concerns = rebase_concerns(metadata)?;
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, &metadata.parents()?)?) {
+        concerns.push(Concern::Unreviewed { reviewers });
+    }
+    Ok(concerns)
+}
+
+fn rebase_concerns(metadata: &Metadata<'_>) -> Result<Vec<Concern>> {
+    let owner = metadata.owners.contains(&metadata.ctx().identity()?);
+    Ok(Vec::from_iter((!owner).then(|| Concern::NotOwner { owners: metadata.owners.clone() })))
+}
+
+fn refuse_unacknowledged(action: &str, concerns: Vec<Concern>, even_though: &[Reason]) -> Result<()> {
+    let unacknowledged: Vec<_> =
+        concerns.iter().filter(|concern| !even_though.contains(&concern.reason())).map(ToString::to_string).collect();
+    match unacknowledged.is_empty() {
+        true => Ok(()),
+        false => Err(format!("{action} is discouraged: {}", unacknowledged.join("; ")))?,
+    }
+}
+
+/// `a, b, c`.
+pub fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
+    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

@@ -55,6 +55,6 @@ fn held_metadata_does_not_hold_up_the_branch() {
     let fixture = parent_and_child();
     fixture.commit("main", &[("main.txt", "main\n")]);
     let _lock = fixture.hold_lock("metadata", "child");
-    fixture.cabaret.rebase(&id("child"), None).unwrap();
+    fixture.cabaret.rebase(&id("child"), None, &[]).unwrap();
     assert_eq!(fixture.tip("child"), fixture.tip("main"));
 }

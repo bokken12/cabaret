@@ -1,9 +1,10 @@
 //! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
 //! change follows its branch.
 
+use cabaret_lib::Reason;
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id, worktree};
+use super::fixture::{Fixture, alice, bob, id, worktree};
 
 /// `child` and its parent `main` have each committed since `child` forked.
 fn diverged() -> Fixture {
@@ -16,8 +17,12 @@ fn diverged() -> Fixture {
 }
 
 fn rebase(fixture: &Fixture, change: &str, onto: Option<&str>) -> String {
+    rebase_even_though(fixture, change, onto, &[])
+}
+
+fn rebase_even_though(fixture: &Fixture, change: &str, onto: Option<&str>, even_though: &[Reason]) -> String {
     let onto = onto.map(id);
-    match fixture.cabaret.rebase(&id(change), onto.as_deref()) {
+    match fixture.cabaret.rebase(&id(change), onto.as_deref(), even_though) {
         Ok(rebase) => format!("{rebase:?}"),
         Err(error) => format!("error: {error:?}"),
     }
@@ -176,4 +181,20 @@ fn linked_workspace_follows_change() {
         shared.txt "shared\n"
     "#]]
     .assert_eq(&worktree(&linked));
+}
+
+#[test]
+fn not_owner_refuses_unless_acknowledged() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    let tip = fixture.tip("child");
+    expect!["error: rebasing child is discouraged: not-owner: owned by bob@example.com"]
+        .assert_eq(&rebase(&fixture, "child", None));
+    assert_eq!(fixture.tip("child"), tip);
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_even_though(
+        &fixture,
+        "child",
+        None,
+        &[Reason::NotOwner],
+    ));
 }
