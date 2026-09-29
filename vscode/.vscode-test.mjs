@@ -45,9 +45,9 @@ async function fixture() {
   git("commit", "--message=initial");
   const cabaret = new Cabaret(workspace);
   await cabaret.create("feature", "main");
-  await cabaret.workspaceSwitch("feature");
+  await cabaret.workspaceSwitch("feature", []);
   write({ "src/a.txt": "a\n", "src/b.txt": "b\n" });
-  await cabaret.commit("feature", []);
+  await cabaret.commit("feature", [], []);
 }
 
 await fixture();
