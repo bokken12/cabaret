@@ -28,7 +28,7 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     List,
@@ -45,7 +45,7 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
 }

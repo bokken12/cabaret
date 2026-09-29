@@ -21,12 +21,12 @@ pub enum OwnersCommand {
     },
     Remove {
         owner: Identity,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Set {
         owners: Vec<Identity>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
 }
@@ -41,13 +41,13 @@ pub enum ParentsCommand {
     Add {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Remove {
         #[arg(add = change_completer())]
         parent: ChangeId,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Set {
@@ -63,7 +63,7 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Commit {
@@ -71,7 +71,7 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Create {
@@ -108,7 +108,7 @@ pub enum ChangeCommand {
     Land {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     #[command(alias = "make-permament")]
@@ -117,7 +117,7 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     /// Mark files as reviewed by you.
@@ -148,7 +148,7 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(add = change_completer())]
         onto: Option<ChangeId>,
-        #[arg(long, hide = true, value_name = "SAFEGUARD", value_parser = safeguard_kind())]
+        #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     /// List the files you have left to review, or show diffs of those matching the given pathspecs:
