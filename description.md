@@ -1,1 +1,1 @@
-Pass the vscode test fixture's `workspaceSwitch` and `commit` the `allow` list they now take, which the fixture was loading without.
+Pass the vscode test fixture's `workspaceSwitch` and `commit` the `allow` list they now take; without it the fixture fails to load and no integration test runs.
