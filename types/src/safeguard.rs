@@ -123,6 +123,8 @@ every_safeguard! {
     Conflicted = "conflicted",
     Uncommitted = "uncommitted",
     ParentConflicted = "parent-conflicted",
+    RemovesOthers = "removes-others",
+    Ownerless = "ownerless",
 }
 
 safeguards!(
@@ -137,6 +139,7 @@ safeguards!(
         Uncommitted: uncommitted,
     }
 );
+safeguards!("change owners", OwnersSafeguard, OwnersAllow { RemovesOthers: removes_others, Ownerless: ownerless });
 safeguards!(
     "rebase",
     RebaseSafeguard,
@@ -234,4 +237,24 @@ impl fmt::Display for ParentConflicted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} has conflicts in {}", self.parent, joined(&self.files))
     }
+}
+
+/// Owners other than you would be removed, and may lose track of the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovesOthers {
+    pub owners: NEBTreeSet<Identity>,
+}
+
+impl fmt::Display for RemovesOthers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} would no longer own it", joined(&self.owners))
+    }
+}
+
+/// The change would be left with no owners to shepherd it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ownerless;
+
+impl fmt::Display for Ownerless {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it would have no owners") }
 }

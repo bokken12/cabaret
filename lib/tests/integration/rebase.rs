@@ -1,7 +1,7 @@
 //! Rebasing: each parent's tip is merged into the change, and a clean workspace holding the
 //! change follows its branch.
 
-use cabaret_lib::safeguard::{RebaseAllow, Safeguard};
+use cabaret_lib::safeguard::{OwnersAllow, RebaseAllow, Safeguard};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id, worktree};
@@ -191,7 +191,7 @@ fn linked_workspace_follows_change() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
     let tip = fixture.tip("child");
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"]
         .assert_eq(&rebase(&fixture, "child", None));
@@ -207,7 +207,7 @@ fn non_owner_refuses_unless_allowed() {
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
     expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }
 
@@ -228,7 +228,8 @@ fn conflicted_refuses_unless_allowed() {
     let fixture = conflicted();
     expect!["refused: conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "child", None));
     let allow = RebaseAllow { conflicted: true, ..RebaseAllow::default() };
-    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(&fixture, "child", None, allow));
+    expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
+        .assert_eq(&rebase_allowing(&fixture, "child", None, allow));
 }
 
 #[test]
@@ -239,7 +240,12 @@ fn conflicted_parent_refuses_unless_allowed() {
     fixture.commit("child", &[("child.txt", "child\n")]);
     expect!["refused: child has conflicts in greeting.txt"].assert_eq(&rebase(&fixture, "grandchild", None));
     let allow = RebaseAllow { parent_conflicted: true, ..RebaseAllow::default() };
-    expect![[r#"Rebase { merged: {"child"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(&fixture, "grandchild", None, allow));
+    expect![[r#"Rebase { merged: {"child"}, conflicts: {}, remaining: {} }"#]].assert_eq(&rebase_allowing(
+        &fixture,
+        "grandchild",
+        None,
+        allow,
+    ));
 }
 
 #[test]

@@ -2,7 +2,10 @@
 
 use std::fmt::Write as _;
 
-use cabaret_lib::{Hints, Scope, safeguard::RebaseAllow};
+use cabaret_lib::{
+    Hints, Scope,
+    safeguard::{OwnersAllow, RebaseAllow},
+};
 use expect_test::expect;
 use nonempty_collections::nebts;
 
@@ -53,7 +56,8 @@ fn reviewed_change_lands_into_its_parent() {
 fn reviewed_change_with_several_parents_waits_for_them_to_land() {
     let fixture = scene();
     fixture.cabaret.add_owner(&id("fork-join"), &alice()).unwrap();
-    fixture.cabaret.remove_owner(&id("fork-join"), &carol()).unwrap();
+    let allow = OwnersAllow { removes_others: true, ..OwnersAllow::default() };
+    fixture.cabaret.remove_owner(&id("fork-join"), &carol(), allow).unwrap().unwrap();
     fixture.mark_all("fork-join");
     expect!["[^] land parents fork-left, fork-right"].assert_eq(&next_step(&fixture, "fork-join"));
 }

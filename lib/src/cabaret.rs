@@ -11,8 +11,8 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
-        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, ParentConflicted, ParentUnreviewed, RebaseAllow,
-        RebaseSafeguard, Uncommitted, Unreviewed,
+        Conflicted, Empty, LandAllow, LandSafeguard, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard,
+        ParentConflicted, ParentUnreviewed, RebaseAllow, RebaseSafeguard, RemovesOthers, Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -710,19 +710,39 @@ impl Cabaret {
         })
     }
 
-    pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners.remove(owner) {
-            false => Err(format!("{owner} did not own {change_id}"))?,
-            true if metadata.owners.len() == 0 => Err(format!("{owner} was {change_id}'s only owner"))?,
-            true => Ok(()),
+    pub fn remove_owner(
+        &self,
+        change_id: &ChangeIdRef,
+        owner: &Identity,
+        allow: OwnersAllow,
+    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            let before = metadata.owners.clone();
+            if !metadata.owners.remove(owner) {
+                Err(format!("{owner} did not own {change_id}"))?;
+            }
+            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &before, &metadata.owners)) {
+                return Ok(Err(refused));
+            }
+            Ok(Ok(()))
         })
     }
 
-    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners == owners {
-            true => Err(format!("{change_id} already had these owners"))?,
-            false if owners.len() == 0 => Err(format!("{change_id} should have at least one owner"))?,
-            false => Ok(metadata.owners = owners),
+    pub fn set_owners(
+        &self,
+        change_id: &ChangeIdRef,
+        owners: BTreeSet<Identity>,
+        allow: OwnersAllow,
+    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.owners == owners {
+                Err(format!("{change_id} already had these owners"))?;
+            }
+            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners)) {
+                return Ok(Err(refused));
+            }
+            metadata.owners = owners.clone();
+            Ok(Ok(()))
         })
     }
 
@@ -944,6 +964,18 @@ fn land_safeguards(
         safeguards.push(LandSafeguard::Uncommitted(Uncommitted { workspace }));
     }
     Ok(safeguards)
+}
+
+/// What changing a change's owners from `before` to `after` risks, done by `you`.
+fn owners_safeguards(you: &Identity, before: &BTreeSet<Identity>, after: &BTreeSet<Identity>) -> Vec<OwnersSafeguard> {
+    let others: BTreeSet<Identity> = before.difference(after).filter(|owner| *owner != you).cloned().collect();
+    let mut safeguards = Vec::from_iter(
+        NEBTreeSet::try_from_set(others).map(|owners| OwnersSafeguard::RemovesOthers(RemovesOthers { owners })),
+    );
+    if after.is_empty() {
+        safeguards.push(OwnersSafeguard::Ownerless(Ownerless));
+    }
+    safeguards
 }
 
 /// The parents rebasing onto `onto`, or onto every parent when `None`, merges in.

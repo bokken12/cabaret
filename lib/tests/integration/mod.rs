@@ -11,6 +11,7 @@ mod layout;
 mod locking;
 mod log;
 mod next_step;
+mod owners;
 mod parents;
 mod rebase;
 mod review;

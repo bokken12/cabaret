@@ -12,11 +12,11 @@ use cabaret_agents::ClaudeCode;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
-    safeguard::{LandAllow, RebaseAllow, SafeguardKind},
+    safeguard::{LandAllow, OwnersAllow, RebaseAllow, SafeguardKind},
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
-use nonempty_collections::NEBTreeSet;
+use nonempty_collections::{NEBTreeSet, NEVec};
 
 use crate::{
     cabaret::{Cabaret, Rebase},
@@ -59,6 +59,22 @@ fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::safeguard::
         message: safeguard.to_string(),
     };
     safeguards.into_iter().map(Into::into).map(present).collect()
+}
+
+/// What an action with nothing to report did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Attempt {
+    Done,
+    Refused { safeguards: Vec<Safeguard> },
+}
+
+impl<S: Into<cabaret_types::safeguard::Safeguard>> From<std::result::Result<(), NEVec<S>>> for Attempt {
+    fn from(attempt: std::result::Result<(), NEVec<S>>) -> Self {
+        match attempt {
+            Ok(()) => Self::Done,
+            Err(refused) => Self::Refused { safeguards: presented(refused) },
+        }
+    }
 }
 
 /// What [`Cabaret::land`] did.
@@ -261,8 +277,16 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn remove_owner(&self, change: ChangeId, owner: Identity) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.remove_owner(&change, &owner)).await
+    pub async fn remove_owner(
+        &self,
+        change: ChangeId,
+        owner: Identity,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Attempt> {
+        let removed = self
+            .blocking(move |cabaret| cabaret.remove_owner(&change, &owner, OwnersAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(removed))
     }
 
     #[napi]

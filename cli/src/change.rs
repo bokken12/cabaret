@@ -3,7 +3,7 @@ use std::io::Write;
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, name,
-    safeguard::{LandAllow, RebaseAllow, Safeguard},
+    safeguard::{LandAllow, OwnersAllow, RebaseAllow, Safeguard},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -21,10 +21,21 @@ pub enum OwnersCommand {
     },
     Remove {
         owner: Identity,
+        /// Remove them even though they are not you.
+        #[arg(long)]
+        allow_removes_others: bool,
+        /// Remove them even though it leaves no owners.
+        #[arg(long)]
+        allow_ownerless: bool,
     },
     Set {
-        #[arg(required = true)]
         owners: Vec<Identity>,
+        /// Set them even though owners other than you are dropped.
+        #[arg(long)]
+        allow_removes_others: bool,
+        /// Set them even though there are none.
+        #[arg(long)]
+        allow_ownerless: bool,
     },
 }
 
@@ -254,7 +265,8 @@ impl ChangeCommand {
                     conflicted: allow_conflicted,
                     uncommitted: allow_uncommitted,
                 };
-                let parent = cabaret.land(&change, allow)?.map_err(|refused| refusal("land", &change, refused))?;
+                let parent =
+                    cabaret.land(&change, allow)?.map_err(|refused| refusal(&format!("land {change}"), refused))?;
                 println!("landed {change} into {parent}");
             }
             ChangeCommand::MakePermanent { change, undo } => cabaret.set_permanent(&or_current(change)?, !undo)?,
@@ -266,8 +278,18 @@ impl ChangeCommand {
                 match command {
                     OwnersCommand::Show => return Err("change owners show is not implemented yet".into()),
                     OwnersCommand::Add { owner } => cabaret.add_owner(change, &owner)?,
-                    OwnersCommand::Remove { owner } => cabaret.remove_owner(change, &owner)?,
-                    OwnersCommand::Set { owners } => cabaret.set_owners(change, owners.into_iter().collect())?,
+                    OwnersCommand::Remove { owner, allow_removes_others, allow_ownerless } => {
+                        let allow = OwnersAllow { removes_others: allow_removes_others, ownerless: allow_ownerless };
+                        cabaret
+                            .remove_owner(change, &owner, allow)?
+                            .map_err(|refused| refusal(&format!("remove {owner} as an owner of {change}"), refused))?;
+                    }
+                    OwnersCommand::Set { owners, allow_removes_others, allow_ownerless } => {
+                        let allow = OwnersAllow { removes_others: allow_removes_others, ownerless: allow_ownerless };
+                        cabaret
+                            .set_owners(change, owners.into_iter().collect(), allow)?
+                            .map_err(|refused| refusal(&format!("set the owners of {change}"), refused))?;
+                    }
                 }
             }
             ChangeCommand::Parents { change, command } => {
@@ -334,7 +356,8 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: RebaseAllow) -> Result<()> {
     let words = |ids: Vec<String>| ids.join(", ");
-    let rebase = cabaret.rebase(change, onto, allow)?.map_err(|refused| refusal("rebase", change, refused))?;
+    let rebase =
+        cabaret.rebase(change, onto, allow)?.map_err(|refused| refusal(&format!("rebase {change}"), refused))?;
     match rebase.merged.is_empty() {
         true => println!("{change} is already up to date"),
         false => println!("rebased {change} onto {}", words(rebase.merged.iter().map(ToString::to_string).collect())),
@@ -349,17 +372,17 @@ fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allo
     Ok(())
 }
 
-/// Why `verb`ing `change` was refused, naming the flag that allows each safeguard. The flags are
-/// spelled `--allow-<kind>` on every command.
-pub fn refusal(verb: &str, change: &ChangeIdRef, refused: NEVec<impl Into<Safeguard>>) -> Error {
+/// Why `action` was refused, naming the flag that allows each safeguard. The flags are spelled
+/// `--allow-<kind>` on every command.
+pub fn refusal(action: &str, refused: NEVec<impl Into<Safeguard>>) -> Error {
     let reasons: Vec<String> = refused
         .into_iter()
         .map(Into::into)
-        .map(|safeguard: Safeguard| format!("{safeguard}; pass --allow-{} to {verb} anyway", safeguard.kind()))
+        .map(|safeguard: Safeguard| format!("{safeguard}; pass --allow-{} to override", safeguard.kind()))
         .collect();
     match reasons.as_slice() {
-        [reason] => format!("cannot {verb} {change}: {reason}"),
-        _ => format!("cannot {verb} {change}:\n  {}", reasons.join("\n  ")),
+        [reason] => format!("cannot {action}: {reason}"),
+        _ => format!("cannot {action}:\n  {}", reasons.join("\n  ")),
     }
     .into()
 }

@@ -1304,19 +1304,18 @@ function allowed(safeguards: Map<ChangeId, Safeguard[]>, change: ChangeId): Safe
  * they decline. Asked when safeguards arise after the user was first asked.
  */
 async function allowAnyway(
-  verb: string,
-  change: ChangeId,
+  action: string,
+  proceed: string,
   allow: SafeguardKind[],
   refused: Safeguard[],
 ): Promise<SafeguardKind[] | undefined> {
   const again = refused.filter(({ kind }) => allow.includes(kind));
   if (again.length > 0) {
-    throw new Error(`${change} was refused by safeguards already allowed: ${words(again.map(({ kind }) => kind))}`);
+    throw new Error(`cannot ${action}: refused by safeguards already allowed: ${words(again.map(({ kind }) => kind))}`);
   }
-  const proceed = `${verb} Anyway`;
   const choice = await vscode.window.showWarningMessage(
-    `${verb} ${change} anyway?`,
-    { modal: true, detail: describeSafeguards(new Map([[change, refused]])) },
+    `${action} anyway?`,
+    { modal: true, detail: refused.map(({ message }) => message).join("\n") },
     proceed,
   );
   return choice === proceed ? [...allow, ...refused.map(({ kind }) => kind)] : undefined;
@@ -1342,7 +1341,7 @@ async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan |
 async function rebase(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<Step> {
   let rebased = await cabaret.rebase(change, undefined, allow);
   while (rebased.outcome === "Refused") {
-    const more = await allowAnyway("Rebase", change, allow, rebased.safeguards);
+    const more = await allowAnyway(`Rebase ${change}`, "Rebase Anyway", allow, rebased.safeguards);
     if (more === undefined) {
       return { report: `did not rebase ${change}`, complete: false };
     }
@@ -1403,7 +1402,21 @@ async function removeOwner(cabaret: Cabaret, change: ChangeId): Promise<string |
   if (owner === undefined) {
     return undefined;
   }
-  await cabaret.removeOwner(change, owner);
+  let allow: SafeguardKind[] = [];
+  let removing = await cabaret.removeOwner(change, owner, allow);
+  while (removing.outcome === "Refused") {
+    const more = await allowAnyway(
+      `Remove ${owner} as an owner of ${change}`,
+      "Remove Anyway",
+      allow,
+      removing.safeguards,
+    );
+    if (more === undefined) {
+      return undefined;
+    }
+    allow = more;
+    removing = await cabaret.removeOwner(change, owner, allow);
+  }
   return `removed ${owner} as an owner of ${change}`;
 }
 
@@ -1543,7 +1556,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       let allow = allowed(safeguards, change);
       let landing = await cabaret.land(change, allow);
       while (landing.outcome === "Refused") {
-        const more = await allowAnyway("Land", change, allow, landing.safeguards);
+        const more = await allowAnyway(`Land ${change}`, "Land Anyway", allow, landing.safeguards);
         if (more === undefined) {
           return { report: `did not land ${change}`, complete: false };
         }

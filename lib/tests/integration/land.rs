@@ -1,6 +1,6 @@
 //! Landing: the parent merges the change in and the change is archived.
 
-use cabaret_lib::safeguard::{LandAllow, Safeguard};
+use cabaret_lib::safeguard::{LandAllow, OwnersAllow, Safeguard};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -189,7 +189,7 @@ fn unreviewed_refuses_unless_allowed() {
 #[test]
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
         &fixture,
@@ -206,7 +206,7 @@ fn each_safeguard_needs_allowing() {
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
     fixture.cabaret.archive(&id("child")).unwrap();
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
@@ -214,7 +214,7 @@ fn errors_come_before_safeguards() {
 #[test]
 fn safeguards_foretell_refusal() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
     expect![
         "you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"
     ]
