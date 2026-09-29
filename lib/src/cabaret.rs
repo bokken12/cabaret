@@ -79,8 +79,6 @@ pub struct Cabaret {
     store: Store,
 }
 
-/// For a repository opened some other way than [`Cabaret::open`] does, e.g. isolated from the
-/// environment.
 impl From<gix::ThreadSafeRepository> for Cabaret {
     fn from(repo: gix::ThreadSafeRepository) -> Self { Self { store: repo.into() } }
 }
