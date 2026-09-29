@@ -13,11 +13,12 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
-        AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, CommitAllow, CommitSafeguard, Conflicted, Empty,
-        ImpermanentParents, LandAllow, LandSafeguard, NoCommonAncestor, NonOwner, Ownerless, OwnersAllow,
-        OwnersSafeguard, ParentConflicted, ParentUnreviewed, Parentless, PermanenceAllow, PermanenceSafeguard,
-        RebaseAllow, RebaseSafeguard, RedundantParent, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow,
-        RemoveWorkspaceSafeguard, RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, Uncommitted,
+        AddParentAllow, AddParentSafeguard, ArchiveAllow, ArchiveSafeguard, ArchivedParent, ArchivedParents, BaseMoves,
+        CommitAllow, CommitSafeguard, Conflicted, Empty, ImpermanentParents, LandAllow, LandSafeguard,
+        NoCommonAncestor, NonOwner, OpenChildren, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted,
+        ParentUnreviewed, Parentless, PermanenceAllow, PermanenceSafeguard, Permanent, RebaseAllow, RebaseSafeguard,
+        RedundantParent, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow, RemoveWorkspaceSafeguard,
+        RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, UnarchiveAllow, UnarchiveSafeguard, Uncommitted,
         Unreviewed,
     },
 };
@@ -384,16 +385,7 @@ impl Cabaret {
     /// The open changes targeting `change_id`, the inverse of `ChangeSnapshot::parents`. Archived
     /// changes are left out: every landed change targets trunk forever.
     pub fn children(&self, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
-        self.store.query(|ctx| {
-            let mut children = BTreeSet::new();
-            for id in ctx.changes()? {
-                let metadata = ctx.metadata(&id)?;
-                if !metadata.archived && metadata.parents()?.contains(change_id) {
-                    children.insert(id);
-                }
-            }
-            Ok(children)
-        })
+        self.store.query(|ctx| open_children(ctx, change_id))
     }
 
     pub fn blob(&self, revision: RevisionId, path: &RepoPath) -> Result<Option<FileVersion>> {
@@ -735,33 +727,54 @@ impl Cabaret {
         })
     }
 
-    pub fn archive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if children unarchived?
-            match metadata.archived {
-                true => Err(format!("{change_id} has already been archived"))?,
-                false => metadata.archived = true,
-            };
-            Ok(())
+    pub fn archive(
+        &self,
+        change_id: &ChangeIdRef,
+        allow: ArchiveAllow,
+    ) -> Result<std::result::Result<(), NEVec<ArchiveSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if metadata.archived {
+                Err(format!("{change_id} has already been archived"))?;
+            }
+            let mut safeguards = Vec::new();
+            if let Some(children) = NEBTreeSet::try_from_set(open_children(ctx, change_id)?) {
+                safeguards.push(ArchiveSafeguard::OpenChildren(OpenChildren { children }));
+            }
+            if metadata.permanent {
+                safeguards.push(ArchiveSafeguard::Permanent(Permanent));
+            }
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.archived = true;
+            Ok(Ok(()))
         })
     }
 
-    pub fn unarchive(&self, change_id: &ChangeIdRef) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            // TODO(joel): warn if parents archived?
-            match metadata.archived {
-                false => Err(format!("{change_id} has not been archived"))?,
-                true => metadata.archived = false,
-            };
-            Ok(())
-        })
-    }
-
-    /// Archive `change_id`, or unarchive it if it already is, returning whether it is now archived.
-    pub fn toggle_archived(&self, change_id: &ChangeIdRef) -> Result<bool> {
-        self.store.update_metadata(change_id, |_ctx, metadata| {
-            metadata.archived = !metadata.archived;
-            Ok(metadata.archived)
+    pub fn unarchive(
+        &self,
+        change_id: &ChangeIdRef,
+        allow: UnarchiveAllow,
+    ) -> Result<std::result::Result<(), NEVec<UnarchiveSafeguard>>> {
+        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+            if !metadata.archived {
+                Err(format!("{change_id} has not been archived"))?;
+            }
+            let mut archived = BTreeSet::new();
+            for parent in &metadata.declared_parents {
+                if ctx.metadata(parent)?.archived {
+                    archived.insert(parent.clone());
+                }
+            }
+            let safeguards = Vec::from_iter(
+                NEBTreeSet::try_from_set(archived)
+                    .map(|parents| UnarchiveSafeguard::ArchivedParents(ArchivedParents { parents })),
+            );
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            metadata.archived = false;
+            Ok(Ok(()))
         })
     }
 
@@ -1034,6 +1047,18 @@ fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<RemoveWo
             vec![RemoveWorkspaceSafeguard::Uncommitted(Uncommitted { workspace: workspace.id().into_owned() })]
         }
     })
+}
+
+/// The open changes landing into `change_id`.
+fn open_children<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<BTreeSet<ChangeId>> {
+    let mut children = BTreeSet::new();
+    for id in ctx.changes()? {
+        let metadata = ctx.metadata(&id)?;
+        if !metadata.archived && metadata.parents()?.contains(change_id) {
+            children.insert(id);
+        }
+    }
+    Ok(children)
 }
 
 /// The one parent `change_id` lands into.

@@ -194,7 +194,7 @@ fn nothing_to_commit_refuses() {
 #[test]
 fn archived_change_refuses() {
     let fixture = two_changes();
-    fixture.cabaret.archive(&id("one")).unwrap();
+    fixture.archive("one");
     fixture.write("one.txt", "one, edited\n");
     let tip = fixture.tip("one");
     expect!["error: one is archived"].assert_eq(&commit(&fixture, "one", &[]));

@@ -131,6 +131,9 @@ every_safeguard! {
     ArchivedParent = "archived-parent",
     RedundantParent = "redundant-parent",
     ImpermanentParents = "impermanent-parents",
+    OpenChildren = "open-children",
+    Permanent = "permanent",
+    ArchivedParents = "archived-parents",
 }
 
 safeguards!(
@@ -164,6 +167,8 @@ safeguards!(
     PermanenceSafeguard,
     PermanenceAllow { NonOwner: non_owner, ImpermanentParents: impermanent_parents }
 );
+safeguards!("archive", ArchiveSafeguard, ArchiveAllow { OpenChildren: open_children, Permanent: permanent });
+safeguards!("unarchive", UnarchiveSafeguard, UnarchiveAllow { ArchivedParents: archived_parents });
 safeguards!("commit", CommitSafeguard, CommitAllow { Conflicted: conflicted });
 safeguards!("remove a workspace", RemoveWorkspaceSafeguard, RemoveWorkspaceAllow { Uncommitted: uncommitted });
 safeguards!("switch a workspace", SwitchWorkspaceSafeguard, SwitchWorkspaceAllow { Uncommitted: uncommitted });
@@ -354,5 +359,39 @@ impl fmt::Display for ImpermanentParents {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
         write!(f, "{} {verb} not permanent", joined(&self.parents))
+    }
+}
+
+/// Open changes still land into the change, and would move to land past it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenChildren {
+    pub children: NEBTreeSet<ChangeId>,
+}
+
+impl fmt::Display for OpenChildren {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let verb = if self.children.len().get() == 1 { "lands" } else { "land" };
+        write!(f, "{} still {verb} into it", joined(&self.children))
+    }
+}
+
+/// The change was marked permanent, meant never to be archived.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Permanent;
+
+impl fmt::Display for Permanent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("it is permanent") }
+}
+
+/// Declared parents that are archived, so the change would land past them, taking in their work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchivedParents {
+    pub parents: NEBTreeSet<ChangeId>,
+}
+
+impl fmt::Display for ArchivedParents {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let verb = if self.parents.len().get() == 1 { "is" } else { "are" };
+        write!(f, "{} {verb} archived, so its diff would take in the archived work", joined(&self.parents))
     }
 }

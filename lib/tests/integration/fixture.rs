@@ -18,6 +18,7 @@ use std::{
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TreeId,
     log::{self, LogAction},
+    safeguard::ArchiveAllow,
 };
 use expect_test::expect;
 use gix::{
@@ -150,6 +151,12 @@ impl Fixture {
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
         self.cabaret.create(change, NEBTreeSet::new(id(parent)), owner).unwrap();
+    }
+
+    /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.
+    pub fn archive(&self, change: &str) {
+        let allow = ArchiveAllow { open_children: true, permanent: true };
+        self.cabaret.archive(&id(change), allow).unwrap().unwrap();
     }
 
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
@@ -553,7 +560,7 @@ pub fn scene() -> Fixture {
     fixture.commit("archived", &[("archived.txt", "archived\n")]);
     fixture.create("child-of-archived", "archived", &alice());
     fixture.commit("child-of-archived", &[("child-of-archived.txt", "child-of-archived\n")]);
-    fixture.cabaret.archive(&id("archived")).unwrap();
+    fixture.archive("archived");
 
     fixture.create("co-owned", "main", &alice());
     fixture.cabaret.add_owner(&id("co-owned"), &bob()).unwrap();

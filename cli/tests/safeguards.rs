@@ -7,8 +7,9 @@ use cabaret_cli::{
 use cabaret_lib::{
     ChangeId, Identity,
     safeguard::{
-        AddParentAllow, CommitAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, PermanenceAllow, RebaseAllow,
-        RebaseSafeguard, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, Unreviewed,
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, PermanenceAllow,
+        RebaseAllow, RebaseSafeguard, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow,
+        UnarchiveAllow, Unreviewed,
     },
 };
 use clap::Parser;
@@ -66,6 +67,9 @@ fn flags_match_kinds() {
     parse("rebase", RebaseAllow::KINDS);
     parse("commit", CommitAllow::KINDS);
     parse("make-permanent", PermanenceAllow::KINDS);
+    parse("archive", ArchiveAllow::KINDS);
+    let unarchive = UnarchiveAllow::KINDS.iter().map(|kind| format!("--allow-{kind}"));
+    Cli::try_parse_from(["cab", "archive", "--undo"].map(str::to_owned).into_iter().chain(unarchive)).unwrap();
     let owners = |command: &str| {
         let flags = OwnersAllow::KINDS.iter().map(|kind| format!("--allow-{kind}"));
         let args = ["cab", "owners", command, "me@example.com"].map(str::to_owned);

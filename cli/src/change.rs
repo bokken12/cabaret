@@ -4,7 +4,8 @@ use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, name,
     safeguard::{
-        AddParentAllow, CommitAllow, LandAllow, OwnersAllow, PermanenceAllow, RebaseAllow, RemoveParentAllow, Safeguard,
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, PermanenceAllow, RebaseAllow,
+        RemoveParentAllow, Safeguard, UnarchiveAllow,
     },
 };
 use clap::{Subcommand, ValueHint};
@@ -87,6 +88,15 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(long)]
         undo: bool,
+        /// Archive it even though open changes land into it.
+        #[arg(long, conflicts_with = "undo")]
+        allow_open_children: bool,
+        /// Archive it even though it is permanent.
+        #[arg(long, conflicts_with = "undo")]
+        allow_permanent: bool,
+        /// Unarchive it even though parents it declares are archived.
+        #[arg(long, requires = "undo")]
+        allow_archived_parents: bool,
     },
     Commit {
         #[arg(long, add = change_completer())]
@@ -228,10 +238,23 @@ impl ChangeCommand {
             None => cabaret.current_change(),
         };
         match self {
-            ChangeCommand::Archive { change, undo } => match undo {
-                false => cabaret.archive(&or_current(change)?)?,
-                true => cabaret.unarchive(&or_current(change)?)?,
-            },
+            ChangeCommand::Archive { change, undo, allow_open_children, allow_permanent, allow_archived_parents } => {
+                let change = or_current(change)?;
+                match undo {
+                    false => {
+                        let allow = ArchiveAllow { open_children: allow_open_children, permanent: allow_permanent };
+                        cabaret
+                            .archive(&change, allow)?
+                            .map_err(|refused| refusal(&format!("archive {change}"), refused))?;
+                    }
+                    true => {
+                        let allow = UnarchiveAllow { archived_parents: allow_archived_parents };
+                        cabaret
+                            .unarchive(&change, allow)?
+                            .map_err(|refused| refusal(&format!("unarchive {change}"), refused))?;
+                    }
+                }
+            }
             ChangeCommand::Commit { change, pathspecs, allow_conflicted } => {
                 let change = or_current(change)?;
                 cabaret

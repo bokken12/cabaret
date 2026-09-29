@@ -1,3 +1,4 @@
+mod archive;
 mod changed_files;
 mod commit;
 mod config;

@@ -46,7 +46,7 @@ fn archived_parent_replaced_by_grandparents() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
-    fixture.cabaret.archive(&id("parent")).unwrap();
+    fixture.archive("parent");
     let snapshot = fixture.snapshot("child");
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", snapshot.declared_parents));
     expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
@@ -78,7 +78,7 @@ fn children_are_open_changes_targeting_it() {
     fixture.create("parent", "main", &alice());
     fixture.create("child", "parent", &alice());
     fixture.create("sibling", "main", &alice());
-    fixture.cabaret.archive(&id("parent")).unwrap();
+    fixture.archive("parent");
     let children = |change: &str| format!("{:?}", fixture.cabaret.children(&id(change)).unwrap());
     expect![[r#"{"child", "sibling"}"#]].assert_eq(&children("main"));
     expect!["{}"].assert_eq(&children("parent"));
@@ -193,7 +193,7 @@ fn archived_parent_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("done", "main", &alice());
     fixture.create("change", "main", &alice());
-    fixture.cabaret.archive(&id("done")).unwrap();
+    fixture.archive("done");
     expect!["refused: done is archived, so it would be skipped"].assert_eq(&add_parent(
         &fixture,
         "change",

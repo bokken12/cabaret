@@ -13,8 +13,8 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
     safeguard::{
-        AddParentAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, RemoveWorkspaceAllow,
-        SafeguardKind, SwitchWorkspaceAllow,
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow,
+        RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
     },
 };
 use napi::bindgen_prelude::spawn_blocking;
@@ -391,8 +391,18 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<bool> {
-        self.blocking(move |cabaret| cabaret.toggle_archived(&change)).await
+    pub async fn archive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt =
+            self.blocking(move |cabaret| cabaret.archive(&change, ArchiveAllow::try_from(allow.as_slice())?)).await?;
+        Ok(Attempt::from(attempt))
+    }
+
+    #[napi]
+    pub async fn unarchive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| cabaret.unarchive(&change, UnarchiveAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]

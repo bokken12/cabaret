@@ -207,7 +207,7 @@ fn each_safeguard_needs_allowing() {
 fn errors_come_before_safeguards() {
     let fixture = diverged();
     fixture.cabaret.set_owners(&id("child"), [bob()].into(), OwnersAllow::default()).unwrap().unwrap();
-    fixture.cabaret.archive(&id("child")).unwrap();
+    fixture.archive("child");
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
 
