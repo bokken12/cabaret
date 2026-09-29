@@ -699,7 +699,7 @@ impl Cabaret {
     }
 
     pub fn archive(&self, change_id: &ChangeIdRef, allow: ArchiveAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             if metadata.archived {
                 Err(format!("{change_id} has already been archived"))?;
             }
@@ -717,7 +717,7 @@ impl Cabaret {
     }
 
     pub fn unarchive(&self, change_id: &ChangeIdRef, allow: UnarchiveAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             if !metadata.archived {
                 Err(format!("{change_id} has not been archived"))?;
             }
@@ -745,7 +745,7 @@ impl Cabaret {
     }
 
     pub fn remove_owner(&self, change_id: &ChangeIdRef, owner: &Identity, allow: OwnersAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             let before = metadata.owners.clone();
             if !metadata.owners.remove(owner) {
                 Err(format!("{owner} did not own {change_id}"))?;
@@ -756,7 +756,7 @@ impl Cabaret {
     }
 
     pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>, allow: OwnersAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             if metadata.owners == owners {
                 Err(format!("{change_id} already had these owners"))?;
             }
@@ -771,7 +771,7 @@ impl Cabaret {
     /// Declare `parent_id` a parent of `change_id`. A parent descending from the change is an
     /// error, since the graph would cycle.
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, allow: AddParentAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             if !metadata.declared_parents.insert(parent_id.to_owned()) {
                 Err(format!("{parent_id} was already a parent of {change_id}"))?;
             }
@@ -792,7 +792,7 @@ impl Cabaret {
         parent_id: &ChangeIdRef,
         allow: RemoveParentAllow,
     ) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |_ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |_ctx, metadata| {
             let before = metadata.clone();
             if !metadata.declared_parents.remove(parent_id) {
                 Err(format!("{parent_id} was not a parent of {change_id}"))?;
@@ -834,7 +834,7 @@ impl Cabaret {
     }
 
     pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool, allow: PermanenceAllow) -> Result<()> {
-        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+        self.store.update_metadata(change_id, |ctx, metadata| {
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
