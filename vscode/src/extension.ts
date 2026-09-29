@@ -6,6 +6,7 @@ import {
   type RepoPath,
   type Revision,
   type Safeguard,
+  type SafeguardKind,
   type Segment,
   type SessionId,
   type Tag,
@@ -1274,15 +1275,79 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
-/** A step that safeguards refused. */
-function refused(verb: string, change: ChangeId, safeguards: Safeguard[]): Step {
-  return { report: `cannot ${verb} ${change}: ${safeguards.map(({ message }) => message).join("; ")}`, complete: false };
+/** The safeguards that would refuse each of `changes`, leaving out those none would. */
+async function safeguarded(
+  changes: ChangeId[],
+  safeguards: (change: ChangeId) => Promise<Safeguard[]>,
+): Promise<Map<ChangeId, Safeguard[]>> {
+  const found = new Map<ChangeId, Safeguard[]>();
+  for (const change of changes) {
+    const those = await safeguards(change);
+    if (those.length > 0) {
+      found.set(change, those);
+    }
+  }
+  return found;
 }
 
-async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
-  const rebased = await cabaret.rebase(change, undefined, []);
-  if (rebased.outcome === "Refused") {
-    return refused("rebase", change, rebased.safeguards);
+function describeSafeguards(safeguards: Map<ChangeId, Safeguard[]>): string {
+  return [...safeguards].flatMap(([change, those]) => those.map(({ message }) => `${change}: ${message}`)).join("\n");
+}
+
+/** The kinds the user accepted for `change` when shown `safeguards`. */
+function allowed(safeguards: Map<ChangeId, Safeguard[]>, change: ChangeId): SafeguardKind[] {
+  return (safeguards.get(change) ?? []).map(({ kind }) => kind);
+}
+
+/**
+ * `allow` plus the kinds of `refused`, once the user accepts proceeding despite them; undefined if
+ * they decline. Asked when safeguards arise after the user was first asked.
+ */
+async function allowAnyway(
+  verb: string,
+  change: ChangeId,
+  allow: SafeguardKind[],
+  refused: Safeguard[],
+): Promise<SafeguardKind[] | undefined> {
+  const again = refused.filter(({ kind }) => allow.includes(kind));
+  if (again.length > 0) {
+    throw new Error(`${change} was refused by safeguards already allowed: ${words(again.map(({ kind }) => kind))}`);
+  }
+  const proceed = `${verb} Anyway`;
+  const choice = await vscode.window.showWarningMessage(
+    `${verb} ${change} anyway?`,
+    { modal: true, detail: describeSafeguards(new Map([[change, refused]])) },
+    proceed,
+  );
+  return choice === proceed ? [...allow, ...refused.map(({ kind }) => kind)] : undefined;
+}
+
+/** Rebase, once the user accepts any safeguards that would refuse it. */
+async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const safeguards = await safeguarded(changes, (change) => cabaret.rebaseSafeguards(change));
+  if (safeguards.size > 0) {
+    const proceed = "Rebase Anyway";
+    const choice = await vscode.window.showWarningMessage(
+      `Rebase ${words(safeguards.keys())} anyway?`,
+      { modal: true, detail: describeSafeguards(safeguards) },
+      proceed,
+    );
+    if (choice !== proceed) {
+      return undefined;
+    }
+  }
+  return { step: (change) => rebase(cabaret, change, allowed(safeguards, change)) };
+}
+
+async function rebase(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<Step> {
+  let rebased = await cabaret.rebase(change, undefined, allow);
+  while (rebased.outcome === "Refused") {
+    const more = await allowAnyway("Rebase", change, allow, rebased.safeguards);
+    if (more === undefined) {
+      return { report: `did not rebase ${change}`, complete: false };
+    }
+    allow = more;
+    rebased = await cabaret.rebase(change, undefined, allow);
   }
   const { rebase } = rebased;
   const report = [
@@ -1449,17 +1514,19 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       doomed.set(change, workspace);
     }
   }
+  const safeguards = await safeguarded(changes, (change) => cabaret.landSafeguards(change));
   const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
   const landAndDelete = `Land and Delete ${noun}`;
   const landOnly = doomed.size === 0 ? "Land" : `Land and Keep ${noun}`;
+  const irreversible =
+    doomed.size === 0
+      ? "This cannot be undone."
+      : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`;
   const choice = await vscode.window.showWarningMessage(
-    `Land ${words(changes)}?`,
+    safeguards.size === 0 ? `Land ${words(changes)}?` : `Land ${words(changes)} anyway?`,
     {
       modal: true,
-      detail:
-        doomed.size === 0
-          ? "This cannot be undone."
-          : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`,
+      detail: safeguards.size === 0 ? irreversible : `${describeSafeguards(safeguards)}\n\n${irreversible}`,
     },
     ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
@@ -1473,9 +1540,15 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landing = await cabaret.land(change, []);
-      if (landing.outcome === "Refused") {
-        return refused("land", change, landing.safeguards);
+      let allow = allowed(safeguards, change);
+      let landing = await cabaret.land(change, allow);
+      while (landing.outcome === "Refused") {
+        const more = await allowAnyway("Land", change, allow, landing.safeguards);
+        if (more === undefined) {
+          return { report: `did not land ${change}`, complete: false };
+        }
+        allow = more;
+        landing = await cabaret.land(change, allow);
       }
       const landed = `landed ${change} into ${landing.into}`;
       const workspace = doomed.get(change);
@@ -1691,7 +1764,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
     plannedSequence("cabaret.land", provider, planLand),
-    sequencedAction("cabaret.rebase", provider, rebase),
+    plannedSequence("cabaret.rebase", provider, planRebase),
     sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
