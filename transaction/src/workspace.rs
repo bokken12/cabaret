@@ -154,9 +154,10 @@ impl<'ctx> Workspace<'ctx> {
         Ok(())
     }
 
-    /// Delete the working directory and git's record of it, as `git worktree remove` does. Only
-    /// a workspace holding nothing of its own goes: local changes and untracked files alike
-    /// would be lost.
+    /// Delete git's record of the working directory and then the directory, as `git worktree
+    /// remove` does. Only a workspace holding nothing of its own goes: local changes and untracked
+    /// files alike would be lost. The record goes first, so a tool writing into the directory
+    /// mid-removal leaves a stray directory rather than a workspace missing its files.
     pub fn delete(&self) -> Result<()> {
         if self.id == WorkspaceId::Main {
             Err("the main workspace cannot be removed")?;
@@ -167,9 +168,10 @@ impl<'ctx> Workspace<'ctx> {
             Status::Untracked => Err(format!("workspace {} has untracked files", self.id))?,
             Status::Clean => {}
         }
-        fs::remove_dir_all(&self.path)?;
         fs::remove_dir_all(repo.git_dir())?;
-        Ok(())
+        fs::remove_dir_all(&self.path).map_err(|error| {
+            format!("workspace {} is removed, but deleting {} failed: {error}", self.id, self.path.display()).into()
+        })
     }
 
     /// Move the files from `from` to `to`, touching only the paths that differ. A workspace that
