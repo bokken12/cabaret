@@ -1159,8 +1159,8 @@ async function refresh(provider: PageProvider): Promise<void> {
 }
 
 /**
- * The changes on the rows selected on the active home page, top down, refusing none; undefined
- * when there is no selection there.
+ * The changes on the rows selected on the active home page, top down, skipping those shown as
+ * context and refusing none; undefined when there is no selection there.
  */
 function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
   const editor = activePage();
@@ -1175,12 +1175,16 @@ function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
   if (page === undefined) {
     throw new Error(`${editor.document.uri.toString()} is not rendered`);
   }
-  const changes = selectedRows(editor.selections).flatMap((row) => {
+  const targets = selectedRows(editor.selections).flatMap((row) => {
     const target = page.lines[row]?.target;
-    return target?.kind === "Change" ? [target.change] : [];
+    return target?.kind === "Change" ? [target] : [];
   });
-  if (changes.length === 0) {
+  if (targets.length === 0) {
     throw new Error("no change is selected");
+  }
+  const changes = targets.filter(({ context }) => !context).map(({ change }) => change);
+  if (changes.length === 0) {
+    throw new Error("only changes shown as context are selected");
   }
   return [...new Set(changes)];
 }
