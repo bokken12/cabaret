@@ -296,7 +296,8 @@ impl CabaretJs {
 
     #[napi]
     pub async fn land(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Landed> {
-        let landed = self.blocking(move |cabaret| cabaret.land(&change, LandAllow::from(allow.as_slice()))).await?;
+        let landed =
+            self.blocking(move |cabaret| cabaret.land(&change, LandAllow::try_from(allow.as_slice())?)).await?;
         Ok(match landed {
             Ok(into) => Landed::Done { into },
             Err(refused) => Landed::Refused { safeguards: presented(refused) },

@@ -11,26 +11,115 @@ use crate::{
     identity::Identity,
 };
 
+/// Declares every safeguard, each named by the struct holding its particulars: [`Safeguard`]
+/// holding any of them, and [`SafeguardKind`] naming one as frontends do to allow it.
+macro_rules! every_safeguard {
+    ($($kind:ident = $name:literal),+ $(,)?) => {
+        /// A safeguard without its particulars, as frontends name one to allow it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        #[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
+        pub enum SafeguardKind {
+            $($kind),+
+        }
+
+        impl fmt::Display for SafeguardKind {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(match self {
+                    $(Self::$kind => $name),+
+                })
+            }
+        }
+
+        /// Any action's safeguard.
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum Safeguard {
+            $($kind($kind)),+
+        }
+
+        impl Safeguard {
+            pub fn kind(&self) -> SafeguardKind {
+                match self {
+                    $(Self::$kind(_) => SafeguardKind::$kind),+
+                }
+            }
+        }
+
+        impl fmt::Display for Safeguard {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(Self::$kind(particulars) => particulars.fmt(f)),+
+                }
+            }
+        }
+    };
+}
+
+/// Declares the safeguards `$verb` checks: an enum of them, widening into [`Safeguard`], and a
+/// struct of which to allow, with a field for each.
+macro_rules! safeguards {
+    ($verb:literal, $safeguard:ident, $allow:ident { $($kind:ident: $field:ident),+ $(,)? }) => {
+        #[doc = concat!("The safeguards checked before you ", $verb, ".")]
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum $safeguard {
+            $($kind($kind)),+
+        }
+
+        impl From<$safeguard> for Safeguard {
+            fn from(safeguard: $safeguard) -> Self {
+                match safeguard {
+                    $($safeguard::$kind(particulars) => Self::$kind(particulars)),+
+                }
+            }
+        }
+
+        #[doc = concat!("Which [`", stringify!($safeguard), "`]s to ", $verb, " despite.")]
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+        pub struct $allow {
+            $(pub $field: bool),+
+        }
+
+        impl $allow {
+            /// Those of `safeguards` not allowed, which refuse the action.
+            pub fn refused(self, safeguards: Vec<$safeguard>) -> Option<NEVec<$safeguard>> {
+                NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
+            }
+
+            fn allows(self, safeguard: &$safeguard) -> bool {
+                match safeguard {
+                    $($safeguard::$kind(_) => self.$field),+
+                }
+            }
+        }
+
+        impl TryFrom<&[SafeguardKind]> for $allow {
+            type Error = Error;
+
+            fn try_from(kinds: &[SafeguardKind]) -> Result<Self> {
+                let mut allow = Self::default();
+                for kind in kinds {
+                    match kind {
+                        $(SafeguardKind::$kind => allow.$field = true,)+
+                        #[allow(unreachable_patterns)]
+                        other => Err(format!("nothing to allow: {other} is not checked before you {}", $verb))?,
+                    }
+                }
+                Ok(allow)
+            }
+        }
+    };
+}
+
+every_safeguard! {
+    Unreviewed = "unreviewed",
+    NonOwner = "non-owner",
+}
+
+safeguards!("land", LandSafeguard, LandAllow { Unreviewed: unreviewed, NonOwner: non_owner });
+safeguards!("rebase", RebaseSafeguard, RebaseAllow { NonOwner: non_owner });
+
 /// `a, b, c`.
 fn joined<'a>(identities: impl IntoIterator<Item = &'a Identity>) -> String {
     identities.into_iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-}
-
-/// A safeguard without its particulars, as frontends name one to allow it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
-pub enum SafeguardKind {
-    Unreviewed,
-    NonOwner,
-}
-
-impl fmt::Display for SafeguardKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Unreviewed => "unreviewed",
-            Self::NonOwner => "non-owner",
-        })
-    }
 }
 
 /// Owners have files of the change left to review.
@@ -59,126 +148,5 @@ impl fmt::Display for NonOwner {
             true => write!(f, "you ({}) are not an owner (it has no owners)", self.you),
             false => write!(f, "you ({}) are not an owner (owners: {})", self.you, joined(&self.owners)),
         }
-    }
-}
-
-/// Any action's safeguard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Safeguard {
-    Unreviewed(Unreviewed),
-    NonOwner(NonOwner),
-}
-
-impl Safeguard {
-    pub fn kind(&self) -> SafeguardKind {
-        match self {
-            Self::Unreviewed(_) => SafeguardKind::Unreviewed,
-            Self::NonOwner(_) => SafeguardKind::NonOwner,
-        }
-    }
-}
-
-impl fmt::Display for Safeguard {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Unreviewed(unreviewed) => unreviewed.fmt(f),
-            Self::NonOwner(non_owner) => non_owner.fmt(f),
-        }
-    }
-}
-
-/// The safeguards of `Cabaret::land`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LandSafeguard {
-    Unreviewed(Unreviewed),
-    NonOwner(NonOwner),
-}
-
-impl From<LandSafeguard> for Safeguard {
-    fn from(safeguard: LandSafeguard) -> Self {
-        match safeguard {
-            LandSafeguard::Unreviewed(unreviewed) => Self::Unreviewed(unreviewed),
-            LandSafeguard::NonOwner(non_owner) => Self::NonOwner(non_owner),
-        }
-    }
-}
-
-/// Which [`LandSafeguard`]s to land despite.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct LandAllow {
-    pub unreviewed: bool,
-    pub non_owner: bool,
-}
-
-impl LandAllow {
-    pub fn refused(self, safeguards: Vec<LandSafeguard>) -> Option<NEVec<LandSafeguard>> {
-        NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
-    }
-
-    fn allows(self, safeguard: &LandSafeguard) -> bool {
-        match safeguard {
-            LandSafeguard::Unreviewed(_) => self.unreviewed,
-            LandSafeguard::NonOwner(_) => self.non_owner,
-        }
-    }
-}
-
-impl From<&[SafeguardKind]> for LandAllow {
-    fn from(kinds: &[SafeguardKind]) -> Self {
-        let mut allow = Self::default();
-        for kind in kinds {
-            match kind {
-                SafeguardKind::Unreviewed => allow.unreviewed = true,
-                SafeguardKind::NonOwner => allow.non_owner = true,
-            }
-        }
-        allow
-    }
-}
-
-/// The safeguards of `Cabaret::rebase`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RebaseSafeguard {
-    NonOwner(NonOwner),
-}
-
-impl From<RebaseSafeguard> for Safeguard {
-    fn from(safeguard: RebaseSafeguard) -> Self {
-        match safeguard {
-            RebaseSafeguard::NonOwner(non_owner) => Self::NonOwner(non_owner),
-        }
-    }
-}
-
-/// Which [`RebaseSafeguard`]s to rebase despite.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct RebaseAllow {
-    pub non_owner: bool,
-}
-
-impl RebaseAllow {
-    pub fn refused(self, safeguards: Vec<RebaseSafeguard>) -> Option<NEVec<RebaseSafeguard>> {
-        NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
-    }
-
-    fn allows(self, safeguard: &RebaseSafeguard) -> bool {
-        match safeguard {
-            RebaseSafeguard::NonOwner(_) => self.non_owner,
-        }
-    }
-}
-
-impl TryFrom<&[SafeguardKind]> for RebaseAllow {
-    type Error = Error;
-
-    fn try_from(kinds: &[SafeguardKind]) -> Result<Self> {
-        let mut allow = Self::default();
-        for kind in kinds {
-            match kind {
-                SafeguardKind::Unreviewed => Err(format!("rebasing has no {kind} safeguard"))?,
-                SafeguardKind::NonOwner => allow.non_owner = true,
-            }
-        }
-        Ok(allow)
     }
 }
