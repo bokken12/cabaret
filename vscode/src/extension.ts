@@ -1637,6 +1637,58 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step>
   return { report: `${done} ${change}`, complete: true };
 }
 
+/**
+ * Toggle whether each change is archived. Archiving leaves a change's workspace nothing to do, so
+ * the user is first offered deleting those workspaces, as when landing.
+ */
+async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const doomed = new Map<ChangeId, WorkspaceId>();
+  for (const change of changes) {
+    const { archived, workspace } = await cabaret.change(change);
+    if (!archived && workspace !== undefined) {
+      doomed.set(change, workspace);
+    }
+  }
+  const discarding = await safeguarded([...doomed.keys()], (change) => cabaret.workspaceRemoveSafeguards(change));
+  let deleting = false;
+  if (doomed.size > 0) {
+    const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
+    const archiveAndDelete = `Archive and Delete ${noun}`;
+    const lost =
+      discarding.size === 0 ? "" : `\n\nDeleting them would also discard:\n${describeSafeguards(discarding)}`;
+    const choice = await vscode.window.showWarningMessage(
+      `Archive ${words(doomed.keys())}?`,
+      { modal: true, detail: `These workspaces will have nothing left to do: ${words(doomed.values())}.${lost}` },
+      archiveAndDelete,
+      `Archive and Keep ${noun}`,
+    );
+    if (choice === undefined) {
+      return undefined;
+    }
+    deleting = choice === archiveAndDelete;
+  }
+  const here = deleting ? await changeHere(cabaret, doomed.keys()) : undefined;
+  if (here !== undefined && !(await releaseHere(here))) {
+    return undefined;
+  }
+  return {
+    step: async (change) => {
+      // TODO-someday(joel): archive safeguards refuse per step, after the workspace dialog; checking
+      // them up front, as landSafeguards does for land, would fold them into that one dialog.
+      const toggled = await toggleArchived(cabaret, change);
+      const workspace = doomed.get(change);
+      if (!toggled.complete || !deleting || workspace === undefined || change === here) {
+        return toggled;
+      }
+      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+        return { report: `${toggled.report}; kept workspace ${workspace}`, complete: true };
+      }
+      return { report: `${toggled.report}; deleted workspace ${workspace}`, complete: true };
+    },
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
+  };
+}
+
 /** Commit `files` of `change`, all when empty, asking before committing despite safeguards. */
 async function commit(cabaret: Cabaret, change: ChangeId, files: ChangedFile[]): Promise<boolean> {
   const committing = (allow: SafeguardKind[]) => cabaret.commit(change, files, allow);
@@ -1825,7 +1877,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.removeParent", provider, removeParent),
     plannedSequence("cabaret.land", provider, planLand),
     plannedSequence("cabaret.rebase", provider, planRebase),
-    sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
+    plannedSequence("cabaret.toggleArchived", provider, planToggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),
     action("cabaret.discardSelected", provider, (cabaret, change) => discardSelected(cabaret, provider, change)),
