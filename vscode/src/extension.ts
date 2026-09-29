@@ -1384,6 +1384,7 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
 /**
  * Land once the user confirms, since landing cannot be undone. Landing archives a change that is
  * not permanent, leaving its workspace nothing to do, so deleting those workspaces is the default.
+ * This window's own workspace is spared, since its open files block removal partway through.
  */
 async function planLand(
   cabaret: Cabaret,
@@ -1392,7 +1393,7 @@ async function planLand(
   const doomed = new Map<ChangeId, WorkspaceId>();
   for (const change of changes) {
     const { permanent, workspace } = await cabaret.change(change);
-    if (!permanent && workspace !== undefined) {
+    if (!permanent && workspace !== undefined && (await cabaret.placement(change)).kind !== "Here") {
       doomed.set(change, workspace);
     }
   }
@@ -1620,6 +1621,9 @@ export function activate(context: vscode.ExtensionContext) {
       complete: true,
     })),
     sequencedAction("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
+      if ((await cabaret.placement(change)).kind === "Here") {
+        throw new Error(`${change} is checked out in this window's workspace; delete it from another window`);
+      }
       await cabaret.workspaceRemove(change);
       return { report: `deleted the workspace holding ${change}`, complete: true };
     }),
