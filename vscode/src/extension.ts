@@ -1183,6 +1183,9 @@ function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
 /** What a step of a sequence did, and whether the sequence may go on past it. */
 type Step = { report: string; complete: boolean };
 
+/** The step to run on each change of a sequence, and what to do once every step completed. */
+type Plan = { step: (change: ChangeId) => Promise<Step>; finish?: () => Promise<void> };
+
 /**
  * Like `action`, but over a selection on the home page `run` goes through the selected changes
  * top down, stopping at the first it cannot complete.
@@ -1192,17 +1195,17 @@ function sequencedAction(
   provider: PageProvider,
   run: (cabaret: Cabaret, change: ChangeId) => Promise<Step>,
 ): vscode.Disposable {
-  return plannedSequence(name, provider, async (cabaret) => (change) => run(cabaret, change));
+  return plannedSequence(name, provider, async (cabaret) => ({ step: (change) => run(cabaret, change) }));
 }
 
 /**
  * Like `sequencedAction`, but `plan` first sees every change the sequence will go through, and
- * gives the step to run on each, or nothing when the user backed out.
+ * gives the plan to run over them, or nothing when the user backed out.
  */
 function plannedSequence(
   name: string,
   provider: PageProvider,
-  plan: (cabaret: Cabaret, changes: ChangeId[]) => Promise<((change: ChangeId) => Promise<Step>) | undefined>,
+  plan: (cabaret: Cabaret, changes: ChangeId[]) => Promise<Plan | undefined>,
 ): vscode.Disposable {
   return command(name, async (cabaret) => {
     const selected = selectedChanges(provider);
@@ -1211,21 +1214,24 @@ function plannedSequence(
     if (changes.length === 0) {
       return;
     }
-    const run = await plan(cabaret, changes);
-    if (run === undefined) {
+    const planned = await plan(cabaret, changes);
+    if (planned === undefined) {
       return;
     }
     const reports: string[] = [];
     try {
       for (const [index, change] of changes.entries()) {
-        const { report, complete } = await run(change);
+        const { report, complete } = await planned.step(change);
         reports.push(report);
         const skipped = changes.slice(index + 1);
-        if (!complete && skipped.length > 0) {
-          reports.push(`stopped before ${words(skipped)}`);
-          break;
+        if (!complete) {
+          if (skipped.length > 0) {
+            reports.push(`stopped before ${words(skipped)}`);
+          }
+          return;
         }
       }
+      await planned.finish?.();
     } finally {
       // A failure partway through still leaves the earlier steps done, so report and show them.
       if (reports.length > 0) {
@@ -1381,19 +1387,41 @@ async function startSession(cabaret: Cabaret, change: ChangeId): Promise<string 
   return `started a session on ${change}`;
 }
 
+/** The change among `changes` checked out in this window's workspace, if any. */
+async function changeHere(cabaret: Cabaret, changes: Iterable<ChangeId>): Promise<ChangeId | undefined> {
+  for (const change of changes) {
+    if ((await cabaret.placement(change)).kind === "Here") {
+      return change;
+    }
+  }
+  return undefined;
+}
+
+async function confirmDeleteHere(change: ChangeId): Promise<boolean> {
+  const confirm = "Delete and Close Window";
+  const choice = await vscode.window.showWarningMessage(
+    `Delete the workspace holding ${change}, which is open in this window?`,
+    { modal: true, detail: "This window will close once the workspace is deleted." },
+    confirm,
+  );
+  return choice === confirm;
+}
+
+/** Delete this window's workspace, which is left for last as the window's `Cabaret` is opened in it. */
+async function deleteHereAndClose(cabaret: Cabaret, change: ChangeId): Promise<void> {
+  await cabaret.workspaceRemove(change);
+  await vscode.commands.executeCommand("workbench.action.closeWindow");
+}
+
 /**
  * Land once the user confirms, since landing cannot be undone. Landing archives a change that is
  * not permanent, leaving its workspace nothing to do, so deleting those workspaces is the default.
- * This window's own workspace is spared, since its open files block removal partway through.
  */
-async function planLand(
-  cabaret: Cabaret,
-  changes: ChangeId[],
-): Promise<((change: ChangeId) => Promise<Step>) | undefined> {
+async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const doomed = new Map<ChangeId, WorkspaceId>();
   for (const change of changes) {
     const { permanent, workspace } = await cabaret.change(change);
-    if (!permanent && workspace !== undefined && (await cabaret.placement(change)).kind !== "Here") {
+    if (!permanent && workspace !== undefined) {
       doomed.set(change, workspace);
     }
   }
@@ -1414,14 +1442,39 @@ async function planLand(
   if (choice === undefined) {
     return undefined;
   }
-  return async (change) => {
-    const landed = `landed ${change} into ${await cabaret.land(change)}`;
-    const workspace = doomed.get(change);
-    if (choice !== landAndDelete || workspace === undefined) {
-      return { report: landed, complete: true };
-    }
-    await cabaret.workspaceRemove(change);
-    return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
+  const deleting = choice === landAndDelete;
+  const here = deleting ? await changeHere(cabaret, doomed.keys()) : undefined;
+  if (here !== undefined && !(await confirmDeleteHere(here))) {
+    return undefined;
+  }
+  return {
+    step: async (change) => {
+      const landed = `landed ${change} into ${await cabaret.land(change)}`;
+      const workspace = doomed.get(change);
+      if (!deleting || workspace === undefined || change === here) {
+        return { report: landed, complete: true };
+      }
+      await cabaret.workspaceRemove(change);
+      return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
+    },
+    finish: here === undefined ? undefined : () => deleteHereAndClose(cabaret, here),
+  };
+}
+
+async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const here = await changeHere(cabaret, changes);
+  if (here !== undefined && !(await confirmDeleteHere(here))) {
+    return undefined;
+  }
+  return {
+    step: async (change) => {
+      if (change === here) {
+        return { report: `left the workspace holding ${change}, open in this window, for last`, complete: true };
+      }
+      await cabaret.workspaceRemove(change);
+      return { report: `deleted the workspace holding ${change}`, complete: true };
+    },
+    finish: here === undefined ? undefined : () => deleteHereAndClose(cabaret, here),
   };
 }
 
@@ -1620,13 +1673,7 @@ export function activate(context: vscode.ExtensionContext) {
       report: `created a workspace for ${change} at ${await cabaret.workspaceAdd(change)}`,
       complete: true,
     })),
-    sequencedAction("cabaret.deleteWorkspace", provider, async (cabaret, change) => {
-      if ((await cabaret.placement(change)).kind === "Here") {
-        throw new Error(`${change} is checked out in this window's workspace; delete it from another window`);
-      }
-      await cabaret.workspaceRemove(change);
-      return { report: `deleted the workspace holding ${change}`, complete: true };
-    }),
+    plannedSequence("cabaret.deleteWorkspace", provider, planDeleteWorkspaces),
     command("cabaret.gotoWorkspace", (cabaret) => gotoWorkspace(context, cabaret, provider)),
   );
   updatePageContext();
