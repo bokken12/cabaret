@@ -1,0 +1,11 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/Cargo.toml","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/diff.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/lib.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/tests/diff.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/lib.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/diff.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/mod.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/view_diff.rs","revision":"7f383fca0cf6bb0cf663b2920b6a62a6c0b6e0fb"}
