@@ -1,0 +1,1 @@
+Let Land and Delete Workspace delete the workspace open in this window, after a second confirmation: it goes last, once every other step completed, and then the window closes.
