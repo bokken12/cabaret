@@ -646,6 +646,16 @@ impl Cabaret {
         })
     }
 
+    /// Why landing `change_id` is discouraged, for a frontend to decide on before landing.
+    pub fn land_concerns(&self, change_id: &ChangeIdRef) -> Result<Vec<Concern>> {
+        self.store.query(|ctx| land_concerns(ctx.metadata(change_id)?, ctx.branch(change_id)?))
+    }
+
+    /// Why rebasing `change_id` is discouraged, for a frontend to decide on before rebasing.
+    pub fn rebase_concerns(&self, change_id: &ChangeIdRef) -> Result<Vec<Concern>> {
+        self.store.query(|ctx| rebase_concerns(ctx.metadata(change_id)?))
+    }
+
     /// Merge `change_id` into its one parent and archive it unless it is permanent, returning the
     /// parent. Conflicts are refused rather than landed: rebase and resolve them first. Landing
     /// is discouraged while unreviewed or by a non-owner; see [`Reason`].

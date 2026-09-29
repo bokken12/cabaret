@@ -45,6 +45,17 @@ fn placement(cabaret: &Cabaret, change: &ChangeIdRef) -> Result<Placement> {
     })
 }
 
+/// A [`crate::Concern`] as a frontend presents it.
+#[napi(object, object_from_js = false)]
+pub struct Concern {
+    pub reason: Reason,
+    pub message: String,
+}
+
+impl From<crate::Concern> for Concern {
+    fn from(concern: crate::Concern) -> Self { Self { reason: concern.reason(), message: concern.to_string() } }
+}
+
 fn path_string(path: PathBuf) -> Result<String> {
     path.into_os_string().into_string().map_err(|path| format!("{} is not UTF-8", PathBuf::from(path).display()).into())
 }
@@ -263,6 +274,12 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub async fn land_concerns(&self, change: ChangeId) -> napi::Result<Vec<Concern>> {
+        let concerns = self.blocking(move |cabaret| cabaret.land_concerns(&change)).await?;
+        Ok(concerns.into_iter().map(Concern::from).collect())
+    }
+
+    #[napi]
     pub async fn land(&self, change: ChangeId, even_though: Vec<Reason>) -> napi::Result<ChangeId> {
         self.blocking(move |cabaret| cabaret.land(&change, &even_though)).await
     }
@@ -270,6 +287,12 @@ impl CabaretJs {
     #[napi]
     pub async fn toggle_archived(&self, change: ChangeId) -> napi::Result<bool> {
         self.blocking(move |cabaret| cabaret.toggle_archived(&change)).await
+    }
+
+    #[napi]
+    pub async fn rebase_concerns(&self, change: ChangeId) -> napi::Result<Vec<Concern>> {
+        let concerns = self.blocking(move |cabaret| cabaret.rebase_concerns(&change)).await?;
+        Ok(concerns.into_iter().map(Concern::from).collect())
     }
 
     #[napi]

@@ -198,3 +198,12 @@ fn not_owner_refuses_unless_acknowledged() {
         &[Reason::NotOwner],
     ));
 }
+
+#[test]
+fn concerns_foretell_refusal() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    let concerns = fixture.cabaret.rebase_concerns(&id("child")).unwrap();
+    expect!["not-owner: owned by bob@example.com"]
+        .assert_eq(&concerns.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "));
+}

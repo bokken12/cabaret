@@ -2,6 +2,7 @@ import {
   Cabaret,
   type ChangedFile,
   type ChangeId,
+  type Concern,
   type Page,
   type RepoPath,
   type Revision,
@@ -12,6 +13,7 @@ import {
   type DiffView,
   type Fold,
   type HomeSection,
+  type Reason,
   type WorkspaceId,
 } from "@cabaret/node";
 import * as vscode from "vscode";
@@ -1273,8 +1275,49 @@ function action(
 
 const words = (ids: Iterable<string>): string => [...ids].join(", ");
 
-async function rebase(cabaret: Cabaret, change: ChangeId): Promise<Step> {
-  const rebase = await cabaret.rebase(change, undefined, []);
+/** Each of `changes` the action is discouraged for, with its concerns. */
+async function discouraged(
+  changes: ChangeId[],
+  concerns: (change: ChangeId) => Promise<Concern[]>,
+): Promise<Map<ChangeId, Concern[]>> {
+  const found = new Map<ChangeId, Concern[]>();
+  for (const change of changes) {
+    const those = await concerns(change);
+    if (those.length > 0) {
+      found.set(change, those);
+    }
+  }
+  return found;
+}
+
+function describeConcerns(concerns: Map<ChangeId, Concern[]>): string {
+  return [...concerns].flatMap(([change, those]) => those.map(({ message }) => `${change}: ${message}`)).join("\n");
+}
+
+/** The reasons to proceed despite for `change`: those the user was shown and accepted. */
+function evenThough(concerns: Map<ChangeId, Concern[]>, change: ChangeId): Reason[] {
+  return (concerns.get(change) ?? []).map(({ reason }) => reason);
+}
+
+/** Rebase, once the user accepts any reasons it is discouraged. */
+async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const concerns = await discouraged(changes, (change) => cabaret.rebaseConcerns(change));
+  if (concerns.size > 0) {
+    const proceed = "Rebase Anyway";
+    const choice = await vscode.window.showWarningMessage(
+      `Rebasing ${words(concerns.keys())} is discouraged.`,
+      { modal: true, detail: describeConcerns(concerns) },
+      proceed,
+    );
+    if (choice !== proceed) {
+      return undefined;
+    }
+  }
+  return { step: (change) => rebase(cabaret, change, evenThough(concerns, change)) };
+}
+
+async function rebase(cabaret: Cabaret, change: ChangeId, evenThough: Reason[]): Promise<Step> {
+  const rebase = await cabaret.rebase(change, undefined, evenThough);
   const report = [
     rebase.merged.size === 0 ? `${change} is already up to date` : `rebased ${change} onto ${words(rebase.merged)}`,
   ];
@@ -1425,17 +1468,19 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       doomed.set(change, workspace);
     }
   }
+  const concerns = await discouraged(changes, (change) => cabaret.landConcerns(change));
   const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
   const landAndDelete = `Land and Delete ${noun}`;
   const landOnly = doomed.size === 0 ? "Land" : `Land and Keep ${noun}`;
+  const irreversible =
+    doomed.size === 0
+      ? "This cannot be undone."
+      : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`;
   const choice = await vscode.window.showWarningMessage(
-    `Land ${words(changes)}?`,
+    concerns.size === 0 ? `Land ${words(changes)}?` : `Land ${words(changes)}, though discouraged?`,
     {
       modal: true,
-      detail:
-        doomed.size === 0
-          ? "This cannot be undone."
-          : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`,
+      detail: concerns.size === 0 ? irreversible : `${describeConcerns(concerns)}\n\n${irreversible}`,
     },
     ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
@@ -1449,7 +1494,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
   }
   return {
     step: async (change) => {
-      const landed = `landed ${change} into ${await cabaret.land(change, [])}`;
+      const landed = `landed ${change} into ${await cabaret.land(change, evenThough(concerns, change))}`;
       const workspace = doomed.get(change);
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };
@@ -1663,7 +1708,7 @@ export function activate(context: vscode.ExtensionContext) {
     action("cabaret.addParent", provider, addParent),
     action("cabaret.removeParent", provider, removeParent),
     plannedSequence("cabaret.land", provider, planLand),
-    sequencedAction("cabaret.rebase", provider, rebase),
+    plannedSequence("cabaret.rebase", provider, planRebase),
     sequencedAction("cabaret.toggleArchived", provider, toggleArchived),
     action("cabaret.commitAll", provider, commitAll),
     action("cabaret.commitSelected", provider, (cabaret, change) => commitSelected(cabaret, provider, change)),

@@ -1,6 +1,6 @@
 //! Landing: the parent merges the change in and the change is archived.
 
-use cabaret_lib::Reason;
+use cabaret_lib::{Concern, Reason};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, bob, id};
@@ -133,4 +133,15 @@ fn hard_refusals_come_before_concerns() {
     fixture.root("main", &[]);
     fixture.create("empty", "main", &bob());
     expect!["error: empty has nothing to land"].assert_eq(&land(&fixture, "empty"));
+}
+
+#[test]
+fn concerns_foretell_refusal() {
+    let fixture = diverged();
+    fixture.cabaret.set_owners(&id("child"), [bob()].into()).unwrap();
+    let concerns = fixture.cabaret.land_concerns(&id("child")).unwrap();
+    expect!["not-owner: owned by bob@example.com; unreviewed: bob@example.com left to review"]
+        .assert_eq(&concerns.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "));
+    let even_though: Vec<Reason> = concerns.iter().map(Concern::reason).collect();
+    expect!["landed into main"].assert_eq(&land_even_though(&fixture, "child", &even_though));
 }
