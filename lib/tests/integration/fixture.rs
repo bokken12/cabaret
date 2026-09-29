@@ -16,7 +16,7 @@ use std::{
 };
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Environment, Identity, RevisionId, TreeId,
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TreeId,
     log::{self, LogAction},
 };
 use expect_test::expect;
@@ -54,9 +54,14 @@ fn tempdir() -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
-/// `path`'s repository through its own config alone, as every test sees it, whoever runs it.
+/// `path`'s repository through its own config alone, so no test depends on who runs it.
 pub fn open_repo(path: impl Into<PathBuf>) -> gix::Repository {
     gix::open_opts(path, gix::open::Options::isolated()).unwrap()
+}
+
+/// A `Cabaret` on `path` that, like [`open_repo`], sees only the repository's own config.
+pub fn open_cabaret(path: impl Into<PathBuf>) -> Cabaret {
+    gix::ThreadSafeRepository::open_opts(path, gix::open::Options::isolated()).unwrap().into()
 }
 
 fn init(path: &Path, kind: Kind) -> gix::Repository {
@@ -95,7 +100,7 @@ impl Fixture {
     }
 
     fn open(dir: tempfile::TempDir, root: PathBuf, path: &Path) -> Self {
-        let cabaret = Cabaret::open(path, Environment::Isolated).unwrap();
+        let cabaret = open_cabaret(path);
         let repo = open_repo(path);
         Self { _dir: dir, root, cabaret, repo, clock: Cell::new(978_307_200) }
     }

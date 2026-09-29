@@ -2,10 +2,10 @@
 
 use std::ffi::OsStr;
 
-use cabaret_lib::{Cabaret, Environment, Result, RevisionId};
+use cabaret_lib::{Cabaret, Result, RevisionId};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
 
-fn cabaret() -> Result<Cabaret> { Cabaret::open(std::env::current_dir()?, Environment::User) }
+fn cabaret() -> Result<Cabaret> { Cabaret::open(std::env::current_dir()?) }
 
 fn changes() -> Result<Vec<String>> { Ok(cabaret()?.changes()?.into_iter().map(|change| change.to_string()).collect()) }
 

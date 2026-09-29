@@ -127,25 +127,6 @@ impl Resource {
     }
 }
 
-/// What git reads beyond a repository's own config when opening or making it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Environment {
-    /// Whatever git itself would: environment variables and the user's and system's config.
-    User,
-    /// Nothing, so the repository behaves the same whoever runs it.
-    Isolated,
-}
-
-impl Environment {
-    /// The options to open with, `None` leaving gix to pick its own.
-    pub fn open_options(self) -> Option<gix::open::Options> {
-        match self {
-            Self::User => None,
-            Self::Isolated => Some(gix::open::Options::isolated()),
-        }
-    }
-}
-
 /// A repository together with the directory its transactions lock resources in.
 pub struct Store {
     pub repo: ThreadSafeRepository,
@@ -153,18 +134,15 @@ pub struct Store {
     pub locks: PathBuf,
 }
 
-impl Store {
-    pub fn open(dir: impl AsRef<Path>, environment: Environment) -> Result<Self> {
-        let repo = match environment.open_options() {
-            None => ThreadSafeRepository::discover(dir)?,
-            Some(options) => {
-                let trust = gix::sec::trust::Mapping { full: options.clone(), reduced: options };
-                ThreadSafeRepository::discover_opts(dir, gix::discover::upwards::Options::default(), trust)?
-            }
-        };
+impl From<ThreadSafeRepository> for Store {
+    fn from(repo: ThreadSafeRepository) -> Self {
         let locks = repo.to_thread_local().common_dir().join("cabaret").join("locks");
-        Ok(Self { repo, locks })
+        Self { repo, locks }
     }
+}
+
+impl Store {
+    pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(ThreadSafeRepository::discover(dir)?.into()) }
 
     /// Take the `resource` lock of each of `ids`, in a fixed order to avoid deadlock.
     fn lock<Id: Ord + fmt::Display>(

@@ -3,11 +3,11 @@
 
 use std::fs;
 
-use cabaret_lib::{Cabaret, Environment};
+use cabaret_lib::Cabaret;
 use expect_test::expect;
 
 use super::{
-    fixture::{Fixture, id, open_repo, worktree},
+    fixture::{Fixture, id, open_cabaret, open_repo, worktree},
     workspace::two_changes,
 };
 
@@ -38,8 +38,8 @@ fn first_commit(path: &std::path::Path) {
 #[test]
 fn init_makes_empty_project_directory() {
     let fixture = Fixture::new();
-    Cabaret::init(&fixture.path("new"), None, Environment::Isolated).unwrap();
-    let cabaret = Cabaret::open(fixture.path("new"), Environment::Isolated).unwrap();
+    Cabaret::init(&fixture.path("new"), None).unwrap();
+    let cabaret = open_cabaret(fixture.path("new"));
     expect![[r#"
         .bare
         .git"#]]
@@ -56,13 +56,14 @@ fn init_makes_main_workspace_of_directory_with_contents() {
     let fixture = Fixture::new();
     fs::create_dir(fixture.path("here")).unwrap();
     fs::write(fixture.path("here/notes.txt"), "notes\n").unwrap();
-    Cabaret::init(&fixture.path("here"), None, Environment::Isolated).unwrap();
-    let cabaret = Cabaret::open(fixture.path("here"), Environment::Isolated).unwrap();
+    Cabaret::init(&fixture.path("here"), None).unwrap();
+    let cabaret = open_cabaret(fixture.path("here"));
     expect![[r#"
         .git
         notes.txt"#]]
     .assert_eq(&fixture.listing("here"));
-    expect![[r#"{"main": Some("main")}"#]].assert_eq(&workspaces(&cabaret));
+    // Only the workspace: its branch is whatever the user's init.defaultBranch names.
+    expect![[r#"["main"]"#]].assert_eq(&format!("{:?}", cabaret.workspaces().unwrap().keys().collect::<Vec<_>>()));
     first_commit(&fixture.path("here"));
     expect![[r#"
         clean
@@ -74,8 +75,8 @@ fn init_makes_main_workspace_of_directory_with_contents() {
 #[test]
 fn clone_makes_project_directory_with_remote_branches() {
     let fixture = two_changes();
-    Cabaret::init(&fixture.path("clone"), Some(fixture.path("main").to_str().unwrap()), Environment::Isolated).unwrap();
-    let cabaret = Cabaret::open(fixture.path("clone"), Environment::Isolated).unwrap();
+    Cabaret::init(&fixture.path("clone"), Some(fixture.path("main").to_str().unwrap())).unwrap();
+    let cabaret = open_cabaret(fixture.path("clone"));
     expect![[r#"
         .bare
         .git"#]]
@@ -107,9 +108,6 @@ fn clone_makes_project_directory_with_remote_branches() {
 fn clone_refuses_occupied_directory() {
     let fixture = two_changes();
     let source = fixture.path("main");
-    expect!["<root>/main is not empty"].assert_eq(&fixture.redact(&error(Cabaret::init(
-        &source,
-        Some(source.to_str().unwrap()),
-        Environment::Isolated,
-    ))));
+    expect!["<root>/main is not empty"]
+        .assert_eq(&fixture.redact(&error(Cabaret::init(&source, Some(source.to_str().unwrap())))));
 }

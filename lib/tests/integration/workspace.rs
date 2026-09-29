@@ -1,10 +1,10 @@
 //! Workspaces: which working directories exist and which change each holds, and adding,
 //! switching, and removing them.
 
-use cabaret_lib::{Cabaret, Environment, WorkspaceId};
+use cabaret_lib::{Cabaret, WorkspaceId};
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id, open_repo, worktree};
+use super::fixture::{Fixture, alice, id, open_cabaret, open_repo, worktree};
 
 fn workspaces(fixture: &Fixture) -> String { format!("{:?}", fixture.cabaret.workspaces().unwrap()) }
 
@@ -193,7 +193,7 @@ fn add_names_workspace_with_tilde_for_slash() {
 fn bare_add_from_inside_workspace_lands_beside_it() {
     let fixture = two_changes_in(Fixture::bare());
     let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    let path = Cabaret::open(&two, Environment::Isolated).unwrap().workspace_add(id("one"), None).unwrap();
+    let path = open_cabaret(&two).workspace_add(id("one"), None).unwrap();
     expect!["project/one"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -202,10 +202,9 @@ fn bare_add_from_inside_workspace_lands_beside_it() {
 fn workspace_outlives_workspace_it_was_added_from() {
     let fixture = two_changes_in(Fixture::bare());
     let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    let one = Cabaret::open(&two, Environment::Isolated).unwrap().workspace_add(id("one"), None).unwrap();
+    let one = open_cabaret(&two).workspace_add(id("one"), None).unwrap();
     fixture.cabaret.workspace_remove(linked("two").to_ref()).unwrap();
-    expect![[r#""one""#]]
-        .assert_eq(&format!("{:?}", Cabaret::open(&one, Environment::Isolated).unwrap().workspace_current().unwrap()));
+    expect![[r#""one""#]].assert_eq(&format!("{:?}", open_cabaret(&one).workspace_current().unwrap()));
 }
 
 fn dedicated(fixture: &Fixture, workspace: WorkspaceId) -> bool {
