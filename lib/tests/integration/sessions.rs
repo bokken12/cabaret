@@ -38,7 +38,11 @@ fn sessions_outlive_the_workspace_they_worked_in() {
     launch(&claude_dir, two.workdir().unwrap(), "worked on two");
     expect!["worked on two"].assert_eq(&titles(&fixture, &claude, "two"));
 
-    fixture.cabaret.workspace_remove(WorkspaceId::Linked("main-two".into()).to_ref()).unwrap();
+    fixture
+        .cabaret
+        .workspace_remove(WorkspaceId::Linked("main-two".into()).to_ref(), Default::default())
+        .unwrap()
+        .unwrap();
     expect!["worked on two"].assert_eq(&titles(&fixture, &claude, "two"));
 }
 

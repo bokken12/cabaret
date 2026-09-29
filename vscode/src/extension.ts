@@ -1067,7 +1067,16 @@ async function workspaceFor(
       if (placement.dedicated) {
         return { kind: "Elsewhere", path: await cabaret.workspaceAdd(change) };
       }
-      await cabaret.workspaceSwitch(change);
+      let allow: SafeguardKind[] = [];
+      let switching = await cabaret.workspaceSwitch(change, allow);
+      while (switching.outcome === "Refused") {
+        const more = await allowAnyway(`Check ${change} out here`, "Check Out Anyway", allow, switching.safeguards);
+        if (more === undefined) {
+          return undefined;
+        }
+        allow = more;
+        switching = await cabaret.workspaceSwitch(change, allow);
+      }
       return { kind: "Here" };
     }
   }
@@ -1530,9 +1539,28 @@ async function releaseHere(change: ChangeId): Promise<boolean> {
  * Delete this window's workspace, which is left for last as the window's `Cabaret` is opened in it.
  * Closing the folder restarts the extension host, so nothing may follow it.
  */
-async function deleteHereAndCloseFolder(cabaret: Cabaret, change: ChangeId): Promise<void> {
-  await cabaret.workspaceRemove(change);
-  await vscode.commands.executeCommand("workbench.action.closeFolder");
+async function deleteHereAndCloseFolder(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<void> {
+  if (await deleteWorkspace(cabaret, change, allow)) {
+    await vscode.commands.executeCommand("workbench.action.closeFolder");
+  }
+}
+
+/**
+ * Delete the workspace holding `change`, allowing `allow`, and asking again should other
+ * safeguards refuse it; false when the user declines.
+ */
+async function deleteWorkspace(cabaret: Cabaret, change: ChangeId, allow: SafeguardKind[]): Promise<boolean> {
+  let deleting = await cabaret.workspaceRemove(change, allow);
+  while (deleting.outcome === "Refused") {
+    const action = `Delete the workspace holding ${change}`;
+    const more = await allowAnyway(action, "Delete Anyway", allow, deleting.safeguards);
+    if (more === undefined) {
+      return false;
+    }
+    allow = more;
+    deleting = await cabaret.workspaceRemove(change, allow);
+  }
+  return true;
 }
 
 /**
@@ -1548,6 +1576,7 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
     }
   }
   const safeguards = await safeguarded(changes, (change) => cabaret.landSafeguards(change));
+  const discarding = await safeguarded([...doomed.keys()], (change) => cabaret.workspaceRemoveSafeguards(change));
   const noun = doomed.size === 1 ? "Workspace" : "Workspaces";
   const landAndDelete = `Land and Delete ${noun}`;
   const landOnly = doomed.size === 0 ? "Land" : `Land and Keep ${noun}`;
@@ -1555,11 +1584,12 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
     doomed.size === 0
       ? "This cannot be undone."
       : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`;
+  const lost = discarding.size === 0 ? "" : `\n\nDeleting them would also discard:\n${describeSafeguards(discarding)}`;
   const choice = await vscode.window.showWarningMessage(
     safeguards.size === 0 ? `Land ${words(changes)}?` : `Land ${words(changes)} anyway?`,
     {
       modal: true,
-      detail: safeguards.size === 0 ? irreversible : `${describeSafeguards(safeguards)}\n\n${irreversible}`,
+      detail: (safeguards.size === 0 ? irreversible : `${describeSafeguards(safeguards)}\n\n${irreversible}`) + lost,
     },
     ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
@@ -1588,14 +1618,28 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       if (!deleting || workspace === undefined || change === here) {
         return { report: landed, complete: true };
       }
-      await cabaret.workspaceRemove(change);
+      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+        return { report: `${landed}; kept workspace ${workspace}`, complete: true };
+      }
       return { report: `${landed}; deleted workspace ${workspace}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
   };
 }
 
 async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const discarding = await safeguarded(changes, (change) => cabaret.workspaceRemoveSafeguards(change));
+  if (discarding.size > 0) {
+    const proceed = "Delete Anyway";
+    const choice = await vscode.window.showWarningMessage(
+      `Delete the workspaces holding ${words(discarding.keys())} anyway?`,
+      { modal: true, detail: describeSafeguards(discarding) },
+      proceed,
+    );
+    if (choice !== proceed) {
+      return undefined;
+    }
+  }
   const here = await changeHere(cabaret, changes);
   if (here !== undefined && !(await releaseHere(here))) {
     return undefined;
@@ -1605,10 +1649,12 @@ async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Prom
       if (change === here) {
         return { report: `left the workspace holding ${change}, open in this window, for last`, complete: true };
       }
-      await cabaret.workspaceRemove(change);
+      if (!(await deleteWorkspace(cabaret, change, allowed(discarding, change)))) {
+        return { report: `did not delete the workspace holding ${change}`, complete: false };
+      }
       return { report: `deleted the workspace holding ${change}`, complete: true };
     },
-    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here),
+    finish: here === undefined ? undefined : () => deleteHereAndCloseFolder(cabaret, here, allowed(discarding, here)),
   };
 }
 

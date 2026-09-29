@@ -12,7 +12,10 @@ use cabaret_agents::ClaudeCode;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
-    safeguard::{AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, SafeguardKind},
+    safeguard::{
+        AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind,
+        SwitchWorkspaceAllow,
+    },
 };
 use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
@@ -222,8 +225,22 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn workspace_remove(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref())).await
+    pub async fn workspace_remove_safeguards(&self, change: ChangeId) -> napi::Result<Vec<Safeguard>> {
+        let safeguards = self
+            .blocking(move |cabaret| cabaret.workspace_remove_safeguards(cabaret.workspace_of(&change)?.to_ref()))
+            .await?;
+        Ok(presented(safeguards))
+    }
+
+    #[napi]
+    pub async fn workspace_remove(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                let allow = RemoveWorkspaceAllow::try_from(allow.as_slice())?;
+                cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), allow)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     #[napi]
@@ -239,8 +256,14 @@ impl CabaretJs {
 
     /// Check `change` out in the workspace this instance was opened in.
     #[napi]
-    pub async fn workspace_switch(&self, change: ChangeId) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change)).await
+    pub async fn workspace_switch(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
+        let attempt = self
+            .blocking(move |cabaret| {
+                let allow = SwitchWorkspaceAllow::try_from(allow.as_slice())?;
+                cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, allow)
+            })
+            .await?;
+        Ok(Attempt::from(attempt))
     }
 
     /// Commit `files` of `change`'s workspace diff, or all of it when empty. Both sides of a

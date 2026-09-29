@@ -6,7 +6,9 @@ use std::{
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
-use cabaret_transaction::{Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, WorkspaceOp};
+use cabaret_transaction::{
+    Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp,
+};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
@@ -14,7 +16,8 @@ use cabaret_types::{
         AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, Conflicted, Empty, LandAllow, LandSafeguard,
         NoCommonAncestor, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted, ParentUnreviewed,
         Parentless, RebaseAllow, RebaseSafeguard, RedundantParent, RemoveParentAllow, RemoveParentSafeguard,
-        RemovesOthers, Uncommitted, Unreviewed,
+        RemoveWorkspaceAllow, RemoveWorkspaceSafeguard, RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard,
+        Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -231,23 +234,44 @@ impl Cabaret {
         Ok(workdir.parent().ok_or("main workspace has no parent directory")?.join(name))
     }
 
-    /// Removing a workspace needs the branch it holds, which is only known once read; the
-    /// transaction re-checks it under the lock.
-    pub fn workspace_remove(&self, workspace_id: WorkspaceIdRef<'_>) -> Result<()> {
+    /// The safeguards that would refuse removing `workspace_id` now, for a frontend to ask about first.
+    pub fn workspace_remove_safeguards(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+    ) -> Result<Vec<RemoveWorkspaceSafeguard>> {
+        self.store.query(|ctx| remove_workspace_safeguards(ctx.workspace(workspace_id)?))
+    }
+
+    /// Remove `workspace_id`; allowing uncommitted changes deletes them with it. Removing a
+    /// workspace needs the branch it holds, which is only known once read; the transaction
+    /// re-checks it under the lock.
+    pub fn workspace_remove(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+        allow: RemoveWorkspaceAllow,
+    ) -> Result<std::result::Result<(), NEVec<RemoveWorkspaceSafeguard>>> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
+        let remove = |workspace: &mut Workspace<'_>| {
+            if workspace_id == WorkspaceIdRef::Main {
+                Err("the main workspace cannot be removed")?;
+            }
+            if let Some(refused) = allow.refused(remove_workspace_safeguards(workspace)?) {
+                return Ok(Err(refused));
+            }
+            workspace.drop_local_changes = allow.uncommitted;
+            Ok(Ok(()))
+        };
         match self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))? {
-            Some(held) => self.store.transact(
+            Some(held) => self.store.transact_or_abort(
                 &[],
                 &[BranchOp::Update(&held)],
                 &delete,
-                |_ctx, [], [_branch], [_workspace]| Ok(()),
+                |_ctx, [], [_branch], [workspace]| remove(workspace),
             ),
-            None => self.store.transact(&[], &[], &delete, |_ctx, [], [], [_workspace]| Ok(())),
+            None => self.store.transact_or_abort(&[], &[], &delete, |_ctx, [], [], [workspace]| remove(workspace)),
         }
     }
 
-    /// Remove every workspace holding an archived change. Each goes in its own transaction, which
-    /// re-checks the change under its lock, so one that cannot go leaves the rest to be pruned.
     pub fn workspace_prune(&self) -> Result<Prune> {
         let archived = self.store.query(|ctx| {
             let mut archived = Vec::new();
@@ -283,14 +307,29 @@ impl Cabaret {
         Ok(prune)
     }
 
-    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId) -> Result<()> {
-        self.store.transact(
+    /// Check out `change_id` in `workspace_id`; allowing uncommitted changes drops those to
+    /// tracked files, leaving untracked ones be.
+    pub fn workspace_switch(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+        change_id: ChangeId,
+        allow: SwitchWorkspaceAllow,
+    ) -> Result<std::result::Result<(), NEVec<SwitchWorkspaceSafeguard>>> {
+        self.store.transact_or_abort(
             &[],
             &[BranchOp::Update(&change_id)],
             &[WorkspaceOp::Update { id: workspace_id }],
             |_ctx, [], [_branch], [workspace]| {
+                // Untracked files are left where they are, so only changes to tracked ones are at risk.
+                if workspace.status()? == Status::Modified {
+                    let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
+                    if let Some(refused) = allow.refused(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)]) {
+                        return Ok(Err(refused));
+                    }
+                }
+                workspace.drop_local_changes = allow.uncommitted;
                 workspace.head = Head::Change(change_id.clone());
-                Ok(())
+                Ok(Ok(()))
             },
         )
     }
@@ -944,6 +983,15 @@ fn unreviewed(
         }
     }
     Ok(reviewers)
+}
+
+fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<RemoveWorkspaceSafeguard>> {
+    Ok(match workspace.status()? {
+        Status::Clean => Vec::new(),
+        Status::Untracked | Status::Modified => {
+            vec![RemoveWorkspaceSafeguard::Uncommitted(Uncommitted { workspace: workspace.id().into_owned() })]
+        }
+    })
 }
 
 /// The one parent `change_id` lands into.

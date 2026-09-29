@@ -158,6 +158,8 @@ safeguards!(
     RemoveParentSafeguard,
     RemoveParentAllow { BaseMoves: base_moves, Parentless: parentless, NoCommonAncestor: no_common_ancestor }
 );
+safeguards!("remove a workspace", RemoveWorkspaceSafeguard, RemoveWorkspaceAllow { Uncommitted: uncommitted });
+safeguards!("switch a workspace", SwitchWorkspaceSafeguard, SwitchWorkspaceAllow { Uncommitted: uncommitted });
 safeguards!("change owners", OwnersSafeguard, OwnersAllow { RemovesOthers: removes_others, Ownerless: ownerless });
 safeguards!(
     "rebase",
@@ -233,7 +235,7 @@ impl fmt::Display for Conflicted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "conflicts in {}", joined(&self.files)) }
 }
 
-/// The change's workspace has changes not yet committed.
+/// A workspace has changes not yet committed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Uncommitted {
     pub workspace: WorkspaceId,

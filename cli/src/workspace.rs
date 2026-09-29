@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
-use cabaret_lib::{Cabaret, ChangeId, Result, WorkspaceId};
+use cabaret_lib::{
+    Cabaret, ChangeId, Result, WorkspaceId,
+    safeguard::{RemoveWorkspaceAllow, SwitchWorkspaceAllow},
+};
 use clap::{Subcommand, ValueHint};
 
-use crate::args::change_completer;
+use crate::{args::change_completer, change::refusal};
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
@@ -22,6 +25,9 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
+        /// Switch even though tracked files have uncommitted changes, which are dropped.
+        #[arg(long)]
+        allow_uncommitted: bool,
     },
     List,
     /// Find the path of the workspace holding a change.
@@ -37,6 +43,9 @@ pub enum WorkspaceCommand {
         change: Option<ChangeId>,
         #[arg(long, value_hint = ValueHint::DirPath, conflicts_with = "change")]
         path: Option<PathBuf>,
+        /// Remove it even though it has uncommitted changes, which go with it.
+        #[arg(long)]
+        allow_uncommitted: bool,
     },
 }
 
@@ -47,12 +56,15 @@ impl WorkspaceCommand {
                 let path = cabaret.workspace_add(change, path)?;
                 println!("{}", path.display());
             }
-            WorkspaceCommand::Switch { switch_to, change, path } => {
+            WorkspaceCommand::Switch { switch_to, change, path, allow_uncommitted } => {
                 let workspace = match named(&cabaret, change, path)? {
                     Some(workspace) => workspace,
                     None => cabaret.workspace_current()?,
                 };
-                cabaret.workspace_switch(workspace.to_ref(), switch_to)?;
+                let allow = SwitchWorkspaceAllow { uncommitted: allow_uncommitted };
+                cabaret
+                    .workspace_switch(workspace.to_ref(), switch_to.clone(), allow)?
+                    .map_err(|refused| refusal(&format!("switch workspace {workspace} to {switch_to}"), refused))?;
             }
             WorkspaceCommand::List => {
                 for (workspace, change) in cabaret.workspaces()? {
@@ -75,9 +87,11 @@ impl WorkspaceCommand {
                     println!("kept {workspace}: {reason}");
                 }
             }
-            WorkspaceCommand::Remove { change, path } => {
+            WorkspaceCommand::Remove { change, path, allow_uncommitted } => {
                 let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
-                cabaret.workspace_remove(workspace.to_ref())?;
+                cabaret
+                    .workspace_remove(workspace.to_ref(), RemoveWorkspaceAllow { uncommitted: allow_uncommitted })?
+                    .map_err(|refused| refusal(&format!("remove workspace {workspace}"), refused))?;
             }
         }
 

@@ -1,11 +1,14 @@
 //! Refusals by safeguards, and the flags they name to allow each.
 
-use cabaret_cli::change::{ChangeCommand, refusal};
+use cabaret_cli::{
+    change::{ChangeCommand, refusal},
+    workspace::WorkspaceCommand,
+};
 use cabaret_lib::{
     ChangeId, Identity,
     safeguard::{
         AddParentAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, RebaseAllow, RebaseSafeguard,
-        RemoveParentAllow, SafeguardKind, Unreviewed,
+        RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, Unreviewed,
     },
 };
 use clap::Parser;
@@ -16,6 +19,12 @@ use nonempty_collections::{nebts, nev};
 struct Cli {
     #[command(subcommand)]
     command: ChangeCommand,
+}
+
+#[derive(Parser)]
+struct Workspace {
+    #[command(subcommand)]
+    command: WorkspaceCommand,
 }
 
 fn child() -> ChangeId { "child".parse().unwrap() }
@@ -69,4 +78,11 @@ fn flags_match_kinds() {
     };
     parents("add", AddParentAllow::KINDS);
     parents("remove", RemoveParentAllow::KINDS);
+    let workspace = |command: &str, kinds: &[SafeguardKind]| {
+        let flags = kinds.iter().map(|kind| format!("--allow-{kind}"));
+        let args = ["cab", command, "main"].map(str::to_owned);
+        Workspace::try_parse_from(args.into_iter().chain(flags)).unwrap();
+    };
+    workspace("switch", SwitchWorkspaceAllow::KINDS);
+    workspace("remove", RemoveWorkspaceAllow::KINDS);
 }
