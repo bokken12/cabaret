@@ -27,12 +27,15 @@ fn titled(graph: &mut HomeGraph, id: &str, title: &str) {
     graph.nodes.get_mut(&id.parse::<ChangeId>().unwrap()).unwrap().title = Some(title.into());
 }
 
-/// Every row leads to the change it labels, and folds are well-formed.
+/// Every row leads to the change it labels, as context exactly when unselected, and folds are
+/// well-formed.
 fn check(nodes: &[(&str, bool, &str)], expect: &Expect) {
-    let page = Page::graph(&graph(nodes)).unwrap();
+    let graph = graph(nodes);
+    let page = Page::graph(&graph).unwrap();
     expect.assert_eq(&page.to_string());
     for line in &page.lines {
-        let Some(Target::Change { change }) = &line.target else { panic!("a home row leads to its change") };
+        let Some(Target::Change { change, context }) = &line.target else { panic!("a home row leads to its change") };
+        assert_eq!(*context, !graph.nodes[change].selected, "{change} is context exactly when unselected");
         let text: String = line.segments.iter().map(|segment| segment.text.as_str()).collect();
         assert!(text.contains(&change.to_string()), "{text:?} does not label {change}");
     }
@@ -176,7 +179,7 @@ fn titles_stand_in_for_ids() {
     "]]
     .assert_eq(&page.to_string());
     expect![[r"
-        ◌   [Muted|Core infrastructure] => change:infra-core
+        ◌   [Muted|Core infrastructure] => context:infra-core
         ╰─○   [ChangeId|api-routes] => change:api-routes
           ╰─○   [ChangeId|Add the UI] => change:ui
     "]]
@@ -536,7 +539,7 @@ fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
         [Muted| │][Muted>home:Review| review 0 ][Muted|│][Heading>home:Owned| owned 2 ][Muted|│][>home:Workspaces| workspaces 1 ][Muted|│]
         [Muted|─┴──────────┘         └──────────────┴─]
 
-        ◌   [Muted|base] => change:base
+        ◌   [Muted|base] => context:base
         ╰─○   [ChangeId|top] => change:top
         ○   [ChangeId|side] => change:side
     "#]]

@@ -147,7 +147,7 @@ impl Page {
                 }
                 let tag = if node.selected { Tag::ChangeId } else { Tag::Muted };
                 line = line.push(Segment::tagged(name(row.id, node.title.as_deref()), tag));
-                line.leading_to(Target::Change { change: row.id.clone() })
+                line.leading_to(Target::Change { change: row.id.clone(), context: !node.selected })
             })
             .collect();
         Ok(Self { lines, folds: folds(graph, &rows), ..Self::default() })

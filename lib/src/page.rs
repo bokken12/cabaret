@@ -59,35 +59,22 @@ impl DiffView {
 pub enum Target {
     Change {
         change: ChangeId,
+        /// Drawn only to place the changes around it, as a home graph's ancestors are, so left
+        /// out when a selection spans it.
+        context: bool,
     },
     /// One section of the home page.
-    Home {
-        section: HomeSection,
-    },
+    Home { section: HomeSection },
     /// The page listing the files `change`'s `view` diffs.
-    Files {
-        view: DiffView,
-        change: ChangeId,
-    },
+    Files { view: DiffView, change: ChangeId },
     /// Files of `change`, as its `view` diffs them.
-    Diff {
-        view: DiffView,
-        change: ChangeId,
-        files: Vec<ChangedFile>,
-    },
+    Diff { view: DiffView, change: ChangeId, files: Vec<ChangedFile> },
     /// The title of `change`, for editing.
-    Title {
-        change: ChangeId,
-    },
+    Title { change: ChangeId },
     /// The description of `change`, for editing.
-    Description {
-        change: ChangeId,
-    },
+    Description { change: ChangeId },
     /// A Claude Code session that worked on `change`.
-    Session {
-        change: ChangeId,
-        session: SessionId,
-    },
+    Session { change: ChangeId, session: SessionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,7 +183,8 @@ impl Page {
         lines.push(list(
             "Parents:",
             change.parents.iter().map(|parent| {
-                Segment::tagged(parent.to_string(), Tag::ChangeId).leading_to(Target::Change { change: parent.clone() })
+                Segment::tagged(parent.to_string(), Tag::ChangeId)
+                    .leading_to(Target::Change { change: parent.clone(), context: false })
             }),
         ));
         let revision = |revision: &RevisionId| Segment::tagged(revision.to_string(), Tag::Revision);
@@ -258,7 +246,7 @@ impl Page {
                 text: "overview".to_owned(),
                 showing: view.is_none(),
                 muted: false,
-                target: Target::Change { change: change.to_owned() },
+                target: Target::Change { change: change.to_owned(), context: false },
             },
             files(DiffView::Diff, 'd', "diff", Some(counts.diff)),
             files(DiffView::Review, 'r', "review", Some(counts.review)),
@@ -369,9 +357,9 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
     let mut line =
         Line::default().push(Segment::tagged("Next step:", Tag::Label)).push(Segment::plain(format!(" {hint}{text}")));
     for (i, change) in changes.into_iter().enumerate() {
-        line = line
-            .push(Segment::plain(if i == 0 { " " } else { ", " }))
-            .push(Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change }));
+        line = line.push(Segment::plain(if i == 0 { " " } else { ", " })).push(
+            Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change, context: false }),
+        );
     }
     line
 }
