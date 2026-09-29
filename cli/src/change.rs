@@ -1,10 +1,13 @@
 use std::io::Write;
 
-use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, DiffView, Identity, Pathspec, RepoPath, Result, RevisionId};
+use cabaret_lib::{Cabaret, ChangeId, ChangeIdRef, DiffView, Identity, Pathspec, RepoPath, Result, RevisionId, name};
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
-use crate::args::{change_completer, parse_revision, revision_completer};
+use crate::{
+    args::{change_completer, parse_revision, revision_completer},
+    diff::unified,
+};
 
 #[derive(Subcommand)]
 pub enum OwnersCommand {
@@ -254,7 +257,18 @@ impl ChangeCommand {
 fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<()> {
     match pathspecs.is_empty() {
         true => print!("{}", cabaret.files_page(change, view, pathspecs)?),
-        false => std::io::stdout().write_all(&cabaret.diff(change, view, pathspecs)?)?,
+        false => {
+            let diff = cabaret.view_diff(change, view, pathspecs)?;
+            let mut out = std::io::stdout().lock();
+            let kind = view.kind();
+            writeln!(out, "{} · {kind} files at {}\n", name(change, cabaret.title(change)?.as_deref()), diff.tip)?;
+            if diff.files.is_empty() {
+                writeln!(out, "no {kind} files")?;
+            }
+            for file in &diff.files {
+                out.write_all(&unified(file))?;
+            }
+        }
     }
     Ok(())
 }

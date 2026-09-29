@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand, ValueHint};
 pub mod args;
 pub mod change;
 pub mod config;
+pub mod diff;
 pub mod workspace;
 
 use crate::{change::ChangeCommand, config::ConfigCommand, workspace::WorkspaceCommand};

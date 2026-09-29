@@ -173,6 +173,7 @@ dependencies = [
  "cabaret-lib",
  "clap",
  "clap_complete",
+ "expect-test",
  "nonempty-collections",
 ]
 

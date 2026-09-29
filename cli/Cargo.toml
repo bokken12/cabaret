@@ -15,5 +15,8 @@ clap.workspace = true
 clap_complete.workspace = true
 nonempty-collections.workspace = true
 
+[dev-dependencies]
+expect-test.workspace = true
+
 [lints]
 workspace = true
