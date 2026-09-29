@@ -2,7 +2,7 @@
 
 use cabaret_lib::{
     Identity,
-    safeguard::{OwnersAllow, Safeguard},
+    safeguard::{OwnersAllow, Refusable, Safeguard},
 };
 use expect_test::expect;
 
@@ -17,14 +17,14 @@ fn co_owned() -> Fixture {
     fixture
 }
 
-fn shown(attempt: cabaret_lib::Result<Result<(), nonempty_collections::NEVec<impl Into<Safeguard>>>>) -> String {
+fn shown(attempt: Result<(), Refusable<impl Into<Safeguard>>>) -> String {
     match attempt {
-        Ok(Ok(())) => "done".to_owned(),
-        Ok(Err(refused)) => {
+        Ok(()) => "done".to_owned(),
+        Err(Refusable::Refused(refused)) => {
             let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
             format!("refused: {}", shown.join("; "))
         }
-        Err(error) => format!("error: {error:?}"),
+        Err(Refusable::Failed(error)) => format!("error: {error:?}"),
     }
 }
 

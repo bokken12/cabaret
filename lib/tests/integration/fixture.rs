@@ -156,7 +156,7 @@ impl Fixture {
     /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.
     pub fn archive(&self, change: &str) {
         let allow = ArchiveAllow { open_children: true, permanent: true };
-        self.cabaret.archive(&id(change), allow).unwrap().unwrap();
+        self.cabaret.archive(&id(change), allow).unwrap();
     }
 
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
@@ -544,7 +544,6 @@ pub fn scene() -> Fixture {
     fixture
         .cabaret
         .add_parent(&id("fork-join"), &id("fork-right"), cabaret_lib::safeguard::AddParentAllow::default())
-        .unwrap()
         .unwrap();
     fixture.merge("fork-join", "fork-right", &[("fork-join.txt", "fork-join\n")]);
 

@@ -57,6 +57,21 @@ macro_rules! every_safeguard {
     };
 }
 
+/// How an action checking safeguards `S` fails: refused by those not allowed, or as any other.
+#[derive(Debug)]
+pub enum Refusable<S> {
+    Refused(NEVec<S>),
+    Failed(Error),
+}
+
+impl<S> From<Error> for Refusable<S> {
+    fn from(error: Error) -> Self { Self::Failed(error) }
+}
+
+impl<S, E: fmt::Display> From<E> for Refusable<S> {
+    fn from(message: E) -> Self { Self::Failed(message.into()) }
+}
+
 /// Declares the safeguards `$verb` checks: an enum of them, widening into [`Safeguard`], and a
 /// struct of which to allow, with a field for each.
 macro_rules! safeguards {
@@ -85,9 +100,13 @@ macro_rules! safeguards {
             /// The kinds of safeguard checked, one per field.
             pub const KINDS: &[SafeguardKind] = &[$(SafeguardKind::$kind),+];
 
-            /// Those of `safeguards` not allowed, which refuse the action.
-            pub fn refused(self, safeguards: Vec<$safeguard>) -> Option<NEVec<$safeguard>> {
-                NEVec::try_from_vec(safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect())
+            /// Refuse the action if any of `safeguards` is not allowed.
+            pub fn check(self, safeguards: Vec<$safeguard>) -> std::result::Result<(), Refusable<$safeguard>> {
+                let refused = safeguards.into_iter().filter(|safeguard| !self.allows(safeguard)).collect();
+                match NEVec::try_from_vec(refused) {
+                    Some(refused) => Err(Refusable::Refused(refused)),
+                    None => Ok(()),
+                }
             }
 
             fn allows(self, safeguard: &$safeguard) -> bool {

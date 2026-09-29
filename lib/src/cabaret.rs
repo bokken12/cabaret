@@ -17,14 +17,14 @@ use cabaret_types::{
         CommitAllow, CommitSafeguard, Conflicted, Empty, ImpermanentParents, LandAllow, LandSafeguard,
         NoCommonAncestor, NonOwner, OpenChildren, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted,
         ParentUnreviewed, Parentless, PermanenceAllow, PermanenceSafeguard, Permanent, RebaseAllow, RebaseSafeguard,
-        RedundantParent, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow, RemoveWorkspaceSafeguard,
-        RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, UnarchiveAllow, UnarchiveSafeguard, Uncommitted,
-        Unreviewed,
+        RedundantParent, Refusable, RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow,
+        RemoveWorkspaceSafeguard, RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, UnarchiveAllow,
+        UnarchiveSafeguard, Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
 use jiff::Zoned;
-use nonempty_collections::{NEBTreeSet, NEVec, NonEmptyIterator};
+use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{
     home::{Home, HomeGraph, HomeNode, HomeSection},
@@ -203,9 +203,8 @@ impl Cabaret {
             &[],
             &[BranchOp::Update(&change_id)],
             &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.clone()) }],
-            |_ctx, [], [_branch], [_workspace]| Ok(()),
-        )?;
-        Ok(path)
+            |_ctx, [], [_branch], [workspace]| Ok(workspace.path().to_owned()),
+        )
     }
 
     /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
@@ -251,26 +250,23 @@ impl Cabaret {
         &self,
         workspace_id: WorkspaceIdRef<'_>,
         allow: RemoveWorkspaceAllow,
-    ) -> Result<std::result::Result<(), NEVec<RemoveWorkspaceSafeguard>>> {
+    ) -> std::result::Result<(), Refusable<RemoveWorkspaceSafeguard>> {
         let delete = [WorkspaceOp::Delete { id: workspace_id }];
         let remove = |workspace: &mut Workspace<'_>| {
             if workspace_id == WorkspaceIdRef::Main {
                 Err("the main workspace cannot be removed")?;
             }
-            if let Some(refused) = allow.refused(remove_workspace_safeguards(workspace)?) {
-                return Ok(Err(refused));
-            }
+            allow.check(remove_workspace_safeguards(workspace)?)?;
             workspace.drop_local_changes = allow.uncommitted;
-            Ok(Ok(()))
+            Ok(())
         };
         match self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))? {
-            Some(held) => self.store.transact_or_abort(
-                &[],
-                &[BranchOp::Update(&held)],
-                &delete,
-                |_ctx, [], [_branch], [workspace]| remove(workspace),
-            ),
-            None => self.store.transact_or_abort(&[], &[], &delete, |_ctx, [], [], [workspace]| remove(workspace)),
+            Some(held) => {
+                self.store.transact(&[], &[BranchOp::Update(&held)], &delete, |_ctx, [], [_branch], [workspace]| {
+                    remove(workspace)
+                })
+            }
+            None => self.store.transact(&[], &[], &delete, |_ctx, [], [], [workspace]| remove(workspace)),
         }
     }
 
@@ -288,7 +284,7 @@ impl Cabaret {
         })?;
         let mut prune = Prune::default();
         for (workspace, change) in archived {
-            let removed = self.store.transact(
+            let removed: Result<()> = self.store.transact(
                 &[&change],
                 &[BranchOp::Update(&change)],
                 &[WorkspaceOp::Delete { id: workspace.to_ref() }],
@@ -316,8 +312,8 @@ impl Cabaret {
         workspace_id: WorkspaceIdRef<'_>,
         change_id: ChangeId,
         allow: SwitchWorkspaceAllow,
-    ) -> Result<std::result::Result<(), NEVec<SwitchWorkspaceSafeguard>>> {
-        self.store.transact_or_abort(
+    ) -> std::result::Result<(), Refusable<SwitchWorkspaceSafeguard>> {
+        self.store.transact(
             &[],
             &[BranchOp::Update(&change_id)],
             &[WorkspaceOp::Update { id: workspace_id }],
@@ -325,13 +321,11 @@ impl Cabaret {
                 // Untracked files are left where they are, so only changes to tracked ones are at risk.
                 if workspace.status()? == Status::Modified {
                     let uncommitted = Uncommitted { workspace: workspace_id.into_owned() };
-                    if let Some(refused) = allow.refused(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)]) {
-                        return Ok(Err(refused));
-                    }
+                    allow.check(vec![SwitchWorkspaceSafeguard::Uncommitted(uncommitted)])?;
                 }
                 workspace.drop_local_changes = allow.uncommitted;
                 workspace.head = Head::Change(change_id.clone());
-                Ok(Ok(()))
+                Ok(())
             },
         )
     }
@@ -553,9 +547,8 @@ impl Cabaret {
             metadata.title = Some(name.to_owned());
             metadata.declared_parents = parent_ids.iter().cloned().collect();
             metadata.owners = BTreeSet::from([owner.clone()]);
-            Ok(())
-        })?;
-        Ok(change_id)
+            Ok(change_id.clone())
+        })
     }
 
     /// Create a change named `name` between `child_id` and its parents, returning its id.
@@ -576,9 +569,8 @@ impl Cabaret {
             change.declared_parents = parents.clone();
             change.owners = BTreeSet::from([owner.clone()]);
             child.declared_parents = BTreeSet::from([change_id.clone()]);
-            Ok(())
-        })?;
-        Ok(change_id)
+            Ok(change_id.clone())
+        })
     }
 
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
@@ -589,11 +581,11 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         pathspecs: &[Pathspec],
         allow: CommitAllow,
-    ) -> Result<std::result::Result<RevisionId, NEVec<CommitSafeguard>>> {
+    ) -> std::result::Result<RevisionId, Refusable<CommitSafeguard>> {
         let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact_or_abort(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
+        self.store.transact(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
             if ctx.metadata(change_id)?.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -614,14 +606,12 @@ impl Cabaret {
             let safeguards = Vec::from_iter(
                 NEBTreeSet::try_from_set(added).map(|files| CommitSafeguard::Conflicted(Conflicted { files })),
             );
-            if let Some(refused) = allow.refused(safeguards) {
-                return Ok(Err(refused));
-            }
+            allow.check(safeguards)?;
             if workspace.snapshot(pathspecs)? != tree {
                 Err(format!("files changed while committing to {change_id}; commit again"))?;
             }
             branch.tip = committed.tip;
-            Ok(Ok(branch.tip))
+            Ok(branch.tip)
         })
     }
 
@@ -658,11 +648,11 @@ impl Cabaret {
         &self,
         change_id: &ChangeIdRef,
         allow: LandAllow,
-    ) -> Result<std::result::Result<ChangeId, NEVec<LandSafeguard>>> {
+    ) -> std::result::Result<ChangeId, Refusable<LandSafeguard>> {
         let parent_id = self.store.query(|ctx| landing_parent(ctx, change_id))?;
         // The child's branch is declared so it cannot move between the merge and the archive.
         let branches = [BranchOp::Update(&parent_id), BranchOp::Update(change_id)];
-        self.store.transact_or_abort(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
+        self.store.transact(&[change_id], &branches, &[], |ctx, [child], [parent, child_branch], []| {
             if child.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -672,13 +662,11 @@ impl Cabaret {
             if conflicted && ctx.metadata(&parent_id)?.parents()?.is_empty() {
                 Err(format!("{change_id} would land conflicts in {parent_id}, a root; rebase and resolve first"))?;
             }
-            if let Some(refused) = allow.refused(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?) {
-                return Ok(Err(refused));
-            }
+            allow.check(land_safeguards(child, child_branch, &parent_id, merged.as_ref())?)?;
             if !child.permanent {
                 child.archived = true;
             }
-            Ok(Ok(parent_id.clone()))
+            Ok(parent_id.clone())
         })
     }
 
@@ -703,13 +691,11 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         onto: Option<&ChangeIdRef>,
         allow: RebaseAllow,
-    ) -> Result<std::result::Result<Rebase, NEVec<RebaseSafeguard>>> {
-        self.store.transact_or_abort(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
+    ) -> std::result::Result<Rebase, Refusable<RebaseSafeguard>> {
+        self.store.transact(&[], &[BranchOp::Update(change_id)], &[], |ctx, [], [branch], []| {
             let metadata = ctx.metadata(change_id)?;
             let targets = rebase_targets(metadata, onto)?;
-            if let Some(refused) = allow.refused(rebase_safeguards(metadata, branch, &targets)?) {
-                return Ok(Err(refused));
-            }
+            allow.check(rebase_safeguards(metadata, branch, &targets)?)?;
 
             let mut rebase = Rebase { merged: BTreeSet::new(), conflicts: BTreeSet::new(), remaining: BTreeSet::new() };
             let mut targets = targets.into_iter();
@@ -723,7 +709,7 @@ impl Cabaret {
                 }
             }
             rebase.remaining = targets.collect();
-            Ok(Ok(rebase))
+            Ok(rebase)
         })
     }
 
@@ -731,8 +717,8 @@ impl Cabaret {
         &self,
         change_id: &ChangeIdRef,
         allow: ArchiveAllow,
-    ) -> Result<std::result::Result<(), NEVec<ArchiveSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<ArchiveSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             if metadata.archived {
                 Err(format!("{change_id} has already been archived"))?;
             }
@@ -743,11 +729,9 @@ impl Cabaret {
             if metadata.permanent {
                 safeguards.push(ArchiveSafeguard::Permanent(Permanent));
             }
-            if let Some(refused) = allow.refused(safeguards) {
-                return Ok(Err(refused));
-            }
+            allow.check(safeguards)?;
             metadata.archived = true;
-            Ok(Ok(()))
+            Ok(())
         })
     }
 
@@ -755,8 +739,8 @@ impl Cabaret {
         &self,
         change_id: &ChangeIdRef,
         allow: UnarchiveAllow,
-    ) -> Result<std::result::Result<(), NEVec<UnarchiveSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<UnarchiveSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             if !metadata.archived {
                 Err(format!("{change_id} has not been archived"))?;
             }
@@ -770,11 +754,9 @@ impl Cabaret {
                 NEBTreeSet::try_from_set(archived)
                     .map(|parents| UnarchiveSafeguard::ArchivedParents(ArchivedParents { parents })),
             );
-            if let Some(refused) = allow.refused(safeguards) {
-                return Ok(Err(refused));
-            }
+            allow.check(safeguards)?;
             metadata.archived = false;
-            Ok(Ok(()))
+            Ok(())
         })
     }
 
@@ -790,16 +772,14 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         owner: &Identity,
         allow: OwnersAllow,
-    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<OwnersSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             let before = metadata.owners.clone();
             if !metadata.owners.remove(owner) {
                 Err(format!("{owner} did not own {change_id}"))?;
             }
-            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &before, &metadata.owners)) {
-                return Ok(Err(refused));
-            }
-            Ok(Ok(()))
+            allow.check(owners_safeguards(&ctx.identity()?, &before, &metadata.owners))?;
+            Ok(())
         })
     }
 
@@ -808,16 +788,14 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         owners: BTreeSet<Identity>,
         allow: OwnersAllow,
-    ) -> Result<std::result::Result<(), NEVec<OwnersSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<OwnersSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             if metadata.owners == owners {
                 Err(format!("{change_id} already had these owners"))?;
             }
-            if let Some(refused) = allow.refused(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners)) {
-                return Ok(Err(refused));
-            }
+            allow.check(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners))?;
             metadata.owners = owners.clone();
-            Ok(Ok(()))
+            Ok(())
         })
     }
 
@@ -830,8 +808,8 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         parent_id: &ChangeIdRef,
         allow: AddParentAllow,
-    ) -> Result<std::result::Result<(), NEVec<AddParentSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<AddParentSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             if !metadata.declared_parents.insert(parent_id.to_owned()) {
                 Err(format!("{parent_id} was already a parent of {change_id}"))?;
             }
@@ -841,10 +819,8 @@ impl Cabaret {
             if ctx.metadata(parent_id)?.is_descendant(change_id)? {
                 Err(format!("{parent_id} descends from {change_id}, so it cannot be its parent"))?;
             }
-            if let Some(refused) = allow.refused(add_parent_safeguards(metadata, parent_id)?) {
-                return Ok(Err(refused));
-            }
-            Ok(Ok(()))
+            allow.check(add_parent_safeguards(metadata, parent_id)?)?;
+            Ok(())
         })
     }
 
@@ -853,16 +829,14 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         parent_id: &ChangeIdRef,
         allow: RemoveParentAllow,
-    ) -> Result<std::result::Result<(), NEVec<RemoveParentSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |_ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<RemoveParentSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |_ctx, [metadata], [], []| {
             let before = metadata.clone();
             if !metadata.declared_parents.remove(parent_id) {
                 Err(format!("{parent_id} was not a parent of {change_id}"))?;
             }
-            if let Some(refused) = allow.refused(remove_parent_safeguards(&before, metadata, parent_id)?) {
-                return Ok(Err(refused));
-            }
-            Ok(Ok(()))
+            allow.check(remove_parent_safeguards(&before, metadata, parent_id)?)?;
+            Ok(())
         })
     }
 
@@ -902,8 +876,8 @@ impl Cabaret {
         change_id: &ChangeIdRef,
         permanent: bool,
         allow: PermanenceAllow,
-    ) -> Result<std::result::Result<(), NEVec<PermanenceSafeguard>>> {
-        self.store.transact_or_abort(&[change_id], &[], &[], |ctx, [metadata], [], []| {
+    ) -> std::result::Result<(), Refusable<PermanenceSafeguard>> {
+        self.store.transact(&[change_id], &[], &[], |ctx, [metadata], [], []| {
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -921,11 +895,9 @@ impl Cabaret {
                     safeguards.push(PermanenceSafeguard::ImpermanentParents(ImpermanentParents { parents }));
                 }
             }
-            if let Some(refused) = allow.refused(safeguards) {
-                return Ok(Err(refused));
-            }
+            allow.check(safeguards)?;
             metadata.permanent = permanent;
-            Ok(Ok(()))
+            Ok(())
         })
     }
 }

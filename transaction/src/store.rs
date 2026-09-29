@@ -1,12 +1,11 @@
 use std::{
     collections::BTreeSet,
-    convert::Infallible,
     fmt,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef};
+use cabaret_types::{ChangeIdRef, Error, Result, RevisionId, WorkspaceId, WorkspaceIdRef};
 use gix::{
     ThreadSafeRepository,
     lock::{Marker, acquire::Fail},
@@ -168,50 +167,29 @@ impl Store {
 
     // TODO-someday(joel): variable-sized transactions?
     // TODO(joel): transactions do not (yet) modify changes
-    /// Run `f` against a fresh context and record what it changed.
+    /// Run `f` against a fresh context and record what it changed; if `f` fails, nothing is
+    /// recorded, so its error can carry why it gave up (a refusal, say).
     ///
     /// The context lives only for this call. `f` is quantified over the context's lifetime, so
     /// nothing it is handed (the context, its own mutable metadata and branches) can be returned:
     /// `T` cannot name `'ctx`. Inside, `ctx.metadata` and `ctx.branch` are committed state and
     /// the arrays are in-flight state; an in-flight object's own methods see its fields and reach
     /// other changes through the context.
-    pub fn transact<const L: usize, const M: usize, const N: usize, T, F>(
+    pub fn transact<const L: usize, const M: usize, const N: usize, T, E, F>(
         &self,
         metadata_ids: &[&ChangeIdRef; L],
         branch_ops: &[BranchOp<'_>; M],
         workspace_ops: &[WorkspaceOp<'_>; N],
         f: F,
-    ) -> Result<T>
+    ) -> std::result::Result<T, E>
     where
+        E: From<Error>,
         F: for<'ctx> FnOnce(
             &'ctx TransactionContext<'ctx>,
             &mut [Metadata<'ctx>; L],
             &mut [Branch<'ctx>; M],
             &mut [Workspace<'ctx>; N],
-        ) -> Result<T>,
-    {
-        let out =
-            self.transact_or_abort(metadata_ids, branch_ops, workspace_ops, |ctx, metadata, branches, workspaces| {
-                f(ctx, metadata, branches, workspaces).map(Ok::<T, Infallible>)
-            })?;
-        Ok(out.unwrap_or_else(|never| match never {}))
-    }
-
-    /// Like [`Self::transact`], but `f` may also abort with a value, recording nothing.
-    pub fn transact_or_abort<const L: usize, const M: usize, const N: usize, T, A, F>(
-        &self,
-        metadata_ids: &[&ChangeIdRef; L],
-        branch_ops: &[BranchOp<'_>; M],
-        workspace_ops: &[WorkspaceOp<'_>; N],
-        f: F,
-    ) -> Result<std::result::Result<T, A>>
-    where
-        F: for<'ctx> FnOnce(
-            &'ctx TransactionContext<'ctx>,
-            &mut [Metadata<'ctx>; L],
-            &mut [Branch<'ctx>; M],
-            &mut [Workspace<'ctx>; N],
-        ) -> Result<std::result::Result<T, A>>,
+        ) -> std::result::Result<T, E>,
     {
         // metadata, then branches, then workspaces, always, so two transactions cannot wait on
         // each other
@@ -241,10 +219,7 @@ impl Store {
         }
         let mut workspaces: [Workspace<'_>; N] = workspaces.try_into().expect("one workspace per op");
 
-        let out = match f(&ctx, &mut metadata, &mut branches, &mut workspaces)? {
-            Ok(out) => out,
-            Err(abort) => return Ok(Err(abort)),
-        };
+        let out = f(&ctx, &mut metadata, &mut branches, &mut workspaces)?;
 
         // Every metadata and branch lands in one ref transaction, so a partial write cannot be observed.
         let mut edits = Vec::new();
@@ -273,7 +248,7 @@ impl Store {
             });
         }
         if !edits.is_empty() {
-            ctx.repo.edit_references(edits)?;
+            ctx.repo.edit_references(edits).map_err(Error::from)?;
         }
         // Workspaces are written once the branches have moved: a failed transaction leaves them
         // behind rather than ahead of it.
@@ -294,7 +269,7 @@ impl Store {
                 Workspace::load(&ctx, workspace.to_ref())?.fast_forward(from, branch.tip)?;
             }
         }
-        Ok(Ok(out))
+        Ok(out)
     }
 
     pub fn query<T, F>(&self, f: F) -> Result<T>

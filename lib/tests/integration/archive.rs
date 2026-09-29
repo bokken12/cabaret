@@ -1,8 +1,7 @@
 //! Archiving: setting a change aside, and the safeguards on doing so or undoing it.
 
-use cabaret_lib::safeguard::{ArchiveAllow, PermanenceAllow, Safeguard, UnarchiveAllow};
+use cabaret_lib::safeguard::{ArchiveAllow, PermanenceAllow, Refusable, Safeguard, UnarchiveAllow};
 use expect_test::expect;
-use nonempty_collections::NEVec;
 
 use super::fixture::{Fixture, alice, id};
 
@@ -15,14 +14,14 @@ fn stacked() -> Fixture {
     fixture
 }
 
-fn shown<S: Into<Safeguard>>(attempt: cabaret_lib::Result<Result<(), NEVec<S>>>) -> String {
+fn shown<S: Into<Safeguard>>(attempt: Result<(), Refusable<S>>) -> String {
     match attempt {
-        Ok(Ok(())) => "done".to_owned(),
-        Ok(Err(refused)) => {
+        Ok(()) => "done".to_owned(),
+        Err(Refusable::Refused(refused)) => {
             let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
             format!("refused: {}", shown.join("; "))
         }
-        Err(error) => format!("error: {error:?}"),
+        Err(Refusable::Failed(error)) => format!("error: {error:?}"),
     }
 }
 
@@ -49,7 +48,6 @@ fn permanent_refuses_unless_allowed() {
     fixture
         .cabaret
         .set_permanent(&id("child"), true, PermanenceAllow { impermanent_parents: true, ..PermanenceAllow::default() })
-        .unwrap()
         .unwrap();
     expect!["refused: it is permanent"].assert_eq(&archive(&fixture, "child", ArchiveAllow::default()));
     let allow = ArchiveAllow { permanent: true, ..ArchiveAllow::default() };

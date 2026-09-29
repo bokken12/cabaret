@@ -13,7 +13,7 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
     safeguard::{
-        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow,
+        AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, Refusable, RemoveParentAllow,
         RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow, UnarchiveAllow,
     },
 };
@@ -62,6 +62,15 @@ fn presented(safeguards: impl IntoIterator<Item: Into<cabaret_types::safeguard::
         message: safeguard.to_string(),
     };
     safeguards.into_iter().map(Into::into).map(present).collect()
+}
+
+/// Refusals as a value to present, other failures as the errors they are.
+fn outcome<T, S>(result: std::result::Result<T, Refusable<S>>) -> Result<std::result::Result<T, NEVec<S>>> {
+    match result {
+        Ok(out) => Ok(Ok(out)),
+        Err(Refusable::Refused(refused)) => Ok(Err(refused)),
+        Err(Refusable::Failed(error)) => Err(error),
+    }
 }
 
 /// What an action with nothing to report did.
@@ -244,7 +253,7 @@ impl CabaretJs {
         let attempt = self
             .blocking(move |cabaret| {
                 let allow = RemoveWorkspaceAllow::try_from(allow.as_slice())?;
-                cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), allow)
+                outcome(cabaret.workspace_remove(cabaret.workspace_of(&change)?.to_ref(), allow))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -267,7 +276,7 @@ impl CabaretJs {
         let attempt = self
             .blocking(move |cabaret| {
                 let allow = SwitchWorkspaceAllow::try_from(allow.as_slice())?;
-                cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, allow)
+                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, allow))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -284,7 +293,9 @@ impl CabaretJs {
     ) -> napi::Result<Committed> {
         let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
         let committed = self
-            .blocking(move |cabaret| cabaret.commit(&change, &pathspecs, CommitAllow::try_from(allow.as_slice())?))
+            .blocking(move |cabaret| {
+                outcome(cabaret.commit(&change, &pathspecs, CommitAllow::try_from(allow.as_slice())?))
+            })
             .await?;
         Ok(match committed {
             Ok(revision) => Committed::Done { revision },
@@ -325,7 +336,9 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Attempt> {
         let removed = self
-            .blocking(move |cabaret| cabaret.remove_owner(&change, &owner, OwnersAllow::try_from(allow.as_slice())?))
+            .blocking(move |cabaret| {
+                outcome(cabaret.remove_owner(&change, &owner, OwnersAllow::try_from(allow.as_slice())?))
+            })
             .await?;
         Ok(Attempt::from(removed))
     }
@@ -338,7 +351,9 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Attempt> {
         let attempt = self
-            .blocking(move |cabaret| cabaret.add_parent(&change, &parent, AddParentAllow::try_from(allow.as_slice())?))
+            .blocking(move |cabaret| {
+                outcome(cabaret.add_parent(&change, &parent, AddParentAllow::try_from(allow.as_slice())?))
+            })
             .await?;
         Ok(Attempt::from(attempt))
     }
@@ -352,7 +367,7 @@ impl CabaretJs {
     ) -> napi::Result<Attempt> {
         let attempt = self
             .blocking(move |cabaret| {
-                cabaret.remove_parent(&change, &parent, RemoveParentAllow::try_from(allow.as_slice())?)
+                outcome(cabaret.remove_parent(&change, &parent, RemoveParentAllow::try_from(allow.as_slice())?))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -382,8 +397,9 @@ impl CabaretJs {
 
     #[napi]
     pub async fn land(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Landed> {
-        let landed =
-            self.blocking(move |cabaret| cabaret.land(&change, LandAllow::try_from(allow.as_slice())?)).await?;
+        let landed = self
+            .blocking(move |cabaret| outcome(cabaret.land(&change, LandAllow::try_from(allow.as_slice())?)))
+            .await?;
         Ok(match landed {
             Ok(into) => Landed::Done { into },
             Err(refused) => Landed::Refused { safeguards: presented(refused) },
@@ -392,15 +408,16 @@ impl CabaretJs {
 
     #[napi]
     pub async fn archive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
-        let attempt =
-            self.blocking(move |cabaret| cabaret.archive(&change, ArchiveAllow::try_from(allow.as_slice())?)).await?;
+        let attempt = self
+            .blocking(move |cabaret| outcome(cabaret.archive(&change, ArchiveAllow::try_from(allow.as_slice())?)))
+            .await?;
         Ok(Attempt::from(attempt))
     }
 
     #[napi]
     pub async fn unarchive(&self, change: ChangeId, allow: Vec<SafeguardKind>) -> napi::Result<Attempt> {
         let attempt = self
-            .blocking(move |cabaret| cabaret.unarchive(&change, UnarchiveAllow::try_from(allow.as_slice())?))
+            .blocking(move |cabaret| outcome(cabaret.unarchive(&change, UnarchiveAllow::try_from(allow.as_slice())?)))
             .await?;
         Ok(Attempt::from(attempt))
     }
@@ -418,7 +435,9 @@ impl CabaretJs {
         allow: Vec<SafeguardKind>,
     ) -> napi::Result<Rebased> {
         let rebased = self
-            .blocking(move |cabaret| cabaret.rebase(&change, onto.as_deref(), RebaseAllow::try_from(allow.as_slice())?))
+            .blocking(move |cabaret| {
+                outcome(cabaret.rebase(&change, onto.as_deref(), RebaseAllow::try_from(allow.as_slice())?))
+            })
             .await?;
         Ok(match rebased {
             Ok(rebase) => Rebased::Done { rebase },

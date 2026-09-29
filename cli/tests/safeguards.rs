@@ -8,8 +8,8 @@ use cabaret_lib::{
     ChangeId, Identity,
     safeguard::{
         AddParentAllow, ArchiveAllow, CommitAllow, LandAllow, LandSafeguard, NonOwner, OwnersAllow, PermanenceAllow,
-        RebaseAllow, RebaseSafeguard, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind, SwitchWorkspaceAllow,
-        UnarchiveAllow, Unreviewed,
+        RebaseAllow, RebaseSafeguard, Refusable, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind,
+        SwitchWorkspaceAllow, UnarchiveAllow, Unreviewed,
     },
 };
 use clap::Parser;
@@ -40,7 +40,7 @@ fn non_owner() -> NonOwner {
 fn one_safeguard_on_one_line() {
     let refused = nev![RebaseSafeguard::NonOwner(non_owner())];
     expect!["cannot rebase child: you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override"]
-        .assert_eq(&format!("{:?}", refusal(&format!("rebase {}", child()), refused)));
+        .assert_eq(&format!("{:?}", refusal(&format!("rebase {}", child()), Refusable::Refused(refused))));
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn several_safeguards_one_per_line() {
         cannot land child:
           you (alice@example.com) are not an owner (owners: bob@example.com); pass --allow-non-owner to override
           bob@example.com has files left to review; pass --allow-unreviewed to override"#]]
-    .assert_eq(&format!("{:?}", refusal(&format!("land {}", child()), refused)));
+    .assert_eq(&format!("{:?}", refusal(&format!("land {}", child()), Refusable::Refused(refused))));
 }
 
 /// Refusals name `--allow-<kind>`, so each command needs a flag spelled so for every safeguard it checks.

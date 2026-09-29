@@ -1,17 +1,17 @@
-use cabaret_lib::safeguard::{AddParentAllow, RemoveParentAllow, Safeguard};
+use cabaret_lib::safeguard::{AddParentAllow, Refusable, RemoveParentAllow, Safeguard};
 use expect_test::expect;
-use nonempty_collections::{NEVec, nebts};
+use nonempty_collections::nebts;
 
 use super::fixture::{Fixture, alice, bob, id};
 
-fn shown<S: Into<Safeguard>>(attempt: cabaret_lib::Result<Result<(), NEVec<S>>>) -> String {
+fn shown<S: Into<Safeguard>>(attempt: Result<(), Refusable<S>>) -> String {
     match attempt {
-        Ok(Ok(())) => "done".to_owned(),
-        Ok(Err(refused)) => {
+        Ok(()) => "done".to_owned(),
+        Err(Refusable::Refused(refused)) => {
             let shown: Vec<String> = refused.into_iter().map(|safeguard| safeguard.into().to_string()).collect();
             format!("refused: {}", shown.join("; "))
         }
-        Err(error) => format!("error: {error:?}"),
+        Err(Refusable::Failed(error)) => format!("error: {error:?}"),
     }
 }
 
