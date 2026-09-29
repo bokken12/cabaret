@@ -1,0 +1,1 @@
+Commit safeguard: conflicted, when the commit adds files holding conflict markers that were not already conflicted. The tree is checked before the index is staged, so a refusal leaves the workspace as it was. napi commit returns Committed (Done | Refused); VSCode asks before committing anyway.
