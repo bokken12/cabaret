@@ -1,4 +1,5 @@
 import * as assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -212,6 +213,55 @@ feature · uncommitted files
       );
     } finally {
       writeFileSync(file, "a\n");
+    }
+  });
+
+  test("page in view follows commits made elsewhere", async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, "no workspace folder");
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: folder.uri.fsPath, stdio: "ignore" });
+    await transcript([["cabaret.home"], ["cabaret.stepIn", "feature"], ["cabaret.diff"]]);
+    const page = vscode.window.activeTextEditor?.document;
+    assert.ok(page, "no active editor");
+    const before = page.getText();
+    const updated = new Promise<void>((resolve) => {
+      const listener = vscode.workspace.onDidChangeTextDocument(({ document }) => {
+        if (document === page) {
+          listener.dispose();
+          resolve();
+        }
+      });
+    });
+    writeFileSync(join(folder.uri.fsPath, "src/c.txt"), "c\n");
+    // Behind VS Code's back, as an agent in a terminal would.
+    git("add", "src/c.txt");
+    git("commit", "--message=c");
+    try {
+      await updated;
+      assert.equal(
+        `${before}---\n${page.getText()}`,
+        `feature · changed files
+ ╭──────────┬────────────┬──────────────┬─────────────────╮
+ │ overview │ [d] diff 2 │ [r] review 0 │ [w] workspace 0 │
+─┴──────────┘            └──────────────┴─────────────────┴─
+
+◌ src/
+├─○ a.txt
+╰─○ b.txt
+---
+feature · changed files
+ ╭──────────┬────────────┬──────────────┬─────────────────╮
+ │ overview │ [d] diff 3 │ [r] review 1 │ [w] workspace 0 │
+─┴──────────┘            └──────────────┴─────────────────┴─
+
+◌ src/
+├─○ a.txt
+├─○ b.txt
+╰─○ c.txt
+`,
+      );
+    } finally {
+      git("reset", "--hard", "HEAD~1");
     }
   });
 });

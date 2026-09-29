@@ -257,6 +257,9 @@ impl CabaretJs {
     }
 
     #[napi]
+    pub fn common_dir(&self) -> napi::Result<String> { Ok(path_string(self.cabaret.common_dir())?) }
+
+    #[napi]
     pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {
         self.blocking(move |cabaret| path_string(cabaret.workspace_path(cabaret.workspace_of(&change)?.to_ref())?))
             .await

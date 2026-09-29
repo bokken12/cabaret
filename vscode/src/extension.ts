@@ -278,6 +278,8 @@ class PageProvider
   private readonly updates = new Map<string, Promise<void>>();
   /** The pages on screen, to tell those coming into view. */
   private onScreen = new Set<string>();
+  /** Started with the first page rendered, as a window not on a repository has none to watch. */
+  private watcher: vscode.Disposable | undefined;
   /**
    * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
    * page at the top, and Vim keeps its own cursor where it was, so the two disagree otherwise. A
@@ -294,6 +296,7 @@ class PageProvider
 
   dispose(): void {
     this.changed.dispose();
+    this.watcher?.dispose();
     for (const decoration of Object.values(this.decorations)) {
       decoration.dispose();
     }
@@ -326,7 +329,35 @@ class PageProvider
     if (route.kind === "home") {
       this.homeSection = route.section;
     }
+    this.watcher ??= this.watchRepository();
     return renderRoute(openCabaret(), route);
+  }
+
+  /**
+   * Refresh open pages whenever the repository's refs move, which every change to what they show
+   * does, from this window or elsewhere.
+   */
+  private watchRepository(): vscode.Disposable {
+    // TODO-someday(joel): uncommitted edits move no ref, so the workspace page of a workspace no
+    // window saves into waits to come into view.
+    const refs = new vscode.RelativePattern(
+      vscode.Uri.file(openCabaret().commonDir()),
+      "{HEAD,packed-refs,refs/**,worktrees/*/HEAD}",
+    );
+    const watcher = vscode.workspace.createFileSystemWatcher(refs);
+    let settling: NodeJS.Timeout | undefined;
+    // One transaction writes several refs, so refresh once they settle.
+    const settle = () => {
+      clearTimeout(settling);
+      settling = setTimeout(() => void reporting(() => this.refreshOpen()), 100);
+    };
+    return vscode.Disposable.from(
+      watcher,
+      watcher.onDidCreate(settle),
+      watcher.onDidChange(settle),
+      watcher.onDidDelete(settle),
+      new vscode.Disposable(() => clearTimeout(settling)),
+    );
   }
 
   /** `run` an update of the page at `uri` once its earlier updates are done. */

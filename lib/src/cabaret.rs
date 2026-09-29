@@ -181,6 +181,9 @@ impl Cabaret {
         })
     }
 
+    /// The git directory every workspace of the repository shares, where changes are recorded.
+    pub fn common_dir(&self) -> PathBuf { self.store.repo.to_thread_local().common_dir().to_owned() }
+
     /// The workspace this instance was opened in.
     pub fn workspace_current(&self) -> Result<WorkspaceId> { self.store.query(|ctx| ctx.current_workspace()) }
 
