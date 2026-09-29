@@ -1,5 +1,0 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"cli/src/change.rs","revision":"12ab7f74a7a3209c30feb563a1ce0dfeb0bd3b3e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/cabaret.rs","revision":"12ab7f74a7a3209c30feb563a1ce0dfeb0bd3b3e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/src/page.rs","revision":"12ab7f74a7a3209c30feb563a1ce0dfeb0bd3b3e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/diff.rs","revision":"12ab7f74a7a3209c30feb563a1ce0dfeb0bd3b3e"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"lib/tests/integration/mod.rs","revision":"12ab7f74a7a3209c30feb563a1ce0dfeb0bd3b3e"}
