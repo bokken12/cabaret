@@ -13,11 +13,11 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
-        AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, Conflicted, Empty, LandAllow, LandSafeguard,
-        NoCommonAncestor, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard, ParentConflicted, ParentUnreviewed,
-        Parentless, RebaseAllow, RebaseSafeguard, RedundantParent, RemoveParentAllow, RemoveParentSafeguard,
-        RemoveWorkspaceAllow, RemoveWorkspaceSafeguard, RemovesOthers, SwitchWorkspaceAllow, SwitchWorkspaceSafeguard,
-        Uncommitted, Unreviewed,
+        AddParentAllow, AddParentSafeguard, ArchivedParent, BaseMoves, CommitAllow, CommitSafeguard, Conflicted, Empty,
+        LandAllow, LandSafeguard, NoCommonAncestor, NonOwner, Ownerless, OwnersAllow, OwnersSafeguard,
+        ParentConflicted, ParentUnreviewed, Parentless, RebaseAllow, RebaseSafeguard, RedundantParent,
+        RemoveParentAllow, RemoveParentSafeguard, RemoveWorkspaceAllow, RemoveWorkspaceSafeguard, RemovesOthers,
+        SwitchWorkspaceAllow, SwitchWorkspaceSafeguard, Uncommitted, Unreviewed,
     },
 };
 use gix::bstr::ByteSlice;
@@ -493,7 +493,7 @@ impl Cabaret {
                 }
                 DiffView::Workspace => {
                     let workspace = ctx.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;
-                    let saved = ctx.commit(workspace.saved_tree()?, vec![tip], change_id.as_bstr())?;
+                    let saved = ctx.commit(workspace.saved_tree(&[])?, vec![tip], change_id.as_bstr())?;
                     workspace
                         .changed_files(pathspecs)?
                         .into_iter()
@@ -591,11 +591,16 @@ impl Cabaret {
     /// Record what the workspace holding `change_id` has on disk at the paths `pathspecs` match,
     /// all when empty, as a new commit on the change, returning it. The commit is named for the
     /// change and nothing more: commits are for the computer, not for reading.
-    pub fn commit(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<RevisionId> {
+    pub fn commit(
+        &self,
+        change_id: &ChangeIdRef,
+        pathspecs: &[Pathspec],
+        allow: CommitAllow,
+    ) -> Result<std::result::Result<RevisionId, NEVec<CommitSafeguard>>> {
         let workspace_id = self.workspace_of(change_id)?;
         let branches = [BranchOp::Update(change_id)];
         let workspaces = [WorkspaceOp::Update { id: workspace_id.to_ref() }];
-        self.store.transact(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
+        self.store.transact_or_abort(&[], &branches, &workspaces, |ctx, [], [branch], [workspace]| {
             if ctx.metadata(change_id)?.archived {
                 Err(format!("{change_id} is archived"))?;
             }
@@ -603,12 +608,27 @@ impl Cabaret {
             if workspace.change().is_none_or(|held| **held != *change_id) {
                 Err(format!("{change_id} is no longer checked out in workspace {workspace_id}"))?;
             }
-            let tree = workspace.snapshot(pathspecs)?;
+            // The index is only staged once nothing refuses, so a refusal leaves the workspace be.
+            let tree = workspace.saved_tree(pathspecs)?;
             if tree.0 == ctx.repo.find_commit(branch.tip)?.tree_id()?.detach() {
                 Err(format!("{change_id} has nothing to commit"))?;
             }
-            branch.tip = ctx.commit(tree, vec![branch.tip], change_id.as_bstr())?;
-            Ok(branch.tip)
+            let mut committed = branch.clone();
+            committed.tip = ctx.commit(tree, vec![branch.tip], change_id.as_bstr())?;
+            let parents = ctx.metadata(change_id)?.parents()?;
+            let before = branch.conflicted_files(&parents)?;
+            let added = committed.conflicted_files(&parents)?.difference(&before).cloned().collect();
+            let safeguards = Vec::from_iter(
+                NEBTreeSet::try_from_set(added).map(|files| CommitSafeguard::Conflicted(Conflicted { files })),
+            );
+            if let Some(refused) = allow.refused(safeguards) {
+                return Ok(Err(refused));
+            }
+            if workspace.snapshot(pathspecs)? != tree {
+                Err(format!("files changed while committing to {change_id}; commit again"))?;
+            }
+            branch.tip = committed.tip;
+            Ok(Ok(branch.tip))
         })
     }
 

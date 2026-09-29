@@ -13,8 +13,8 @@ use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, Pathspec, RepoPath, Result, RevisionId, ViewDiff,
     WorkspaceId,
     safeguard::{
-        AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, RemoveWorkspaceAllow, SafeguardKind,
-        SwitchWorkspaceAllow,
+        AddParentAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, RemoveWorkspaceAllow,
+        SafeguardKind, SwitchWorkspaceAllow,
     },
 };
 use napi::bindgen_prelude::spawn_blocking;
@@ -78,6 +78,13 @@ impl<S: Into<cabaret_types::safeguard::Safeguard>> From<std::result::Result<(), 
             Err(refused) => Self::Refused { safeguards: presented(refused) },
         }
     }
+}
+
+/// What [`Cabaret::commit`] did.
+#[napi(discriminant = "outcome", object_from_js = false)]
+pub enum Committed {
+    Done { revision: RevisionId },
+    Refused { safeguards: Vec<Safeguard> },
 }
 
 /// What [`Cabaret::land`] did.
@@ -269,9 +276,20 @@ impl CabaretJs {
     /// Commit `files` of `change`'s workspace diff, or all of it when empty. Both sides of a
     /// rename go, so the move is committed rather than a copy.
     #[napi]
-    pub async fn commit(&self, change: ChangeId, files: Vec<ChangedFile>) -> napi::Result<RevisionId> {
+    pub async fn commit(
+        &self,
+        change: ChangeId,
+        files: Vec<ChangedFile>,
+        allow: Vec<SafeguardKind>,
+    ) -> napi::Result<Committed> {
         let pathspecs: Vec<Pathspec> = files.iter().flat_map(ChangedFile::paths).map(Pathspec::literal).collect();
-        self.blocking(move |cabaret| cabaret.commit(&change, &pathspecs)).await
+        let committed = self
+            .blocking(move |cabaret| cabaret.commit(&change, &pathspecs, CommitAllow::try_from(allow.as_slice())?))
+            .await?;
+        Ok(match committed {
+            Ok(revision) => Committed::Done { revision },
+            Err(refused) => Committed::Refused { safeguards: presented(refused) },
+        })
     }
 
     /// Discard `files` of `change`'s workspace diff, or all of it when empty. Both sides of a

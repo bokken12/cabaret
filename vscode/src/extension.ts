@@ -1663,9 +1663,23 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step>
   return { report, complete: true };
 }
 
-async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string> {
-  await cabaret.commit(change, []);
-  return `committed all files to ${change}`;
+/** Commit `files` of `change`, all when empty, asking before committing despite safeguards. */
+async function commit(cabaret: Cabaret, change: ChangeId, files: ChangedFile[]): Promise<boolean> {
+  let allow: SafeguardKind[] = [];
+  let committing = await cabaret.commit(change, files, allow);
+  while (committing.outcome === "Refused") {
+    const more = await allowAnyway(`Commit to ${change}`, "Commit Anyway", allow, committing.safeguards);
+    if (more === undefined) {
+      return false;
+    }
+    allow = more;
+    committing = await cabaret.commit(change, files, allow);
+  }
+  return true;
+}
+
+async function commitAll(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
+  return (await commit(cabaret, change, [])) ? `committed all files to ${change}` : undefined;
 }
 
 /**
@@ -1704,9 +1718,11 @@ function selectedWorkspaceFiles(provider: PageProvider): ChangedFile[] {
   return files;
 }
 
-async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string> {
+async function commitSelected(cabaret: Cabaret, provider: PageProvider, change: ChangeId): Promise<string | undefined> {
   const files = selectedWorkspaceFiles(provider);
-  await cabaret.commit(change, files);
+  if (!(await commit(cabaret, change, files))) {
+    return undefined;
+  }
   return `committed ${words(files.map((file) => file.path))} to ${change}`;
 }
 

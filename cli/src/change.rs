@@ -3,7 +3,7 @@ use std::io::Write;
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
     RevisionId, name,
-    safeguard::{AddParentAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, Safeguard},
+    safeguard::{AddParentAllow, CommitAllow, LandAllow, OwnersAllow, RebaseAllow, RemoveParentAllow, Safeguard},
 };
 use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
@@ -91,6 +91,9 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         #[arg(value_hint = ValueHint::AnyPath)]
         pathspecs: Vec<Pathspec>,
+        /// Commit even though it adds conflict markers.
+        #[arg(long)]
+        allow_conflicted: bool,
     },
     Create {
         name: String,
@@ -221,9 +224,11 @@ impl ChangeCommand {
                 false => cabaret.archive(&or_current(change)?)?,
                 true => cabaret.unarchive(&or_current(change)?)?,
             },
-            ChangeCommand::Commit { change, pathspecs } => {
+            ChangeCommand::Commit { change, pathspecs, allow_conflicted } => {
                 let change = or_current(change)?;
-                cabaret.commit(&change, &pathspecs)?;
+                cabaret
+                    .commit(&change, &pathspecs, CommitAllow { conflicted: allow_conflicted })?
+                    .map_err(|refused| refusal(&format!("commit to {change}"), refused))?;
                 println!("committed to {change}");
             }
             ChangeCommand::Create { name, parent, child } => {

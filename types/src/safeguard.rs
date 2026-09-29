@@ -158,6 +158,7 @@ safeguards!(
     RemoveParentSafeguard,
     RemoveParentAllow { BaseMoves: base_moves, Parentless: parentless, NoCommonAncestor: no_common_ancestor }
 );
+safeguards!("commit", CommitSafeguard, CommitAllow { Conflicted: conflicted });
 safeguards!("remove a workspace", RemoveWorkspaceSafeguard, RemoveWorkspaceAllow { Uncommitted: uncommitted });
 safeguards!("switch a workspace", SwitchWorkspaceSafeguard, SwitchWorkspaceAllow { Uncommitted: uncommitted });
 safeguards!("change owners", OwnersSafeguard, OwnersAllow { RemovesOthers: removes_others, Ownerless: ownerless });

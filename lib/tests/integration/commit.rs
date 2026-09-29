@@ -1,6 +1,9 @@
 //! Committing: what a change's workspace has on disk becomes the change's new tip.
 
-use cabaret_lib::Pathspec;
+use cabaret_lib::{
+    Pathspec,
+    safeguard::{CommitAllow, Safeguard},
+};
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, worktree};
@@ -18,9 +21,18 @@ fn two_changes() -> Fixture {
 }
 
 fn commit(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
+    commit_allowing(fixture, change, pathspecs, CommitAllow::default())
+}
+
+fn commit_allowing(fixture: &Fixture, change: &str, pathspecs: &[&str], allow: CommitAllow) -> String {
     let pathspecs = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect::<Vec<_>>();
-    match fixture.cabaret.commit(&id(change), &pathspecs) {
-        Ok(revision) => format!("committed {:?}", fixture.message(revision)),
+    match fixture.cabaret.commit(&id(change), &pathspecs, allow) {
+        Ok(Ok(revision)) => format!("committed {:?}", fixture.message(revision)),
+        Ok(Err(refused)) => {
+            let shown: Vec<String> =
+                refused.into_iter().map(|safeguard| Safeguard::from(safeguard).to_string()).collect();
+            format!("refused: {}", shown.join("; "))
+        }
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -86,7 +98,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
     fixture.write("a[1].txt", "bracketed\n");
     fixture.write("a1.txt", "plain\n");
     let literal = Pathspec::literal(&"a[1].txt".parse().unwrap());
-    fixture.cabaret.commit(&id("one"), &[literal]).unwrap();
+    fixture.cabaret.commit(&id("one"), &[literal], CommitAllow::default()).unwrap().unwrap();
     expect![[r"
         one
           workspace main
@@ -193,4 +205,17 @@ fn archived_change_refuses() {
 fn change_without_workspace_refuses() {
     let fixture = two_changes();
     expect!["error: two is not checked out in any workspace"].assert_eq(&commit(&fixture, "two", &[]));
+}
+
+#[test]
+fn adding_conflict_markers_refuses_unless_allowed() {
+    let fixture = two_changes();
+    fixture.write("one.txt", "<<<<<<< ours\none\n=======\nuno\n>>>>>>> theirs\n");
+    expect!["refused: conflicts in one.txt"].assert_eq(&commit(&fixture, "one", &[]));
+    expect![[r#"
+        dirty
+        main.txt "main\n"
+        one.txt "<<<<<<< ours\none\n=======\nuno\n>>>>>>> theirs\n"
+    "#]].assert_eq(&fixture.worktree());
+    expect![[r#"committed "one""#]].assert_eq(&commit_allowing(&fixture, "one", &[], CommitAllow { conflicted: true }));
 }
