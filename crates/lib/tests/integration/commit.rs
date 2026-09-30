@@ -44,7 +44,7 @@ fn edits_additions_and_deletions_become_tip() {
     fixture.write("added.txt", "added\n");
     fixture.delete("main.txt");
     expect![[r#"committed "one""#]].assert_eq(&commit(&fixture, "one", &[]));
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -52,7 +52,7 @@ fn edits_additions_and_deletions_become_tip() {
           title one
           base main
           diff +added.txt -main.txt +one.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
     expect![[r#"
         clean
@@ -70,7 +70,7 @@ fn pathspecs_leave_other_files_uncommitted() {
     fixture.write("out.txt", "out\n");
     fixture.write("one.txt", "one, edited\n");
     expect![[r#"committed "one""#]].assert_eq(&commit(&fixture, "one", &["in.txt"]));
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -78,7 +78,7 @@ fn pathspecs_leave_other_files_uncommitted() {
           title one
           base main
           diff +in.txt +one.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
     expect![[r#"
         dirty
@@ -98,7 +98,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
     fixture.write("a1.txt", "plain\n");
     let literal = Pathspec::literal(&"a[1].txt".parse().unwrap());
     fixture.cabaret.commit(&id("one"), &[literal], &Allow::default()).unwrap();
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -106,7 +106,7 @@ fn literal_pathspec_takes_glob_characters_as_written() {
           title one
           base main
           diff +a[1].txt +one.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
     expect![[r#"
         clean
@@ -123,7 +123,7 @@ fn staged_files_are_committed() {
     let fixture = two_changes();
     fixture.stage("staged.txt", "staged\n");
     expect![[r#"committed "one""#]].assert_eq(&commit(&fixture, "one", &[]));
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -131,7 +131,7 @@ fn staged_files_are_committed() {
           title one
           base main
           diff +one.txt +staged.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
     expect![[r#"
         clean
@@ -148,7 +148,7 @@ fn ignored_files_are_left_alone() {
     fixture.write(".gitignore", "ignored.txt\n");
     fixture.write("ignored.txt", "ignored\n");
     expect![[r#"committed "one""#]].assert_eq(&commit(&fixture, "one", &[]));
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -156,7 +156,7 @@ fn ignored_files_are_left_alone() {
           title one
           base main
           diff +.gitignore +one.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
     assert!(fixture.exists("ignored.txt"));
 }

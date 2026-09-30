@@ -63,11 +63,11 @@ fn check_folds(nodes: &[(&str, bool, &str)], expect: &Expect) {
 fn a_linear_stack_renders_as_a_tree() {
     check(
         &[("add-parser", true, "main"), ("parser-tests", true, "add-parser"), ("parser-docs", true, "parser-tests")],
-        &expect![[r"
+        &expect![[r#"
             ○   add-parser
             ╰─○   parser-tests
               ╰─○   parser-docs
-        "]],
+        "#]],
     );
 }
 
@@ -81,13 +81,13 @@ fn independent_components_pack_with_no_separator() {
             ("stack-base", true, "main"),
             ("stack-top", true, "stack-base"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   bump-deps
             ○   docs-typo
             ○   fix-login
             ○   stack-base
             ╰─○   stack-top
-        "]],
+        "#]],
     );
 }
 
@@ -100,12 +100,12 @@ fn a_diamond_closes_instead_of_duplicating() {
             ("ui-widgets", true, "infra-core"),
             ("integration", true, "api-routes ui-widgets"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   infra-core
             ├┬○   api-routes
             ╰┼○   ui-widgets
              ╰┴─○   integration
-        "]],
+        "#]],
     );
 }
 
@@ -121,7 +121,7 @@ fn an_integration_of_two_stacks_stays_narrow() {
             ("b3-storage-api", true, "b2-migrations"),
             ("integration", true, "a3-parser-api b3-storage-api"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   a1-parser
             ╰─○   a2-typed-ast
               ╰┬○   a3-parser-api
@@ -129,7 +129,7 @@ fn an_integration_of_two_stacks_stays_narrow() {
             ╰─○│  b2-migrations
               ╰┼○   b3-storage-api
                ╰┴─○   integration
-        "]],
+        "#]],
     );
 }
 
@@ -144,14 +144,14 @@ fn pairwise_integrations_route_without_duplication() {
             ("int-ac", true, "feat-a feat-c"),
             ("int-bc", true, "feat-b feat-c"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○┬╮ »feat-a
             ○┼┼╮ »feat-b
             ╰┼○│  int-ab
             ○│ │ »feat-c
             ├┴○│  int-ac
             ╰─○╯  int-bc
-        "]],
+        "#]],
     );
 }
 
@@ -159,10 +159,10 @@ fn pairwise_integrations_route_without_duplication() {
 fn unowned_ancestors_render_as_context() {
     check(
         &[("infra-core", false, "main"), ("my-feature", true, "infra-core")],
-        &expect![[r"
+        &expect![[r#"
             ◌   infra-core
             ╰─○   my-feature
-        "]],
+        "#]],
     );
 }
 
@@ -173,17 +173,17 @@ fn titles_stand_in_for_ids() {
     titled(&mut graph, "infra-core", "Core infrastructure");
     titled(&mut graph, "ui", "Add the UI");
     let page = Page::graph(&graph).unwrap();
-    expect![[r"
+    expect![[r#"
         ◌   Core infrastructure
         ╰─○   api-routes
           ╰─○   Add the UI
-    "]]
+    "#]]
     .assert_eq(&page.to_string());
-    expect![[r"
+    expect![[r#"
         ◌   [Muted|Core infrastructure] => context:infra-core
         ╰─○   [ChangeId|api-routes] => change:api-routes
           ╰─○   [ChangeId|Add the UI] => change:ui
-    "]]
+    "#]]
     .assert_eq(&super::page::markup(&page));
 }
 
@@ -191,11 +191,11 @@ fn titles_stand_in_for_ids() {
 fn a_pushed_label_is_marked() {
     let page =
         Page::graph(&graph(&[("feat-a", true, ""), ("feat-b", true, ""), ("int", true, "feat-a feat-b")])).unwrap();
-    expect![[r"
+    expect![[r#"
         ○─╮ [Muted|»][ChangeId|feat-a] => change:feat-a
         ○ │ [Muted|»][ChangeId|feat-b] => change:feat-b
         ╰─○   [ChangeId|int] => change:int
-    "]]
+    "#]]
     .assert_eq(&super::page::markup(&page));
 }
 
@@ -249,9 +249,9 @@ fn home_headings_fold_their_sections_around_the_graph_folds() {
         ╰─○   top
     "#]]
     .assert_eq(&page.to_string());
-    expect![[r"
+    expect![[r#"
         [Fold { start: 0, end: 2 }, Fold { start: 1, end: 2 }, Fold { start: 4, end: 6 }, Fold { start: 5, end: 6 }, Fold { start: 8, end: 10 }, Fold { start: 9, end: 10 }]
-    "]]
+    "#]]
     .assert_eq(&format!("{:?}\n", page.folds));
 }
 
@@ -259,11 +259,11 @@ fn home_headings_fold_their_sections_around_the_graph_folds() {
 fn every_stack_level_folds_in_a_linear_stack() {
     check_folds(
         &[("add-parser", true, "main"), ("parser-tests", true, "add-parser"), ("parser-docs", true, "parser-tests")],
-        &expect![[r"
+        &expect![[r#"
             ╭   ○   add-parser
             │╭  ╰─○   parser-tests
             ╰╰    ╰─○   parser-docs
-        "]],
+        "#]],
     );
 }
 
@@ -277,12 +277,12 @@ fn only_a_diamonds_root_folds_it() {
             ("ui-widgets", true, "infra-core"),
             ("integration", true, "api-routes ui-widgets"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ╭  ○   infra-core
             │  ├┬○   api-routes
             │  ╰┼○   ui-widgets
             ╰   ╰┴─○   integration
-        "]],
+        "#]],
     );
 }
 
@@ -297,14 +297,14 @@ fn a_web_of_shared_descendants_never_folds() {
             ("int-ac", true, "feat-a feat-c"),
             ("int-bc", true, "feat-b feat-c"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○┬╮ »feat-a
             ○┼┼╮ »feat-b
             ╰┼○│  int-ab
             ○│ │ »feat-c
             ├┴○│  int-ac
             ╰─○╯  int-bc
-        "]],
+        "#]],
     );
 }
 
@@ -320,7 +320,7 @@ fn a_self_contained_subtree_folds_under_messy_parents() {
             ("r2", true, "mid"),
             ("top", true, "l2 r2"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ╭   ○   base
             │   ├┬○   l1
             │   ╰┼○   r1
@@ -328,7 +328,7 @@ fn a_self_contained_subtree_folds_under_messy_parents() {
             ││      ├┬○   l2
             ││      ╰┼○   r2
             ╰╰       ╰┴─○   top
-        "]],
+        "#]],
     );
 }
 
@@ -341,12 +341,12 @@ fn folds_stay_within_their_component() {
             ("stack-base", true, "main"),
             ("stack-top", true, "stack-base"),
         ],
-        &expect![[r"
+        &expect![[r#"
                ○   bump-deps
                ○   docs-typo
             ╭  ○   stack-base
             ╰  ╰─○   stack-top
-        "]],
+        "#]],
     );
 }
 
@@ -360,13 +360,13 @@ fn a_wide_fan_out_rails_like_a_tree() {
             ("kid-c", true, "root"),
             ("kid-d", true, "root"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   root
             ├─○   kid-a
             ├─○   kid-b
             ├─○   kid-c
             ╰─○   kid-d
-        "]],
+        "#]],
     );
 }
 
@@ -380,12 +380,12 @@ fn a_three_parent_integration_merges_once() {
             ("feat-c", true, "main"),
             ("integration", true, "feat-a feat-b feat-c"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○─╮ »feat-a
             ○─┤ »feat-b
             ○ │ »feat-c
             ╰─○   integration
-        "]],
+        "#]],
     );
 }
 
@@ -394,11 +394,11 @@ fn a_three_parent_integration_merges_once() {
 fn a_transitive_parent_spans_levels() {
     check(
         &[("base", true, "main"), ("mid", true, "base"), ("top", true, "base mid")],
-        &expect![[r"
+        &expect![[r#"
             ○   base
             ├─○   mid
             ╰─┴─○   top
-        "]],
+        "#]],
     );
 }
 
@@ -414,7 +414,7 @@ fn stacked_diamonds_reuse_the_shadow() {
             ("r2", true, "mid"),
             ("top", true, "l2 r2"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   base
             ├┬○   l1
             ╰┼○   r1
@@ -422,7 +422,7 @@ fn stacked_diamonds_reuse_the_shadow() {
                 ├┬○   l2
                 ╰┼○   r2
                  ╰┴─○   top
-        "]],
+        "#]],
     );
 }
 
@@ -437,14 +437,14 @@ fn a_deep_stack_staircases() {
             ("s5", true, "s4"),
             ("s6", true, "s5"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   s1
             ╰─○   s2
               ╰─○   s3
                 ╰─○   s4
                   ╰─○   s5
                     ╰─○   s6
-        "]],
+        "#]],
     );
 }
 
@@ -460,7 +460,7 @@ fn a_release_atop_pairwise_integrations() {
             ("int-bc", true, "feat-b feat-c"),
             ("release", true, "int-ab int-ac int-bc"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○┬╮ »feat-a
             ○┼┼╮ »feat-b
             ╰┼○┼╮ »int-ab
@@ -468,7 +468,7 @@ fn a_release_atop_pairwise_integrations() {
             ├┴○┼┤ »int-ac
             ╰─○╯│ »int-bc
               ╰─○   release
-        "]],
+        "#]],
     );
 }
 
@@ -483,14 +483,14 @@ fn a_mixed_web_routes_around_its_own_plumbing() {
             ("search", false, "api auth"),
             ("release", true, "ui search"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○   infra
             ├┬○   api
             ││╰┬○   ui
             ╰┼○│  auth
              ╰┴┼◌   search
                ╰┴─○   release
-        "]],
+        "#]],
     );
 }
 
@@ -511,7 +511,7 @@ fn a_dense_thicket_routes_completely() {
             ("c08", true, ""),
             ("c09", true, "c00 c04 c06"),
         ],
-        &expect![[r"
+        &expect![[r#"
             ○──┬──┬─╮ »c00
             ├┬○┼─┬┼╮│ »c01
             ╰┼○│ ││││ »c02
@@ -522,7 +522,7 @@ fn a_dense_thicket_routes_completely() {
             ╰───○──╯│ »c06
                 ╰─○─╯ »c09
             ○   c08
-        "]],
+        "#]],
     );
 }
 
