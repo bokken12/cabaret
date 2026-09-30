@@ -87,11 +87,15 @@ pub enum ChangeCommand {
         change: Option<ChangeId>,
         description: Option<String>,
     },
-    /// List the files the change's diff touches, or show diffs of those matching the given pathspecs.
+    /// List the files you have left to review, or show diffs of those matching the given pathspecs:
+    /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
     Diff {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
-        /// Show what the change's workspace has on disk beyond its tip, instead of the change's own diff.
+        /// Show the change's whole diff from its bases, regardless of what you have reviewed.
+        #[arg(long, conflicts_with = "workspace")]
+        full: bool,
+        /// Show what the change's workspace has on disk beyond its tip.
         #[arg(long)]
         workspace: bool,
         // TODO-someday(joel): cleverer repo-relative path completion
@@ -150,15 +154,6 @@ pub enum ChangeCommand {
         onto: Option<ChangeId>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
-    },
-    /// List the files you have left to review, or show diffs of those matching the given pathspecs:
-    /// each as the tip differs from the merge of the change's bases with the tip you last marked it reviewed at.
-    // TODO-someday(joel): consider merging with `Diff` via flag?
-    Review {
-        #[arg(long, add = change_completer())]
-        change: Option<ChangeId>,
-        #[arg(value_hint = ValueHint::AnyPath)]
-        pathspecs: Vec<Pathspec>,
     },
     Show {
         #[arg(long, add = change_completer())]
@@ -227,10 +222,12 @@ impl ChangeCommand {
                 };
                 cabaret.set_description(&or_current(change)?, Some(text).filter(|text| !text.trim().is_empty()))?;
             }
-            ChangeCommand::Diff { change, workspace, pathspecs } => {
-                let view = match workspace {
-                    false => DiffView::Diff,
-                    true => DiffView::Workspace,
+            ChangeCommand::Diff { change, full, workspace, pathspecs } => {
+                let view = match (full, workspace) {
+                    (false, false) => DiffView::Review,
+                    (true, false) => DiffView::Diff,
+                    (false, true) => DiffView::Workspace,
+                    (true, true) => unreachable!("clap rejects --full with --workspace"),
                 };
                 diff(&cabaret, &or_current(change)?, view, &pathspecs)?;
             }
@@ -298,9 +295,6 @@ impl ChangeCommand {
             }
             ChangeCommand::Rebase { change, onto, allow } => {
                 rebase(&cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
-            }
-            ChangeCommand::Review { change, pathspecs } => {
-                diff(&cabaret, &or_current(change)?, DiffView::Review, &pathspecs)?;
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {
