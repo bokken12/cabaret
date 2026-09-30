@@ -26,7 +26,7 @@ fn shown(attempt: cabaret_lib::Result<()>) -> String {
 
 /// Switch the main workspace to `change`.
 fn switch(fixture: &Fixture, change: &str, allow: &Allow) -> String {
-    shown(fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), id(change), allow))
+    shown(fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), &id(change), allow))
 }
 
 fn remove(fixture: &Fixture, workspace: &str, allow: &Allow) -> String {
@@ -69,7 +69,7 @@ fn detached_head_holds_no_change() {
 #[test]
 fn add_makes_workspace_beside_main() {
     let fixture = two_changes();
-    let path = fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    let path = fixture.cabaret.workspace_add(&id("two"), None).unwrap();
     expect!["main-two"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"main": Some("one"), "main-two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
     expect![[r#"Some("main-two")"#]].assert_eq(&format!("{:?}", fixture.snapshot("two").workspace));
@@ -84,7 +84,7 @@ fn add_makes_workspace_beside_main() {
 #[test]
 fn add_at_path_names_workspace_after_it() {
     let fixture = two_changes();
-    let path = fixture.cabaret.workspace_add(id("two"), Some(fixture.path("elsewhere"))).unwrap();
+    let path = fixture.cabaret.workspace_add(&id("two"), Some(fixture.path("elsewhere"))).unwrap();
     expect!["elsewhere"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"main": Some("one"), "elsewhere": Some("two")}"#]].assert_eq(&workspaces(&fixture));
     assert_eq!(fixture.cabaret.workspace_path(linked("elsewhere").to_ref()).unwrap(), path);
@@ -94,7 +94,7 @@ fn add_at_path_names_workspace_after_it() {
 #[test]
 fn add_refuses_change_already_checked_out() {
     let fixture = two_changes();
-    let error = fixture.cabaret.workspace_add(id("one"), None).unwrap_err();
+    let error = fixture.cabaret.workspace_add(&id("one"), None).unwrap_err();
     expect!["one is already checked out in workspace main"].assert_eq(&format!("{error:?}"));
     expect![[r#"{"main": Some("one")}"#]].assert_eq(&workspaces(&fixture));
     assert!(!fixture.path("main-one").exists());
@@ -241,7 +241,7 @@ fn bare_repository_has_no_main_workspace() {
 #[test]
 fn bare_add_makes_workspace_beside_git_dir() {
     let fixture = two_changes_in(Fixture::bare());
-    let path = fixture.cabaret.workspace_add(id("two"), None).unwrap();
+    let path = fixture.cabaret.workspace_add(&id("two"), None).unwrap();
     expect!["project/two"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
     expect![[r#"Some("two")"#]].assert_eq(&format!("{:?}", fixture.snapshot("two").workspace));
@@ -257,7 +257,7 @@ fn bare_add_makes_workspace_beside_git_dir() {
 fn add_names_workspace_with_tilde_for_slash() {
     let fixture = two_changes_in(Fixture::bare());
     fixture.create("feature/login", "main", &alice());
-    let path = fixture.cabaret.workspace_add(id("feature/login"), None).unwrap();
+    let path = fixture.cabaret.workspace_add(&id("feature/login"), None).unwrap();
     expect!["project/feature~login"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"feature~login": Some("feature/login")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -265,8 +265,8 @@ fn add_names_workspace_with_tilde_for_slash() {
 #[test]
 fn bare_add_from_inside_workspace_lands_beside_it() {
     let fixture = two_changes_in(Fixture::bare());
-    let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    let path = open_cabaret(&two).workspace_add(id("one"), None).unwrap();
+    let two = fixture.cabaret.workspace_add(&id("two"), None).unwrap();
+    let path = open_cabaret(&two).workspace_add(&id("one"), None).unwrap();
     expect!["project/one"].assert_eq(&fixture.relative(&path));
     expect![[r#"{"one": Some("one"), "two": Some("two")}"#]].assert_eq(&workspaces(&fixture));
 }
@@ -274,43 +274,43 @@ fn bare_add_from_inside_workspace_lands_beside_it() {
 #[test]
 fn workspace_outlives_workspace_it_was_added_from() {
     let fixture = two_changes_in(Fixture::bare());
-    let two = fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    let one = open_cabaret(&two).workspace_add(id("one"), None).unwrap();
+    let two = fixture.cabaret.workspace_add(&id("two"), None).unwrap();
+    let one = open_cabaret(&two).workspace_add(&id("one"), None).unwrap();
     expect!["done"].assert_eq(&remove(&fixture, "two", &Allow::default()));
     expect![[r#""one""#]].assert_eq(&format!("{:?}", open_cabaret(&one).workspace_current().unwrap()));
 }
 
-fn dedicated(fixture: &Fixture, workspace: WorkspaceId) -> bool {
+fn dedicated(fixture: &Fixture, workspace: &WorkspaceId) -> bool {
     fixture.cabaret.workspace_is_dedicated(workspace.to_ref()).unwrap()
 }
 
 #[test]
 fn workspace_beside_main_is_dedicated_and_main_is_not() {
     let fixture = two_changes();
-    fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    assert!(!dedicated(&fixture, WorkspaceId::Main));
-    assert!(dedicated(&fixture, linked("main-two")));
+    fixture.cabaret.workspace_add(&id("two"), None).unwrap();
+    assert!(!dedicated(&fixture, &WorkspaceId::Main));
+    assert!(dedicated(&fixture, &linked("main-two")));
 }
 
 #[test]
 fn workspace_at_chosen_path_is_not_dedicated() {
     let fixture = two_changes();
-    fixture.cabaret.workspace_add(id("two"), Some(fixture.path("elsewhere"))).unwrap();
-    assert!(!dedicated(&fixture, linked("elsewhere")));
+    fixture.cabaret.workspace_add(&id("two"), Some(fixture.path("elsewhere"))).unwrap();
+    assert!(!dedicated(&fixture, &linked("elsewhere")));
 }
 
 #[test]
 fn detached_workspace_is_not_dedicated() {
     let fixture = two_changes();
     fixture.detach("one");
-    assert!(!dedicated(&fixture, WorkspaceId::Main));
+    assert!(!dedicated(&fixture, &WorkspaceId::Main));
 }
 
 #[test]
 fn bare_workspaces_are_dedicated() {
     let fixture = two_changes_in(Fixture::bare());
-    fixture.cabaret.workspace_add(id("two"), None).unwrap();
-    assert!(dedicated(&fixture, linked("two")));
+    fixture.cabaret.workspace_add(&id("two"), None).unwrap();
+    assert!(dedicated(&fixture, &linked("two")));
 }
 
 #[test]

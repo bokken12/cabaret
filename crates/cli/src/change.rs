@@ -167,7 +167,7 @@ pub enum ChangeCommand {
 }
 
 impl ChangeCommand {
-    pub fn run(self, cabaret: Cabaret) -> Result<()> {
+    pub fn run(self, cabaret: &Cabaret) -> Result<()> {
         let or_current = |change: Option<ChangeId>| match change {
             Some(change) => Ok(change),
             None => cabaret.current_change(),
@@ -204,13 +204,13 @@ impl ChangeCommand {
                         println!("created {id} as parent of {child}");
                     }
                     (None, Some(parents)) => {
-                        let id = cabaret.create(&name, parents.into_nonempty_iter().collect(), owner)?;
+                        let id = cabaret.create(&name, &parents.into_nonempty_iter().collect(), owner)?;
                         // TODO(joel): informative message
                         println!("created {id}");
                     }
                     (None, None) => {
                         let parent = cabaret.current_change()?;
-                        let id = cabaret.create(&name, NEBTreeSet::new(parent.clone()), owner)?;
+                        let id = cabaret.create(&name, &NEBTreeSet::new(parent.clone()), owner)?;
                         println!("created {id} with parent {parent}");
                     }
                 }
@@ -229,7 +229,7 @@ impl ChangeCommand {
                     (false, true) => DiffView::Workspace,
                     (true, true) => unreachable!("clap rejects --full with --workspace"),
                 };
-                diff(&cabaret, &or_current(change)?, view, &pathspecs)?;
+                diff(cabaret, &or_current(change)?, view, &pathspecs)?;
             }
             ChangeCommand::Discard { change, pathspecs } => {
                 let change = or_current(change)?;
@@ -265,7 +265,7 @@ impl ChangeCommand {
                     }
                     OwnersCommand::Set { owners, allow } => {
                         cabaret
-                            .set_owners(change, owners.into_iter().collect(), &Allow::from_iter(allow))
+                            .set_owners(change, &owners.into_iter().collect(), &Allow::from_iter(allow))
                             .map_err(|error| refusal(&format!("set the owners of {change}"), error))?;
                     }
                 }
@@ -294,7 +294,7 @@ impl ChangeCommand {
                 }
             }
             ChangeCommand::Rebase { change, onto, allow } => {
-                rebase(&cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
+                rebase(cabaret, &or_current(change)?, onto.as_deref(), &Allow::from_iter(allow))?;
             }
             ChangeCommand::Show { change } => print!("{}", cabaret.show_page(&or_current(change)?)?),
             ChangeCommand::Todo { change: _ } => {

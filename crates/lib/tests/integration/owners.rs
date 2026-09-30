@@ -60,10 +60,10 @@ fn leaving_no_owners_refuses_unless_allowed() {
     let everyone = Allow::from_iter([SafeguardKind::RemovesOthers]);
     expect!["refused: it would have no owners"].assert_eq(&shown(fixture.cabaret.set_owners(
         &id("change"),
-        [].into(),
+        &[].into(),
         &everyone,
     )));
     let allow = Allow::from_iter([SafeguardKind::RemovesOthers, SafeguardKind::Ownerless]);
-    expect!["done"].assert_eq(&shown(fixture.cabaret.set_owners(&id("change"), [].into(), &allow)));
+    expect!["done"].assert_eq(&shown(fixture.cabaret.set_owners(&id("change"), &[].into(), &allow)));
     expect![""].assert_eq(&owners(&fixture));
 }

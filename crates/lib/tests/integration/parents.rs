@@ -127,7 +127,7 @@ fn created_on_several_parents_starts_at_their_merge() {
     fixture.commit("left", &[("left.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
-    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice()).unwrap();
     expect![[r"
         join
           parents left right
@@ -147,7 +147,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice()).unwrap();
     expect![[r"
         join
           parents left right

@@ -231,7 +231,7 @@ impl CabaretJs {
     /// Create a workspace holding `change` at the default location, returning its path.
     #[napi]
     pub async fn workspace_add(&self, change: ChangeId) -> napi::Result<String> {
-        self.blocking(move |cabaret| path_string(cabaret.workspace_add(change, None)?)).await
+        self.blocking(move |cabaret| path_string(cabaret.workspace_add(&change, None)?)).await
     }
 
     #[napi]
@@ -273,7 +273,7 @@ impl CabaretJs {
         let attempt = self
             .blocking(move |cabaret| {
                 let allow = Allow::from_iter(allow);
-                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), change, &allow))
+                outcome(cabaret.workspace_switch(cabaret.workspace_current()?.to_ref(), &change, &allow))
             })
             .await?;
         Ok(Attempt::from(attempt))
@@ -309,7 +309,7 @@ impl CabaretJs {
     /// Create a change named `name` as a child of `parent`, owned by git's user.email, returning its id.
     #[napi]
     pub async fn create(&self, name: String, parent: ChangeId) -> napi::Result<ChangeId> {
-        self.blocking(move |cabaret| cabaret.create(&name, NEBTreeSet::new(parent), &cabaret.identity()?)).await
+        self.blocking(move |cabaret| cabaret.create(&name, &NEBTreeSet::new(parent), &cabaret.identity()?)).await
     }
 
     /// Create a change named `name` as a parent of `child`, owned by git's user.email, returning its id.

@@ -69,7 +69,7 @@ fn switch_waits_for_branch_it_leaves() {
     let lock = fixture.hold_lock("branch", "main");
     thread::scope(|scope| {
         let switch = scope
-            .spawn(|| fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), id("child"), &Allow::default()));
+            .spawn(|| fixture.cabaret.workspace_switch(WorkspaceId::Main.to_ref(), &id("child"), &Allow::default()));
         thread::sleep(Duration::from_millis(500));
         assert!(!switch.is_finished(), "the switch ran despite the held lock");
         drop(lock);

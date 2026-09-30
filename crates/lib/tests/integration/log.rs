@@ -97,7 +97,7 @@ fn edits_already_in_effect_write_nothing() {
     fixture.cabaret.mark(&child, &greeting, None).unwrap();
     fixture.cabaret.add_owner(&child, &alice()).unwrap();
     fixture.cabaret.remove_owner(&child, &bob(), &allow).unwrap();
-    fixture.cabaret.set_owners(&child, BTreeSet::from([alice()]), &allow).unwrap();
+    fixture.cabaret.set_owners(&child, &BTreeSet::from([alice()]), &allow).unwrap();
     fixture.cabaret.add_parent(&child, &id("main"), &allow).unwrap();
     fixture.cabaret.remove_parent(&child, &id("other"), &allow).unwrap();
     fixture.cabaret.unarchive(&child, &allow).unwrap();

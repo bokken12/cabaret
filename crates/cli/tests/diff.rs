@@ -7,10 +7,10 @@ use cabaret_lib::{
 };
 use expect_test::expect;
 
-fn version(data: &str) -> Option<FileVersion> { Some(FileVersion { mode: EntryKind::Blob.into(), data: data.into() }) }
+fn version(data: &str) -> FileVersion { FileVersion { mode: EntryKind::Blob.into(), data: data.into() } }
 
-fn render(file: ChangedFile, before: Option<FileVersion>, after: Option<FileVersion>) -> String {
-    String::from_utf8(unified(&file, before.as_ref(), after.as_ref()).into()).unwrap()
+fn render(file: &ChangedFile, before: Option<&FileVersion>, after: Option<&FileVersion>) -> String {
+    String::from_utf8(unified(file, before, after).into()).unwrap()
 }
 
 fn modified() -> ChangedFile { ChangedFile::Modified { path: "file.txt".parse().unwrap() } }
@@ -31,7 +31,11 @@ fn modified_with_context() {
          7
          8
     "#]]
-    .assert_eq(&render(modified(), version("1\n2\n3\n4\n5\n6\n7\n8\n9\n"), version("1\n2\n3\n4\nfive\n6\n7\n8\n9\n")));
+    .assert_eq(&render(
+        &modified(),
+        Some(&version("1\n2\n3\n4\n5\n6\n7\n8\n9\n")),
+        Some(&version("1\n2\n3\n4\nfive\n6\n7\n8\n9\n")),
+    ));
 }
 
 #[test]
@@ -44,7 +48,7 @@ fn added() {
         @@ -1,0 +1,1 @@
         +new
     "#]]
-    .assert_eq(&render(ChangedFile::Added { path: "new.txt".parse().unwrap() }, None, version("new\n")));
+    .assert_eq(&render(&ChangedFile::Added { path: "new.txt".parse().unwrap() }, None, Some(&version("new\n"))));
 }
 
 #[test]
@@ -57,7 +61,7 @@ fn deleted() {
         @@ -1,1 +1,0 @@
         -old
     "#]]
-    .assert_eq(&render(ChangedFile::Deleted { path: "old.txt".parse().unwrap() }, version("old\n"), None));
+    .assert_eq(&render(&ChangedFile::Deleted { path: "old.txt".parse().unwrap() }, Some(&version("old\n")), None));
 }
 
 #[test]
@@ -68,7 +72,7 @@ fn pure_rename_has_no_hunks() {
         rename from old.txt
         rename to new.txt
     "#]]
-    .assert_eq(&render(file, version("same\n"), version("same\n")));
+    .assert_eq(&render(&file, Some(&version("same\n")), Some(&version("same\n"))));
 }
 
 #[test]
@@ -84,18 +88,18 @@ fn copy_with_edit() {
          same
         +more
     "#]]
-    .assert_eq(&render(file, version("same\n"), version("same\nmore\n")));
+    .assert_eq(&render(&file, Some(&version("same\n")), Some(&version("same\nmore\n"))));
 }
 
 #[test]
 fn mode_change() {
-    let executable = Some(FileVersion { mode: EntryMode::from(EntryKind::BlobExecutable), data: "run\n".into() });
+    let executable = FileVersion { mode: EntryMode::from(EntryKind::BlobExecutable), data: "run\n".into() };
     expect![[r#"
         diff --git a/file.txt b/file.txt
         old mode 100644
         new mode 100755
     "#]]
-    .assert_eq(&render(modified(), version("run\n"), executable));
+    .assert_eq(&render(&modified(), Some(&version("run\n")), Some(&executable)));
 }
 
 #[test]
@@ -109,7 +113,7 @@ fn missing_final_newline_marked() {
         +line
         \ No newline at end of file
     "#]]
-    .assert_eq(&render(modified(), version("line\n"), version("line")));
+    .assert_eq(&render(&modified(), Some(&version("line\n")), Some(&version("line"))));
 }
 
 #[test]
@@ -118,5 +122,5 @@ fn binary_files_not_shown() {
         diff --git a/file.txt b/file.txt
         Binary files a/file.txt and b/file.txt differ
     "#]]
-    .assert_eq(&render(modified(), version("a\0b"), version("a\0c")));
+    .assert_eq(&render(&modified(), Some(&version("a\0b")), Some(&version("a\0c"))));
 }

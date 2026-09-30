@@ -46,7 +46,7 @@ fn impermanent_parent_refuses_unless_allowed() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = stacked();
-    fixture.cabaret.set_owners(&id("feature"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("feature"), &[bob()].into(), &Allow::default()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&set_permanent(
         &fixture,
         "feature",
