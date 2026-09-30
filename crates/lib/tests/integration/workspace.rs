@@ -2,7 +2,7 @@
 //! switching, and removing them.
 
 use cabaret_lib::{
-    Cabaret, Error, WorkspaceId,
+    Error, WorkspaceId,
     safeguard::{Allow, SafeguardKind},
 };
 use expect_test::expect;
