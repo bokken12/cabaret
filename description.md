@@ -1,0 +1,1 @@
+Move the Rust crates under crates/, separating them from the node/vscode packages and repo config at the root.
