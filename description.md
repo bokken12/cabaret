@@ -1,0 +1,1 @@
+Drop the unused Cabaret import from the workspace integration tests.
