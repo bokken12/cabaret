@@ -537,7 +537,7 @@ impl Cabaret {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
             change.title = Some(name.to_owned());
-            change.declared_parents = parents.clone();
+            change.declared_parents.clone_from(&parents);
             change.owners = BTreeSet::from([owner.clone()]);
             child.declared_parents = BTreeSet::from([change_id.clone()]);
             Ok(())
@@ -774,7 +774,7 @@ impl Cabaret {
             let branch = ctx.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            review.extend(files.iter().map(|file| (file.clone(), revision.clone())));
+            review.extend(files.iter().map(|file| (file.clone(), revision)));
             Ok(())
         })
     }

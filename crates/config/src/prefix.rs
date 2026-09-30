@@ -7,12 +7,8 @@ use crate::Setting;
 
 /// Prepended to the id of each change you create, so ids you pick need only be unique among
 /// yours. Its strftime escapes (`%Y`, `%m`, `%d`, …) expand to the time the change is created.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Prefix(String);
-
-impl Default for Prefix {
-    fn default() -> Self { Self("".to_owned()) }
-}
 
 impl Prefix {
     /// The id of a change named `name` created at `now`.

@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Write,
     path::Path,
 };
 
@@ -57,17 +58,17 @@ pub fn markup(page: &Page) -> String {
                 (tag, target) => {
                     out.push('[');
                     if let Some(tag) = tag {
-                        out.push_str(&format!("{tag:?}"));
+                        write!(out, "{tag:?}").unwrap();
                     }
                     if let Some(target) = target {
-                        out.push_str(&format!(">{}", describe(target)));
+                        write!(out, ">{}", describe(target)).unwrap();
                     }
-                    out.push_str(&format!("|{text}]"));
+                    write!(out, "|{text}]").unwrap();
                 }
             }
         }
         if let Some(target) = &line.target {
-            out.push_str(&format!(" => {}", describe(target)));
+            write!(out, " => {}", describe(target)).unwrap();
         }
         if page.cursor != 0 && u32::try_from(i).unwrap() == page.cursor {
             out.push_str(" <cursor>");
@@ -436,7 +437,7 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     ];
     let mut out = String::new();
     for (heading, owners) in [("owned by viewer", "alice@example.com"), ("owned by another", "bob@example.com")] {
-        out.push_str(&format!("{heading}:\n"));
+        writeln!(out, "{heading}:").unwrap();
         let change = snapshot(None, None, &[owners], &[]);
         for step in &steps {
             let page =
