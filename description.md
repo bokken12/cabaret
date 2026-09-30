@@ -1,0 +1,1 @@
+Borrow arguments that are only read: Cabaret's workspace_add, workspace_switch, create, and set_owners take references like its other methods, the CLI runs on &Cabaret, and test helpers borrow; set_title and set_description no longer wrap an assignment in Ok.
