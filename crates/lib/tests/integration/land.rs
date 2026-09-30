@@ -92,6 +92,22 @@ fn conflicts_into_root_refuse() {
     assert!(!fixture.snapshot("child").archived);
 }
 
+#[test]
+fn conflicted_rebase_refuses_into_root() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[("greeting.txt", "hello\n")]);
+    fixture.create("child", "main", &alice());
+    fixture.commit("child", &[("greeting.txt", "hi\n")]);
+    fixture.commit("main", &[("greeting.txt", "hey\n")]);
+    fixture.cabaret.rebase(&id("child"), None, &Allow::default()).unwrap();
+    fixture.mark_all("child");
+    let tip = fixture.tip("main");
+    let allow = Allow::from_iter([SafeguardKind::Conflicted]);
+    expect!["error: child would land conflicts in main, a root; rebase and resolve first"]
+        .assert_eq(&land_allowing(&fixture, "child", &allow));
+    assert_eq!(fixture.tip("main"), tip);
+}
+
 /// `child` conflicts with its parent `mid`, which sits on `main`.
 fn conflicting() -> Fixture {
     let fixture = Fixture::new();
