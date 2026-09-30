@@ -1,0 +1,3 @@
+Read the disk once for a workspace diff
+
+The workspace view took its saved tree and its list of changed files from two separate scans of the disk. A file created between them was listed but missing from the saved commit, and `files_page`'s `expect` that a changed file is on the side it differs on panicked. The view now lists the changes of the tree it saved, through the new `Workspace::saved_changes`.
