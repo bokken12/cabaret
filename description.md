@@ -1,0 +1,1 @@
+Allow clippy's match_bool and too_many_lines: matching on bools is house style, and the line limit only flags flat dispatch.
