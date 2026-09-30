@@ -198,7 +198,7 @@ impl ChangeCommand {
             ChangeCommand::Create { name, parent, child } => {
                 let owner = &cabaret.identity()?;
                 match (child, NEVec::try_from_vec(parent)) {
-                    (Some(_), Some(_)) => Err("cannot pass both --parent and --child")?,
+                    (Some(_), Some(_)) => unreachable!("clap rejects --parent with --child"),
                     (Some(child), None) => {
                         let id = cabaret.create_parent(&name, &child, owner)?;
                         println!("created {id} as parent of {child}");
