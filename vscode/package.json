@@ -81,7 +81,8 @@
       },
       {
         "command": "cabaret.mark",
-        "title": "Cabaret: Mark Reviewed"
+        "title": "Cabaret: Mark Reviewed",
+        "icon": "$(check)"
       },
       {
         "command": "cabaret.startSession",
@@ -160,6 +161,15 @@
         "title": "Cabaret: Edit Description"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "cabaret.mark",
+          "when": "cabaret.page == 'file' && cabaret.view != 'workspace'",
+          "group": "navigation"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "cabaret.diff",
