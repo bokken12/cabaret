@@ -1,1 +1,1 @@
-Allow clippy's match_bool, redundant_closure_for_method_calls, and too_many_lines: matching on bools and uniform |ctx| ctx.method() closures are house style, and the line limit only flags flat dispatch.
+Allow clippy lints that fight house style or tooling: match_bool and redundant_closure_for_method_calls (bool matches and uniform |ctx| ctx.method() closures are house style), needless_raw_string_hashes (expect-test writes snapshots with hashes), and too_many_lines (it only flags flat dispatch).
