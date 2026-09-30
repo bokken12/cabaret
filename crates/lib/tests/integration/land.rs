@@ -115,7 +115,7 @@ fn conflicts_refuse_unless_allowed() {
         &Allow::from_iter([SafeguardKind::Conflicted]),
     ));
     expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
-        &fixture
+        fixture
             .cabaret
             .show_page(&id("mid"))
             .unwrap()

@@ -58,7 +58,7 @@ pub enum WorkspaceOp<'a> {
     Delete { id: WorkspaceIdRef<'a> },
 }
 
-impl<'a> WorkspaceOp<'a> {
+impl WorkspaceOp<'_> {
     fn id(&self) -> Result<WorkspaceId> {
         match self {
             WorkspaceOp::Update { id } | WorkspaceOp::Delete { id } => Ok(id.into_owned()),

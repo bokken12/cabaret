@@ -172,8 +172,8 @@ impl<'ctx> TransactionContext<'ctx> {
     pub fn maximal_revisions(&self, revisions: &BTreeSet<RevisionId>) -> Result<BTreeSet<RevisionId>> {
         let mut candidates = revisions.clone();
 
-        for &candidate in revisions.iter() {
-            for &other in candidates.iter() {
+        for &candidate in revisions {
+            for &other in &candidates {
                 if candidate != other && self.is_predecessor(candidate, other)? {
                     candidates.remove(&candidate);
                     break;
