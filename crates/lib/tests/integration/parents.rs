@@ -116,9 +116,8 @@ fn created_parent_of_unlogged_branch_sits_on_default() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.branch("unlogged", "main");
-    let created = fixture.cabaret.create_parent("parent", &id("unlogged"), &alice());
-    // TODO: `unlogged` targets main, so `parent` should be created on it.
-    expect!["unlogged has no base to create a parent from"].assert_eq(&format!("{:?}", created.unwrap_err()));
+    fixture.cabaret.create_parent("parent", &id("unlogged"), &alice()).unwrap();
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("parent").declared_parents));
 }
 
 #[test]
@@ -131,9 +130,8 @@ fn created_parent_skips_archived_parents() {
     fixture.commit("main", &[("a", "1")]);
     fixture.cabaret.create_parent("parent", &id("child"), &alice()).unwrap();
     let parent = fixture.snapshot("parent");
-    // TODO: `done` is archived, so `parent` should declare main and start at its tip.
-    expect![[r#"{"done"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
-    assert_eq!(parent.tip, fixture.tip("done"));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", parent.declared_parents));
+    assert_eq!(parent.tip, fixture.tip("main"));
 }
 
 #[test]

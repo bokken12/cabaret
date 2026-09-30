@@ -548,7 +548,7 @@ impl Cabaret {
     pub fn create_parent(&self, name: &str, child_id: &ChangeIdRef, owner: &Identity) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
         // TODO(joel): currently non-atomic to build tip
-        let parents = self.store.query(|ctx| Ok(ctx.metadata(child_id)?.declared_parents.clone()))?;
+        let parents = self.store.query(|ctx| ctx.metadata(child_id)?.parents())?;
         let mut to_merge = parents.iter();
         let first = to_merge.next().ok_or_else(|| format!("{child_id} has no base to create a parent from"))?;
 
