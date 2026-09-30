@@ -112,7 +112,7 @@ impl<'ctx> TransactionContext<'ctx> {
     /// The identity this repository acts as: git's user.email.
     pub fn identity(&self) -> Result<Identity> {
         let committer = self.repo.committer().ok_or("no git identity; set user.email")??;
-        Ok(Identity(committer.email.to_string()))
+        committer.email.to_string().parse()
     }
 
     /// Write a commit of `tree` on `parents` as this repository's identity, without moving any ref.

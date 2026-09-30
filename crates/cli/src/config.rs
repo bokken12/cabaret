@@ -1,6 +1,8 @@
 use cabaret_lib::{Cabaret, Hints, Identity, Prefix, Result, Scope, Setting};
 use clap::Subcommand;
 
+use crate::args::parse;
+
 #[derive(Subcommand)]
 pub enum ConfigCommand {
     /// Who you act as: git's user.email.
@@ -36,10 +38,6 @@ pub enum SettingCommand<S: Setting + Clone + Send + Sync + 'static> {
         #[arg(long)]
         global: bool,
     },
-}
-
-fn parse<S: Setting>(value: &str) -> std::result::Result<S, String> {
-    value.parse().map_err(|error| format!("{error:?}"))
 }
 
 fn scope(global: bool) -> Scope {

@@ -29,9 +29,9 @@ use gix::{
 };
 use nonempty_collections::NEBTreeSet;
 
-pub fn alice() -> Identity { Identity("alice@example.com".into()) }
-pub fn bob() -> Identity { Identity("bob@example.com".into()) }
-pub fn carol() -> Identity { Identity("carol@example.com".into()) }
+pub fn alice() -> Identity { "alice@example.com".parse::<Identity>().unwrap() }
+pub fn bob() -> Identity { "bob@example.com".parse::<Identity>().unwrap() }
+pub fn carol() -> Identity { "carol@example.com".parse::<Identity>().unwrap() }
 
 pub type Files<'a> = &'a [(&'a str, &'a str)];
 
@@ -122,7 +122,7 @@ impl Fixture {
 
     fn commit_tree_at(&self, tree: TreeId, parents: &[RevisionId], seconds: i64) -> RevisionId {
         let time = gix::date::Time { seconds, offset: 0 };
-        let author = gix::actor::Signature { name: "Alice Test".into(), email: alice().0.into(), time };
+        let author = gix::actor::Signature { name: "Alice Test".into(), email: alice().as_ref().into(), time };
         let commit = gix::objs::Commit {
             tree: tree.0,
             parents: parents.iter().map(|revision| revision.0).collect(),

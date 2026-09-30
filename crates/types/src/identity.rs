@@ -1,17 +1,13 @@
 use std::{fmt, str::FromStr};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Error;
 
 // TODO-someday(joel): rename to "user" or "email"?
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
-pub struct Identity(pub String);
-
-impl From<String> for Identity {
-    fn from(s: String) -> Self { Self(s) }
-}
+pub struct Identity(String);
 
 impl AsRef<str> for Identity {
     fn as_ref(&self) -> &str { &self.0 }
@@ -29,5 +25,11 @@ impl FromStr for Identity {
             Err(format!("{email:?} cannot be a git user.email"))?;
         }
         Ok(Self(email.to_owned()))
+    }
+}
+
+impl<'de> Deserialize<'de> for Identity {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer)?.parse().map_err(|error| serde::de::Error::custom(format!("{error:?}")))
     }
 }

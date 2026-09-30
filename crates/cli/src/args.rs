@@ -1,11 +1,16 @@
-//! Argument values: safeguard kinds, and those needing the repository: parsing revisions,
-//! and completing changes and revisions.
+//! Argument values: parsed ones, safeguard kinds, and those needing the repository: parsing
+//! revisions, and completing changes and revisions.
 
-use std::ffi::OsStr;
+use std::{ffi::OsStr, str::FromStr};
 
-use cabaret_lib::{Cabaret, Result, RevisionId, safeguard::SafeguardKind};
+use cabaret_lib::{Cabaret, Error, Result, RevisionId, safeguard::SafeguardKind};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap_complete::{ArgValueCompleter, CompletionCandidate};
+
+/// A clap value parser for types parsed with cabaret's own errors.
+pub fn parse<T: FromStr<Err = Error>>(value: &str) -> std::result::Result<T, String> {
+    value.parse().map_err(|error| format!("{error:?}"))
+}
 
 pub fn safeguard_kind() -> impl TypedValueParser<Value = SafeguardKind> {
     PossibleValuesParser::new(SafeguardKind::ALL.iter().map(|kind| kind.name())).map(|name| {

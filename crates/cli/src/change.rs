@@ -9,7 +9,7 @@ use clap::{Subcommand, ValueHint};
 use nonempty_collections::{IntoNonEmptyIterator, NEBTreeSet, NEVec, NonEmptyIterator};
 
 use crate::{
-    args::{change_completer, parse_revision, revision_completer, safeguard_kind},
+    args::{change_completer, parse, parse_revision, revision_completer, safeguard_kind},
     diff::unified,
 };
 
@@ -17,14 +17,17 @@ use crate::{
 pub enum OwnersCommand {
     Show,
     Add {
+        #[arg(value_parser = parse::<Identity>)]
         owner: Identity,
     },
     Remove {
+        #[arg(value_parser = parse::<Identity>)]
         owner: Identity,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
     Set {
+        #[arg(value_parser = parse::<Identity>)]
         owners: Vec<Identity>,
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,

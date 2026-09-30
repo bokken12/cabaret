@@ -28,13 +28,13 @@ impl FromNapiValue for RepoPath {
 
 impl ToNapiValue for Identity {
     unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> napi::Result<sys::napi_value> {
-        unsafe { String::to_napi_value(env, val.0) }
+        unsafe { String::to_napi_value(env, val.to_string()) }
     }
 }
 
 impl FromNapiValue for Identity {
     unsafe fn from_napi_value(env: sys::napi_env, val: sys::napi_value) -> napi::Result<Self> {
-        Ok(Self(unsafe { String::from_napi_value(env, val)? }))
+        Ok(unsafe { String::from_napi_value(env, val)? }.parse()?)
     }
 }
 

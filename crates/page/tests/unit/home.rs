@@ -2,6 +2,8 @@ use cabaret_page::{Home, HomeGraph, HomeNode, HomeSection, Page, Target};
 use cabaret_types::{ChangeId, Identity};
 use expect_test::{Expect, expect};
 
+fn viewer() -> Identity { "alice@example.com".parse().unwrap() }
+
 /// Nodes are (id, selected, space-separated parents). Parents that are not listed as nodes are
 /// dropped.
 fn graph(nodes: &[(&str, bool, &str)]) -> HomeGraph {
@@ -207,12 +209,8 @@ fn a_parent_cycle_is_an_error() {
 
 #[test]
 fn home_heads_each_graph_and_says_when_one_is_empty() {
-    let home = Home {
-        viewer: Identity("alice@example.com".into()),
-        review: graph(&[]),
-        owned: graph(&[("feat", true, "")]),
-        workspaces: graph(&[]),
-    };
+    let home =
+        Home { viewer: viewer(), review: graph(&[]), owned: graph(&[("feat", true, "")]), workspaces: graph(&[]) };
     let page = Page::home(&home).unwrap();
     expect![[r#"
         Review
@@ -232,8 +230,7 @@ fn home_heads_each_graph_and_says_when_one_is_empty() {
 #[test]
 fn home_headings_fold_their_sections_around_the_graph_folds() {
     let stack = || graph(&[("base", true, ""), ("top", true, "base")]);
-    let home =
-        Home { viewer: Identity("alice@example.com".into()), review: stack(), owned: stack(), workspaces: stack() };
+    let home = Home { viewer: viewer(), review: stack(), owned: stack(), workspaces: stack() };
     let page = Page::home(&home).unwrap();
     expect![[r#"
         Review
@@ -529,7 +526,7 @@ fn a_dense_thicket_routes_completely() {
 #[test]
 fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
     let home = Home {
-        viewer: Identity("alice@example.com".into()),
+        viewer: viewer(),
         review: graph(&[]),
         owned: graph(&[("base", false, ""), ("top", true, "base"), ("side", true, "")]),
         workspaces: graph(&[("top", true, "")]),
@@ -551,7 +548,7 @@ fn home_section_tabs_count_selected_changes_and_mute_empty_sections() {
 #[test]
 fn the_first_section_with_selected_changes_leads_home() {
     let first = |review: HomeGraph, owned: HomeGraph, workspaces: HomeGraph| {
-        Home { viewer: Identity("alice@example.com".into()), review, owned, workspaces }.first_section()
+        Home { viewer: viewer(), review, owned, workspaces }.first_section()
     };
     let context = || graph(&[("base", false, "")]);
     let selected = || graph(&[("top", true, "")]);

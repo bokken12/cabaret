@@ -20,7 +20,7 @@ fn snapshot(title: Option<&str>, description: Option<&str>, owners: &[&str], par
         description: description.map(String::from),
         archived: false,
         permanent: false,
-        owners: owners.iter().map(|owner| Identity((*owner).into())).collect(),
+        owners: owners.iter().map(|owner| owner.parse::<Identity>().unwrap()).collect(),
         parents: parents.iter().map(|parent| parent.parse().unwrap()).collect(),
         declared_parents: BTreeSet::new(),
         review: BTreeMap::new(),
@@ -32,7 +32,7 @@ fn uncounted(files: &[ChangedFile]) -> Vec<(ChangedFile, Option<LineCounts>)> {
     files.iter().map(|file| (file.clone(), None)).collect()
 }
 
-fn viewer() -> Identity { Identity("alice@example.com".into()) }
+fn viewer() -> Identity { "alice@example.com".parse().unwrap() }
 
 fn describe(target: &Target) -> String {
     let paths = |files: &[ChangedFile]| {
@@ -434,7 +434,7 @@ fn hidden_hints_leave_keys_off_tabs() {
 #[test]
 fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     let changes = |ids: &[&str]| ids.iter().map(|id| id.parse::<ChangeId>().unwrap()).collect::<BTreeSet<_>>();
-    let identities = |ids: &[&str]| ids.iter().map(|id| Identity((*id).into())).collect::<BTreeSet<_>>();
+    let identities = |ids: &[&str]| ids.iter().map(|id| id.parse::<Identity>().unwrap()).collect::<BTreeSet<_>>();
     let steps = [
         NextStep::AddCode,
         NextStep::ResolveConflicts { files: ["a.txt", "b.txt"].map(|file| file.parse().unwrap()).into() },

@@ -9,7 +9,7 @@ pub mod config;
 pub mod diff;
 pub mod workspace;
 
-use crate::{change::ChangeCommand, config::ConfigCommand, workspace::WorkspaceCommand};
+use crate::{args::parse, change::ChangeCommand, config::ConfigCommand, workspace::WorkspaceCommand};
 
 #[derive(Subcommand)]
 enum Command {
@@ -25,7 +25,7 @@ enum Command {
     /// Show your open changes as a stack graph.
     Home {
         /// Identity to view as; defaults to git's user.email.
-        #[arg(long = "as")]
+        #[arg(long = "as", value_parser = parse::<Identity>)]
         viewer: Option<Identity>,
     },
     /// Make a new repository. An empty directory gets one laid out with a workspace per change
