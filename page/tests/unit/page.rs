@@ -3,10 +3,10 @@ use std::{
     path::Path,
 };
 
-use cabaret_lib::{
-    ChangeId, ChangeSnapshot, ChangedFile, DiffView, Hints, Identity, NextStep, Page, RevisionId, Segment, Session,
-    SessionId, Status, TabCounts, Target, TimestampMs,
-};
+use cabaret_agents::{Session, SessionId, Status};
+use cabaret_config::Hints;
+use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Target};
+use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, RevisionId, TimestampMs};
 use expect_test::expect;
 
 fn revision(digit: char) -> RevisionId { RevisionId(String::from(digit).repeat(40).parse().unwrap()) }

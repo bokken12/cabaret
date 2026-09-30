@@ -192,6 +192,7 @@ version = "0.0.0"
 dependencies = [
  "cabaret-agents",
  "cabaret-config",
+ "cabaret-page",
  "cabaret-transaction",
  "cabaret-types",
  "expect-test",
@@ -202,6 +203,18 @@ dependencies = [
  "napi-derive",
  "nonempty-collections",
  "tempfile",
+]
+
+[[package]]
+name = "cabaret-page"
+version = "0.0.0"
+dependencies = [
+ "cabaret-agents",
+ "cabaret-config",
+ "cabaret-types",
+ "expect-test",
+ "napi",
+ "napi-derive",
 ]
 
 [[package]]

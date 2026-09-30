@@ -1,4 +1,5 @@
-use cabaret_lib::{ChangedFile, FileTree, Page, RepoPath};
+use cabaret_page::{FileTree, Page};
+use cabaret_types::{ChangedFile, RepoPath};
 use expect_test::expect;
 
 fn render(paths: &[&str]) -> Page {

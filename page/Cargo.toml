@@ -1,0 +1,22 @@
+[package]
+name = "cabaret-page"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+napi = ["dep:napi", "dep:napi-derive", "cabaret-types/napi", "cabaret-agents/napi"]
+
+[dependencies]
+cabaret-agents.workspace = true
+cabaret-config.workspace = true
+cabaret-types.workspace = true
+napi = { workspace = true, optional = true }
+napi-derive = { workspace = true, optional = true }
+
+[dev-dependencies]
+expect-test.workspace = true
+
+[lints]
+workspace = true

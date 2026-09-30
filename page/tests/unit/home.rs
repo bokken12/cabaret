@@ -1,4 +1,5 @@
-use cabaret_lib::{ChangeId, Home, HomeGraph, HomeNode, HomeSection, Identity, Page, Target};
+use cabaret_page::{Home, HomeGraph, HomeNode, HomeSection, Page, Target};
+use cabaret_types::{ChangeId, Identity};
 use expect_test::{Expect, expect};
 
 /// Nodes are (id, selected, space-separated parents). Parents that are not listed as nodes are

@@ -1,19 +1,44 @@
 //! Pages are what frontends display: lines of text cut into tagged segments, where a segment or
 //! a whole line may name where it leads. Frontends paint tags in their own style and follow the
 //! target under the cursor.
-// TODO-someday(joel): move page and UI details to a separate crate?
 
 use std::{collections::BTreeSet, fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RevisionId, TimestampMs};
+use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TimestampMs};
 
-use crate::{
-    cabaret::{NextStep, joined},
-    file_tree::FileTree,
-    home::HomeSection,
-};
+use crate::{file_tree::FileTree, home::HomeSection};
+
+/// The first thing standing between a change and landing, in the order they must be resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextStep {
+    /// Its tip adds nothing to its base, so there is nothing to land.
+    AddCode,
+    /// Files its tip holds conflict markers in; they are resolved before anything more is merged.
+    ResolveConflicts {
+        files: BTreeSet<RepoPath>,
+    },
+    /// Parents it lags behind that hold conflict markers of their own, which a rebase would take on.
+    ResolveParentConflicts {
+        parents: BTreeSet<ChangeId>,
+    },
+    /// Parents whose tips its bases lag behind.
+    Rebase {
+        parents: BTreeSet<ChangeId>,
+    },
+    /// Owners with files left to review, since owners are to review every file of their changes.
+    Review {
+        reviewers: BTreeSet<Identity>,
+    },
+    /// A change lands into one parent, so several must first coalesce by landing.
+    LandParents {
+        parents: BTreeSet<ChangeId>,
+    },
+    Land {
+        into: ChangeId,
+    },
+}
 
 /// What a piece of text is, for frontends to style.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,3 +432,8 @@ impl fmt::Display for Page {
 
 /// What a change is called wherever it is shown: its title, or its id when it has none.
 pub fn name(id: &ChangeIdRef, title: Option<&str>) -> String { title.map_or_else(|| id.to_string(), str::to_owned) }
+
+/// `a, b, c`.
+fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
+    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
+}

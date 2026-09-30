@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::{ChangedFile, Fold, Line, Page, Segment, Tag, Target};
+use cabaret_types::ChangedFile;
+
+use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 
 /// A diff can delete a file and add a directory at the same path, so a node may hold both.
 #[derive(Default)]

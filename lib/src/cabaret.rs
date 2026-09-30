@@ -1,11 +1,12 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    fmt, fs,
+    fs,
     path::{Path, PathBuf},
 };
 
 use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
+use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, TabCounts};
 use cabaret_transaction::{
     Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp,
 };
@@ -22,11 +23,6 @@ use gix::bstr::ByteSlice;
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
-use crate::{
-    home::{Home, HomeGraph, HomeNode, HomeSection},
-    page::{DiffView, Page, TabCounts},
-};
-
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
 /// change, as the repository's own: git commands work from it and nothing else shares it.
 const GITFILE: &str = "gitdir: ./.bare\n";
@@ -41,36 +37,6 @@ pub struct Rebase {
     pub conflicts: BTreeSet<RepoPath>,
     /// Parents not reached because of the conflicts; rebasing again after resolving them continues.
     pub remaining: BTreeSet<ChangeId>,
-}
-
-/// The first thing standing between a change and landing, in the order they must be resolved.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NextStep {
-    /// Its tip adds nothing to its base, so there is nothing to land.
-    AddCode,
-    /// Files its tip holds conflict markers in; they are resolved before anything more is merged.
-    ResolveConflicts {
-        files: BTreeSet<RepoPath>,
-    },
-    /// Parents it lags behind that hold conflict markers of their own, which a rebase would take on.
-    ResolveParentConflicts {
-        parents: BTreeSet<ChangeId>,
-    },
-    /// Parents whose tips its bases lag behind.
-    Rebase {
-        parents: BTreeSet<ChangeId>,
-    },
-    /// Owners with files left to review, since owners are to review every file of their changes.
-    Review {
-        reviewers: BTreeSet<Identity>,
-    },
-    /// A change lands into one parent, so several must first coalesce by landing.
-    LandParents {
-        parents: BTreeSet<ChangeId>,
-    },
-    Land {
-        into: ChangeId,
-    },
 }
 
 /// What [`Cabaret::workspace_prune`] did.
@@ -1146,11 +1112,6 @@ fn rebase_safeguards(
 fn non_owner(metadata: &Metadata<'_>) -> Result<Option<NonOwner>> {
     let you = metadata.ctx().identity()?;
     Ok((!metadata.owners.contains(&you)).then(|| NonOwner { you, owners: metadata.owners.clone() }))
-}
-
-/// `a, b, c`.
-pub fn joined(items: impl IntoIterator<Item: fmt::Display>) -> String {
-    items.into_iter().map(|item| item.to_string()).collect::<Vec<_>>().join(", ")
 }
 
 /// `selected` and their ancestors within `changes`. Ancestry is the changes each targets, so an

@@ -9,6 +9,7 @@ use std::{
 };
 
 use cabaret_agents::ClaudeCode;
+use cabaret_page::{DiffView, HomeSection, Page};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
     ViewDiff, WorkspaceId,
@@ -18,11 +19,7 @@ use napi::bindgen_prelude::spawn_blocking;
 use napi_derive::napi;
 use nonempty_collections::{NEBTreeSet, NEVec};
 
-use crate::{
-    cabaret::{Cabaret, Rebase},
-    home::HomeSection,
-    page::{DiffView, Page},
-};
+use crate::cabaret::{Cabaret, Rebase};
 
 /// How the workspace a [`Cabaret`] was opened in reaches a change's files.
 #[derive(Debug, Clone, PartialEq, Eq)]
