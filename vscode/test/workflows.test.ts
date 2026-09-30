@@ -264,4 +264,13 @@ feature · changed files
       git("reset", "--hard", "HEAD~1");
     }
   });
+
+  test("saving an unchanged description succeeds", async () => {
+    const description = vscode.Uri.from({ scheme: "cabaret-description", path: "/feature.md" });
+    const save = (text: string) => vscode.workspace.fs.writeFile(description, Buffer.from(text));
+    await save("Described.\n");
+    await save("Described.\n");
+    await save("");
+    await save("");
+  });
 });

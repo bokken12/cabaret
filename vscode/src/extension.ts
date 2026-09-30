@@ -605,7 +605,8 @@ function descriptionChange(uri: vscode.Uri): ChangeId {
 /**
  * Serves each change's description as a file to edit in place, with a save written to the
  * change's metadata. Descriptions never change underneath an editor as far as VS Code can tell,
- * so a save always goes through rather than raising a conflict.
+ * so a save always goes through rather than raising a conflict; saving an unchanged description
+ * writes nothing, since the lib refuses a no-op edit.
  */
 class DescriptionProvider implements vscode.FileSystemProvider {
   readonly onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>().event;
@@ -624,9 +625,13 @@ class DescriptionProvider implements vscode.FileSystemProvider {
   }
 
   async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
+    const cabaret = openCabaret();
     const change = descriptionChange(uri);
     const text = Buffer.from(content).toString();
-    await openCabaret().setDescription(change, text.trim() === "" ? undefined : text);
+    const description = text.trim() === "" ? undefined : text;
+    if ((await cabaret.change(change)).description !== description) {
+      await cabaret.setDescription(change, description);
+    }
   }
 
   readDirectory(): never {
