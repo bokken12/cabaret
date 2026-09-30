@@ -21,7 +21,7 @@ fn empty_and_single_file_trees_need_no_folds() {
 fn nested_branches_keep_continuations_and_sorted_folds() {
     let page =
         render(&["z.txt", "src/z.rs", "src/a/二.rs", "src/a/一.rs", "src/a/deep/file.rs", "src/a/deep/other.rs"]);
-    expect![[r"
+    expect![[r#"
         ╭    ◌ src/
         │╭   ├─◌ a/
         ││╭  │ ├─◌ deep/
@@ -31,7 +31,7 @@ fn nested_branches_keep_continuations_and_sorted_folds() {
         │╰   │ ╰─○ 二.rs
         ╰    ╰─○ z.rs
              ○ z.txt
-    "]]
+    "#]]
     .assert_eq(&super::with_folds(&page, &page.to_string()));
 }
 
@@ -40,11 +40,11 @@ fn deleted_file_can_be_replaced_by_a_directory() {
     let files =
         [(ChangedFile::Deleted { path: path("item") }, None), (ChangedFile::Added { path: path("item/child") }, None)];
     let page = FileTree::new(&files).render();
-    expect![[r"
+    expect![[r#"
            ○ [Deleted|item]
         ╭  ◌ [Label|item/]
         ╰  ╰─○ [Added|child]
-    "]]
+    "#]]
     .assert_eq(&super::with_folds(&page, &super::page::markup(&page)));
 }
 
@@ -62,7 +62,7 @@ fn mixed_changes_show_status_and_sources_under_the_destination() {
     ]
     .map(|file| (file, None));
     let page = FileTree::new(&files).render();
-    expect![[r"
+    expect![[r#"
         ╭  ◌ [Label|src/parser/]
         │  ├─○ [Added|added.rs]
         │  ├─○ [Deleted|deleted.rs]
@@ -70,7 +70,7 @@ fn mixed_changes_show_status_and_sources_under_the_destination() {
         │  ├─○ [Modified|modified.rs]
         │  ├─○ [Renamed|new.rs][Muted| ← moved from old.rs]
         ╰  ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs]
-    "]]
+    "#]]
     .assert_eq(&super::with_folds(&page, &super::page::markup(&page)));
     assert!(page.lines.iter().all(|line| line.target.is_none()));
 }

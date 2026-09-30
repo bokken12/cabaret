@@ -70,7 +70,7 @@ fn committing_moves_files_into_the_diff() {
     fixture.write("added.txt", "added\n");
     fixture.cabaret.commit(&id("one"), &[], &Allow::default()).unwrap();
     expect!["[]"].assert_eq(&workspace_files(&fixture, "one", &[]));
-    expect![[r"
+    expect![[r#"
         one
           workspace main
           parents main
@@ -78,7 +78,7 @@ fn committing_moves_files_into_the_diff() {
           title one
           base main
           diff +added.txt +one.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("one"));
 }
 

@@ -97,7 +97,7 @@ fn conflict_between_parents_is_resolved_in_their_join() {
     fixture.commit("left", &[("file.txt", "left\n")]);
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
-    fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
+    fixture.cabaret.create("join", &nebts![id("left"), id("right")], &alice()).unwrap();
     expect!["resolve conflicts in file.txt"].assert_eq(&next_step(&fixture, "join"));
 }
 

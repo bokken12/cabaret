@@ -150,7 +150,7 @@ impl Fixture {
 
     /// Create `change` on `parent` owned by `owner`, through the real creation path.
     pub fn create(&self, change: &str, parent: &str, owner: &Identity) {
-        self.cabaret.create(change, NEBTreeSet::new(id(parent)), owner).unwrap();
+        self.cabaret.create(change, &NEBTreeSet::new(id(parent)), owner).unwrap();
     }
 
     /// Archive `change`, allowing every safeguard, since tests archive to shape the graph.
@@ -328,7 +328,7 @@ impl Fixture {
 
     /// Add a workspace holding `change` at the default path, through the real creation path.
     pub fn add_workspace(&self, change: &str) -> gix::Repository {
-        open_repo(self.cabaret.workspace_add(id(change), None).unwrap())
+        open_repo(self.cabaret.workspace_add(&id(change), None).unwrap())
     }
 
     /// Point `repo`'s HEAD at `change` and write its tip's files and index, over whatever is there.
@@ -589,7 +589,7 @@ pub fn scene() -> Fixture {
 
 #[test]
 fn scene_state() {
-    expect![[r"
+    expect![[r#"
         HEAD single
         advanced-parent 54a49f30
           parents main
@@ -693,6 +693,6 @@ fn scene_state() {
           declared (none)
           base main
           diff +unlogged.txt
-    "]]
+    "#]]
     .assert_eq(&scene().state());
 }

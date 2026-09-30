@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Write,
     path::Path,
 };
 
@@ -61,17 +62,17 @@ pub fn markup(page: &Page) -> String {
                 (tag, target) => {
                     out.push('[');
                     if let Some(tag) = tag {
-                        out.push_str(&format!("{tag:?}"));
+                        write!(out, "{tag:?}").unwrap();
                     }
                     if let Some(target) = target {
-                        out.push_str(&format!(">{}", describe(target)));
+                        write!(out, ">{}", describe(target)).unwrap();
                     }
-                    out.push_str(&format!("|{text}]"));
+                    write!(out, "|{text}]").unwrap();
                 }
             }
         }
         if let Some(target) = &line.target {
-            out.push_str(&format!(" => {}", describe(target)));
+            write!(out, " => {}", describe(target)).unwrap();
         }
         if page.cursor != 0 && u32::try_from(i).unwrap() == page.cursor {
             out.push_str(" <cursor>");
@@ -167,10 +168,10 @@ fn show_page_status_is_archived_else_permanent_else_open() {
         let page = Page::show(&"trunk".parse::<ChangeId>().unwrap(), &change, None, None, &viewer(), Hints::Shown);
         page.to_string().lines().nth(5).unwrap().to_owned()
     };
-    expect![[r"Status: open"]].assert_eq(&status(false, false));
-    expect![[r"Status: permanent"]].assert_eq(&status(false, true));
-    expect![[r"Status: archived"]].assert_eq(&status(true, false));
-    expect![[r"Status: archived"]].assert_eq(&status(true, true));
+    expect!["Status: open"].assert_eq(&status(false, false));
+    expect!["Status: permanent"].assert_eq(&status(false, true));
+    expect!["Status: archived"].assert_eq(&status(true, false));
+    expect!["Status: archived"].assert_eq(&status(true, true));
 }
 
 #[test]
@@ -189,7 +190,7 @@ fn a_diff_page_targets_each_file() {
         DiffView::Diff,
         &uncounted(&files),
     );
-    expect![[r"
+    expect![[r#"
         [Heading|Tidy the parser][Muted| · changed files]
 
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => diff:change:b.rs <cursor>
@@ -198,18 +199,18 @@ fn a_diff_page_targets_each_file() {
         ├─○ [Modified|lib.rs] => diff:change:src/lib.rs
         ├─○ [Added|new.rs] => diff:change:src/new.rs
         ╰─○ [Deleted|old.rs] => diff:change:src/old.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
 }
 
 #[test]
 fn an_empty_diff_page_says_so() {
     let page = Page::files(&"empty".parse::<ChangeId>().unwrap(), None, DiffView::Diff, &[]);
-    expect![[r"
+    expect![[r#"
         [Heading|empty][Muted| · changed files]
 
         [Muted|no changed files]
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
 }
 
@@ -218,24 +219,24 @@ fn a_review_page_targets_each_unreviewed_file() {
     let path = |path: &str| path.parse().unwrap();
     let files = [ChangedFile::Modified { path: path("src/lib.rs") }, ChangedFile::Added { path: path("src/new.rs") }];
     let page = Page::files(&"change".parse::<ChangeId>().unwrap(), None, DiffView::Review, &uncounted(&files));
-    expect![[r"
+    expect![[r#"
         [Heading|change][Muted| · unreviewed files]
 
         ◌ [Label|src/] => review:change:src/lib.rs,src/new.rs
         ├─○ [Modified|lib.rs] => review:change:src/lib.rs <cursor>
         ╰─○ [Added|new.rs] => review:change:src/new.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
 }
 
 #[test]
 fn an_empty_review_page_says_so() {
     let page = Page::files(&"reviewed".parse::<ChangeId>().unwrap(), None, DiffView::Review, &[]);
-    expect![[r"
+    expect![[r#"
         [Heading|reviewed][Muted| · unreviewed files]
 
         [Muted|no unreviewed files]
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
 }
 
@@ -247,18 +248,18 @@ fn a_workspace_page_targets_each_file_on_disk() {
         ChangedFile::Renamed { from: path("a.rs"), path: path("b.rs") },
     ];
     let change = "change".parse::<ChangeId>().unwrap();
-    expect![[r"
+    expect![[r#"
         [Heading|change][Muted| · uncommitted files]
 
         ○ [Renamed|b.rs][Muted| ← moved from a.rs] => workspace:change:b.rs <cursor>
         ○ [Modified|src/lib.rs] => workspace:change:src/lib.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&Page::files(&change, None, DiffView::Workspace, &uncounted(&files))));
-    expect![[r"
+    expect![[r#"
         [Heading|change][Muted| · uncommitted files]
 
         [Muted|no uncommitted files]
-    "]]
+    "#]]
     .assert_eq(&markup(&Page::files(&change, None, DiffView::Workspace, &[])));
 }
 
@@ -282,20 +283,20 @@ fn sessions_page_lists_each_session_with_its_age_and_leads_to_it() {
         ],
         now,
     );
-    expect![[r"
+    expect![[r#"
 
         [Label|Sessions:]
           Fix the parser[Muted| · just now, busy] => session:parser:a1
           Add tests[Muted| · 42m ago, idle] => session:parser:b2
           c3[Muted| · 3h ago, running] => session:parser:c3
           Old[Muted| · 9d ago] => session:parser:d4
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
     expect![["[Fold { start: 1, end: 5 }]"]].assert_eq(&format!("{:?}", page.folds));
-    expect![[r"
+    expect![[r#"
 
         [Label|Sessions:] [Muted|(none)]
-    "]]
+    "#]]
     .assert_eq(&markup(&Page::sessions(&change, &[], now)));
 }
 
@@ -308,7 +309,7 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
             .collect();
     let change = "tree".parse::<ChangeId>().unwrap();
     let page = Page::files(&change, None, DiffView::Diff, &uncounted(&files));
-    expect![[r"
+    expect![[r#"
         [Heading|tree][Muted| · changed files]
 
         ○ [Modified|README.md] => diff:tree:README.md <cursor>
@@ -318,7 +319,7 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
           ├─○ [Modified|expression.rs] => diff:tree:src/parser/expression.rs
           ╰─○ [Modified|tokens.rs] => diff:tree:src/parser/tokens.rs
         ○ [Modified|tests/parser/basic.rs] => diff:tree:tests/parser/basic.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
     expect!["[Fold { start: 3, end: 7 }, Fold { start: 5, end: 7 }]"].assert_eq(&format!("{:?}", page.folds));
     // Every view has the same shape; only its heading and file targets differ.
@@ -331,11 +332,11 @@ fn file_tree_compacts_paths_and_folds_nested_groups() {
         assert_eq!(page.folds, other.folds);
     }
     let single = Page::files(&change, None, DiffView::Review, &uncounted(&files[..1]));
-    expect![[r"
+    expect![[r#"
         tree · unreviewed files
 
         ○ tests/parser/basic.rs
-    "]]
+    "#]]
     .assert_eq(&single.to_string());
     assert!(single.folds.is_empty());
 }
@@ -349,14 +350,14 @@ fn moves_and_copies_live_once_at_the_destination_with_their_original_targets() {
         ChangedFile::Renamed { from: path("src/parser/old.rs"), path: path("src/parser/new.rs") },
     ];
     let page = Page::files(&"tree".parse::<ChangeId>().unwrap(), None, DiffView::Review, &uncounted(&files));
-    expect![[r"
+    expect![[r#"
         [Heading|tree][Muted| · unreviewed files]
 
         ◌ [Label|src/parser/] => review:tree:src/parser/helper.rs,src/parser/new.rs,src/parser/tokens.rs
         ├─○ [Copied|helper.rs][Muted| ← copied from shared/helper.rs] => review:tree:src/parser/helper.rs <cursor>
         ├─○ [Renamed|new.rs][Muted| ← moved from old.rs] => review:tree:src/parser/new.rs
         ╰─○ [Renamed|tokens.rs][Muted| ← moved from old/tokens.rs] => review:tree:src/parser/tokens.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
     let targets: Vec<_> = page.lines.iter().filter_map(|line| line.target.as_ref()).collect();
     for file in files {
@@ -375,7 +376,7 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
         ChangedFile::Modified { path: path("src/item-other.rs") },
     ];
     let page = Page::files(&"tree".parse::<ChangeId>().unwrap(), None, DiffView::Workspace, &uncounted(&files));
-    expect![[r"
+    expect![[r#"
         [Heading|tree][Muted| · uncommitted files]
 
         ◌ [Label|src/] => workspace:tree:src/item,src/item/child.rs,src/item-other.rs
@@ -383,7 +384,7 @@ fn file_tree_preserves_a_deleted_file_replaced_by_a_directory() {
         ├─◌ [Label|item/] => workspace:tree:src/item/child.rs
         │ ╰─○ [Added|child.rs] => workspace:tree:src/item/child.rs
         ╰─○ [Modified|item-other.rs] => workspace:tree:src/item-other.rs
-    "]]
+    "#]]
     .assert_eq(&markup(&page));
     expect!["[Fold { start: 2, end: 6 }, Fold { start: 4, end: 5 }]"].assert_eq(&format!("{:?}", page.folds));
 }
@@ -446,7 +447,7 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     ];
     let mut out = String::new();
     for (heading, owners) in [("owned by viewer", "alice@example.com"), ("owned by another", "bob@example.com")] {
-        out.push_str(&format!("{heading}:\n"));
+        writeln!(out, "{heading}:").unwrap();
         let change = snapshot(None, None, &[owners], &[]);
         for step in &steps {
             let page =

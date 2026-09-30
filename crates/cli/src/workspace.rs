@@ -51,19 +51,19 @@ pub enum WorkspaceCommand {
 }
 
 impl WorkspaceCommand {
-    pub fn run(self, cabaret: Cabaret) -> Result<()> {
+    pub fn run(self, cabaret: &Cabaret) -> Result<()> {
         match self {
             WorkspaceCommand::Add { change, path } => {
-                let path = cabaret.workspace_add(change, path)?;
+                let path = cabaret.workspace_add(&change, path)?;
                 println!("{}", path.display());
             }
             WorkspaceCommand::Switch { switch_to, change, path, allow } => {
-                let workspace = match named(&cabaret, change, path)? {
+                let workspace = match named(cabaret, change, path)? {
                     Some(workspace) => workspace,
                     None => cabaret.workspace_current()?,
                 };
                 cabaret
-                    .workspace_switch(workspace.to_ref(), switch_to.clone(), &Allow::from_iter(allow))
+                    .workspace_switch(workspace.to_ref(), &switch_to, &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("switch workspace {workspace} to {switch_to}"), error))?;
             }
             WorkspaceCommand::List => {
@@ -88,7 +88,7 @@ impl WorkspaceCommand {
                 }
             }
             WorkspaceCommand::Remove { change, path, allow } => {
-                let workspace = named(&cabaret, change, path)?.expect("clap requires one of change or path");
+                let workspace = named(cabaret, change, path)?.expect("clap requires one of change or path");
                 cabaret
                     .workspace_remove(workspace.to_ref(), &Allow::from_iter(allow))
                     .map_err(|error| refusal(&format!("remove workspace {workspace}"), error))?;

@@ -41,7 +41,7 @@ fn parent_merged_into_change() {
     fixture.checkout("child");
     expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
         .assert_eq(&rebase(&fixture, "child", None));
-    expect![[r"
+    expect![[r#"
         child
           workspace main
           parents main
@@ -49,7 +49,7 @@ fn parent_merged_into_change() {
           title child
           base main
           diff +child.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("child"));
     expect![[r#"
         clean
@@ -263,7 +263,7 @@ fn linked_workspace_follows_change() {
 #[test]
 fn non_owner_refuses_unless_allowed() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
     let tip = fixture.tip("child");
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"]
         .assert_eq(&rebase(&fixture, "child", None));
@@ -279,7 +279,7 @@ fn non_owner_refuses_unless_allowed() {
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
     expect!["error: child is not a parent of child"].assert_eq(&rebase(&fixture, "child", Some("child")));
 }
 

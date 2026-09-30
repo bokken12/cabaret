@@ -94,7 +94,7 @@ fn clone_makes_project_directory_with_remote_branches() {
         refs/remotes/origin/two"#]]
     .assert_eq(&refs.join("\n"));
 
-    let path = cabaret.workspace_add(id("one"), None).unwrap();
+    let path = cabaret.workspace_add(&id("one"), None).unwrap();
     expect!["clone/one"].assert_eq(&fixture.relative(&path));
     expect![[r#"
         clean

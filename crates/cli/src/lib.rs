@@ -56,7 +56,7 @@ pub fn run() -> Result<()> {
     let cabaret = || Cabaret::open(std::env::current_dir()?);
 
     match cli.command {
-        Command::Change { command } => command.run(cabaret()?)?,
+        Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,
         Command::Fetch => return Err("fetch is not implemented yet".into()),
         Command::Home { viewer } => {
@@ -74,7 +74,7 @@ pub fn run() -> Result<()> {
             };
             Cabaret::init(&dir, from.as_deref())?;
         }
-        Command::Workspace { command } => command.run(cabaret()?)?,
+        Command::Workspace { command } => command.run(&cabaret()?)?,
     }
 
     Ok(())

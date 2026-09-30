@@ -7,7 +7,7 @@ use gix::{
 // TODO(joel): internal name?
 pub struct Tree<'ctx>(GixTree<'ctx>);
 
-impl<'ctx> Tree<'ctx> {
+impl Tree<'_> {
     pub fn id(&self) -> TreeId { TreeId(self.0.id) }
 }
 

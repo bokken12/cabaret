@@ -205,7 +205,7 @@ impl<'ctx> Metadata<'ctx> {
                 self.review.entry(reviewer.clone()).or_default().remove(file);
             }
             LogAction::Mark { reviewer, file, revision } => {
-                self.review.entry(reviewer.clone()).or_default().insert(file.clone(), revision.clone());
+                self.review.entry(reviewer.clone()).or_default().insert(file.clone(), *revision);
             }
             LogAction::RemoveOwner { owner } => {
                 self.owners.remove(owner);
@@ -215,7 +215,7 @@ impl<'ctx> Metadata<'ctx> {
             }
             LogAction::SetArchived { archived } => self.archived = *archived,
             LogAction::SetPermanent { permanent } => self.permanent = *permanent,
-            LogAction::SetTitle { title } => self.title = title.clone(),
+            LogAction::SetTitle { title } => self.title.clone_from(title),
         }
     }
 
@@ -252,11 +252,7 @@ impl<'ctx> Metadata<'ctx> {
         for (reviewer, files) in &self.review {
             let previous = |file: &RepoPath| before.review.get(reviewer).and_then(|files| files.get(file));
             for (file, revision) in files.iter().filter(|(file, revision)| previous(file) != Some(revision)) {
-                actions.push(LogAction::Mark {
-                    reviewer: reviewer.clone(),
-                    file: file.clone(),
-                    revision: revision.clone(),
-                });
+                actions.push(LogAction::Mark { reviewer: reviewer.clone(), file: file.clone(), revision: *revision });
             }
         }
         actions

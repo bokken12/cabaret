@@ -48,7 +48,7 @@ fn sessions_follow_a_workspace_placed_elsewhere() {
     let claude_dir = fixture.path("claude");
     let claude = ClaudeCode::new(claude_dir.clone());
     launch(&claude_dir, &fixture.path("main-two"), "in the default location");
-    let elsewhere = fixture.cabaret.workspace_add(id("two"), Some(fixture.path("elsewhere"))).unwrap();
+    let elsewhere = fixture.cabaret.workspace_add(&id("two"), Some(fixture.path("elsewhere"))).unwrap();
     launch(&claude_dir, &elsewhere, "elsewhere");
     expect!["elsewhere"].assert_eq(&titles(&fixture, &claude, "two"));
 }

@@ -162,15 +162,15 @@ impl Cabaret {
 
     /// Create a workspace holding `change_id` at `path`, or the default location, and return
     /// where it was made. Declaring the branch keeps it still while the files are written.
-    pub fn workspace_add(&self, change_id: ChangeId, path: Option<PathBuf>) -> Result<PathBuf> {
+    pub fn workspace_add(&self, change_id: &ChangeIdRef, path: Option<PathBuf>) -> Result<PathBuf> {
         let path = match path {
             Some(path) => std::path::absolute(path)?,
-            None => self.default_workspace_path(&change_id)?,
+            None => self.default_workspace_path(change_id)?,
         };
         self.store.transact(
             &[],
-            &[BranchOp::Update(&change_id)],
-            &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.clone()) }],
+            &[BranchOp::Update(change_id)],
+            &[WorkspaceOp::Insert { path: &path, head: Head::Change(change_id.to_owned()) }],
             |_ctx, [], [_branch], [_workspace]| Ok(()),
         )?;
         Ok(path)
@@ -270,7 +270,12 @@ impl Cabaret {
     /// Check out `change_id` in `workspace_id`; allowing uncommitted changes drops those to
     /// tracked files, leaving untracked ones be. Switching needs the branch the workspace leaves,
     /// which is only known once read; the transaction re-checks it under the lock.
-    pub fn workspace_switch(&self, workspace_id: WorkspaceIdRef<'_>, change_id: ChangeId, allow: &Allow) -> Result<()> {
+    pub fn workspace_switch(
+        &self,
+        workspace_id: WorkspaceIdRef<'_>,
+        change_id: &ChangeIdRef,
+        allow: &Allow,
+    ) -> Result<()> {
         let update = [WorkspaceOp::Update { id: workspace_id }];
         let switch = |workspace: &mut Workspace<'_>| {
             // Untracked files are left where they are, so only changes to tracked ones are at risk.
@@ -279,19 +284,19 @@ impl Cabaret {
                 allow.check(vec![Safeguard::Uncommitted(uncommitted)])?;
             }
             workspace.drop_local_changes = allow.allows(SafeguardKind::Uncommitted);
-            workspace.head = Head::Change(change_id.clone());
+            workspace.head = Head::Change(change_id.to_owned());
             Ok(())
         };
         let held = self.store.query(|ctx| Ok(ctx.workspace(workspace_id)?.change().cloned()))?;
-        match held.filter(|held| *held != change_id) {
+        match held.filter(|held| **held != *change_id) {
             Some(held) => self.store.transact(
                 &[],
-                &[BranchOp::Update(&change_id), BranchOp::Update(&held)],
+                &[BranchOp::Update(change_id), BranchOp::Update(&held)],
                 &update,
                 |_ctx, [], [_to, _from], [workspace]| switch(workspace),
             ),
             None => {
-                self.store.transact(&[], &[BranchOp::Update(&change_id)], &update, |_ctx, [], [_to], [workspace]| {
+                self.store.transact(&[], &[BranchOp::Update(change_id)], &update, |_ctx, [], [_to], [workspace]| {
                     switch(workspace)
                 })
             }
@@ -522,7 +527,7 @@ impl Cabaret {
     }
 
     /// Create a change named `name` on `parent_ids`, returning its id.
-    pub fn create(&self, name: &str, parent_ids: NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
+    pub fn create(&self, name: &str, parent_ids: &NEBTreeSet<ChangeId>, owner: &Identity) -> Result<ChangeId> {
         let change_id = self.claim(name)?;
         let (first, rest) = parent_ids.nonempty_iter().next();
         let tip = self.store.query(|ctx| Ok(ctx.branch(first)?.tip))?;
@@ -554,7 +559,7 @@ impl Cabaret {
                 branch.merge(ctx.branch(parent_id)?, "create")?;
             }
             change.title = Some(name.to_owned());
-            change.declared_parents = parents.clone();
+            change.declared_parents.clone_from(&parents);
             change.owners = BTreeSet::from([owner.clone()]);
             child.declared_parents = BTreeSet::from([change_id.clone()]);
             Ok(())
@@ -742,13 +747,13 @@ impl Cabaret {
         })
     }
 
-    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>, allow: &Allow) -> Result<()> {
+    pub fn set_owners(&self, change_id: &ChangeIdRef, owners: &BTreeSet<Identity>, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
-            if metadata.owners == owners {
+            if metadata.owners == *owners {
                 return Ok(());
             }
-            allow.check(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners))?;
-            metadata.owners = owners.clone();
+            allow.check(owners_safeguards(&ctx.identity()?, &metadata.owners, owners))?;
+            metadata.owners.clone_from(owners);
             Ok(())
         })
     }
@@ -791,19 +796,25 @@ impl Cabaret {
             let branch = ctx.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            review.extend(files.iter().map(|file| (file.clone(), revision.clone())));
+            review.extend(files.iter().map(|file| (file.clone(), revision)));
             Ok(())
         })
     }
 
     pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| Ok(metadata.title = title))
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            metadata.title = title;
+            Ok(())
+        })
     }
 
     /// Set `change_id`'s description; `None` or an empty text clears it.
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
         let description = description.filter(|text| !text.is_empty());
-        self.store.update_metadata(change_id, |_ctx, metadata| Ok(metadata.description = description))
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            metadata.description = description;
+            Ok(())
+        })
     }
 
     pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool, allow: &Allow) -> Result<()> {

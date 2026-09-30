@@ -40,14 +40,14 @@ fn change_merged_into_parent_and_archived() {
     let fixture = diverged();
     fixture.checkout("main");
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
-    expect![[r"
+    expect![[r#"
         main
           workspace main
           base (none)
           diff +child.txt +main.txt +shared.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("main"));
-    expect![[r"
+    expect![[r#"
         child
           parents main
           owners alice@example.com
@@ -55,7 +55,7 @@ fn change_merged_into_parent_and_archived() {
           title child
           base e0d18e9e
           diff (empty)
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("child"));
     expect![[r#"
         clean
@@ -115,7 +115,7 @@ fn conflicts_refuse_unless_allowed() {
         &Allow::from_iter([SafeguardKind::Conflicted]),
     ));
     expect!["Next step: resolve conflicts in greeting.txt"].assert_eq(
-        &fixture
+        fixture
             .cabaret
             .show_page(&id("mid"))
             .unwrap()
@@ -188,7 +188,7 @@ fn unreviewed_refuses_unless_allowed() {
 #[test]
 fn each_safeguard_needs_allowing() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"].assert_eq(&land(&fixture, "child"));
     expect!["refused: you (alice@example.com) are not an owner (owners: bob@example.com)"].assert_eq(&land_allowing(
         &fixture,
@@ -205,7 +205,7 @@ fn each_safeguard_needs_allowing() {
 #[test]
 fn errors_come_before_safeguards() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
     fixture.archive("child");
     expect!["error: child is archived"].assert_eq(&land(&fixture, "child"));
 }
@@ -213,7 +213,7 @@ fn errors_come_before_safeguards() {
 #[test]
 fn safeguards_foretell_refusal() {
     let fixture = diverged();
-    fixture.cabaret.set_owners(&id("child"), [bob()].into(), &Allow::default()).unwrap();
+    fixture.cabaret.set_owners(&id("child"), &[bob()].into(), &Allow::default()).unwrap();
     expect![
         "you (alice@example.com) are not an owner (owners: bob@example.com); bob@example.com has files left to review"
     ]
