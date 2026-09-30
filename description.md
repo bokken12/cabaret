@@ -1,0 +1,1 @@
+Apply clippy's mechanical fixes: derive Prefix's Default, drop clones of Copy RevisionIds, use clone_from and write!, elide impl lifetimes, and loop over references.
