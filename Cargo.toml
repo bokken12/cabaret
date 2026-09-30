@@ -15,11 +15,14 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 single_match = "allow"
 single_match_else = "allow"
+match_bool = "allow"
 must_use_candidate = "allow"
 return_self_not_must_use = "allow"
 # transitive duplicates in gix/clap, not actionable here
 multiple_crate_versions = "allow"
 new_without_default = "allow"
+# a flat command dispatch grows one arm per subcommand
+too_many_lines = "allow"
 
 [workspace.dependencies]
 cabaret-agents = { path = "crates/agents" }
