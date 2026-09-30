@@ -1,14 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { defineConfig } from "@vscode/test-cli";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
 
 const { Cabaret } = createRequire(import.meta.url)("@cabaret/node");
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "cabaret-vscode-test-")));
+// Not the OS temp dir: VS Code's IPC socket lives in its user data dir, and macOS limits socket
+// paths to 103 bytes, which a user data dir inside the checkout or $TMPDIR overruns.
+const root = realpathSync(mkdtempSync("/tmp/cabaret-vscode-"));
 process.on("exit", () => rmSync(root, { recursive: true, force: true }));
 
 // Neither the fixture nor the extension under test sees the developer's own git config, identity, or Claude sessions.
@@ -78,7 +79,7 @@ export default defineConfig({
   useInstallation: process.platform === "darwin" ? { fromPath: await backgroundVSCode() } : undefined,
   // Valued, as test-cli appends the workspace folder, which a bare unknown flag would swallow.
   // Chromium reads it only on macOS.
-  launchArgs: ["--disable-extensions", "--use-mock-keychain=true"],
+  launchArgs: ["--disable-extensions", "--use-mock-keychain=true", `--user-data-dir=${join(root, "user-data")}`],
   env,
   mocha: { ui: "tdd", timeout: 20_000 },
 });
