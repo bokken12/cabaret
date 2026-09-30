@@ -1388,6 +1388,19 @@ function describeSafeguards(safeguards: Map<ChangeId, Safeguard[]>): string {
   return [...safeguards].flatMap(([change, those]) => those.map(({ message }) => `${change}: ${message}`)).join("\n");
 }
 
+/** Whether the user will `action` despite `safeguards`, asking only when there are any. */
+async function accept(action: string, proceed: string, safeguards: Map<ChangeId, Safeguard[]>): Promise<boolean> {
+  if (safeguards.size === 0) {
+    return true;
+  }
+  const choice = await vscode.window.showWarningMessage(
+    `${action} anyway?`,
+    { modal: true, detail: describeSafeguards(safeguards) },
+    proceed,
+  );
+  return choice === proceed;
+}
+
 /** The kinds the user accepted for `change` when shown `safeguards`. */
 function allowed(safeguards: Map<ChangeId, Safeguard[]>, change: ChangeId): SafeguardKind[] {
   return (safeguards.get(change) ?? []).map(({ kind }) => kind);
@@ -1431,16 +1444,8 @@ async function despite<Done extends { outcome: "Done" }>(
 /** Rebase, once the user accepts any safeguards that would refuse it. */
 async function planRebase(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const safeguards = await safeguarded(changes, (change) => cabaret.rebaseSafeguards(change, undefined));
-  if (safeguards.size > 0) {
-    const proceed = "Rebase Anyway";
-    const choice = await vscode.window.showWarningMessage(
-      `Rebase ${words(safeguards.keys())} anyway?`,
-      { modal: true, detail: describeSafeguards(safeguards) },
-      proceed,
-    );
-    if (choice !== proceed) {
-      return undefined;
-    }
+  if (!(await accept(`Rebase ${words(safeguards.keys())}`, "Rebase Anyway", safeguards))) {
+    return undefined;
   }
   return { step: (change) => rebase(cabaret, change, allowed(safeguards, change)) };
 }
@@ -1624,8 +1629,10 @@ async function deleteWorkspace(cabaret: Cabaret, change: ChangeId, allow: Safegu
 }
 
 /**
- * Land once the user confirms, since landing cannot be undone. Landing archives a change that is
- * not permanent, leaving its workspace nothing to do, so deleting those workspaces is the default.
+ * Land once the user confirms, since landing cannot be undone. Safeguards get a second
+ * confirmation of their own, so a habitual Enter on the routine one cannot bypass them. Landing
+ * archives a change that is not permanent, leaving its workspace nothing to do, so deleting those
+ * workspaces is the default.
  */
 async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const doomed = new Map<ChangeId, WorkspaceId>();
@@ -1646,14 +1653,14 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
       : `This cannot be undone. These workspaces will have nothing left to do: ${words(doomed.values())}.`;
   const lost = discarding.size === 0 ? "" : `\n\nDeleting them would also discard:\n${describeSafeguards(discarding)}`;
   const choice = await vscode.window.showWarningMessage(
-    safeguards.size === 0 ? `Land ${words(changes)}?` : `Land ${words(changes)} anyway?`,
-    {
-      modal: true,
-      detail: (safeguards.size === 0 ? irreversible : `${describeSafeguards(safeguards)}\n\n${irreversible}`) + lost,
-    },
+    `Land ${words(changes)}?`,
+    { modal: true, detail: irreversible + lost },
     ...(doomed.size === 0 ? [landOnly] : [landAndDelete, landOnly]),
   );
   if (choice === undefined) {
+    return undefined;
+  }
+  if (!(await accept(`Land ${words(safeguards.keys())}`, "Land Anyway", safeguards))) {
     return undefined;
   }
   const deleting = choice === landAndDelete;
@@ -1684,16 +1691,8 @@ async function planLand(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | u
 
 async function planDeleteWorkspaces(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
   const discarding = await safeguarded(changes, (change) => cabaret.workspaceRemoveSafeguards(change));
-  if (discarding.size > 0) {
-    const proceed = "Delete Anyway";
-    const choice = await vscode.window.showWarningMessage(
-      `Delete the workspaces holding ${words(discarding.keys())} anyway?`,
-      { modal: true, detail: describeSafeguards(discarding) },
-      proceed,
-    );
-    if (choice !== proceed) {
-      return undefined;
-    }
+  if (!(await accept(`Delete the workspaces holding ${words(discarding.keys())}`, "Delete Anyway", discarding))) {
+    return undefined;
   }
   const here = await changeHere(cabaret, changes);
   if (here !== undefined && !(await releaseHere(here))) {
