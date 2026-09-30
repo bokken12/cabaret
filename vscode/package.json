@@ -165,7 +165,7 @@
       "editor/title": [
         {
           "command": "cabaret.mark",
-          "when": "cabaret.page == 'file' && cabaret.view != 'workspace'",
+          "when": "resourceScheme == 'cabaret-blob' && cabaret.view != 'workspace'",
           "group": "navigation"
         }
       ]

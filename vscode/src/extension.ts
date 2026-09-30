@@ -1950,18 +1950,26 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     command("cabaret.refresh", () => provider.refreshOpen()),
-    // `! m`: mark reviewed what is on screen, a file diff or the files selected on a page.
-    command("cabaret.mark", async (cabaret) => {
-      const filesDiff = activeFilesDiff();
-      if (filesDiff !== undefined) {
-        await markFiles(cabaret, provider, filesDiff);
-        return;
-      }
-      const editor = activePage();
-      if (editor !== undefined) {
-        await markSelected(cabaret, provider, editor);
-      }
-    }),
+    // `! m`: mark reviewed what is on screen, a file diff or the files selected on a page. The
+    // title bar button passes its diff, whose group a click leaves unfocused.
+    vscode.commands.registerCommand("cabaret.mark", (clicked?: vscode.Uri) =>
+      reporting(async () => {
+        const cabaret = openCabaret();
+        const active = tabFileDiffs(vscode.window.tabGroups.activeTabGroup.activeTab);
+        if (clicked !== undefined && !active.some(({ sides }) => sides.modified.toString() === clicked.toString())) {
+          throw new Error("focus the diff to mark it");
+        }
+        const filesDiff = activeFilesDiff();
+        if (filesDiff !== undefined) {
+          await markFiles(cabaret, provider, filesDiff);
+          return;
+        }
+        const editor = activePage();
+        if (editor !== undefined) {
+          await markSelected(cabaret, provider, editor);
+        }
+      }),
+    ),
     command("cabaret.stepUp", (cabaret) => step(cabaret, provider, "up")),
     command("cabaret.stepDown", (cabaret) => step(cabaret, provider, "down")),
     action("cabaret.createChild", provider, createChild, parentForNewChange),
