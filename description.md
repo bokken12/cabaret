@@ -1,0 +1,1 @@
+Land asks about safeguards in a second modal of their own, shown only when there are any, so habitually pressing Enter on the routine land confirmation cannot bypass them. The rebase, delete-workspace, and land safeguard modals now share one accept helper.
