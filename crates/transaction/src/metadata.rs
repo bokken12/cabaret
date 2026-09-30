@@ -155,27 +155,30 @@ impl<'ctx> Metadata<'ctx> {
     // TODO-someday(joel): store computed parents?
     pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
         if self.archived {
-            return Ok(self.declared_parents.clone());
+            return self.targets();
         }
 
         let mut candidates = BTreeSet::new();
-        let mut frontier: Vec<_> = self.declared_parents.iter().cloned().collect();
-        if frontier.is_empty() {
-            let default = self.ctx.default_branch()?;
-            if default != self.id {
-                frontier.push(default);
-            }
-        }
+        let mut frontier = Vec::from_iter(self.targets()?);
         while let Some(candidate_id) = frontier.pop() {
             let candidate = self.ctx.metadata(&candidate_id)?;
             // skip archived parents and land into their parents
             if candidate.archived {
-                frontier.extend(candidate.declared_parents.iter().cloned());
+                frontier.extend(candidate.targets()?);
             } else {
                 candidates.insert(candidate_id);
             }
         }
         self.ctx.maximal_changes(&candidates)
+    }
+
+    /// Declared parents, or the default branch when none are declared.
+    fn targets(&self) -> Result<BTreeSet<ChangeId>> {
+        if !self.declared_parents.is_empty() {
+            return Ok(self.declared_parents.clone());
+        }
+        let default = self.ctx.default_branch()?;
+        Ok(if default == self.id { BTreeSet::new() } else { BTreeSet::from([default]) })
     }
 
     /// Fold `id`'s log and read its description.

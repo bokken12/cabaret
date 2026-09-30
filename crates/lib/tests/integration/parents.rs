@@ -62,9 +62,8 @@ fn archived_unlogged_parent_replaced_by_default() {
     fixture.branch("unlogged", "main");
     fixture.create("child", "unlogged", &alice());
     fixture.archive("unlogged");
-    // TODO: `unlogged` declared no parents, so it targeted main, and so should `child`.
-    expect!["{}"].assert_eq(&format!("{:?}", fixture.snapshot("unlogged").parents));
-    expect!["{}"].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("unlogged").parents));
+    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
 }
 
 #[test]
@@ -220,7 +219,7 @@ fn archived_parent_refuses_unless_allowed() {
 }
 
 /// A change declaring no parents lands into trunk, so trunk is common to nearly every set of
-/// parents; only chains of archived changes declaring none can share no ancestor.
+/// parents; only once trunk itself is archived can they share no ancestor.
 #[test]
 fn inferred_trunk_is_common_ancestor() {
     let fixture = Fixture::new();
