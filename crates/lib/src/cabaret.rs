@@ -11,8 +11,8 @@ use cabaret_transaction::{
     Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp,
 };
 use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
-    RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
+    RepoPath, Result, RevisionId, TimestampMs, ViewDiff, WorkspaceId, WorkspaceIdRef,
     safeguard::{
         Allow, ArchivedParent, ArchivedParents, BaseMoves, Conflicted, Empty, ImpermanentParents, NoCommonAncestor,
         NonOwner, OpenChildren, Ownerless, ParentConflicted, ParentUnreviewed, Parentless, Permanent, RedundantParent,
@@ -26,6 +26,9 @@ use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 /// Marks a project directory, one holding the bare repository `.bare` beside one workspace per
 /// change, as the repository's own: git commands work from it and nothing else shares it.
 const GITFILE: &str = "gitdir: ./.bare\n";
+
+/// Beyond this many files a files page skips counting lines, so that a huge change lists quickly.
+const COUNTED_FILES: usize = 100;
 
 /// What [`Cabaret::rebase`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -403,7 +406,26 @@ impl Cabaret {
     }
 
     pub fn files_page(&self, change_id: &ChangeIdRef, view: DiffView, pathspecs: &[Pathspec]) -> Result<Page> {
-        let files = self.view_files(change_id, view, pathspecs)?;
+        let diff = self.view_diff(change_id, view, pathspecs)?;
+        let counted = diff.files.len() <= COUNTED_FILES;
+        let version = |revision: Option<RevisionId>, path: &RepoPath| -> Result<Option<FileVersion>> {
+            let Some(revision) = revision else { return Ok(None) };
+            Ok(Some(self.blob(revision, path)?.expect("a changed file is on the side it differs on")))
+        };
+        let files = diff
+            .files
+            .into_iter()
+            .map(|FileDiff { file, before, after }| {
+                let counts = match counted {
+                    true => Some(LineCounts::new(
+                        version(before, file.source())?.as_ref(),
+                        version(after, file.path())?.as_ref(),
+                    )),
+                    false => None,
+                };
+                Ok((file, counts))
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(Page::files(change_id, self.title(change_id)?.as_deref(), view, &files))
     }
 

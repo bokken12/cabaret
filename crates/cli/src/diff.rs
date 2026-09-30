@@ -5,10 +5,11 @@ use cabaret_lib::{
     gix::{
         bstr::{BString, ByteVec},
         diff::blob::{
-            Algorithm, InternedInput, UnifiedDiff, diff_with_slider_heuristics,
+            InternedInput, UnifiedDiff,
             unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader},
         },
     },
+    is_binary, line_diff,
 };
 
 /// `file`'s diff from `before` to `after`, with fixed options so that every clone renders it alike.
@@ -37,15 +38,13 @@ pub fn unified(file: &ChangedFile, before: Option<&FileVersion>, after: Option<&
     if old == new {
         return diff;
     }
-    // As git decides, by a NUL byte early on.
-    let binary = |data: &[u8]| data[..data.len().min(8000)].contains(&0);
-    if binary(old) || binary(new) {
+    if is_binary(old) || is_binary(new) {
         diff.push_str(format!("Binary files {a} and {b} differ\n"));
         return diff;
     }
     diff.push_str(format!("--- {a}\n+++ {b}\n"));
     let input = InternedInput::new(old.as_slice(), new.as_slice());
-    let lines = diff_with_slider_heuristics(Algorithm::Histogram, &input);
+    let lines = line_diff(&input);
     let hunks = UnifiedDiff::new(&lines, &input, Hunks::default(), ContextSize::symmetrical(3));
     diff.extend_from_slice(&hunks.consume().expect("rendering hunks to memory cannot fail"));
     diff

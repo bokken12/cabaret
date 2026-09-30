@@ -1,9 +1,10 @@
 use cabaret_page::{FileTree, Page};
-use cabaret_types::{ChangedFile, RepoPath};
+use cabaret_types::{ChangedFile, LineCounts, RepoPath};
 use expect_test::expect;
 
 fn render(paths: &[&str]) -> Page {
-    let files: Vec<_> = paths.iter().map(|path| ChangedFile::Modified { path: path.parse().unwrap() }).collect();
+    let files: Vec<_> =
+        paths.iter().map(|path| (ChangedFile::Modified { path: path.parse().unwrap() }, None)).collect();
     FileTree::new(&files).render()
 }
 
@@ -36,7 +37,8 @@ fn nested_branches_keep_continuations_and_sorted_folds() {
 
 #[test]
 fn deleted_file_can_be_replaced_by_a_directory() {
-    let files = [ChangedFile::Deleted { path: path("item") }, ChangedFile::Added { path: path("item/child") }];
+    let files =
+        [(ChangedFile::Deleted { path: path("item") }, None), (ChangedFile::Added { path: path("item/child") }, None)];
     let page = FileTree::new(&files).render();
     expect![[r"
            ○ [Deleted|item]
@@ -57,7 +59,8 @@ fn mixed_changes_show_status_and_sources_under_the_destination() {
         ChangedFile::Added { path: path("src/parser/added.rs") },
         ChangedFile::Deleted { path: path("src/parser/deleted.rs") },
         ChangedFile::Modified { path: path("src/parser/modified.rs") },
-    ];
+    ]
+    .map(|file| (file, None));
     let page = FileTree::new(&files).render();
     expect![[r"
         ╭  ◌ [Label|src/parser/]
@@ -70,4 +73,26 @@ fn mixed_changes_show_status_and_sources_under_the_destination() {
     "]]
     .assert_eq(&super::with_folds(&page, &super::page::markup(&page)));
     assert!(page.lines.iter().all(|line| line.target.is_none()));
+}
+
+#[test]
+fn counts_show_on_files_and_sum_over_text_files_in_folders() {
+    let text = |added, removed| Some(LineCounts::Text { added, removed });
+    let files = [
+        (ChangedFile::Modified { path: path("README.md") }, text(0, 0)),
+        (ChangedFile::Added { path: path("src/new.rs") }, text(12, 0)),
+        (ChangedFile::Modified { path: path("src/lib.rs") }, text(3, 5)),
+        (ChangedFile::Renamed { from: path("src/old.png"), path: path("src/logo.png") }, Some(LineCounts::Binary)),
+        (ChangedFile::Added { path: path("assets/icon.png") }, Some(LineCounts::Binary)),
+    ];
+    let page = FileTree::new(&files).render();
+    expect![[r#"
+        ○ [Modified|README.md][Added| +0][Deleted| -0]
+        ○ [Added|assets/icon.png][Muted| binary]
+        ◌ [Label|src/][Added| +15][Deleted| -5]
+        ├─○ [Modified|lib.rs][Added| +3][Deleted| -5]
+        ├─○ [Renamed|logo.png][Muted| binary][Muted| ← moved from old.png]
+        ╰─○ [Added|new.rs][Added| +12][Deleted| -0]
+    "#]]
+    .assert_eq(&super::page::markup(&page));
 }

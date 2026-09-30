@@ -2,26 +2,27 @@
 
 use std::collections::BTreeMap;
 
-use cabaret_types::ChangedFile;
+use cabaret_types::{ChangedFile, LineCounts};
 
 use crate::page::{Fold, Line, Page, Segment, Tag, Target};
 
 /// A diff can delete a file and add a directory at the same path, so a node may hold both.
+/// Each file has its line counts when they were counted.
 #[derive(Default)]
 pub struct FileTree<'a> {
-    files: Vec<&'a ChangedFile>,
+    files: Vec<&'a (ChangedFile, Option<LineCounts>)>,
     children: BTreeMap<&'a str, Self>,
 }
 
 impl<'a> FileTree<'a> {
-    pub fn new(files: &'a [ChangedFile]) -> Self {
+    pub fn new(files: &'a [(ChangedFile, Option<LineCounts>)]) -> Self {
         let mut tree = Self::default();
-        for file in files {
+        for listed @ (file, _) in files {
             let mut node = &mut tree;
             for component in file.path().as_ref().split('/') {
                 node = node.children.entry(component).or_default();
             }
-            node.files.push(file);
+            node.files.push(listed);
         }
         tree
     }
@@ -30,8 +31,10 @@ impl<'a> FileTree<'a> {
     pub fn render(&self) -> Page { self.render_with_targets(|_| None) }
 
     /// Every file in the tree, in the order it renders them.
-    pub fn listed_files(&self) -> Vec<&'a ChangedFile> {
-        self.children.values().flat_map(|child| [child.files.clone(), child.listed_files()].concat()).collect()
+    pub fn listed_files(&self) -> Vec<&'a ChangedFile> { self.listed().into_iter().map(|(file, _)| file).collect() }
+
+    fn listed(&self) -> Vec<&'a (ChangedFile, Option<LineCounts>)> {
+        self.children.values().flat_map(|child| [child.files.clone(), child.listed()].concat()).collect()
     }
 
     /// `target` leads a file's row to that file, and a folder's row to every file under it.
@@ -59,16 +62,24 @@ impl<'a> FileTree<'a> {
                 None => format!("{marker} "),
                 Some(prefix) => format!("{prefix}{}{marker} ", if last { "╰─" } else { "├─" }),
             };
-            for (index, file) in child.files.iter().enumerate() {
+            for (index, (file, counts)) in child.files.iter().copied().enumerate() {
                 let last_file = last && child.children.is_empty() && index + 1 == child.files.len();
-                let mut line = file_row(file, &name);
+                let mut line = file_row(file, *counts, &name);
                 line.target = target(&[file]);
                 line.segments.insert(0, Segment::plain(art(last_file, '○')));
                 page.lines.push(line);
             }
             if !child.children.is_empty() {
                 let start = u32::try_from(page.lines.len()).expect("pages are short");
-                let row = Line::plain(art(last, '◌')).push(Segment::tagged(format!("{name}/"), Tag::Label));
+                let mut row = Line::plain(art(last, '◌')).push(Segment::tagged(format!("{name}/"), Tag::Label));
+                // Binary files have no lines to add to a folder's total.
+                let text = child.listed().into_iter().filter_map(|(_, counts)| match counts {
+                    Some(LineCounts::Text { added, removed }) => Some((*added, *removed)),
+                    Some(LineCounts::Binary) | None => None,
+                });
+                if let Some((added, removed)) = text.reduce(|(a1, r1), (a2, r2)| (a1 + a2, r1 + r2)) {
+                    row.segments.extend(line_counts(added, removed));
+                }
                 page.lines.push(Line { target: target(&child.listed_files()), ..row });
                 let continuation = match prefix {
                     None => String::new(),
@@ -82,7 +93,7 @@ impl<'a> FileTree<'a> {
     }
 }
 
-fn file_row(file: &ChangedFile, name: &str) -> Line {
+fn file_row(file: &ChangedFile, counts: Option<LineCounts>, name: &str) -> Line {
     let (tag, source) = match file {
         ChangedFile::Added { .. } => (Tag::Added, None),
         ChangedFile::Deleted { .. } => (Tag::Deleted, None),
@@ -91,6 +102,11 @@ fn file_row(file: &ChangedFile, name: &str) -> Line {
         ChangedFile::Copied { from, .. } => (Tag::Copied, Some(("copied", from))),
     };
     let mut row = Line::default().push(Segment::tagged(name, tag));
+    match counts {
+        Some(LineCounts::Text { added, removed }) => row.segments.extend(line_counts(added, removed)),
+        Some(LineCounts::Binary) => row = row.push(Segment::tagged(" binary", Tag::Muted)),
+        None => {}
+    }
     if let Some((verb, from)) = source {
         let (from_dir, from_name) = from.as_ref().rsplit_once('/').unwrap_or(("", from.as_ref()));
         let (to_dir, _) = file.path().as_ref().rsplit_once('/').unwrap_or(("", file.path().as_ref()));
@@ -98,4 +114,8 @@ fn file_row(file: &ChangedFile, name: &str) -> Line {
         row = row.push(Segment::tagged(format!(" ← {verb} from {source}"), Tag::Muted));
     }
     row
+}
+
+fn line_counts(added: u32, removed: u32) -> [Segment; 2] {
+    [Segment::tagged(format!(" +{added}"), Tag::Added), Segment::tagged(format!(" -{removed}"), Tag::Deleted)]
 }

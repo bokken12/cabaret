@@ -98,3 +98,36 @@ fn workspace_after_side_keeps_what_was_on_disk_when_read() {
     expect![[r#"Some("one, edited\n")"#]]
         .assert_eq(&format!("{:?}", fixture.text(diff.files[0].after.unwrap(), "one.txt")));
 }
+
+#[test]
+fn files_page_counts_lines_of_each_diff() {
+    let fixture = edited(
+        &[("file.txt", "1\n2\n3\n"), ("old.txt", "old\n"), ("image.png", "\0before")],
+        &[("file.txt", "1\ntwo\n3\n4\n"), ("new.txt", "new\n"), ("image.png", "\0after")],
+    );
+    fixture.remove("change", &["old.txt"]);
+    let page = fixture.cabaret.files_page(&id("change"), DiffView::Diff, &[]).unwrap();
+    expect![[r#"
+        change · changed files
+
+        ○ file.txt +2 -1
+        ○ image.png binary
+        ○ new.txt +1 -0
+        ○ old.txt +0 -1
+    "#]]
+    .assert_eq(&page.to_string());
+}
+
+#[test]
+fn files_page_skips_counting_lines_of_many_files() {
+    let paths: Vec<_> = (0..101).map(|index| format!("{index:03}.txt")).collect();
+    let edits: Vec<_> = paths.iter().map(|path| (path.as_str(), "new\n")).collect();
+    let fixture = edited(&[], &edits);
+    let page = fixture.cabaret.files_page(&id("change"), DiffView::Diff, &[]).unwrap().to_string();
+    expect![[r#"
+        change · changed files
+
+        ○ 000.txt
+        ○ 001.txt"#]]
+    .assert_eq(&page.lines().take(4).collect::<Vec<_>>().join("\n"));
+}

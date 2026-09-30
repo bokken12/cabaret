@@ -73,7 +73,7 @@ cabaret.stepIn at "feature"
   cabaret:/show/feature:0: feature
 cabaret.diff
   > feature
-  cabaret:/diff/feature:6: ├─○ a.txt
+  cabaret:/diff/feature:6: ├─○ a.txt +1 -0
 cabaret.stepIn at "a.txt"
   > src/a.txt (feature)
   cabaret-blob:/src/a.txt:0: a
@@ -82,7 +82,7 @@ cabaret.stepDown
   cabaret-blob:/src/b.txt:0: b
 cabaret.stepOut
   > feature
-  cabaret:/diff/feature:6: ├─○ a.txt
+  cabaret:/diff/feature:6: ├─○ a.txt +1 -0
 cabaret.stepOut
   > feature
   cabaret:/show/feature:0: feature
@@ -112,7 +112,7 @@ cabaret.stepIn at "feature"
   cabaret:/show/feature:0: feature
 cabaret.review
   > feature
-  cabaret:/review/feature:6: ├─○ a.txt
+  cabaret:/review/feature:6: ├─○ a.txt +1 -0
 cabaret.stepIn at "a.txt"
   > src/a.txt (feature, unreviewed)
   cabaret-blob:/src/a.txt:0: a
@@ -152,7 +152,7 @@ cabaret.stepIn at "feature"
   cabaret:/show/feature:0: feature
 cabaret.workspaceDiff
   > feature
-  cabaret:/workspace/feature:5: ○ src/a.txt
+  cabaret:/workspace/feature:5: ○ src/a.txt +1 -1
 cabaret.stepIn at "a.txt"
   > src/a.txt (feature, uncommitted)
   cabaret-blob:/src/a.txt:0: a, saved
@@ -208,7 +208,7 @@ feature · uncommitted files
  │ overview │ [d] diff 2 │ [r] review 0 │ [w] workspace 1 │
 ─┴──────────┴────────────┴──────────────┘                 └─
 
-○ src/a.txt
+○ src/a.txt +1 -1
 `,
       );
     } finally {
@@ -245,19 +245,19 @@ feature · uncommitted files
  │ overview │ [d] diff 2 │ [r] review 0 │ [w] workspace 0 │
 ─┴──────────┘            └──────────────┴─────────────────┴─
 
-◌ src/
-├─○ a.txt
-╰─○ b.txt
+◌ src/ +2 -0
+├─○ a.txt +1 -0
+╰─○ b.txt +1 -0
 ---
 feature · changed files
  ╭──────────┬────────────┬──────────────┬─────────────────╮
  │ overview │ [d] diff 3 │ [r] review 1 │ [w] workspace 0 │
 ─┴──────────┘            └──────────────┴─────────────────┴─
 
-◌ src/
-├─○ a.txt
-├─○ b.txt
-╰─○ c.txt
+◌ src/ +3 -0
+├─○ a.txt +1 -0
+├─○ b.txt +1 -0
+╰─○ c.txt +1 -0
 `,
       );
     } finally {

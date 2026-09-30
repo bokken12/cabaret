@@ -6,7 +6,9 @@ use std::{collections::BTreeSet, fmt, path::Path};
 
 use cabaret_agents::{Session, SessionId, Status};
 use cabaret_config::Hints;
-use cabaret_types::{ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TimestampMs};
+use cabaret_types::{
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LineCounts, RepoPath, RevisionId, TimestampMs,
+};
 
 use crate::{file_tree::FileTree, home::HomeSection};
 
@@ -221,8 +223,14 @@ impl Page {
 
     /// The files `change`'s `view` diffs, headed by the change's name; below, each file leads to
     /// its own diff and each folder to all under it. The cursor starts on the first file listed,
-    /// so that diffs can be read in order from the top.
-    pub fn files(change: &ChangeIdRef, title: Option<&str>, view: DiffView, files: &[ChangedFile]) -> Self {
+    /// so that diffs can be read in order from the top. Files and folders show their line counts
+    /// where they were counted.
+    pub fn files(
+        change: &ChangeIdRef,
+        title: Option<&str>,
+        view: DiffView,
+        files: &[(ChangedFile, Option<LineCounts>)],
+    ) -> Self {
         let kind = view.kind();
         let target = |files: &[&ChangedFile]| Target::Diff {
             view,

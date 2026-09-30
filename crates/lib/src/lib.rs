@@ -10,7 +10,8 @@ pub use cabaret_page::{
     Target, name,
 };
 pub use cabaret_types::{
-    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath,
-    Result, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, log, safeguard,
+    ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
+    RepoPath, Result, RevisionId, TimestampMs, TreeId, ViewDiff, WorkspaceId, WorkspaceIdRef, is_binary, line_diff,
+    log, safeguard,
 };
 pub use gix;
