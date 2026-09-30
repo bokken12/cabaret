@@ -1,0 +1,3 @@
+Archived changes declaring no parents still target the default branch
+
+`Metadata::parents` fell back to the default branch only for an open change's own empty declared set. An archived change, or an archived candidate being skipped over, used its declared parents as-is, so landing an unlogged branch turned its children into roots. Both now go through `targets`, the declared parents or else the default branch.
