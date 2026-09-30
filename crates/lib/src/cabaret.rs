@@ -472,9 +472,11 @@ impl Cabaret {
                 }
                 DiffView::Workspace => {
                     let workspace = ctx.workspace(workspace_id.as_ref().expect("looked up above").to_ref())?;
-                    let saved = ctx.commit(workspace.saved_tree(&[])?, vec![tip], change_id.as_bstr())?;
+                    // One read of the disk, so every file listed is in the saved commit.
+                    let tree = workspace.saved_tree(pathspecs)?;
+                    let saved = ctx.commit(tree, vec![tip], change_id.as_bstr())?;
                     workspace
-                        .changed_files(pathspecs)?
+                        .saved_changes(tree)?
                         .into_iter()
                         .map(|file| FileDiff::new(file, Some(tip), saved))
                         .collect()
