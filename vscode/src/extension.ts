@@ -626,7 +626,7 @@ class DescriptionProvider implements vscode.FileSystemProvider {
   async writeFile(uri: vscode.Uri, content: Uint8Array): Promise<void> {
     const change = descriptionChange(uri);
     const text = Buffer.from(content).toString();
-    await openCabaret().setDescription(change, text.trim() === "" ? undefined : text);
+    await openCabaret().setDescription(change, text);
   }
 
   readDirectory(): never {

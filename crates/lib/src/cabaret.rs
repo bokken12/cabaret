@@ -808,9 +808,9 @@ impl Cabaret {
         })
     }
 
-    /// Set `change_id`'s description; `None` or an empty text clears it.
-    pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
-        let description = description.filter(|text| !text.is_empty());
+    /// Set `change_id`'s description; blank text clears it.
+    pub fn set_description(&self, change_id: &ChangeIdRef, description: String) -> Result<()> {
+        let description = Some(description).filter(|text| !text.trim().is_empty());
         self.store.update_metadata(change_id, |_ctx, metadata| {
             metadata.description = description;
             Ok(())

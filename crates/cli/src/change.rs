@@ -220,7 +220,7 @@ impl ChangeCommand {
                     Some(text) => text,
                     None => std::io::read_to_string(std::io::stdin())?,
                 };
-                cabaret.set_description(&or_current(change)?, Some(text).filter(|text| !text.trim().is_empty()))?;
+                cabaret.set_description(&or_current(change)?, text)?;
             }
             ChangeCommand::Diff { change, full, workspace, pathspecs } => {
                 let view = match (full, workspace) {

@@ -375,7 +375,7 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub async fn set_description(&self, change: ChangeId, description: Option<String>) -> napi::Result<()> {
+    pub async fn set_description(&self, change: ChangeId, description: String) -> napi::Result<()> {
         self.blocking(move |cabaret| cabaret.set_description(&change, description)).await
     }
 

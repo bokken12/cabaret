@@ -580,7 +580,7 @@ pub fn scene() -> Fixture {
 
     fixture.create("described", "main", &alice());
     fixture.cabaret.set_title(&id("described"), Some("Described".into())).unwrap();
-    fixture.cabaret.set_description(&id("described"), Some("A change with a title and description.".into())).unwrap();
+    fixture.cabaret.set_description(&id("described"), "A change with a title and description.".into()).unwrap();
     fixture.commit("described", &[("described.txt", "described\n")]);
 
     fixture.checkout("single");

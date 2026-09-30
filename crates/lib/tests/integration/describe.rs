@@ -15,7 +15,7 @@ fn child() -> Fixture {
 #[test]
 fn description_is_a_file_beside_the_log() {
     let fixture = child();
-    fixture.cabaret.set_description(&id("child"), Some("What it does.\n\nAnd why.\n".into())).unwrap();
+    fixture.cabaret.set_description(&id("child"), "What it does.\n\nAnd why.\n".into()).unwrap();
     expect![[r#"
         message "edit description\n"
         actions.jsonl ""
@@ -28,8 +28,8 @@ fn description_is_a_file_beside_the_log() {
 #[test]
 fn clearing_leaves_the_file_empty() {
     let fixture = child();
-    fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
-    fixture.cabaret.set_description(&id("child"), None).unwrap();
+    fixture.cabaret.set_description(&id("child"), "Described.".into()).unwrap();
+    fixture.cabaret.set_description(&id("child"), String::new()).unwrap();
     expect![[r#"
         message "edit description\n"
         actions.jsonl ""
@@ -42,7 +42,7 @@ fn clearing_leaves_the_file_empty() {
 #[test]
 fn a_log_edit_carries_the_description_along() {
     let fixture = child();
-    fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
+    fixture.cabaret.set_description(&id("child"), "Described.".into()).unwrap();
     fixture.cabaret.set_title(&id("child"), Some("Titled".into())).unwrap();
     expect![[r#"
         message "{\"action\":\"set-title\",\"title\":\"Titled\"}\n"
@@ -53,9 +53,9 @@ fn a_log_edit_carries_the_description_along() {
 }
 
 #[test]
-fn an_empty_description_clears() {
+fn a_blank_description_clears() {
     let fixture = child();
-    fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
-    fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap();
+    fixture.cabaret.set_description(&id("child"), "Described.".into()).unwrap();
+    fixture.cabaret.set_description(&id("child"), " \n".into()).unwrap();
     assert_eq!(fixture.snapshot("child").description, None);
 }

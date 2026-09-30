@@ -89,11 +89,11 @@ fn edits_already_in_effect_write_nothing() {
     let greeting = ["greeting.txt".parse().unwrap()];
     let allow = Allow::default();
     fixture.cabaret.set_title(&child, Some("Titled".into())).unwrap();
-    fixture.cabaret.set_description(&child, Some("Described.".into())).unwrap();
+    fixture.cabaret.set_description(&child, "Described.".into()).unwrap();
     fixture.cabaret.mark(&child, &greeting, None).unwrap();
     let before = fixture.log_head("child");
     fixture.cabaret.set_title(&child, Some("Titled".into())).unwrap();
-    fixture.cabaret.set_description(&child, Some("Described.".into())).unwrap();
+    fixture.cabaret.set_description(&child, "Described.".into()).unwrap();
     fixture.cabaret.mark(&child, &greeting, None).unwrap();
     fixture.cabaret.add_owner(&child, &alice()).unwrap();
     fixture.cabaret.remove_owner(&child, &bob(), &allow).unwrap();
