@@ -1,1 +1,1 @@
-Allow clippy's match_bool and too_many_lines: matching on bools is house style, and the line limit only flags flat dispatch.
+Allow clippy's match_bool, redundant_closure_for_method_calls, and too_many_lines: matching on bools and uniform |ctx| ctx.method() closures are house style, and the line limit only flags flat dispatch.
