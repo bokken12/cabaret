@@ -65,15 +65,3 @@ fn later_mark_replaces_earlier_one() {
     "#]]
     .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("child")), "TIP"));
 }
-
-#[test]
-fn marking_same_revision_again_refuses() {
-    let fixture = stacked();
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
-    expect!["error: child already had these files marked reviewed there"].assert_eq(&mark(
-        &fixture,
-        "child",
-        &["greeting.txt"],
-        None,
-    ));
-}

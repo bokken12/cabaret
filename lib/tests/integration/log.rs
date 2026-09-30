@@ -1,10 +1,12 @@
 //! The log's commit graph: how writes that did and did not see each other fold, and the
 //! revisions a log commit keeps as parents.
 
-use cabaret_lib::{RevisionId, log::LogAction};
+use std::collections::BTreeSet;
+
+use cabaret_lib::{RevisionId, log::LogAction, safeguard::Allow};
 use expect_test::expect;
 
-use super::fixture::{Fixture, alice, id, short};
+use super::fixture::{Fixture, alice, bob, id, short};
 
 /// `child` on `main`, its log holding just its creation.
 fn child() -> Fixture {
@@ -77,4 +79,32 @@ fn a_log_commit_must_take_what_it_refers_to_as_a_parent() {
     let error = fixture.cabaret.snapshot(&id("child")).unwrap_err();
     expect!["log commit ORPHANED refers to TIP without taking it as a parent"]
         .assert_eq(&format!("{error:?}").replace(&orphaned.to_string(), "ORPHANED").replace(&tip.to_string(), "TIP"));
+}
+
+#[test]
+fn edits_already_in_effect_write_nothing() {
+    let fixture = child();
+    fixture.root("other", &[]);
+    let child = id("child");
+    let greeting = ["greeting.txt".parse().unwrap()];
+    let allow = Allow::default();
+    fixture.cabaret.set_title(&child, Some("Titled".into())).unwrap();
+    fixture.cabaret.set_description(&child, Some("Described.".into())).unwrap();
+    fixture.cabaret.mark(&child, &greeting, None).unwrap();
+    let before = fixture.log_head("child");
+    fixture.cabaret.set_title(&child, Some("Titled".into())).unwrap();
+    fixture.cabaret.set_description(&child, Some("Described.".into())).unwrap();
+    fixture.cabaret.mark(&child, &greeting, None).unwrap();
+    fixture.cabaret.add_owner(&child, &alice()).unwrap();
+    fixture.cabaret.remove_owner(&child, &bob(), &allow).unwrap();
+    fixture.cabaret.set_owners(&child, BTreeSet::from([alice()]), &allow).unwrap();
+    fixture.cabaret.add_parent(&child, &id("main"), &allow).unwrap();
+    fixture.cabaret.remove_parent(&child, &id("other"), &allow).unwrap();
+    fixture.cabaret.unarchive(&child, &allow).unwrap();
+    fixture.cabaret.set_permanent(&child, false, &allow).unwrap();
+    assert_eq!(fixture.log_head("child"), before);
+    fixture.cabaret.archive(&child, &allow).unwrap();
+    let archived = fixture.log_head("child");
+    fixture.cabaret.archive(&child, &allow).unwrap();
+    assert_eq!(fixture.log_head("child"), archived);
 }

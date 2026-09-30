@@ -53,21 +53,9 @@ fn a_log_edit_carries_the_description_along() {
 }
 
 #[test]
-fn setting_the_same_description_is_refused() {
-    let fixture = child();
-    fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
-    let error = fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap_err();
-    expect!["child already had this description"].assert_eq(&format!("{error:?}"));
-    let error = fixture.cabaret.set_description(&id("main"), None).unwrap_err();
-    expect!["main already had this description"].assert_eq(&format!("{error:?}"));
-}
-
-#[test]
 fn an_empty_description_clears() {
     let fixture = child();
     fixture.cabaret.set_description(&id("child"), Some("Described.".into())).unwrap();
     fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap();
     assert_eq!(fixture.snapshot("child").description, None);
-    let error = fixture.cabaret.set_description(&id("child"), Some(String::new())).unwrap_err();
-    expect!["child already had this description"].assert_eq(&format!("{error:?}"));
 }

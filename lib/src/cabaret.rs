@@ -666,7 +666,7 @@ impl Cabaret {
     pub fn archive(&self, change_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             if metadata.archived {
-                Err(format!("{change_id} has already been archived"))?;
+                return Ok(());
             }
             let mut safeguards = Vec::new();
             if let Some(children) = NEBTreeSet::try_from_set(open_children(ctx, change_id)?) {
@@ -684,7 +684,7 @@ impl Cabaret {
     pub fn unarchive(&self, change_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             if !metadata.archived {
-                Err(format!("{change_id} has not been archived"))?;
+                return Ok(());
             }
             let mut archived = BTreeSet::new();
             for parent in &metadata.declared_parents {
@@ -703,9 +703,9 @@ impl Cabaret {
     }
 
     pub fn add_owner(&self, change_id: &ChangeIdRef, owner: &Identity) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.owners.insert(owner.clone()) {
-            false => Err(format!("{owner} already owned {change_id}"))?,
-            true => Ok(()),
+        self.store.update_metadata(change_id, |_ctx, metadata| {
+            metadata.owners.insert(owner.clone());
+            Ok(())
         })
     }
 
@@ -713,7 +713,7 @@ impl Cabaret {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let before = metadata.owners.clone();
             if !metadata.owners.remove(owner) {
-                Err(format!("{owner} did not own {change_id}"))?;
+                return Ok(());
             }
             allow.check(owners_safeguards(&ctx.identity()?, &before, &metadata.owners))?;
             Ok(())
@@ -723,7 +723,7 @@ impl Cabaret {
     pub fn set_owners(&self, change_id: &ChangeIdRef, owners: BTreeSet<Identity>, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             if metadata.owners == owners {
-                Err(format!("{change_id} already had these owners"))?;
+                return Ok(());
             }
             allow.check(owners_safeguards(&ctx.identity()?, &metadata.owners, &owners))?;
             metadata.owners = owners.clone();
@@ -738,7 +738,7 @@ impl Cabaret {
     pub fn add_parent(&self, change_id: &ChangeIdRef, parent_id: &ChangeIdRef, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             if !metadata.declared_parents.insert(parent_id.to_owned()) {
-                Err(format!("{parent_id} was already a parent of {change_id}"))?;
+                return Ok(());
             }
             if parent_id == change_id {
                 Err(format!("{change_id} cannot be its own parent"))?;
@@ -755,7 +755,7 @@ impl Cabaret {
         self.store.update_metadata(change_id, |_ctx, metadata| {
             let before = metadata.clone();
             if !metadata.declared_parents.remove(parent_id) {
-                Err(format!("{parent_id} was not a parent of {change_id}"))?;
+                return Ok(());
             }
             allow.check(remove_parent_safeguards(&before, metadata, parent_id)?)?;
             Ok(())
@@ -769,32 +769,26 @@ impl Cabaret {
             let branch = ctx.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            if files.iter().all(|file| review.get(file) == Some(&revision)) {
-                Err(format!("{change_id} already had these files marked reviewed there"))?;
-            }
             review.extend(files.iter().map(|file| (file.clone(), revision.clone())));
             Ok(())
         })
     }
 
     pub fn set_title(&self, change_id: &ChangeIdRef, title: Option<String>) -> Result<()> {
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.title == title {
-            true => Err(format!("{change_id} already had this title"))?,
-            false => Ok(metadata.title = title),
-        })
+        self.store.update_metadata(change_id, |_ctx, metadata| Ok(metadata.title = title))
     }
 
     /// Set `change_id`'s description; `None` or an empty text clears it.
     pub fn set_description(&self, change_id: &ChangeIdRef, description: Option<String>) -> Result<()> {
         let description = description.filter(|text| !text.is_empty());
-        self.store.update_metadata(change_id, |_ctx, metadata| match metadata.description == description {
-            true => Err(format!("{change_id} already had this description"))?,
-            false => Ok(metadata.description = description),
-        })
+        self.store.update_metadata(change_id, |_ctx, metadata| Ok(metadata.description = description))
     }
 
     pub fn set_permanent(&self, change_id: &ChangeIdRef, permanent: bool, allow: &Allow) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
+            if metadata.permanent == permanent {
+                return Ok(());
+            }
             if metadata.archived {
                 Err(format!("{change_id} is archived"))?;
             }
