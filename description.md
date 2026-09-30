@@ -1,1 +1,1 @@
-Add a check button to the editor title bar of committed file diffs, running `cabaret.mark` as `! m` does.
+Add a check button to the editor title bar of committed single-file diffs, running `cabaret.mark` as `! m` does. Multi-file diffs go without, as a title bar menu can only tell our diffs from other editors by the single resource it shows.
