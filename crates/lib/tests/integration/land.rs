@@ -40,14 +40,14 @@ fn change_merged_into_parent_and_archived() {
     let fixture = diverged();
     fixture.checkout("main");
     expect!["landed into main"].assert_eq(&land(&fixture, "child"));
-    expect![[r"
+    expect![[r#"
         main
           workspace main
           base (none)
           diff +child.txt +main.txt +shared.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("main"));
-    expect![[r"
+    expect![[r#"
         child
           parents main
           owners alice@example.com
@@ -55,7 +55,7 @@ fn change_merged_into_parent_and_archived() {
           title child
           base e0d18e9e
           diff (empty)
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("child"));
     expect![[r#"
         clean

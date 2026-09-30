@@ -41,7 +41,7 @@ fn parent_merged_into_change() {
     fixture.checkout("child");
     expect![[r#"Rebase { merged: {"main"}, conflicts: {}, remaining: {} }"#]]
         .assert_eq(&rebase(&fixture, "child", None));
-    expect![[r"
+    expect![[r#"
         child
           workspace main
           parents main
@@ -49,7 +49,7 @@ fn parent_merged_into_change() {
           title child
           base main
           diff +child.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("child"));
     expect![[r#"
         clean

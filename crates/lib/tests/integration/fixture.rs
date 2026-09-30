@@ -589,7 +589,7 @@ pub fn scene() -> Fixture {
 
 #[test]
 fn scene_state() {
-    expect![[r"
+    expect![[r#"
         HEAD single
         advanced-parent 54a49f30
           parents main
@@ -693,6 +693,6 @@ fn scene_state() {
           declared (none)
           base main
           diff +unlogged.txt
-    "]]
+    "#]]
     .assert_eq(&scene().state());
 }

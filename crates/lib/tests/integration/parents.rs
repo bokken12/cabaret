@@ -100,14 +100,14 @@ fn created_parent_sits_between_child_and_its_parents() {
     expect![[r#"{Identity("alice@example.com")}"#]].assert_eq(&format!("{:?}", parent.owners));
     assert_eq!(parent.tip, fixture.tip("main"));
     expect![[r#"{"parent"}"#]].assert_eq(&format!("{:?}", fixture.snapshot("child").declared_parents));
-    expect![[r"
+    expect![[r#"
         child 26fb68bb
           parents parent
           owners alice@example.com
           title child
           base c2ab6603
           diff +b
-    "]]
+    "#]]
     .assert_eq(&fixture.show("child"));
 }
 
@@ -128,14 +128,14 @@ fn created_on_several_parents_starts_at_their_merge() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("right.txt", "right\n")]);
     fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
-    expect![[r"
+    expect![[r#"
         join
           parents left right
           owners alice@example.com
           title join
           base 536765ef
           diff (empty)
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("join"));
 }
 
@@ -148,17 +148,17 @@ fn created_on_conflicting_parents_carries_the_conflict() {
     fixture.create("right", "main", &alice());
     fixture.commit("right", &[("file.txt", "right\n")]);
     fixture.cabaret.create("join", nebts![id("left"), id("right")], &alice()).unwrap();
-    expect![[r"
+    expect![[r#"
         join
           parents left right
           owners alice@example.com
           title join
           base ee2f96b1
           diff ~file.txt
-    "]]
+    "#]]
     .assert_eq(&fixture.describe("join"));
     let tip = fixture.tip("join");
-    expect![[r"
+    expect![[r#"
         <<<<<<< join
         left
         ||||||| base
@@ -166,7 +166,7 @@ fn created_on_conflicting_parents_carries_the_conflict() {
         =======
         right
         >>>>>>> right
-    "]]
+    "#]]
     .assert_eq(&fixture.text(tip, "file.txt").unwrap());
 }
 
