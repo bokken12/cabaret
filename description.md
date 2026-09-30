@@ -1,0 +1,1 @@
+The description editor skips the write when a save leaves the description as it was, so saving unchanged succeeds instead of surfacing the lib's refusal of a no-op edit.
