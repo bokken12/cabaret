@@ -1,0 +1,3 @@
+Witness create_parent reading declared rather than computed parents
+
+`create_parent` builds the new parent from the child's declared parents. An unlogged branch declares none, so it can't get a parent, though it targets the default branch. A child of an archived change gets a parent on that archived change and its stale tip. Both tests record the current behaviour with TODOs; the child change fixes it.
