@@ -1,11 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.toml","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"clippy.toml","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/commit.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/fixture.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/land.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/rebase.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/workspace_files.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/file_tree.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/home.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/page.rs","revision":"4c82f02245c2c0e1895660eee1adab459e7a521d"}
+{"action":"set-archived","archived":true}
