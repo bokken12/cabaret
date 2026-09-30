@@ -1,0 +1,1 @@
+Move page.rs, home.rs and file_tree.rs, with their unit tests, out of cabaret-lib into a new cabaret-page crate over types, config and agents. NextStep moves with them as a page input alongside Home; lib still computes it and re-exports the crate's items, so its public surface is unchanged.
