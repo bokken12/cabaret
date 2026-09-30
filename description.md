@@ -1,0 +1,3 @@
+Parse every Identity
+
+`Identity::from_str` refuses empty emails and ones git can't hold, but the public field, `From<String>`, serde and napi all skipped it. The CLI's owner and `--as` args went through `From<String>`, so `cab change owners add ''` stored an empty owner, as did a log line or an extension call carrying one. The field is private now and every way in parses. The CLI's config value parser moves to `args::parse` so that identity args can use it too.
