@@ -1,0 +1,1 @@
+Add a check button to the editor title bar of committed file diffs, running `cabaret.mark` as `! m` does.
