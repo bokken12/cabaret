@@ -1,1 +1,1 @@
-The description editor skips the write when a save leaves the description as it was, so saving unchanged succeeds instead of surfacing the lib's refusal of a no-op edit.
+Metadata edits whose effect already holds are no-ops rather than refusals: owners, parents, review marks, title, description, archiving and permanence. They return before any safeguard check, and since the log writes nothing for unchanged metadata, they commit nothing either. Saving an unchanged description in vscode therefore succeeds.
