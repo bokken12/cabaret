@@ -5,8 +5,8 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "build": "napi build --platform --manifest-path ../lib/Cargo.toml --features napi --no-const-enum -o .",
-    "build:release": "napi build --platform --manifest-path ../lib/Cargo.toml --features napi --no-const-enum -o . --release"
+    "build": "napi build --platform --manifest-path ../crates/lib/Cargo.toml --features napi --no-const-enum -o .",
+    "build:release": "napi build --platform --manifest-path ../crates/lib/Cargo.toml --features napi --no-const-enum -o . --release"
   },
   "devDependencies": {
     "@napi-rs/cli": "catalog:"
