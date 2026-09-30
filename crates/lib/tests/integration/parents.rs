@@ -56,6 +56,18 @@ fn archived_parent_replaced_by_grandparents() {
 }
 
 #[test]
+fn archived_unlogged_parent_replaced_by_default() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.branch("unlogged", "main");
+    fixture.create("child", "unlogged", &alice());
+    fixture.archive("unlogged");
+    // TODO: `unlogged` declared no parents, so it targeted main, and so should `child`.
+    expect!["{}"].assert_eq(&format!("{:?}", fixture.snapshot("unlogged").parents));
+    expect!["{}"].assert_eq(&format!("{:?}", fixture.snapshot("child").parents));
+}
+
+#[test]
 fn ancestor_of_parent_dropped() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
