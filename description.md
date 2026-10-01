@@ -1,0 +1,1 @@
+A change with no parents is its own base, so presents no diff, rather than diffing its whole tree against nothing. Every branch now has a base, so `base`, `review_base`, and `FileDiff::new` take or return a plain `RevisionId`.
