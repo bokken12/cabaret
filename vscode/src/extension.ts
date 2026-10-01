@@ -126,7 +126,7 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Fetch from origin every `cabaret.fetchInterval` seconds, so that others' changes show up
+ * Fetch from origin every `cabaret.vscode.fetchInterval` seconds, so that others' changes show up
  * without anyone asking; the refs they move refresh the pages.
  */
 function fetchPeriodically(): vscode.Disposable {
@@ -135,9 +135,9 @@ function fetchPeriodically(): vscode.Disposable {
   // An unreachable origin fails every fetch, so report only the first of a run of failures.
   let failing = false;
   const fetch = async () => {
-    const seconds = vscode.workspace.getConfiguration("cabaret").get<number>("fetchInterval", 60);
     const cabaret = openCabaret();
-    if (stopped || seconds === 0 || !cabaret.hasOrigin()) {
+    const seconds = cabaret.fetchInterval();
+    if (stopped || seconds === null || !cabaret.hasOrigin()) {
       return;
     }
     try {

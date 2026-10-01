@@ -9,6 +9,7 @@ use std::{
 };
 
 use cabaret_agents::ClaudeCode;
+use cabaret_config::FetchInterval;
 use cabaret_page::{DiffView, HomeSection, Page};
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Error, Identity, Pathspec, RepoPath, Result, RevisionId,
@@ -251,6 +252,15 @@ impl CabaretJs {
             })
             .await?;
         Ok(Attempt::from(attempt))
+    }
+
+    /// Seconds between background fetches from origin, or `None` for never.
+    #[napi]
+    pub fn fetch_interval(&self) -> napi::Result<Option<u32>> {
+        Ok(match self.cabaret.config::<FetchInterval>()?.unwrap_or_default() {
+            FetchInterval::Never => None,
+            FetchInterval::Seconds(seconds) => Some(seconds.get()),
+        })
     }
 
     #[napi]

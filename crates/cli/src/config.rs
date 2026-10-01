@@ -1,4 +1,4 @@
-use cabaret_lib::{Cabaret, Hints, Identity, Prefix, Result, Scope, Setting};
+use cabaret_lib::{Cabaret, FetchInterval, Hints, Identity, Prefix, Result, Scope, Setting};
 use clap::Subcommand;
 
 #[derive(Subcommand)]
@@ -18,6 +18,11 @@ pub enum ConfigCommand {
     Hints {
         #[command(subcommand)]
         command: SettingCommand<Hints>,
+    },
+    /// Seconds between editors' background fetches from origin, 0 for never; 60 unless set.
+    FetchInterval {
+        #[command(subcommand)]
+        command: SettingCommand<FetchInterval>,
     },
 }
 
@@ -55,6 +60,7 @@ impl ConfigCommand {
             ConfigCommand::Identity { command } => command.run(cabaret),
             ConfigCommand::Prefix { command } => command.run(cabaret),
             ConfigCommand::Hints { command } => command.run(cabaret),
+            ConfigCommand::FetchInterval { command } => command.run(cabaret),
         }
     }
 }
