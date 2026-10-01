@@ -10,6 +10,7 @@ use gix::{
         tree::TreatAsUnresolved,
     },
 };
+use nonempty_collections::NEBTreeSet;
 
 use crate::{context::TransactionContext, tree};
 
@@ -36,14 +37,14 @@ impl<'ctx> Branch<'ctx> {
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
     /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
     /// keeping only the maximal ones. A root is its own base, so presents no diff.
-    pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RevisionId>> {
+    pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<NEBTreeSet<RevisionId>> {
         let ctx = self.ctx;
-        if parents.is_empty() {
-            return Ok(BTreeSet::from([self.tip]));
-        }
-        let mut candidates = BTreeSet::new();
+        let merge_base = |parent: &ChangeId| ctx.merge_base(self.tip, ctx.branch(parent)?.tip);
+        let mut parents = parents.iter();
+        let Some(first) = parents.next() else { return Ok(NEBTreeSet::new(self.tip)) };
+        let mut candidates = NEBTreeSet::new(merge_base(first)?);
         for parent in parents {
-            candidates.insert(ctx.merge_base(self.tip, ctx.branch(parent)?.tip)?);
+            candidates.insert(merge_base(parent)?);
         }
         ctx.maximal_revisions(&candidates)
     }
@@ -62,9 +63,8 @@ impl<'ctx> Branch<'ctx> {
 
     /// Several revisions merge into a virtual one, as git's recursive merge does; it lives only
     /// in the object database and is the same commit for the same revisions.
-    fn merged(&self, revisions: &BTreeSet<RevisionId>) -> Result<RevisionId> {
+    fn merged(&self, revisions: &NEBTreeSet<RevisionId>) -> Result<RevisionId> {
         let revisions = self.ctx.maximal_revisions(revisions)?;
-        assert!(!revisions.is_empty(), "every branch has a base");
         let repo = &self.ctx.repo;
         let merged =
             repo.virtual_merge_base(revisions.iter().map(|revision| revision.0), repo.tree_merge_options()?)?;
@@ -92,7 +92,9 @@ impl<'ctx> Branch<'ctx> {
         groups.insert(None);
         let mut files = Vec::new();
         for reviewed in groups {
-            let base = self.merged(&bases.iter().copied().chain(reviewed).collect())?;
+            let mut revisions = bases.clone();
+            revisions.extend(reviewed);
+            let base = self.merged(&revisions)?;
             let mut changed = self.changed_files_from(base, pathspecs)?;
             changed.retain(|file| review.get(file.path()).copied() == reviewed);
             files.extend(changed);

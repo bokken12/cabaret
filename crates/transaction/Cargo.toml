@@ -9,6 +9,7 @@ publish.workspace = true
 cabaret-types.workspace = true
 elsa.workspace = true
 gix.workspace = true
+nonempty-collections.workspace = true
 
 [lints]
 workspace = true

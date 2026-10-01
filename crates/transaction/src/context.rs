@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt};
+use std::fmt;
 
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, FileVersion, Identity, RepoPath, Result, RevisionId, TreeId, WorkspaceId,
@@ -12,6 +12,7 @@ use gix::{
     objs::Commit,
     refs::TargetRef,
 };
+use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
 use crate::{Revision, branch::Branch, metadata::Metadata, workspace::Workspace};
 
@@ -146,7 +147,7 @@ impl<'ctx> TransactionContext<'ctx> {
         let parents = metadata.parents()?;
         Ok(ChangeSnapshot {
             tip: branch.tip,
-            bases: branch.bases(&parents)?,
+            bases: branch.bases(&parents)?.into(),
             title: metadata.title.clone(),
             description: metadata.description.clone(),
             archived: metadata.archived,
@@ -168,19 +169,24 @@ impl<'ctx> TransactionContext<'ctx> {
         Ok(self.merge_base(predecessor, successor)? == predecessor)
     }
 
-    /// `ctx.maximal_revisions(revisions)` returns the subset of `revisions` which have no predecessor under `ctx`.
-    pub fn maximal_revisions(&self, revisions: &BTreeSet<RevisionId>) -> Result<BTreeSet<RevisionId>> {
-        let mut candidates = revisions.clone();
-
-        for &candidate in revisions {
-            for &other in &candidates {
-                if candidate != other && self.is_predecessor(candidate, other)? {
-                    candidates.remove(&candidate);
-                    break;
+    /// The members of `revisions` that precede no other member.
+    pub fn maximal_revisions(&self, revisions: &NEBTreeSet<RevisionId>) -> Result<NEBTreeSet<RevisionId>> {
+        let (&first, rest) = revisions.nonempty_iter().next();
+        let mut maximal = NEBTreeSet::new(first);
+        'revisions: for &revision in rest {
+            for &kept in &maximal {
+                if self.is_predecessor(revision, kept)? {
+                    continue 'revisions;
                 }
             }
+            let mut next = NEBTreeSet::new(revision);
+            for &kept in &maximal {
+                if !self.is_predecessor(kept, revision)? {
+                    next.insert(kept);
+                }
+            }
+            maximal = next;
         }
-
-        Ok(candidates)
+        Ok(maximal)
     }
 }

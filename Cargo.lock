@@ -224,6 +224,7 @@ dependencies = [
  "cabaret-types",
  "elsa",
  "gix",
+ "nonempty-collections",
 ]
 
 [[package]]
