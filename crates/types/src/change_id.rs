@@ -36,6 +36,8 @@ impl ToOwned for ChangeIdRef {
 
 impl ChangeIdRef {
     pub const LOG_REF_PREFIX: &'static str = "refs/cabaret/changes/";
+    /// Where fetching keeps origin's logs, outside `refs/remotes/origin/` so no branch name can collide.
+    pub const ORIGIN_LOG_REF_PREFIX: &'static str = "refs/cabaret/remotes/origin/changes/";
 
     pub fn branch_ref(&self) -> FullName {
         FullName::try_from(format!("refs/heads/{self}")).expect("a partial name is valid under refs/heads/")

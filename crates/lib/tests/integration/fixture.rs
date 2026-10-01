@@ -71,12 +71,13 @@ fn init(path: &Path, kind: Kind) -> gix::Repository {
         .to_thread_local()
 }
 
-fn configure(repo: &gix::Repository) {
+/// Act as `name` <`email`>, with `extra` config appended.
+fn configure(repo: &gix::Repository, name: &str, email: &str, extra: &str) {
     let config_path = repo.git_dir().join("config");
     let config = fs::read_to_string(&config_path).unwrap();
     fs::write(
         config_path,
-        format!("{config}[user]\n\tname = Alice Test\n\temail = alice@example.com\n[cabaret]\n\tprefix =\n"),
+        format!("{config}[user]\n\tname = {name}\n\temail = {email}\n[cabaret]\n\tprefix =\n{extra}"),
     )
     .unwrap();
 }
@@ -85,7 +86,21 @@ impl Fixture {
     pub fn new() -> Self {
         let (dir, root) = tempdir();
         let main = root.join("main");
-        configure(&init(&main, Kind::WithWorktree));
+        configure(&init(&main, Kind::WithWorktree), "Alice Test", &alice().0, "");
+        Self::open(dir, root, &main)
+    }
+
+    /// An empty repository acting as bob, with `origin`'s as its origin.
+    pub fn with_origin(origin: &Fixture) -> Self {
+        let (dir, root) = tempdir();
+        let main = root.join("main");
+        let url = origin.repo.workdir().unwrap().display().to_string();
+        configure(
+            &init(&main, Kind::WithWorktree),
+            "Bob Test",
+            &bob().0,
+            &format!("[remote \"origin\"]\n\turl = {url}\n"),
+        );
         Self::open(dir, root, &main)
     }
 
@@ -95,7 +110,7 @@ impl Fixture {
         let (dir, root) = tempdir();
         let project = root.join("project");
         fs::create_dir(&project).unwrap();
-        configure(&init(&project.join(".bare"), Kind::Bare));
+        configure(&init(&project.join(".bare"), Kind::Bare), "Alice Test", &alice().0, "");
         fs::write(project.join(".git"), "gitdir: ./.bare\n").unwrap();
         Self::open(dir, root, &project)
     }
@@ -298,6 +313,12 @@ impl Fixture {
             ("description.md".into(), String::new()),
         ]);
         self.commit_tree_at(write_tree(&self.repo, &files), parents, seconds)
+    }
+
+    /// Point `change`'s branch at origin's, as fetched.
+    pub fn track(&self, change: &str) {
+        let name = format!("refs/remotes/origin/{change}");
+        self.move_branch(change, RevisionId(self.repo.find_reference(&name).unwrap().peel_to_commit().unwrap().id));
     }
 
     /// Point `change`'s log ref at `revision`.

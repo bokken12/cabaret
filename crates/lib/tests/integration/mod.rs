@@ -5,6 +5,7 @@ mod config;
 mod create;
 mod describe;
 mod discard;
+mod fetch;
 mod fixture;
 mod home;
 mod land;

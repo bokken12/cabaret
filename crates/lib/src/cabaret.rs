@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use cabaret_agents::{ClaudeCode, Session};
@@ -19,7 +20,7 @@ use cabaret_types::{
         RemovesOthers, Safeguard, SafeguardKind, Uncommitted, Unreviewed,
     },
 };
-use gix::bstr::ByteSlice;
+use gix::{bstr::ByteSlice, remote::Direction};
 use jiff::Zoned;
 use nonempty_collections::{NEBTreeSet, NonEmptyIterator};
 
@@ -87,6 +88,43 @@ impl Cabaret {
             }
         }
         fs::write(dir.join(".git"), GITFILE)?;
+        Ok(())
+    }
+
+    // Remote operations
+
+    /// Exchange logs with origin, so that both end up having seen every write either has: fetch
+    /// origin's logs, merge each into the local one, then push every local log back. Origin's
+    /// branches are fetched too, but only as `refs/remotes/origin/*`.
+    // TODO-someday(joel): sync branches too: create and fast-forward local ones from origin's, push those ahead.
+    pub fn fetch(&self) -> Result<()> {
+        let repo = self.store.repo.to_thread_local();
+        let mut remote = repo.find_remote("origin")?;
+        let logs = format!("{}*", ChangeIdRef::LOG_REF_PREFIX);
+        let origin_logs = format!("+{logs}:{}*", ChangeIdRef::ORIGIN_LOG_REF_PREFIX);
+        remote.replace_refspecs(["+refs/heads/*:refs/remotes/origin/*", origin_logs.as_str()], Direction::Fetch)?;
+        remote
+            .connect(Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, gix::remote::ref_map::Options::default())?
+            .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+
+        for reference in repo.references()?.prefixed(ChangeIdRef::ORIGIN_LOG_REF_PREFIX)? {
+            let mut reference = reference?;
+            let name = reference.name().as_bstr().to_str()?;
+            let change_id: ChangeId =
+                name.strip_prefix(ChangeIdRef::ORIGIN_LOG_REF_PREFIX).expect("listed by this prefix").parse()?;
+            self.store.merge_log(&change_id, reference.peel_to_id()?.detach())?;
+        }
+
+        // gix cannot push yet.
+        let pushed = Command::new("git")
+            .arg("--git-dir")
+            .arg(repo.common_dir())
+            .args(["push", "--quiet", "origin", &format!("{logs}:{logs}")])
+            .output()?;
+        if !pushed.status.success() {
+            Err(format!("pushing logs to origin failed: {}", String::from_utf8_lossy(&pushed.stderr).trim_end()))?;
+        }
         Ok(())
     }
 

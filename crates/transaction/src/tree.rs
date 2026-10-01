@@ -34,15 +34,19 @@ pub(crate) fn changed_files(
     Ok(files)
 }
 
-/// Options for merging trees, with the conflict style forced rather than read from config so
-/// conflict text is identical no matter whose clone performs the merge. Diff3 rather than zealous
-/// diff3 keeps each side whole within the markers, so the conflict's terms can be read back from
-/// the file.
-pub fn merge_options(repo: &Repository) -> Result<gix::merge::tree::Options> {
-    let mut options: gix::merge::plumbing::tree::Options = repo.tree_merge_options()?.into();
-    options.blob_merge.text.conflict = Conflict::Keep {
+/// How text merges keep conflicts: forced rather than read from config so conflict text is
+/// identical no matter whose clone performs the merge. Diff3 rather than zealous diff3 keeps each
+/// side whole within the markers, so the conflict's terms can be read back from the file.
+pub fn conflict() -> Conflict {
+    Conflict::Keep {
         style: ConflictStyle::Diff3,
         marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero"),
-    };
+    }
+}
+
+/// Options for merging trees, keeping conflicts as [`conflict`] does.
+pub fn merge_options(repo: &Repository) -> Result<gix::merge::tree::Options> {
+    let mut options: gix::merge::plumbing::tree::Options = repo.tree_merge_options()?.into();
+    options.blob_merge.text.conflict = conflict();
     Ok(options.into())
 }
