@@ -35,9 +35,12 @@ impl<'ctx> Branch<'ctx> {
 
     /// The revisions this branch is measured against: the merge base with each of `parents`, the
     /// changes it targets (see [`Metadata::parents`](crate::metadata::Metadata::parents)),
-    /// keeping only the maximal ones. Empty for a root.
+    /// keeping only the maximal ones. A root is its own base, so presents no diff.
     pub fn bases(&self, parents: &BTreeSet<ChangeId>) -> Result<BTreeSet<RevisionId>> {
         let ctx = self.ctx;
+        if parents.is_empty() {
+            return Ok(BTreeSet::from([self.tip]));
+        }
         let mut candidates = BTreeSet::new();
         for parent in parents {
             candidates.insert(ctx.merge_base(self.tip, ctx.branch(parent)?.tip)?);
@@ -45,35 +48,27 @@ impl<'ctx> Branch<'ctx> {
         ctx.maximal_revisions(&candidates)
     }
 
-    /// The revision this branch's diff is computed against: `None` for a root.
-    pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<Option<RevisionId>> {
-        self.merged(&self.bases(parents)?)
-    }
+    /// The revision this branch's diff is computed against.
+    pub fn base(&self, parents: &BTreeSet<ChangeId>) -> Result<RevisionId> { self.merged(&self.bases(parents)?) }
 
     /// The revision a reviewer's diff of one file is computed against: the bases merged with
     /// `reviewed`, the tip they last marked the file reviewed at, so only what has changed since
     /// remains to read. The plain base for a file they never marked.
-    pub fn review_base(
-        &self,
-        parents: &BTreeSet<ChangeId>,
-        reviewed: Option<RevisionId>,
-    ) -> Result<Option<RevisionId>> {
+    pub fn review_base(&self, parents: &BTreeSet<ChangeId>, reviewed: Option<RevisionId>) -> Result<RevisionId> {
         let mut revisions = self.bases(parents)?;
         revisions.extend(reviewed);
         self.merged(&revisions)
     }
 
     /// Several revisions merge into a virtual one, as git's recursive merge does; it lives only
-    /// in the object database and is the same commit for the same revisions. `None` for none.
-    fn merged(&self, revisions: &BTreeSet<RevisionId>) -> Result<Option<RevisionId>> {
+    /// in the object database and is the same commit for the same revisions.
+    fn merged(&self, revisions: &BTreeSet<RevisionId>) -> Result<RevisionId> {
         let revisions = self.ctx.maximal_revisions(revisions)?;
-        if revisions.is_empty() {
-            return Ok(None);
-        }
+        assert!(!revisions.is_empty(), "every branch has a base");
         let repo = &self.ctx.repo;
         let merged =
             repo.virtual_merge_base(revisions.iter().map(|revision| revision.0), repo.tree_merge_options()?)?;
-        Ok(Some(RevisionId(merged.commit_id.detach())))
+        Ok(RevisionId(merged.commit_id.detach()))
     }
 
     /// The file-level changes this branch presents against `parents`, restricted to those
@@ -156,14 +151,11 @@ impl<'ctx> Branch<'ctx> {
         Ok(written)
     }
 
-    fn changed_files_from(&self, base: Option<RevisionId>, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+    fn changed_files_from(&self, base: RevisionId, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
         let repo = &self.ctx.repo;
-        let base = match base {
-            None => None,
-            Some(base) => Some(repo.find_commit(base.0)?.tree()?),
-        };
+        let base = repo.find_commit(base.0)?.tree()?;
         let tip = repo.find_commit(self.tip.0)?.tree()?;
-        tree::changed_files(repo, base.as_ref(), &tip, pathspecs)
+        tree::changed_files(repo, Some(&base), &tip, pathspecs)
     }
 
     // TODO(joel): for users who are not used to stacking workflows, they may find the rebases encouraged by the change

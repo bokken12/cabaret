@@ -43,8 +43,8 @@ fn change_merged_into_parent_and_archived() {
     expect![[r#"
         main
           workspace main
-          base (none)
-          diff +child.txt +main.txt +shared.txt
+          base main
+          diff (empty)
     "#]]
     .assert_eq(&fixture.describe("main"));
     expect![[r#"
@@ -53,7 +53,7 @@ fn change_merged_into_parent_and_archived() {
           owners alice@example.com
           archived
           title child
-          base e0d18e9e
+          base child
           diff (empty)
     "#]]
     .assert_eq(&fixture.describe("child"));

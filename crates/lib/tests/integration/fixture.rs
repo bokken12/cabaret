@@ -443,8 +443,7 @@ impl Fixture {
         match self.cabaret.base(&id(change)) {
             Err(error) => writeln!(out, "  base {error:?}").unwrap(),
             Ok(base) => {
-                let base = base.map_or("(none)".into(), |base| self.ancestor_at(change, base));
-                writeln!(out, "  base {base}").unwrap();
+                writeln!(out, "  base {}", self.ancestor_at(change, base)).unwrap();
                 let files = self.cabaret.changed_files(&id(change), &[]).unwrap();
                 let diff = match files.is_empty() {
                     true => "(empty)".into(),
@@ -456,10 +455,11 @@ impl Fixture {
         out
     }
 
-    /// The nearest ancestor of `change` whose tip is `revision`, else its short hash.
+    /// The nearest ancestor of `change` whose tip is `revision`, else `change` itself when it is
+    /// its own base, else the revision's short hash.
     fn ancestor_at(&self, change: &str, revision: RevisionId) -> String {
-        let mut frontier: VecDeque<ChangeId> =
-            self.cabaret.snapshot(&id(change)).unwrap().parents.into_iter().collect();
+        let snapshot = self.cabaret.snapshot(&id(change)).unwrap();
+        let mut frontier: VecDeque<ChangeId> = snapshot.parents.into_iter().collect();
         while let Some(ancestor) = frontier.pop_front() {
             let snapshot = self.cabaret.snapshot(&ancestor).unwrap();
             if snapshot.tip == revision {
@@ -467,7 +467,10 @@ impl Fixture {
             }
             frontier.extend(snapshot.parents);
         }
-        short(revision)
+        match snapshot.tip == revision {
+            true => change.to_owned(),
+            false => short(revision),
+        }
     }
 }
 
@@ -682,8 +685,8 @@ fn scene_state() {
           base fork-base
           diff +fork-right.txt
         main be64648c
-          base (none)
-          diff +main.txt
+          base main
+          diff (empty)
         single 25e7b9de
           workspace main
           parents main

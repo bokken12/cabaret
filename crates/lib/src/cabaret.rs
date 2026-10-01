@@ -396,7 +396,7 @@ impl Cabaret {
         self.store.query(|ctx| ctx.blob(revision, path))
     }
 
-    pub fn base(&self, change_id: &ChangeIdRef) -> Result<Option<RevisionId>> {
+    pub fn base(&self, change_id: &ChangeIdRef) -> Result<RevisionId> {
         self.store.query(|ctx| ctx.branch(change_id)?.base(&ctx.metadata(change_id)?.parents()?))
     }
 
@@ -512,11 +512,7 @@ impl Cabaret {
                     // One read of the disk, so every file listed is in the saved commit.
                     let tree = workspace.saved_tree(pathspecs)?;
                     let saved = ctx.commit(tree, vec![tip], change_id.as_bstr())?;
-                    workspace
-                        .saved_changes(tree)?
-                        .into_iter()
-                        .map(|file| FileDiff::new(file, Some(tip), saved))
-                        .collect()
+                    workspace.saved_changes(tree)?.into_iter().map(|file| FileDiff::new(file, tip, saved)).collect()
                 }
             };
             Ok(ViewDiff { tip, files })

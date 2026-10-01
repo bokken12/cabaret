@@ -12,10 +12,10 @@ pub struct FileDiff {
 
 impl FileDiff {
     /// `file` as it differs from `before` to `after`, keeping only the sides it is on.
-    pub fn new(file: ChangedFile, before: Option<RevisionId>, after: RevisionId) -> Self {
+    pub fn new(file: ChangedFile, before: RevisionId, after: RevisionId) -> Self {
         let before = match file {
             ChangedFile::Added { .. } => None,
-            _ => Some(before.expect("only an added file has no before side")),
+            _ => Some(before),
         };
         let after = match file {
             ChangedFile::Deleted { .. } => None,
