@@ -94,7 +94,7 @@ impl Fixture {
     pub fn with_origin(origin: &Fixture) -> Self {
         let (dir, root) = tempdir();
         let main = root.join("main");
-        let url = origin.repo.workdir().unwrap().display().to_string();
+        let url = origin.repo.git_dir().display().to_string();
         configure(
             &init(&main, Kind::WithWorktree),
             "Bob Test",
@@ -313,12 +313,6 @@ impl Fixture {
             ("description.md".into(), String::new()),
         ]);
         self.commit_tree_at(write_tree(&self.repo, &files), parents, seconds)
-    }
-
-    /// Point `change`'s branch at origin's, as fetched.
-    pub fn track(&self, change: &str) {
-        let name = format!("refs/remotes/origin/{change}");
-        self.move_branch(change, RevisionId(self.repo.find_reference(&name).unwrap().peel_to_commit().unwrap().id));
     }
 
     /// Point `change`'s log ref at `revision`.

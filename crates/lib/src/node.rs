@@ -266,8 +266,9 @@ impl CabaretJs {
     #[napi]
     pub fn has_origin(&self) -> bool { self.cabaret.has_origin() }
 
+    // TODO-someday(joel): show the editor which branches fetch kept apart from origin's
     #[napi]
-    pub async fn fetch(&self) -> napi::Result<()> { self.blocking(Cabaret::fetch).await }
+    pub async fn fetch(&self) -> napi::Result<()> { self.blocking(|cabaret| cabaret.fetch().map(drop)).await }
 
     #[napi]
     pub fn common_dir(&self) -> napi::Result<String> { Ok(path_string(self.cabaret.common_dir())?) }

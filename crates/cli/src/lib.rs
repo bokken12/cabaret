@@ -21,8 +21,9 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    /// Exchange change logs with origin: merge its logs into yours, then push yours back. Its
-    /// branches are fetched as refs/remotes/origin/*.
+    /// Exchange change logs and branches with origin: merge its logs into yours, fast-forward
+    /// your branches to its, then push yours back. Only origin's default branch and those of open
+    /// changes with logs are exchanged; the rest are fetched as refs/remotes/origin/*.
     Fetch,
     /// Show your open changes as a stack graph.
     Home {
@@ -60,7 +61,11 @@ pub fn run() -> Result<()> {
     match cli.command {
         Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,
-        Command::Fetch => cabaret()?.fetch()?,
+        Command::Fetch => {
+            for (change, reason) in cabaret()?.fetch()? {
+                println!("kept {change}: {reason}");
+            }
+        }
         Command::Home { viewer } => {
             let cabaret = cabaret()?;
             let viewer = match viewer {
