@@ -126,6 +126,41 @@ function errorMessage(error: unknown): string {
 }
 
 /**
+ * Fetch from origin every `cabaret.fetchInterval` seconds, so that others' changes show up
+ * without anyone asking; the refs they move refresh the pages.
+ */
+function fetchPeriodically(): vscode.Disposable {
+  let stopped = false;
+  let next: NodeJS.Timeout | undefined;
+  // An unreachable origin fails every fetch, so report only the first of a run of failures.
+  let failing = false;
+  const fetch = async () => {
+    const seconds = vscode.workspace.getConfiguration("cabaret").get<number>("fetchInterval", 60);
+    const cabaret = openCabaret();
+    if (stopped || seconds === 0 || !cabaret.hasOrigin()) {
+      return;
+    }
+    try {
+      await cabaret.fetch();
+      failing = false;
+    } catch (error) {
+      if (!failing) {
+        void vscode.window.showErrorMessage(`Cabaret: fetching from origin failed: ${errorMessage(error)}`);
+      }
+      failing = true;
+    }
+    if (!stopped) {
+      next = setTimeout(() => void reporting(fetch), seconds * 1000);
+    }
+  };
+  void reporting(fetch);
+  return new vscode.Disposable(() => {
+    stopped = true;
+    clearTimeout(next);
+  });
+}
+
+/**
  * The sessions tail of a show page. A failure to list is reported in place of the list rather
  * than failing the page.
  */
@@ -278,7 +313,7 @@ class PageProvider
   private readonly updates = new Map<string, Promise<void>>();
   /** The pages on screen, to tell those coming into view. */
   private onScreen = new Set<string>();
-  /** Started with the first page rendered, as a window not on a repository has none to watch. */
+  /** Started with the first page rendered, as a window not on a repository has none to watch or fetch into. */
   private watcher: vscode.Disposable | undefined;
   /**
    * Where the cursor last was on each page, to put it back on reopening: VS Code reopens a closed
@@ -329,7 +364,7 @@ class PageProvider
     if (route.kind === "home") {
       this.homeSection = route.section;
     }
-    this.watcher ??= this.watchRepository();
+    this.watcher ??= vscode.Disposable.from(this.watchRepository(), fetchPeriodically());
     return renderRoute(openCabaret(), route);
   }
 

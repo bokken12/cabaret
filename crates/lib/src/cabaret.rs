@@ -93,6 +93,8 @@ impl Cabaret {
 
     // Remote operations
 
+    pub fn has_origin(&self) -> bool { self.store.repo.to_thread_local().remote_names().contains(b"origin".as_bstr()) }
+
     /// Exchange logs with origin, so that both end up having seen every write either has: fetch
     /// origin's logs, merge each into the local one, then push every local log back. Origin's
     /// branches are fetched too, but only as `refs/remotes/origin/*`.

@@ -355,6 +355,12 @@
     "configuration": {
       "title": "Cabaret",
       "properties": {
+        "cabaret.fetchInterval": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "markdownDescription": "Seconds between fetches from `origin` in the background, as `cab fetch` does, once a Cabaret page has opened. `0` turns them off."
+        },
         "cabaret.sessionArgs": {
           "type": "array",
           "items": {
