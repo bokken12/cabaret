@@ -1,0 +1,1 @@
+Witness that a long-lived Cabaret, like the VS Code extension's, never sees config written after it opened: identity and settings read as they were at open. TODO: the snapshot records that stale read; the fix is a child change.
