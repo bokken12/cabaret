@@ -14,7 +14,7 @@ use gix::{
     diff::blob::InternedInput,
     merge::blob::builtin_driver::{
         self,
-        text::{Labels, Options},
+        text::{Conflict, ConflictStyle, Labels, Options},
     },
     objs::tree::{Entry, EntryKind},
     refs::{
@@ -23,7 +23,7 @@ use gix::{
     },
 };
 
-use crate::{context::TransactionContext, tree};
+use crate::context::TransactionContext;
 
 const ACTIONS_FILE: &str = "actions.jsonl";
 /// Always present, empty for no description, so clearing it on one device while editing it on
@@ -368,7 +368,12 @@ impl<'ctx> Metadata<'ctx> {
             Some(base) => description(repo, base)?,
             None => String::new(),
         };
-        let options = Options { conflict: tree::conflict(), ..Default::default() };
+        // Diff3 shows what both sides changed from, which a reader resolving it needs.
+        let conflict = Conflict::Keep {
+            style: ConflictStyle::Diff3,
+            marker_size: Conflict::DEFAULT_MARKER_SIZE.try_into().expect("the default marker size is non-zero"),
+        };
+        let options = Options { conflict, ..Default::default() };
         let mut merged = Vec::new();
         let mut input = InternedInput::new(&[][..], &[][..]);
         builtin_driver::text(
