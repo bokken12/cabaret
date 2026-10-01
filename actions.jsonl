@@ -1,2 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"742a94be052234891b1c823d0d87bc12c36108d5"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"742a94be052234891b1c823d0d87bc12c36108d5"}
+{"action":"set-archived","archived":true}
