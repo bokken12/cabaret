@@ -121,6 +121,9 @@ impl Fixture {
         Self { _dir: dir, root, cabaret, repo, clock: Cell::new(978_307_200) }
     }
 
+    /// Another `Cabaret` on this repository, as a second process would open it.
+    pub fn elsewhere(&self) -> Cabaret { open_cabaret(self.repo.git_dir()) }
+
     pub fn snapshot(&self, change: &str) -> ChangeSnapshot { self.cabaret.snapshot(&id(change)).unwrap() }
 
     pub fn tip(&self, change: &str) -> RevisionId { self.snapshot(change).tip }

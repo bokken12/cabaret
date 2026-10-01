@@ -21,6 +21,24 @@ fn set_setting_is_written_to_local_config_and_read_back() {
 }
 
 #[test]
+fn setting_written_elsewhere_is_read_by_open_instance() {
+    let fixture = Fixture::new();
+    let mut elsewhere = fixture.elsewhere();
+    elsewhere.set_config(Scope::Local, &bob()).unwrap();
+    elsewhere.set_config(Scope::Local, &Hints::Hidden).unwrap();
+    // TODO: the open instance still reads the config it was opened with, alice and hints unset.
+    expect![[r#"
+        (
+            Identity(
+                "alice@example.com",
+            ),
+            None,
+        )
+    "#]]
+    .assert_debug_eq(&(fixture.cabaret.identity().unwrap(), fixture.cabaret.config::<Hints>().unwrap()));
+}
+
+#[test]
 fn unset_setting_is_removed_from_local_config() {
     let mut fixture = Fixture::new();
     fixture.cabaret.unset_config::<Identity>(Scope::Local).unwrap();
