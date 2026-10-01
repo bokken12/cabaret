@@ -713,10 +713,8 @@ fn scene_state() {
           base stack-middle
           diff +stack-top.txt
         unlogged b86566a3
-          parents main
-          declared (none)
-          base main
-          diff +unlogged.txt
+          base unlogged
+          diff (empty)
     "#]]
     .assert_eq(&scene().state());
 }
