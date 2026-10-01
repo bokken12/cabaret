@@ -1,0 +1,4 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"74e6b46f485895b51f2c82bb669ea9450067cd5a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/metadata.rs","revision":"74e6b46f485895b51f2c82bb669ea9450067cd5a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/store.rs","revision":"74e6b46f485895b51f2c82bb669ea9450067cd5a"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/change_id.rs","revision":"74e6b46f485895b51f2c82bb669ea9450067cd5a"}
