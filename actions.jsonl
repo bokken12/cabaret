@@ -1,2 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/land.rs","revision":"cd57b0f50c4f056e2c775a9a76a4fd8fcefa5708"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"docs/agent/bugs.md","revision":"cd57b0f50c4f056e2c775a9a76a4fd8fcefa5708"}
+{"action":"set-archived","archived":true}
