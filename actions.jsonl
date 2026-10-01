@@ -1,2 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"7f59d483596826686ea73f34cf15c003abb9039b"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/parents.rs","revision":"7f59d483596826686ea73f34cf15c003abb9039b"}
+{"action":"set-archived","archived":true}
