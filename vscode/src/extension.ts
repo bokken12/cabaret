@@ -4,7 +4,7 @@ import {
   type ChangeId,
   type Page,
   type RepoPath,
-  type Revision,
+  type RevisionId,
   type Safeguard,
   type SafeguardKind,
   type Segment,
@@ -554,7 +554,7 @@ class PageProvider
  * One file of a change's `view`, as a two-sided diff shows it. The `tip` is the change's when the
  * diff was opened, so an action on the diff acts on what it shows even once the change moves on.
  */
-type FileDiff = { view: DiffView; change: ChangeId; path: RepoPath; tip: Revision };
+type FileDiff = { view: DiffView; change: ChangeId; path: RepoPath; tip: RevisionId };
 
 /** The files of a diff tab: one for a two-sided diff, several for a multi-file diff. */
 type FilesDiff = Omit<FileDiff, "path"> & { paths: [RepoPath, ...RepoPath[]] };
@@ -564,7 +564,7 @@ type FilesDiff = Omit<FileDiff, "path"> & { paths: [RepoPath, ...RepoPath[]] };
  * text at `blobPath` in that revision, or empty with no revision, as one side of the file diff the
  * query names. The blob's own path differs from the diff's for the before side of a rename.
  */
-function blobUri(diff: FileDiff, revision: Revision | undefined, blobPath: RepoPath): vscode.Uri {
+function blobUri(diff: FileDiff, revision: RevisionId | undefined, blobPath: RepoPath): vscode.Uri {
   const query = new URLSearchParams(diff);
   if (revision !== undefined) {
     query.set("revision", revision);
