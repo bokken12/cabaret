@@ -180,8 +180,8 @@ impl<'ctx> Metadata<'ctx> {
         self.ctx.metadata(descendant)?.is_descendant(&self.id)
     }
 
-    /// The changes this one actually targets: declared parents, or the default branch when none
-    /// are declared, with archived ones replaced by their own parents.
+    /// The changes this one actually targets: declared parents, with archived ones replaced by
+    /// their own parents. None makes this a root.
     // TODO-someday(joel): store computed parents?
     pub fn parents(&self) -> Result<BTreeSet<ChangeId>> {
         if self.archived {
@@ -190,12 +190,6 @@ impl<'ctx> Metadata<'ctx> {
 
         let mut candidates = BTreeSet::new();
         let mut frontier: Vec<_> = self.declared_parents.iter().cloned().collect();
-        if frontier.is_empty() {
-            let default = self.ctx.default_branch()?;
-            if default != self.id {
-                frontier.push(default);
-            }
-        }
         while let Some(candidate_id) = frontier.pop() {
             let candidate = self.ctx.metadata(&candidate_id)?;
             // skip archived parents and land into their parents

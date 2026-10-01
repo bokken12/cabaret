@@ -40,7 +40,7 @@ fn scene_next_steps() {
         stack-bottom: [r] review by alice@example.com
         stack-middle: [r] review by alice@example.com
         stack-top: [r] review by alice@example.com
-        unlogged: land into main
+        unlogged: (none)
     "#]]
     .assert_eq(&out);
 }

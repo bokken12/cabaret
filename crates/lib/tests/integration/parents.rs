@@ -27,13 +27,13 @@ fn remove_parent(fixture: &Fixture, change: &str, parent: &str, allow: &Allow) -
 }
 
 #[test]
-fn no_parents_implies_default_parent() {
+fn unlogged_branch_is_root() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.branch("unlogged", "main");
     let snapshot = fixture.snapshot("unlogged");
     expect!["{}"].assert_eq(&format!("{:?}", snapshot.declared_parents));
-    expect![[r#"{"main"}"#]].assert_eq(&format!("{:?}", snapshot.parents));
+    expect!["{}"].assert_eq(&format!("{:?}", snapshot.parents));
 }
 
 #[test]
@@ -207,15 +207,18 @@ fn archived_parent_refuses_unless_allowed() {
     expect!["done"].assert_eq(&add_parent(&fixture, "change", "done", &allow));
 }
 
-/// A change declaring no parents lands into trunk, so trunk is common to nearly every set of
-/// parents; only chains of archived changes declaring none can share no ancestor.
 #[test]
-fn inferred_trunk_is_common_ancestor() {
+fn unrelated_root_shares_no_ancestor() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("change", "main", &alice());
     fixture.root("other", &[("other.txt", "other\n")]);
-    expect!["done"].assert_eq(&add_parent(&fixture, "change", "other", &Allow::default()));
+    expect!["refused: main, other share no ancestor, so it could never land"].assert_eq(&add_parent(
+        &fixture,
+        "change",
+        "other",
+        &Allow::default(),
+    ));
 }
 
 #[test]
@@ -224,7 +227,7 @@ fn removal_moving_base_refuses_unless_allowed() {
     fixture.root("main", &[]);
     fixture.create("parent", "main", &bob());
     fixture.commit("parent", &[("parent.txt", "parent\n")]);
-    fixture.create("child", "parent", &alice());
+    fixture.cabaret.create("child", &nebts![id("parent"), id("main")], &alice()).unwrap();
     fixture.commit("child", &[("child.txt", "child\n")]);
     expect!["refused: its diff would take in the work of parent"].assert_eq(&remove_parent(
         &fixture,
