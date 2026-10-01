@@ -80,3 +80,20 @@ fn missing_config_dir_has_no_sessions() {
     let claude = ClaudeCode::new(Path::new("/nonexistent/.claude").to_owned());
     assert!(claude.sessions_in(Path::new("/repo")).unwrap().is_empty());
 }
+
+#[test]
+fn session_exiting_while_listed_is_skipped() {
+    let dir = fixture();
+    // A registry entry that vanishes between listing the directory and opening it.
+    std::os::unix::fs::symlink(dir.path().join("exited"), dir.path().join("sessions").join("4.json")).unwrap();
+    let claude = ClaudeCode::new(dir.path().to_owned());
+    let listed = match claude.sessions_in(Path::new("/repo/feature-x")) {
+        Ok(sessions) => render(&sessions),
+        Err(error) => format!("error: {error:?}"),
+    };
+    expect![[r#"
+        untitled 2000500 busy Some("make it compile")
+        titled 1000000 unknown Some("Parser fix")
+    "#]]
+    .assert_eq(&listed);
+}

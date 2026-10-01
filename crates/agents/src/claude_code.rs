@@ -122,7 +122,13 @@ impl ClaudeCode {
             if path.extension() != Some("json".as_ref()) {
                 continue;
             }
-            let Registered { session_id, status } = serde_json::from_reader(fs::File::open(&path)?)?;
+            let file = match fs::File::open(&path) {
+                Ok(file) => file,
+                // Claude Code removes a session's entry when it exits.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let Registered { session_id, status } = serde_json::from_reader(file)?;
             live.insert(session_id, status.unwrap_or(Status::Unknown));
         }
         Ok(live)

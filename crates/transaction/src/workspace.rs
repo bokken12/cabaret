@@ -223,11 +223,15 @@ impl<'ctx> Workspace<'ctx> {
     /// The files that differ between HEAD's tree and what is on disk at the paths `pathspecs`
     /// match, all when empty: exactly what [`Self::snapshot`] would commit.
     pub fn changed_files(&self, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
+        self.saved_changes(self.saved_tree(pathspecs)?)
+    }
+
+    /// The files that differ between HEAD's tree and `saved`, a [`Self::saved_tree`].
+    pub fn saved_changes(&self, saved: TreeId) -> Result<Vec<ChangedFile>> {
         let repo = self.repo()?;
         let head = repo.head_tree_id()?.object()?.into_tree();
-        let disk = repo.find_tree(disk_tree(&repo, pathspecs)?.0)?;
         // The overlay already holds only matching paths, so the diff need not filter again.
-        tree::changed_files(&repo, Some(&head), &disk, &[])
+        tree::changed_files(&repo, Some(&head), &repo.find_tree(saved.0)?, &[])
     }
 
     /// The tree of what is on disk at the paths `pathspecs` match, all when empty, laid over
