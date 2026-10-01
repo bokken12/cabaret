@@ -1,0 +1,1 @@
+Every Store operation reopens the repository, so a long-lived Cabaret, like the VS Code extension's, sees config written since it opened: identity, settings such as `cabaret.vscode.fetchInterval` and `hints`, and remotes. Reopening costs a couple of milliseconds next to queries of a hundred or more. With nothing cached to refresh, setting config needs no `&mut`.
