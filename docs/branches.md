@@ -22,4 +22,4 @@ In general, the question of metadata without branches seems unimportant, but the
 2. A branch is automatically adopted as a Cabaret change when a GitHub or similar forge request is created for it, giving it metadata.
 3. A branch must be explicitly adopted by a Cabaret user.
 
-The last of these options feels somewhat bad, while the former two feel pretty similar in outcome: since in either case other people's changes would not really start showing up in your home page or similar until they were ready for review.
+The last of these options feels somewhat bad, while the former two feel pretty similar in outcome: since in either case other people's changes would not really start showing up in your home page or similar until they were ready for review. Overall I lean towards 1 as cleaner, with the assumption that changes from other users will be fairly bare until they sync from forge metadata.
