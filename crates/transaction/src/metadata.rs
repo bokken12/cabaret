@@ -313,12 +313,13 @@ impl<'ctx> Metadata<'ctx> {
         Ok(Some(self.edit(commit.0, "cabaret: metadata")))
     }
 
-    /// The ref edit taking this change's log to one that has seen `other`, a head of it written
-    /// elsewhere: `None` when it already has, `other` itself when that has seen all of this one,
-    /// else a merge of the two. The edit expects the commit this was read from, so a concurrent
-    /// write fails rather than being overwritten.
-    pub fn merge(&self, other: ObjectId) -> Result<Option<RefEdit>> {
+    /// The ref edit taking this change's log to one that has seen origin's, as last fetched:
+    /// `None` when it already has, origin's itself when that has seen all of this one, else a
+    /// merge of the two. The edit expects the commit this was read from, so a concurrent write
+    /// fails rather than being overwritten.
+    pub fn merge_origin(&self) -> Result<Option<RefEdit>> {
         let repo = &self.ctx.repo;
+        let other = repo.find_reference(&self.id().origin_log_ref())?.peel_to_id()?.detach();
         let Some(local) = self.commit else { return Ok(Some(self.edit(other, "cabaret: fetch"))) };
         let ours = commits(repo, local)?;
         if ours.contains_key(&other) {

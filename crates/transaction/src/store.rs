@@ -7,7 +7,7 @@ use std::{
 
 use cabaret_types::{ChangeIdRef, Result, RevisionId, WorkspaceId, WorkspaceIdRef};
 use gix::{
-    ObjectId, ThreadSafeRepository,
+    ThreadSafeRepository,
     lock::{Marker, acquire::Fail},
     refs::{
         Target,
@@ -292,13 +292,13 @@ impl Store {
         self.transact(&[], &[], &[], |ctx, [], [], []| f(ctx))
     }
 
-    /// Bring `id`'s log up to date with `other`, a head of it written elsewhere; see
-    /// [`Metadata::merge`]. A merge is a transaction of its own: it writes the log commits it
-    /// merges rather than actions taken now, so no in-flight metadata can express it.
-    pub fn merge_log(&self, id: &ChangeIdRef, other: ObjectId) -> Result<()> {
+    /// Bring `id`'s log up to date with origin's; see [`Metadata::merge_origin`]. A merge is a
+    /// transaction of its own: it writes the log commits it merges rather than actions taken now,
+    /// so no in-flight metadata can express it.
+    pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
         let ctx =
             TransactionContext::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?);
-        if let Some(edit) = ctx.metadata(id)?.merge(other)? {
+        if let Some(edit) = ctx.metadata(id)?.merge_origin()? {
             ctx.repo.edit_reference(edit)?;
         }
         Ok(())

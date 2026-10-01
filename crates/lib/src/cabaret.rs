@@ -109,11 +109,10 @@ impl Cabaret {
             .receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
 
         for reference in repo.references()?.prefixed(ChangeIdRef::ORIGIN_LOG_REF_PREFIX)? {
-            let mut reference = reference?;
-            let name = reference.name().as_bstr().to_str()?;
+            let name = reference?.name().as_bstr().to_str()?.to_owned();
             let change_id: ChangeId =
                 name.strip_prefix(ChangeIdRef::ORIGIN_LOG_REF_PREFIX).expect("listed by this prefix").parse()?;
-            self.store.merge_log(&change_id, reference.peel_to_id()?.detach())?;
+            self.store.merge_origin_log(&change_id)?;
         }
 
         // gix cannot push yet.
