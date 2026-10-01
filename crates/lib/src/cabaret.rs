@@ -791,8 +791,8 @@ impl Cabaret {
         })
     }
 
-    /// Record that this repository's identity has reviewed `files` of `change_id` from `bases` up
-    /// to `head`; each defaults to the change's own.
+    /// Record that this repository's identity has reviewed `files` of `change_id` up to `head`,
+    /// by default the change's tip.
     pub fn mark(&self, change_id: &ChangeIdRef, files: &[RepoPath], head: Option<RevisionId>) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let branch = ctx.branch(change_id)?;
