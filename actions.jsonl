@@ -1,5 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/fixture.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/land.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/branch.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/file_diff.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
+{"action":"mark","reviewer":"me@joel.place","file":"crates/lib/src/cabaret.rs","revision":"8c80c11a7904e8004548dcf6a2451faf4a5f3078"}
