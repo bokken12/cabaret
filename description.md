@@ -1,0 +1,1 @@
+The VS Code extension fetches from origin in the background every `cabaret.fetchInterval` seconds (default 60, `0` turns it off), starting with the first Cabaret page rendered, so others' changes show up without running `cab fetch`. Repositories without an origin are skipped, and a run of failed fetches is reported once.
