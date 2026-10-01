@@ -1,0 +1,1 @@
+A change that declares no parents is a root, rather than implicitly targeting the default branch. Branches made outside cabaret no longer present a diff against trunk or offer to land into it until a parent is declared.
