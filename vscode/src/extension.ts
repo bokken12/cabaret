@@ -1314,8 +1314,11 @@ function selectedChanges(provider: PageProvider): ChangeId[] | undefined {
 /** What a step of a sequence did, and whether the sequence may go on past it. */
 type Step = { report: string; complete: boolean };
 
-/** The step to run on each change of a sequence, and what to do once every step completed. */
-type Plan = { step: (change: ChangeId) => Promise<Step>; finish?: () => Promise<void> };
+/**
+ * The step to run on each change of a sequence, the order to go through them when not top down,
+ * and what to do once every step completed.
+ */
+type Plan = { order?: ChangeId[]; step: (change: ChangeId) => Promise<Step>; finish?: () => Promise<void> };
 
 /**
  * Like `action`, but over a selection on the home page `run` goes through the selected changes
@@ -1349,12 +1352,13 @@ function plannedSequence(
     if (planned === undefined) {
       return;
     }
+    const order = planned.order ?? changes;
     const reports: string[] = [];
     try {
-      for (const [index, change] of changes.entries()) {
+      for (const [index, change] of order.entries()) {
         const { report, complete } = await planned.step(change);
         reports.push(report);
-        const skipped = changes.slice(index + 1);
+        const skipped = order.slice(index + 1);
         if (!complete) {
           if (skipped.length > 0) {
             reports.push(`stopped before ${words(skipped)}`);
@@ -1760,12 +1764,17 @@ async function toggleArchived(cabaret: Cabaret, change: ChangeId): Promise<Step>
 
 /**
  * Toggle whether each change is archived. Archiving leaves a change's workspace nothing to do, so
- * the user is first offered deleting those workspaces, as when landing.
+ * the user is first offered deleting those workspaces, as when landing. Children are drawn below
+ * their parents, so unarchiving goes top down and archiving bottom up, sparing the safeguards
+ * against archived parents and open children within the selection.
  */
 async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promise<Plan | undefined> {
+  const unarchiving: ChangeId[] = [];
+  const archiving: ChangeId[] = [];
   const doomed = new Map<ChangeId, WorkspaceId>();
   for (const change of changes) {
     const { archived, workspace } = await cabaret.change(change);
+    (archived ? unarchiving : archiving).push(change);
     if (!archived && workspace !== undefined) {
       doomed.set(change, workspace);
     }
@@ -1793,6 +1802,7 @@ async function planToggleArchived(cabaret: Cabaret, changes: ChangeId[]): Promis
     return undefined;
   }
   return {
+    order: [...unarchiving, ...archiving.reverse()],
     step: async (change) => {
       // TODO-someday(joel): archive safeguards refuse per step, after the workspace dialog; checking
       // them up front, as landSafeguards does for land, would fold them into that one dialog.
