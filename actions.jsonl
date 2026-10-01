@@ -1,0 +1,8 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/config.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/fetch_interval.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/config/src/lib.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/lib.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/node.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/config.rs","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/package.json","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"vscode/src/extension.ts","revision":"a4f7b263f739694991178409c271ef9f99ba3e01"}
