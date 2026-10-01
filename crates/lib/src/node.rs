@@ -264,13 +264,13 @@ impl CabaretJs {
     }
 
     #[napi]
-    pub fn has_origin(&self) -> bool { self.cabaret.has_origin() }
+    pub fn has_origin(&self) -> napi::Result<bool> { Ok(self.cabaret.has_origin()?) }
 
     #[napi]
     pub async fn fetch(&self) -> napi::Result<()> { self.blocking(Cabaret::fetch).await }
 
     #[napi]
-    pub fn common_dir(&self) -> napi::Result<String> { Ok(path_string(self.cabaret.common_dir())?) }
+    pub fn common_dir(&self) -> napi::Result<String> { Ok(path_string(self.cabaret.common_dir()?)?) }
 
     #[napi]
     pub async fn workspace_path(&self, change: ChangeId) -> napi::Result<String> {

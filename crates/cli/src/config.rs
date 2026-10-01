@@ -55,7 +55,7 @@ fn scope(global: bool) -> Scope {
 }
 
 impl ConfigCommand {
-    pub fn run(self, cabaret: Cabaret) -> Result<()> {
+    pub fn run(self, cabaret: &Cabaret) -> Result<()> {
         match self {
             ConfigCommand::Identity { command } => command.run(cabaret),
             ConfigCommand::Prefix { command } => command.run(cabaret),
@@ -66,7 +66,7 @@ impl ConfigCommand {
 }
 
 impl<S: Setting + Clone + Send + Sync + 'static> SettingCommand<S> {
-    fn run(self, mut cabaret: Cabaret) -> Result<()> {
+    fn run(self, cabaret: &Cabaret) -> Result<()> {
         match self {
             SettingCommand::Show => match cabaret.config::<S>()? {
                 Some(value) => println!("{value}"),

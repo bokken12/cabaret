@@ -93,14 +93,14 @@ impl Cabaret {
 
     // Remote operations
 
-    pub fn has_origin(&self) -> bool { self.store.repo.to_thread_local().remote_names().contains(b"origin".as_bstr()) }
+    pub fn has_origin(&self) -> Result<bool> { Ok(self.store.repo()?.remote_names().contains(b"origin".as_bstr())) }
 
     /// Exchange logs with origin, so that both end up having seen every write either has: fetch
     /// origin's logs, merge each into the local one, then push every local log back. Origin's
     /// branches are fetched too, but only as `refs/remotes/origin/*`.
     // TODO-someday(joel): sync branches too: create and fast-forward local ones from origin's, push those ahead.
     pub fn fetch(&self) -> Result<()> {
-        let repo = self.store.repo.to_thread_local();
+        let repo = self.store.repo()?;
         let mut remote = repo.find_remote("origin")?;
         let logs = format!("{}*", ChangeIdRef::LOG_REF_PREFIX);
         let origin_logs = format!("+{logs}:{}*", ChangeIdRef::ORIGIN_LOG_REF_PREFIX);
@@ -132,24 +132,14 @@ impl Cabaret {
     // Config operations
 
     /// `S` as git config reads it here, from whichever scope sets it.
-    pub fn config<S: Setting>(&self) -> Result<Option<S>> { cabaret_config::get(&self.store.repo.to_thread_local()) }
+    pub fn config<S: Setting>(&self) -> Result<Option<S>> { cabaret_config::get(&self.store.repo()?) }
 
-    pub fn set_config<S: Setting>(&mut self, scope: Scope, value: &S) -> Result<()> {
-        cabaret_config::set(&self.store.repo.to_thread_local(), scope, value)?;
-        self.reload()
+    pub fn set_config<S: Setting>(&self, scope: Scope, value: &S) -> Result<()> {
+        cabaret_config::set(&self.store.repo()?, scope, value)
     }
 
-    pub fn unset_config<S: Setting>(&mut self, scope: Scope) -> Result<()> {
-        cabaret_config::unset::<S>(&self.store.repo.to_thread_local(), scope)?;
-        self.reload()
-    }
-
-    /// Reread the repository, so config written since it was opened is seen.
-    fn reload(&mut self) -> Result<()> {
-        let mut repo = self.store.repo.to_thread_local();
-        repo.reload()?;
-        self.store.repo = repo.into_sync();
-        Ok(())
+    pub fn unset_config<S: Setting>(&self, scope: Scope) -> Result<()> {
+        cabaret_config::unset::<S>(&self.store.repo()?, scope)
     }
 
     // Workspace operations
@@ -190,7 +180,7 @@ impl Cabaret {
     }
 
     /// The git directory every workspace of the repository shares, where changes are recorded.
-    pub fn common_dir(&self) -> PathBuf { self.store.repo.to_thread_local().common_dir().to_owned() }
+    pub fn common_dir(&self) -> Result<PathBuf> { Ok(self.store.repo()?.common_dir().to_owned()) }
 
     /// The workspace this instance was opened in.
     pub fn workspace_current(&self) -> Result<WorkspaceId> { self.store.query(|ctx| ctx.current_workspace()) }
@@ -219,7 +209,7 @@ impl Cabaret {
     /// share a parent directory. A bare repository has no main workspace; its workspaces go
     /// beside its git dir as `<change>`, in the project directory a `.git` file marks as its own.
     fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
-        let main = self.store.repo.to_thread_local().main_repo()?;
+        let main = self.store.repo()?.main_repo()?;
         // `~` for the slashes a directory name cannot hold; git forbids it in branch names, so no
         // two changes share a directory
         let change = gix::path::from_bstring(change_id.as_bstr().replace("/", "~"));

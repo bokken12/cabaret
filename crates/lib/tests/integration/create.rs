@@ -52,7 +52,7 @@ fn creating_a_parent_with_an_existing_id_is_refused() {
 
 #[test]
 fn prefix_goes_on_id_and_name_becomes_title() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.cabaret.set_config(Scope::Local, &"alice/".parse::<Prefix>().unwrap()).unwrap();
     let created = fixture.cabaret.create("child", &nebts![id("main")], &alice()).unwrap();
@@ -67,7 +67,7 @@ fn prefix_goes_on_id_and_name_becomes_title() {
 
 #[test]
 fn prefix_goes_on_created_parent() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("child", "main", &alice());
     fixture.cabaret.set_config(Scope::Local, &"alice/".parse::<Prefix>().unwrap()).unwrap();

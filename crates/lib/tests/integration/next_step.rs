@@ -113,7 +113,7 @@ fn trunk_is_never_conflicted() {
 
 #[test]
 fn hidden_hints_leave_keys_out() {
-    let mut fixture = scene();
+    let fixture = scene();
     fixture.cabaret.set_config(Scope::Local, &Hints::Hidden).unwrap();
     expect!["rebase onto advanced-parent"].assert_eq(&next_step(&fixture, "behind-child"));
 }

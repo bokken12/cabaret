@@ -59,7 +59,7 @@ pub fn run() -> Result<()> {
 
     match cli.command {
         Command::Change { command } => command.run(&cabaret()?)?,
-        Command::Config { command } => command.run(cabaret()?)?,
+        Command::Config { command } => command.run(&cabaret()?)?,
         Command::Fetch => cabaret()?.fetch()?,
         Command::Home { viewer } => {
             let cabaret = cabaret()?;

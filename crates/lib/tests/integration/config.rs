@@ -1,5 +1,5 @@
-//! Settings live in git config: writing one rewrites the scope's file, and the writer reads the
-//! new value back without reopening.
+//! Settings live in git config: writing one rewrites the scope's file, which every open instance
+//! reads the new value back from.
 
 use cabaret_lib::{FetchInterval, Hints, Identity, Scope};
 use expect_test::expect;
@@ -8,7 +8,7 @@ use super::fixture::{Fixture, bob};
 
 #[test]
 fn set_setting_is_written_to_local_config_and_read_back() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     fixture.cabaret.set_config(Scope::Local, &bob()).unwrap();
     assert_eq!(fixture.cabaret.config::<Identity>().unwrap(), Some(bob()));
     assert_eq!(fixture.cabaret.identity().unwrap(), bob());
@@ -23,16 +23,17 @@ fn set_setting_is_written_to_local_config_and_read_back() {
 #[test]
 fn setting_written_elsewhere_is_read_by_open_instance() {
     let fixture = Fixture::new();
-    let mut elsewhere = fixture.elsewhere();
+    let elsewhere = fixture.elsewhere();
     elsewhere.set_config(Scope::Local, &bob()).unwrap();
     elsewhere.set_config(Scope::Local, &Hints::Hidden).unwrap();
-    // TODO: the open instance still reads the config it was opened with, alice and hints unset.
     expect![[r#"
         (
             Identity(
-                "alice@example.com",
+                "bob@example.com",
             ),
-            None,
+            Some(
+                Hidden,
+            ),
         )
     "#]]
     .assert_debug_eq(&(fixture.cabaret.identity().unwrap(), fixture.cabaret.config::<Hints>().unwrap()));
@@ -40,7 +41,7 @@ fn setting_written_elsewhere_is_read_by_open_instance() {
 
 #[test]
 fn unset_setting_is_removed_from_local_config() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     fixture.cabaret.unset_config::<Identity>(Scope::Local).unwrap();
     expect![[r#"
         [user]
@@ -51,7 +52,7 @@ fn unset_setting_is_removed_from_local_config() {
 
 #[test]
 fn unsetting_absent_setting_is_refused() {
-    let mut fixture = Fixture::new();
+    let fixture = Fixture::new();
     fixture.cabaret.unset_config::<Identity>(Scope::Local).unwrap();
     let error = fixture.cabaret.unset_config::<Identity>(Scope::Local).unwrap_err();
     expect!["user.email is not set in local config"].assert_eq(&format!("{error:?}"));

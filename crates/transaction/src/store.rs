@@ -129,7 +129,7 @@ impl Resource {
 
 /// A repository together with the directory its transactions lock resources in.
 pub struct Store {
-    pub repo: ThreadSafeRepository,
+    repo: ThreadSafeRepository,
     /// Under the common dir, so every workspace of the repository shares the same locks.
     pub locks: PathBuf,
 }
@@ -143,6 +143,14 @@ impl From<ThreadSafeRepository> for Store {
 
 impl Store {
     pub fn open(dir: impl AsRef<Path>) -> Result<Self> { Ok(ThreadSafeRepository::discover(dir)?.into()) }
+
+    /// The repository reopened, so config written since the store opened, here or by another
+    /// process, is seen.
+    pub fn repo(&self) -> Result<gix::Repository> {
+        let mut repo = self.repo.to_thread_local();
+        repo.reload()?;
+        Ok(repo)
+    }
 
     /// Take the `resource` lock of each of `ids`, in a fixed order to avoid deadlock.
     fn lock<Id: Ord + fmt::Display>(
@@ -197,7 +205,7 @@ impl Store {
         let workspace_ids = workspace_ops.iter().map(WorkspaceOp::id).collect::<Result<Vec<_>>>()?;
         locks.extend(self.lock(Resource::Workspace, workspace_ids.iter())?);
         // TODO(joel): retry on ref contention instead of surfacing it
-        let ctx = TransactionContext::new(self.repo.to_thread_local(), locks);
+        let ctx = TransactionContext::new(self.repo()?, locks);
 
         // Metadata needs no insert: a change without a log has empty metadata, and its first
         // append creates the log.
@@ -296,8 +304,7 @@ impl Store {
     /// transaction of its own: it writes the log commits it merges rather than actions taken now,
     /// so no in-flight metadata can express it.
     pub fn merge_origin_log(&self, id: &ChangeIdRef) -> Result<()> {
-        let ctx =
-            TransactionContext::new(self.repo.to_thread_local(), self.lock(Resource::Metadata, [id].into_iter())?);
+        let ctx = TransactionContext::new(self.repo()?, self.lock(Resource::Metadata, [id].into_iter())?);
         if let Some(edit) = ctx.metadata(id)?.merge_origin()? {
             ctx.repo.edit_reference(edit)?;
         }
