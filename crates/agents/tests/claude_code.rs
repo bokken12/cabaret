@@ -91,6 +91,9 @@ fn session_exiting_while_listed_is_skipped() {
         Ok(sessions) => render(&sessions),
         Err(error) => format!("error: {error:?}"),
     };
-    // TODO: an exited session should drop out of the listing, not fail it.
-    expect!["error: No such file or directory (os error 2)"].assert_eq(&listed);
+    expect![[r#"
+        untitled 2000500 busy Some("make it compile")
+        titled 1000000 unknown Some("Parser fix")
+    "#]]
+    .assert_eq(&listed);
 }
