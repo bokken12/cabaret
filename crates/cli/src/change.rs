@@ -344,7 +344,7 @@ fn markable_files(cabaret: &Cabaret, change: &ChangeIdRef, pathspecs: &[Pathspec
     for pathspec in pathspecs {
         let matched = cabaret.markable_files(change, std::slice::from_ref(pathspec))?;
         if matched.is_empty() {
-            unmatched.push(format!("'{}'", pathspec.0.to_bstring()));
+            unmatched.push(format!("'{}'", pathspec.0.path()));
         }
         files.extend(matched);
     }
