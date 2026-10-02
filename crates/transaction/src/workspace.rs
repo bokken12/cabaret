@@ -21,7 +21,7 @@ use gix::{
     Repository, Tree,
     bstr::{BString, ByteSlice},
     index::entry::{Flags, Stage, Stat},
-    merge::blob::builtin_driver::text::Labels,
+    merge::{blob::builtin_driver::text::Labels, tree::TreatAsUnresolved},
     objs::tree::EntryKind,
     refs::{
         Target,
@@ -209,15 +209,17 @@ impl<'ctx> Workspace<'ctx> {
     /// only on disk. Takes `&mut self` to keep it to reserved workspaces; only the files change.
     pub fn fast_forward(&mut self, from: RevisionId, branch: &Branch<'_>) -> Result<()> {
         let repo = self.repo()?;
-        let from = repo.find_commit(from)?.tree_id()?;
-        let to = repo.find_commit(branch.tip)?.tree()?;
-        let disk = repo.find_tree(disk_tree(&repo, &[])?.0.0)?;
-        let labels =
-            Labels { ancestor: Some("base".into()), current: Some("local".into()), other: Some(branch.id().as_bstr()) };
-        let mut merge = repo.merge_trees(from, disk.id, to.id, labels, tree::merge_options(&repo)?)?;
+        let (disk, mut merge) = merge_local_changes(&repo, from, branch)?;
         let merged = repo.find_tree(merge.tree.write()?.detach())?;
         let (written, _) = self.write_paths(&repo, &disk, &merged)?;
-        write_index(&repo, &to, &written)
+        write_index(&repo, &repo.find_commit(branch.tip)?.tree()?, &written)
+    }
+
+    /// Whether [`Self::fast_forward`] would leave conflict markers.
+    pub fn fast_forward_conflicts(&self, from: RevisionId, branch: &Branch<'_>) -> Result<bool> {
+        let repo = self.repo()?;
+        let (_, merge) = merge_local_changes(&repo, from, branch)?;
+        Ok(merge.has_unresolved_conflicts(TreatAsUnresolved::default()))
     }
 
     /// The files that differ between HEAD's tree and what is on disk at the paths `pathspecs`
@@ -401,6 +403,21 @@ fn write_index(repo: &Repository, tree: &Tree<'_>, written: &gix::index::State) 
     }
     index.write(gix::index::write::Options::default())?;
     Ok(())
+}
+
+/// What is on disk, and that merged with `branch`'s tip from `from`, the revision the files are at.
+fn merge_local_changes<'repo>(
+    repo: &'repo Repository,
+    from: RevisionId,
+    branch: &Branch<'_>,
+) -> Result<(Tree<'repo>, gix::merge::tree::Outcome<'repo>)> {
+    let from = repo.find_commit(from)?.tree_id()?;
+    let to = repo.find_commit(branch.tip)?.tree_id()?;
+    let disk = repo.find_tree(disk_tree(repo, &[])?.0.0)?;
+    let labels =
+        Labels { ancestor: Some("base".into()), current: Some("local".into()), other: Some(branch.id().as_bstr()) };
+    let merge = repo.merge_trees(from, disk.id, to, labels, tree::merge_options(repo)?)?;
+    Ok((disk, merge))
 }
 
 /// The repository as seen from `workspace`: its HEAD, index, and working directory. Only a

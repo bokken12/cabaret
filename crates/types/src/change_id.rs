@@ -43,6 +43,11 @@ impl ChangeIdRef {
         FullName::try_from(format!("refs/heads/{self}")).expect("a partial name is valid under refs/heads/")
     }
 
+    pub fn origin_branch_ref(&self) -> FullName {
+        FullName::try_from(format!("refs/remotes/origin/{self}"))
+            .expect("a partial name is valid under refs/remotes/origin/")
+    }
+
     pub fn log_ref(&self) -> FullName {
         FullName::try_from(format!("{}{self}", Self::LOG_REF_PREFIX))
             .expect("a partial name is valid under refs/cabaret/changes/")
