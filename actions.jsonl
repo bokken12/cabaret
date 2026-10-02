@@ -1,0 +1,9 @@
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/cli/src/change.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/log.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/review.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/tests/integration/review_files.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/branch.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/lib.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/tree.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/transaction/src/workspace.rs","revision":"00a4272fa333130f78de8f6747d89eb5f59375b0"}
