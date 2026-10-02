@@ -1,0 +1,1 @@
+cab restores SIGPIPE's default action, so it exits quietly when a reader like head closes the pipe early instead of reporting 'Broken pipe' or panicking in print!.
