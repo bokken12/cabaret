@@ -500,16 +500,6 @@ impl Cabaret {
         })
     }
 
-    /// The paths of `change_id` this repository's identity can mark reviewed, restricted to
-    /// `pathspecs` (all when empty): those left to review, or already marked.
-    pub fn markable_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<BTreeSet<RepoPath>> {
-        self.store.query(|ctx| {
-            let metadata = ctx.metadata(change_id)?;
-            let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
-            markable_files(ctx, ctx.branch(change_id)?, &metadata.parents()?, &review, pathspecs)
-        })
-    }
-
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
     /// restricted to `pathspecs` (all when empty): what [`Self::commit`] would record.
     pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {
@@ -908,30 +898,44 @@ impl Cabaret {
         })
     }
 
-    /// Record that this repository's identity has reviewed `files` of `change_id` up to `head`,
-    /// by default the change's tip, refusing files it cannot mark (see [`Self::markable_files`]).
-    pub fn mark(&self, change_id: &ChangeIdRef, files: &[RepoPath], head: Option<RevisionId>) -> Result<()> {
+    /// Record that this repository's identity has reviewed the files of `change_id` that
+    /// `pathspecs` match up to `head`, by default the change's tip, returning them. Each pathspec
+    /// matches among the files left to review and those marked before, since re-marking a reviewed
+    /// file is harmless, and is refused if it matches none.
+    pub fn mark(
+        &self,
+        change_id: &ChangeIdRef,
+        pathspecs: &[Pathspec],
+        head: Option<RevisionId>,
+    ) -> Result<BTreeSet<RepoPath>> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let branch = ctx.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
             let parents = metadata.parents()?;
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            let unmarked: BTreeSet<&RepoPath> =
-                files.iter().filter(|file| review.get(*file) != Some(&revision)).collect();
-            if unmarked.is_empty() {
-                return Ok(());
+            let left = branch.review_files(&parents, review, &[])?;
+            let mut files = BTreeSet::new();
+            let mut unmatched = Vec::new();
+            for pathspec in pathspecs {
+                let mut search = pathspec_search(&ctx.repo, std::slice::from_ref(pathspec))?;
+                let mut included = |path: &RepoPath| search.is_included(path.as_bstr(), Some(false));
+                let mut matched = BTreeSet::new();
+                matched
+                    .extend(left.iter().filter(|file| file.paths().any(&mut included)).map(|file| file.path().clone()));
+                matched.extend(review.keys().filter(|path| included(path)).cloned());
+                if matched.is_empty() {
+                    unmatched.push(format!("'{}'", pathspec.0.path()));
+                }
+                files.append(&mut matched);
             }
-            let markable = markable_files(ctx, branch, &parents, review, &[])?;
-            let unmarkable: Vec<String> =
-                unmarked.iter().filter(|file| !markable.contains(**file)).map(ToString::to_string).collect();
-            if !unmarkable.is_empty() {
+            if !unmatched.is_empty() {
                 Err(format!(
-                    "cannot mark {} of {change_id}: neither left to review nor marked before",
-                    unmarkable.join(", ")
+                    "nothing left to review or marked before in {change_id} matches {}",
+                    unmatched.join(", ")
                 ))?;
             }
-            review.extend(unmarked.into_iter().map(|file| (file.clone(), revision)));
-            Ok(())
+            review.extend(files.iter().map(|file| (file.clone(), revision)));
+            Ok(files)
         })
     }
 
@@ -1088,21 +1092,6 @@ fn unreviewed(
         }
     }
     Ok(reviewers)
-}
-
-/// The paths `review`'s reviewer can mark of `branch` against `parents`, restricted to `pathspecs`
-/// (all when empty): those left to review, or already marked, as re-marking reviewed files is harmless.
-fn markable_files<'ctx>(
-    ctx: &'ctx TransactionContext<'ctx>,
-    branch: &Branch<'ctx>,
-    parents: &BTreeSet<ChangeId>,
-    review: &BTreeMap<RepoPath, RevisionId>,
-    pathspecs: &[Pathspec],
-) -> Result<BTreeSet<RepoPath>> {
-    let mut search = pathspec_search(&ctx.repo, pathspecs)?;
-    let marked = review.keys().filter(|file| search.is_included(file.as_bstr(), Some(false))).cloned();
-    let left = branch.review_files(parents, review, pathspecs)?.into_iter().map(|file| file.path().clone());
-    Ok(left.chain(marked).collect())
 }
 
 fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguard>> {

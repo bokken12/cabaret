@@ -16,7 +16,7 @@ use std::{
 };
 
 use cabaret_lib::{
-    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, RepoPath, RevisionId, TreeId,
+    Cabaret, ChangeId, ChangeSnapshot, ChangedFile, Identity, Pathspec, RevisionId, TreeId,
     log::{self, LogAction},
     safeguard::{Allow, SafeguardKind},
 };
@@ -177,8 +177,8 @@ impl Fixture {
     /// Mark every file the fixture's identity has left to review in `change` reviewed at its tip.
     pub fn mark_all(&self, change: &str) {
         let files = self.cabaret.review_files(&id(change), &[]).unwrap();
-        let files: Vec<RepoPath> = files.iter().map(|file| file.path().clone()).collect();
-        self.cabaret.mark(&id(change), &files, None).unwrap();
+        let pathspecs: Vec<Pathspec> = files.iter().map(|file| Pathspec::literal(file.path())).collect();
+        self.cabaret.mark(&id(change), &pathspecs, None).unwrap();
     }
 
     /// Commit `files` on top of `change`'s tip, carrying the rest of its tree forward.

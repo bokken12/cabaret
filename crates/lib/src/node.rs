@@ -383,7 +383,8 @@ impl CabaretJs {
     /// its tip.
     #[napi]
     pub async fn mark(&self, change: ChangeId, files: Vec<RepoPath>, head: Option<RevisionId>) -> napi::Result<()> {
-        self.blocking(move |cabaret| cabaret.mark(&change, &files, head)).await
+        let pathspecs: Vec<Pathspec> = files.iter().map(Pathspec::literal).collect();
+        self.blocking(move |cabaret| cabaret.mark(&change, &pathspecs, head).map(drop)).await
     }
 
     #[napi]

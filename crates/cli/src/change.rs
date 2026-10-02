@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, io::Write};
+use std::io::Write;
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
@@ -253,8 +253,7 @@ impl ChangeCommand {
             }
             ChangeCommand::Mark { change, tip, pathspecs } => {
                 let change = or_current(change)?;
-                let files = files_to_mark(cabaret, &change, &pathspecs)?;
-                cabaret.mark(&change, &files, tip)?;
+                let files = cabaret.mark(&change, &pathspecs, tip)?;
                 println!("marked {} of {change}'s files reviewed", files.len());
             }
             ChangeCommand::Owners { change, command } => {
@@ -334,24 +333,6 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
         }
     }
     Ok(())
-}
-
-/// The files `change` has to mark that `pathspecs` match, refusing any pathspec that matches
-/// none, as a typo would.
-fn files_to_mark(cabaret: &Cabaret, change: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<RepoPath>> {
-    let mut files = BTreeSet::new();
-    let mut unmatched = Vec::new();
-    for pathspec in pathspecs {
-        let matched = cabaret.markable_files(change, std::slice::from_ref(pathspec))?;
-        if matched.is_empty() {
-            unmatched.push(format!("'{}'", pathspec.0.path()));
-        }
-        files.extend(matched);
-    }
-    match unmatched.is_empty() {
-        true => Ok(Vec::from_iter(files)),
-        false => Err(format!("nothing to mark in {change} matches {}", unmatched.join(", ")).into()),
-    }
 }
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: &Allow) -> Result<()> {

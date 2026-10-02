@@ -70,7 +70,7 @@ fn pathspecs_narrow() {
 #[test]
 fn review_reads_each_file_from_where_it_was_marked() {
     let fixture = edited(&[("a.txt", "a\n"), ("b.txt", "b\n")], &[("a.txt", "a2\n"), ("b.txt", "b2\n")]);
-    fixture.cabaret.mark(&id("change"), &["a.txt".parse::<RepoPath>().unwrap()], None).unwrap();
+    fixture.cabaret.mark(&id("change"), &["a.txt".parse().unwrap()], None).unwrap();
     fixture.commit("change", &[("a.txt", "a3\n"), ("b.txt", "b3\n")]);
     expect![[r#"
         Modified { path: "a.txt" }: "a2\n" -> "a3\n"

@@ -2,12 +2,10 @@
 
 use std::fmt::Write as _;
 
-use cabaret_lib::RepoPath;
+use cabaret_lib::Pathspec;
 use expect_test::expect;
 
 use super::fixture::{Fixture, alice, id, short};
-
-fn path(file: &str) -> RepoPath { file.parse().unwrap() }
 
 /// Every mark as `user file revision`, with short hashes.
 fn review(fixture: &Fixture, change: &str) -> String {
@@ -20,11 +18,12 @@ fn review(fixture: &Fixture, change: &str) -> String {
     out
 }
 
-fn mark(fixture: &Fixture, change: &str, files: &[&str], head: Option<&str>) -> String {
-    let files: Vec<RepoPath> = files.iter().map(|file| path(file)).collect();
+/// What marking the files `pathspecs` match of `change` up to `head`'s tip marks, or why not.
+fn mark(fixture: &Fixture, change: &str, pathspecs: &[&str], head: Option<&str>) -> String {
+    let pathspecs: Vec<Pathspec> = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect();
     let head = head.map(|change| fixture.tip(change));
-    match fixture.cabaret.mark(&id(change), &files, head) {
-        Ok(()) => "ok".into(),
+    match fixture.cabaret.mark(&id(change), &pathspecs, head) {
+        Ok(files) => format!("{files:?}"),
         Err(error) => format!("error: {error:?}"),
     }
 }
@@ -41,7 +40,12 @@ fn stacked() -> Fixture {
 #[test]
 fn mark_defaults_to_tip() {
     let fixture = stacked();
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt", "extra.txt"], None));
+    expect![[r#"{"extra.txt", "greeting.txt"}"#]].assert_eq(&mark(
+        &fixture,
+        "child",
+        &["greeting.txt", "extra.txt"],
+        None,
+    ));
     expect![[r#"
         alice@example.com extra.txt TIP
         alice@example.com greeting.txt TIP
@@ -54,12 +58,12 @@ fn later_mark_replaces_earlier_one() {
     let fixture = stacked();
     fixture.branch("earlier", "child");
     fixture.commit("child", &[("greeting.txt", "hey\n")]);
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], Some("earlier")));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], Some("earlier")));
     expect![[r#"
         alice@example.com greeting.txt EARLIER
     "#]]
     .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("earlier")), "EARLIER"));
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     expect![[r#"
         alice@example.com greeting.txt TIP
     "#]]
@@ -67,9 +71,9 @@ fn later_mark_replaces_earlier_one() {
 }
 
 #[test]
-fn mark_refuses_files_neither_left_to_review_nor_marked() {
+fn mark_refuses_pathspec_matching_nothing_and_marks_nothing() {
     let fixture = stacked();
-    expect!["error: cannot mark missing.txt of child: neither left to review nor marked before"].assert_eq(&mark(
+    expect!["error: nothing left to review or marked before in child matches 'missing.txt'"].assert_eq(&mark(
         &fixture,
         "child",
         &["greeting.txt", "missing.txt"],
@@ -79,22 +83,45 @@ fn mark_refuses_files_neither_left_to_review_nor_marked() {
 }
 
 #[test]
-fn remark_of_file_no_longer_markable_is_no_op() {
+fn remark_of_file_reverted_since_its_mark() {
     let fixture = stacked();
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     fixture.commit("child", &[("greeting.txt", "hello\n")]);
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
 }
 
 #[test]
 fn remark_of_reviewed_file_unchanged_since_moves_it_to_tip() {
     let fixture = stacked();
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     fixture.commit("child", &[("extra.txt", "more\n")]);
-    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"{"greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     expect![[r#"
         alice@example.com greeting.txt TIP
     "#]]
     .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("child")), "TIP"));
+}
+
+#[test]
+fn mark_matches_reviewed_files_too() {
+    let fixture = stacked();
+    mark(&fixture, "child", &["greeting.txt"], None);
+    expect![[r#"{"extra.txt", "greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["*"], None));
+}
+
+#[test]
+fn mark_matches_globs_and_directories() {
+    let fixture = stacked();
+    fixture.commit("child", &[("dir/c.txt", "c\n"), ("dir/d.md", "d\n")]);
+    expect![[r#"{"dir/c.txt", "dir/d.md"}"#]].assert_eq(&mark(&fixture, "child", &["dir"], None));
+    expect![[r#"{"dir/c.txt", "extra.txt", "greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["*.txt"], None));
+}
+
+#[test]
+fn mark_matches_rename_by_its_source() {
+    let fixture = stacked();
+    fixture.remove("child", &["greeting.txt"]);
+    fixture.commit("child", &[("renamed.txt", "hello\n")]);
+    expect![[r#"{"renamed.txt"}"#]].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
 }
