@@ -445,8 +445,7 @@ fn disk_tree(repo: &Repository, pathspecs: &[Pathspec]) -> Result<(TreeId, BTree
     let mut editor = repo.edit_tree(head)?;
     let patterns = || pathspecs.iter().map(|spec| spec.0.to_bstring());
 
-    let mut pathspec =
-        gix::Pathspec::new(repo, false, patterns(), false, || Err("attribute pathspecs are not supported".into()))?;
+    let mut pathspec = tree::pathspec_search(repo, pathspecs)?;
     repo.tree_index_status(&head, &old, Some(&mut pathspec), TrackRenames::Disabled, |change, _, _| {
         use gix::diff::index::ChangeRef::{Addition, Deletion, Modification, Rewrite};
         match change {

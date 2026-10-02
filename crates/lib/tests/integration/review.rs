@@ -67,9 +67,9 @@ fn later_mark_replaces_earlier_one() {
 }
 
 #[test]
-fn mark_refuses_files_outside_diff_and_marks_nothing() {
+fn mark_refuses_files_neither_left_to_review_nor_marked() {
     let fixture = stacked();
-    expect!["error: cannot mark missing.txt of child: not in its diff or left to review"].assert_eq(&mark(
+    expect!["error: cannot mark missing.txt of child: neither left to review nor marked before"].assert_eq(&mark(
         &fixture,
         "child",
         &["greeting.txt", "missing.txt"],
@@ -85,4 +85,16 @@ fn remark_of_file_no_longer_markable_is_no_op() {
     fixture.commit("child", &[("greeting.txt", "hello\n")]);
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
     expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+}
+
+#[test]
+fn remark_of_reviewed_file_unchanged_since_moves_it_to_tip() {
+    let fixture = stacked();
+    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    fixture.commit("child", &[("extra.txt", "more\n")]);
+    expect!["ok"].assert_eq(&mark(&fixture, "child", &["greeting.txt"], None));
+    expect![[r#"
+        alice@example.com greeting.txt TIP
+    "#]]
+    .assert_eq(&review(&fixture, "child").replace(&short(fixture.tip("child")), "TIP"));
 }

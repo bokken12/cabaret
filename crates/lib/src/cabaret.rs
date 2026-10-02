@@ -9,7 +9,7 @@ use cabaret_agents::{ClaudeCode, Session};
 use cabaret_config::{Hints, Prefix, Scope, Setting};
 use cabaret_page::{DiffView, Home, HomeGraph, HomeNode, HomeSection, NextStep, Page, TabCounts};
 use cabaret_transaction::{
-    Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp,
+    Branch, BranchOp, Head, Metadata, Status, Store, TransactionContext, Workspace, WorkspaceOp, pathspec_search,
 };
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, FileDiff, FileVersion, Identity, LineCounts, Pathspec,
@@ -501,12 +501,12 @@ impl Cabaret {
     }
 
     /// The paths of `change_id` this repository's identity can mark reviewed, restricted to
-    /// `pathspecs` (all when empty); see `Branch::markable_files`.
+    /// `pathspecs` (all when empty): those left to review, or already marked.
     pub fn markable_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<BTreeSet<RepoPath>> {
         self.store.query(|ctx| {
             let metadata = ctx.metadata(change_id)?;
             let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
-            ctx.branch(change_id)?.markable_files(&metadata.parents()?, &review, pathspecs)
+            markable_files(ctx, ctx.branch(change_id)?, &metadata.parents()?, &review, pathspecs)
         })
     }
 
@@ -921,12 +921,12 @@ impl Cabaret {
             if unmarked.is_empty() {
                 return Ok(());
             }
-            let markable = branch.markable_files(&parents, review, &[])?;
+            let markable = markable_files(ctx, branch, &parents, review, &[])?;
             let unmarkable: Vec<String> =
                 unmarked.iter().filter(|file| !markable.contains(**file)).map(ToString::to_string).collect();
             if !unmarkable.is_empty() {
                 Err(format!(
-                    "cannot mark {} of {change_id}: not in its diff or left to review",
+                    "cannot mark {} of {change_id}: neither left to review nor marked before",
                     unmarkable.join(", ")
                 ))?;
             }
@@ -1088,6 +1088,21 @@ fn unreviewed(
         }
     }
     Ok(reviewers)
+}
+
+/// The paths `review`'s reviewer can mark of `branch` against `parents`, restricted to `pathspecs`
+/// (all when empty): those left to review, or already marked, as re-marking reviewed files is harmless.
+fn markable_files<'ctx>(
+    ctx: &'ctx TransactionContext<'ctx>,
+    branch: &Branch<'ctx>,
+    parents: &BTreeSet<ChangeId>,
+    review: &BTreeMap<RepoPath, RevisionId>,
+    pathspecs: &[Pathspec],
+) -> Result<BTreeSet<RepoPath>> {
+    let mut search = pathspec_search(&ctx.repo, pathspecs)?;
+    let marked = review.keys().filter(|file| search.is_included(file.as_bstr(), Some(false))).cloned();
+    let left = branch.review_files(parents, review, pathspecs)?.into_iter().map(|file| file.path().clone());
+    Ok(left.chain(marked).collect())
 }
 
 fn remove_workspace_safeguards(workspace: &Workspace<'_>) -> Result<Vec<Safeguard>> {

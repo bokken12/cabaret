@@ -92,6 +92,13 @@ fn markable_files_include_reviewed_ones() {
 }
 
 #[test]
+fn markable_files_match_pathspecs_against_marked_ones() {
+    let fixture = stacked();
+    mark(&fixture, "change", &["a.txt"]);
+    expect![[r#"{"a.txt"}"#]].assert_eq(&markable_files(&fixture, "change", &["a.txt"]));
+}
+
+#[test]
 fn markable_files_include_file_reverted_since_its_mark() {
     let fixture = stacked();
     mark(&fixture, "change", &["a.txt", "b.txt"]);

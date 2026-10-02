@@ -124,8 +124,8 @@ pub enum ChangeCommand {
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
-    /// Mark the files matching the given pathspecs as reviewed by you, among those in the change's diff or left
-    /// for you to review.
+    /// Mark the files matching the given pathspecs as reviewed by you, among those left for you to review or
+    /// marked by you before.
     Mark {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,

@@ -11,5 +11,5 @@ pub use context::TransactionContext;
 pub use metadata::Metadata;
 pub use revision::Revision;
 pub use store::{BranchOp, Store, WorkspaceOp};
-pub use tree::Tree;
+pub use tree::{Tree, pathspec_search};
 pub use workspace::{Head, Status, Workspace};

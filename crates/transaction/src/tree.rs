@@ -19,9 +19,7 @@ pub(crate) fn changed_files(
     to: &GixTree<'_>,
     pathspecs: &[Pathspec],
 ) -> Result<Vec<ChangedFile>> {
-    let mut search = gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
-        Err("attribute pathspecs are not supported".into())
-    })?;
+    let mut search = pathspec_search(repo, pathspecs)?;
     let mut files = repo
         .diff_tree_to_tree(from, Some(to), None)?
         .into_iter()
@@ -32,6 +30,13 @@ pub(crate) fn changed_files(
     files.retain(|file| file.paths().any(|path| search.is_included(path.as_bstr(), Some(false))));
     files.sort_by(|a, b| a.paths().last().cmp(&b.paths().last()));
     Ok(files)
+}
+
+/// A search for the paths `pathspecs` match, all when empty.
+pub fn pathspec_search<'repo>(repo: &'repo Repository, pathspecs: &[Pathspec]) -> Result<gix::Pathspec<'repo>> {
+    Ok(gix::Pathspec::new(repo, false, pathspecs.iter().map(|spec| spec.0.to_bstring()), false, || {
+        Err("attribute pathspecs are not supported".into())
+    })?)
 }
 
 /// Options for merging trees, with the conflict style forced rather than read from config so
