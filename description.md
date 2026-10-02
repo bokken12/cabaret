@@ -1,0 +1,1 @@
+cab change mark takes pathspecs, resolved to the files in the change's diff or left to review that they match; a pathspec matching none is refused, before anything is marked.
