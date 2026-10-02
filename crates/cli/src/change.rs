@@ -253,9 +253,9 @@ impl ChangeCommand {
             }
             ChangeCommand::Mark { change, tip, pathspecs } => {
                 let change = or_current(change)?;
-                let files = markable_files(cabaret, &change, &pathspecs)?;
+                let files = files_to_mark(cabaret, &change, &pathspecs)?;
                 cabaret.mark(&change, &files, tip)?;
-                println!("marked {} files of {change} reviewed", files.len());
+                println!("marked {} of {change}'s files reviewed", files.len());
             }
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;
@@ -338,7 +338,7 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
 
 /// The files `change` has to mark that `pathspecs` match, refusing any pathspec that matches
 /// none, as a typo would.
-fn markable_files(cabaret: &Cabaret, change: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<RepoPath>> {
+fn files_to_mark(cabaret: &Cabaret, change: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<RepoPath>> {
     let mut files = BTreeSet::new();
     let mut unmatched = Vec::new();
     for pathspec in pathspecs {
