@@ -103,6 +103,20 @@ impl<'ctx> Branch<'ctx> {
         Ok(files)
     }
 
+    /// The paths a reviewer can mark against `parents`, given `review` as for
+    /// [`Self::review_files`], restricted to `pathspecs` (all when empty): those in the diff or left
+    /// to review. A file reverted since its mark is only the latter.
+    pub fn markable_files(
+        &self,
+        parents: &BTreeSet<ChangeId>,
+        review: &BTreeMap<RepoPath, RevisionId>,
+        pathspecs: &[Pathspec],
+    ) -> Result<BTreeSet<RepoPath>> {
+        let mut files = self.changed_files(parents, pathspecs)?;
+        files.extend(self.review_files(parents, review, pathspecs)?);
+        Ok(files.into_iter().map(|file| file.path().clone()).collect())
+    }
+
     /// The files whose tip holds conflict markers, as a conflicting [`Self::merge`] commits them
     /// until resolved, among those written by the revisions exclusive to this branch: any
     /// conflict older than those came from a parent, and is that parent's to resolve. A root is

@@ -85,6 +85,7 @@ fn a_log_commit_must_take_what_it_refers_to_as_a_parent() {
 fn edits_already_in_effect_write_nothing() {
     let fixture = child();
     fixture.root("other", &[]);
+    fixture.commit("child", &[("greeting.txt", "hi\n")]);
     let child = id("child");
     let greeting = ["greeting.txt".parse().unwrap()];
     let allow = Allow::default();

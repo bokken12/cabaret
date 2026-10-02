@@ -501,12 +501,13 @@ impl Cabaret {
     }
 
     /// The paths of `change_id` this repository's identity can mark reviewed, restricted to
-    /// `pathspecs` (all when empty): those in its diff or left to review. A file reverted since
-    /// its mark is only the latter.
+    /// `pathspecs` (all when empty); see `Branch::markable_files`.
     pub fn markable_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<BTreeSet<RepoPath>> {
-        let mut files = self.changed_files(change_id, pathspecs)?;
-        files.extend(self.review_files(change_id, pathspecs)?);
-        Ok(files.into_iter().map(|file| file.path().clone()).collect())
+        self.store.query(|ctx| {
+            let metadata = ctx.metadata(change_id)?;
+            let review = metadata.review.get(&ctx.identity()?).cloned().unwrap_or_default();
+            ctx.branch(change_id)?.markable_files(&metadata.parents()?, &review, pathspecs)
+        })
     }
 
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
@@ -908,13 +909,28 @@ impl Cabaret {
     }
 
     /// Record that this repository's identity has reviewed `files` of `change_id` up to `head`,
-    /// by default the change's tip.
+    /// by default the change's tip, refusing files it cannot mark (see [`Self::markable_files`]).
     pub fn mark(&self, change_id: &ChangeIdRef, files: &[RepoPath], head: Option<RevisionId>) -> Result<()> {
         self.store.update_metadata(change_id, |ctx, metadata| {
             let branch = ctx.branch(change_id)?;
             let revision = head.unwrap_or(branch.tip);
+            let parents = metadata.parents()?;
             let review = metadata.review.entry(ctx.identity()?).or_default();
-            review.extend(files.iter().map(|file| (file.clone(), revision)));
+            let unmarked: BTreeSet<&RepoPath> =
+                files.iter().filter(|file| review.get(*file) != Some(&revision)).collect();
+            if unmarked.is_empty() {
+                return Ok(());
+            }
+            let markable = branch.markable_files(&parents, review, &[])?;
+            let unmarkable: Vec<String> =
+                unmarked.iter().filter(|file| !markable.contains(**file)).map(ToString::to_string).collect();
+            if !unmarkable.is_empty() {
+                Err(format!(
+                    "cannot mark {} of {change_id}: not in its diff or left to review",
+                    unmarkable.join(", ")
+                ))?;
+            }
+            review.extend(unmarked.into_iter().map(|file| (file.clone(), revision)));
             Ok(())
         })
     }
