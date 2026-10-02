@@ -1,0 +1,1 @@
+Cabaret::mark refuses files outside the change's diff that aren't left to review either, marking nothing. Re-marking a file already marked at that revision stays a silent no-op, even once it's no longer markable. The markable set moves onto Branch so mark can check it inside its transaction.
