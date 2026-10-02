@@ -500,6 +500,15 @@ impl Cabaret {
         })
     }
 
+    /// The paths of `change_id` this repository's identity can mark reviewed, restricted to
+    /// `pathspecs` (all when empty): those in its diff or left to review. A file reverted since
+    /// its mark is only the latter.
+    pub fn markable_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<BTreeSet<RepoPath>> {
+        let mut files = self.changed_files(change_id, pathspecs)?;
+        files.extend(self.review_files(change_id, pathspecs)?);
+        Ok(files.into_iter().map(|file| file.path().clone()).collect())
+    }
+
     /// The files the workspace holding `change_id` has on disk that differ from the change's tip,
     /// restricted to `pathspecs` (all when empty): what [`Self::commit`] would record.
     pub fn workspace_files(&self, change_id: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<ChangedFile>> {

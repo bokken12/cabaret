@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::BTreeSet, io::Write};
 
 use cabaret_lib::{
     Cabaret, ChangeId, ChangeIdRef, DiffView, Error, FileDiff, FileVersion, Identity, Pathspec, RepoPath, Result,
@@ -124,7 +124,8 @@ pub enum ChangeCommand {
         #[arg(long, hide = true, value_parser = safeguard_kind())]
         allow: Vec<SafeguardKind>,
     },
-    /// Mark files as reviewed by you.
+    /// Mark the files matching the given pathspecs as reviewed by you, among those in the change's diff or left
+    /// for you to review.
     Mark {
         #[arg(long, add = change_completer())]
         change: Option<ChangeId>,
@@ -133,7 +134,7 @@ pub enum ChangeCommand {
         tip: Option<RevisionId>,
         // TODO-someday(joel): accept paths relative to the working directory
         #[arg(required = true, value_hint = ValueHint::AnyPath)]
-        files: Vec<RepoPath>,
+        pathspecs: Vec<Pathspec>,
     },
     Owners {
         #[arg(long, global = true, add = change_completer())]
@@ -250,8 +251,11 @@ impl ChangeCommand {
                     .set_permanent(&change, !undo, &Allow::from_iter(allow))
                     .map_err(|error| refusal(&action, error))?;
             }
-            ChangeCommand::Mark { change, tip, files } => {
-                cabaret.mark(&or_current(change)?, &files, tip)?;
+            ChangeCommand::Mark { change, tip, pathspecs } => {
+                let change = or_current(change)?;
+                let files = markable_files(cabaret, &change, &pathspecs)?;
+                cabaret.mark(&change, &files, tip)?;
+                println!("marked {} files of {change} reviewed", files.len());
             }
             ChangeCommand::Owners { change, command } => {
                 let change = &or_current(change)?;
@@ -330,6 +334,24 @@ fn diff(cabaret: &Cabaret, change: &ChangeIdRef, view: DiffView, pathspecs: &[Pa
         }
     }
     Ok(())
+}
+
+/// The files `change` has to mark that `pathspecs` match, refusing any pathspec that matches
+/// none, as a typo would.
+fn markable_files(cabaret: &Cabaret, change: &ChangeIdRef, pathspecs: &[Pathspec]) -> Result<Vec<RepoPath>> {
+    let mut files = BTreeSet::new();
+    let mut unmatched = Vec::new();
+    for pathspec in pathspecs {
+        let matched = cabaret.markable_files(change, std::slice::from_ref(pathspec))?;
+        if matched.is_empty() {
+            unmatched.push(format!("'{}'", pathspec.0.to_bstring()));
+        }
+        files.extend(matched);
+    }
+    match unmatched.is_empty() {
+        true => Ok(Vec::from_iter(files)),
+        false => Err(format!("nothing to mark in {change} matches {}", unmatched.join(", ")).into()),
+    }
 }
 
 fn rebase(cabaret: &Cabaret, change: &ChangeId, onto: Option<&ChangeIdRef>, allow: &Allow) -> Result<()> {

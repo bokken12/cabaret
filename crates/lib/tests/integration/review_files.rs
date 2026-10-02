@@ -78,3 +78,37 @@ fn pathspec_narrows() {
     let fixture = stacked();
     expect![[r#"[Modified { path: "a.txt" }]"#]].assert_eq(&review_files(&fixture, "change", &["a.txt"]));
 }
+
+fn markable_files(fixture: &Fixture, change: &str, pathspecs: &[&str]) -> String {
+    let pathspecs: Vec<Pathspec> = pathspecs.iter().map(|spec| spec.parse().unwrap()).collect();
+    format!("{:?}", fixture.cabaret.markable_files(&id(change), &pathspecs).unwrap())
+}
+
+#[test]
+fn markable_files_include_reviewed_ones() {
+    let fixture = stacked();
+    mark(&fixture, "change", &["a.txt"]);
+    expect![[r#"{"a.txt", "b.txt"}"#]].assert_eq(&markable_files(&fixture, "change", &[]));
+}
+
+#[test]
+fn markable_files_include_file_reverted_since_its_mark() {
+    let fixture = stacked();
+    mark(&fixture, "change", &["a.txt", "b.txt"]);
+    fixture.commit("change", &[("a.txt", "a\n")]);
+    expect![[r#"{"a.txt", "b.txt"}"#]].assert_eq(&markable_files(&fixture, "change", &[]));
+}
+
+#[test]
+fn markable_files_match_globs_and_directories() {
+    let fixture = stacked();
+    fixture.commit("change", &[("dir/c.txt", "c\n"), ("dir/d.md", "d\n")]);
+    expect![[r#"{"a.txt", "b.txt", "dir/c.txt"}"#]].assert_eq(&markable_files(&fixture, "change", &["*.txt"]));
+    expect![[r#"{"dir/c.txt", "dir/d.md"}"#]].assert_eq(&markable_files(&fixture, "change", &["dir"]));
+}
+
+#[test]
+fn markable_files_matching_nothing_is_empty() {
+    let fixture = stacked();
+    expect!["{}"].assert_eq(&markable_files(&fixture, "change", &["missing.txt"]));
+}
