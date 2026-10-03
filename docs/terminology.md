@@ -35,13 +35,15 @@ Tentative: I'm going to call this a "role". If this turns out badly, my second c
 
 ## Endorsement
 
-What should one call a successful review?
+What should one call a successful review? (not just passing file review, but the explicit action from owners)
 
 - GitHub calls this "approve"
 - Iron calls this "second"
 - Critique calls this "looks good to me (LGTM)"
 
 To me "approve" seems like the clearest here, although maybe "second" emphasizes a slightly different meaning and I should think if there's a clearer way to have that? Maybe something like "vouch"?
+
+"approve" would be the cleanest map onto GitHub, but I don't really like the implication. To "approve" feels passive, as if you might be only so-so about it, which is more like what I want for regular reviewers.
 
 Tentative: I'm going to call this "approve". If this turns out badly, my second choice is "endorse".
 
@@ -121,7 +123,7 @@ What should one call moving state between this clone and origin?
 - fossil has one word, "sync", and autosyncs by default
 - hg has symmetric but manual "pull"/"push"
 
-tentative: "fetch"
+Tentative: "fetch" would best match git, but since Cabaret does much more on this action I kind of like "sync".
 
 # Versions
 
