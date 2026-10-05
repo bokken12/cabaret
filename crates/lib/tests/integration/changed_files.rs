@@ -87,7 +87,7 @@ fn pathspec_narrows() {
     expect![[r#"[Added { path: "src/lib.rs" }]"#]].assert_eq(&changed_files(&fixture, "change", &["src"]));
 }
 
-// TODO(claude): `.` matches nothing, as gix takes its path for a prefix every match must share.
+// TODO: `.` matches nothing, as gix takes its path for a prefix every match must share.
 #[test]
 fn dot_pathspec_matches_every_file() {
     let fixture = Fixture::new();

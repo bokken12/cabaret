@@ -118,7 +118,7 @@ fn mark_matches_globs_and_directories() {
     expect![[r#"{"dir/c.txt", "extra.txt", "greeting.txt"}"#]].assert_eq(&mark(&fixture, "child", &["*.txt"], None));
 }
 
-// TODO(claude): `.` matches nothing, as gix takes its path for a prefix every match must share.
+// TODO: `.` matches nothing, as gix takes its path for a prefix every match must share.
 #[test]
 fn mark_dot_matches_every_file() {
     let fixture = stacked();
