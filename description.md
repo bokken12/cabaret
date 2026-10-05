@@ -1,0 +1,1 @@
+Witness `.` pathspecs: `mark` and `changed_files` match nothing for `.`, which should match every file; `commit` handles it already.
