@@ -1,0 +1,1 @@
+Write SafeguardKind and Safeguard out by hand instead of generating them with every_safeguard!.
