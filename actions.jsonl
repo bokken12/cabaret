@@ -1,2 +1,1 @@
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/napi.rs","revision":"4adbb8584a5aede56e9ffbbd24ec13bd32863de0"}
-{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/types/src/revision.rs","revision":"4adbb8584a5aede56e9ffbbd24ec13bd32863de0"}
+{"action":"set-archived","archived":true}
