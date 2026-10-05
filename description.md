@@ -1,0 +1,1 @@
+NextStep holds non-empty sets: its variants' files, parents and reviewers are NEBTreeSets, parsed once in next_step rather than checked for emptiness.
