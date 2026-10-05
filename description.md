@@ -1,0 +1,1 @@
+Make `.` pathspecs match every file. gix takes a pattern matching every path for a prefix all paths must share, so `.` matched none; `pathspec_search` now searches only the exclusions when one is present.
