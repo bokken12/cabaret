@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use gix::ObjectId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -9,6 +9,12 @@ pub struct RevisionId(pub ObjectId);
 
 impl fmt::Display for RevisionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { fmt::Display::fmt(&self.0, f) }
+}
+
+impl FromStr for RevisionId {
+    type Err = gix::hash::decode::Error;
+
+    fn from_str(hex: &str) -> Result<Self, Self::Err> { hex.parse().map(Self) }
 }
 
 impl From<RevisionId> for ObjectId {
@@ -24,6 +30,6 @@ impl Serialize for RevisionId {
 impl<'de> Deserialize<'de> for RevisionId {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let hex = String::deserialize(deserializer)?;
-        hex.parse().map(RevisionId).map_err(serde::de::Error::custom)
+        hex.parse().map_err(serde::de::Error::custom)
     }
 }
