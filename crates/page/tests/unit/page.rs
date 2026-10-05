@@ -9,6 +9,7 @@ use cabaret_config::Hints;
 use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Target};
 use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, RevisionId, TimestampMs};
 use expect_test::expect;
+use nonempty_collections::nebts;
 
 fn revision(digit: char) -> RevisionId { RevisionId(String::from(digit).repeat(40).parse().unwrap()) }
 
@@ -433,16 +434,16 @@ fn hidden_hints_leave_keys_off_tabs() {
 
 #[test]
 fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
-    let changes = |ids: &[&str]| ids.iter().map(|id| id.parse::<ChangeId>().unwrap()).collect::<BTreeSet<_>>();
-    let identities = |ids: &[&str]| ids.iter().map(|id| Identity((*id).into())).collect::<BTreeSet<_>>();
+    let change = |id: &str| id.parse::<ChangeId>().unwrap();
+    let identity = |id: &str| Identity(id.into());
     let steps = [
         NextStep::AddCode,
-        NextStep::ResolveConflicts { files: ["a.txt", "b.txt"].map(|file| file.parse().unwrap()).into() },
-        NextStep::ResolveParentConflicts { parents: changes(&["lexer"]) },
-        NextStep::Rebase { parents: changes(&["lexer", "tokens"]) },
-        NextStep::Review { reviewers: identities(&["alice@example.com", "bob@example.com"]) },
-        NextStep::Review { reviewers: identities(&["bob@example.com"]) },
-        NextStep::LandParents { parents: changes(&["lexer", "tokens"]) },
+        NextStep::ResolveConflicts { files: nebts!["a.txt".parse().unwrap(), "b.txt".parse().unwrap()] },
+        NextStep::ResolveParentConflicts { parents: nebts![change("lexer")] },
+        NextStep::Rebase { parents: nebts![change("lexer"), change("tokens")] },
+        NextStep::Review { reviewers: nebts![identity("alice@example.com"), identity("bob@example.com")] },
+        NextStep::Review { reviewers: nebts![identity("bob@example.com")] },
+        NextStep::LandParents { parents: nebts![change("lexer"), change("tokens")] },
         NextStep::Land { into: "lexer".parse().unwrap() },
     ];
     let mut out = String::new();

@@ -1038,15 +1038,14 @@ impl Cabaret {
 /// `None` for a change that cannot land: an archived one, or a root.
 fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef) -> Result<Option<NextStep>> {
     let metadata = ctx.metadata(change_id)?;
-    let parents = metadata.parents()?;
-    if metadata.archived || parents.is_empty() {
+    if metadata.archived {
         return Ok(None);
     }
+    let Some(parents) = NEBTreeSet::try_from_set(metadata.parents()?) else { return Ok(None) };
 
     // Fix broken states if present
     let branch = ctx.branch(change_id)?;
-    let files = branch.conflicted_files(&parents)?;
-    if !files.is_empty() {
+    if let Some(files) = NEBTreeSet::try_from_set(branch.conflicted_files(parents.as_ref())?) {
         return Ok(Some(NextStep::ResolveConflicts { files }));
     }
     let mut stale = BTreeSet::new();
@@ -1061,24 +1060,23 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
             conflicted.insert(parent.clone());
         }
     }
-    if !conflicted.is_empty() {
-        return Ok(Some(NextStep::ResolveParentConflicts { parents: conflicted }));
+    if let Some(parents) = NEBTreeSet::try_from_set(conflicted) {
+        return Ok(Some(NextStep::ResolveParentConflicts { parents }));
     }
-    if !stale.is_empty() {
-        return Ok(Some(NextStep::Rebase { parents: stale }));
+    if let Some(parents) = NEBTreeSet::try_from_set(stale) {
+        return Ok(Some(NextStep::Rebase { parents }));
     }
 
     // Work towards landing
-    if branch.changed_files(&parents, &[])?.is_empty() {
+    if branch.changed_files(parents.as_ref(), &[])?.is_empty() {
         return Ok(Some(NextStep::AddCode));
     }
-    let reviewers = unreviewed(metadata, branch, &parents)?;
-    if !reviewers.is_empty() {
+    if let Some(reviewers) = NEBTreeSet::try_from_set(unreviewed(metadata, branch, parents.as_ref())?) {
         return Ok(Some(NextStep::Review { reviewers }));
     }
     Ok(Some(match parents.iter().collect::<Vec<_>>().as_slice() {
         [into] => NextStep::Land { into: (*into).clone() },
-        _ => NextStep::LandParents { parents: parents.clone() },
+        _ => NextStep::LandParents { parents },
     }))
 }
 

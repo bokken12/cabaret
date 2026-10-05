@@ -9,6 +9,7 @@ use cabaret_config::Hints;
 use cabaret_types::{
     ChangeId, ChangeIdRef, ChangeSnapshot, ChangedFile, Identity, LineCounts, RepoPath, RevisionId, TimestampMs,
 };
+use nonempty_collections::NEBTreeSet;
 
 use crate::{file_tree::FileTree, home::HomeSection};
 
@@ -19,23 +20,23 @@ pub enum NextStep {
     AddCode,
     /// Files its tip holds conflict markers in; they are resolved before anything more is merged.
     ResolveConflicts {
-        files: BTreeSet<RepoPath>,
+        files: NEBTreeSet<RepoPath>,
     },
     /// Parents it lags behind that hold conflict markers of their own, which a rebase would take on.
     ResolveParentConflicts {
-        parents: BTreeSet<ChangeId>,
+        parents: NEBTreeSet<ChangeId>,
     },
     /// Parents whose tips its bases lag behind.
     Rebase {
-        parents: BTreeSet<ChangeId>,
+        parents: NEBTreeSet<ChangeId>,
     },
     /// Owners with files left to review, since owners are to review every file of their changes.
     Review {
-        reviewers: BTreeSet<Identity>,
+        reviewers: NEBTreeSet<Identity>,
     },
     /// A change lands into one parent, so several must first coalesce by landing.
     LandParents {
-        parents: BTreeSet<ChangeId>,
+        parents: NEBTreeSet<ChangeId>,
     },
     Land {
         into: ChangeId,
@@ -375,12 +376,14 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         NextStep::ResolveConflicts { files } => {
             (None, format!("resolve conflicts in {}", joined(files)), BTreeSet::new())
         }
-        NextStep::ResolveParentConflicts { parents } => (Some("^"), "resolve conflicts in".to_owned(), parents.clone()),
-        NextStep::Rebase { parents } => (owner.then_some("!r"), "rebase onto".to_owned(), parents.clone()),
+        NextStep::ResolveParentConflicts { parents } => {
+            (Some("^"), "resolve conflicts in".to_owned(), parents.clone().into())
+        }
+        NextStep::Rebase { parents } => (owner.then_some("!r"), "rebase onto".to_owned(), parents.clone().into()),
         NextStep::Review { reviewers } => {
             (reviewers.contains(viewer).then_some("r"), format!("review by {}", joined(reviewers)), BTreeSet::new())
         }
-        NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone()),
+        NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone().into()),
         NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
     };
     let hint = match (key, hints) {
