@@ -92,6 +92,21 @@ fn pathspecs_leave_other_files_uncommitted() {
 }
 
 #[test]
+fn dot_pathspec_commits_every_file() {
+    let fixture = two_changes();
+    fixture.write("added.txt", "added\n");
+    fixture.write("one.txt", "one, edited\n");
+    expect![[r#"committed "one""#]].assert_eq(&commit(&fixture, "one", &["."]));
+    expect![[r#"
+        clean
+        added.txt "added\n"
+        main.txt "main\n"
+        one.txt "one, edited\n"
+    "#]]
+    .assert_eq(&fixture.worktree());
+}
+
+#[test]
 fn literal_pathspec_takes_glob_characters_as_written() {
     let fixture = two_changes();
     fixture.write("a[1].txt", "bracketed\n");
