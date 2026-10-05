@@ -216,6 +216,7 @@ dependencies = [
  "expect-test",
  "napi",
  "napi-derive",
+ "nonempty-collections",
 ]
 
 [[package]]
