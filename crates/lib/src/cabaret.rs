@@ -1042,6 +1042,8 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if metadata.archived || parents.is_empty() {
         return Ok(None);
     }
+
+    // Fix broken states if present
     let branch = ctx.branch(change_id)?;
     let files = branch.conflicted_files(&parents)?;
     if !files.is_empty() {
@@ -1065,6 +1067,8 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     if !stale.is_empty() {
         return Ok(Some(NextStep::Rebase { parents: stale }));
     }
+
+    // Work towards landing
     if branch.changed_files(&parents, &[])?.is_empty() {
         return Ok(Some(NextStep::AddCode));
     }
