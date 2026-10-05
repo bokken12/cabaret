@@ -1,1 +1,5 @@
-{"action":"add-owner","owner":"me@joel.place"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"Cargo.lock","revision":"e7b6bc6c61320aef2773829b35d33d68eb989782"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/lib/src/cabaret.rs","revision":"e7b6bc6c61320aef2773829b35d33d68eb989782"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/Cargo.toml","revision":"e7b6bc6c61320aef2773829b35d33d68eb989782"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/src/page.rs","revision":"e7b6bc6c61320aef2773829b35d33d68eb989782"}
+{"action":"mark","reviewer":"me+claude@joel.place","file":"crates/page/tests/unit/page.rs","revision":"e7b6bc6c61320aef2773829b35d33d68eb989782"}
