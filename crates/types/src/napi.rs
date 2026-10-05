@@ -8,10 +8,7 @@ use napi::{
     sys,
 };
 
-use crate::{
-    change_id::ChangeId, error::Error, identity::Identity, repo_path::RepoPath, revision::RevisionId,
-    workspace_id::WorkspaceId,
-};
+use crate::{change_id::ChangeId, error::Error, repo_path::RepoPath, revision::RevisionId, workspace_id::WorkspaceId};
 
 // TODO(joel): rid myself of unsafe
 impl ToNapiValue for RepoPath {
@@ -23,18 +20,6 @@ impl ToNapiValue for RepoPath {
 impl FromNapiValue for RepoPath {
     unsafe fn from_napi_value(env: sys::napi_env, val: sys::napi_value) -> napi::Result<Self> {
         Ok(unsafe { String::from_napi_value(env, val)? }.parse().map_err(Error::from)?)
-    }
-}
-
-impl ToNapiValue for Identity {
-    unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> napi::Result<sys::napi_value> {
-        unsafe { String::to_napi_value(env, val.0) }
-    }
-}
-
-impl FromNapiValue for Identity {
-    unsafe fn from_napi_value(env: sys::napi_env, val: sys::napi_value) -> napi::Result<Self> {
-        Ok(Self(unsafe { String::from_napi_value(env, val)? }))
     }
 }
 

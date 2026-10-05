@@ -161,6 +161,7 @@ dependencies = [
  "expect-test",
  "humantime",
  "napi",
+ "napi-derive",
  "serde",
  "serde_json",
  "tempfile",

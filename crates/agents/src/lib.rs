@@ -13,30 +13,9 @@ mod claude_code;
 
 pub use claude_code::ClaudeCode;
 
-#[cfg(feature = "napi")]
-mod napi {
-    use napi::{
-        bindgen_prelude::{FromNapiValue, ToNapiValue},
-        sys,
-    };
-
-    use crate::SessionId;
-
-    impl ToNapiValue for SessionId {
-        unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> napi::Result<sys::napi_value> {
-            unsafe { String::to_napi_value(env, val.0) }
-        }
-    }
-
-    impl FromNapiValue for SessionId {
-        unsafe fn from_napi_value(env: sys::napi_env, val: sys::napi_value) -> napi::Result<Self> {
-            Ok(Self(unsafe { String::from_napi_value(env, val)? }))
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "napi", napi_derive::napi(transparent))]
 pub struct SessionId(pub String);
 
 impl fmt::Display for SessionId {

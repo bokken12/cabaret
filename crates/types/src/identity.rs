@@ -7,6 +7,7 @@ use crate::Error;
 // TODO-someday(joel): rename to "user" or "email"?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "napi", napi_derive::napi(transparent))]
 pub struct Identity(pub String);
 
 impl From<String> for Identity {
