@@ -87,14 +87,26 @@ fn pathspec_narrows() {
     expect![[r#"[Added { path: "src/lib.rs" }]"#]].assert_eq(&changed_files(&fixture, "change", &["src"]));
 }
 
-// TODO: `.` matches nothing, as gix takes its path for a prefix every match must share.
 #[test]
 fn dot_pathspec_matches_every_file() {
     let fixture = Fixture::new();
     fixture.root("main", &[]);
     fixture.create("change", "main", &alice());
     fixture.commit("change", &[("src/lib.rs", "\n"), ("docs/guide.md", "\n")]);
-    expect!["[]"].assert_eq(&changed_files(&fixture, "change", &["."]));
+    expect![[r#"[Added { path: "docs/guide.md" }, Added { path: "src/lib.rs" }]"#]].assert_eq(&changed_files(
+        &fixture,
+        "change",
+        &["."],
+    ));
+}
+
+#[test]
+fn dot_pathspec_leaves_out_exclusions() {
+    let fixture = Fixture::new();
+    fixture.root("main", &[]);
+    fixture.create("change", "main", &alice());
+    fixture.commit("change", &[("src/lib.rs", "\n"), ("docs/guide.md", "\n")]);
+    expect![[r#"[Added { path: "src/lib.rs" }]"#]].assert_eq(&changed_files(&fixture, "change", &[".", ":!docs"]));
 }
 
 #[test]
