@@ -1043,9 +1043,6 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
         return Ok(None);
     }
     let branch = ctx.branch(change_id)?;
-    if branch.changed_files(&parents, &[])?.is_empty() {
-        return Ok(Some(NextStep::AddCode));
-    }
     let files = branch.conflicted_files(&parents)?;
     if !files.is_empty() {
         return Ok(Some(NextStep::ResolveConflicts { files }));
@@ -1067,6 +1064,9 @@ fn next_step<'ctx>(ctx: &'ctx TransactionContext<'ctx>, change_id: &ChangeIdRef)
     }
     if !stale.is_empty() {
         return Ok(Some(NextStep::Rebase { parents: stale }));
+    }
+    if branch.changed_files(&parents, &[])?.is_empty() {
+        return Ok(Some(NextStep::AddCode));
     }
     let reviewers = unreviewed(metadata, branch, &parents)?;
     if !reviewers.is_empty() {
