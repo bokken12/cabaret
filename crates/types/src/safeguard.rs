@@ -12,74 +12,151 @@ use crate::{
     workspace_id::WorkspaceId,
 };
 
-/// Declares every safeguard, each named by the struct holding its particulars: [`Safeguard`]
-/// holding any of them, and [`SafeguardKind`] naming one as frontends do to allow it.
-macro_rules! every_safeguard {
-    ($($kind:ident = $name:literal),+ $(,)?) => {
-        /// A safeguard without its particulars, as frontends name one to allow it.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-        #[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
-        pub enum SafeguardKind {
-            $($kind),+
-        }
-
-        impl SafeguardKind {
-            pub const ALL: &[Self] = &[$(Self::$kind),+];
-
-            pub fn name(self) -> &'static str {
-                match self {
-                    $(Self::$kind => $name),+
-                }
-            }
-        }
-
-        impl fmt::Display for SafeguardKind {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.name()) }
-        }
-
-        /// Any action's safeguard.
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum Safeguard {
-            $($kind($kind)),+
-        }
-
-        impl Safeguard {
-            pub fn kind(&self) -> SafeguardKind {
-                match self {
-                    $(Self::$kind(_) => SafeguardKind::$kind),+
-                }
-            }
-        }
-
-        impl fmt::Display for Safeguard {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                match self {
-                    $(Self::$kind(particulars) => particulars.fmt(f)),+
-                }
-            }
-        }
-    };
+/// A safeguard without its particulars, as frontends name one to allow it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "napi", napi_derive::napi(string_enum = "kebab-case"))]
+pub enum SafeguardKind {
+    Unreviewed,
+    NonOwner,
+    ParentUnreviewed,
+    Empty,
+    Conflicted,
+    Uncommitted,
+    ParentConflicted,
+    RemovesOthers,
+    Ownerless,
+    BaseMoves,
+    Parentless,
+    NoCommonAncestor,
+    ArchivedParent,
+    RedundantParent,
+    ImpermanentParents,
+    OpenChildren,
+    Permanent,
+    ArchivedParents,
 }
 
-every_safeguard! {
-    Unreviewed = "unreviewed",
-    NonOwner = "non-owner",
-    ParentUnreviewed = "parent-unreviewed",
-    Empty = "empty",
-    Conflicted = "conflicted",
-    Uncommitted = "uncommitted",
-    ParentConflicted = "parent-conflicted",
-    RemovesOthers = "removes-others",
-    Ownerless = "ownerless",
-    BaseMoves = "base-moves",
-    Parentless = "parentless",
-    NoCommonAncestor = "no-common-ancestor",
-    ArchivedParent = "archived-parent",
-    RedundantParent = "redundant-parent",
-    ImpermanentParents = "impermanent-parents",
-    OpenChildren = "open-children",
-    Permanent = "permanent",
-    ArchivedParents = "archived-parents",
+impl SafeguardKind {
+    pub const ALL: &[Self] = &[
+        Self::Unreviewed,
+        Self::NonOwner,
+        Self::ParentUnreviewed,
+        Self::Empty,
+        Self::Conflicted,
+        Self::Uncommitted,
+        Self::ParentConflicted,
+        Self::RemovesOthers,
+        Self::Ownerless,
+        Self::BaseMoves,
+        Self::Parentless,
+        Self::NoCommonAncestor,
+        Self::ArchivedParent,
+        Self::RedundantParent,
+        Self::ImpermanentParents,
+        Self::OpenChildren,
+        Self::Permanent,
+        Self::ArchivedParents,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Unreviewed => "unreviewed",
+            Self::NonOwner => "non-owner",
+            Self::ParentUnreviewed => "parent-unreviewed",
+            Self::Empty => "empty",
+            Self::Conflicted => "conflicted",
+            Self::Uncommitted => "uncommitted",
+            Self::ParentConflicted => "parent-conflicted",
+            Self::RemovesOthers => "removes-others",
+            Self::Ownerless => "ownerless",
+            Self::BaseMoves => "base-moves",
+            Self::Parentless => "parentless",
+            Self::NoCommonAncestor => "no-common-ancestor",
+            Self::ArchivedParent => "archived-parent",
+            Self::RedundantParent => "redundant-parent",
+            Self::ImpermanentParents => "impermanent-parents",
+            Self::OpenChildren => "open-children",
+            Self::Permanent => "permanent",
+            Self::ArchivedParents => "archived-parents",
+        }
+    }
+}
+
+impl fmt::Display for SafeguardKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(self.name()) }
+}
+
+/// Any action's safeguard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Safeguard {
+    Unreviewed(Unreviewed),
+    NonOwner(NonOwner),
+    ParentUnreviewed(ParentUnreviewed),
+    Empty(Empty),
+    Conflicted(Conflicted),
+    Uncommitted(Uncommitted),
+    ParentConflicted(ParentConflicted),
+    RemovesOthers(RemovesOthers),
+    Ownerless(Ownerless),
+    BaseMoves(BaseMoves),
+    Parentless(Parentless),
+    NoCommonAncestor(NoCommonAncestor),
+    ArchivedParent(ArchivedParent),
+    RedundantParent(RedundantParent),
+    ImpermanentParents(ImpermanentParents),
+    OpenChildren(OpenChildren),
+    Permanent(Permanent),
+    ArchivedParents(ArchivedParents),
+}
+
+impl Safeguard {
+    pub fn kind(&self) -> SafeguardKind {
+        match self {
+            Self::Unreviewed(_) => SafeguardKind::Unreviewed,
+            Self::NonOwner(_) => SafeguardKind::NonOwner,
+            Self::ParentUnreviewed(_) => SafeguardKind::ParentUnreviewed,
+            Self::Empty(_) => SafeguardKind::Empty,
+            Self::Conflicted(_) => SafeguardKind::Conflicted,
+            Self::Uncommitted(_) => SafeguardKind::Uncommitted,
+            Self::ParentConflicted(_) => SafeguardKind::ParentConflicted,
+            Self::RemovesOthers(_) => SafeguardKind::RemovesOthers,
+            Self::Ownerless(_) => SafeguardKind::Ownerless,
+            Self::BaseMoves(_) => SafeguardKind::BaseMoves,
+            Self::Parentless(_) => SafeguardKind::Parentless,
+            Self::NoCommonAncestor(_) => SafeguardKind::NoCommonAncestor,
+            Self::ArchivedParent(_) => SafeguardKind::ArchivedParent,
+            Self::RedundantParent(_) => SafeguardKind::RedundantParent,
+            Self::ImpermanentParents(_) => SafeguardKind::ImpermanentParents,
+            Self::OpenChildren(_) => SafeguardKind::OpenChildren,
+            Self::Permanent(_) => SafeguardKind::Permanent,
+            Self::ArchivedParents(_) => SafeguardKind::ArchivedParents,
+        }
+    }
+}
+
+impl fmt::Display for Safeguard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreviewed(particulars) => particulars.fmt(f),
+            Self::NonOwner(particulars) => particulars.fmt(f),
+            Self::ParentUnreviewed(particulars) => particulars.fmt(f),
+            Self::Empty(particulars) => particulars.fmt(f),
+            Self::Conflicted(particulars) => particulars.fmt(f),
+            Self::Uncommitted(particulars) => particulars.fmt(f),
+            Self::ParentConflicted(particulars) => particulars.fmt(f),
+            Self::RemovesOthers(particulars) => particulars.fmt(f),
+            Self::Ownerless(particulars) => particulars.fmt(f),
+            Self::BaseMoves(particulars) => particulars.fmt(f),
+            Self::Parentless(particulars) => particulars.fmt(f),
+            Self::NoCommonAncestor(particulars) => particulars.fmt(f),
+            Self::ArchivedParent(particulars) => particulars.fmt(f),
+            Self::RedundantParent(particulars) => particulars.fmt(f),
+            Self::ImpermanentParents(particulars) => particulars.fmt(f),
+            Self::OpenChildren(particulars) => particulars.fmt(f),
+            Self::Permanent(particulars) => particulars.fmt(f),
+            Self::ArchivedParents(particulars) => particulars.fmt(f),
+        }
+    }
 }
 
 /// The kinds of safeguard the caller allows, letting the action go ahead despite them.
