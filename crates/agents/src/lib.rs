@@ -1,4 +1,10 @@
-// Local Claude Code and Codex session discovery for Cabaret.
+//! Harness adapters for local session discovery, linking and resume.
+//!
+//! Contributors: copy `examples/harness_template.rs`, implement `Harness`, and register it in
+//! `Harnesses::locate`. The template includes the complete wiring and fixture-test checklist.
+//!
+//! Claude status: history discovery, manual links and resume work. Automatic caller identity and
+//! launch-directory lookup are NOT IMPLEMENTED; see the TODO in claude_code.rs.
 //
 // TODO(joel): In a good end state, Cabaret should not contain one-off hacky integrations like this. I suspect the right
 // solution is to find or create a second VSCode extension which is just "agents in VSCode buffers" via the
@@ -11,9 +17,11 @@ use serde::{Deserialize, Serialize};
 
 mod claude_code;
 mod codex;
+mod harness;
 
 pub use claude_code::ClaudeCode;
 pub use codex::Codex;
+pub use harness::{Harness, HarnessInfo, Harnesses, ResumeCommand};
 
 #[cfg(feature = "napi")]
 mod napi_impl {
@@ -54,8 +62,8 @@ pub struct Session {
     pub title: Option<String>,
     /// Most recent recorded activity found in local history; absent when history is unavailable.
     pub last_active: Option<TimestampMs>,
-    /// Present while the session is registered as running. Claude Code removes the registration on
-    /// exit, so a crashed session stays registered.
+    /// Provider-reported live status, if available. History timestamps are not liveness.
+    /// A registration can outlive a crashed process; None means live status is unavailable.
     pub live: Option<Status>,
 }
 

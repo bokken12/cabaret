@@ -94,6 +94,7 @@ const vscode = {
   TabInputTextDiff: class {},
   TabInputTextMultiDiff: class {},
   QuickPickItemKind: { Separator: -1 },
+  TerminalLocation: { Editor: 1 },
   workspace: {
     workspaceFolders: [{ uri: Uri.file(root) }],
     textDocuments: [],
@@ -127,7 +128,7 @@ const vscode = {
 };
 const source =
   readFileSync(new URL("../src/extension.ts", import.meta.url), "utf8") +
-  "\nexport { repositoryForUri, repositoryAt, routeUri, blobUri, descriptionUri, ensureRepository, pickWorkspace, onChange, PageProvider, BlobProvider, DescriptionProvider, showWorkspacePicker, stepOut };";
+  "\nexport { repositoryForUri, repositoryAt, routeUri, blobUri, descriptionUri, ensureRepository, pickWorkspace, onChange, PageProvider, BlobProvider, DescriptionProvider, showWorkspacePicker, stepOut, openSession, linkSession };";
 const code = transformSync(source, { loader: "ts", format: "cjs", target: "node22" }).code;
 const module = { exports: {} };
 vm.runInNewContext(code, {
@@ -321,4 +322,42 @@ test("cancelling the worktree step opens no change", async () => {
   });
   assert.equal(opened, false);
   assert.equal(stage, 2);
+});
+
+test("session picker uses adapter capabilities and resume preserves argv and launch directory", async () => {
+  const native = new Cabaret(a.feature);
+  const providers = native.sessionProviders();
+  assert.ok(providers.find((info) => info.provider === "Claude").identification.includes("NOT IMPLEMENTED"));
+  assert.equal(providers.find((info) => info.provider === "Codex").requiresDirectory, false);
+  // A future adapter can drive the editor without adding a provider-specific switch.
+  const requests = [];
+  const launch = join(root, "launch with spaces");
+  const fake = {
+    sessionProviders: () => [
+      { provider: "Example", label: "Example harness", identification: "Supply an ID", requiresDirectory: false },
+    ],
+    linkSession: async (...args) => requests.push(args),
+    sessionResumeCommand: () => ({ program: "example-cli", args: ["resume", "example-session"], directory: launch }),
+  };
+  choose = (items) => items[0];
+  let inputs = 0;
+  vscode.window.showInputBox = async () => {
+    inputs++;
+    return "example-session";
+  };
+  await ext.linkSession(fake, "feature");
+  assert.equal(inputs, 1);
+  assert.deepEqual(requests[0], ["feature", "Example", "example-session", undefined]);
+  let terminalOptions;
+  vscode.window.createTerminal = (options) => {
+    terminalOptions = options;
+    return { show() {} };
+  };
+  await ext.openSession(fake, "Example", launch, "example-session");
+  assert.equal(terminalOptions.shellPath, "example-cli");
+  assert.deepEqual(terminalOptions.shellArgs, ["resume", "example-session"]);
+  assert.equal(terminalOptions.cwd, launch);
+  const claudeCommand = native.sessionResumeCommand("Claude", "real-session", launch);
+  assert.deepEqual(claudeCommand.args, ["--resume", "real-session"]);
+  assert.equal(claudeCommand.directory, launch);
 });

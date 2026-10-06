@@ -930,7 +930,7 @@ async function follow(cabaret: Cabaret, provider: PageProvider, target: Target):
       await editDescription(target.change, cabaret);
       break;
     case "Session":
-      await openSession(target.provider, target.directory, target.session);
+      await openSession(cabaret, target.provider, target.directory, target.session);
       break;
   }
 }
@@ -961,7 +961,7 @@ async function editTitle(cabaret: Cabaret, provider: PageProvider, change: Chang
 const sessionTerminals = new Map<string, vscode.Terminal>();
 
 /** Resume through the owning CLI in the original launch directory. */
-async function openSession(provider: Provider, directory: string, session: SessionId): Promise<void> {
+async function openSession(cabaret: Cabaret, provider: Provider, directory: string, session: SessionId): Promise<void> {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(session)) {
     throw new Error("Invalid session ID");
   }
@@ -971,30 +971,34 @@ async function openSession(provider: Provider, directory: string, session: Sessi
     existing.show();
     return;
   }
+  const command = cabaret.sessionResumeCommand(provider, session, directory);
   const terminal = vscode.window.createTerminal({
     name: `${provider.toLowerCase()} ${session.slice(0, 8)}`,
-    cwd: directory,
+    cwd: command.directory,
+    shellPath: command.program,
+    shellArgs: command.args,
     location: vscode.TerminalLocation.Editor,
   });
   sessionTerminals.set(key, terminal);
-  terminal.sendText(provider === "Codex" ? `codex resume ${session}` : `claude --resume ${session}`);
   terminal.show();
 }
 
 async function linkSession(cabaret: Cabaret, change: ChangeId): Promise<string | undefined> {
-  const provider = await vscode.window.showQuickPick(["Codex", "Claude"], {
-    title: `Link a session to ${change}`,
-  });
-  if (provider !== "Codex" && provider !== "Claude") return undefined;
+  const selected = await vscode.window.showQuickPick(
+    cabaret.sessionProviders().map((info) => ({ label: info.label, detail: info.identification, info })),
+    { title: `Link a session to ${change}` },
+  );
+  if (!selected) return undefined;
+  const { provider, label, requiresDirectory } = selected.info;
   const id = await vscode.window.showInputBox({
-    title: `${provider} session ID`,
+    title: `${label} session ID`,
     prompt: "Link an existing local session, including one launched from a parent directory.",
     validateInput: (value) => (/^[A-Za-z0-9_-]{1,128}$/.test(value) ? undefined : "Enter a valid session ID"),
   });
   if (!id) return undefined;
   let directory: string | undefined;
-  if (provider === "Claude") {
-    directory = await vscode.window.showInputBox({ title: "Original Claude Code launch directory" });
+  if (requiresDirectory) {
+    directory = await vscode.window.showInputBox({ title: `Original ${label} launch directory` });
     if (!directory) return undefined;
   }
   await cabaret.linkSession(change, provider, id, directory);

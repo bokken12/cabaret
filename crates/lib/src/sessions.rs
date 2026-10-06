@@ -1,5 +1,5 @@
 use crate::{
-    Cabaret, ChangeId, ChangeIdRef, ClaudeCode, Codex, Provider, Result, Session, SessionId, validate_session_id,
+    Cabaret, ChangeId, ChangeIdRef, Harnesses, Provider, Result, Session, SessionId, validate_session_id,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
@@ -75,11 +75,20 @@ impl Cabaret {
 
     /// Infer sessions launched in the worktree, then add explicit links made from anywhere.
     /// Unavailable linked history remains visible, without inventing a last-active timestamp.
-    pub fn agent_sessions(&self, change: &ChangeIdRef, claude: &ClaudeCode, codex: &Codex) -> Result<Vec<Session>> {
-        let mut sessions = self.sessions(change, claude)?;
-        // There is no launch-directory inference when the change is checked out nowhere.
+    pub fn agent_sessions(&self, change: &ChangeIdRef, harnesses: &Harnesses) -> Result<Vec<Session>> {
+        self.snapshot(change)?;
+        let mut sessions = Vec::new();
+        // Let adapters preserve any provider-specific behavior for removed checkouts.
         if let Some(workspace) = self.workspace_holding(change)? {
-            sessions.extend(codex.sessions_in(&self.workspace_path(workspace.to_ref())?)?);
+            let directory = self.workspace_path(workspace.to_ref())?;
+            for harness in harnesses.iter() {
+                sessions.extend(harness.sessions_in(&directory)?);
+            }
+        } else {
+            let directory = self.default_workspace_path(change)?;
+            for harness in harnesses.iter() {
+                sessions.extend(harness.sessions_without_checkout(&directory)?);
+            }
         }
         for link in self.session_links(change)? {
             if sessions
@@ -88,10 +97,7 @@ impl Cabaret {
             {
                 continue;
             }
-            let found = match link.provider {
-                Provider::Claude => claude.session_in(&link.directory, &link.id)?,
-                Provider::Codex => codex.session(&link.id)?,
-            };
+            let found = harnesses.get(link.provider)?.session(&link.id, Some(&link.directory))?;
             sessions.push(found.unwrap_or(Session {
                 id: link.id,
                 provider: link.provider,

@@ -80,6 +80,9 @@ pub fn run() -> Result<()> {
     };
 
     match cli.command {
+        Command::Session { command: session::SessionCommand::Providers } => {
+            session::print_providers()?;
+        }
         Command::Session { command } => command.run(&cabaret()?)?,
         Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,

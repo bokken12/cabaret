@@ -290,7 +290,7 @@ impl Cabaret {
     /// Beside the main workspace as `<name>-<change>`, so checkouts of several repositories can
     /// share a parent directory. A bare repository has no main workspace; its workspaces go
     /// beside its git dir as `<change>`, in the project directory a `.git` file marks as its own.
-    fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
+    pub(crate) fn default_workspace_path(&self, change_id: &ChangeIdRef) -> Result<PathBuf> {
         let main = self.store.repo.to_thread_local().main_repo()?;
         // `~` for the slashes a directory name cannot hold; git forbids it in branch names, so no
         // two changes share a directory
