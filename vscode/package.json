@@ -31,8 +31,8 @@
   "contributes": {
     "colors": [
       {
-        "id": "cabaret.nextStepForeground",
-        "description": "Foreground color of the next action on a Cabaret change.",
+        "id": "cabaret.accentForeground",
+        "description": "Foreground color of accented text in Cabaret.",
         "defaults": {
           "dark": "#E5C07B",
           "light": "#795600",

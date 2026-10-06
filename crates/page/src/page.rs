@@ -50,8 +50,7 @@ pub enum Tag {
     ChangeId,
     Revision,
     Label,
-    NextStepLabel,
-    NextStep,
+    Accent,
     Shortcut,
     Muted,
     Added,
@@ -387,11 +386,11 @@ fn next_step(step: Option<&NextStep>, owner: bool, viewer: &Identity, hints: Hin
         NextStep::LandParents { parents } => (Some("^"), "land parents".to_owned(), parents.clone()),
         NextStep::Land { into } => (owner.then_some("!l"), "land into".to_owned(), BTreeSet::from([into.clone()])),
     };
-    let mut line = Line::default().push(Segment::tagged("Next step:", Tag::NextStepLabel)).push(Segment::plain(" "));
+    let mut line = Line::default().push(Segment::tagged("Next step:", Tag::Accent)).push(Segment::plain(" "));
     if let (Some(key), Hints::Shown) = (key, hints) {
         line = line.push(Segment::tagged(format!("[{key}]"), Tag::Shortcut)).push(Segment::plain(" "));
     }
-    line = line.push(Segment::tagged(text, Tag::NextStep));
+    line = line.push(Segment::tagged(text, Tag::Accent));
     for (i, change) in changes.into_iter().enumerate() {
         line = line.push(Segment::plain(if i == 0 { " " } else { ", " })).push(
             Segment::tagged(change.to_string(), Tag::ChangeId).leading_to(Target::Change { change, context: false }),
