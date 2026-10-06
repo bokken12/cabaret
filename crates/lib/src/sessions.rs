@@ -2,7 +2,10 @@ use crate::{
     Cabaret, ChangeId, ChangeIdRef, Harnesses, Provider, Result, Session, SessionId, validate_session_id,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::Duration};
+
+// Match the transaction store: ordinary contention should wait briefly, not lose a link.
+const SESSION_LINK_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Device-local association, shared by all worktrees but never committed or pushed to a remote.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -76,7 +79,14 @@ impl Cabaret {
     fn edit_session_links(&self, edit: impl FnOnce(&mut Vec<SessionLink>) -> Result<()>) -> Result<()> {
         let path = self.session_links_path();
         fs::create_dir_all(path.parent().expect("session links have a parent"))?;
-        let mut lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None)?;
+        let mut lock = gix::lock::File::acquire_to_update_resource(
+            &path,
+            gix::lock::acquire::Fail::AfterDurationWithBackoff(SESSION_LINK_LOCK_TIMEOUT),
+            None,
+        ).map_err(|error| format!(
+            "could not lock the session links registry at {} after waiting up to 5 seconds: {error}. Retry the command; the requested link change was not saved",
+            path.display(),
+        ))?;
         let mut links = self.read_session_links()?;
         edit(&mut links)?;
         serde_json::to_writer_pretty(&mut lock, &links)?;

@@ -44,13 +44,12 @@ impl Codex {
     }
 
     pub fn locate() -> Result<Self> {
-        Ok(Self::new(
-            std::env::var_os("CODEX_HOME").map(PathBuf::from).unwrap_or(
-                std::env::home_dir()
-                    .ok_or("cannot determine the home directory")?
-                    .join(".codex"),
-            ),
-        ))
+        let config_dir = match std::env::var_os("CODEX_HOME") {
+            Some(dir) => PathBuf::from(dir),
+            None => std::env::home_dir()
+                .ok_or("cannot determine the home directory")?.join(".codex"),
+        };
+        Ok(Self::new(config_dir))
     }
 
     /// Sessions launched within a worktree; a session launched above it needs an explicit link.
