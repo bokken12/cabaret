@@ -17,6 +17,7 @@ libc.workspace = true
 nonempty-collections.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 expect-test.workspace = true
 
 [lints]

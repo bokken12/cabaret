@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum SessionCommand {
-    /// Associate an agent session with a change, even when launched from a parent directory.
+    /// Link a session to one change. Unlink its previous explicit association before switching.
+    /// The session may have been launched from a parent directory.
     Link {
         #[arg(long)]
         change: Option<ChangeId>,
@@ -17,14 +18,16 @@ pub enum SessionCommand {
         #[arg(long, value_hint = ValueHint::DirPath)]
         directory: Option<PathBuf>,
     },
-    /// Remove an explicit association without deleting the session or its history.
+    /// Release an explicit link when finished, before linking the session to another change.
+    /// This leaves the session, its history, and automatic discovery intact.
     Unlink {
         #[arg(long)]
         change: Option<ChangeId>,
-        #[arg(long, value_parser = ["codex", "claude"])]
+        #[arg(long, default_value = "codex", value_parser = ["codex", "claude"])]
         provider: String,
+        /// Defaults to CODEX_THREAD_ID for Codex. Required for Claude Code.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
     },
     /// List inferred and linked sessions for a change.
     List {
@@ -76,7 +79,11 @@ impl SessionCommand {
                 id,
             } => {
                 let change = change(id_change)?;
-                cabaret.unlink_session(&change, provider(&name), &SessionId(id))?;
+                let provider = provider(&name);
+                let id = id.or_else(|| (provider == Provider::Codex)
+                    .then(|| std::env::var("CODEX_THREAD_ID").ok()).flatten())
+                    .ok_or("provide --id (or CODEX_THREAD_ID for Codex)")?;
+                cabaret.unlink_session(&change, provider, &SessionId(id))?;
                 println!("unlinked session from {change}");
             }
             Self::List { change: id_change } => {
