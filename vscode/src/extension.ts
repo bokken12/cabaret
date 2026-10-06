@@ -219,8 +219,8 @@ const STYLES: Record<Tag, vscode.DecorationRenderOptions> = {
   ChangeId: themed("textLink.foreground"),
   Revision: themed("textPreformat.foreground"),
   Label: themed("descriptionForeground"),
-  ActionLabel: { ...themed("cabaret.nextStepForeground"), fontWeight: "bold" },
-  Action: themed("cabaret.nextStepForeground"),
+  NextStepLabel: { ...themed("cabaret.nextStepForeground"), fontWeight: "bold" },
+  NextStep: themed("cabaret.nextStepForeground"),
   Shortcut: {
     ...themed("keybindingLabel.foreground"),
     backgroundColor: new vscode.ThemeColor("keybindingLabel.background"),

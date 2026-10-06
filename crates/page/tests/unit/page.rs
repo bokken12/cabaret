@@ -469,23 +469,23 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
     }
     expect![[r#"
         owned by viewer:
-        [ActionLabel|Next step:] [Action|add code]
-        [ActionLabel|Next step:] [Action|resolve conflicts in a.txt, b.txt]
-        [ActionLabel|Next step:] [Shortcut|[^]] [Action|resolve conflicts in] [ChangeId>change:lexer|lexer]
-        [ActionLabel|Next step:] [Shortcut|[!r]] [Action|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [ActionLabel|Next step:] [Shortcut|[r]] [Action|review by alice@example.com, bob@example.com]
-        [ActionLabel|Next step:] [Action|review by bob@example.com]
-        [ActionLabel|Next step:] [Shortcut|[^]] [Action|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [ActionLabel|Next step:] [Shortcut|[!l]] [Action|land into] [ChangeId>change:lexer|lexer]
+        [NextStepLabel|Next step:] [NextStep|add code]
+        [NextStepLabel|Next step:] [NextStep|resolve conflicts in a.txt, b.txt]
+        [NextStepLabel|Next step:] [Shortcut|[^]] [NextStep|resolve conflicts in] [ChangeId>change:lexer|lexer]
+        [NextStepLabel|Next step:] [Shortcut|[!r]] [NextStep|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [NextStepLabel|Next step:] [Shortcut|[r]] [NextStep|review by alice@example.com, bob@example.com]
+        [NextStepLabel|Next step:] [NextStep|review by bob@example.com]
+        [NextStepLabel|Next step:] [Shortcut|[^]] [NextStep|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [NextStepLabel|Next step:] [Shortcut|[!l]] [NextStep|land into] [ChangeId>change:lexer|lexer]
         owned by another:
-        [ActionLabel|Next step:] [Action|add code]
-        [ActionLabel|Next step:] [Action|resolve conflicts in a.txt, b.txt]
-        [ActionLabel|Next step:] [Shortcut|[^]] [Action|resolve conflicts in] [ChangeId>change:lexer|lexer]
-        [ActionLabel|Next step:] [Action|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [ActionLabel|Next step:] [Shortcut|[r]] [Action|review by alice@example.com, bob@example.com]
-        [ActionLabel|Next step:] [Action|review by bob@example.com]
-        [ActionLabel|Next step:] [Shortcut|[^]] [Action|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
-        [ActionLabel|Next step:] [Action|land into] [ChangeId>change:lexer|lexer]
+        [NextStepLabel|Next step:] [NextStep|add code]
+        [NextStepLabel|Next step:] [NextStep|resolve conflicts in a.txt, b.txt]
+        [NextStepLabel|Next step:] [Shortcut|[^]] [NextStep|resolve conflicts in] [ChangeId>change:lexer|lexer]
+        [NextStepLabel|Next step:] [NextStep|rebase onto] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [NextStepLabel|Next step:] [Shortcut|[r]] [NextStep|review by alice@example.com, bob@example.com]
+        [NextStepLabel|Next step:] [NextStep|review by bob@example.com]
+        [NextStepLabel|Next step:] [Shortcut|[^]] [NextStep|land parents] [ChangeId>change:lexer|lexer], [ChangeId>change:tokens|tokens]
+        [NextStepLabel|Next step:] [NextStep|land into] [ChangeId>change:lexer|lexer]
     "#]]
     .assert_eq(&out);
 }
@@ -503,7 +503,7 @@ fn hidden_next_step_hint_keeps_the_action_and_parent_link() {
     let line = page.lines.last().unwrap();
     assert!(line.segments.iter().all(|segment| segment.tag != Some(Tag::Shortcut)));
     expect![[r#"
-        [ActionLabel|Next step:] [Action|rebase onto] [ChangeId>change:main|main]
+        [NextStepLabel|Next step:] [NextStep|rebase onto] [ChangeId>change:main|main]
     "#]]
     .assert_eq(&markup(&Page { lines: vec![line.clone()], ..Page::default() }));
 }
