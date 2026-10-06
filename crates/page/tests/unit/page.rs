@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use cabaret_agents::{Session, SessionId, Status};
+use cabaret_agents::{Provider, Session, SessionId, Status};
 use cabaret_config::Hints;
 use cabaret_page::{DiffView, NextStep, Page, Segment, TabCounts, Target};
 use cabaret_types::{ChangeId, ChangeSnapshot, ChangedFile, Identity, LineCounts, RevisionId, TimestampMs};
@@ -47,7 +47,7 @@ fn describe(target: &Target) -> String {
         }
         Target::Title { change } => format!("title:{change}"),
         Target::Description { change } => format!("description:{change}"),
-        Target::Session { change, session } => format!("session:{change}:{session}"),
+        Target::Session { change, session, .. } => format!("session:{change}:{session}"),
     }
 }
 
@@ -268,8 +268,10 @@ fn sessions_page_lists_each_session_with_its_age_and_leads_to_it() {
     let now = TimestampMs(100 * 86_400_000);
     let session = |id: &str, title: Option<&str>, seconds_ago: u64, live: Option<Status>| Session {
         id: SessionId(id.to_owned()),
+        provider: Provider::Claude,
+        directory: "/repo/parser".into(),
         title: title.map(str::to_owned),
-        last_active: TimestampMs(now.0 - seconds_ago * 1000),
+        last_active: Some(TimestampMs(now.0 - seconds_ago * 1000)),
         live,
     };
     let change = "parser".parse::<ChangeId>().unwrap();
@@ -286,10 +288,10 @@ fn sessions_page_lists_each_session_with_its_age_and_leads_to_it() {
     expect![[r#"
 
         [Label|Sessions:]
-          Fix the parser[Muted| · just now, busy] => session:parser:a1
-          Add tests[Muted| · 42m ago, idle] => session:parser:b2
-          c3[Muted| · 3h ago, running] => session:parser:c3
-          Old[Muted| · 9d ago] => session:parser:d4
+          Fix the parser[Muted| · claude, just now, busy] => session:parser:a1
+          Add tests[Muted| · claude, 42m ago, idle] => session:parser:b2
+          c3[Muted| · claude, 3h ago, running] => session:parser:c3
+          Old[Muted| · claude, 9d ago] => session:parser:d4
     "#]]
     .assert_eq(&markup(&page));
     expect![["[Fold { start: 1, end: 5 }]"]].assert_eq(&format!("{:?}", page.folds));
@@ -482,4 +484,17 @@ fn show_page_next_step_links_changes_and_hints_keys_viewer_may_press() {
         [Label|Next step:] land into [ChangeId>change:lexer|lexer]
     "#]]
     .assert_eq(&out);
+}
+
+#[test]
+fn linked_codex_session_preserves_provider_and_launch_directory_without_inventing_activity() {
+    let change = "parser".parse::<ChangeId>().unwrap();
+    let page = Page::sessions(&change, &[Session {
+        id: SessionId("parent-session".into()), provider: Provider::Codex,
+        directory: "/repo-worktrees".into(), title: None, last_active: None, live: None,
+    }], TimestampMs(1000));
+    assert!(page.to_string().contains("codex, history unavailable, live status unknown"));
+    let target = page.lines.iter().find_map(|line| line.target.as_ref()).unwrap();
+    assert!(matches!(target, Target::Session { provider: Provider::Codex, directory, session, .. }
+        if directory == "/repo-worktrees" && session.0 == "parent-session"));
 }

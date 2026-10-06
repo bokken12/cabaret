@@ -10,9 +10,9 @@ fn write(path: &Path, contents: &str) {
 
 fn render(sessions: &[Session]) -> String {
     let mut out = String::new();
-    for Session { id, title, last_active, live } in sessions {
+    for Session { id, title, last_active, live, .. } in sessions {
         let live = live.map_or("-".to_owned(), |status| format!("{status:?}").to_lowercase());
-        writeln!(out, "{id} {} {live} {title:?}", last_active.0).unwrap();
+        writeln!(out, "{id} {} {live} {title:?}", last_active.unwrap().0).unwrap();
     }
     out
 }

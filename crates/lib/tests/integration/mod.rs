@@ -25,3 +25,5 @@ mod workspace;
 mod workspace_files;
 
 mod discovery;
+
+mod session_links;

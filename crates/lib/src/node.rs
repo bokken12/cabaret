@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use cabaret_agents::ClaudeCode;
+use cabaret_agents::{ClaudeCode, Codex, Provider, SessionId};
 use cabaret_config::FetchInterval;
 use cabaret_page::{DiffView, HomeSection, Page};
 use cabaret_types::{
@@ -119,6 +119,7 @@ pub struct WorkspaceEntry {
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
     cabaret: Arc<Cabaret>,
+    codex: Arc<Codex>,
 }
 
 impl CabaretJs {
@@ -136,7 +137,7 @@ impl CabaretJs {
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?) }) }
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?), codex: Arc::new(Codex::locate()?) }) }
 
     #[napi]
     pub async fn changes(&self) -> napi::Result<Vec<ChangeId>> { self.blocking(Cabaret::changes).await }
@@ -192,10 +193,27 @@ impl CabaretJs {
         self.blocking(move |cabaret| cabaret.start_session(&change, &prompt, &args, &ClaudeCode::locate()?)).await
     }
 
-    /// The Claude Code sessions that worked on `change`, as the tail of its show page.
+    /// Link a provider-qualified session to this change, keeping its original launch directory.
+    #[napi]
+    pub async fn link_session(&self, change: ChangeId, provider: Provider, id: String, directory: Option<String>) -> napi::Result<()> {
+        let codex = self.codex.clone();
+        self.blocking(move |cabaret| {
+            let id = SessionId(id);
+            let session = match provider {
+                Provider::Codex => codex.session(&id)?,
+                Provider::Claude => ClaudeCode::locate()?.session_in(std::path::Path::new(
+                    &directory.ok_or("provide the Claude session launch directory")?), &id)?,
+            }.ok_or("session not found in local history; check the provider, ID and launch directory")?;
+            cabaret.link_session(&change, &session)
+        }).await
+    }
+
+    /// Automatically discovered and explicitly linked sessions, as the tail of the show page.
     #[napi]
     pub async fn sessions_page(&self, change: ChangeId) -> napi::Result<Page> {
-        self.blocking(move |cabaret| cabaret.sessions_page(&change, &ClaudeCode::locate()?)).await
+        let codex = self.codex.clone();
+        self.blocking(move |cabaret| Ok(Page::sessions(&change,
+            &cabaret.agent_sessions(&change, &ClaudeCode::locate()?, &codex)?, cabaret_types::TimestampMs::now()))).await
     }
 
     /// `section` of the home page for `viewer`, defaulting to git's user.email.

@@ -8,11 +8,17 @@ pub mod change;
 pub mod config;
 pub mod diff;
 pub mod workspace;
+pub mod session;
 
 use crate::{change::ChangeCommand, config::ConfigCommand, workspace::WorkspaceCommand};
 
 #[derive(Subcommand)]
 enum Command {
+    /// Discover and link local Codex and Claude Code sessions.
+    Session {
+        #[command(subcommand)]
+        command: session::SessionCommand,
+    },
     Change {
         #[command(subcommand)]
         command: ChangeCommand,
@@ -74,6 +80,7 @@ pub fn run() -> Result<()> {
     };
 
     match cli.command {
+        Command::Session { command } => command.run(&cabaret()?)?,
         Command::Change { command } => command.run(&cabaret()?)?,
         Command::Config { command } => command.run(cabaret()?)?,
         Command::Fetch => {
