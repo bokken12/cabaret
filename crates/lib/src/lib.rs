@@ -6,7 +6,7 @@ mod node;
 
 pub use discovery::discover_repositories;
 pub use cabaret::{Cabaret, Prune, Rebase};
-pub use cabaret_agents::{ClaudeCode, Codex, Provider, Session, SessionId, Status, validate_session_id};
+pub use cabaret_agents::{Harness, HarnessInfo, Harnesses, ResumeCommand, ClaudeCode, Codex, Provider, Session, SessionId, Status, validate_session_id};
 pub use sessions::SessionLink;
 pub use cabaret_config::{FetchInterval, Hints, Prefix, Scope, Setting};
 pub use cabaret_page::{

@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use cabaret_agents::{ClaudeCode, Codex, Provider, SessionId};
+use cabaret_agents::{ClaudeCode, HarnessInfo, Harnesses, Provider, ResumeCommand, SessionId};
 use cabaret_config::FetchInterval;
 use cabaret_page::{DiffView, HomeSection, Page};
 use cabaret_types::{
@@ -119,7 +119,7 @@ pub struct WorkspaceEntry {
 #[napi(js_name = "Cabaret")]
 pub struct CabaretJs {
     cabaret: Arc<Cabaret>,
-    codex: Arc<Codex>,
+    harnesses: Arc<Harnesses>,
 }
 
 impl CabaretJs {
@@ -137,7 +137,7 @@ impl CabaretJs {
 #[napi]
 impl CabaretJs {
     #[napi(constructor)]
-    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?), codex: Arc::new(Codex::locate()?) }) }
+    pub fn new(dir: String) -> napi::Result<Self> { Ok(Self { cabaret: Arc::new(Cabaret::open(&dir)?), harnesses: Arc::new(Harnesses::locate()?) }) }
 
     #[napi]
     pub async fn changes(&self) -> napi::Result<Vec<ChangeId>> { self.blocking(Cabaret::changes).await }
@@ -196,24 +196,33 @@ impl CabaretJs {
     /// Link a provider-qualified session to this change, keeping its original launch directory.
     #[napi]
     pub async fn link_session(&self, change: ChangeId, provider: Provider, id: String, directory: Option<String>) -> napi::Result<()> {
-        let codex = self.codex.clone();
+        let harnesses = self.harnesses.clone();
         self.blocking(move |cabaret| {
             let id = SessionId(id);
-            let session = match provider {
-                Provider::Codex => codex.session(&id)?,
-                Provider::Claude => ClaudeCode::locate()?.session_in(std::path::Path::new(
-                    &directory.ok_or("provide the Claude session launch directory")?), &id)?,
-            }.ok_or("session not found in local history; check the provider, ID and launch directory")?;
+            let session = harnesses.get(provider)?.session(&id, directory.as_deref().map(std::path::Path::new))?
+                .ok_or("session not found in local history; check the provider, ID and launch directory")?;
             cabaret.link_session(&change, &session)
         }).await
+    }
+
+    /// Registered harnesses and their explicit identification limitations.
+    #[napi]
+    pub fn session_providers(&self) -> Vec<HarnessInfo> {
+        self.harnesses.iter().map(|harness| harness.info()).collect()
+    }
+
+    /// Return a structured command; the editor runs it without shell interpolation.
+    #[napi]
+    pub fn session_resume_command(&self, provider: Provider, id: String, directory: String) -> napi::Result<ResumeCommand> {
+        Ok(self.harnesses.resume(provider, &SessionId(id), std::path::Path::new(&directory))?)
     }
 
     /// Automatically discovered and explicitly linked sessions, as the tail of the show page.
     #[napi]
     pub async fn sessions_page(&self, change: ChangeId) -> napi::Result<Page> {
-        let codex = self.codex.clone();
+        let harnesses = self.harnesses.clone();
         self.blocking(move |cabaret| Ok(Page::sessions(&change,
-            &cabaret.agent_sessions(&change, &ClaudeCode::locate()?, &codex)?, cabaret_types::TimestampMs::now()))).await
+            &cabaret.agent_sessions(&change, &harnesses)?, cabaret_types::TimestampMs::now()))).await
     }
 
     /// `section` of the home page for `viewer`, defaulting to git's user.email.

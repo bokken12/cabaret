@@ -200,3 +200,33 @@ fn read_dir_or_empty(dir: &Path) -> Result<impl Iterator<Item = std::io::Result<
         Err(error) => Err(error.into()),
     }
 }
+
+impl crate::Harness for ClaudeCode {
+    fn info(&self) -> crate::HarnessInfo {
+        crate::HarnessInfo {
+            provider: Provider::Claude,
+            label: "Claude Code".into(),
+            requires_directory: true,
+            identification: "Automatic caller identification and launch-directory lookup are NOT IMPLEMENTED. Supply --id and --directory. History discovery, manual linking and resume are supported.".into(),
+        }
+    }
+
+    fn sessions_in(&self, directory: &Path) -> Result<Vec<Session>> { self.sessions_in(directory) }
+
+    fn sessions_without_checkout(&self, directory: &Path) -> Result<Vec<Session>> { self.sessions_in(directory) }
+
+    fn session(&self, id: &SessionId, directory: Option<&Path>) -> Result<Option<Session>> {
+        self.session_in(directory.ok_or("Claude automatic launch-directory lookup is not implemented; provide --directory with the original launch directory")?, id)
+    }
+
+    fn current_session_id(&self) -> Result<Option<SessionId>> {
+        // TODO: Implement Claude caller identification using reliable harness-provided context.
+        // Do not guess from process lists, timestamps, or the target worktree. Separately implement
+        // exact-ID history lookup to discover the launch directory, then clear requires_directory.
+        Ok(None)
+    }
+
+    fn resume(&self, id: &SessionId, directory: &Path) -> Result<crate::ResumeCommand> {
+        crate::harness::resume_command("claude", &["--resume"], id, directory)
+    }
+}

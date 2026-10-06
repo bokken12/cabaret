@@ -204,3 +204,30 @@ fn read_session(path: &Path, entry: &mut Entry) -> std::io::Result<Session> {
     entry.cached = Some((modified, metadata.len(), session.clone()));
     Ok(session)
 }
+
+impl crate::Harness for Codex {
+    fn info(&self) -> crate::HarnessInfo {
+        crate::HarnessInfo {
+            provider: Provider::Codex,
+            label: "Codex".into(),
+            requires_directory: false,
+            identification: "Reads CODEX_THREAD_ID; otherwise supply --id. Launch directory comes from history.".into(),
+        }
+    }
+
+    fn sessions_in(&self, directory: &Path) -> Result<Vec<Session>> { self.sessions_in(directory) }
+
+    fn session(&self, id: &SessionId, _directory: Option<&Path>) -> Result<Option<Session>> { self.session(id) }
+
+    fn current_session_id(&self) -> Result<Option<SessionId>> {
+        std::env::var("CODEX_THREAD_ID").ok().map(|id| {
+            let id = SessionId(id);
+            validate_session_id(&id)?;
+            Ok(id)
+        }).transpose()
+    }
+
+    fn resume(&self, id: &SessionId, directory: &Path) -> Result<crate::ResumeCommand> {
+        crate::harness::resume_command("codex", &["resume"], id, directory)
+    }
+}

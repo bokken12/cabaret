@@ -1,5 +1,5 @@
 use super::fixture::{Fixture, alice, id, open_cabaret};
-use cabaret_lib::{ClaudeCode, Codex, Provider, Session, SessionId};
+use cabaret_lib::{ClaudeCode, Codex, Harnesses, Provider, Session, SessionId};
 use serde_json::json;
 use std::fs;
 
@@ -17,21 +17,22 @@ fn parent_session_is_explicit_many_to_many_and_shared_between_worktrees() {
     fs::write(&path, format!("{}\n", json!({"type":"session_meta","timestamp":"2026-10-05T10:00:00Z","payload":{"id":"parent-session","cwd":fixture.path("")}}))).unwrap();
     let codex = Codex::new(home.path().to_owned());
     let claude = ClaudeCode::new(home.path().join("claude"));
+    let harnesses = Harnesses::new(vec![Box::new(claude), Box::new(codex)]).unwrap();
     let cab = &fixture.cabaret;
-    assert!(cab.agent_sessions(&id("one"), &claude, &codex).unwrap().is_empty());
-    let session = codex.session(&SessionId("parent-session".into())).unwrap().unwrap();
+    assert!(cab.agent_sessions(&id("one"), &harnesses).unwrap().is_empty());
+    let session = harnesses.get(Provider::Codex).unwrap().session(&SessionId("parent-session".into()), None).unwrap().unwrap();
     cab.link_session(&id("one"), &session).unwrap();
     cab.link_session(&id("one"), &session).unwrap();
     cab.link_session(&id("two"), &session).unwrap();
     let other = open_cabaret(workspace.workdir().unwrap());
     assert_eq!(other.session_links(&id("one")).unwrap().len(), 1);
     assert_eq!(
-        other.agent_sessions(&id("one"), &claude, &codex).unwrap(),
+        other.agent_sessions(&id("one"), &harnesses).unwrap(),
         vec![session.clone()]
     );
-    assert_eq!(cab.agent_sessions(&id("two"), &claude, &codex).unwrap(), vec![session]);
+    assert_eq!(cab.agent_sessions(&id("two"), &harnesses).unwrap(), vec![session]);
     fs::remove_file(path).unwrap();
-    let missing = cab.agent_sessions(&id("one"), &claude, &codex).unwrap();
+    let missing = cab.agent_sessions(&id("one"), &harnesses).unwrap();
     assert_eq!(missing.len(), 1);
     assert_eq!(missing[0].directory, fixture.path(""));
     assert!(missing[0].last_active.is_none());
@@ -83,11 +84,12 @@ fn inferred_sessions_are_not_duplicated_by_links() {
     let codex = Codex::new(home.path().to_owned());
     let claude = ClaudeCode::new(home.path().join("claude"));
     let session = codex.session(&SessionId("local".into())).unwrap().unwrap();
+    let harnesses = Harnesses::new(vec![Box::new(claude), Box::new(codex)]).unwrap();
     fixture.cabaret.link_session(&id("main"), &session).unwrap();
     assert_eq!(
         fixture
             .cabaret
-            .agent_sessions(&id("main"), &claude, &codex)
+            .agent_sessions(&id("main"), &harnesses)
             .unwrap()
             .len(),
         1
