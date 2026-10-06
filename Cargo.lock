@@ -177,6 +177,7 @@ dependencies = [
  "expect-test",
  "libc",
  "nonempty-collections",
+ "tempfile",
 ]
 
 [[package]]

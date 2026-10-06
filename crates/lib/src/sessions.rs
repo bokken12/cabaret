@@ -35,7 +35,8 @@ impl Cabaret {
         }
     }
 
-    /// Attach only a known provider-qualified session, preserving its real launch directory.
+    /// Hold one explicit change link per provider/session in this repository.
+    /// Repeating the same link is safe; switching requires an explicit unlink first.
     pub fn link_session(&self, change: &ChangeIdRef, session: &Session) -> Result<()> {
         validate_session_id(&session.id)?;
         self.snapshot(change)?;
@@ -49,25 +50,35 @@ impl Cabaret {
             directory: session.directory.clone(),
         };
         self.edit_session_links(|links| {
-            links.retain(|old| !(old.change == link.change && old.provider == link.provider && old.id == link.id));
+            if let Some(old) = links.iter().find(|old|
+                old.provider == link.provider && old.id == link.id && old.change != link.change)
+            {
+                return Err(format!(
+                    "session {} {} already has an explicit link to {}; unlink it first with: cab session unlink --change {} --provider {} --id {}",
+                    link.provider, link.id, old.change, old.change, old.provider, old.id,
+                ).into());
+            }
+            links.retain(|old| !(old.provider == link.provider && old.id == link.id));
             links.push(link);
+            Ok(())
         })
     }
 
     pub fn unlink_session(&self, change: &ChangeIdRef, provider: Provider, id: &SessionId) -> Result<()> {
         validate_session_id(id)?;
-        self.snapshot(change)?;
+        // Cleanup must also work after the linked change or its workspace has been removed.
         self.edit_session_links(|links| {
-            links.retain(|link| !(*link.change == *change && link.provider == provider && link.id == *id))
+            links.retain(|link| !(*link.change == *change && link.provider == provider && link.id == *id));
+            Ok(())
         })
     }
 
-    fn edit_session_links(&self, edit: impl FnOnce(&mut Vec<SessionLink>)) -> Result<()> {
+    fn edit_session_links(&self, edit: impl FnOnce(&mut Vec<SessionLink>) -> Result<()>) -> Result<()> {
         let path = self.session_links_path();
         fs::create_dir_all(path.parent().expect("session links have a parent"))?;
         let mut lock = gix::lock::File::acquire_to_update_resource(&path, gix::lock::acquire::Fail::Immediately, None)?;
         let mut links = self.read_session_links()?;
-        edit(&mut links);
+        edit(&mut links)?;
         serde_json::to_writer_pretty(&mut lock, &links)?;
         lock.commit()?;
         Ok(())

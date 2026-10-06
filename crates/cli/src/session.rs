@@ -6,7 +6,8 @@ use std::path::PathBuf;
 pub enum SessionCommand {
     /// List supported harnesses and current automatic-identification limitations.
     Providers,
-    /// Associate an agent session with a change, even when launched from a parent directory.
+    /// Link a session to one change. Unlink its previous explicit association before switching.
+    /// The session may have been launched from a parent directory.
     /// Claude automatic identification is not implemented: supply --provider claude --id ID
     /// --directory ORIGINAL_LAUNCH_DIRECTORY. See session providers for capabilities.
     Link {
@@ -21,14 +22,16 @@ pub enum SessionCommand {
         #[arg(long, value_hint = ValueHint::DirPath)]
         directory: Option<PathBuf>,
     },
-    /// Remove an explicit association without deleting the session or its history.
+    /// Release an explicit link when finished, before linking the session to another change.
+    /// This leaves the session, its history, and automatic discovery intact.
     Unlink {
         #[arg(long)]
         change: Option<ChangeId>,
-        #[arg(long, value_name = "PROVIDER")]
+        #[arg(long, default_value = "codex", value_name = "PROVIDER")]
         provider: String,
+        /// Defaults to the harness-provided caller ID, as with session link.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
     },
     /// List inferred and linked sessions for a change.
     List {
@@ -77,7 +80,12 @@ impl SessionCommand {
                 id,
             } => {
                 let change = change(id_change)?;
-                cabaret.unlink_session(&change, harnesses.named(&name)?.info().provider, &SessionId(id))?;
+                let harness = harnesses.named(&name)?;
+                let id = match id {
+                    Some(id) => SessionId(id),
+                    None => harness.current_session_id()?.ok_or("provide --id to identify the session to unlink")?,
+                };
+                cabaret.unlink_session(&change, harness.info().provider, &id)?;
                 println!("unlinked session from {change}");
             }
             Self::List { change: id_change } => {
