@@ -23,17 +23,27 @@ pub fn discover_repositories(dir: &Path) -> Result<Vec<PathBuf>> {
     }
     let mut repositories = BTreeMap::new();
     for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
         if !path.is_dir() || !path.join(".git").exists() {
             continue;
         }
-        let Ok(repository) = Cabaret::open(&path) else { continue };
-        let common = fs::canonicalize(repository.common_dir())?;
-        // Prefer the main checkout so container-level commands do not target an arbitrary feature.
-        let workspace = repository
-            .workspace_path(WorkspaceIdRef::Main)
-            .or_else(|_| repository.workspace_path(repository.workspace_current()?.to_ref()))?;
-        repositories.entry(common).or_insert(fs::canonicalize(workspace)?);
+        // Resolve each candidate as a unit: a broken child must not hide healthy siblings.
+        let Ok((common, workspace)) = resolve_candidate(&path) else { continue };
+        repositories.entry(common).or_insert(workspace);
     }
     Ok(repositories.into_values().collect())
+}
+
+fn resolve_candidate(path: &Path) -> Result<(PathBuf, PathBuf)> {
+    let repository = Cabaret::open(path)?;
+    let common = fs::canonicalize(repository.common_dir())?;
+    // Prefer main, but a linked checkout can still be usable if main's path is stale.
+    let workspace = repository.workspace_path(WorkspaceIdRef::Main)
+        .and_then(|path| Ok(fs::canonicalize(path)?))
+        .or_else(|_| -> Result<PathBuf> {
+            let current = repository.workspace_current()?;
+            Ok(fs::canonicalize(repository.workspace_path(current.to_ref())?)?)
+        })?;
+    Ok((common, workspace))
 }

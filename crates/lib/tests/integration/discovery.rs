@@ -53,3 +53,30 @@ fn symlinked_checkouts_are_deduplicated() {
         vec![fixture.path("main")]
     );
 }
+
+#[test]
+fn a_child_with_an_unresolvable_checkout_does_not_hide_healthy_repositories() {
+    let root = tempfile::tempdir().unwrap();
+    let healthy = root.path().join("healthy");
+    let broken = root.path().join("broken");
+    gix::init(&healthy).unwrap();
+    fs::create_dir(&broken).unwrap();
+    gix::init_bare(broken.join(".git")).unwrap();
+    // Metadata opens, but this child has no checkout to resolve.
+    let repository = cabaret_lib::Cabaret::open(&broken).unwrap();
+    assert!(repository.workspace_path(cabaret_lib::WorkspaceIdRef::Main).is_err());
+    assert_eq!(discover_repositories(root.path()).unwrap(), vec![fs::canonicalize(healthy).unwrap()]);
+}
+
+#[test]
+fn a_broken_gitfile_is_skipped_but_an_unreadable_container_is_an_error() {
+    let root = tempfile::tempdir().unwrap();
+    let healthy = root.path().join("healthy");
+    gix::init(&healthy).unwrap();
+    let broken = root.path().join("broken");
+    fs::create_dir(&broken).unwrap();
+    fs::write(broken.join(".git"), "gitdir: /missing/cabaret-review-test.git\n").unwrap();
+    assert_eq!(discover_repositories(root.path()).unwrap(), vec![fs::canonicalize(healthy).unwrap()]);
+    assert!(discover_repositories(&broken).is_err());
+    assert!(discover_repositories(&root.path().join("missing")).is_err());
+}
